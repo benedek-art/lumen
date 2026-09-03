@@ -478,6 +478,33 @@ Auto-Sync stalls on large selections are documented in docs/02-research-lightroo
 
 ## 10.5 Raw truth at cull time (FastRawViewer, absorbed)
 
+> **What is built, as of this pass — read before the spec below.** The instrument ships
+> and it is **not** the sensor histogram this section specifies. It measures the
+> **decoded scene-linear frame**: `CIRAWFilter` at Lumen's flat settings (Apple's tone
+> curve, shadow boost, local tone mapping, gamut mapping and contrast all off, extended
+> range kept), read before every Lumen stage and before the display transform.
+>
+> · **Scene-referred and unclipped by the display transform**, which is the whole
+>   difference from the develop histogram and is what makes it answer "is this highlight
+>   recoverable". · **Post-demosaic**, which is the whole difference from what is
+>   specified below: no CFA or LibRaw reader exists in the pipeline and Apple's RAW API
+>   does not expose the mosaic, so where Apple's highlight reconstruction has rebuilt a
+>   saturated channel these numbers read the reconstruction. Which direction that moves
+>   a percentage is not something this build has measured, and the panel says so rather
+>   than guessing. · Consequently there is **no G2 channel**: slot 4 carries luminance,
+>   because the two greens were averaged by the demosaic before this instrument saw them.
+> · The measurement runs on a 2048 px proxy of the decode, so a large blown region reads
+>   true and an isolated clipped pixel is averaged down; the row records the site stride
+>   and the panel prints it. · Measurement is **on demand** — `⇧H` on an unmeasured frame
+>   measures it and caches it; the background sweep described below has a queue
+>   (`CatalogStore.photosMissingRawStatistics`) and no driver yet. · The `O` raw-clipping
+>   overlay is **not built**.
+>
+> The UI is named for what it is — the panel header prints *Scene-linear
+> (post-demosaic)* — and `RawStatistics.Provenance` carries that name into the cached
+> row, gates the cache read, and is enforced by a source scan that fails if any call
+> site labels a measurement as the sensor's. The rest of this section is the target.
+
 ### True raw histogram and clipped-percent readout
 
 **What it is.** A histogram computed from actual raw sensor values — per-channel R/G/G2/B, EV-scaled

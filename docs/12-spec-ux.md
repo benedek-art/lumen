@@ -108,6 +108,13 @@ detail. Tone above color, global above masking, detail after color, output at ex
 | — | Masks (floating/docked via `Shift+W`) | local | docs/08-spec-masking.md | Local/secondaries |
 | — | Export (recipe sheet, not a panel) | output | docs/11-spec-output.md | Output |
 
+> **Amendment (owner, 2026-08-26, session A round).** The BASIC panel's internal order
+> shipped as **Tone → Presence → WB → Colour**: tone first because it is what the hand
+> reaches for first in practice, white balance demoted below it because most frames'
+> as-shot neutral is close and the row is a correction, not an opening move. The
+> panel-stack table above keeps the literature's canonical order for the RAIL; this
+> amendment governs the row order INSIDE Basic. docs/04's panel sketch predates it.
+
 The Develop/Look group headers are visible and load-bearing: they are the seam of D4's
 Develop/Look split (docs/00-vision.md §4), so the panel stack itself teaches the product's central
 idea. Three deviations from the literature's order are deliberate and inherited from it: capture

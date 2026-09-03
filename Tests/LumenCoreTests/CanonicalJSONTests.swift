@@ -58,11 +58,22 @@ final class CanonicalJSONTests: XCTestCase {
         var neighbour = beyond
         neighbour.develop.tone.exposure = 1.2345678901235
 
+        // The black-and-white mix on, and then switched off with the mix kept. The
+        // second case is the one that matters: it must serialize the eight bands so
+        // they are still there tomorrow, and it must fingerprint as the default recipe
+        // so a mix nothing renders costs no cached render.
+        var bwOn = Recipe()
+        bwOn.look.bw = BlackAndWhite(bands: [0, 0, 0, 0, -40, -65, 0, 0])
+        var bwOff = bwOn
+        bwOff.look.bw?.enabled = false
+
         return ["default": Recipe(),
                 "developEdit": developEdit,
                 "maskAndLook": maskAndLookRecipe(),
                 "beyondSixFigures": beyond,
-                "beyondSixFiguresNeighbour": neighbour]
+                "beyondSixFiguresNeighbour": neighbour,
+                "blackAndWhiteOn": bwOn,
+                "blackAndWhiteKeptButOff": bwOff]
     }
 
     func testEveryFixtureCaseIsReplayed() throws {
@@ -221,5 +232,174 @@ final class CanonicalJSONTests: XCTestCase {
         XCTAssertNotEqual(
             RecipeFingerprint.denoiseInputFingerprint(a),
             RecipeFingerprint.denoiseInputFingerprint(c))
+    }
+
+    // MARK: - The black-and-white treatment toggle (COLOR-20)
+
+    /// The mix of a whole selection, toggled off and back on in one gesture.
+    ///
+    /// This is the defect, stated as a test. The rule used to live in `ColorPanel` over
+    /// a `@State` stash carrying eight numbers and no photo identity, and
+    /// `AppState.updateRecipe` runs its closure once per edit target — so toggling off
+    /// on one frame and on again anywhere else wrote the FIRST frame's mix into every
+    /// recipe in the selection. Three photos with three different mixes are the
+    /// smallest arrangement in which a stash gives back the wrong one.
+    func testTogglingTheTreatmentAcrossASelectionKeepsEachPhotosOwnMix() {
+        let mixes: [[Double]] = [[0, 0, 0, 0, -40, -65, 0, 0],
+                                 [30, 0, 0, 0, 0, 0, 0, 12],
+                                 [0, 0, 100, 0, 0, 0, -25, 0]]
+        var recipes = mixes.map { mix -> Recipe in
+            var r = Recipe()
+            r.look.bw = BlackAndWhite(bands: mix)
+            return r
+        }
+
+        for i in recipes.indices {
+            recipes[i].look.bw = BlackAndWhite.toggled(recipes[i].look.bw, on: false)
+        }
+        for i in recipes.indices {
+            XCTAssertFalse(recipes[i].look.blackAndWhiteIsOn,
+                           "photo \(i) is still rendering black and white")
+        }
+
+        for i in recipes.indices {
+            recipes[i].look.bw = BlackAndWhite.toggled(recipes[i].look.bw, on: true)
+        }
+        for (i, mix) in mixes.enumerated() {
+            XCTAssertTrue(recipes[i].look.blackAndWhiteIsOn, "photo \(i) came back off")
+            XCTAssertEqual(recipes[i].look.bw?.bands, mix,
+                           "photo \(i) came back with somebody else's mix")
+        }
+    }
+
+    /// The state rule in full: both directions, with and without a stored mix.
+    func testTheTreatmentToggleInBothDirections() {
+        let mix: [Double] = [0, 0, 0, 0, -40, -65, 0, 0]
+
+        // Nothing stored. On starts flat — NOT from whatever was last seen elsewhere.
+        let freshOn = BlackAndWhite.toggled(nil, on: true)
+        XCTAssertEqual(freshOn?.bands, Array(repeating: 0, count: 8))
+        XCTAssertEqual(freshOn?.enabled, true)
+
+        // Nothing stored, switched off: nothing is created. A photo that has never been
+        // near this section must stay byte-identical to a default recipe.
+        XCTAssertNil(BlackAndWhite.toggled(nil, on: false))
+
+        // A real mix survives off and comes back unchanged.
+        let stored = BlackAndWhite(bands: mix)
+        let off = BlackAndWhite.toggled(stored, on: false)
+        XCTAssertEqual(off?.bands, mix, "the mix was thrown away on the way off")
+        XCTAssertEqual(off?.enabled, false)
+        XCTAssertEqual(BlackAndWhite.toggled(off, on: true), stored)
+
+        // A flat mix is not a mix: switching it off leaves the slot empty rather than
+        // eight zeroes that would make the photo read as edited forever.
+        XCTAssertNil(BlackAndWhite.toggled(BlackAndWhite(), on: false))
+
+        // And the toggle is idempotent in both directions.
+        XCTAssertEqual(BlackAndWhite.toggled(stored, on: true), stored)
+        XCTAssertEqual(BlackAndWhite.toggled(off, on: false), off)
+    }
+
+    /// The other half of the finding: the stash died with the session. A mix switched
+    /// off has to be in the file.
+    func testASwitchedOffMixSurvivesSavingAndReloading() throws {
+        var recipe = Recipe()
+        recipe.look.bw = BlackAndWhite(bands: [0, 0, 0, 0, -40, -65, 0, 0],
+                                       enabled: false)
+        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        XCTAssertTrue(json.contains("\"enabled\":false"),
+                      "the switched-off treatment did not reach the wire: \(json)")
+
+        let reloaded = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+        XCTAssertEqual(reloaded, recipe, "the mix did not survive the round trip")
+        XCTAssertEqual(BlackAndWhite.toggled(reloaded.look.bw, on: true)?.bands,
+                       [0, 0, 0, 0, -40, -65, 0, 0],
+                       "the reloaded mix did not come back on")
+    }
+
+    /// Decode tolerance for pipeline version 1, where the slot's PRESENCE was the
+    /// treatment being on. Reading the absent key as `false` would turn every
+    /// black-and-white photo in an existing catalog back to colour on first open.
+    func testARecipeWrittenBeforeTheEnabledFlagStillReadsAsBlackAndWhite() throws {
+        let v1 = """
+        {"pipelineVersion":1,"look":{"bw":{"bands":[0,0,0,0,-40,-65,0,0]}}}
+        """
+        let decoded = try CanonicalJSON.decodeRecipe(from: Data(v1.utf8))
+        XCTAssertTrue(decoded.look.blackAndWhiteIsOn,
+                      "a version-1 black-and-white photo reopened in colour")
+        XCTAssertEqual(decoded.look.bw?.bands, [0, 0, 0, 0, -40, -65, 0, 0])
+        XCTAssertEqual(decoded.pipelineVersion, 1,
+                       "the recipe's own version was rewritten behind the user")
+    }
+
+    /// A mix nothing renders must cost nothing. `recipe_fp` keys every preview and
+    /// artifact in the cache and answers "is this photo edited", so a stash that
+    /// reached the fingerprint would re-render an unchanged frame and put an edited
+    /// badge on a photo that renders exactly as it was shot.
+    func testAStoredButSwitchedOffMixCostsNoRenderAndNoBadge() throws {
+        var kept = Recipe()
+        kept.look.bw = BlackAndWhite(bands: [0, 0, 0, 0, -40, -65, 0, 0],
+                                     enabled: false)
+        XCTAssertTrue(kept.rendersSameAs(Recipe()),
+                      "a switched-off mix changed what the photo renders as")
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(kept),
+                       try RecipeFingerprint.fingerprint(Recipe()),
+                       "a switched-off mix invalidated the cache")
+
+        // ...and switching it on is a different picture, or the flag reaches nothing.
+        var on = kept
+        on.look.bw?.enabled = true
+        XCTAssertFalse(on.rendersSameAs(Recipe()))
+        XCTAssertNotEqual(try RecipeFingerprint.fingerprint(on),
+                          try RecipeFingerprint.fingerprint(kept),
+                          "turning the treatment on did not change the fingerprint")
+    }
+
+    /// LIB-22: `look.lut` is a stored field NO STAGE READS, so it must not be able to
+    /// claim otherwise through the fingerprint.
+    ///
+    /// A LUT reference round-trips through the recipe, the sidecar and the catalog, and
+    /// there is no reader on any shipping path. The only way one exists at all is a
+    /// hand-edited sidecar — and that sidecar rendered a picture identical to one
+    /// without it, while `recipe_fp` said otherwise: every cached preview and artifact
+    /// for the photo thrown away, the frame re-rendered to produce the same bytes, and
+    /// an edited badge on a photograph that renders exactly as it was shot.
+    ///
+    /// **This test is also the tripwire for the day a LUT stage is built.** It fails
+    /// then, and the fix is to delete the `copy.look.lut = nil` line in
+    /// `Recipe.renderIdentity` and rewrite this test to assert the opposite — a LUT
+    /// that renders without being hashed is the same bug pointing the other way.
+    func testALookCarryingALUTRendersTheSamePictureAsOneWithout() throws {
+        var carried = Recipe()
+        carried.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef",
+                                        name: "Kodachrome", tap: .log, amount: 62)
+
+        XCTAssertNotNil(carried.look.lut,
+                        "the LUT did not survive being set, so this test proves nothing")
+        XCTAssertTrue(carried.rendersSameAs(Recipe()),
+                      "a LUT that no stage reads was counted as a different picture")
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(carried),
+                       try RecipeFingerprint.fingerprint(Recipe()),
+                       "a LUT that no stage reads invalidated the cache")
+
+        // Every knob on the reference is equally inert, including the ones whose names
+        // promise the most: the tap it would be applied at, and the amount it would be
+        // blended by.
+        var reblended = carried
+        reblended.look.lut?.amount = 5
+        reblended.look.lut?.tap = .display
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(reblended),
+                       try RecipeFingerprint.fingerprint(carried),
+                       "changing a LUT's tap or amount changed the render identity of a "
+                           + "field nothing renders")
+
+        // And it is still THERE — stripped from the render identity, kept in the recipe.
+        // The photographer's stated intent survives; it just does not lie about pixels.
+        let wire = try CanonicalJSON.canonicalRecipeJSON(carried)
+        let round = try CanonicalJSON.decodeRecipe(from: Data(wire.utf8))
+        XCTAssertEqual(round.look.lut, carried.look.lut,
+                       "the LUT was dropped from the wire format instead of from the "
+                           + "render identity")
     }
 }

@@ -1,0 +1,15 @@
+{
+  "authority" : 100.70750086746649,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.4365894901127064,
+  "givenBack" : 0,
+  "hueRotation" : 40.28254576019458,
+  "id" : "film.ektar100.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 11.647491684688267,
+  "panel" : "Film Lab",
+  "smallestLiveStep" : 3.4522212298055877,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

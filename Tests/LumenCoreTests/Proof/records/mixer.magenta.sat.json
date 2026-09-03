@@ -1,0 +1,15 @@
+{
+  "authority" : 80.48423943718117,
+  "deadSteps" : 0,
+  "frame" : "colourChart",
+  "frontLoading" : 0.45927409924252954,
+  "givenBack" : 0,
+  "hueRotation" : 1.2058991782653266,
+  "id" : "mixer.magenta.sat",
+  "isMonotone" : true,
+  "meanSeparation" : 3.38111097445073,
+  "panel" : "Colour Mixer",
+  "smallestLiveStep" : 1.5643470386662557,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

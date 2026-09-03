@@ -51,62 +51,16 @@ public enum CatalogError: Error, CustomStringConvertible {
 // MARK: - Small vocabulary types
 
 /// Pick / reject / unflagged (docs/10 §10.4). Stored as the raw Int in `photo.flag`.
-///
-/// This is the *only* photo flag. LumenApp used to declare a second one — `rejected`,
-/// `none`, `picked`, over the identical raw values — and `CatalogService.coreFlag`
-/// translated between the two on every read and every write. Two names for one set of
-/// three values is not a boundary, it is a synonym table: nothing was expressible on
-/// one side that was not expressible on the other, so the translation could only ever
-/// be an identity function with somewhere to go wrong. Merged (D39 grammar work); the
-/// SF Symbol the app draws for each case is a LumenApp extension, because a symbol
-/// name is presentation and LumenCore has no SwiftUI.
-public enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
+public enum PhotoFlag: Int, Sendable, CaseIterable {
     case reject = -1
     case unflagged = 0
     case pick = 1
-
-    /// The word the filter sentence uses. Plain English, not a symbol — safe here, and
-    /// needed here, because the sentence itself is Linux-tested.
-    public var displayName: String {
-        switch self {
-        case .pick: return "Picked"
-        case .reject: return "Rejected"
-        case .unflagged: return "Unflagged"
-        }
-    }
 }
 
 /// Canonical colour-label keys. `photo.label` stores the key; the *display* name lives
 /// in `meta` under `label_name_1…5` and is user-editable (gap G25).
-///
-/// Also the only colour label, and the merge that took more thought than the flag one.
-/// LumenApp declared `enum ColorLabel: Int` with a sixth case, `.none = 0`, meaning
-/// "unlabelled" — which reads like a synonym for this type but is not one: there is no
-/// key here for `.none` because unlabelled is a NULL in `photo.label`, and a NULL is
-/// the *absence* of a label, not a value one can take. That is why `PhotoQuery` has
-/// carried a separate `includeUnlabeled` flag since day one, and why the old
-/// `coreLabel` had to return `ColorLabel?` while `coreFlag` returned a value.
-///
-/// So the five cases are right and the sixth was the app folding an optional into an
-/// enum for the convenience of one chip. Unlabelled is `nil` now, end to end:
-/// `PhotoItem.label` is `ColorLabel?`, `LibraryFilter` carries `includeUnlabeled`
-/// beside its `Set<ColorLabel>`, and the translation function is gone rather than
-/// rewritten. The raw values are unchanged, so XMP sidecars written by either version
-/// read identically — `rawValue` *is* the lowercased name the sidecar stores.
-public enum ColorLabel: String, Codable, Sendable, CaseIterable {
+public enum ColorLabel: String, Sendable, CaseIterable {
     case red, yellow, green, blue, purple
-
-    /// The built-in name, used by the filter sentence. A label the user has renamed
-    /// shows the name in `meta`; this is what it is called until they do.
-    public var displayName: String {
-        switch self {
-        case .red: return "Red"
-        case .yellow: return "Yellow"
-        case .green: return "Green"
-        case .blue: return "Blue"
-        case .purple: return "Purple"
-        }
-    }
 
     /// 1-based meta slot, matching the `6`–`9` (+ purple) key bindings.
     public var metaSlot: Int {
@@ -391,6 +345,45 @@ public struct StackRow: Equatable, Sendable {
     }
 }
 
+/// One row of the `look` table: a named look the photographer saved, as stored.
+///
+/// The payload stays as text here rather than being decoded on the way out, because the
+/// browser lists dozens of looks to show four words each, and parsing every stored
+/// slice to draw a name is work nobody asked for. `subset()` decodes the one the
+/// photographer actually reaches for.
+///
+/// `look.thumb` has no accessor because nothing writes it: a swatch would have to be
+/// rendered through the pipeline against some photograph, and choosing which photograph
+/// is a design question this pass did not answer. The column stays NULL and the browser
+/// lists names — said here rather than left for the next reader to discover, since a
+/// stored field with no writer is exactly what audit LIB-22 was about.
+public struct LookRow: Equatable, Sendable {
+    public var id: Int64
+    public var name: String
+    /// User grouping ("folder" in the docs). NULL = ungrouped.
+    public var group: String?
+    public var kind: LookKind
+    /// Canonical sparse JSON, as written by `CanonicalJSON.canonicalLookJSON`.
+    public var subsetJSON: String
+    public var updatedAt: Int64
+
+    public init(id: Int64 = 0, name: String, group: String? = nil,
+                kind: LookKind = .look, subsetJSON: String = "{}",
+                updatedAt: Int64 = 0) {
+        self.id = id
+        self.name = name
+        self.group = group
+        self.kind = kind
+        self.subsetJSON = subsetJSON
+        self.updatedAt = updatedAt
+    }
+
+    /// The stored slice, decoded.
+    public func subset() throws -> LookSubset {
+        try CanonicalJSON.decodeLookSubset(from: Data(subsetJSON.utf8))
+    }
+}
+
 /// The columns the metadata chips enumerate. An enum rather than a string, because the
 /// value is interpolated into SQL: a chip that took a column name from anywhere else
 /// would be an injection point, and there is no such thing as a trusted string here.
@@ -419,6 +412,27 @@ public struct FacetValue: Equatable, Sendable {
         self.value = value
         self.count = count
     }
+}
+
+/// Every number the filter bar puts beside a facet, counted once, together.
+///
+/// One value rather than six calls because the numbers are only meaningful as a set:
+/// they all describe the SAME grid, and a bar that assembled them from six independently
+/// scoped reads is a bar whose numbers can be individually stale. `ratingAtLeast` is
+/// indexed by the threshold — index 3 is "★3 or better" — with index 0 unused, so a
+/// chip can look its own number up by the value it sets.
+public struct FacetCounts: Equatable, Sendable {
+    public var flags: [PhotoFlag: Int] = [:]
+    public var ratingAtLeast: [Int] = [Int](repeating: 0, count: 6)
+    public var labels: [ColorLabel: Int] = [:]
+    /// Photographs carrying no colour label — its own field because it is its own
+    /// predicate: `label IN (…)` can never match the NULL an unlabelled photo stores.
+    public var unlabeled: Int = 0
+    public var cameras: [FacetValue] = []
+    public var lenses: [FacetValue] = []
+    public var keywords: [FacetValue] = []
+
+    public init() {}
 }
 
 // MARK: - Scan reconciliation
@@ -493,6 +507,326 @@ public struct ScanResult: Equatable, Sendable {
         self.missing = missing
         self.restored = restored
         self.unchanged = unchanged
+    }
+}
+
+/// What the caller needs to know BEFORE it decides which files are worth hashing.
+///
+/// `quick_sig` only earns its cost when there is something for it to match. Hashing a
+/// megabyte of every file in a listing is 5 GB of I/O for a 5,000-frame card — seconds,
+/// on the one path docs/10 §10.1 gates under a second, and LIB-25 already flags that
+/// path as blocking the first grid. So the scan asks first:
+///
+/// - `known` — filenames this folder already has rows for. Those are not new, so no
+///   relocation can be about them.
+/// - `candidateSizes` — the `file_size` of every row a newly listed file could be a
+///   relocation OF: rows in this folder that have vanished from the listing, and rows
+///   anywhere marked `missing = 1`. Both halves are restricted to rows that actually
+///   carry a signature, because a candidate without one cannot be matched anyway.
+///
+/// Size is an exact prefilter, not a heuristic: renaming or moving a file does not
+/// change its length, so a new file whose size matches nothing cannot be a relocation
+/// of anything and never needs hashing. Where sizes DO collide — two frames of the same
+/// length — the signature is what tells them apart, which is the job it exists for.
+///
+/// The first open of a fresh folder therefore hashes nothing at all: no rows, no
+/// candidates, empty set.
+public struct RelocationProbe: Equatable, Sendable {
+    public var known: Set<String>
+    public var candidateSizes: Set<Int64>
+
+    public init(known: Set<String> = [], candidateSizes: Set<Int64> = []) {
+        self.known = known
+        self.candidateSizes = candidateSizes
+    }
+
+    /// What a caller gets when the catalog could not answer: hash nothing rather than
+    /// hash everything. A missed relocation costs a re-link; a stalled folder open on
+    /// every launch costs the app's one measurable promise.
+    public static let none = RelocationProbe()
+}
+
+/// What the open-time integrity check found, and what was done about it.
+///
+/// docs/15 §15.8: "`PRAGMA quick_check` on every open (fails → restore newest backup
+/// that passes, automatically, with a notice *after* the fact)". The notice is the
+/// reason this is a value and not a Bool: the user is told what happened to their
+/// catalog once it has already been handled, never asked to decide.
+public struct CatalogRecovery: Equatable, Sendable {
+
+    public enum Outcome: Equatable, Sendable {
+        /// No catalog file yet. A first run has nothing to check and nothing to lose.
+        case firstRun
+        /// `PRAGMA quick_check` returned "ok". Nothing was touched.
+        case healthy
+        /// The catalog failed its check and was replaced by a backup that passed. The
+        /// corrupt file is MOVED ASIDE, never deleted: a file SQLite cannot read may
+        /// still be readable by a recovery tool, and the last hour of somebody's
+        /// culling can be worth more than the tidiness.
+        case restored(fromBackup: String, corruptSetAsideAt: String)
+        /// The catalog failed and no backup passed either. Nothing was moved and
+        /// nothing was replaced — the caller opens the corrupt file, which is what it
+        /// would have done anyway, and now it knows.
+        case unrecoverable(backupsTried: Int)
+    }
+
+    public var outcome: Outcome
+
+    /// The after-the-fact notice, or nil when there is nothing to say. Phrased for a
+    /// status line: the user is being told, not consulted.
+    public var notice: String? {
+        switch outcome {
+        case .firstRun, .healthy:
+            return nil
+        case .restored(let backup, _):
+            let name = URL(fileURLWithPath: backup).lastPathComponent
+            // Careful about the tense. Sidecar recovery happens per folder, at scan
+            // time, so at the moment this notice is written nothing has been recovered
+            // yet — promising otherwise would be the same class of caption this project
+            // keeps finding and removing.
+            return "The catalog was damaged and has been restored from \(name). "
+                + "Edits made since that backup come back from the sidecars as each "
+                + "folder is rescanned."
+        case .unrecoverable(let tried):
+            return tried == 0
+                ? "The catalog is damaged and there is no backup to restore from. "
+                    + "Your edits are still in the sidecars beside your photos."
+                : "The catalog is damaged and none of the \(tried) backups could be "
+                    + "read either. Your edits are still in the sidecars beside your photos."
+        }
+    }
+
+    /// True when the catalog the caller is about to open is known to be unreadable.
+    public var isDamaged: Bool {
+        if case .unrecoverable = outcome { return true }
+        return false
+    }
+
+    public init(outcome: Outcome) { self.outcome = outcome }
+}
+
+// MARK: - Backup retention
+
+/// Which snapshots in `backups/` survive, as arithmetic over filenames.
+///
+/// A pure function with no `FileManager` in it. `CatalogService` lists the directory
+/// and does the deleting; this decides, and it decides from a list of strings so the
+/// decision can be exercised exhaustively — including the degenerate shapes a real
+/// `backups/` directory reaches about once in its life and never while anyone is
+/// watching. A retention rule that can only be run against a real directory is a
+/// retention rule that is run rarely, and this one deletes the file the restore path
+/// depends on.
+///
+/// The policy is three sentences:
+///
+///  1. **The newest is never a victim.** Not "K ≥ 1, so it happens to fall out of rule
+///     2" — a separate, unconditional rule, applied under BOTH orderings that matter:
+///     newest by the timestamp in the name, and first under the *name* ordering
+///     `CatalogStore.recoverIfNeeded` actually walks (`sorted(by: >)` over the
+///     directory). Deleting the file the restore reaches first is the only mistake this
+///     type could make that costs somebody a catalog, so it is stated rather than
+///     implied by an arithmetic accident somewhere else.
+///  2. Keep the newest `keepNewest`, for the ordinary "it was fine yesterday" restore.
+///  3. Keep the newest snapshot of each of the most recent `keepWeeks` distinct weeks,
+///     so damage that went unnoticed for a fortnight still has something behind it.
+///
+/// A name this cannot date is retained, always. A file this code did not write is not
+/// this code's to delete, and "I do not understand it" is not a reason to remove
+/// something from the one directory a damaged catalog is restored from.
+public enum BackupRetention {
+
+    /// How many of the newest snapshots survive regardless of age — K.
+    ///
+    /// Three, because a snapshot is a `VACUUM INTO` copy of the whole catalog and the
+    /// ceiling on this policy is `keepNewest + keepWeeks` files on the photographer's
+    /// disk: at three plus four that is seven copies, and a gigabyte catalog is then
+    /// seven gigabytes of backups, which is already the largest number defensible on a
+    /// laptop that is also holding the photographs. Three covers the case the newest
+    /// snapshot is itself damaged (a bad sector rarely respects file boundaries) and
+    /// the case where the damage was noticed one session late.
+    public static let keepNewest = 3
+
+    /// How many distinct weeks keep a representative — W.
+    ///
+    /// Four. The audit's rule is "newest K plus one per week", unbounded; unbounded is
+    /// one full copy of a multi-gigabyte catalog per week forever, which on a three-year
+    /// library is 150 of them. The cap is the part of the rule the audit did not have to
+    /// write because it was not the one shipping it. Four weeks is where the value runs
+    /// out: restoring a catalog more than a month stale is worse than the rescan it
+    /// competes with, because every folder's sidecars have to be merged back in anyway
+    /// and a month of album, stack and keyword work does not live in a sidecar.
+    public static let keepWeeks = 4
+
+    /// The name shape `CatalogService` writes: `lumen-<ISO 8601, colons swapped>.db`.
+    public static let namePrefix = "lumen-"
+    public static let nameSuffix = ".db"
+
+    /// One dated snapshot, as the policy sees it.
+    public struct DatedBackup: Equatable, Sendable {
+        /// The filename, exactly as it appears in the directory.
+        public var name: String
+        /// Unix epoch seconds parsed out of the name — never off the filesystem, which
+        /// a copy, a restore or a sync client rewrites at will.
+        public var timestamp: Int64
+        /// Monday-based week number since the epoch. Integer arithmetic rather than
+        /// `Calendar`, so the bucket a name lands in does not depend on the locale,
+        /// the time zone or the machine.
+        public var weekIndex: Int64
+
+        public init(name: String, timestamp: Int64, weekIndex: Int64) {
+            self.name = name
+            self.timestamp = timestamp
+            self.weekIndex = weekIndex
+        }
+    }
+
+    /// What to keep and what to delete. Both lists are newest-first, and every input
+    /// name appears in exactly one of them.
+    public struct RetentionPlan: Equatable, Sendable {
+        public var retained: [String]
+        public var victims: [String]
+
+        public init(retained: [String] = [], victims: [String] = []) {
+            self.retained = retained
+            self.victims = victims
+        }
+    }
+
+    /// Epoch seconds for a backup filename, or nil when the name is not one of ours.
+    ///
+    /// Accepts the ISO form `CatalogService` writes (`lumen-2026-09-02T14-33-21Z.db`)
+    /// and the compact `lumen-20260902.db` form `CatalogStore.backup(to:)`'s own
+    /// comment names, because a directory can contain both and a name that dates
+    /// perfectly well should not be immortal just because an older build wrote it.
+    public static func timestamp(inBackupName name: String) -> Int64? {
+        guard name.hasPrefix(namePrefix), name.hasSuffix(nameSuffix) else { return nil }
+        let body = String(name.dropFirst(namePrefix.count).dropLast(nameSuffix.count))
+        guard !body.isEmpty else { return nil }
+
+        // Digit runs, in order: 2026-09-02T14-33-21Z -> [2026, 09, 02, 14, 33, 21].
+        var groups: [String] = []
+        var current = ""
+        for character in body {
+            if character.isNumber {
+                current.append(character)
+            } else if !current.isEmpty {
+                groups.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { groups.append(current) }
+
+        var fields: [Int64] = []
+        if groups.count == 1, groups[0].count == 8 {
+            let digits = groups[0]
+            let year = digits.prefix(4)
+            let month = digits.dropFirst(4).prefix(2)
+            let day = digits.dropFirst(6)
+            fields = [Int64(year) ?? -1, Int64(month) ?? -1, Int64(day) ?? -1, 0, 0, 0]
+        } else if groups.count >= 6 {
+            fields = groups.prefix(6).map { Int64($0) ?? -1 }
+        } else {
+            return nil
+        }
+
+        let (year, month, day) = (fields[0], fields[1], fields[2])
+        let (hour, minute, second) = (fields[3], fields[4], fields[5])
+        guard (1970...9999).contains(year), (1...12).contains(month),
+              (1...31).contains(day), (0...23).contains(hour),
+              (0...59).contains(minute), (0...60).contains(second) else { return nil }
+
+        return daysFromCivil(year: year, month: month, day: day) * 86_400
+            + hour * 3_600 + minute * 60 + second
+    }
+
+    /// Every name this understands, newest first. Ties break on the name, descending,
+    /// so two snapshots written inside one second still order deterministically.
+    public static func snapshots(in names: [String]) -> [DatedBackup] {
+        names.compactMap { name -> DatedBackup? in
+            guard let stamp = timestamp(inBackupName: name) else { return nil }
+            return DatedBackup(name: name, timestamp: stamp,
+                               weekIndex: weekIndex(forEpochSeconds: stamp))
+        }
+        .sorted { left, right in
+            left.timestamp == right.timestamp ? left.name > right.name
+                                              : left.timestamp > right.timestamp
+        }
+    }
+
+    /// The policy. `names` is a directory listing filtered to `.db`; order is ignored.
+    public static func plan(names: [String],
+                            keepNewest: Int = BackupRetention.keepNewest,
+                            keepWeeks: Int = BackupRetention.keepWeeks) -> RetentionPlan {
+        // At least one, always. A configuration that keeps nothing is not a retention
+        // policy, it is a delete, and no caller gets to ask for it by passing 0.
+        let newestKept = max(keepNewest, 1)
+        let weeksKept = max(keepWeeks, 0)
+
+        let dated = snapshots(in: names)
+        var keep = Set<String>()
+
+        // Rule 1, first and on its own line: the newest survives. Twice over — the
+        // newest by date, and the first name the restore walk reaches, which is a
+        // different file only when somebody has put a name in here that we did not
+        // write, and is exactly the case where being wrong is unrecoverable.
+        if let newest = dated.first { keep.insert(newest.name) }
+        if let firstReached = names.max() { keep.insert(firstReached) }
+
+        // Rule 2: the newest K.
+        for snapshot in dated.prefix(newestKept) { keep.insert(snapshot.name) }
+
+        // Rule 3: the newest of each of the most recent W weeks that has anything in
+        // it. Weeks are counted from the snapshots present, not backwards from a clock,
+        // so this function needs no clock and a gap in the history does not silently
+        // consume a week's allowance.
+        var weeksSeen: [Int64] = []
+        for snapshot in dated where !weeksSeen.contains(snapshot.weekIndex) {
+            if weeksSeen.count < weeksKept { keep.insert(snapshot.name) }
+            weeksSeen.append(snapshot.weekIndex)
+        }
+
+        // A name we cannot date is not ours to remove.
+        let undated = names.filter { timestamp(inBackupName: $0) == nil }
+        keep.formUnion(undated)
+
+        let ordered = names.sorted(by: >)
+        return RetentionPlan(retained: ordered.filter { keep.contains($0) },
+                             victims: ordered.filter { !keep.contains($0) })
+    }
+
+    /// Convenience for the caller that only wants the deletions.
+    public static func victims(among names: [String],
+                               keepNewest: Int = BackupRetention.keepNewest,
+                               keepWeeks: Int = BackupRetention.keepWeeks) -> [String] {
+        plan(names: names, keepNewest: keepNewest, keepWeeks: keepWeeks).victims
+    }
+
+    /// Monday-based weeks since the epoch. Day 0 (1970-01-01) was a Thursday, so the
+    /// Monday that opens its week is day -3; shifting by three and flooring puts every
+    /// Monday-to-Sunday run in one bucket.
+    static func weekIndex(forEpochSeconds seconds: Int64) -> Int64 {
+        floorDivide(floorDivide(seconds, 86_400) + 3, 7)
+    }
+
+    /// Days from 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's
+    /// `days_from_civil`). Here rather than in `Calendar` because the answer must not
+    /// change with the machine's locale or time zone: the names carry UTC.
+    static func daysFromCivil(year: Int64, month: Int64, day: Int64) -> Int64 {
+        let shifted = year - (month <= 2 ? 1 : 0)
+        let era = floorDivide(shifted, 400)
+        let yearOfEra = shifted - era * 400
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
+    }
+
+    /// Truncating division rounds toward zero, which puts pre-epoch dates in the wrong
+    /// bucket and off by one. Nothing here should ever see one; being right anyway is
+    /// two lines.
+    private static func floorDivide(_ value: Int64, _ divisor: Int64) -> Int64 {
+        let quotient = value / divisor
+        return (value % divisor != 0 && (value < 0) != (divisor < 0)) ? quotient - 1
+                                                                     : quotient
     }
 }
 
@@ -599,7 +933,20 @@ public final class CatalogStore {
     // MARK: Stored state
 
     private let db: SQLiteDatabase
-    private let ftsEnabled: Bool
+    /// A VAR, because the text index can stop being available while the app is running
+    /// and there was no way to say so (J1-02).
+    ///
+    /// It was a `let` fixed at open: FTS5 present, index created, true for the session.
+    /// A `cache.db` that goes read-only afterwards — a full disk, an external volume
+    /// unmounted — then failed every `photo_fts` write, and those failures propagated
+    /// out of `setRating` and `setLabel` into the culling write's `catch`, which
+    /// reported "Could not save the flag or rating" for a rating that HAD been saved.
+    /// Every keystroke an error banner about a cache.
+    ///
+    /// Guarded by whatever serialises the rest of this class — `CatalogService` owns the
+    /// queue — which is the same guarantee every other mutable field here has, and the
+    /// honest claim rather than a stronger one.
+    private var ftsEnabled: Bool
 
     public let path: String
     public let cachePath: String
@@ -612,11 +959,12 @@ public final class CatalogStore {
 
     /// Schema version this build understands. Base DDL (`CatalogSchema.lumenDDL`) is
     /// version 1; everything after it is a migration below.
-    public static let latestSchemaVersion: Int = 2
+    public static let latestSchemaVersion: Int = 3
 
     /// Gap-closing migration for `lumen.db` (brief 02 §2.3, G5–G15, G17–G26, G31).
     public static let migrations: [CatalogMigration] = [
-        CatalogMigration(version: 2, sql: CatalogStore.lumenMigration2)
+        CatalogMigration(version: 2, sql: CatalogStore.lumenMigration2),
+        CatalogMigration(version: 3, sql: CatalogStore.lumenMigration3),
     ]
 
     /// Gap-closing migration for `cache.db` (G1–G4, G19, G28, G29).
@@ -710,6 +1058,31 @@ public final class CatalogStore {
       ('label_name_3', 'Green'),
       ('label_name_4', 'Blue'),
       ('label_name_5', 'Purple');
+    """
+
+    /// The `look` table gains the constraint that makes a saved look identifiable.
+    ///
+    /// A look is reached for by NAME — that is the whole of its identity in the browser
+    /// — so two rows with one name inside one group are two things the photographer
+    /// cannot tell apart, and "apply Portra Warm" stops having an answer. Saving over a
+    /// name is how a look is updated (`saveLook`), which only works if the name is a
+    /// key.
+    ///
+    /// `COALESCE(grp, '')` rather than the bare column, for the reason cacheMigration2's
+    /// artifact index records: SQLite treats NULLs as distinct in a UNIQUE index, and
+    /// ungrouped is the common case, so the bare form would constrain everything except
+    /// the rows that need it most.
+    ///
+    /// No de-duplication pass precedes it, unlike every other unique index in this file.
+    /// The `look` table has existed since the base DDL with no writer anywhere in the
+    /// tree (audit FILM-15/LIB-22: "zero insert/select"), so every catalog reaching this
+    /// migration has an empty one and there is nothing to collapse. If that is ever
+    /// wrong the migration fails loudly inside its transaction and leaves the catalog at
+    /// version 2, which is the correct outcome for a claim that turned out to be false.
+    private static let lumenMigration3: String = """
+    CREATE UNIQUE INDEX IF NOT EXISTS look_identity
+      ON look(kind, COALESCE(grp, ''), name);
+    CREATE INDEX IF NOT EXISTS look_kind ON look(kind, name);
     """
 
     private static let cacheMigration2: String = """
@@ -829,6 +1202,13 @@ public final class CatalogStore {
     stack.id, stack.origin, stack.pick_photo_id, stack.collapsed
     """
 
+    /// `thumb` is deliberately absent: nothing writes it (see `LookRow`), and selecting
+    /// a BLOB column to ignore it would read every swatch off disk to draw a list of
+    /// names.
+    private static let lookColumns: String = """
+    id, name, grp, kind, subset, updated_at
+    """
+
     // MARK: - Open
 
     /// Opens (creating if needed) `lumen.db` at `path`, prepares and ATTACHes the
@@ -855,6 +1235,26 @@ public final class CatalogStore {
         // foreign_keys enforcement biting on pre-existing orphans.
         var textIndexAvailable = false
         do {
+            textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
+        } catch let error as CatalogError {
+            // A cache.db FROM A NEWER BUILD IS DISPOSABLE, and treating it as fatal was
+            // the most expensive line in this file.
+            //
+            // `prepareCacheDatabase` throws `schemaTooNew` for a cache whose
+            // `user_version` is ahead of this build's migrations. The catch below is
+            // `SQLiteError`-typed, and `CatalogError` is not one — so the throw escaped
+            // `init` entirely, `AppState.openCatalog` caught it, set `catalog = nil`, and
+            // the whole session ran in memory: no catalog rows AND no sidecars, because
+            // the sidecar writer lives inside `CatalogService`. Every edit, rating and
+            // flag made that day was discarded at quit, announced only by ten-point text
+            // at the bottom of a sidebar that can be hidden.
+            //
+            // docs/15 §15.2 is explicit that this database is derived and is recreated
+            // empty when it cannot be used. "Written by a newer build" is exactly that
+            // case: nothing in it is user work. Run a dev build, go back to the release,
+            // and this fired.
+            guard case .schemaTooNew = error else { throw error }
+            try? FileManager.default.removeItem(atPath: resolvedCachePath)
             textIndexAvailable = try CatalogStore.prepareCacheDatabase(at: resolvedCachePath)
         } catch let error as SQLiteError where error.indicatesCorruptDatabase {
             // Corrupt cache -> recreate empty; the workers refill it (docs/15 §15.2).
@@ -887,6 +1287,7 @@ public final class CatalogStore {
 
         try migrate()
         try seedMetaIfNeeded()
+        try rebuildTextIndexIfNeeded()
     }
 
     deinit {
@@ -995,15 +1396,219 @@ public final class CatalogStore {
 
     // MARK: - Integrity and maintenance
 
-    /// `PRAGMA quick_check` — run on every open per §15.8 (the caller decides whether a
-    /// failure triggers an auto-restore from the newest passing backup).
+    /// `PRAGMA quick_check` against the open catalog.
+    ///
+    /// The open-time check §15.8 asks for is `recoverIfNeeded`, below, which runs
+    /// BEFORE the store exists — a restore has to replace the file, and it cannot do
+    /// that through a handle that is holding it open. This one is the same pragma
+    /// against a live store, for a caller that already has one.
     public func quickCheck() throws -> Bool {
         (try db.scalarText("PRAGMA quick_check;")) == "ok"
     }
 
-    /// Full `PRAGMA integrity_check` — the pre-weekly-backup gate.
+    /// Full `PRAGMA integrity_check` — the pre-backup gate, against the live handle.
+    ///
+    /// The gate itself now lives inside `snapshot(from:to:)`, which runs it on the
+    /// connection it is about to vacuum, because a gate the caller has to remember is
+    /// one the caller eventually forgets. What it is for is unchanged: a corrupt catalog
+    /// that backs itself up rotates the last readable snapshot out of existence, and
+    /// then `recoverIfNeeded` has nothing to restore from. §15.8 specifies it "before
+    /// each weekly backup"; the automatic snapshot is once per
+    /// `automaticBackupInterval`, so it runs before every one of those instead — a
+    /// stricter reading, and cheap enough beside the vacuum it precedes.
+    ///
+    /// This overload stays for a caller that already holds a store and only wants the
+    /// answer. In `Sources` there is now no such caller — the app's every backup goes
+    /// through `snapshot(from:to:)` — so its live users are `CatalogTests`, which uses
+    /// it to prove the full check notices damage a `quick_check` alone would pass.
     public func integrityCheck() throws -> Bool {
         (try db.scalarText("PRAGMA integrity_check;")) == "ok"
+    }
+
+    // MARK: Automatic backup — when, and on whose connection
+
+    /// Where the "when did we last take one" stamp lives. `meta` because it belongs to
+    /// the catalog rather than to the machine: copy the catalog to another Mac and the
+    /// backup rhythm travels with it, which is what `seedMetaIfNeeded` establishes for
+    /// `catalog_uuid` and `created_at` for the same reason.
+    public static let lastBackupMetaKey = "last_backup_at"
+
+    /// N — the shortest gap between two automatic snapshots, in seconds.
+    ///
+    /// Twenty hours, not twenty-four. A photographer's quits cluster in the evening, and
+    /// a strict 24-hour gate phase-drifts against that: yesterday's quit at 21:00 makes
+    /// tonight's at 20:45 only 23.75 hours old, so it is skipped, and the "daily" backup
+    /// silently becomes every second day. Twenty hours absorbs four hours of evening
+    /// jitter while still collapsing a working day of launch-cull-quit cycles — the
+    /// shape of an import session — into one snapshot rather than nine.
+    ///
+    /// The upper bound on N is what a restore costs: everything since the last snapshot
+    /// comes back from sidecars folder by folder as each is rescanned, and the album,
+    /// stack and keyword work that has no sidecar does not come back at all. A day of
+    /// that is a bad evening; a week of it is the thing this project promised would
+    /// never happen.
+    public static let automaticBackupInterval: Int64 = 20 * 3_600
+
+    /// The stamp, or nil on a catalog that has never been backed up.
+    public func lastBackupAt() throws -> Int64? {
+        guard let raw = try metaValue(CatalogStore.lastBackupMetaKey) else { return nil }
+        return Int64(raw)
+    }
+
+    /// Is a snapshot owed? Never-backed-up counts as owed, which is what gives a fresh
+    /// install its first backup at its first quit rather than at its second.
+    ///
+    /// A stamp in the future — a clock that was wrong and has been corrected, a catalog
+    /// carried back across a time zone — also counts as owed, and the write that follows
+    /// repairs the stamp. The alternative is a catalog that quietly stops backing itself
+    /// up until the calendar catches up with the bad stamp, which is a failure mode with
+    /// no symptom until the day it matters.
+    public func isBackupDue(now: Int64 = CatalogStore.now(),
+                            interval: Int64 = CatalogStore.automaticBackupInterval)
+        throws -> Bool {
+        guard let last = try lastBackupAt() else { return true }
+        if last > now { return true }
+        return now - last >= interval
+    }
+
+    /// Record a snapshot. Called only after one has actually landed on disk: a backup
+    /// that failed must leave the stamp alone so the next quit tries again, rather than
+    /// buying a full-disk error twenty hours of silence.
+    public func noteBackupTaken(at when: Int64 = CatalogStore.now()) throws {
+        try setMetaValue(CatalogStore.lastBackupMetaKey, String(when))
+    }
+
+    /// A checked snapshot taken on a connection of this store's own, not on the app's.
+    ///
+    /// `backup(to:)` below runs `VACUUM INTO` on the live handle, which means it runs on
+    /// whatever queue serialises that handle — in the app, the one serial lane that also
+    /// carries every grid query, every preview lookup and the recipe write behind every
+    /// slider event. A full `integrity_check` plus a `VACUUM INTO` of a multi-gigabyte
+    /// catalog holds that lane for tens of seconds, so the automatic backup would have
+    /// been a scheduled stall of the whole browser. SQLite in WAL mode lets a second
+    /// connection read while the first writes, and `VACUUM INTO` needs only a read
+    /// transaction, so the snapshot can be taken beside the running app instead of
+    /// through it.
+    ///
+    /// The integrity gate is inside this function rather than at the call site, where it
+    /// used to live, because it is not optional and a gate a caller can forget is not a
+    /// gate. §15.8's rule: a corrupt catalog that backs itself up rotates the last
+    /// readable snapshot out of existence, turning recoverable damage into permanent
+    /// loss. `integrity_check` is the only thing standing between those two outcomes.
+    ///
+    /// Throws rather than returning false, so "the catalog is damaged" cannot be
+    /// mistaken for "the snapshot is done" by a caller that ignored a Bool.
+    public static func snapshot(from path: String, to destination: String) throws {
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw CatalogError.notFound("catalog at \(path)")
+        }
+        let source = try SQLiteDatabase(path: path)
+        defer { source.close() }
+        // Long enough to sit out a slider gesture's write on the app's own connection,
+        // short enough that a wedged writer fails the backup instead of the quit.
+        try source.execute("PRAGMA busy_timeout=5000;")
+
+        guard (try source.scalarText("PRAGMA integrity_check;")) == "ok" else {
+            throw CatalogError.corrupt(
+                "the catalog failed its integrity check, so it was not backed up — "
+                + "the existing backups are the good copies and were left alone")
+        }
+
+        try CatalogStore.ensureParentDirectory(of: destination)
+        if FileManager.default.fileExists(atPath: destination) {
+            try FileManager.default.removeItem(atPath: destination)
+        }
+        try source.execute(
+            "VACUUM main INTO \(SQLiteDatabase.quoteLiteral(destination));")
+    }
+
+    /// The open-time integrity check, and the restore §15.8 promises when it fails.
+    ///
+    /// Call this BEFORE constructing a store on `path`. It opens the catalog on its own
+    /// connection, runs `PRAGMA quick_check`, and on failure walks the backups newest
+    /// first until one passes, sets the damaged catalog aside and puts that backup in
+    /// its place. Whatever it returns, the caller then opens `path` normally — the
+    /// point is that the file it opens is the best readable one available, and that the
+    /// user is told afterwards rather than asked beforehand.
+    ///
+    /// Nothing is ever deleted. The damaged catalog is RENAMED — the corrupt file may
+    /// still yield to a recovery tool, and the check that condemned it can be wrong
+    /// about a file a human would rather still have. The `-wal` and `-shm` move with
+    /// it, because leaving a stale WAL beside a restored catalog would let SQLite
+    /// replay the damaged journal straight back over the snapshot; renaming rather than
+    /// unlinking them is also what keeps a second process's mapped shared memory
+    /// pointing at a file that still exists, which is the failure the cache-recreation
+    /// path above documents at length.
+    ///
+    /// Backups are ordered by filename, descending. `CatalogService` names them
+    /// `lumen-<ISO 8601 stamp>.db`, and that format sorts lexically and
+    /// chronologically at once, so the ordering does not depend on a modification date
+    /// that a copy or a restore can rewrite.
+    public static func recoverIfNeeded(path: String,
+                                       backupDirectory: String) -> CatalogRecovery {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: path) else {
+            return CatalogRecovery(outcome: .firstRun)
+        }
+        if probeQuickCheck(path: path) { return CatalogRecovery(outcome: .healthy) }
+
+        let backups = (try? manager.contentsOfDirectory(atPath: backupDirectory))?
+            .filter { $0.hasSuffix(".db") }
+            .sorted(by: >) ?? []
+        for name in backups {
+            let candidate = URL(fileURLWithPath: backupDirectory, isDirectory: true)
+                .appendingPathComponent(name).path
+            guard probeQuickCheck(path: candidate) else { continue }
+            let stamp = String(CatalogStore.now())
+            let setAside = path + ".damaged-" + stamp
+            do {
+                try setAsideCatalog(at: path, to: setAside)
+                try manager.copyItem(atPath: candidate, toPath: path)
+            } catch {
+                // A restore that cannot complete must not leave the catalog half
+                // replaced. Put the original back if it is still where we moved it,
+                // and report the damage rather than a restore that did not happen.
+                if manager.fileExists(atPath: setAside), !manager.fileExists(atPath: path) {
+                    try? manager.moveItem(atPath: setAside, toPath: path)
+                }
+                return CatalogRecovery(outcome: .unrecoverable(backupsTried: backups.count))
+            }
+            return CatalogRecovery(outcome: .restored(fromBackup: candidate,
+                                                      corruptSetAsideAt: setAside))
+        }
+        return CatalogRecovery(outcome: .unrecoverable(backupsTried: backups.count))
+    }
+
+    /// One `PRAGMA quick_check` on a file this process does not otherwise hold open.
+    ///
+    /// False for anything that is not a readable SQLite catalog, including a file that
+    /// cannot be opened at all: the caller's question is "can this be used", and every
+    /// no is the same no.
+    ///
+    /// Internal rather than private so the recovery tests can assert that the damage
+    /// they inflicted actually took. A restore test that ran against a file SQLite still
+    /// finds perfectly readable would pass while proving nothing.
+    ///
+    /// The existence guard is load-bearing, not defensive tidying. `SQLiteDatabase`
+    /// opens with `SQLITE_OPEN_CREATE`, so a path that is not there becomes an empty
+    /// database — which passes `quick_check` perfectly. Without this, a backup that
+    /// vanished between the directory listing and this call would be created empty,
+    /// pass, and be restored OVER a catalog that was merely damaged. Answering "no" for
+    /// a file that does not exist is also just correct: nothing there cannot be used.
+    static func probeQuickCheck(path: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+        guard let database = try? SQLiteDatabase(path: path) else { return false }
+        defer { database.close() }
+        return (try? database.scalarText("PRAGMA quick_check;")) == "ok"
+    }
+
+    /// Move a catalog and its WAL companions aside, together.
+    private static func setAsideCatalog(at path: String, to destination: String) throws {
+        let manager = FileManager.default
+        try manager.moveItem(atPath: path, toPath: destination)
+        for suffix in ["-wal", "-shm"] where manager.fileExists(atPath: path + suffix) {
+            try? manager.moveItem(atPath: path + suffix, toPath: destination + suffix)
+        }
     }
 
     /// Passive WAL checkpoint for the idle maintenance slot.
@@ -1017,7 +1622,13 @@ public final class CatalogStore {
         try db.execute("PRAGMA incremental_vacuum;")
     }
 
-    /// `VACUUM INTO` — a compacted, checkpointed, single-file snapshot (§15.8).
+    /// `VACUUM INTO` — a compacted, checkpointed, single-file snapshot (§15.8), on
+    /// **this** connection and therefore on whatever queue serialises it.
+    ///
+    /// The automatic backup uses `snapshot(from:to:)` instead, which opens its own
+    /// connection and checks integrity first. Prefer that one anywhere the app is
+    /// running; this is the unguarded primitive, for a caller that has already decided.
+    ///
     /// The destination is embedded as an escaped SQL string literal because SQLite's
     /// VACUUM grammar does not reliably accept a bound parameter there; the value is
     /// a path this process chose, never user-typed SQL.
@@ -1053,6 +1664,16 @@ public final class CatalogStore {
             }
             return removed
         }
+    }
+
+    // MARK: - Test hooks
+
+    /// Raw SQL against the open connection, for tests that need to put the database
+    /// into a state the store would never create itself — an index emptied behind the
+    /// store's back, a row a broken build left. Internal, `@testable` only; the app has
+    /// no business here.
+    func debugExecute(_ sql: String) throws {
+        try db.execute(sql)
     }
 
     // MARK: - meta
@@ -1203,7 +1824,7 @@ public final class CatalogStore {
                 [.integer(row.folderID), .text(row.filename)]) else {
                 throw CatalogError.notFound("photo \(row.filename) after upsert")
             }
-            try self.reindexText(photoID: id)
+            self.reindexText(photoID: id)
             return id
         }
     }
@@ -1243,7 +1864,7 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
-            for id in photoIDs { try self.reindexText(photoID: id) }
+            for id in photoIDs { self.reindexText(photoID: id) }
         }
     }
 
@@ -1276,6 +1897,36 @@ public final class CatalogStore {
     }
 
     // MARK: - Scan reconciliation
+
+    /// Which of the listed files could possibly be a relocation, so the scanner can
+    /// hash those and only those. See `RelocationProbe` for why this is asked at all.
+    public func relocationProbe(folderID: Int64, listed: Set<String>) throws
+        -> RelocationProbe {
+        var probe = RelocationProbe()
+
+        let statement = try db.prepare(
+            "SELECT filename, file_size, quick_sig FROM photo WHERE folder_id = ?;")
+        try statement.bind(1, SQLiteValue.integer(folderID))
+        while try statement.step() {
+            let name = statement.string(0) ?? ""
+            probe.known.insert(name)
+            // A row still present in the listing is not going anywhere; only the ones
+            // that have vanished from it are candidates for an in-folder rename.
+            if !listed.contains(name), statement.string(2)?.isEmpty == false {
+                probe.candidateSizes.insert(statement.int(1))
+            }
+        }
+
+        // Cross-folder moves: the row was marked missing on an earlier scan of the
+        // folder it left, and this scan is the folder it arrived in.
+        let missing = try db.prepare(
+            "SELECT DISTINCT file_size FROM photo "
+            + "WHERE missing = 1 AND quick_sig IS NOT NULL AND quick_sig <> '';")
+        while try missing.step() {
+            probe.candidateSizes.insert(missing.int(0))
+        }
+        return probe
+    }
 
     /// Reconciles one folder against a directory listing (docs/15 §15.9, the cold-start
     /// path and the FSEvents fallback). Runs as a single transaction.
@@ -1367,7 +2018,7 @@ public final class CatalogStore {
                           .optionalText(file.ext
                                         ?? CatalogStore.fileExtension(of: file.filename)),
                           .integer(id)])
-                    try self.reindexText(photoID: id)
+                    self.reindexText(photoID: id)
                     result.relocated.append(id)
                     continue
                 }
@@ -1397,23 +2048,75 @@ public final class CatalogStore {
     /// one `is_current = 1` edit per photo (the unique partial index from migration 2
     /// makes that a constraint, not a hope). `photo.edited` is maintained in the same
     /// transaction so the "edited" chip and the pencil badge never join and parse.
-    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool) throws {
+    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool,
+                           isRenderedFile: Bool = false) throws {
         try saveRecipe(recipe, photoID: photoID, kind: .working,
-                       name: nil, isCurrent: isCurrent)
+                       name: nil, isCurrent: isCurrent, isRenderedFile: isRenderedFile)
     }
 
+    /// - Parameter isRenderedFile: whether this photograph is a file somebody has
+    ///   already tone-mapped — a JPEG, HEIC, PNG or TIFF — rather than a camera raw.
+    ///   It decides the baseline `edited` is measured against, and it is a PARAMETER
+    ///   because LumenCore does not own the list of rendered extensions:
+    ///   `PhotoFormats` in the app target does, and a second copy of that list here
+    ///   could disagree with the one the folder scan used about the same file. Its
+    ///   default is `false` — the raw case — so a caller that does not know says
+    ///   nothing rather than guessing "JPEG".
     @discardableResult
     public func saveRecipe(_ recipe: Recipe, photoID: Int64, kind: EditKind,
                            name: String?, isCurrent: Bool,
+                           isRenderedFile: Bool = false,
                            at now: Int64 = CatalogStore.now()) throws -> Int64 {
         let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
         let fingerprint = try RecipeFingerprint.fingerprint(recipe)
-        // "Edited" means the recipe differs from the default at its own pipeline
-        // version — comparing against a *different* version's default would light the
-        // pencil badge on every photo after a pipeline bump.
+        // "Edited" means the recipe differs from what a fresh import of THIS
+        // PHOTOGRAPH would have left behind — not from the type's default.
+        //
+        // It compared against `Recipe(pipelineVersion:)`, and the two are not the same
+        // baseline for two large classes of file: a rendered file is imported carrying
+        // `look.render.preset = "Linear"`, and a raw with a recorded ISO is imported
+        // carrying `ISODefaults.startingDenoise(forISO:)`. So every JPEG in the library
+        // was marked edited by its own import and stayed marked forever — the pencil
+        // badge lit on a photograph nobody had touched, Reset unable to put it out, and
+        // the "Edited: no" chip (`photo.edited = ?`, in `buildPhotoQuery`) refusing to
+        // show it at all. That last one is a filter whose number and whose rows
+        // disagree, which is the same defect as the facet counts wearing a different
+        // hat.
+        //
+        // `Recipe.asImported(from:)` is the ONE statement of what as-imported means —
+        // `RecipeReset.swift`, unit-tested on Linux — and this reads it rather than
+        // restating it. The ISO comes off the photo row because the row is where the
+        // scanner put it; only `isRendered` has to be told, because the extension list
+        // that answers it lives in the app target on purpose.
+        //
+        // The pipeline version is normalized onto the baseline for the reason the old
+        // comment gave and which still holds: comparing against a *different* version's
+        // default would light the pencil badge on every photo after a pipeline bump.
+        //
         // `rendersSameAs`, not `!=`: a recipe differing only by a mask name is not an
         // edit, and lighting the pencil badge for one is a lie about the photograph.
-        let isEdited = !recipe.rendersSameAs(Recipe(pipelineVersion: recipe.pipelineVersion))
+        // That is also why this cannot simply call `Recipe.isAsImported(from:)`, which
+        // compares whole documents with `==`; the baseline is the shared half, and the
+        // comparison is this call's own.
+        let capturedISO = try db.scalarInt("SELECT iso FROM photo WHERE id = ?;",
+                                           [.integer(photoID)])
+        var baseline = Recipe.asImported(from: Recipe.SourceFile(
+            isRendered: isRenderedFile, iso: capturedISO.map { Int($0) }))
+        baseline.pipelineVersion = recipe.pipelineVersion
+        let isEdited = !recipe.rendersSameAs(baseline)
+        // A ROW CANNOT CLAIM A VERSION ITS WRITER DOES NOT IMPLEMENT.
+        //
+        // `Recipe`'s decoder carries a version it reads rather than restamping it, so a
+        // recipe decoded from a newer build's row arrives here still saying it is that
+        // newer thing. Writing that number back would leave a row this build produced
+        // claiming semantics this build does not have — and the next older build to
+        // open the catalog would then demote a row that is, in fact, its own.
+        //
+        // `min`, not `currentPipelineVersion` outright: an OLDER recipe must keep
+        // reporting its own age, which is what migrations read and what
+        // `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` pins.
+        let storedPipelineVersion = Swift.min(recipe.pipelineVersion,
+                                              currentPipelineVersion)
 
         return try db.transaction {
             if isCurrent {
@@ -1429,12 +2132,47 @@ public final class CatalogStore {
                     + "ORDER BY id LIMIT 1;", [.integer(photoID)])
             }
 
+            // A working row from a FUTURE pipeline version is not this build's row to
+            // overwrite. The scenario is real and destructive: a newer build wrote an
+            // edit this build's decoder cannot (fully) read, the viewer fell back to a
+            // default recipe, and the photographer touched one slider — the in-place
+            // UPDATE below would then replace the newer recipe with the fallback, in
+            // the catalog now and in the sidecar at the next flush. The newer edit is
+            // the photographer's most recent work on the photo; it must survive the
+            // older build. So it is demoted to a named `version` row — visible in the
+            // edits list, restorable by the build that wrote it — and this save
+            // INSERTs a fresh working row of its own.
+            // AGAINST THIS BUILD'S VERSION, not the recipe's own (K-020).
+            //
+            // It compared `rowVersion > recipe.pipelineVersion`, and `Recipe`'s decoder
+            // CARRIES a version it reads rather than restamping it — deliberately, so an
+            // old recipe keeps reporting its own age. So the newer row was decoded, the
+            // in-memory recipe took the newer number with it, the photographer touched a
+            // slider, and the guard compared 7 against 7 and did not fire. The UPDATE
+            // below then overwrote the newer edit with this build's rendering of it, in
+            // the catalog and at the next sidecar flush — which is precisely the loss
+            // the guard was written to prevent, arriving through the guard.
+            //
+            // The question is whether THIS BUILD can safely rewrite the row, and only
+            // this build's own version answers it.
+            if let id = editID,
+               let rowVersion = try self.db.scalarInt(
+                   "SELECT pipeline_version FROM edit WHERE id = ?;", [.integer(id)]),
+               rowVersion > Int64(currentPipelineVersion) {
+                try self.db.run("""
+                UPDATE edit SET kind = 'version', is_current = 0,
+                  name = COALESCE(name, ?) WHERE id = ?;
+                """, [.text("Preserved from a newer build (pipeline v\(rowVersion))"),
+                      .integer(id)])
+                editID = nil
+            }
+
             if let id = editID {
                 try self.db.run("""
                 UPDATE edit SET name = ?, is_current = ?, pipeline_version = ?,
                   recipe = ?, recipe_fp = ?, updated_at = ? WHERE id = ?;
                 """, [.optionalText(name), .bool(isCurrent),
-                      .int(recipe.pipelineVersion), .text(json), .text(fingerprint),
+                      .int(storedPipelineVersion), .text(json), .text(fingerprint),
                       .integer(now), .integer(id)])
                 // Only the CURRENT edit decides the badge. Saving a snapshot of a
                 // default recipe used to clear `edited` on a photo whose working edit
@@ -1451,7 +2189,7 @@ public final class CatalogStore {
                               recipe, recipe_fp, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """, [.integer(photoID), .text(kind.rawValue), .optionalText(name),
-                  .bool(isCurrent), .int(recipe.pipelineVersion), .text(json),
+                  .bool(isCurrent), .int(storedPipelineVersion), .text(json),
                   .text(fingerprint), .integer(now)])
             let inserted = self.db.lastInsertRowID
             if isCurrent {
@@ -1503,6 +2241,111 @@ public final class CatalogStore {
         }
     }
 
+    // MARK: - Looks
+
+    /// Store a named look, or update the one already stored under that name.
+    ///
+    /// Save-over rather than save-another, because a look is reached for by name and
+    /// two rows called "Portra Warm" are two rows the browser draws identically. The
+    /// alternative — appending "Portra Warm 2" — turns a browser into a graveyard
+    /// within one shoot, and there is no gesture in a photographer's day that means
+    /// "keep the old version of this look but never show me which is which". Renaming
+    /// is how a second variant is kept.
+    ///
+    /// Look-then-write rather than `ON CONFLICT`, for the reason `recordArtifact` gives
+    /// above it: the conflict target is an expression index over a nullable column, and
+    /// a plain `SELECT … grp IS ?` says what it means without asking SQLite's upsert
+    /// parser to agree about which index it is aiming at.
+    @discardableResult
+    public func saveLook(name: String, subset: LookSubset,
+                         kind: LookKind = .look, group: String? = nil,
+                         at now: Int64 = CatalogStore.now()) throws -> Int64 {
+        guard let clean = LookSubset.normalizedName(name) else {
+            throw CatalogError.invalid("a look needs a name")
+        }
+        let json = try CanonicalJSON.canonicalLookJSON(subset)
+        return try db.transaction {
+            let existing = try self.db.scalarInt("""
+            SELECT id FROM look WHERE kind = ? AND grp IS ? AND name = ? LIMIT 1;
+            """, [.text(kind.rawValue), .optionalText(group), .text(clean)])
+            if let id = existing {
+                try self.db.run(
+                    "UPDATE look SET subset = ?, updated_at = ? WHERE id = ?;",
+                    [.text(json), .integer(now), .integer(id)])
+                return id
+            }
+            try self.db.run("""
+            INSERT INTO look (name, grp, kind, subset, updated_at) VALUES (?, ?, ?, ?, ?);
+            """, [.text(clean), .optionalText(group), .text(kind.rawValue),
+                  .text(json), .integer(now)])
+            return self.db.lastInsertRowID
+        }
+    }
+
+    /// Every stored look of one register, newest name-sorted rather than
+    /// recency-sorted: a browser whose rows move when you use them is a browser you
+    /// have to re-read every time.
+    public func looks(kind: LookKind = .look) throws -> [LookRow] {
+        try allRows("SELECT \(CatalogStore.lookColumns) FROM look WHERE kind = ? "
+                    + "ORDER BY COALESCE(grp, ''), name COLLATE NOCASE;",
+                    [.text(kind.rawValue)], CatalogStore.decodeLook)
+    }
+
+    public func look(id: Int64) throws -> LookRow? {
+        try firstRow("SELECT \(CatalogStore.lookColumns) FROM look WHERE id = ?;",
+                     [.integer(id)], CatalogStore.decodeLook)
+    }
+
+    /// The look stored under a name, if there is one. What "apply the look called X"
+    /// resolves through, and what a save dialog asks before it overwrites.
+    public func look(named name: String, kind: LookKind = .look,
+                     group: String? = nil) throws -> LookRow? {
+        guard let clean = LookSubset.normalizedName(name) else { return nil }
+        return try firstRow("SELECT \(CatalogStore.lookColumns) FROM look "
+                            + "WHERE kind = ? AND grp IS ? AND name = ? LIMIT 1;",
+                            [.text(kind.rawValue), .optionalText(group), .text(clean)],
+                            CatalogStore.decodeLook)
+    }
+
+    /// Rename a look. Throws rather than silently merging when the new name is taken:
+    /// a rename that quietly destroyed the look already sitting on that name would be
+    /// the same loss `saveLook`'s save-over is at least explicit about.
+    ///
+    /// The check below is not what makes that safe — `look_identity` is. Deleting the
+    /// check and running the suite leaves it green, because the UPDATE then violates
+    /// the unique index and SQLite refuses it anyway; deleting both is what turns the
+    /// rename into a clobber and the test red. The check earns its place by naming the
+    /// look in the error, which is the difference between a sentence the panel can show
+    /// and a raw constraint failure.
+    public func renameLook(id: Int64, to name: String,
+                           at now: Int64 = CatalogStore.now()) throws {
+        guard let clean = LookSubset.normalizedName(name) else {
+            throw CatalogError.invalid("a look needs a name")
+        }
+        try db.transaction {
+            guard let row = try self.look(id: id) else {
+                throw CatalogError.notFound("look \(id)")
+            }
+            let taken = try self.db.scalarInt("""
+            SELECT id FROM look WHERE kind = ? AND grp IS ? AND name = ? AND id <> ?
+             LIMIT 1;
+            """, [.text(row.kind.rawValue), .optionalText(row.group), .text(clean),
+                  .integer(id)])
+            if taken != nil {
+                throw CatalogError.invalid("a look called \(clean) already exists")
+            }
+            try self.db.run("UPDATE look SET name = ?, updated_at = ? WHERE id = ?;",
+                            [.text(clean), .integer(now), .integer(id)])
+        }
+    }
+
+    /// Delete a look. Nothing references `look.id` — a look is copied into a recipe at
+    /// apply time, never linked — so this cannot orphan an edit, and a photograph
+    /// graded with a look the photographer later threw away keeps its grade.
+    public func deleteLook(id: Int64) throws {
+        try db.run("DELETE FROM look WHERE id = ?;", [.integer(id)])
+    }
+
     // MARK: - Culling state
 
     /// The decision write path: one transaction per action, never on the input path.
@@ -1517,6 +2360,24 @@ public final class CatalogStore {
     /// that at under a second for five thousand photos. Everything here is nullable and
     /// stays null until something fills it, which is what makes the pass interruptible.
     public func setMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
+        try db.transaction {
+            try self.writeMetadata(metadata, photoID: photoID)
+            // LIB-10. `camera` and `lens` reach the catalog nowhere else, and the FTS
+            // row was built at scan time — minutes earlier, when both were still NULL.
+            // Without this line the index holds empty strings for the two fields the
+            // text chip's own placeholder advertises, so searching "Sony" matched
+            // nothing on the branch that is PREFERRED whenever FTS5 is compiled in,
+            // while the slower LIKE fallback found it. Re-indexing belongs next to the
+            // write and inside the same transaction, so the index cannot end up
+            // describing a photo the catalog no longer holds.
+            self.reindexText(photoID: photoID)
+        }
+    }
+
+    /// The bare UPDATE, without the re-index. Split out so the batch below can write
+    /// every row first and re-index once per row afterwards, rather than nesting a
+    /// savepoint per photo inside a five-thousand-row transaction.
+    private func writeMetadata(_ metadata: PhotoMetadata, photoID: Int64) throws {
         // `aspect` is a derived column, and it was derived in exactly one place: the
         // scan-time upsert, which has never seen a width or a height — those arrive
         // here, minutes later, from EXIF. So every photo the backfill filled in kept
@@ -1570,8 +2431,12 @@ public final class CatalogStore {
         guard !batch.isEmpty else { return }
         try db.transaction {
             for entry in batch {
-                try self.setMetadata(entry.metadata, photoID: entry.photoID)
+                try self.writeMetadata(entry.metadata, photoID: entry.photoID)
             }
+            // LIB-10, the batch half. This is the writer the backfill pass actually
+            // calls, so an index kept in step only by the single-photo entry point
+            // would still have been empty on every real launch.
+            for entry in batch { self.reindexText(photoID: entry.photoID) }
         }
     }
 
@@ -1580,20 +2445,80 @@ public final class CatalogStore {
     /// `capture_at IS NULL` is the resume marker rather than a separate "done" column:
     /// a photo genuinely without a capture time is re-read next launch, which costs one
     /// file open and is cheaper than a column that can disagree with the file.
-    public func photosMissingMetadata(folderID: Int64, limit: Int = 5000) throws
+    ///
+    /// `afterID` is what makes the caller's loop TERMINATE. The obvious loop — "fetch,
+    /// write, fetch again until empty" — never ends on a folder holding one file whose
+    /// EXIF cannot be parsed: that row keeps `capture_at IS NULL` forever and comes back
+    /// in every page. Paging by strictly increasing id ends after one pass over the
+    /// folder whatever the files contain (LIB-26a: the caller used to fetch one page of
+    /// 5,000 and stop, so a 20k folder needed four launches to sort correctly).
+    public func photosMissingMetadata(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
         -> [(id: Int64, filename: String)] {
         let statement = try db.prepare("""
             SELECT id, filename FROM photo
-            WHERE folder_id = ? AND capture_at IS NULL AND missing = 0
+            WHERE folder_id = ? AND id > ? AND capture_at IS NULL AND missing = 0
             ORDER BY id LIMIT ?;
             """)
         try statement.bind(1, SQLiteValue.integer(folderID))
-        try statement.bind(2, SQLiteValue.int(limit))
+        try statement.bind(2, SQLiteValue.integer(afterID))
+        try statement.bind(3, SQLiteValue.int(limit))
         var out: [(id: Int64, filename: String)] = []
         while try statement.step() {
             out.append((id: statement.int(0), filename: statement.string(1) ?? ""))
         }
         return out
+    }
+
+    /// Photos whose `quick_sig` has never been computed.
+    ///
+    /// Same resume-marker discipline as the metadata backfill, and paged by id for the
+    /// same reason: a file that cannot be opened stays NULL and must not be able to
+    /// spin the caller's loop.
+    public func photosMissingQuickSig(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
+        -> [(id: Int64, filename: String)] {
+        let statement = try db.prepare("""
+            SELECT id, filename FROM photo
+            WHERE folder_id = ? AND id > ?
+              AND (quick_sig IS NULL OR quick_sig = '') AND missing = 0
+            ORDER BY id LIMIT ?;
+            """)
+        try statement.bind(1, SQLiteValue.integer(folderID))
+        try statement.bind(2, SQLiteValue.integer(afterID))
+        try statement.bind(3, SQLiteValue.int(limit))
+        var out: [(id: Int64, filename: String)] = []
+        while try statement.step() {
+            out.append((id: statement.int(0), filename: statement.string(1) ?? ""))
+        }
+        return out
+    }
+
+    /// Record a computed `quick_sig`. This is the writer the column never had.
+    public func setQuickSig(_ signature: String, photoID: Int64) throws {
+        try setQuickSigs([(photoID: photoID, signature: signature)])
+    }
+
+    /// A batch in one transaction, for the same reason `setMetadata` batches: five
+    /// thousand individual commits is a minute of fsync.
+    public func setQuickSigs(_ batch: [(photoID: Int64, signature: String)]) throws {
+        guard !batch.isEmpty else { return }
+        try db.transaction {
+            for entry in batch {
+                try self.db.run("UPDATE photo SET quick_sig = ? WHERE id = ?;",
+                                [.text(entry.signature), .integer(entry.photoID)])
+            }
+        }
+    }
+
+    /// The sidecar's mtime as of our last write of it, or our last read of it — the
+    /// clock docs/15 §15.5's three conflict rules are evaluated against. Written on
+    /// both sides of the exchange, because "unchanged since we last touched it" is the
+    /// only question rule 1 asks and a stamp taken on writes alone cannot answer it for
+    /// a sidecar that arrived from another machine.
+    public func setSidecarMTime(_ mtime: Int64?, photoID: Int64) throws {
+        try db.run("UPDATE photo SET sidecar_mtime = ? WHERE id = ?;",
+                   [.optionalInteger(mtime), .integer(photoID)])
     }
 
     public func setRating(_ rating: Int, photoID: Int64) throws {
@@ -1743,16 +2668,53 @@ public final class CatalogStore {
                    [.bool(collapsed), .integer(stackID)])
     }
 
+    /// RE-STACKING A PHOTOGRAPH USED TO MAKE ITS OLD STACK DISAPPEAR FROM THE GRID.
+    ///
+    /// `stack_member.photo_id` is UNIQUE and this inserted with `OR REPLACE`, so taking a
+    /// frame into a new stack silently deleted its old membership row — while the old
+    /// `stack.pick_photo_id` went on pointing at it. `collapsedTopsOnly` is
+    /// `s.collapsed = 0 OR s.pick_photo_id = photo.id`, and with the pick no longer a
+    /// member that is false for every remaining member; the `NOT EXISTS stack_member`
+    /// branch is false too. The whole stack drops out of the contact sheet.
+    ///
+    /// Reproduced: a burst A/B/C collapsed with A as the pick, then ⌘G on {A, D}. B and C
+    /// are on disk, in the catalog, and in no view — and nothing in the interface can
+    /// bring them back, because the stack they belong to is the thing that vanished.
+    ///
+    /// Three things had to change together, and none of them is the SQL predicate:
+    /// membership is moved rather than replaced, a stack that loses its pick re-picks
+    /// from the survivors (or is deleted when there are none), and a pick that is not one
+    /// of the members is refused — which `setStackPick` already did and this did not.
     @discardableResult
     public func createStack(origin: String, photoIDs: [Int64],
                             pickPhotoID: Int64? = nil) throws -> Int64 {
         try db.transaction {
+            // A pick that is not a member is not a pick. `setStackPick` refuses one;
+            // accepting it here was how a stack could be born already broken.
+            let pick = pickPhotoID.flatMap { photoIDs.contains($0) ? $0 : nil }
+                ?? photoIDs.first
+
+            // WHICH STACKS ARE LOSING MEMBERS, read before the delete so the repair below
+            // knows where to look.
+            var touched: Set<Int64> = []
+            for id in photoIDs {
+                if let old = try self.db.scalarInt(
+                    "SELECT stack_id FROM stack_member WHERE photo_id = ?;",
+                    [.integer(id)]) {
+                    touched.insert(old)
+                }
+            }
+            for id in photoIDs {
+                try self.db.run("DELETE FROM stack_member WHERE photo_id = ?;",
+                                [.integer(id)])
+            }
+
             try self.db.run(
                 "INSERT INTO stack (origin, pick_photo_id, collapsed) VALUES (?, ?, 1);",
-                [.text(origin), .optionalInteger(pickPhotoID ?? photoIDs.first)])
+                [.text(origin), .optionalInteger(pick)])
             let stackID = self.db.lastInsertRowID
             let statement = try self.db.prepare(
-                "INSERT OR REPLACE INTO stack_member (stack_id, photo_id, position) "
+                "INSERT INTO stack_member (stack_id, photo_id, position) "
                 + "VALUES (?, ?, ?);")
             var position = 0
             for id in photoIDs {
@@ -1764,6 +2726,26 @@ public final class CatalogStore {
                 position += 1
             }
             statement.reset()
+
+            // REPAIR WHAT WAS LEFT BEHIND. A stack with no members at all is an orphan
+            // row nothing would ever delete; one whose pick has moved away needs a new
+            // pick, or every one of its frames is invisible while collapsed.
+            for old in touched where old != stackID {
+                guard let survivor = try self.db.scalarInt(
+                    "SELECT photo_id FROM stack_member WHERE stack_id = ? "
+                    + "ORDER BY position ASC LIMIT 1;", [.integer(old)]) else {
+                    try self.db.run("DELETE FROM stack WHERE id = ?;", [.integer(old)])
+                    continue
+                }
+                let stillAMember = try self.db.scalarInt(
+                    "SELECT 1 FROM stack_member m JOIN stack s ON s.id = m.stack_id "
+                    + "WHERE s.id = ? AND m.photo_id = s.pick_photo_id;",
+                    [.integer(old)]) != nil
+                if !stillAMember {
+                    try self.db.run("UPDATE stack SET pick_photo_id = ? WHERE id = ?;",
+                                    [.integer(survivor), .integer(old)])
+                }
+            }
             return stackID
         }
     }
@@ -1789,7 +2771,7 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
-            for photoID in photoIDs { try self.reindexText(photoID: photoID) }
+            for photoID in photoIDs { self.reindexText(photoID: photoID) }
             return id
         }
     }
@@ -1801,8 +2783,15 @@ public final class CatalogStore {
                     [.integer(photoID)], { $0.string(0) ?? "" })
     }
 
-    /// Every keyword in the catalog with how many photos carry it — the sidebar's
-    /// list and the keyword chip's live counts read the same rows.
+    /// Every keyword in the catalog with how many photos carry it.
+    ///
+    /// THE CATALOG's, and that word is load-bearing: this counts `photo_keyword` across
+    /// every folder ever opened and every offline frame, which is the right answer for
+    /// a vocabulary list and the wrong one for anything beside a chip. The filter bar
+    /// used to show these numbers next to a chip that queries one folder, and they were
+    /// out by two orders of magnitude on any catalog with more than one shoot in it.
+    /// The bar's keyword counts come from `facetCounts(for:)` now; this is the
+    /// vocabulary only.
     public func allKeywords() throws -> [FacetValue] {
         try allRows("""
         SELECT k.name, COUNT(pk.photo_id) FROM keyword k
@@ -1828,7 +2817,7 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
-            for photoID in photoIDs { try self.reindexText(photoID: photoID) }
+            for photoID in photoIDs { self.reindexText(photoID: photoID) }
         }
     }
 
@@ -1873,26 +2862,206 @@ public final class CatalogStore {
 
     // MARK: - Metadata chip values
 
+    /// Every number the filter bar shows, counted through the query the grid runs.
+    ///
+    /// THE INVARIANT THIS EXISTS FOR: the number beside a facet is the number of rows
+    /// you get when you click it. Nothing in here counts with SQL of its own. Every
+    /// field is a `countPhotos` over the SAME `PhotoQuery` the grid is about to run,
+    /// with exactly one criterion swapped for the value being offered — so the count
+    /// and the result are not two queries that agree, they are one query.
+    ///
+    /// They used to be two, and they disagreed by two orders of magnitude, in three
+    /// separate ways:
+    ///
+    ///   · keyword counts came from `allKeywords()`, which groups `photo_keyword` over
+    ///     the WHOLE CATALOG — every folder ever opened, offline frames included —
+    ///     while the grid shows one folder. A term used all season read in the
+    ///     thousands beside a chip that returned eleven frames.
+    ///   · camera and lens counts were folder-scoped but chip-blind. They counted the
+    ///     folder, never the folder as the lit chips had already narrowed it.
+    ///   · flag, rating and label counts were a pass over the roll in memory with no
+    ///     filter applied at all. That is the "★4 · 37" that clicks through to six.
+    ///
+    /// WHAT "CLICK IT" MEANS, stated once so the tests and the bar cannot read it two
+    /// ways: the number beside a value is the size of the grid with that value as the
+    /// SOLE selection of its own criterion, every other criterion left exactly as it
+    /// is. For a criterion nothing has narrowed yet — the ordinary case, and the one
+    /// the ★ report was about — that is literally the row count of the next click. For
+    /// a criterion that already has something lit it is that value's own contribution,
+    /// which is the only reading that stays still while its siblings are toggled:
+    /// counting "what you would get AFTER the toggle" would have a lit chip advertise
+    /// the larger number it produces by being switched off.
+    public func facetCounts(for query: PhotoQuery, folderID: Int64? = nil,
+                            limit: Int = 200) throws -> FacetCounts {
+        var counts = FacetCounts()
+
+        for flag in PhotoFlag.allCases {
+            var probe = query
+            probe.flags = [flag]
+            counts.flags[flag] = try countPhotos(matching: probe, folderID: folderID)
+        }
+
+        // `.atLeast` rather than whatever the caller was carrying: the bar offers
+        // "★ r or better" and offers nothing else, so a probe that inherited
+        // `.exactly` would be pricing a chip that does not exist.
+        for stars in 1...5 {
+            var probe = query
+            probe.rating = stars
+            probe.ratingComparison = .atLeast
+            counts.ratingAtLeast[stars] = try countPhotos(matching: probe,
+                                                          folderID: folderID)
+        }
+
+        for label in ColorLabel.allCases {
+            var probe = query
+            probe.labels = [label]
+            probe.includeUnlabeled = false
+            counts.labels[label] = try countPhotos(matching: probe, folderID: folderID)
+        }
+        var unlabeled = query
+        unlabeled.labels = []
+        unlabeled.includeUnlabeled = true
+        counts.unlabeled = try countPhotos(matching: unlabeled, folderID: folderID)
+
+        counts.cameras = try metadataFacetCounts(.camera, matching: query,
+                                                 folderID: folderID, limit: limit)
+        counts.lenses = try metadataFacetCounts(.lens, matching: query,
+                                                folderID: folderID, limit: limit)
+        counts.keywords = try keywordFacetCounts(matching: query, folderID: folderID,
+                                                 limit: limit)
+        return counts
+    }
+
     /// Distinct values of one metadata column with live counts, most-used first.
     ///
-    /// Index-backed by the `photo_camera` / `photo_lens` indexes migration 2 adds, so a
-    /// chip menu on a 100k catalog is a scan of the index rather than of the table.
+    /// The unfiltered case of `facetCounts(for:)` and nothing else, so the two cannot
+    /// drift apart — this used to be a second, independently written GROUP BY, which is
+    /// how the drift started. `includeMissing = false` because that is what this call
+    /// has always meant: a frame that is not on the disk is not something a chip can
+    /// show you.
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
+        var query = PhotoQuery()
+        query.includeMissing = false
+        return try metadataFacetCounts(facet, matching: query, folderID: folderID,
+                                       limit: limit)
+    }
+
+    /// One metadata axis: the values the scope actually contains, each priced by the
+    /// grid's own query with that value swapped in.
+    ///
+    /// One statement per value rather than one GROUP BY over the axis, and deliberately.
+    /// A GROUP BY that respected the other lit chips would need a SECOND copy of the
+    /// predicate set, and a second copy of the predicate set is precisely how the number
+    /// and the result came to disagree. `countPhotos` shares `buildPhotoQuery` with
+    /// `photos(matching:)`, so the tree holds exactly one set of predicates and the
+    /// count is the grid. What that costs is in the class comment on `facetDomain`.
+    private func metadataFacetCounts(_ facet: PhotoFacet, matching query: PhotoQuery,
+                                     folderID: Int64?,
+                                     limit: Int) throws -> [FacetValue] {
+        let selected: Set<String>
+        switch facet {
+        case .camera: selected = Set(query.cameras)
+        case .lens: selected = Set(query.lenses)
+        }
+        var out: [FacetValue] = []
+        for value in try facetDomain(facet, query: query, folderID: folderID,
+                                     limit: limit) {
+            var probe = query
+            switch facet {
+            case .camera: probe.cameras = [value]
+            case .lens: probe.lenses = [value]
+            }
+            let count = try countPhotos(matching: probe, folderID: folderID)
+            // A value that would return nothing is not offered. A row reading "0" is a
+            // control that does nothing, which is the one thing this bar has always
+            // refused to draw. A value already lit stays whatever its count, or there
+            // would be no way left to switch it off.
+            if count > 0 || selected.contains(value) {
+                out.append(FacetValue(value: value, count: count))
+            }
+        }
+        return CatalogStore.rankedFacets(out)
+    }
+
+    /// The vocabulary a menu offers: the values present in the SCOPE — this folder,
+    /// these on-disk frames — not in the catalog.
+    ///
+    /// Ordered by how common they are in the scope because `LIMIT` has to cut somewhere
+    /// and scope frequency is the one ordering available before the honest counts
+    /// exist; with the criteria ANDing, a value's honest count can only be smaller than
+    /// its scope count, so the cut never hides a big number behind a small one. The
+    /// honest counts then re-rank whatever survived.
+    ///
+    /// THE COST, stated plainly: this is one index-backed statement for the domain plus
+    /// one `COUNT(*)` per value offered, where the old wrong answer was a single GROUP
+    /// BY. For camera and lens that is a handful of statements; for keywords it is
+    /// bounded by `limit`. Correct first, fast second — and the whole set is computed
+    /// only when the filter popover is open, never per keystroke.
+    private func facetDomain(_ facet: PhotoFacet, query: PhotoQuery, folderID: Int64?,
+                             limit: Int) throws -> [String] {
+        var conditions = ["photo.\(facet.column) IS NOT NULL"]
         var parameters: [SQLiteValue] = []
-        var scope = "WHERE photo.\(facet.column) IS NOT NULL AND photo.missing = 0"
+        if !query.includeMissing { conditions.append("photo.missing = 0") }
         if let folderID = folderID {
-            scope += " AND photo.folder_id = ?"
+            conditions.append("photo.folder_id = ?")
             parameters.append(.integer(folderID))
         }
         parameters.append(.int(limit))
         return try allRows("""
-        SELECT photo.\(facet.column), COUNT(*) FROM photo
-        \(scope)
+        SELECT photo.\(facet.column) FROM photo
+        WHERE \(conditions.joined(separator: " AND "))
         GROUP BY photo.\(facet.column)
         ORDER BY COUNT(*) DESC, photo.\(facet.column)
         LIMIT ?;
-        """, parameters) { FacetValue(value: $0.string(0) ?? "", count: Int($0.int(1))) }
+        """, parameters) { $0.string(0) ?? "" }
+    }
+
+    /// The keyword axis.
+    ///
+    /// The domain is joined THROUGH `photo` so it is the FOLDER's vocabulary rather
+    /// than the library's. `allKeywords()` is the library's, by design and by name, and
+    /// putting its numbers beside a chip that queries one folder is the two-orders-of-
+    /// magnitude half of this finding.
+    private func keywordFacetCounts(matching query: PhotoQuery, folderID: Int64?,
+                                    limit: Int) throws -> [FacetValue] {
+        var conditions: [String] = []
+        var parameters: [SQLiteValue] = []
+        if !query.includeMissing { conditions.append("photo.missing = 0") }
+        if let folderID = folderID {
+            conditions.append("photo.folder_id = ?")
+            parameters.append(.integer(folderID))
+        }
+        let scope = conditions.isEmpty
+            ? "" : "WHERE " + conditions.joined(separator: " AND ")
+        parameters.append(.int(limit))
+        let domain = try allRows("""
+        SELECT k.name FROM keyword k
+        JOIN photo_keyword pk ON pk.keyword_id = k.id
+        JOIN photo ON photo.id = pk.photo_id
+        \(scope)
+        GROUP BY k.id
+        ORDER BY COUNT(DISTINCT photo.id) DESC, k.name
+        LIMIT ?;
+        """, parameters) { $0.string(0) ?? "" }
+
+        let selected = Set(query.keywords)
+        var out: [FacetValue] = []
+        for name in domain {
+            var probe = query
+            probe.keywords = [name]
+            let count = try countPhotos(matching: probe, folderID: folderID)
+            if count > 0 || selected.contains(name) {
+                out.append(FacetValue(value: name, count: count))
+            }
+        }
+        return CatalogStore.rankedFacets(out)
+    }
+
+    /// Most-used first, ties broken by name so a menu does not reshuffle two equal
+    /// values against each other on every refresh.
+    private static func rankedFacets(_ values: [FacetValue]) -> [FacetValue] {
+        values.sorted { $0.count == $1.count ? $0.value < $1.value : $0.count > $1.count }
     }
 
     // MARK: - Per-source view state (G24)
@@ -2148,6 +3317,90 @@ public final class CatalogStore {
     /// truth. Never an error to the user.
     public func discardArtifact(id: Int64) throws {
         try db.run("DELETE FROM cache.artifact WHERE id = ?;", [.integer(id)])
+    }
+
+    // MARK: - Raw-truth statistics (`cache.raw_stats`)
+
+    /// The cull-time scene-linear statistics, cached so a second look at a photograph
+    /// does not pay for a second decode.
+    ///
+    /// The table has existed since the first schema and nothing wrote to it, which is
+    /// why `RawStatistics` had two round-trip tests and no product behind them. These
+    /// four calls are the writer, the reader, the staleness rule and the backlog query.
+    ///
+    /// The row is disposable by construction (`cache.db`, D52), so every failure mode
+    /// here resolves to "recompute": a blob that does not decode, an analyzer revision
+    /// this build does not recognise, or a provenance that is not the one being asked
+    /// for all read as absent rather than as an error.
+    @discardableResult
+    public func recordRawStatistics(_ stats: RawStatistics, photoID: Int64,
+                                    at now: Int64 = CatalogStore.now()) throws -> Bool {
+        // A measurement that cannot say what it measured is not cached. Storing it
+        // would put a row in front of the panel that has to be captioned "this is not
+        // evidence of anything", and a cache whose job is to avoid recomputation must
+        // not be the reason a wrong caption survives.
+        guard stats.provenance != .unspecified else { return false }
+        try db.run("""
+        INSERT INTO cache.raw_stats (photo_id, bins, clipped_pct, analyzer_rev, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(photo_id) DO UPDATE SET
+          bins         = excluded.bins,
+          clipped_pct  = excluded.clipped_pct,
+          analyzer_rev = excluded.analyzer_rev,
+          computed_at  = excluded.computed_at;
+        """, [.integer(photoID), .blob(stats.encoded()),
+              .text(stats.clippedPercentJSON),
+              .int(Int(stats.analyzerRevision)), .integer(now)])
+        return true
+    }
+
+    /// The cached measurement, or nil when there is none this build can use.
+    ///
+    /// `revision` and `provenance` are both required rather than optional filters,
+    /// because both are ways the same photograph's row can be stale in a way no
+    /// exception would announce: a binning change makes the bins mean something else,
+    /// and a row measured on the decoded frame is not an answer to a caller asking for
+    /// the sensor's mosaic. Reading either as a hit is how a cache starts lying.
+    public func rawStatistics(photoID: Int64,
+                              revision: UInt16 = RawStatistics.currentAnalyzerRevision,
+                              provenance: RawStatistics.Provenance) throws -> RawStatistics? {
+        let blob: Data? = try firstRow(
+            "SELECT bins FROM cache.raw_stats WHERE photo_id = ? AND analyzer_rev = ?;",
+            [.integer(photoID), .int(Int(revision))]) { $0.data(0) ?? Data() }
+        guard let blob, let decoded = RawStatistics.decode(blob) else { return nil }
+        guard decoded.analyzerRevision == revision else { return nil }
+        guard decoded.provenance == provenance else { return nil }
+        return decoded
+    }
+
+    /// The `clipped_pct` JSON as stored, for a caller that wants the numbers without
+    /// paying to decode 2 KB of bins — the grid badge, not the panel.
+    public func rawStatisticsClippedJSON(photoID: Int64) throws -> String? {
+        let text: String? = try firstRow(
+            "SELECT clipped_pct FROM cache.raw_stats WHERE photo_id = ?;",
+            [.integer(photoID)]) { $0.string(0) ?? "" }
+        guard let text, !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// Photographs in a folder with no usable row, oldest id first — the background
+    /// worker's queue. A row at the wrong revision counts as missing, which is what
+    /// makes a revision bump a recompute rather than a permanent wrong answer.
+    public func photosMissingRawStatistics(
+        folderID: Int64,
+        revision: UInt16 = RawStatistics.currentAnalyzerRevision,
+        afterID: Int64 = 0,
+        limit: Int = 500) throws -> [Int64] {
+        try allRows("""
+        SELECT photo.id FROM photo
+        LEFT JOIN cache.raw_stats AS rs
+               ON rs.photo_id = photo.id AND rs.analyzer_rev = ?
+        WHERE photo.folder_id = ? AND photo.id > ? AND photo.missing = 0
+          AND rs.photo_id IS NULL
+        ORDER BY photo.id
+        LIMIT ?;
+        """, [.int(Int(revision)), .integer(folderID), .integer(afterID),
+              .int(Swift.max(0, limit))]) { $0.int(0) }
     }
 
     // MARK: - Filter / sort query builder
@@ -2413,7 +3666,15 @@ public final class CatalogStore {
             expression = "(SELECT MAX(e.updated_at) FROM edit e WHERE e.photo_id = photo.id)"
         case .rating:      expression = "photo.rating"
         case .flag:        expression = "photo.flag"
-        case .label:       expression = "photo.label"
+        // THE SLOT, NOT THE KEY. `photo.label` stores the canonical name, so ordering on
+        // it was alphabetical — blue, green, purple, red, yellow — which is neither the
+        // swatch row's order nor the 6/7/8/9 keys', and is the REVERSE of what the
+        // catalog-less fallback does (`AppState` sorts by `ColorLabel.rawValue`, which
+        // puts unlabelled first). One menu item, two different orders depending on
+        // whether the catalog is live, and neither the one the interface teaches.
+        case .label:
+            expression = "CASE photo.label WHEN 'red' THEN 1 WHEN 'yellow' THEN 2 "
+                + "WHEN 'green' THEN 3 WHEN 'blue' THEN 4 WHEN 'purple' THEN 5 END"
         case .filename:    expression = "photo.filename"
         case .fileType:    expression = "photo.ext"
         case .aspectRatio: expression = "photo.aspect"
@@ -2446,22 +3707,96 @@ public final class CatalogStore {
 
     /// Keeps the FTS row for one photo in step with the catalog. rowid == photo.id, so
     /// the delete is a rowid lookup rather than a scan.
-    private func reindexText(photoID: Int64) throws {
-        if !ftsEnabled { return }
-        guard let fields = try firstRow(
-            "SELECT filename, ext, camera, lens, job FROM photo WHERE id = ?;",
-            [.integer(photoID)], { statement in
-                (statement.string(0) ?? "", statement.string(1) ?? "",
-                 statement.string(2) ?? "", statement.string(3) ?? "",
-                 statement.string(4) ?? "")
-            }) else { return }
-        let keywordList = try keywords(photoID: photoID).joined(separator: " ")
-        try db.run("DELETE FROM cache.photo_fts WHERE rowid = ?;", [.integer(photoID)])
-        try db.run("""
-        INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
-        VALUES (?, ?, ?, ?, ?, ?, ?);
-        """, [.integer(photoID), .text(fields.0), .text(fields.1), .text(fields.2),
-              .text(fields.3), .text(fields.4), .text(keywordList)])
+    /// THE TEXT INDEX LIVES IN THE DISPOSABLE DATABASE; THE ROWS IT INDEXES DO NOT.
+    ///
+    /// `cache.db` is recreated empty in three places in `init` — a cache from a newer
+    /// build, a corrupt cache, and a cache that is simply absent, which is the first run
+    /// and also what a photographer gets by emptying `~/Library/Caches`, exactly as
+    /// `defaultCachePath`'s own comment invites. All three land on `CREATE VIRTUAL
+    /// TABLE IF NOT EXISTS`, which succeeds, so `ftsEnabled` is true for an index that
+    /// holds nothing. Every text query then prefers it over the LIKE fallback, and
+    /// the search chip matches nothing, permanently: the only writer is the per-photo
+    /// `reindexText`, and it is reached from edit paths, never from a scan of what is
+    /// already there.
+    ///
+    /// So: if the catalog has photographs and the index has none of them, refill it.
+    /// One statement, one transaction, in SQL rather than a Swift loop, because a
+    /// hundred-thousand-frame catalog must not pay a round trip per row at launch. The
+    /// condition also repairs a catalog that is ALREADY in the broken state — shipped
+    /// builds have been creating them — which is why it is a check on emptiness rather
+    /// than a flag from the recreate paths.
+    ///
+    /// `EXISTS … LIMIT 1` on both sides: FTS5 keeps no row count, so `COUNT(*)` on the
+    /// index is a scan, and this runs on every open.
+    private func rebuildTextIndexIfNeeded() throws {
+        guard ftsEnabled else { return }
+        let indexHasRows = try db.scalarInt(
+            "SELECT EXISTS(SELECT 1 FROM cache.photo_fts LIMIT 1);") == 1
+        let catalogHasRows = try db.scalarInt(
+            "SELECT EXISTS(SELECT 1 FROM main.photo LIMIT 1);") == 1
+        if catalogHasRows && !indexHasRows { try rebuildTextIndex() }
+    }
+
+    /// Repopulate `cache.photo_fts` from `main`, wholesale. Internal so a test can
+    /// drive it directly; the app reaches it through `init`.
+    ///
+    /// The SELECT is `reindexText`'s row, written once for every photograph: the same
+    /// five columns, the same keyword join (`keywords(photoID:)`), COALESCEd because a
+    /// NULL camera must index as an empty string and not as no row.
+    func rebuildTextIndex() throws {
+        guard ftsEnabled else { return }
+        try db.transaction {
+            _ = try self.db.run("DELETE FROM cache.photo_fts;")
+            _ = try self.db.run("""
+            INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
+            SELECT p.id, p.filename, COALESCE(p.ext, ''),
+                   COALESCE(p.camera, ''), COALESCE(p.lens, ''), COALESCE(p.job, ''),
+                   COALESCE((SELECT group_concat(k.name, ' ')
+                               FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
+                              WHERE pk.photo_id = p.id), '')
+              FROM main.photo p;
+            """)
+        }
+    }
+
+    /// NEVER THROWS. The text index is DERIVED DATA — every row in it is recomputable
+    /// from `photo` and `photo_keyword` — and derived data must not be able to fail a
+    /// photographer's write (J1-02).
+    ///
+    /// This used to throw, and its callers are `setRating`, `setLabel`, `setFlag` and
+    /// the scan's upsert. So an unwritable `cache.db` turned a rating that had already
+    /// been committed to `main` into "Could not save the flag or rating", once per
+    /// keystroke, with no recovery short of a relaunch.
+    ///
+    /// A failure here turns the index OFF for the rest of the session instead. Every
+    /// text query then takes the parameterized-LIKE fallback, which
+    /// `isTextIndexAvailable` already exists to describe and which is correct, just
+    /// slower — the degradation this store was designed for, finally reachable.
+    private func reindexText(photoID: Int64) {
+        guard ftsEnabled else { return }
+        do {
+            guard let fields = try firstRow(
+                "SELECT filename, ext, camera, lens, job FROM photo WHERE id = ?;",
+                [.integer(photoID)], { statement in
+                    (statement.string(0) ?? "", statement.string(1) ?? "",
+                     statement.string(2) ?? "", statement.string(3) ?? "",
+                     statement.string(4) ?? "")
+                }) else { return }
+            let keywordList = try keywords(photoID: photoID).joined(separator: " ")
+            try db.run("DELETE FROM cache.photo_fts WHERE rowid = ?;", [.integer(photoID)])
+            try db.run("""
+            INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, [.integer(photoID), .text(fields.0), .text(fields.1), .text(fields.2),
+                  .text(fields.3), .text(fields.4), .text(keywordList)])
+        } catch {
+            // Once, and then quiet: the same unwritable cache is about to be hit by
+            // every following keystroke, and a log line per photograph is how a disk
+            // problem becomes a second disk problem.
+            NSLog("Lumen catalog: text index unavailable (%@) — searches fall back to "
+                  + "LIKE for the rest of this session", String(describing: error))
+            ftsEnabled = false
+        }
     }
 
     // MARK: - Row helpers
@@ -2583,6 +3918,19 @@ public final class CatalogStore {
                       pinned: s.bool(9))
     }
 
+    /// An unknown `kind` decodes as `.look` rather than throwing: the column is
+    /// constrained by this build's writers and by nothing else, and a look written by a
+    /// later build under a register this one has not heard of is still a look worth
+    /// listing. It is the same posture `decodeEdit` takes on `edit.kind`.
+    private static func decodeLook(_ s: SQLiteStatement) -> LookRow {
+        LookRow(id: s.int(0),
+                name: s.string(1) ?? "",
+                group: s.string(2),
+                kind: LookKind(rawValue: s.string(3) ?? "look") ?? .look,
+                subsetJSON: s.string(4) ?? "{}",
+                updatedAt: s.int(5))
+    }
+
     private static func decodeStack(_ s: SQLiteStatement) -> StackRow {
         StackRow(id: s.int(0),
                  origin: s.string(1) ?? "manual",
@@ -2646,7 +3994,7 @@ public final class CatalogStore {
 
 public final class CatalogStore {
 
-    public static let latestSchemaVersion: Int = 2
+    public static let latestSchemaVersion: Int = 3
     public static let migrations: [CatalogMigration] = []
     public static let cacheMigrations: [CatalogMigration] = []
 
@@ -2669,9 +4017,36 @@ public final class CatalogStore {
 
     public func quickCheck() throws -> Bool { throw CatalogError.unavailable }
     public func integrityCheck() throws -> Bool { throw CatalogError.unavailable }
+
+    /// Without SQLite there is no catalog to check and none to restore. `.firstRun` is
+    /// the honest answer: nothing was found, nothing was touched, and the open that
+    /// follows fails on its own terms rather than being pre-empted by a damage report
+    /// this build cannot have made.
+    public static func recoverIfNeeded(path: String,
+                                       backupDirectory: String) -> CatalogRecovery {
+        CatalogRecovery(outcome: .firstRun)
+    }
     public func checkpoint(truncate: Bool = false) throws { throw CatalogError.unavailable }
     public func optimize() throws { throw CatalogError.unavailable }
     public func backup(to path: String) throws { throw CatalogError.unavailable }
+
+    // The automatic-backup surface, kept in step with the SQLite build so a caller
+    // written against one compiles against the other. `BackupRetention` itself is
+    // outside the fence — it is arithmetic over filenames and needs no database.
+    public static let lastBackupMetaKey = "last_backup_at"
+    public static let automaticBackupInterval: Int64 = 20 * 3_600
+    public func lastBackupAt() throws -> Int64? { throw CatalogError.unavailable }
+    public func isBackupDue(now: Int64 = CatalogStore.now(),
+                            interval: Int64 = CatalogStore.automaticBackupInterval)
+        throws -> Bool {
+        throw CatalogError.unavailable
+    }
+    public func noteBackupTaken(at when: Int64 = CatalogStore.now()) throws {
+        throw CatalogError.unavailable
+    }
+    public static func snapshot(from path: String, to destination: String) throws {
+        throw CatalogError.unavailable
+    }
 
     @discardableResult
     public func sweepCacheOrphans() throws -> Int { throw CatalogError.unavailable }
@@ -2732,12 +4107,20 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
-    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool) throws {
+    public func relocationProbe(folderID: Int64, listed: Set<String>) throws
+        -> RelocationProbe {
+        throw CatalogError.unavailable
+    }
+
+    public func saveRecipe(_ recipe: Recipe, photoID: Int64, isCurrent: Bool,
+                           isRenderedFile: Bool = false) throws {
         throw CatalogError.unavailable
     }
     @discardableResult
     public func saveRecipe(_ recipe: Recipe, photoID: Int64, kind: EditKind,
-                           name: String?, isCurrent: Bool, at now: Int64 = 0) throws -> Int64 {
+                           name: String?, isCurrent: Bool,
+                           isRenderedFile: Bool = false,
+                           at now: Int64 = 0) throws -> Int64 {
         throw CatalogError.unavailable
     }
     public func currentRecipe(photoID: Int64) throws -> Recipe? {
@@ -2752,6 +4135,25 @@ public final class CatalogStore {
     }
     public func makeCurrent(editID: Int64) throws { throw CatalogError.unavailable }
 
+    @discardableResult
+    public func saveLook(name: String, subset: LookSubset,
+                         kind: LookKind = .look, group: String? = nil,
+                         at now: Int64 = 0) throws -> Int64 {
+        throw CatalogError.unavailable
+    }
+    public func looks(kind: LookKind = .look) throws -> [LookRow] {
+        throw CatalogError.unavailable
+    }
+    public func look(id: Int64) throws -> LookRow? { throw CatalogError.unavailable }
+    public func look(named name: String, kind: LookKind = .look,
+                     group: String? = nil) throws -> LookRow? {
+        throw CatalogError.unavailable
+    }
+    public func renameLook(id: Int64, to name: String, at now: Int64 = 0) throws {
+        throw CatalogError.unavailable
+    }
+    public func deleteLook(id: Int64) throws { throw CatalogError.unavailable }
+
     public func setFlag(_ flag: PhotoFlag, photoID: Int64) throws {
         throw CatalogError.unavailable
     }
@@ -2763,8 +4165,27 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
-    public func photosMissingMetadata(folderID: Int64, limit: Int = 5000) throws
+    public func photosMissingMetadata(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
         -> [(id: Int64, filename: String)] {
+        throw CatalogError.unavailable
+    }
+
+    public func photosMissingQuickSig(folderID: Int64, afterID: Int64 = 0,
+                                      limit: Int = 5000) throws
+        -> [(id: Int64, filename: String)] {
+        throw CatalogError.unavailable
+    }
+
+    public func setQuickSig(_ signature: String, photoID: Int64) throws {
+        throw CatalogError.unavailable
+    }
+
+    public func setQuickSigs(_ batch: [(photoID: Int64, signature: String)]) throws {
+        throw CatalogError.unavailable
+    }
+
+    public func setSidecarMTime(_ mtime: Int64?, photoID: Int64) throws {
         throw CatalogError.unavailable
     }
 
@@ -2836,6 +4257,10 @@ public final class CatalogStore {
     public func dissolveStack(id: Int64) throws { throw CatalogError.unavailable }
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
+        throw CatalogError.unavailable
+    }
+    public func facetCounts(for query: PhotoQuery, folderID: Int64? = nil,
+                            limit: Int = 200) throws -> FacetCounts {
         throw CatalogError.unavailable
     }
 

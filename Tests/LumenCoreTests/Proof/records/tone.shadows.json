@@ -1,0 +1,14 @@
+{
+  "authority" : 47.18667167654914,
+  "deadSteps" : 0,
+  "frame" : "neutralRamp",
+  "frontLoading" : 0.40795613158463134,
+  "givenBack" : 0,
+  "id" : "tone.shadows",
+  "isMonotone" : true,
+  "meanSeparation" : 13.64218616366106,
+  "panel" : "Basic",
+  "smallestLiveStep" : 1.5518752123299215,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

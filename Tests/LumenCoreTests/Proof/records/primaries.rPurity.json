@@ -1,0 +1,15 @@
+{
+  "authority" : 88.12209623655978,
+  "deadSteps" : 1,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 1.0000004644363003,
+  "givenBack" : 0.41876397973619817,
+  "hueRotation" : 22.67321143335255,
+  "id" : "primaries.rPurity",
+  "isMonotone" : false,
+  "meanSeparation" : 6.833658395885571,
+  "panel" : "Primaries",
+  "smallestLiveStep" : 1.6046437849581707e-05,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

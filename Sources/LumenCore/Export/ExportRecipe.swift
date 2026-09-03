@@ -1,11 +1,157 @@
 // ExportRecipe.swift
 // The multi-recipe export model (D40, docs/11): a set of named recipes, any number of
 // which can be checked at once, so one Export click emits the web JPEG, the print TIFF
-// and the HDR HEIC together. The render forks at the resize node — everything upstream
-// is computed once and shared, which is why three recipes cost far less than three
-// exports.
+// and the HDR HEIC together. That gesture is real, it works, and Lightroom Classic still
+// cannot do it.
+//
+// What it does NOT do is share the render. This header used to say "the render forks at
+// the resize node — everything upstream is computed once and shared, which is why three
+// recipes cost far less than three exports", and that is false:
+// `AppStateActions.export` loops photos × recipes and each iteration calls
+// `PipelineRenderer.export`, which builds a fresh `RenderGraph` and renders the full
+// develop chain end to end. Three checked recipes cost three full renders. The one thing
+// reused is the decoded `CIImage`, from `ImageSource`'s own cache.
+//
+// Stated here rather than quietly dropped, because the false version was load-bearing on
+// a user's behaviour: it is the sentence that tells a photographer checking a fourth
+// recipe is nearly free.
 
 import Foundation
+
+// MARK: - Tolerant decoding
+
+/// TOLERANCE THAT REACHES THE NESTED TYPES.
+///
+/// `ExportRecipe.init(from:)` below already makes every top-level key optional (K-016),
+/// and that tolerance was one level deep. `decodeIfPresent` returns nil for a key that
+/// is ABSENT; a key that is PRESENT is handed to its type's own decoder and everything
+/// that decoder objects to is rethrown straight through. So a stored `sharpen` object
+/// written before a field this build added throws `keyNotFound` from inside
+/// `OutputSharpen`'s synthesised decoder, and a `"format":"avif"` written by a later
+/// build throws `dataCorrupted` from `ExportFormat`'s — both out of the recipe, and out
+/// of `JSONDecoder.decode([ExportRecipe].self)`, which decodes an array atomically, so
+/// one entry takes all of them. `AppState.loadExportRecipes` reads that with `try?` and
+/// answers `ExportRecipe.defaults`; the first edit afterwards fires `didSet` and
+/// `saveExportRecipes` overwrites the stored blob with the stock four. Every delivery
+/// preset the photographer ever built, gone, with no error and nothing to restore from.
+///
+/// ONE helper rather than a fallback written out per field, because the defect is not
+/// any of the six enums or the four nested structs — it is that reading stored preset
+/// text can throw at all. Every decoder in this file reads through `tolerant`, which
+/// makes the guarantee structural rather than enumerated: once `ExportRecipe.init(from:)`
+/// holds its container, nothing it does can throw, whatever a nested type does — a
+/// nested type nobody has written yet included. The four nested types get tolerant
+/// decoders of their own anyway, for GRANULARITY, not for safety: without them the outer
+/// fallback would swallow a whole `sharpen` object over one added key and quietly reset
+/// a medium and an amount the photographer chose. Braces for the door we know about,
+/// belt for the one we do not.
+///
+/// This is deliberately the OPPOSITE rule from `RecipeDecoding.swift`, which refuses to
+/// substitute a default for a value somebody's tool actually wrote, on two grounds: a
+/// mask that silently becomes another kind of mask renders a picture nobody asked for,
+/// and its caller can contain the failure to the one photo it belongs to. Neither holds
+/// here. A preset is an instruction that is VISIBLE — a format that came back JPEG
+/// because this build has never heard of AVIF shows as JPEG in the export sheet, beside
+/// the name and subfolder the photographer gave it, and is one click from right. And the
+/// caller can contain nothing: the list is a single blob, decoded atomically, with the
+/// stock four waiting behind it. The choice is not "the stored value or a default", it
+/// is "the preset with one field defaulted or no presets at all".
+///
+/// The one door this cannot close from here: an array element that is not an object at
+/// all throws before `init(from:)` is ever given a container. Only an element-by-element
+/// decode in the caller survives that, and the caller is `AppState.loadExportRecipes`.
+///
+/// The ENCODER stays synthesised everywhere, as it was. Writing is this build's job and
+/// this build knows all its own fields; only reading has to survive the other builds.
+extension ExportRecipe {
+
+    /// A stored preset list, decoded ELEMENT BY ELEMENT.
+    ///
+    /// The tolerant decoder below makes any one `ExportRecipe` survive a field it does
+    /// not understand. It cannot make the ARRAY survive, and that is the other half of
+    /// J3-01: `JSONDecoder` decodes an array atomically, so a single element that is not
+    /// even a JSON object — a null, a string, a shape from a format this build predates —
+    /// throws, and the caller's `try?` hands back the stock four. Every delivery preset
+    /// the photographer ever made, replaced, with no error anywhere. The next edit's
+    /// `didSet` then writes those four over the stored blob, so it is not recoverable by
+    /// relaunching either.
+    ///
+    /// Decoding through an unkeyed container makes the blast radius one entry: a bad
+    /// element is skipped and named in the log, and the presets either side of it live.
+    ///
+    /// SKIPPING IS THE HARD PART, and the obvious spelling is a hang. An unkeyed
+    /// container advances `currentIndex` only on a decode that SUCCEEDS, and
+    /// `decodeNil()` advances only when the value genuinely is null — so on a element
+    /// that is a string, a number, or an object this decoder cannot read, `decodeNil()`
+    /// answers false, consumes nothing, `isAtEnd` never becomes true, and the loop spins
+    /// forever. That is worse than the defect it was written to fix: a stored blob with
+    /// one bad element would hang the app on launch instead of merely losing the list.
+    ///
+    /// The first draft of this function did exactly that, and the comment here asserted
+    /// the property the code did not have. `test-fast` hung on
+    /// `testOneUnreadableElementCostsOnlyItself` and reported no failing test at all,
+    /// which is what a hang looks like from the outside.
+    ///
+    /// `Skipped` is the fix and it cannot fail: its `init(from:)` reads nothing, so
+    /// `decode` always succeeds and the index always advances. One element consumed per
+    /// iteration, whatever the element is.
+    ///
+    /// It returns the list even when EMPTY, and the distinction matters: "the file has no
+    /// presets" is a thing a photographer can mean by deleting them all, and answering
+    /// that with the stock four resurrects four presets he threw away. Only a MISSING or
+    /// unreadable blob deserves the defaults, and that is the caller's `nil`.
+    public static func decodeList(_ data: Data) -> [ExportRecipe]? {
+        /// Consumes exactly one element of an unkeyed container and reads nothing from
+        /// it. `init(from:)` cannot throw, so `decode` cannot fail, so `currentIndex`
+        /// always advances — which is the whole job.
+        struct Skipped: Decodable {
+            init(from decoder: Decoder) throws {}
+        }
+
+        struct Wire: Decodable {
+            var recipes: [ExportRecipe] = []
+            var skipped = 0
+            init(from decoder: Decoder) throws {
+                var c = try decoder.unkeyedContainer()
+                while !c.isAtEnd {
+                    if let one = try? c.decode(ExportRecipe.self) {
+                        recipes.append(one)
+                    } else {
+                        // Unconditional, and it is what makes the loop terminate.
+                        _ = try? c.decode(Skipped.self)
+                        skipped += 1
+                    }
+                }
+            }
+        }
+        guard let wire = try? JSONDecoder().decode(Wire.self, from: data) else { return nil }
+        if wire.skipped > 0 {
+            NSLog("Lumen: %d stored export preset(s) could not be read and were skipped; "
+                  + "the other %d are intact", wire.skipped, wire.recipes.count)
+        }
+        return wire.recipes
+    }
+}
+
+fileprivate extension KeyedDecodingContainer {
+
+    /// The stored value, or `fallback` when the key is absent, null, or unreadable —
+    /// wrong type, unknown enum raw value, or a nested object whose own decode threw.
+    ///
+    /// `try?` flattens the optional `decodeIfPresent` already returns (SE-0230), which
+    /// is why one `??` covers all four: absent, null and unreadable are deliberately the
+    /// same answer here, because the fallback is the right answer to all of them.
+    func tolerant<T: Decodable>(_ type: T.Type, forKey key: Key,
+                                default fallback: @autoclosure () -> T) -> T {
+        (try? decodeIfPresent(type, forKey: key)) ?? fallback()
+    }
+
+    /// The same for a field whose absence is itself the value — `watermark`, `subfolder`,
+    /// `hdr`. Unreadable and absent answer alike here, which is what "no watermark" means.
+    func tolerant<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+        try? decodeIfPresent(type, forKey: key)
+    }
+}
 
 // MARK: - Format
 
@@ -27,6 +173,15 @@ public enum ExportFormat: String, Codable, Sendable, CaseIterable {
 
     public var supportsSixteenBit: Bool {
         self == .tiff || self == .png
+    }
+
+    /// HEIC is the one lossy container with a deeper option: HEVC has a Main 10
+    /// profile, and Core Image can author it (`writeHEIF10Representation`, macOS 12+).
+    /// Whether THIS machine's encoder accepts it is a runtime question the pipeline
+    /// probes (`PipelineRenderer.canWriteTenBitHEIC`); this flag is only the format's
+    /// side of the answer. JPEG has no such option — 8-bit is the format.
+    public var supportsTenBit: Bool {
+        self == .heif
     }
 
     /// Only the two modern container formats can carry a gain map (docs/11 §HDR).
@@ -99,6 +254,23 @@ public struct MetadataPolicy: Codable, Equatable, Sendable {
         self.copyright = copyright
         self.contact = contact
     }
+
+    /// Tolerant, per the note at the top of this file: a policy stored before this
+    /// build grew a key keeps the four flags and two strings it does carry, rather
+    /// than costing the recipe it belongs to — and the whole list behind it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = MetadataPolicy()
+        includeEXIF = c.tolerant(Bool.self, forKey: .includeEXIF,
+                                 default: fallback.includeEXIF)
+        includeCameraSerial = c.tolerant(Bool.self, forKey: .includeCameraSerial,
+                                         default: fallback.includeCameraSerial)
+        includeGPS = c.tolerant(Bool.self, forKey: .includeGPS, default: fallback.includeGPS)
+        includeKeywords = c.tolerant(Bool.self, forKey: .includeKeywords,
+                                     default: fallback.includeKeywords)
+        copyright = c.tolerant(String.self, forKey: .copyright)
+        contact = c.tolerant(String.self, forKey: .contact)
+    }
 }
 
 // MARK: - Output sharpening
@@ -142,6 +314,17 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         self.amount = amount
     }
 
+    /// Tolerant, per the note at the top of this file. Both fields are raw-value enums,
+    /// which is the half that matters here: a `medium` this build has no case for falls
+    /// back to Off and leaves `amount` exactly as the photographer set it, instead of
+    /// throwing `dataCorrupted` and taking every preset in the list with it.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = OutputSharpen()
+        medium = c.tolerant(Medium.self, forKey: .medium, default: fallback.medium)
+        amount = c.tolerant(Amount.self, forKey: .amount, default: fallback.amount)
+    }
+
     /// Base radius in output pixels, before the amount scale.
     ///
     /// Screen: ~1 px, the width of the display's own sampling. Print: the halo should
@@ -156,9 +339,42 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         }
     }
 
-    /// Sharpening energy. Asymmetric dark:light weighting (dark halos read as
-    /// "crisp", light halos read as "oversharpened") is applied by the renderer;
-    /// this is the master amount.
+    /// The bounds `PipelineRenderer.applyOutputSharpen` clamps its radius to. Here,
+    /// beside the formula, so the export sheet's readout and the renderer share one
+    /// number: matte at the Resolution slider's typed-entry ceiling (2400 ppi) derives
+    /// a 24 px radius, the renderer runs 12, and a readout printing the formula's
+    /// answer would be claiming a halo twice as wide as the one delivered.
+    public static let appliedRadiusBounds: ClosedRange<Double> = 0.3...12
+
+    /// The radius the renderer actually runs: `baseRadius` through the shared clamp,
+    /// and exactly zero when the medium is Off — the renderer skips the filter
+    /// entirely then, and a clamp that turned "off" into 0.3 px would undo that.
+    public func appliedRadius(printPPI: Double = 300) -> Double {
+        guard !isIdentity else { return 0 }
+        return Num.clamp(baseRadius(printPPI: printPPI),
+                         Self.appliedRadiusBounds.lowerBound,
+                         Self.appliedRadiusBounds.upperBound)
+    }
+
+    /// Sharpening energy — the master amount, and the only amount.
+    ///
+    /// This used to say that "asymmetric dark:light weighting (dark halos read as
+    /// 'crisp', light halos read as 'oversharpened') is applied by the renderer", and it
+    /// is not applied by anything. `PipelineRenderer.applyOutputSharpen` builds a bare
+    /// `CIUnsharpMask` from `baseRadius` and this number, and an unsharp mask halos
+    /// symmetrically by construction: it adds the same high-pass on both sides of an
+    /// edge. The ratio the sentence referred to was a `lightHaloRatio = 0.6` constant
+    /// with no reader anywhere in the repository, so the asymmetry existed as a number
+    /// and a claim and nothing else.
+    ///
+    /// The observation behind it is sound and is why docs/11 asks for the asymmetry: a
+    /// light halo along a skyline is the tell that gives "oversharpened" its name, and
+    /// a dark one at the same amplitude reads as definition. Delivering it needs a
+    /// two-sided kernel — split the high-pass by sign and scale the positive lobe to
+    /// about 0.6 of the negative — which is a new kernel with its own halo bound to
+    /// assert, and it is not written. The constant is gone rather than left sitting
+    /// beside a function that does not consult it; the number it held is recorded in
+    /// this sentence, which is the only place it was ever doing any work.
     public func energy() -> Double {
         switch medium {
         case .none: return 0
@@ -167,9 +383,6 @@ public struct OutputSharpen: Codable, Equatable, Sendable {
         case .glossy: return 0.70 * amount.scale
         }
     }
-
-    /// Light halos get less energy than dark ones, at this ratio.
-    public static let lightHaloRatio: Double = 0.6
 
     public var isIdentity: Bool { medium == .none }
 }
@@ -195,6 +408,21 @@ public struct Watermark: Codable, Equatable, Sendable {
         self.sizePercent = sizePercent
         self.insetPercent = insetPercent
     }
+
+    /// Tolerant, per the note at the top of this file. The text is the part with the
+    /// photographer's work in it — a studio name typed once and used for years — so an
+    /// unreadable `position` costs a corner, not the mark.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Watermark()
+        text = c.tolerant(String.self, forKey: .text, default: fallback.text)
+        position = c.tolerant(Position.self, forKey: .position, default: fallback.position)
+        opacity = c.tolerant(Double.self, forKey: .opacity, default: fallback.opacity)
+        sizePercent = c.tolerant(Double.self, forKey: .sizePercent,
+                                 default: fallback.sizePercent)
+        insetPercent = c.tolerant(Double.self, forKey: .insetPercent,
+                                  default: fallback.insetPercent)
+    }
 }
 
 // MARK: - The recipe
@@ -206,7 +434,12 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
 
     public var format: ExportFormat
     public var quality: Double          // 0…100, JPEG/HEIF only
-    public var bitDepth: Int            // 8 or 16, TIFF/PNG only
+    /// 8 or 16 for TIFF/PNG; 8 or 10 for HEIC; ignored for JPEG, which is 8-bit by
+    /// format. One stored number for every format ON PURPOSE: a new field here would
+    /// have to survive the strict `try?` preset decode (docs/31 carried-forward #2),
+    /// and an Int a given format cannot write is already handled by
+    /// `effectiveBitDepth` folding it to what the encoder will actually do.
+    public var bitDepth: Int
     public var colorSpace: ExportColorSpace
 
     public var resizeMode: ResizeMode
@@ -219,16 +452,24 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     public var metadata: MetadataPolicy
     public var watermark: Watermark?
 
-    /// Token grammar shared with the ingest renamer: {name} {seq:N} {date} {time}
-    /// {camera} {lens} {iso} {recipe} {ext}.
+    /// Tokens implemented today, by `AppState.renderFilename`: {name} {date} {recipe}
+    /// {ext} — and the sheet's Naming note lists exactly these. This used to claim a
+    /// grammar "shared with the ingest renamer" including {seq:N} {time} {camera}
+    /// {lens} {iso}; the ingest renamer (`RenameTemplate`) is a separate
+    /// implementation with its own token set, and none of those five is read by the
+    /// export path. An unknown token stays visible in the delivered name rather than
+    /// being silently dropped.
     public var filenameTemplate: String
     public var subfolder: String?
 
     /// HDR: emit a gain map alongside the SDR base rendition.
     public var hdr: HDRSettings?
 
+    /// `quality` defaults to 100 (docs/32 Stream G): a delivery should not pay
+    /// compression's price unasked. The one preset that deliberately trades quality
+    /// for web-sized files says so in its own name ("q90").
     public init(id: String = UUID().uuidString, name: String, enabled: Bool = true,
-                format: ExportFormat = .jpeg, quality: Double = 90, bitDepth: Int = 8,
+                format: ExportFormat = .jpeg, quality: Double = 100, bitDepth: Int = 8,
                 colorSpace: ExportColorSpace = .srgb,
                 resizeMode: ResizeMode = .none, resizeValue: Double = 2048,
                 allowUpscale: Bool = false, resolutionPPI: Double = 300,
@@ -256,25 +497,107 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.hdr = hdr
     }
 
+    /// A TOLERANT DECODE, because the strict one loses every preset the photographer
+    /// ever built (K-016) — and a decode tolerant only of THIS level loses them too,
+    /// which is the note at the top of this file.
+    ///
+    /// `Codable`'s synthesised decoder requires every one of the seventeen stored
+    /// properties above. `AppState.loadExportRecipes` reads the list with `try?` and
+    /// falls back to `ExportRecipe.defaults` — so a payload missing ONE key does not
+    /// produce an error, or a warning, or a partial list. It silently replaces the
+    /// photographer's delivery presets with the stock four.
+    ///
+    /// And the missing key arrives by ordinary means: this build adds a field, the
+    /// user's stored payload was written before it existed, and every preset they had
+    /// is gone the first time they launch. The `bitDepth` comment three screens up is
+    /// the previous author noticing the same trap and routing around it by refusing to
+    /// add a field — which is the design being dictated by a decoder.
+    ///
+    /// Every field is optional with the memberwise initializer's own default behind it,
+    /// so an old payload decodes, a new field takes its default, and the preset
+    /// survives. `id` and `name` get generated fallbacks rather than a default value:
+    /// an entry with no id would collide in `Identifiable` and one with no name would
+    /// render as a blank row, and both are recoverable states rather than reasons to
+    /// discard the list.
+    ///
+    /// Every read goes through `tolerant` rather than `decodeIfPresent`, so the same
+    /// sentence covers the key that is missing, the key whose type has changed, the
+    /// enum case a later build invented and the nested object that objected to
+    /// something inside itself. All four used to be one thrown error and no presets.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = ExportRecipe(name: "")
+        id = c.tolerant(String.self, forKey: .id, default: UUID().uuidString)
+        name = c.tolerant(String.self, forKey: .name, default: "Untitled")
+        enabled = c.tolerant(Bool.self, forKey: .enabled, default: fallback.enabled)
+        format = c.tolerant(ExportFormat.self, forKey: .format, default: fallback.format)
+        quality = c.tolerant(Double.self, forKey: .quality, default: fallback.quality)
+        bitDepth = c.tolerant(Int.self, forKey: .bitDepth, default: fallback.bitDepth)
+        colorSpace = c.tolerant(ExportColorSpace.self, forKey: .colorSpace,
+                                default: fallback.colorSpace)
+        resizeMode = c.tolerant(ResizeMode.self, forKey: .resizeMode,
+                                default: fallback.resizeMode)
+        resizeValue = c.tolerant(Double.self, forKey: .resizeValue,
+                                 default: fallback.resizeValue)
+        allowUpscale = c.tolerant(Bool.self, forKey: .allowUpscale,
+                                  default: fallback.allowUpscale)
+        resolutionPPI = c.tolerant(Double.self, forKey: .resolutionPPI,
+                                   default: fallback.resolutionPPI)
+        sharpen = c.tolerant(OutputSharpen.self, forKey: .sharpen, default: fallback.sharpen)
+        metadata = c.tolerant(MetadataPolicy.self, forKey: .metadata,
+                              default: fallback.metadata)
+        watermark = c.tolerant(Watermark.self, forKey: .watermark)
+        filenameTemplate = c.tolerant(String.self, forKey: .filenameTemplate,
+                                      default: fallback.filenameTemplate)
+        subfolder = c.tolerant(String.self, forKey: .subfolder)
+        hdr = c.tolerant(HDRSettings.self, forKey: .hdr)
+    }
+
     /// The depth the encoder will actually use.
     ///
-    /// `bitDepth` is only meaningful for the two lossless formats — JPEG and HEIF are
-    /// 8-bit whatever the field says, and the sheet says so — so anything that has to
-    /// reason about the real quantization (the dither, above all) has to ask this rather
-    /// than the stored number.
+    /// The stored `bitDepth` can hold a value the current format cannot write (switch
+    /// a 16-bit TIFF recipe to HEIC and 16 is still stored), so anything that has to
+    /// reason about the real quantization — the dither's amplitude above all — asks
+    /// this rather than the stored number. JPEG is 8 whatever the field says; TIFF and
+    /// PNG fold to 16 or 8; HEIC folds any deeper request to 10, the most its HEVC
+    /// Main-10 profile carries. Whether this machine's encoder ACCEPTS a 10-bit HEIC
+    /// is the pipeline's runtime question (`PipelineRenderer.canWriteTenBitHEIC`) —
+    /// this is the depth the recipe is asking for, and a writer that cannot honour it
+    /// must refuse loudly rather than quietly deliver 8.
     public var effectiveBitDepth: Int {
-        format.supportsSixteenBit && bitDepth >= 16 ? 16 : 8
+        if format.supportsSixteenBit && bitDepth >= 16 { return 16 }
+        if format.supportsTenBit && bitDepth >= 10 { return 10 }
+        return 8
     }
 
     /// Target pixel size for a source of the given dimensions, honouring the
     /// no-upscale rule.
     public func targetSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
-        let w = Double(sourceWidth), h = Double(sourceHeight)
-        guard w > 0, h > 0 else { return (sourceWidth, sourceHeight) }
+        targetSize(sourceWidth: Double(sourceWidth), sourceHeight: Double(sourceHeight))
+    }
+
+    /// The same, from the extent EXACTLY as the renderer holds it — fractional after
+    /// any crop or straighten (docs/32 Stream G item 3, handed off by the `.none` fix).
+    ///
+    /// The export path used to truncate the crop extent to `Int` before asking, which
+    /// moved the scale by up to a part in two thousand — enough, near a rounding
+    /// boundary, to promise a short edge one pixel off the size the resampler then
+    /// actually delivers (2000.5 × 1333.5 at long edge 1600 promises 1066 truncated,
+    /// delivers 1067). The target is rounded from the un-truncated extent, so the
+    /// promise and the delivery are the same arithmetic.
+    public func targetSize(sourceWidth: Double,
+                           sourceHeight: Double) -> (width: Int, height: Int) {
+        let w = sourceWidth, h = sourceHeight
+        guard w.isFinite, h.isFinite, w > 0, h > 0 else {
+            // The degenerate answer the Int overload always gave: the source echoed
+            // back, with a non-finite axis folded to zero rather than trapped on.
+            return (Swift.max(Int(w.isFinite ? w.rounded() : 0), 0),
+                    Swift.max(Int(h.isFinite ? h.rounded() : 0), 0))
+        }
         var scale = 1.0
         switch resizeMode {
         case .none:
-            return (sourceWidth, sourceHeight)
+            return (Swift.max(Int(w.rounded()), 1), Swift.max(Int(h.rounded()), 1))
         case .longEdge:
             scale = resizeValue / Swift.max(w, h)
         case .shortEdge:
@@ -288,15 +611,21 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
             scale = (targetPixels / (w * h)).squareRoot()
         }
         if !allowUpscale { scale = Swift.min(scale, 1.0) }
-        guard scale.isFinite, scale > 0 else { return (sourceWidth, sourceHeight) }
+        guard scale.isFinite, scale > 0 else {
+            return (Swift.max(Int(w.rounded()), 1), Swift.max(Int(h.rounded()), 1))
+        }
         return (Swift.max(Int((w * scale).rounded()), 1),
                 Swift.max(Int((h * scale).rounded()), 1))
     }
 
     // MARK: Stock recipes
 
+    /// The one preset that keeps quality below 100, deliberately, and the name says
+    /// so: at 2048 px for screens, q90 reads identically and roughly halves the file
+    /// — the point of a web preset. Every other recipe defaults to 100 (docs/32
+    /// Stream G): a delivery should not lose to compression unasked.
     public static var webJPEG: ExportRecipe {
-        ExportRecipe(name: "Web sRGB 2048", format: .jpeg, quality: 90,
+        ExportRecipe(name: "Web sRGB 2048 q90", format: .jpeg, quality: 90,
                      colorSpace: .srgb, resizeMode: .longEdge, resizeValue: 2048,
                      sharpen: OutputSharpen(medium: .screen, amount: .standard),
                      filenameTemplate: "{name}")
@@ -310,15 +639,15 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     }
 
     public static var hdrHEIC: ExportRecipe {
-        ExportRecipe(name: "HDR HEIC", enabled: false, format: .heif, quality: 85,
+        ExportRecipe(name: "HDR HEIC", enabled: false, format: .heif, quality: 100,
                      colorSpace: .displayP3, resizeMode: .none,
                      filenameTemplate: "{name}-hdr", subfolder: "hdr",
                      hdr: HDRSettings())
     }
 
     public static var archiveOriginalSize: ExportRecipe {
-        ExportRecipe(name: "Full-size JPEG", enabled: false, format: .jpeg, quality: 95,
-                     colorSpace: .displayP3, resizeMode: .none)
+        ExportRecipe(name: "Full-size JPEG", enabled: false, format: .jpeg,
+                     quality: 100, colorSpace: .displayP3, resizeMode: .none)
     }
 
     public static var defaults: [ExportRecipe] {
@@ -418,6 +747,19 @@ public struct HDRSettings: Codable, Equatable, Sendable {
         self.headroomEV = headroomEV
         self.mapScale = mapScale
         self.deliberateSDRBase = deliberateSDRBase
+    }
+
+    /// Tolerant, per the note at the top of this file. This is the nested type most
+    /// likely to grow — the gain map it describes is half-written (`hdrIsWritable`) and
+    /// the ISO 21496-1 fields it still needs are not invented yet — so it is the one
+    /// whose next field would otherwise be the one that empties the preset list.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = HDRSettings()
+        headroomEV = c.tolerant(Double.self, forKey: .headroomEV, default: fallback.headroomEV)
+        mapScale = c.tolerant(Double.self, forKey: .mapScale, default: fallback.mapScale)
+        deliberateSDRBase = c.tolerant(Bool.self, forKey: .deliberateSDRBase,
+                                       default: fallback.deliberateSDRBase)
     }
 
     public var whiteTargetPercent: Double { 100 * pow(2, Num.clamp(headroomEV, 0, 4)) }

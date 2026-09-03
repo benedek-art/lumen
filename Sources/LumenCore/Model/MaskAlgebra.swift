@@ -17,6 +17,68 @@ import Foundation
 
 public enum MaskAlgebra {
 
+    /// A mask's adjusted pixel, combined with the one underneath through its blend mode
+    /// — BEFORE the alpha composite, which is unchanged.
+    ///
+    /// The whole of S11 for one pixel is:
+    ///
+    ///     adjusted = localAdjust(base)
+    ///     blended  = blended(base:adjusted:blend:space:)
+    ///     out      = mix(base, blended, alpha)
+    ///
+    /// so a mask in Normal mode is bit-identical to what shipped before blend modes
+    /// existed — `blended` returns `adjusted` untouched — and every other mode composites
+    /// through the same alpha it always did.
+    ///
+    /// Both modes are luminance-ratio rescales, which is why they are the two that are
+    /// well defined on the scene-referred values this stage carries. Neither clamps and
+    /// neither assumes a white point.
+    ///
+    /// **Luminosity** takes the adjusted pixel's brightness and the ORIGINAL's colour:
+    /// scale the base until its luminance matches. Burning a face gets darker without
+    /// getting more orange, which is what happens when Exposure moves a warm pixel.
+    ///
+    /// **Colour** is the mirror: the adjusted pixel's chromaticity at the ORIGINAL's
+    /// brightness. Warming a sky stops lifting it.
+    ///
+    /// The degenerate cases are both real photographs rather than hypotheticals — a
+    /// clipped black is luminance zero, and there is no colour in it to preserve — so
+    /// each falls back to the mode that has something to say rather than to a division.
+    ///
+    /// And the contract at the edges, which is the one a test can hold: **finite in,
+    /// finite out.** Neither mode can manufacture a non-finite pixel from two finite
+    /// ones. Neither can clean a poisoned one either — with a NaN on the way in, the
+    /// answer is one of the two inputs, exactly as `.normal` passes its argument
+    /// through, rather than a third value the pipeline has never seen.
+    public static func blended(base: RGB, adjusted: RGB, blend: MaskBlend,
+                               space: RGBColorSpace) -> RGB {
+        switch blend {
+        case .normal:
+            return adjusted
+        case .luminosity:
+            let from = space.luminance(base)
+            let to = space.luminance(adjusted)
+            guard from.isFinite, to.isFinite, from > luminanceFloor else { return adjusted }
+            let out = base * (to / from)
+            // The result, not the ratio. `to / from` can be finite where the product is
+            // not — an enormous ratio against an enormous base — and `∞ · 0` is a NaN
+            // that a ratio check cannot see. Testing what is about to be returned is the
+            // only guard that covers both.
+            return out.isFinite ? out : adjusted
+        case .color:
+            let from = space.luminance(adjusted)
+            let to = space.luminance(base)
+            guard from.isFinite, to.isFinite, from > luminanceFloor else { return base }
+            let out = adjusted * (to / from)
+            return out.isFinite ? out : base
+        }
+    }
+
+    /// Below this luminance a pixel has no ratio worth taking. Scene-linear, and two
+    /// decades under the darkest value a 14-bit raw can hold above its own noise floor,
+    /// so it excludes only pixels that are numerically black.
+    public static let luminanceFloor: Double = 1e-7
+
     /// One component's contribution: raw alpha → invert → amount scale.
     public static func componentAlpha(raw: Double, invert: Bool, amount: Double) -> Double {
         let clamped = min(max(raw, 0), 1)

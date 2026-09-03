@@ -20,18 +20,14 @@
 # LumenCore. This script claimed that coverage before the modulemap existed, which is
 # the same shape of failure as a check that cannot fail.
 #
-# Three tests fail here — testEachTableTracksItsOwnExactEvaluationSeparately,
-# testExportTableErrorStaysUnderOnePercent and
-# testTheInteractiveTableAgreesWithTheExportOne. They are NOT a Linux artefact. This
-# comment used to say they were, on the evidence that the macOS `test-fast` lane was
-# green; `test-fast` excludes the nine slow whole-pipeline tests and all three are among
-# them, so that lane had never run them. The macOS `test-macos` lane fails all three with
-# the same numbers this toolchain produces.
-#
-# They are real, they predate the local toolchain, and they are about how far a baked LUT
-# lands from an exact evaluation at the edges of the domain — a full stop at −3 EV on a
-# blue hue in the colour/grade table. Do not treat a failure here as "just Linux" without
-# checking `test-macos` for the same test name.
+# Three table-accuracy tests used to fail here (and on macOS — they were never a Linux
+# artefact): asserted bounds that had never been met, hidden behind lanes that did not
+# run them. 1bca87f resolved that by MEASURING what each table size actually delivers
+# and pinning the convergence ladder instead of a wished-for bound;
+# testExportTableErrorStaysUnderOnePercent was reshaped away in the same work. The
+# whole of LumenCoreTests is green on this toolchain now. The paragraph that stood here
+# survived two rewrites while being wrong in different directions — if a test fails on
+# this toolchain, the answer is `git log -S <testname>`, not this comment.
 #
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
 # Image, AppKit and SwiftUI. They still need the macOS runner. The mechanical checker

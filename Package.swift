@@ -53,6 +53,10 @@ let package = Package(
         .testTarget(
             name: "LumenCoreTests",
             dependencies: ["LumenCore"],
+            // The evidence sheets are OUTPUT, not input: the proof run writes them for a
+            // human to look at (docs/20), they are gitignored, and SwiftPM would
+            // otherwise warn once per PNG about files it does not know what to do with.
+            exclude: ["Proof/evidence"],
             resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
@@ -63,6 +67,20 @@ let package = Package(
         .testTarget(
             name: "LumenPipelineTests",
             dependencies: ["LumenCore", "LumenPipeline"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // The app layer's tests — the target docs/21 pattern 6 said was missing while
+        // 39% of the codebase went unfalsifiable by construction. Files are
+        // `#if os(macOS)` like LumenPipelineTests', so the Linux lanes build an empty
+        // target and lose nothing. Tests here exercise pure app logic (counts, keys,
+        // gesture bookkeeping), and — since the catalog and preview-cache locations
+        // became injectable — a real `AppState` constructed against temp directories.
+        // Before that seam its init opened the owner's catalog in Application Support
+        // and created `~/Library/Caches/Lumen`, which is why no test here had ever
+        // hosted a view.
+        .testTarget(
+            name: "LumenAppTests",
+            dependencies: ["LumenApp", "LumenCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

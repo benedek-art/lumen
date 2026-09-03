@@ -1,0 +1,15 @@
+{
+  "authority" : 15.776519933012299,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0,
+  "givenBack" : 45.70056307101841,
+  "hueRotation" : 171.54622101017603,
+  "id" : "grade.shadows.hue",
+  "isMonotone" : false,
+  "meanSeparation" : 1.209358265236006,
+  "panel" : "Grade",
+  "smallestLiveStep" : 2.644473063790464,
+  "travelHigh" : 360,
+  "travelLow" : 0
+}

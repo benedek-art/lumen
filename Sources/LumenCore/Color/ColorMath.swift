@@ -247,10 +247,36 @@ public enum Num {
         x <= 0 ? floorEV : Swift.max(log2(x), floorEV)
     }
 
-    /// Wrap a hue in degrees into [0, 360).
+    /// Wrap a hue in degrees into [0, 360) — with the top end ACTUALLY CLOSED.
+    ///
+    /// The half-open range is the contract twenty-one callers across the colour engine
+    /// read this function for, and `remainder`-then-`+360` did not keep it. Any input
+    /// in the last few ulps below zero comes back as exactly 360: `ulp(360)` is 5.7e-14,
+    /// so `-5.7e-14 + 360` has no representable neighbour short of 360 and rounds to it.
+    ///
+    /// That input is not hypothetical, it is the commonest interesting case. Two grade
+    /// pucks on opposite sides of red — 350° and 10° — interpolate to a point whose
+    /// `atan2` is zero to within a rounding error, and the SIGN of that error is not
+    /// the caller's to choose; half the time the walk between two neighbouring tints
+    /// reports 360°. The same arithmetic reaches here from `OKLab.hue`, from
+    /// `varianceCompress`, and from both grading engines' hue shifts.
+    ///
+    /// Nothing renders differently — 0° and 360° are the same colour, and the two
+    /// consumers that could tell them apart cannot: `Gamut.Boundary.maxChroma` indexes
+    /// `Int(360/360 × hueSteps) % hueSteps`, which is bin 0 either way, and `OKLCh.lab`
+    /// differs by 2.4e-16 in `b`, on a colour whose chroma is 1e-16 to begin with. That
+    /// is exactly why it is worth closing rather than leaving: an error that changes no
+    /// pixel is one nothing will ever surface, while `hue: 360` and `hue: 0` serialize
+    /// to different canonical text and therefore to different `recipe_fp` values — two
+    /// cache entries and two proof records for one look, decided by a floating-point
+    /// sign. `LookSubset.wrappedHue` folded it at its own call site and left the
+    /// boundary here to be closed properly, which is this.
     @inlinable public static func wrapHue(_ h: Double) -> Double {
         var x = h.truncatingRemainder(dividingBy: 360)
         if x < 0 { x += 360 }
+        // Only reachable by the rounding above: `truncatingRemainder` itself never
+        // returns 360, and a value that rounded up to it is a hue of zero.
+        if x >= 360 { x = 0 }
         return x
     }
 

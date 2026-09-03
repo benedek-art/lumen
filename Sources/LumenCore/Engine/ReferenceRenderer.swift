@@ -82,7 +82,11 @@ public enum ReferenceRenderer {
                                           size: (width: image.width, height: image.height),
                                           source: image,
                                           strokeSets: inputs.strokeSets,
-                                          aiMattes: inputs.aiMattes))
+                                          aiMattes: inputs.aiMattes,
+                                          // The whole list, so a `maskRef` component can
+                                          // find what it points at. Without it a
+                                          // reference selects nothing, silently.
+                                          masks: plan.allMasks))
             }
             image = applyMasks(image, plan: plan, alphas: alphas, space: space)
         }
@@ -96,8 +100,11 @@ public enum ReferenceRenderer {
 
         // S13 — vignette in scene-linear, then halation: the lens vignettes the light
         // before it strikes the film, and the film base reflects what arrives.
+        // Feather rides the plan with the EV (docs/32 Stream E item 4); at the
+        // default it reproduces the fixed geometry bit-for-bit.
         if plan.vignetteEV != 0 {
-            image = DetailEngine.vignette(image, ev: plan.vignetteEV)
+            image = DetailEngine.vignette(image, ev: plan.vignetteEV,
+                                          feather: plan.vignetteFeather)
         }
         // Halation was in the GPU graph and MISSING here, so the Halation slider did
         // nothing on the reference path — every headless render, every machine whose
@@ -135,8 +142,14 @@ public enum ReferenceRenderer {
         }
 
         // Grain lives inside picture formation, in the density domain.
-        if let film = plan.filmChain, film.grainAmount > 0 {
-            image = applyGrain(image, film: film, seed: inputs.grainSeed,
+        //
+        // Off `plan.grain` rather than off `plan.filmChain`: the plan answers "is there
+        // grain here, and what is it" once, so this stage does not have to know that a
+        // photograph can now be grained without an emulsion (`GrainPlan`). For a film
+        // recipe the four numbers are the four this line used to read off the chain, so
+        // the change is byte-identical there by construction.
+        if let grain = plan.grain, grain.amount > 0 {
+            image = applyGrain(image, grain: grain, seed: inputs.grainSeed,
                                longEdge: longEdge)
         }
 
@@ -152,13 +165,32 @@ public enum ReferenceRenderer {
 
     // MARK: - Stages
 
+    /// The tone mask's contrast threshold: local structure flatter than this many
+    /// stops is one surface and gets one gain; anything steeper is an edge the mask
+    /// must not cross. MEASURED, not chosen (ToneMaskEdgeTests): at the shipped
+    /// ε=0.004 — √0.004 encoded × 24 EV/unit = 1.52 EV, the fifth instance of
+    /// BUILDING.md's units bug — Shadows +100 lifted the bright side of a 4 EV
+    /// shadow/midtone edge by 0.497 EV, a half-stop halo beside every backlit
+    /// subject. The naive ÷24² correction (0.06 EV) fails the other way: at ±0.2 EV
+    /// of high-ISO luminance noise the mask follows the grain at σ 0.090 EV and the
+    /// tone gains re-print it. 0.375 EV is the measured knee — halo 0.052 EV, noise
+    /// σ 0.010 EV — with about 2x margin to each bar.
+    public static let toneMaskContrastThresholdEV: Double = 0.375
+    /// The threshold CONVERTED to the encoded plane the mask runs on (rule 1 of the
+    /// units section in BUILDING.md: write the conversion, not the result).
+    public static var toneMaskEpsilon: Double {
+        let encoded = toneMaskContrastThresholdEV * LumenLog.invRange
+        return encoded * encoded
+    }
+
     static func applyTone(_ image: ImageBuffer, plan: RenderPlan, longEdge: Int,
                           space: RGBColorSpace) -> ImageBuffer {
         let luminance = image.luminancePlane(space: space)
         let log = luminance.map { LumenLog.encode(Swift.max($0, 0)) }
         let radius = Swift.max(Int(Double(longEdge) * 0.02), 2)
         let mask = SpatialOps.exposureIndependentGuidedFilter(
-            luminance: log, radius: radius, epsilon: 0.004, iterations: 1)
+            luminance: log, radius: radius, epsilon: Self.toneMaskEpsilon,
+            iterations: 1)
 
         var out = image
         let lut = plan.toneGainLUT
@@ -177,11 +209,21 @@ public enum ReferenceRenderer {
         var out = image
         for (mask, alpha) in alphas {
             let adjusted = applyLocalAdjust(out, mask: mask, plan: plan, space: space)
+            let blend = mask.blend
             for y in 0..<out.height {
                 for x in 0..<out.width {
                     let a = Num.saturate(alpha[x, y])
                     if a > 0 {
-                        out[x, y] = out[x, y].mix(adjusted[x, y], a)
+                        // The blend runs BEFORE the alpha composite, so Amount and
+                        // the mask's own softness still do exactly what they did.
+                        // `MaskAlgebra.blended` returns `adjusted` untouched in Normal,
+                        // which is what makes this bit-identical for every existing mask.
+                        let base = out[x, y]
+                        let result = blend == .normal
+                            ? adjusted[x, y]
+                            : MaskAlgebra.blended(base: base, adjusted: adjusted[x, y],
+                                                  blend: blend, space: space)
+                        out[x, y] = base.mix(result, a)
                     }
                 }
             }
@@ -201,8 +243,12 @@ public enum ReferenceRenderer {
                                  space: RGBColorSpace) -> ImageBuffer {
         var out = image
         for (mask, alpha) in alphas {
+            // `finishScale` — the white of the pixels in hand — matching `RenderGraph`,
+            // where the distinction can actually bite (a reference plan is never built
+            // with stale tables). The two renderers state the same rule or the parity
+            // contract is only true by luck.
             let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
-                                   white: plan.displayWhite, space: space)
+                                   white: plan.finishScale, space: space)
             guard !curve.isIdentity else { continue }
             for y in 0..<out.height {
                 for x in 0..<out.width {
@@ -248,14 +294,20 @@ public enum ReferenceRenderer {
                                          blacks: a.blacks * scale))
         let color = ColorEngine(mixer: Mixer(),
                                 pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
-                                color: ColorAdjust(vibrance: a.vibrance * scale,
-                                                   saturation: a.sat * scale),
+                                // Density and protectSkin inherited from the global
+                                // colour panel — see `ColorAdjust.local` for why an
+                                // invisible default-70 protection was the wrong thing
+                                // to hand a masked Sat −100 (COLOR-27).
+                                color: .local(vibrance: a.vibrance * scale,
+                                              saturation: a.sat * scale,
+                                              inheriting: plan.recipe.develop.color),
                                 primaries: Primaries(), bw: nil)
         let exposureGain = tone.exposureGain
         let hueShift = a.hue * scale
         let context = OKLabTransform.working
-        let balance = LocalWhiteBalance(temp: a.temp * scale, tint: a.tint * scale,
-                                        space: space)
+        let balance = LocalWhiteBalance.resolve(a, amount: scale,
+                                                balanced: plan.balancedNeutral,
+                                                space: space)
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
         // Local grading wheels (D29), the same engine the global grade uses. Kept in
@@ -265,7 +317,11 @@ public enum ReferenceRenderer {
         // difference between two implementations rather than one implementation's error.
         let localGrade = (a.wheels?.isNeutral ?? true)
             ? nil
-            : GradeEngine(wheels: a.wheels!.scalingShift(by: scale),
+            // `adoptingWindows`: the mask's colour moves inside the GLOBAL wheels'
+            // tonal windows, which is the docs/08 §8.4 contract both paths violated
+            // for the wheels' whole life (COLOR-16).
+            : GradeEngine(wheels: a.wheels!.scalingShift(by: scale)
+                              .adoptingWindows(from: plan.recipe.look.wheels),
                           printerLights: PrinterLights(),
                           whiteAnchorEV: plan.tone.whiteAnchorEV,
                           blackAnchorEV: plan.tone.blackAnchorEV)
@@ -352,6 +408,57 @@ public enum ReferenceRenderer {
                                              space: space).matrix
         }
 
+        /// ABSOLUTE per-mask white balance: this region is lit at `kelvin`, whatever the
+        /// global row says.
+        ///
+        /// By the time the local stage runs the pixel has already been carried to
+        /// `balanced` by S6, so the incremental matrix is the one that re-balances FROM
+        /// there TO the mask's target. That is what makes the number stable: drag the
+        /// global temperature and `balanced` moves, this matrix moves the opposite way,
+        /// and the masked region renders at the Kelvin it is labelled with. Neither
+        /// Lightroom nor Capture One offers this; both give a relative shift only, and a
+        /// relative shift silently re-lights every mask the moment the global row moves.
+        ///
+        /// AMOUNT interpolates in MIRED, not in Kelvin. Half of "3200 K" is not 1600 K —
+        /// mired is the space colour temperature is perceptually even in, and it is the
+        /// space the relative slider above already works in, so a mask fading from 0 to
+        /// 100 passes through the same colours either spelling is written in. Tint,
+        /// which is already a linear axis, interpolates directly.
+        ///
+        /// At `amount` 0 this is exactly the identity: the endpoint IS `balanced`, so
+        /// the engine is asked to adapt a neutral to itself.
+        public init(kelvin: Double, tint: Double?, amount: Double,
+                    balanced: WhiteBalanceEngine.Neutral,
+                    space: RGBColorSpace = .rec2020) {
+            let scale = Num.saturate(amount)
+            let target = Num.clamp(kelvin, ColorTemperature.minKelvin,
+                                   ColorTemperature.maxKelvin)
+            let fromMired = 1e6 / Swift.max(balanced.kelvin, 1)
+            let toMired = 1e6 / Swift.max(target, 1)
+            let mired = fromMired + (toMired - fromMired) * scale
+            let toTint = Num.clamp(tint ?? balanced.tint, -300, 300)
+            let effectiveTint = balanced.tint + (toTint - balanced.tint) * scale
+            let engine = WhiteBalanceEngine(asShotKelvin: balanced.kelvin,
+                                            asShotTint: balanced.tint,
+                                            targetKelvin: 1e6 / Swift.max(mired, 1e-9),
+                                            targetTint: effectiveTint, space: space)
+            self.matrix = engine.matrix
+            self.isIdentity = false
+        }
+
+        /// The one place that decides which spelling a mask is using, so the reference
+        /// renderer and the GPU's `LocalPlan` cannot disagree about it.
+        public static func resolve(_ a: LocalAdjust, amount: Double,
+                                   balanced: WhiteBalanceEngine.Neutral,
+                                   space: RGBColorSpace = .rec2020) -> LocalWhiteBalance {
+            if let kelvin = a.kelvin {
+                return LocalWhiteBalance(kelvin: kelvin, tint: a.kelvinTint,
+                                         amount: amount, balanced: balanced, space: space)
+            }
+            return LocalWhiteBalance(temp: a.temp * amount, tint: a.tint * amount,
+                                     space: space)
+        }
+
         public func apply(_ c: RGB) -> RGB { isIdentity ? c : matrix.apply(c) }
     }
 
@@ -395,9 +502,25 @@ public enum ReferenceRenderer {
         return out
     }
 
+    /// The film path's spelling, delegating. Kept because `FilmChain` is what the
+    /// goldens hold and what `PipelineRenderer` passes: a test that had to assemble a
+    /// `GrainPlan` in order to ask a question about an emulsion would be measuring the
+    /// plan rather than the stock. One implementation, two front doors.
     static func applyGrain(_ image: ImageBuffer, film: FilmChain, seed: UInt64,
                            longEdge: Int) -> ImageBuffer {
-        let plateSize = 128
+        applyGrain(image, grain: GrainPlan.film(film), seed: seed, longEdge: longEdge)
+    }
+
+    /// The density-domain grain stage, for whichever grain the plan resolved.
+    ///
+    /// Unchanged in every arithmetic detail from the version that took a `FilmChain`;
+    /// what moved is where the four scalars come from. A creative grain differs from a
+    /// stock's only in the profile it was built from — a 35 mm gate, a pitch off the Size
+    /// slider, a flat Dmax and a plate persistence off Roughness — so there is one grain
+    /// implementation on this path and there always was.
+    static func applyGrain(_ image: ImageBuffer, grain: GrainPlan, seed: UInt64,
+                           longEdge: Int) -> ImageBuffer {
+        let plateSize = GrainPlan.plateSize
         // One plate per emulsion layer, at that layer's own crystal size.
         //
         // The amplitude envelope √(p(1−p)) was already per-channel, but a single noise
@@ -409,27 +532,55 @@ public enum ReferenceRenderer {
         //
         // `plateSeed(channel:)` collapses to one seed on a monochrome stock, so Tri-X
         // keeps a single field and cannot acquire coloured speckle.
-        let plates = (0..<3).map {
-            FilmGrainProfile.plate(size: plateSize,
-                                   seed: film.grain.plateSeed(channel: $0, base: seed),
-                                   sigma: 1.0)
-        }
+        //
+        // Through `GrainPlan.plate` rather than `FilmGrainProfile.plate`, because the
+        // plate's PERSISTENCE now lives on the profile and a caller that assembled the
+        // arguments itself would have had to remember to pass it — which is precisely
+        // how the GPU plate ended up with a different seed from this one, back when both
+        // spelled the seed themselves.
+        // The scales first: each layer's plate is BAND-LIMITED to the resolution it is
+        // about to be sampled at, so a preview is the low-pass of the export rather
+        // than a differently-pitched pattern (C2-01b). `RenderGraph` passes the same
+        // value from the same function, and gpu-parity is what holds the two together.
         let scales = (0..<3).map {
-            Swift.max(film.grain.plateScale(longEdgePixels: longEdge,
-                                            printSizeInches: film.printLongEdgeInches,
-                                            channel: $0), 0.5)
+            grain.plateScale(longEdgePixels: longEdge, channel: $0)
+        }
+        let plates = (0..<3).map {
+            grain.plate(channel: $0, size: plateSize, seed: seed,
+                        renderPixelsPerCell: scales[$0])
         }
         var out = image
-        let dmax = Swift.max(film.grainDMax, 0.1)
-        let amount = film.grainAmount
+        let dmax = Swift.max(grain.dMax, 0.1)
+        let amount = grain.amount
+        // HOW MUCH OF THE THREE LAYERS' INDEPENDENCE REACHES THE PICTURE (C2-02).
+        // Three unit-variance fields laid at full amplitude put 2.45× as much noise
+        // into colour as into luminance, in cells up to 5.3 px at export and
+        // sub-display-pixel at preview — so the delivered file carries coloured
+        // speckle the app can never show. The mix is one multiply-add per channel, and
+        // it is scaled to hold the LUMINANCE grain exactly where it was (measured on
+        // Portra 400: σ 0.0068103 → 0.0068133, +0.04%), so what a photographer sees is
+        // what they saw minus the speckle. The derivation is on
+        // `FilmGrainProfile.noiseMixWeights`. `lumenGrain` performs the identical two
+        // lines from the identical two scalars; gpu-parity is what holds them together.
+        let lumaWeight = grain.noiseLumaWeight
+        let ownWeight = grain.noiseOwnWeight
         for y in 0..<image.height {
             for x in 0..<image.width {
                 let c = image[x, y]
+                var noise = RGB.zero
+                for channel in 0..<3 {
+                    noise[channel] = FilmGrainProfile.sample(
+                        plates[channel], size: plateSize,
+                        x: Double(x) / scales[channel],
+                        y: Double(y) / scales[channel])
+                }
+                // The three samples first, then the mix: the fields are sampled at
+                // three DIFFERENT cell sizes, so the shared component has to be formed
+                // here, after scaling, and not baked into the plates.
+                let shared = (noise.r + noise.g + noise.b) * lumaWeight
                 var result = RGB.zero
                 for channel in 0..<3 {
-                    let n = FilmGrainProfile.sample(plates[channel], size: plateSize,
-                                                    x: Double(x) / scales[channel],
-                                                    y: Double(y) / scales[channel])
+                    let n = shared + ownWeight * noise[channel]
                     let v = Swift.max(c[channel], 1e-5)
                     let density = -log10(v)
                     let p = Num.saturate(density / dmax)

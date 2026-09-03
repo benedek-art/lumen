@@ -1,0 +1,681 @@
+# The grind — live status
+
+The resume point. After a container reset or a context compaction, do this and nothing
+else first:
+
+```
+git fetch origin claude/photo-editor-design-plan-8ahzmm
+git reset --hard origin/claude/photo-editor-design-plan-8ahzmm
+cat docs/audit-2026-09/STATUS.md
+```
+
+Then relaunch the briefs under `briefs/` whose output files are missing, and continue
+from the first unchecked wave below. The plan is `/root/.claude/plans/enchanted-skipping-rocket.md`
+(also mirrored as `docs/audit-2026-09/PLAN.md`).
+
+## Decisions (owner's; never re-ask)
+Find first, then fix · backlog first, then new · publish `dev-latest` on every green
+landing · involvement: the U0 mockup checkpoint only, then the report · all docs/32 §4
+deferrals lifted · UI: Option B "Modern pro", whole · rows 24 pt · keymap: `L`→Lights
+Out, `B`→album, `⌘B`→assessment, `F`/`S` stay · denoise: free + best, delivery mine
+(download-on-first-use), timing mine.
+
+## THE FINAL FIX RUN — 3 September, and what it found on its own
+
+Owner's report for THIS run (defects the audit could not see):
+https://claude.ai/code/artifact/e9067424-d65d-4517-ba09-4839ba183c29
+The audit's own report is the older link further down.
+
+**The lesson of the run, in one line: the audit read code, and every defect below
+needed someone to run it, measure it, or break it on purpose and watch.**
+
+### Landed, each with a substitution proof
+`Ingest` copies bytes · pasteboard carve-out · honest facet counts · cull at scale ·
+whole-photo Reset · history panel · `AppState` test seam · mask rotate band + gestures ·
+mask dependency `F5-01` · curve editor anchors · mixer `B3-01` · Zones precision ·
+soft proof into the export plan · export cancel · layout instrument + its first fixes ·
+mask panel labels and pitch · `isEdited` baseline · CI test-count ceiling ·
+two surface-checker false-finding classes
+
+### The defects that were NOT in the audit
+- **The magenta slider moved the picture toward GREEN.** The tint guard bounds the
+  ILLUMINANT and was verified on the DIAGONAL — as-shot equal to target, a pure tint
+  move — where it is very nearly exact. Off that diagonal, which is the ordinary way
+  anyone uses the Temperature slider, the adaptation carries the illuminant's runaway
+  and the temperature move together: as-shot 5500 K, target 2800 K, tint +80 (inside
+  the guard's own +69.80) renders `RGB(0.0967, -0.0872, 3.1857)` — a NEGATIVE green
+  channel, blue at 17.7x. The green-magenta axis reverses at +30 at 2500 K, +46 at
+  2800 K, +67 at 3200 K, +101 at 4000 K, every one inside the slider. `TintGuardTests`
+  claimed no pair the app can ask for inverts the picture and swept only the diagonal:
+  the claim was broader than its coverage, which is why four audits missed it. The
+  bound is now measured on the rendered picture, and the Python reference derives it
+  INDEPENDENTLY rather than recording what Swift says — three derivations, identical
+  doubles (`29.738156229300458` at 2500 K). Daylight keeps its whole range with 2.2
+  units of margin, now stated as a margin and pinned from both sides.
+- **Saturation turned every colour as it strengthened it — FIXED, with ceremony.**
+  Density's subtractive push raises channel ratios to a power in linear RGB, and a
+  log-RGB ray is not an iso-hue line in OKLab. At the shipped default, Saturation
+  rotated hue by 2.14 deg at +10 rising to 11.57 deg at +100, and 7.29 deg on the skin
+  band — "why do skin tones go orange". Now 0.000 deg (about 1e-12, the OKLCh round
+  trip) by construction. The darkening the dial is FOR survives, pinned by its own test.
+  Ceremony: exactly two of 135 records can move, because only `color.saturation` and
+  `color.density` put a positive saturation into the recipe; `color.vibrance` and
+  `color.protectSkin` set vibrance and were measured BYTE-IDENTICAL, which proves the
+  guard by measurement. `color.saturation` hueRotation 14.350459 -> 8.381810,
+  `color.density` 6.504056 -> 3.587667, authority holding in both (137.89 -> 137.44,
+  35.52 -> 36.88 — Density's RISES).
+- **The proof lane could say a control moved but not which one — FIXED.** Its failure
+  summary grepped `: error: -[`, which is Apple XCTest's `-[Class test]`. The job runs
+  on ubuntu, where swift-corelibs writes `Class.test : XCTAssert...` with no brackets,
+  so the pattern matched NOTHING and every failing sweep printed an empty failures list
+  under a non-zero exit. Then, once fixed, it named the TEST and still not the control,
+  because the assertion message is multi-line and grep prints matching lines: `-A 12`
+  carries the block. A ceremony that cannot say what moved is not a ceremony.
+- **The proof lane WAS red on something that predates the colour work, and it is now
+  green.** Its last completed sweep before the ceremony failed at 05:27, an hour BEFORE
+  the magenta bound landed, and was unreadable for the reason above. The guess was
+  right: with the summary fixed the sweep named `sharpen.amount`, and a comparison of
+  the printed evidence for 112 other records against their committed JSON found NONE
+  moved. All five sharpening records were re-pinned and `proof.yml` is green.
+  **The movement was frame PLUS behaviour, and the registry said otherwise.** A comment
+  above the sharpen specs claimed "the movement is the frame and not a behaviour
+  change". Not supportable: `8880982` wired `frameDenominatedSigma` into
+  `DetailEngine.applySharpen` 33 minutes before `c11772d` swapped the frames, the sweep
+  renders through that code, and the sigma change is the identity only at 2560 px —
+  none of the four frames is 2560. On the old 128 px frame the new sigma is
+  0.025...0.15 px, under `gaussianBlur`'s 0.05 support floor, so the stage falls silent:
+  `radius` and `haloSuppression` measured 0.0000 authority with 20 dead steps there,
+  frame held constant. That is the behaviour half. The comment now says both.
+### The four that were measured and deferred — ALL NOW FIXED
+
+Each was landed with a ceremony, and each is bounded by an identity property so the
+ceremony stayed small. `proof.yml` is green.
+
+- **FIXED. Two grade limiters each spent 95% of the SAME slope budget.** `solveLumScale`
+  (the wheels' Luminance rings) and `solveBrillianceScale` (Colour Balance) each solve
+  `1 + 3*slope >= 0.05` — each permitted to hand away 0.95 of a base slope of 1. They
+  run on the same pixel, in one `apply`, and nothing anywhere sets both. Measured
+  through `RenderPlan` on a -9..+5 EV ramp: wheels mid+1.0/high-1.0 alone folds by
+  0.0 cv, brilliance +100/-100 alone folds by 0.0 cv, BOTH folds by **53.455 cv**,
+  composed slope -0.883 where each alone leaves +0.057 and +0.049 — exactly
+  `1 - 0.95 - 0.95`. The sharp case is the gentle one: wheels +/-0.3 with brilliance
+  +/-15, where **both limiters report exactly 1.0** ("nothing to limit") and the picture
+  still folds by 4.4 cv — bigger than the B2-01 defect the Brilliance limiter was built
+  for. `GradeLuminanceInversionTests` sweeps the wheels with colourBalance at zero;
+  `BrillianceMonotoneTests` sweeps a full 5x5x5 brilliance grid with every wheel lum at
+  zero. Neither ever sets both. NOT FIXED: the fix is a joint budget solved once rather
+  than twice, which is a design call with pixel consequences across the grade panel.
+  It has the property a ceremony wants — `k = 1` exactly whenever either side is
+  untouched, so every single-tool recipe stays byte-identical.
+- **FIXED. Edge Shift ran BACKWARDS on any mask mixing a hard and a soft component.**
+  `edgeShifted` derives ONE global `rampWidth` from the mean gradient over the whole
+  transition band, then rebuilds alpha from the signed distance and that single width.
+  A hard edge contributes zero samples to the mean (no pixel lands in 0.02..0.98), so a
+  soft component's 42-px ramp wins outright and the hard boundary is rebuilt as a 42-px
+  gradient. Two radials, one feather 0 and one feather 100, at 320px: Edge **-40 GROWS
+  coverage x1.0320**, Edge -20 grows it x1.0862. Each component alone shrinks correctly
+  (x0.8642, x0.9438), which is why a one-component sweep cannot see it. Across the whole
+  slider **Edge 0 is the global minimum** — every setting in either direction grows the
+  mask. At Edge -20, 192px: 8058 pixels grew against 5324 shrank, and a pixel entirely
+  outside the mask went alpha 0.0000 -> 0.3611 under an EROSION. It gets worse with
+  resolution, so worse in the delivered file than in the loupe. NOT FIXED: any fix moves
+  rendered pixels for every mask with a non-zero Edge.
+- **FIXED. The Highlights slider darkened the shadows, and its top 60% did nothing there.**
+  The shared `zonalScale` multiplies Shadows/Whites/Blacks as well as Highlights, so
+  moving Highlights re-scales the other three. At `contrast -100, shadows -100,
+  whites -100, blacks -100`, measured at t = -2 EV where `highlightWeight` is exactly 0:
+  Highlights -100 -> 57.112 cv, 0 -> 42.577, +40 -> 32.721, **+100 -> 32.721, byte
+  identical**. Dragging Highlights UP darkens a shadow by **24.391 sRGB code values**,
+  then the last 60 points of travel do nothing at that tone. 1,979 settings on a reduced
+  6-D grid have a Highlights step that darkens a tone inside the anchors.
+  `testHighlightsAndShadowsStayOutOfEachOthersTerritory` asserts the opposite on a
+  one-slider slice, and skips every case where the scale actually binds.
+- **FIXED. `effectiveHighlights` — the number the panel shows — ran backwards.** At
+  `contrast -100, whites +20`, ten consecutive settings from -91 to -100 each apply LESS
+  than the one before. Picture impact ~0.01 cv; readout impact 0.44 points of a slider
+  documented as existing precisely so that a slider whose top half does nothing is
+  visible. `RobustnessTests` asserts monotonicity here and never enters the region where
+  `whites != 0`.
+- **A third class of surface-checker false finding, RECORDED NOT FIXED.** The labels
+  pass judges a call against in-tree declarations of the same NAME. When a stdlib
+  method's name collides with an in-tree one, the stdlib call is reported as a
+  mismatch: `drop(while:)` against two in-tree `func drop(_:)` declarations. The pass
+  has no type information, so it cannot know the receiver is stdlib. A fix is a narrow,
+  explicit table of stdlib signatures consulted only after the in-tree check fails —
+  deliberately NOT done tonight, with a fleet in flight and the checker at exit 0: a
+  change here that is subtly wrong weakens every future run silently, and nobody is
+  blocked. The call site that hit it was rewritten as `dropFirst` instead.
+- **The naive comment stripper is copied into 21 test files** and is string-blind in
+  all of them. It differs from a correct one on four files in `Sources/`, every case a
+  `//` inside a string literal, never nesting — `AppUpdater.swift`'s GitHub URL,
+  `Kernels.swift`'s shader bodies, and two XMP namespace URLs. NO currently-green test
+  is green for the wrong reason: each of those files is scanned only by suites that
+  already use a conservative or already-correct scanner. The hole is latent, not live,
+  and the next `https://` added to a scanned file lights it. The corrected
+  implementation now lives in `MaskPanelTests.swift` for the others to be copied from.
+- **A test failed because the fix had been explained.** `withoutComments` blanks a
+  comment to SPACES OF THE SAME LENGTH so offsets survive stripping. An assertion that
+  looked in "the next 320 characters" therefore had eight lines of justifying prose
+  between it and the code, pushing the fix to 626 characters out. It failed against a
+  tree that already did what it asked. A character window over stripped source is a
+  length measurement dressed as a scope; anchor on the brace-matched body.
+- **Three export defects were fixed and their tests never noticed.** Three assertions
+  anchored on `if stopped {`, which had become `if stopped, written < Int(total) {` —
+  the guard that stops a COMPLETE delivery cancelled on its final file from reporting
+  as interrupted. All three failed on the unwrap with a message that could not say what
+  moved. The anchor is now one named constant, and the bare form is separately asserted
+  ABSENT so it cannot drift back to the defect.
+- **The ingest driver copied zero bytes.** `if bytes < 0 { write(chunk) }` — never true.
+  Every frame a 0-byte file, deleted by its own verification. Its suite recorded
+  `xxh64:ef46db3751d8e999`, which is XXH64 of the empty message, and nobody had run it.
+- **The curve's black and white ANCHORS were deletable** (`points.count > 2`), after
+  which the interpolator extends flat below the new first x — every shadow one value.
+- **The disabled-mask bug had a SECOND source**: `BrushStrokes.unresolvedReferences`
+  both warms the export blob cache and builds the refusal list, so a disabled painted
+  mask shipped a file with the retouch missing AND no refusal.
+- **`traceStep` held `0.002`** while its comment claimed 3 view points — lasso thinning
+  was off entirely. The prose describing the fix had been written; the constant had not.
+- **The rotate band existed and drew nothing.** 33 pt of live target, no ink, no cursor.
+- **The grading wheels' lightness bar** is the app's narrowest track (0.250 pt/step) and
+  was absent from every census. Found by the instrument's own call-site tripwire.
+- **`cancelExport()` was called and never declared** — a macOS build blocker the surface
+  checker structurally cannot see (it checks receiver binding, not member existence).
+
+### Measurements that replaced guesses
+- Mask settle, 60 strokes at fit view: **8,485 ms → ~140 ms** (48×). The settle is
+  **22–25×** the draft, not the 16× every comment in those files assumed.
+- Cull keystroke: the linear searches everyone suspected cost **95 µs against 8.3 ms**.
+  The real cost was 40 `objectWillChange` publishes per cull keystroke.
+- Precision floor: **97 of 142 sliders** under 1.0 pt/step at the minimum column,
+  42 at the default. Three rows unreachable by ANY gesture.
+- Labels: the 56 pt budget claim is false; three violations, all in `MaskPanel`.
+- **0 of 140 value readouts overflow.** The overflow is in the LABEL column.
+
+### Audit claims REFUTED by measurement — do not re-implement these
+- Windowing the grid query with a `LIMIT` **would break the app**: `libraryOrder` is the
+  membership of the whole filtered roll, and arrow navigation past the visible window,
+  range selection, ⌘A and every chrome count read it.
+- Dropping the `enabled` filter to fix `F5-01` trades a silent empty mask for a false
+  "found no clear subject" badge. Reachability, not removal.
+- "Three finished engines with zero callers" was ONE. Colour-range isolation already
+  ships; the LUT engine is a parser waiting on a render STAGE, not a caller.
+- Widening the floating mask panel to 320 buys nothing over 290; a full clear needs 433,
+  and the readout scrub already clears the floor at 272.
+- Three sidebar chords die with ⌥⌘S, not four.
+- `F5-06` and `F5-09` are separate findings, not the dependency bug. Still open.
+
+### Two restarts, and the rule that came out of them
+A container restart killed eleven agents mid-flight for the second time. The tree
+survived both times; the REPORTS did not. The rule is now: **push after every verified
+landing, never batch.** A commit that never leaves the container is worth exactly as
+much as the container. Recovery is cheap — hand each agent its own diff and ask it to
+verify, finish and report, rather than starting over.
+
+## WHERE IT LANDED
+
+**The audit is complete: thirty of thirty areas, 254 findings — 24 S1, 125 S2,
+105 S3**, 108 measured rather than reasoned. **All 24 S1s are addressed; 66
+findings are closed.** Owner's report:
+https://claude.ai/code/artifact/8f442d3f-960c-4167-b115-a288480dfb2b
+
+### Landed in the fix wave
+`M-01` · `J1-03` · `J1-04`/`K-019` · `J3-01` (both halves) · `J3-02` · `D1-01` ·
+`D1-02`/`D1-03` · `F2-01` · `H1-01` · `G3-01`/`J2-01` · `G3-02`/`KG-02` ·
+`E2-02` · `B3-02`/`B3-03` · `I3-01` · `H2-01`/`H2-02` · `B2-01` ·
+`I2-01`/`F2-02` · `I2-03`/`I2-04`/`I2-05` · the RAW-corpus suite
+
+### Deliberately NOT closed, and why — do not report these as fixed
+- **`E2-04`** — CLOSED in the final run. The sigma is frame-denominated and the fine
+  band follows the decomposition's grid, on the CPU and the GPU alike. Measured:
+  sharpening set on a 1600 px preview used to arrive in a 6400 px delivery at **0.11**
+  of its strength; it now arrives at **0.92**. At 2560 px — the reference width — both
+  halves are the identity, so a 2560 render is byte-for-byte what it was.
+  FIVE proof records move to wide frames, not three, and FOUR hard-failed their
+  authority floors on the old ones (`radius` and `haloSuppression` at 0.0000 with 20
+  dead steps; `amount` 16.19 against 29; `masking` 4.04 against 10). Only `detail`
+  passed, and it passed by reading HIGHER than it should — a dead unsharp term made its
+  cross-fade look authoritative. **The records are not re-pinned: `ControlProofTests`
+  is skipped on both push lanes and the ceremony must run on the final tree.**
+- **`I3-02`** — CLOSED in the final run, and the claim was corrected UPWARD rather than
+  the number gamed. 768 MiB was never achievable: one source may legally hold a 320 MiB
+  interactive working set plus a budget-exempt inspection plane of up to 512 MiB, and the
+  trim must never take from the photograph being rendered. 832 > 768 at ONE source. The
+  honest budget is 1344 MiB — one photograph entire plus a compare pane's working set —
+  and the enforceable ceiling falls from 1792 MiB unreachable to 1344 MiB reachable.
+- **`E2-01`, `E2-03`, `E1-02`, `E1-03`, `D2-01`, `K-090`, `B1-04…08`, `C1-*`** and
+  the rest of the S2 backlog — evidenced, ranked, untouched.
+
+### What the fix wave taught, beyond the fixes
+- **`LumenToggleRow` never forwarded `isEnabled`.** `.disabled(…)` stopped the tap
+  and nothing else: full opacity, hover tracking, pointing-hand cursor. Every
+  disabled toggle in the app inherited it. Found while closing E2-02.
+- **A tolerant decoder cannot save an atomic container.** J3-01 needed BOTH
+  per-field tolerance and `ExportRecipe.decodeList`.
+- **A rule with four doors needs a guard at four doors**, and reading the target's
+  value AFTER overwriting it yields the source's — a no-op that compiles and reads
+  correctly. Pinned by a test.
+- **The ratchet earned its keep.** `test-fast` went red on 37 raw font sizes
+  against a 35 ceiling while `build-macos` was green: three labels written as
+  `.system(size: 10, weight: .semibold)`, which is `lumenCaptionStrong` byte for
+  byte. Now 34, ratchet tightened.
+
+### Corrections the reviewers made to the audit
+- `B3-03`'s "zero producers" was wrong — 3 constructions, 1 arming.
+- `N-005` REFUTED (57th percentile of a proper null; my standard error used the
+  denominator for independent samples on a smooth field).
+- `I3-01`'s fix has three consequences, all pinned: the feature is inert below a
+  2560 px loupe, the downgrade lands on the one rung nothing reclaims, and
+  browse-rung ties became order-dependent.
+- `I2-04`'s "same mirror as N-001" is wrong — grain is a TRANSLATION, not a
+  mirror, and the two agree exactly when frame height is a multiple of 128. A
+  mirror-detector would have found nothing.
+
+## THE FIX WAVE — how it ran
+
+The audit is COMPLETE: **thirty of thirty areas, 254 findings — 24 S1, 125 S2, 105 S3**,
+108 of them measured rather than reasoned. All thirty files are in `w2/` and pushed.
+
+The run is now landing fixes. Fifteen agents were launched, **the container restarted and
+killed all fifteen** — the working tree survived, and the work was re-launched as eleven.
+
+### The rule that changed because of that restart
+Commit locally the moment an agent reports, push once the suite has validated. A partial
+commit that never gets pushed still costs nothing; an unbanked tree costs the night.
+
+### Landed, with a substitution proof each
+`M-01` · `J1-03` · `J3-02` · `KG-02`/`G3-02` · `I2-01`/`F2-02` (blendMaskMode in no
+roster, plus `KernelRosterTests` diffing declarations against rosters mechanically)
+
+### Written and proved, awaiting the final suite
+`D1-01` (a look no longer moves a frame between tone registers — and the rule now guards
+ALL FOUR doors, three of which the agent could not reach) · `F2-01` · `H1-01` ·
+`G3-01`/`J2-01` · `J3-01` (both halves: tolerant nesting AND element-wise list decode) ·
+`E2-02` · `B3-02`/`B3-03` · `I3-01` · `D1-02`/`D1-03`
+
+### Found while integrating — not by the audit
+- **`LumenToggleRow` never forwarded `isEnabled`.** `.disabled(…)` blocked the tap and
+  nothing else: the switch drew at full opacity, tracked hover, and put a POINTING HAND
+  under the cursor. Every `.disabled` toggle in the app inherited it. Fixed at the row.
+- **`J3-01` was only half fixed.** Tolerant per-field decoding cannot save the ARRAY —
+  `JSONDecoder` decodes arrays atomically, so one element that is not an object still
+  reverted every preset. `ExportRecipe.decodeList` now decodes element by element.
+- **The `.look` assignment has four doors, not one.** `applied(to:)` plus three direct
+  assignments in `AppState`. And the obvious wiring is wrong: reading the target's preset
+  AFTER `recipe.look = source.look` yields the SOURCE's, which makes the guard a no-op
+  that still compiles and still reads correctly. Pinned by a test.
+
+### Corrections the reviewers made to the audit
+- **`I3-02` has NO fix in the tree.** `RenderCoordinator.swift` is unmodified. The 1792 MB
+  floor reproduces exactly (and is unit-clean MiB where the audit mixed MB); the row stays
+  OPEN and must not be reported as closed.
+- **`B3-03`'s "zero producers" was wrong** — 3 constructions exist, 1 of them arming.
+- **`I3-01`'s fix has three consequences worth knowing**: the feature is now largely inert
+  below a 2560 px loupe; the downgrade lands on `thumb`, the one rung nothing reclaims;
+  and browse-rung ties became order-dependent. All three are pinned by tests.
+
+## THE SECOND HALF — how it got here
+
+The plan for this stretch is `/root/.claude/plans/enchanted-skipping-rocket.md`. The
+mission, in one line: **audit the seventeen areas that were never audited, land what
+they find, and let the decode path meet a real RAW file.**
+
+W2 was scoped to 30 areas and trimmed to 13 when the owner said "trim discovery, spend
+it on fixes". That was right then and it left seventeen areas unexamined — chosen for
+where work was already queued, not for where risk lives. Every area that HAS been
+audited produced at least one S1 or a real S2. There is no reason to think the other
+half is cleaner; it is just unread.
+
+Six concurrent agents, hard cap, and a commit after every wave. Twenty concurrent
+agents died on a session rate limit earlier tonight, and the commit-per-wave rule is
+what makes a container reset cost one wave instead of the night.
+
+- [x] **Wave 1** — M, J3, A1, K, I3 + the RAW-corpus lane design. `2124941`, `d38ec25`.
+- [x] **Wave 2** — E1, E2, B2, B3, D1, D2. `102c407`, `9982559`, `2882bb7`, `442ad09`.
+- [x] **Wave 3** — F2, G3, H1, H2, J2 (I2 outstanding). `d02c414`.
+- [ ] **Wave 4+** — the fix streams the three waves produce, then the standing S2
+      backlog in `w3/dispositions.md` order.
+
+**ALL THIRTY AREAS ARE NOW AUDITED.** The trimmed thirteen plus the seventeen that
+were cut. Wave 2 and 3 found **7 more S1s** and roughly 45 S2s.
+
+### The S1s the second half found
+
+| id | what |
+|---|---|
+| **M-01** | a `.xmp` from a newer build is downgraded in place and rewritten still claiming the newer version — **LANDED** `d386442` |
+| **J3-02** | a filename template that renders empty writes the batch beside the granted folder — **LANDED** `7c0bbb4` |
+| **J3-01** | the tolerant preset decode is one level deep; one added field reverts every delivery preset to the stock four |
+| **D1-01** | `LookSubset.applied(to:)` carries `look.render` whole, so a RAW look overwrites a JPEG's "Linear" and applies a second tone map (measured: sRGB 255 → 222) |
+| **E2-02** | the Capture-sharpening toggle is live on JPEG/HEIC/TIFF, reaches nothing, lights the modified dot |
+| **F2-01** | a mask that does not read the picture has no photograph in its raster cache key — every AI kind; draft keys collide at 1024x682 for any two 3:2 frames |
+| **H1-01** | `⌘B` assessment surround and `L` lights out never reach the field: `surroundColor` is painted once and covered opaquely at five other sites |
+| **G3-01 / J2-01** | `⌘B` is attached TWICE, to two different actions. Found independently by two auditors. `KeyGrammarTests` collects call sites into a `Set`, so a chord attached twice collapses to one member and nothing asks "is any chord attached twice" |
+
+### The strongest thing the second half produced is not a defect
+
+Three separate audits found that **the instrument could not see the defect**:
+- `testContrastPinsTheEndsOfTheScale` probes ±12 EV, exactly where its smoothstep is
+  1 by construction, while the picture is formed against anchors at +5/−9 (A1).
+- Three of five sharpen proof records use `stepEdge`, whose rim measures 34.414 code
+  values at 128, 1600, 4096 and 7008 px alike — the frame cannot express a
+  scale-dependent defect — and `ScaleHonestyTests`' spatial roster omits sharpen (E2).
+- `KeyGrammarTests` collapses duplicate chords into a `Set` (G3, J2).
+
+That is the same failure `MaskGPUParityTests` had when it skipped itself for months.
+**A green lane is not evidence** is not a slogan here; it is the single most common
+finding in this audit.
+
+### Fixes landed in the second half
+| SHA | what |
+|---|---|
+| `d386442` | **J1-03** the sidecar write states its own fields · **M-01** and never a recipe it cannot represent. Checker taught what a conformance supplies; fixtures 25 → 27. |
+| `71d8a78` | the RAW corpus lane |
+| `7c0bbb4` | **J3-02** the empty rendered filename · **KG-02** `O` past the entry verb · **G3-02** `R` past it from the other side |
+
+`71d8a78`: build-macos ✅ app-bundle ✅ fixtures-linux ✅ (test-fast, engine-linux
+running).
+
+### Wave 1's harvest — 3 S1, 17 S2, 13 S3 across five areas
+
+| id | sev | what |
+|---|---|---|
+| **M-01** | S1 | `CatalogStore` refuses a recipe from a newer build twice over; the SIDECAR path does neither. A `.xmp` a newer build wrote is reduced to the keys this build's `CodingKeys` name and written back still claiming the newer number. **LANDING NOW.** |
+| **J3-01** | S1 | the tolerant delivery-preset decode is one level deep — a field added to `OutputSharpen`/`MetadataPolicy` throws out of the array decode and `AppState`'s `try?` reverts every preset to the stock four |
+| **J3-02** | S1 | a filename template that renders empty makes `folder.appendingPathComponent("")` yield `.../Deliveries.jpg` — the whole batch is written BESIDE the folder the open panel granted |
+| **KG-01** | S2 | with >1 photo selected every crop/angle/ratio write is computed from the PRIMARY's frame dimensions and stamped on all targets — K-023's exact defect, in the one place its fix does not reach |
+| **KG-02** | S2 | `O` calls `setMasking(true)` instead of the `toggleMasking` entry verb, so the crop tool stays armed inside the mask editor |
+| **A1-01** | S2 | Contrast clips 1.875 stops of highlight and 3.037 of shadow where the tooltip, docs/04 and the test all promise it cannot |
+| **A1-03** | S2 | Whites/Blacks silently drag every Zones pivot; Whites +100 alone moves "Midtones" to −0.96 EV while the strip's handles do not move |
+| **I3-01** | S2 | `recordDeveloped` files a viewer-sized settle at the fixed 2560 rung, so the loupe's first frame after an edit comes back SOFTER — against the "never upward" rule `PreviewCache` states in its own header |
+| **I3-02** | S2 | `trimDecodeResidency`'s 768 MB is not a bound: the two passes spare `sourceOrder.last` and `suffix(4)`, an inspection plane is budget-exempt, so the enforceable floor is 1792 MB |
+
+Full files: `w2/M.md`, `w2/J3.md`, `w2/A1.md`, `w2/K-area.md`, `w2/I3.md`.
+
+### The audits corrected themselves, which is the point of reading them
+
+- **J3 closed five known-open rows** by verifying rather than assuming: K-024, K-025,
+  K-026, K-096, K-065. It also found K-015 FIXED-SINCE, correcting J1's row, and
+  K-103 INVERTED — watermarking is fully built and docs/11 still calls it deferred.
+- **K filed nothing for the thing its brief suspected.** `sourceNormalized` and
+  `displayedNormalized` are exact inverses by construction (one `geometryRects` call
+  feeds both), and the flip/crop composition, the canvas tilt's sign, `usableSize`'s
+  join at 45 degrees and a crop's CanonicalJSON round trip were all verified by hand
+  and recorded as correct. That list is worth as much as the defects.
+- **A1 found its own area's test to be a tautology**: `testContrastPinsTheEndsOfTheScale`
+  probes ±12 EV, exactly where `smoothstep(4, 12, |d|)` is 1 by construction, while the
+  picture is formed against anchors at +5/−9 EV. Green, and blind.
+- **J1-03's audit was half wrong and I checked it before fixing it.** It said
+  `sidecar_mtime` "is not updated by the flush at all". It is — `setSidecarMTime` runs
+  on every successful write with a known `photoID`. The stale-read half was real; the
+  mtime half was not, and the fix does not pretend to close it.
+
+### The RAW corpus lane
+`.github/workflows/raw-corpus.yml` + `w6/raw-corpus-plan.md`. 16 CC0 files, 233.9 MB,
+12 containers, 12 manufacturers, Bayer in three phases plus X-Trans, monochrome and
+Foveon; four real rotated files in both directions. **No goldens** — exactly one number
+is pinned per file (the EXIF orientation tag, which lives in bytes a sha256 already
+froze); every other assertion is a property of any photograph or a cross-check between
+two independent readers. **It has never run.** Read plan §9 before reading a failure.
+Its first run answers a question this project does not currently know the answer to:
+whether `CIRAWFilter.nativeSize` is oriented or in sensor order — several caches and
+ladders quietly assume one.
+
+## Waves
+- [x] W0 — ledger K-001…K-104, perf baseline, 42 briefs
+- [x] W1 — 7 dossiers + gap table
+- [x] U0 — mockup published and **APPROVED** by the owner ("build it")
+- [x] W2 — **13 of 13 areas audited** (the trimmed set): C1 F3 F5 · A2 B1 C2 F1 F4 G1 G2 I1 J1 L
+- [ ] W3 — verification of the ~90 findings W2 produced
+- [ ] W4 — triage into landing order
+- [~] W5 — implementation IN PROGRESS, see Landings
+- [ ] W6 — re-audit, perf after, docs/38, report
+
+## Decisions taken since the plan
+- Audit trimmed from 30 areas to 13 (owner: "trim discovery, spend it on fixes").
+- **L0 dropped** — the four-file `AppState` split. The L audit confirms it was right:
+  7 privates would widen across stream boundaries, 73 `@Published` and 13 `didSet`
+  cannot move, and it is unverifiable locally on the SHA every worktree branches from.
+- **Two UI-direction entries corrected** where the approved mockup silently reverted the
+  owner's own recorded requests (see PLAN.md §The UI direction): radii stay 6/9/14, and
+  hover paints only clickable things, never a slider row. His words beat my mockup.
+- **One fix refused**: writing `xmp:Rating` = −1 for a reject. It broke a pinned
+  contract (`testFlagAndRatingSurviveEachOther`) that exists so a frame can be four
+  stars AND rejected. The read half landed; the interop gap is written up.
+
+## Landings (SHA · what · CI)
+| SHA | Landing | CI |
+|---|---|---|
+| cc82116 | base | green |
+| d5d7136 · 64ae6da · fce5936 | N-001: three dead GPU mask kernels revived (two reserved words, then a vertical flip); checker pass 13 + 2 fixtures | gpu-parity **green** on fce5936 |
+| 903ad4d | `ci.yml` `paths-ignore: docs/**` | green |
+| 6f07572 | **F3-01** canvas gesture no longer writes to every selected photo · **F3-03** an absent mask input no longer selects the whole frame when inverted | in 27b8372's run |
+| 2083f92 | **F4-01** picker flags keyed by mask · **F4-02** `MaskSelection.activeComponent` — a disclosed-but-unselected mask stops editing another mask's component | cancelled by the next push |
+| 27b8372 | **F1-01** Delete removes the mask, not the photograph | build-macos ✅ app-bundle ✅ engine-linux ✅ fixtures ✅ test-fast running |
+| 7bd7fdf | **K-053** a rating keystroke stops deleting another tool's colour label · **K-054** Lightroom's reject survives the trip in | held until 27b8372 reports |
+
+**Seven S1s landed.** Four were found tonight (F3-01, F3-03, F4-01, F4-02); two of those
+were regressions in code that shipped this morning.
+
+## Landed, batch 2 (after ac5570d)
+
+| SHA | Landing | Proof |
+|---|---|---|
+| 31ef62a | **L-01 / A2-01** a grading-wheel drag is one undo step, not two per mouse event — gesture epoch as the first coalescing clause | substitution: "480 is not equal to 1 — a four-second wheel drag produced 480 undo steps" |
+| 3fbb096 | **B1-02** Point Colour stops rotating the hue of near-neutrals — chroma gate hoisted out of the Variance branch | substitution: "60.00000000000068 is not less than 1.0", both controls stay green; `pointColor.hue` proof record expected to move — re-pin pending the local drift run |
+| cf9fb58 | **I1-01 + I1-03** a settle joins or steals the bake the drag already queued (245–319 ms off the release of Whites/Saturation); background bakes and joins counted on the HUD (`d`/`j`); `resetStats` zeroes per-slot traffic too | substitution in two rounds: read-side door removed → "2 is not equal to 1"; store-side pending clear removed → "baked twice: once by the settle and once again by the drain" |
+| 56008bf | **C2-01** (corrected) the blue grain record is the same texture in preview and export — one half-pixel floor, not two | 5 tests; the red/green no-op is pinned across 6 stocks × 4 resolutions |
+
+**Audit corrections made while landing** — recorded because W3 would otherwise re-find them:
+- **C2-01 named the wrong channel.** The double floor is provably a no-op for `sizeScale ≤ 1`
+  (red 0.8, green 1.0): `max(max(x,½)·s, ½) = max(x·s, ½)` for `s ≤ 1`. It is real for BLUE
+  at 2.0 (Velvia 17.2 %, Ektar 0.45 % preview↔export divergence → exactly 0 after). The
+  red 46 % / green 17 % divergences the finding headlined are the floor itself and need
+  R7 C.2.3's band-limited plate — **still open**, filed as C2-01b.
+- **G2-12's glyph radius** (2.5 in `LumenBehaviourGlyph`) is correct: the canvas is 14 pt
+  tall, the box ~8, and `radiusChip` on it is a capsule. Reverted with the reasoning in
+  the file.
+- **G2's "pitch = 24" for the slider row** would have made the column tighter than the
+  build the owner called "back to back to back" — his words beat the mockup (third time
+  this round: radii, hover, now pitch). Reconciled: row 24 (his number), inner air kept,
+  the vestigial outer point (it separated HOVER fills, and hover is gone) dropped →
+  pitch 28, on the grid, exactly what he approved.
+- **The mockup's focus ring** on slider rows contradicts *"it gets a blue border around
+  it, which I don't want"* (`LumenFocus.swift`). Scoped: rows keep `lumenFocusSurface`;
+  `lumenFocusRing` exists for controls with no groove (menu trigger, switches).
+
+## U1 — in progress on the tree (uncommitted until the drift run frees `.build`)
+Tokens: text 0.86/0.62/0.48 · `hoverLift` +0.03 additive via `Lumen.hovered(on:)` ·
+`focusRing` accent@60 1.5 pt · `hudFill` black@72 + `lumenHUD()` · `rowHeight` 24 ·
+type 12 semibold / 11 / 10 / 11 tabular. Radii **unchanged** (6/9/14 + `radiusTab` 12 —
+the rail tab's own argument stands). 53 section headers to mixed case through
+`.lumenHeading` (it had zero call sites); `LumenCapsLabel` to one size (10). Cursor leak
+(G2-05) closed by one balanced modifier for all three cursors. Switch spring 0.22→0.12;
+checkbox hover on the surface not `.brightness`. Menu: hairline retired, glyphs to the
+10 pt floor, trigger gets additive hover + focus ring. Slider readout is a pill (well
+fill, modified border in the 0.72 grey), `valueWidth` 44→48 with the pill's air inside
+the column. Badge → HUD pill. `DesignSystemTests`: three prohibitions (no hover/ring on
+the slider row, headings through the token, cursor pushes only through the modifier) and
+five ratchets (raw font sizes 199, 9 pt 37, raw radii 34, hand-rolled HUD fills 19).
+**Correction to d15e663's own message:** it says the slider row's pitch becomes 28. It
+does not — the row is 24, its padding makes 28, and the panels stack rows at
+`VStack(spacing: 2)`, so the pitch is 30. The touch target (28) and the owner's row
+number (24) are both right; the stack's two points are U2 item 5's, changed per file
+with each stack's contents read rather than by a blind sweep of thirty-one sites. The
+comment in `LumenControls.swift` now carries the arithmetic.
+
+**And `valueWidth` is 52, not the 48 that first landed.** G1 §2 measured the binding
+case — Black target's `15.000` at three decimals, 41.2 pt while scrubbing, where the
+readout goes medium weight — and said a pill needs ≥ 52. At 11 pt that is ~37.8, which
+makes 48 sufficient by two tenths of a point: inside the error of estimating a font
+metric, for four points of track worth 0.03 pt per unit at the default width.
+
+**Deferred to U5:** toggle-row keyboard focus — space is a global hold key in `Keymap`,
+so the row would need the dispatcher yield the slider has.
+
+## Landed, batch 3 (after 0816fc4)
+
+| SHA | Landing |
+|---|---|
+| 55d03cc | **I1-05** a table another pane is using stops being evicted mid-drag; `valueWidth` 48→52 and the pitch arithmetic corrected |
+| 2b23c62 | **U2** panels on one rhythm — doubled headings, truncated labels, the last two rules, one pitch, paired insets, 33 font calls to tokens |
+| 80954db | **Lights out (`L`) and the ISO 12646 assessment surround (`⌘B`)** built, so the three keymap moves land on features that exist |
+| 8a299a5 | **Proof ceremony**: `pointColor.hue` and `.range` re-pinned after the chroma gate |
+| 8987690 | **U4 first half**: every overlay, badge and the floating masks panel on one HUD material |
+| 4e11740 | **B1-01** a Point Colour swatch selects its own colour instead of the whole frame, plus its ceremony (all five records) |
+| 796618a | **K-016** export presets survive a build that adds a field · **K-020** a newer build's edit survives you opening it |
+| 7772301 | **K-018** brush strokes are in the backup · **F3-02** a long painting stops deleting the sidecar's copy of itself |
+| cf669c1 | The argument order U2 shipped, and the checker hole that let it through |
+
+**EVERY S1 DATA-LOSS ROW IN THE LEDGER IS NOW CLOSED**: K-015, K-016, K-018, K-020,
+K-052, K-053, K-054, F3-01, F3-02, F3-03.
+
+## The red streak, recorded because it is the lesson of the night
+
+`2b23c62` (U2) added an `indented` parameter to `LumenSlider`, declared after `bipolar`,
+and passed it right after `title:` at four call sites. Swift's memberwise initializer
+requires declaration order. **`build-macos` was red from 2b23c62 to 7772301 — five
+pushes — and `dev-latest` did not move from 0816fc4 for about two hours.**
+
+`swiftc -parse` cannot see it: argument labels are a type-check question. The surface
+checker can, and did not, because `synthesize_memberwise` vetoed `LumenSlider` over
+`@State private var wheelSettleCloser: Task<Void, Never>?` — a private OPTIONAL, which
+has an implicit nil and is not a memberwise parameter at all. A vetoed struct is not
+partly checked; every one of its call sites is silently exempt. Thirteen structs were
+vetoed and they were the most-constructed views in the app.
+
+One condition fixed it: **3977 checked call sites and 13 blind structs → 4099 and zero**,
+with two new fixtures pinning the hole shut.
+
+**The rule for the rest of the grind: after any change to a shared control's signature,
+run `check-swift-surface.py` AND look at `build-macos` on the pushed SHA before starting
+the next landing.** A green local triad is not a build.
+
+## Landed, batch 4
+| SHA | Landing |
+|---|---|
+| f586762 | **U3 type**: the ten shell files onto the scale; the 10 pt floor is now zero, not a ratchet; `.lumenCaptionNumeric` for counts. Raw font calls 199 → 84. |
+| 0158776 | **C2-01b** the plate is band-limited to the resolution it is sampled at — the real mechanism behind the red/green grain parity loss; ceremony re-pinned `film.grain.size` alone of twelve. |
+
+**Report published** for the owner: https://claude.ai/code/artifact/07e0620e-84bc-4b25-844a-662d4d840395
+— what to test in ten steps, the twenty-four landings, and what I got wrong (the red
+streak included).
+
+## Queued next, in order
+1. ~~**U3 shell**~~ — **done, and this entry was stale for two batches.** The sidebar
+   regroup, the status bar's query sentence, the filter bar's move into a popover with
+   live counts and the type-scale migration all landed with U2; the last piece was the
+   radius pass (21 of 22 raw corner radii onto the 6/9/14 ladder or onto
+   `Lumen.swatchRadius(_:)`). Re-check a queue entry against the code before working it.
+2. ~~**U4 canvas**~~ — **also largely done.** The on-canvas radial and linear handles
+   are built to the mockup: four rim dots, the feather-ring handle on the hit test's own
+   two conditions, no rotation knob (the owner: "I just don't want this little lever at
+   the edge"). What landed this batch is the drawn dot radii moving onto `MaskHandles`
+   beside the grab radius they must stay smaller than. Left: before/after chrome and the
+   collapsed mask column.
+3. ~~**U5**~~ — **done.** Four landings:
+   · the type scale split from a GLYPH scale, because an SF Symbol's point size is not a
+     type size — which is why 89 raw sizes survived three migrations. 37 glyphs were
+     already wearing text tokens. Now 35 raw sizes, and a check that fails on the next
+     `Image` given a text token.
+   · **one empty state replacing five** — four mark sizes, three text treatments and four
+     stack spacings for one idea. This is the failure the design tests could not see:
+     every one of the five spelled its tokens correctly, and what repeated was a SHAPE.
+   · **three motions replacing eight numbers**, where a fold animated four ways across
+     two curve families in files whose own comments were arguing for one.
+   · the keyboard reference already existed and is held to the dispatcher by
+     `KeyGrammarTests`; `controlHover` is now derived from `controlSurfaceValue +
+     hoverLift` rather than written as 0.27 twice.
+
+   Hover and focus were **already coherent** — the fills go through `Lumen.controlHover`
+   or `Lumen.hovered(on:)`, both tokens — so the "sweep" turned up one derivation and no
+   defects. Recorded rather than invented.
+4. **Engine leftovers** — all of C2 is landed: ~~C2-01b~~ **0158776** ·
+   ~~C2-02~~ / ~~C2-03/K-065~~ **6425f60** · ~~C2-05 halation Size and Redness~~,
+   ~~C2-06~~, ~~C2-07~~ in the current batch. ~~I1-04 the settle loop~~ **abab18a**.
+   Still open: **I1-02** (fix the DragProbe so N-002's row can be re-measured),
+   **C2-04** (the floor's own test asserts the divergence), **N-005** (the three
+   "independent" plate seeds correlate), **N-006** (halation's unused
+   `normalizedWeights`, so Amount is scaled by 1.75)
+5. **W3/W4** verification and triage of the ~70 W2 findings not yet landed
+6. **W6 close** — re-audit each landing against its finding, perf probes against
+   `w0/perf-baseline.md`, `docs/38-the-grind.md`, and the owner's report
+
+## Rule learned: docs-only pushes cancelled the code push's CI
+`ci.yml` triggered on every push and its concurrency group cancels in progress, so
+each STATUS/ledger push cancelled the run verifying the previous code push — and its
+`app-bundle`. Fixed in `ci.yml` with `paths-ignore: docs/**`. For W5: commit docs with
+the code they describe, and never push prose while a code run is in flight unless
+the run is already past `app-bundle`.
+
+## Mechanism change (W2/W3), recorded
+The Workflow tool caps concurrency at min(16, CPUs−2) per run and this box has 4 CPUs
+→ 2 agents at a time; a 30-area run would take hours. The Agent tool fan-out ran seven
+research agents concurrently without a cap, so W2 audits run that way (one background
+agent per area, briefs unchanged) and W3 runs as **two independent refuters per area**
+— lens A (by-design / already-fixed / duplicate / scope) and lens B (evidence /
+severity / numbers / reproducibility / the test) — writing `w3/<code>-a.md` and
+`w3/<code>-b.md`. W4 treats a finding as CONFIRMED only when both lenses confirm it.
+The per-finding refuter design stays in `briefs/w3-common.md` as the standard each
+lens applies to every finding.
+
+## W2 progress
+- 21:52 launched F1–F5, I1–I3 (masks + pipeline) — before the gap table, since those
+  areas lean on code and K-rows.
+- 21:57 gap table landed (a60b016); launched A1, A2, B1, B2, B3, C1, C2, D1, D2, E1,
+  E2, G1. **The Agent tool caps at 20 concurrent** — G2, G3, H1, H2, J1, J2, J3, K, L,
+  M are queued and launch as the first batch frees slots (~22:22). On a reset: launch
+  any area whose `w2/<code>.md` is missing, 20 at a time.
+- W3 (two lenses per area) launches per area as its `w2/<code>.md` lands.
+
+## Streams (W5)
+_not started_
+
+## Two things found while landing, both worth their own row
+
+**C2-01b did not reach the film path's GPU plate, and no test could see it.** The
+band-limited plate landed in `ReferenceRenderer` and in `RenderGraph`'s creative
+builder; the film path had a SECOND CIImage plate builder in `PipelineRenderer`, and it
+kept asking for the unlimited plate. So a stock's grain on screen and in the exported
+file went back to carrying exactly the aliasing that fix removes. `GrainPlateTests`
+pinned the two builders together and stayed green throughout, because it compared what
+both of them asked for when asked for the *unlimited* plate. Fixed by deleting the
+duplicate: there is one builder now, `RenderGraph.grainPlate`, and
+`testThereIsOneGPUPlateBuilderAndItAsksThePlanForItsScale` reads
+`Sources/LumenPipeline` as text and fails if a second one appears or if anybody reaches
+past `GrainPlan` for a raw plate. **Lesson: a test that pins two implementations
+together has to exercise them the way the renderer does, not the way that makes them
+easy to compare.**
+
+**~~The three "independent" dye-layer plates are not independent.~~ N-005 is REFUTED,
+and it was my error.** I measured `plateSeed(channel:)`'s three fields correlating at
+r ≈ 0.088 / 0.044 / −0.040 over 16 384 samples and called the first "about eleven
+standard errors out, so it is structure and not sampling".
+
+The standard error was wrong. I computed it as 1/√16384 — the figure for 16 384
+INDEPENDENT samples — and the plate's samples are not independent: it is a smooth
+field, and its effective degrees of freedom are about 64. The I2 audit did the thing I
+should have done and built a null distribution from 200 unrelated seed pairs: its
+standard deviation is 0.110, which puts 0.088 at the **57th percentile**. That is the
+middle of the distribution. There is no structure here.
+
+What survives: the three seeds ARE separated by a merely additive offset, which is the
+weakest form of separation available (D2 noted the same thing independently, without
+claiming it produced a defect). That is a code-smell worth a look and not a finding, and
+C2-02's few-percent amplitude behaviour needs a different explanation than this one.
+
+Recorded at length rather than deleted, because the failure is instructive: a
+correlation coefficient with a confidently wrong denominator reads exactly like a
+result, and nothing about the number itself says which it is.
+
+## Notes
+- **U0 mockup published**: https://claude.ai/code/artifact/d2b27d8f-e938-4f72-a402-2d638cd52f9b
+  (Develop / Masking / Cull scenes, Current ↔ Proposed toggle, live slider states, `B`
+  for assessment mode). Awaiting the owner's yes/adjust; UI streams wait on it.
+- W1: r1, r2, r3, r5 on disk and committed (944f3da); r4, r6, r7 running.
+- N-001 chain: d5d7136 (`long`→`edge`) → sentinel found `maskFold` dead too → 64ae6da
+  (`out`→`folded`, checker pass 13) → parity tests ran for the first time: **GPU alpha
+  vertically mirrored** (23 failures / 3 tests) → flip fix pushed. **64ae6da's dev
+  build drew mirrored gradient masks** (app-bundle publishes regardless of tests) —
+  superseded within ~15 min. Lesson for W5: an engine landing that un-skips tests can
+  ship a regression through app-bundle before the lane reports; treat "first real run
+  of a previously-skipped test" as an engine-window event.

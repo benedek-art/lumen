@@ -26,25 +26,200 @@
 import Foundation
 
 /// Baked colour tables, reused across frames when their inputs have not moved.
-enum PlanTableCache {
+/// Public for exactly one member — `anyBakePending`, the viewer's question. The
+/// working surface (slots, keys, the table calls) stays internal: the cache's
+/// correctness argument lives in this file and no caller outside it gets to
+/// participate.
+public enum PlanTableCache {
 
     /// Which table, so the two never collide on a key.
-    enum Slot: String {
+    enum Slot: String, CaseIterable {
         case finish
         /// The finish table with a soft proof mapped over it. A separate slot rather
         /// than a variant of `finish`, because the flag overlay needs both at once.
         case finishProofed
         case colorGrade
+        /// The tone stage's gain cube. The last expensive bake that was not in this
+        /// cache: 32³ = 32 768 samples rebuilt at plan init, i.e. on every mouse event
+        /// of a drag, and invalidated by precisely the six sliders a photographer
+        /// reaches for first. Its inputs are `develop.tone` and `develop.zones` and
+        /// nothing else — `ToneEngine` is constructed from exactly those two.
+        case toneGain
     }
 
-    /// Four entries per slot. A drag revisits one key over and over, so even one would
-    /// hit almost always; four covers flipping between a couple of render presets or
-    /// A/B-ing two recipes without thrashing. Each entry at the interactive size is
-    /// about 1.4 MB, so a full cache is under 12 MB.
-    private static let capacity = 4
+    /// Eight entries per slot. A drag revisits one key over and over, so even one would
+    /// hit almost always; eight covers flipping between a couple of render presets or
+    /// A/B-ing two recipes without thrashing, plus the stale chain a drag through
+    /// `tableAllowingStale` leaves behind. Each entry at the interactive size is about
+    /// 1.4 MB, so a full cache is under 24 MB.
+    private static let capacity = 8
 
-    private static let lock = NSLock()
-    private static var entries: [Slot: [(key: String, table: LUT3D)]] = [:]
+    /// The same number, for a caller that needs to reason about eviction rather than
+    /// rely on it — `DragProbeTests` prices a settle after a drag, and whether the
+    /// drag's tables are still resident when the settle asks is entirely this number
+    /// against the number of values the drag re-keyed. Public so that arithmetic can
+    /// be written as arithmetic instead of as a second literal 8.
+    public static var capacityPerSlot: Int { capacity }
+
+    /// An `NSCondition` rather than an `NSLock` because one caller now needs to WAIT
+    /// on another's bake instead of starting a second copy of it — see `table`. Every
+    /// existing `lock()`/`unlock()` pair means what it always did; the condition only
+    /// adds `wait(until:)` and `broadcast()` on top of the same mutex.
+    private static let lock = NSCondition()
+
+    /// `pairedValue` is the scalar the table was BAKED WITH, carried beside it.
+    ///
+    /// A normalized table is not a picture on its own: `finishLUT` holds the display
+    /// transform divided by display white and the graph multiplies `finishScale` back,
+    /// so the two are meaningful only together. A stale serve hands out a table baked
+    /// under a DIFFERENT key while the caller computes its scalar fresh from this
+    /// event, and if that key covered the scalar the frame is then neither picture: it
+    /// is `oldTable × newScale`. Storing the pair lets the stale path hand back both
+    /// halves of the frame it is actually serving, which is what "one mouse event
+    /// behind" was always supposed to mean.
+    ///
+    /// `identity` is the PHOTOGRAPH the entry last rendered (docs/31 round two §4).
+    /// The key describes the RECIPE completely, so an exact key hit is the right
+    /// table for any photograph — but the stale door's whole contract is "the
+    /// picture from one mouse event ago", and across a photo change the newest
+    /// entry in the slot is a different photograph's picture formation: step from a
+    /// black-and-white edit to a colour frame and the colour frame rendered
+    /// monochrome for a frame. So each entry carries the identity of the photograph
+    /// that last used it, and a stale serve may only borrow within that identity —
+    /// see `pairedTableAllowingStale`.
+    ///
+    /// Slots whose tables have no companion scalar (`colorGrade`) store 1 and ignore it.
+    private static var entries: [Slot: [(key: String, table: LUT3D,
+                                         pairedValue: Double,
+                                         identity: String)]] = [:]
+
+    /// The photograph the render being planned is for — the identity prefix every
+    /// entry is stamped with (docs/31 round two §4).
+    ///
+    /// Ambient rather than a parameter, because the calls into this cache are made
+    /// from `RenderPlan.init`, which owns no photograph — a plan is a compiled
+    /// recipe. The renderer stamps the identity before building the plan
+    /// (`PipelineRenderer` does, at every entry point that owns a source), and the
+    /// app's renders are serialised through one render actor, so the stamp cannot
+    /// be overwritten mid-plan. A caller that never stamps (tests, headless plan
+    /// builds) runs under the empty identity, which is an identity like any other:
+    /// such callers keep the pre-identity behaviour among themselves and can never
+    /// borrow a stamped photograph's table through the stale door, nor lend theirs.
+    private static var activeIdentity: String = ""
+
+    /// Stamp the photograph identity for the plans built next. See `activeIdentity`
+    /// for why this is ambient. Public because the renderer that knows the
+    /// photograph lives in LumenPipeline.
+    /// The one spelling of a photograph's identity.
+    ///
+    /// The renderer stamps it from the `ImageSource` it owns; the viewer's settle loop
+    /// asks `anyBakePending(for:)` about the photograph it is drawing and holds only a
+    /// URL. Deriving the string separately at the second call site is how two spellings
+    /// of one identity come to exist and the question quietly starts answering `false`
+    /// for every photograph — so the cache that keys on it owns it.
+    public static func renderIdentity(for url: URL) -> String { url.absoluteString }
+
+    public static func setRenderIdentity(_ identity: String) {
+        lock.lock()
+        activeIdentity = identity
+        lock.unlock()
+    }
+
+    /// One background bake at a time per slot, newest request wins.
+    ///
+    /// `pending` holds at most ONE deferred bake per slot — the latest one asked for.
+    /// A drag produces a fresh key on every mouse event; baking each of them would
+    /// just replay the drag in the background at 23.7 ms a step, seconds behind the
+    /// hand. Only the newest can ever be shown, so only the newest is kept.
+    ///
+    /// The two pieces of state below answer two different questions, and collapsing
+    /// them into one `Set<Slot>` is what let a settle frame bake a table that was
+    /// already baking. `draining` is loop ownership — one drain per slot, nobody else
+    /// starts a second. `inFlightKey` is the key that drain is baking RIGHT NOW, which
+    /// is the only thing that lets another thread recognise its own table in someone
+    /// else's work and wait for it.
+    private static var draining: Set<Slot> = []
+    private static var inFlightKey: [Slot: String] = [:]
+    /// The PHOTOGRAPH the in-flight bake belongs to, carried beside its key.
+    ///
+    /// `pending` has always held one (a deferred bake is queued by a stale serve, and
+    /// the stale door never crosses photographs), but the moment the drain pops it the
+    /// identity was dropped on the floor — so between `pending.removeValue` and the
+    /// store there was no way to ask whose work was in flight. That gap is most of a
+    /// bake, and it is exactly the window the viewer's settle loop asks in.
+    private static var inFlightIdentity: [Slot: String] = [:]
+    private static var pending: [Slot: (key: String, pairedValue: Double,
+                                        identity: String,
+                                        bakeExact: () -> LUT3D)] = [:]
+
+    /// How long a settle will wait to join a bake before giving up and baking its own.
+    ///
+    /// A bound, not a timeout anybody should hit: the bake it is joining is 15–24 ms.
+    /// It exists so that a missed broadcast — a future edit that stores without waking
+    /// the waiters — degrades to today's redundant bake instead of a frozen window.
+    /// Slow is a performance bug; hung is a lost afternoon.
+    private static let joinTimeout: TimeInterval = 0.5
+    private static let bakeQueue = DispatchQueue(label: "lumen.plantable.bake",
+                                                 qos: .userInitiated)
+
+    // MARK: Counters (docs/23 M1b: cache-hit counters on the HUD)
+
+    /// What the cache did, counted since launch (or the last `resetStats`). The HUD's
+    /// job is to turn "the sliders feel fast" into numbers; a drag whose hit rate is
+    /// not ~100% after its first frame is the cache being defeated by a key bug, and
+    /// nothing but a counter can see that on a live machine.
+    public struct Stats: Equatable, Sendable {
+        public var hits = 0
+        public var bakes = 0
+        public var staleServes = 0
+        /// Bakes performed on `bakeQueue` for a stale serve. Counted separately
+        /// because they are not on the render path — but they are real CPU competing
+        /// with it, and until they were counted the HUD read `48b` for a drag that was
+        /// performing up to 96 more bakes behind the line it was drawing.
+        public var deferredBakes = 0
+        /// Bakes NOT performed because this thread joined one already in flight, or
+        /// took one off the queue before the drain could repeat it. The fix's own
+        /// meter: a drag that ends in a settle should show one of these.
+        public var joinedBakes = 0
+    }
+    private static var stats = Stats()
+
+    /// Per-slot traffic, for tests that need to prove a PARTICULAR table went through
+    /// this cache rather than being baked beside it. The aggregate counters above
+    /// cannot: a table that never calls in is simply absent from them, so a test
+    /// written against the totals passes just as happily when the bake has escaped the
+    /// cache entirely — which is exactly how the tone cube stayed uncached while the
+    /// suite was green.
+    private static var slotTraffic: [Slot: Stats] = [:]
+
+    static func traffic(_ slot: Slot) -> Stats {
+        lock.lock()
+        defer { lock.unlock() }
+        return slotTraffic[slot] ?? Stats()
+    }
+
+    public static var currentStats: Stats {
+        lock.lock()
+        defer { lock.unlock() }
+        return stats
+    }
+
+    /// Zero every counter — the aggregate AND the per-slot traffic.
+    ///
+    /// It used to reset only `stats`, leaving `slotTraffic` accumulating since launch.
+    /// A caller that reset and then read `traffic(.finish)` got a number that included
+    /// everything before the reset, which is the same shape of lie this cache's
+    /// counters were audited for: a measurement that reads plausible and means
+    /// something else. Note what it still does NOT do — it does not clear `entries`, so
+    /// a run measured after a reset is measured against a warm cache. That is
+    /// deliberate (`clear()` is the other tool) and it is the trap the drag probe fell
+    /// into, so it is written down here.
+    public static func resetStats() {
+        lock.lock()
+        stats = Stats()
+        slotTraffic.removeAll()
+        lock.unlock()
+    }
 
     /// The table for `key`, building it only if it is not already held.
     ///
@@ -52,12 +227,87 @@ enum PlanTableCache {
     /// bake, which wastes one bake and is still cheaper than serialising every render
     /// behind a mutex — and because the key determines the table, the loser's result is
     /// indistinguishable from the winner's.
-    static func table(_ slot: Slot, key: String, size: Int,
+    ///
+    /// `pairedWith` is the scalar this table is meaningless without, stored beside it
+    /// so that a later STALE serve of this entry can hand back the matching half. The
+    /// exact path never needs it for itself — the table it returns was baked for this
+    /// very key, so the caller's own scalar already pairs with it.
+    static func table(_ slot: Slot, key: String, size: Int, pairedWith value: Double = 1,
                       build: () -> LUT3D) -> LUT3D {
         guard size <= LUT3D.interactiveSize else { return build() }
 
         lock.lock()
-        let hit = entries[slot]?.first { $0.key == key }?.table
+        var hit: LUT3D?
+        var joined = false
+        let deadline = Date().addingTimeInterval(joinTimeout)
+        while true {
+            if var slotEntries = entries[slot],
+               let index = slotEntries.firstIndex(where: { $0.key == key }) {
+                // An exact hit means THIS photograph just rendered with this very
+                // table, so the entry adopts this photograph: the next draft frame's
+                // stale borrow then finds the picture this photo was showing a moment
+                // ago, instead of paying a blocking bake at the start of every drag
+                // that follows a photo switch. Adopting on hit is what keeps exact
+                // hits shared across photographs (the key describes the table
+                // completely) while the STALE door stays per-photograph.
+                slotEntries[index].identity = activeIdentity
+                // AND MOVE IT TO THE FRONT. Eviction is `removeLast`, so without this
+                // the eight slots are ordered by INSERTION and not by use: a drag's
+                // drain inserts a fresh key every ~24 ms, so two seconds of dragging
+                // evicts the table the compare pane keeps coming back to, and that
+                // pane's next frame pays a cold blocking bake for no reason the
+                // photographer can attribute to anything they did.
+                let hitEntry = slotEntries.remove(at: index)
+                slotEntries.insert(hitEntry, at: 0)
+                hit = hitEntry.table
+                entries[slot] = slotEntries
+                break
+            }
+            // NOT HELD — but it may already be somebody's work in progress, and this
+            // is the door that had no idea. A drag's last mouse event posts the exact
+            // table for the value the hand stopped on; the settle frame that follows
+            // wants precisely that key, arrives here a few milliseconds later, saw
+            // only `entries`, and baked a second copy of a table that was already
+            // being made. Then the drain popped its own entry and made a third.
+            //
+            // Queued but not started: take it. Removing it from `pending` is the half
+            // that matters — the bake below is the same closure over the same key, and
+            // the drain can no longer repeat it after we store.
+            if let queued = pending[slot], queued.key == key {
+                pending.removeValue(forKey: slot)
+                joined = true
+                break
+            }
+            // Baking right now: wait for it rather than racing it. `drainPending`
+            // broadcasts after it stores, so the next pass around this loop finds the
+            // table in `entries` and takes the hit branch.
+            if inFlightKey[slot] == key {
+                joined = true
+                if lock.wait(until: deadline) { continue }
+                // The bound elapsed. Fall through and bake — slower than joining,
+                // identical to what this function did before the join existed.
+                joined = false
+                break
+            }
+            break
+        }
+        if hit != nil {
+            stats.hits += 1
+            slotTraffic[slot, default: Stats()].hits += 1
+            if joined {
+                stats.joinedBakes += 1
+                slotTraffic[slot, default: Stats()].joinedBakes += 1
+            }
+        } else {
+            stats.bakes += 1
+            slotTraffic[slot, default: Stats()].bakes += 1
+            if joined {
+                // Stolen off the queue: this thread bakes it, but one bake was
+                // saved — the drain's repeat of the same key.
+                stats.joinedBakes += 1
+                slotTraffic[slot, default: Stats()].joinedBakes += 1
+            }
+        }
         lock.unlock()
         if let hit { return hit }
 
@@ -66,19 +316,207 @@ enum PlanTableCache {
         lock.lock()
         var slotEntries = entries[slot] ?? []
         slotEntries.removeAll { $0.key == key }
-        slotEntries.insert((key: key, table: built), at: 0)
+        slotEntries.insert((key: key, table: built, pairedValue: value,
+                            identity: activeIdentity), at: 0)
         if slotEntries.count > capacity { slotEntries.removeLast(slotEntries.count - capacity) }
         entries[slot] = slotEntries
+        // This key is now held, so nothing should bake it again: drop a pending
+        // request for it that arrived while we were baking, and wake anyone who chose
+        // to wait for it rather than start their own copy.
+        if pending[slot]?.key == key { pending.removeValue(forKey: slot) }
+        lock.broadcast()
         lock.unlock()
 
         return built
     }
 
+    /// The table for `key` if it is already held; otherwise the NEWEST table in the
+    /// slot while the exact one bakes in the background. Draft frames only.
+    ///
+    /// This is what lets Whites, Blacks, the curve, the mixer and the wheels drag at
+    /// frame rate instead of paying a 23.7 ms finish bake (and often a colour-grade
+    /// bake on top) inside every frame: the drag frame shows the previous event's
+    /// table — one mouse event of slider travel stale, an error that decays to zero
+    /// the moment the hand pauses — and the exact bake lands off the render path,
+    /// picked up by the next frame. Settle and export must never come through here;
+    /// they call `table`, which blocks on the exact bake, so the picture at rest and
+    /// the exported file are exact by construction.
+    ///
+    /// The first request ever for a slot has nothing to be stale from and bakes
+    /// synchronously — a cold app pays one exact bake, not a blank frame.
+    static func tableAllowingStale(_ slot: Slot, key: String, size: Int,
+                                   build: @escaping () -> LUT3D) -> LUT3D {
+        pairedTableAllowingStale(slot, key: key, size: size, pairedWith: 1,
+                                 build: build).table
+    }
+
+    /// The same thing for a table that is only half a picture: it returns the scalar
+    /// the table it hands back was BAKED WITH, so the caller can pair them.
+    ///
+    /// THE BUG THIS EXISTS TO END, which this project has now shipped twice. A
+    /// normalized table plus a freshly-computed scalar is not a stale picture, it is a
+    /// picture that never existed: `finishLUT` holds the display transform divided by
+    /// display white, `RenderGraph` multiplies `finishScale` back, and pairing an OLD
+    /// table with a NEW white gives the previous event's picture multiplied by
+    /// `newWhite / oldWhite`. The tone gain cube had the identical defect against
+    /// `toneGainScale` — that one was live, and it was the flicker the owner reported
+    /// on Contrast and Blacks. It was fixed by taking the cube off the stale path
+    /// entirely, which is affordable only because it is the cheapest table here (32³ of
+    /// a 1-D lookup, against 15–18 ms for the 33³ finish table). This is the fix for
+    /// the ones that cannot pay: keep them stale, keep them PAIRED.
+    ///
+    /// For the finish table the defect is currently LATENT — `transform.white` moves
+    /// only with `whiteTarget`, which no control writes — so this is the rare case of
+    /// closing a hole before anyone falls in it. The reason to bother is that the shape
+    /// is what recurs, not the instance.
+    ///
+    /// A frame served from here is then genuinely one mouse event behind — the whole
+    /// previous picture, consistently — which is the error the stale path was always
+    /// documented as making and, until now, was not the error it made.
+    static func pairedTableAllowingStale(_ slot: Slot, key: String, size: Int,
+                                         pairedWith value: Double,
+                                         build: @escaping () -> LUT3D)
+    -> (table: LUT3D, pairedValue: Double) {
+        guard size <= LUT3D.interactiveSize else { return (build(), value) }
+
+        lock.lock()
+        var slotEntries = entries[slot] ?? []
+        if let index = slotEntries.firstIndex(where: { $0.key == key }) {
+            stats.hits += 1
+            slotTraffic[slot, default: Stats()].hits += 1
+            // Adopt on hit, and promote on hit, exactly as `table` does — an exact hit
+            // IS this photograph's picture, whoever baked it, and it is the entry least
+            // deserving of being the next one evicted.
+            slotEntries[index].identity = activeIdentity
+            let hit = slotEntries.remove(at: index)
+            slotEntries.insert(hit, at: 0)
+            entries[slot] = slotEntries
+            lock.unlock()
+            // The STORED scalar, not the caller's, even on an exact hit. They agree
+            // whenever the key covers the scalar, which is the invariant this cache
+            // already requires of every key — and if some future key ever fails to,
+            // the pair stays a pair rather than silently becoming a hybrid again.
+            return (hit.table, hit.pairedValue)
+        }
+        // The stale borrow NEVER crosses photographs (docs/31 round two §4). "One
+        // mouse event behind" is a statement about THIS photograph's previous
+        // frame; the newest entry in the slot, unqualified, is whatever photograph
+        // was edited last — stepping from a B&W edit to a colour frame served the
+        // colour frame a monochrome picture formation for a frame. A miss with
+        // nothing of this photograph's to be stale from renders fresh instead:
+        // the blocking bake below is the same one a cold slot pays.
+        guard let newest = slotEntries.first(where: { $0.identity == activeIdentity })
+        else {
+            lock.unlock()
+            return (table(slot, key: key, size: size, pairedWith: value, build: build),
+                    value)
+        }
+        stats.staleServes += 1
+        slotTraffic[slot, default: Stats()].staleServes += 1
+        // Replace, never append: only the newest deferred bake can ever be shown.
+        pending[slot] = (key: key, pairedValue: value, identity: activeIdentity,
+                         bakeExact: build)
+        let mustStart = draining.insert(slot).inserted
+        lock.unlock()
+
+        if mustStart { bakeQueue.async { drainPending(slot) } }
+        return (newest.table, newest.pairedValue)
+    }
+
+    /// Bake the latest pending key for `slot`, and keep going if another arrived while
+    /// baking. Runs on `bakeQueue`; `draining` guarantees one drain per slot.
+    private static func drainPending(_ slot: Slot) {
+        while true {
+            lock.lock()
+            guard let next = pending.removeValue(forKey: slot) else {
+                draining.remove(slot)
+                inFlightKey[slot] = nil
+                inFlightIdentity[slot] = nil
+                // A settle can be waiting on a key this drain no longer holds — it was
+                // stolen off the queue, or stored by another path. Wake it: its own
+                // loop re-reads `entries` and decides.
+                lock.broadcast()
+                lock.unlock()
+                return
+            }
+            // Publish WHICH key is baking, so `table` can recognise its own table in
+            // this work and wait for it instead of starting a second copy.
+            inFlightKey[slot] = next.key
+            inFlightIdentity[slot] = next.identity
+            lock.unlock()
+
+            let built = next.bakeExact()
+
+            lock.lock()
+            var slotEntries = entries[slot] ?? []
+            slotEntries.removeAll { $0.key == next.key }
+            slotEntries.insert((key: next.key, table: built,
+                                pairedValue: next.pairedValue,
+                                identity: next.identity), at: 0)
+            if slotEntries.count > capacity {
+                slotEntries.removeLast(slotEntries.count - capacity)
+            }
+            entries[slot] = slotEntries
+            // Counted at last. These are not on the render path, but they are real CPU
+            // competing with it — a drag reporting `48b` was performing up to 96 more
+            // bakes behind the frame it was drawing, and the HUD's whole purpose is to
+            // make a defeated cache visible on a live machine.
+            stats.deferredBakes += 1
+            slotTraffic[slot, default: Stats()].deferredBakes += 1
+            inFlightKey[slot] = nil
+            inFlightIdentity[slot] = nil
+            lock.broadcast()
+            lock.unlock()
+        }
+    }
+
+    /// True while a background bake (or a queued one) is outstanding for `slot`.
+    /// For tests, and for a caller that wants to know whether a settle render would
+    /// still find a fresher table than the frame it just drew.
+    static func hasPendingBake(_ slot: Slot) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return draining.contains(slot) || pending[slot] != nil
+    }
+
+    /// Any slot at all, FOR ONE PHOTOGRAPH — the app-facing form of the question
+    /// above, public because the viewer's settle loop is the caller `hasPendingBake`
+    /// was written for and never had (docs/23 audit queue item 7): a settle that gives
+    /// up "because a draft of this very recipe is already up" must first know that
+    /// draft is not riding a stale table still baking in the background.
+    ///
+    /// THE IDENTITY IS THE WHOLE POINT, and the unqualified form of this question was
+    /// the defect. It answered for the entire cache, so a bake queued by ANOTHER
+    /// photograph — the compare pane's other half, a filmstrip prefetch, the tail of
+    /// the drag on the frame the photographer just stepped away from — kept the
+    /// settle loop retrying. Each retry is a full-resolution graph. And it could never
+    /// have helped: the stale door never crosses photographs
+    /// (`pairedTableAllowingStale`), so a table baking under identity B cannot change
+    /// a single pixel of a frame rendered under identity A.
+    ///
+    /// Both halves of "outstanding" are asked, because they are two different states
+    /// and the gap between them is most of a bake: `pending` is queued-not-started,
+    /// `inFlightIdentity` is the drain's current work.
+    public static func anyBakePending(for identity: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        for slot in Slot.allCases {
+            if pending[slot]?.identity == identity { return true }
+            if inFlightIdentity[slot] == identity { return true }
+        }
+        return false
+    }
+
     /// Drop everything. For tests that want to measure a cold bake, and for a caller
     /// that has just finished an export and would rather have the memory back.
+    ///
+    /// Deliberately does NOT cancel an in-flight background bake — the drain loop will
+    /// finish and store its table into the fresh cache, which is stale-cache behaviour,
+    /// not corruption: the key still describes the table exactly.
     static func clear() {
         lock.lock()
         entries.removeAll()
+        pending.removeAll()
         lock.unlock()
     }
 

@@ -377,7 +377,8 @@ and the Develop/Look stage split (D4):
                  "temp": 5200, "tint": 8 },
     "tone":    { "exposure": 0.35, "contrast": 12, "highlights": -40,
                  "shadows": 25, "whites": 0, "blacks": -10 },
-    "zones":   { "pivots": [0.08, 0.25, 0.5, 0.75, 0.92],       // D7, draggable
+    "zones":   { "pivots": [0.357, 0.5, 0.643, 0.786, 0.929],   // D7, draggable —
+                 // derived from the documented -4/-2/0/+2/+4 EV (Zones.defaultPivots)
                  "dark":  { "ev": 0.3, "wheel": [0.02, -0.01], "sat": 0 },
                  "shadow": {}, "mid": {}, "light": {}, "bright": {},
                  "global": { "ev": 0.0 } },
@@ -452,6 +453,42 @@ The doctrine, each rule with its reason:
 Virtual copies are `edit` rows with `kind='version'` (docs/10 calls them Versions); snapshots are
 `kind='snapshot'` rows. Both cost bytes, not files.
 
+### What `look.subset` holds
+
+A saved look is `{"pipelineVersion": n, "look": {…}}` — the recipe's `look` subtree, whole, plus
+the vocabulary version it was written in (docs/14 §3: "a named look is the look-slice of a recipe
+plus its `pipelineVersion`"). Same serialization discipline as a recipe: canonical, sparse,
+sorted keys, fixed float formatting.
+
+**Whole, with no exceptions inside the subtree.** `look.lut` travels with a look even though no
+stage renders it, because the alternative is a second dead-field decision to unwind on the day a
+LUT stage lands, and because a LUT is the most look-shaped thing in the format. `Recipe.render
+Identity` strips it for an unrelated reason — that projection answers "do these two recipes
+produce the same pixels", and what a photographer's saved look remembers is a different question.
+
+**Nothing outside it travels.** Not `develop` (white balance is derived from one camera's as-shot
+neutral, exposure and tone are one frame's light, geometry is one frame's crop), and not `masks`
+— docs/14 §3 says masks declare their own register and that look-tagged ones travel, and `Mask`
+carries no register field yet, so there is no look-tagged mask to carry. Carrying all of them
+instead would move one photograph's brush blobs and radial centres onto another, which is the
+same defect as moving a crop. `LookSubset` in LumenCore is the single place that decides this,
+and `SavedLookTests` fails if a top-level recipe key is ever added without the decision being
+made.
+
+Applying a look raises the target recipe's `pipelineVersion` to the higher of the two and never
+lowers it: a v2 look can express "black and white, off, mix kept", which a v1 reader would render
+as black and white, while a v1 look must not restamp a v2 document whose develop half it never
+touched.
+
+`look` rows are unique on `(kind, COALESCE(grp, ''), name)` — schema version 3. A look is reached
+for by name, so two rows the browser draws identically are two things the photographer cannot
+choose between; saving over a name is how a look is updated, and renaming onto a taken name is
+refused. Nothing references `look.id`: a look is *copied into* a recipe at apply time, so deleting
+one never un-grades a photograph that used it.
+
+`look.thumb` still has no writer. A swatch has to be rendered through the pipeline against some
+photograph, and which photograph is a question this pass did not answer; the browser lists names.
+
 ---
 
 ## 15.5 XMP sidecar policy
@@ -493,6 +530,19 @@ background queue.
 3. Both changed (catalog has unflushed edits *and* the sidecar moved underneath) → catalog wins,
    but the sidecar's state is preserved as a snapshot named "Imported from sidecar &lt;date&gt;".
    Nothing is ever silently discarded.
+
+**Implementation status.** Rules 1 and 2 are implemented in `SidecarMerge.resolve` and tested;
+`photo.sidecar_mtime` is written on both sides of the exchange (after each sidecar flush, and
+after each scan-time read), which is what makes "unchanged since we last touched it" answerable
+at all. **Rule 3's snapshot is NOT implemented**, because snapshots do not exist anywhere yet —
+`saveRecipe` only ever writes `kind = 'working'`. On a rule-3 conflict the catalog wins as
+specified and the sidecar's divergent recipe is handed back to the caller in
+`Resolution.unpreservedSidecar`, which the app logs by name. So the sentence above is currently
+**"the discard is not silent"**, not "nothing is discarded", and it becomes true when versions
+ship. Two narrower limits fall out of taking §15.5 literally, and both are deliberate: rule 2
+fires on a differing recipe fingerprint, so a sidecar carrying only a changed rating does not take
+one; and under rule 2 the sidecar wins for every field it *states*, because `xmp:Rating` absent
+and `xmp:Rating = 0` are the same bytes and silence must not be able to delete a rating.
 
 **Portability — the Capture One idea, absorbed.** C1 sessions prove that "the folder is the
 project" is the right transport: copy the session folder anywhere and everything travels. C1 makes

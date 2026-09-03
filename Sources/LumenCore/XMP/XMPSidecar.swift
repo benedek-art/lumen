@@ -34,21 +34,145 @@ public struct SidecarContent: Equatable, Sendable {
     public var pipelineVersion: Int
     public var recipeFingerprint: String?
     public var recipeJSON: String?  // canonical sparse recipe JSON
+    /// Base64 of `ref → BrushStrokeSet`, so brush masks survive the catalog.
+    ///
+    /// Without it the sidecar carried a brush component's `strokesRef` and nothing the
+    /// reference pointed AT, because the blob store lives in the catalog. Restore a
+    /// sidecar without that store and every brush mask rasterized empty, forever, with
+    /// nothing on screen saying so. See `BrushStrokeSidecar`.
+    public var strokesPayload: String?
     public var catalogUUID: String?
     public var writeStamp: String?  // ISO 8601
+
+    /// WHETHER THE WHOLE DOCUMENT PARSED, and it is a safety interlock rather than a
+    /// diagnostic.
+    ///
+    /// `parse` salvages partial reads on purpose — a truncated sidecar that yielded a
+    /// rating is better recovered than dropped. That is right for READING and dangerous
+    /// for WRITING, because the writer seeds its pending content from the read and
+    /// `XMPMerge` strips every Lumen-owned element before re-emitting the fields it was
+    /// given. A field the parse never reached is therefore DELETED from the file.
+    ///
+    /// The reachable case: a `.xmp` damaged below its rating element (a crash during
+    /// someone else's write, a partial sync). Press `3` on that frame during a cull and
+    /// Lumen rewrites the file with the rating — and the intact `<lumen:recipe>` further
+    /// down is gone. The catalog still has it, so nothing looks wrong; the RECOVERY COPY
+    /// is what was destroyed, which is the only thing that copy is for.
+    ///
+    /// Defaults to true so a `SidecarContent` the app builds itself — which is every
+    /// caller but `parse` — is writable without saying so.
+    public var parsedCleanly: Bool
 
     public init(rating: Int = 0, flag: SidecarFlag = .none, label: String? = nil,
                 pipelineVersion: Int = currentPipelineVersion,
                 recipeFingerprint: String? = nil, recipeJSON: String? = nil,
-                catalogUUID: String? = nil, writeStamp: String? = nil) {
+                strokesPayload: String? = nil,
+                catalogUUID: String? = nil, writeStamp: String? = nil,
+                parsedCleanly: Bool = true) {
         self.rating = rating
         self.flag = flag
         self.label = label
         self.pipelineVersion = pipelineVersion
         self.recipeFingerprint = recipeFingerprint
         self.recipeJSON = recipeJSON
+        self.strokesPayload = strokesPayload
         self.catalogUUID = catalogUUID
         self.writeStamp = writeStamp
+        self.parsedCleanly = parsedCleanly
+    }
+}
+
+/// Which fields a queued sidecar write actually STATED, as opposed to merely carried.
+///
+/// A pending write is built by seeding a whole `SidecarContent` from a read of the file
+/// and then setting the one or two fields the keystroke changed. Every other field in
+/// that struct is a COPY OF THE FILE, taken at the moment of the keystroke — and the
+/// write happens two seconds later. Anything another tool put in the file during those
+/// two seconds is overwritten by the copy, because `fieldLines` cannot tell a field
+/// this app chose from a field it merely read.
+///
+/// So the intent has to be carried alongside the values. This is the same distinction
+/// `enqueueSidecar`'s double-optionals already draw at the parameter — nil is "nothing
+/// to say", `.some(nil)` is "cleared" — kept alive for the two seconds between the
+/// keystroke and the write instead of being collapsed on the way into the queue.
+public struct SidecarStatedFields: OptionSet, Equatable, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let rating = SidecarStatedFields(rawValue: 1 << 0)
+    public static let flag = SidecarStatedFields(rawValue: 1 << 1)
+    public static let label = SidecarStatedFields(rawValue: 1 << 2)
+    /// The recipe trio moves together: `recipeJSON`, `recipeFingerprint` and
+    /// `pipelineVersion` are set by one assignment and are meaningless apart — a
+    /// fingerprint from one build over a recipe from another is worse than either.
+    public static let recipe = SidecarStatedFields(rawValue: 1 << 3)
+    public static let strokes = SidecarStatedFields(rawValue: 1 << 4)
+}
+
+extension XMPSidecar {
+    /// The file as it is NOW, wearing only the fields this batch actually chose.
+    ///
+    /// `stated` is the queued content — part intent, part two-second-old copy of the
+    /// file. `fresh` is a parse of the bytes on disk at flush time. The result keeps
+    /// `fresh` everywhere `fields` is silent, so an edit another tool made during the
+    /// debounce survives Lumen's write instead of being reverted by it.
+    ///
+    /// `writeStamp` is always the new one: this write is what it stamps.
+    ///
+    /// `catalogUUID` is deliberately NOT in `SidecarStatedFields`. Nothing in the
+    /// enqueue path ever sets it, so under the old seed-and-carry it could only ever be
+    /// the value read from the file — taking it from `fresh` preserves that, and does it
+    /// from a read two seconds newer.
+    public static func reseed(_ stated: SidecarContent,
+                              fields: SidecarStatedFields,
+                              onto fresh: SidecarContent) -> SidecarContent {
+        var out = fresh
+        if fields.contains(.rating) { out.rating = stated.rating }
+        if fields.contains(.flag) { out.flag = stated.flag }
+        if fields.contains(.label) { out.label = stated.label }
+        if fields.contains(.recipe) {
+            out.recipeJSON = stated.recipeJSON
+            out.recipeFingerprint = stated.recipeFingerprint
+            out.pipelineVersion = stated.pipelineVersion
+        }
+        if fields.contains(.strokes) { out.strokesPayload = stated.strokesPayload }
+        out.writeStamp = stated.writeStamp
+        return out
+    }
+
+    /// The fields this build is allowed to state, given what the document says it is.
+    ///
+    /// M-01. `CatalogStore` refuses a recipe from a newer build twice over — it clamps
+    /// the stamp it writes and rejects a row whose version exceeds this build's. The
+    /// sidecar path did neither. `SidecarMerge.resolve` decides on mtime and
+    /// fingerprint; `pipelineVersion` is parsed, and written, and never once compared
+    /// against `currentPipelineVersion`.
+    ///
+    /// What that costs: `decodeRecipe` merges a sparse tree onto defaults and hands it
+    /// to a decoder whose `CodingKeys` name the keys THIS build knows, so every key a
+    /// later build added is dropped — deliberately, and harmlessly, as long as the
+    /// reduced recipe stays in memory. It does not. The flush writes it back over the
+    /// document it came from. Edit a frame on a laptop running the newer build, open the
+    /// folder on a desktop that has not updated, nudge Exposure, and the newer build's
+    /// parameters are gone from the `.xmp` — which is the copy that exists precisely for
+    /// when the catalog does not.
+    ///
+    /// So this build declines to state a recipe it cannot represent. Dropping `.recipe`
+    /// from the stated set does not merely skip those elements: `reseed` then takes the
+    /// recipe trio from the parse of the file itself, so the newer build's recipe,
+    /// fingerprint and version are re-emitted VERBATIM. The rating, flag and label the
+    /// photographer just set still land. Nothing is lost in either direction, and the
+    /// document keeps saying what it truthfully is.
+    ///
+    /// It is deliberately a comparison against the FILE, not against the recipe in
+    /// hand. A recipe carries its version forward once decoded, so asking "is my recipe
+    /// newer" answers a question about this session's history; asking "is the document
+    /// newer than this build" answers the one that decides whether a write destroys
+    /// somebody's work.
+    public static func writableFields(_ stated: SidecarStatedFields,
+                                      documentVersion: Int) -> SidecarStatedFields {
+        guard documentVersion > currentPipelineVersion else { return stated }
+        return stated.subtracting(.recipe)
     }
 }
 
@@ -60,10 +184,44 @@ public struct SidecarContent: Equatable, Sendable {
 /// backup, comes back with its work attached.
 ///
 /// Separated from `CatalogService` — which owns the file read, the serial queue and the
-/// debounce — because the RULE is pure, and `LumenApp` has no test target. The rule is
-/// one sentence: the sidecar fills in where the catalog is silent, and never overwrites
-/// it. Catalog-wins is the right way round because the catalog is what the running app
-/// just edited, while the sidecar may be seconds stale behind the debounce.
+/// debounce — because the RULE is pure, and `LumenApp` has no test target.
+///
+/// The rule used to be one sentence: the sidecar fills in where the catalog is silent,
+/// and never overwrites it. That is docs/15 §15.5's rule 1, mistaken for the whole
+/// policy, and it is wrong in exactly one direction — the one that loses work. Edit a
+/// frame on a second Mac, or restore a sidecar from Time Machine, and the newer recipe
+/// was ignored because this machine's catalog held an older one; the next edit here then
+/// flushed the STALE recipe back over the sidecar. The one copy that exists to survive
+/// losing the catalog was overwritten by the catalog.
+///
+/// The three rules, evaluated against `photo.sidecar_mtime` — the sidecar's mtime as of
+/// our last write of it or our last read of it:
+///
+/// 1. Sidecar unchanged since we last touched it → catalog wins, filling in where it is
+///    silent. The normal case, and the right way round: the catalog is what the running
+///    app just edited, while the sidecar may be seconds stale behind its debounce.
+/// 2. Sidecar newer than our last write AND its recipe fingerprint differs → the sidecar
+///    wins. This is what makes restore-from-Time-Machine and edit-on-another-Mac work.
+/// 3. Both changed — the catalog has edits that have not reached the sidecar yet, and
+///    the sidecar moved underneath us → catalog wins, and the spec preserves the
+///    sidecar's state as a snapshot named "Imported from sidecar <date>".
+///
+/// **Rule 3's snapshot is NOT implemented, and this type says so rather than pretending
+/// otherwise.** Snapshots do not exist anywhere yet (LIB-06: `saveRecipe` only ever
+/// writes `kind = .working`), so the sidecar's divergent state is reported back in
+/// `Resolution.unpreservedSidecar` and nothing stores it. §15.5's "nothing is ever
+/// silently discarded" does not hold for that case today; what this type can guarantee
+/// is that the discard is not SILENT.
+///
+/// Two boundaries worth naming, because a value that crosses one without its unit is how
+/// this codebase has been bitten before:
+///
+///  - `sidecarMTime` on both sides is whole seconds since the epoch, the same
+///    denomination `photo.file_mtime` uses and the same one `FileManager` yields.
+///  - Both fingerprints are `RecipeFingerprint.fingerprint` — the RENDER IDENTITY digest.
+///    `edit.recipe_fp` is written from it and so is `lumen:recipeFingerprint`, so the
+///    comparison is like for like. A literal fingerprint would make a mask rename look
+///    like a different picture and hand rule 2 a conflict that is not one.
 public enum SidecarMerge {
 
     public struct State: Equatable, Sendable {
@@ -71,27 +229,119 @@ public enum SidecarMerge {
         public var flag: SidecarFlag
         public var label: String?
         public var recipe: Recipe?
+        /// `edit.recipe_fp` for `recipe`, when the caller already holds it. Left nil it
+        /// is computed from `recipe`, which costs a canonical encode — worth passing.
+        public var recipeFingerprint: String?
+        /// `photo.sidecar_mtime`: the sidecar's mtime as of our last write or read of
+        /// it. Nil means we have never recorded one, which is the ONLY honest answer to
+        /// "has it changed since?" — see `resolve`.
+        public var sidecarMTime: Int64?
+        /// The catalog holds edits that have not been flushed to the sidecar yet. Rule
+        /// 3's first half; the debounced writer knows it and nothing else does.
+        public var hasUnflushedEdits: Bool
 
         public init(rating: Int = 0, flag: SidecarFlag = .none,
-                    label: String? = nil, recipe: Recipe? = nil) {
+                    label: String? = nil, recipe: Recipe? = nil,
+                    recipeFingerprint: String? = nil, sidecarMTime: Int64? = nil,
+                    hasUnflushedEdits: Bool = false) {
             self.rating = rating
             self.flag = flag
             self.label = label
             self.recipe = recipe
+            self.recipeFingerprint = recipeFingerprint
+            self.sidecarMTime = sidecarMTime
+            self.hasUnflushedEdits = hasUnflushedEdits
         }
     }
 
-    /// `catalog` as stored, `sidecar` as read from disk (nil when there is no sidecar,
-    /// or it did not parse).
-    public static func resolve(catalog: State, sidecar: SidecarContent?) -> State {
-        var out = catalog
-        guard let sidecar else { return out }
+    /// Which of §15.5's rules fired. Returned rather than inferred so the caller can
+    /// persist a rule-2 recovery, log a rule-3 conflict, and so a test can pin WHICH
+    /// rule produced an answer instead of only the answer.
+    public enum Decision: String, Equatable, Sendable {
+        case noSidecar
+        case catalogWins
+        case sidecarWins
+        case conflictCatalogWins
+    }
 
-        if out.recipe == nil, let json = sidecar.recipeJSON {
-            // A sidecar whose recipe will not parse leaves the catalog's nil alone
-            // rather than becoming an empty recipe — "no edit recorded" and "edited
-            // back to default" are different states, and only one of them is a lie.
-            out.recipe = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+    public struct Resolution: Equatable, Sendable {
+        public var state: State
+        public var decision: Decision
+        /// Under rule 3 the spec keeps the sidecar as a snapshot. There is no snapshot
+        /// machinery, so this is what was NOT kept — non-nil exactly when
+        /// `decision == .conflictCatalogWins`.
+        public var unpreservedSidecar: SidecarContent?
+
+        public init(state: State, decision: Decision,
+                    unpreservedSidecar: SidecarContent? = nil) {
+            self.state = state
+            self.decision = decision
+            self.unpreservedSidecar = unpreservedSidecar
+        }
+    }
+
+    /// `catalog` as stored, `sidecar` as read from disk (nil when there is no sidecar or
+    /// it did not parse), `sidecarMTime` the mtime of that file RIGHT NOW.
+    public static func resolve(catalog: State, sidecar: SidecarContent?,
+                               sidecarMTime: Int64? = nil) -> Resolution {
+        guard let sidecar else {
+            return Resolution(state: catalog, decision: .noSidecar)
+        }
+
+        // The sidecar's own recipe, decoded once. A sidecar whose recipe will not parse
+        // leaves the catalog's alone rather than becoming an empty recipe — "no edit
+        // recorded" and "edited back to default" are different states, and only one of
+        // them is a lie about the photographer's work. It also means an unparseable
+        // sidecar can never trigger rule 2, which would otherwise replace a real recipe
+        // with nothing.
+        let incoming: Recipe? = sidecar.recipeJSON.flatMap {
+            try? CanonicalJSON.decodeRecipe(from: Data($0.utf8))
+        }
+
+        // "Newer than our last write" needs a last write to compare against. With no
+        // recorded stamp there is no evidence the sidecar moved, and acting on no
+        // evidence is how a stale sidecar would overwrite a fresh catalog — the mirror
+        // image of the bug being fixed. No stamp means rule 1.
+        let moved: Bool = {
+            guard let last = catalog.sidecarMTime, let now = sidecarMTime else {
+                return false
+            }
+            // "Moved" means the file is not the one we last recorded — in EITHER
+            // direction. `now > last` blinded rule 2 to every write that arrives
+            // with an older or equal stamp: a Time-Machine restore keeps the file's
+            // ORIGINAL mtime (the very case the header credits this rule with
+            // handling), an rsync/Syncthing delivery carries the other machine's,
+            // and a same-second write from another app truncates equal. All were
+            // read as "nothing happened" and overwritten at the next flush.
+            return now != last
+        }()
+
+        if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {
+            if catalog.hasUnflushedEdits {
+                return Resolution(state: fillingIn(catalog, from: sidecar,
+                                                   incoming: incoming),
+                                  decision: .conflictCatalogWins,
+                                  unpreservedSidecar: sidecar)
+            }
+            return Resolution(state: taking(sidecar, over: catalog, incoming: incoming),
+                              decision: .sidecarWins)
+        }
+
+        return Resolution(state: fillingIn(catalog, from: sidecar, incoming: incoming),
+                          decision: .catalogWins)
+    }
+
+    // MARK: - The rules, one function each
+
+    /// Rules 1 and 3: the catalog wins, and the sidecar fills in where it is silent.
+    /// Filling in is not overwriting — it is the union, and it is what brings a photo
+    /// that arrived from another machine in with its work attached.
+    private static func fillingIn(_ catalog: State, from sidecar: SidecarContent,
+                                  incoming: Recipe?) -> State {
+        var out = catalog
+        if out.recipe == nil, let incoming {
+            out.recipe = incoming
+            out.recipeFingerprint = sidecar.recipeFingerprint
         }
         if out.rating == 0, sidecar.rating > 0 { out.rating = sidecar.rating }
         if out.flag == .none { out.flag = sidecar.flag }
@@ -101,11 +351,95 @@ public enum SidecarMerge {
         }
         return out
     }
+
+    /// Rule 2: the sidecar wins — for every field it actually STATES.
+    ///
+    /// That qualifier is not a weakening of the rule, it is the format being honest
+    /// about itself: `xmp:Rating` absent and `xmp:Rating = 0` are the same bytes, and so
+    /// are a missing `lumen:flag` and `none`. Letting silence win would delete a four-
+    /// star rating because the other machine's sidecar never carried one, which is the
+    /// same class of loss this whole rule exists to stop.
+    private static func taking(_ sidecar: SidecarContent, over catalog: State,
+                               incoming: Recipe?) -> State {
+        var out = catalog
+        if let incoming {
+            out.recipe = incoming
+            out.recipeFingerprint = sidecar.recipeFingerprint
+        }
+        if sidecar.rating > 0 { out.rating = sidecar.rating }
+        if sidecar.flag != .none { out.flag = sidecar.flag }
+        if let name = sidecar.label, !name.isEmpty { out.label = name }
+        return out
+    }
+
+    /// Rule 2's second condition. True only when the sidecar states a recipe that
+    /// PARSED and whose render identity is not the one the catalog holds.
+    ///
+    /// A sidecar with no recipe at all cannot satisfy this, so a sidecar that merely got
+    /// its mtime bumped — touched, re-synced, rewritten by another tool that left the
+    /// lumen: namespace alone — never takes anything from the catalog.
+    private static func recipeDiffers(catalog: State, incoming: Recipe?,
+                                      sidecar: SidecarContent) -> Bool {
+        guard let incoming else { return false }
+        guard let catalogRecipe = catalog.recipe else { return true }
+        let theirs = sidecar.recipeFingerprint
+            ?? (try? RecipeFingerprint.fingerprint(incoming))
+        let ours = catalog.recipeFingerprint
+            ?? (try? RecipeFingerprint.fingerprint(catalogRecipe))
+        guard let theirs, let ours else {
+            // No fingerprint to compare on either side: fall back to the recipes
+            // themselves rather than guessing that they differ.
+            return !catalogRecipe.rendersSameAs(incoming)
+        }
+        return theirs != ours
+    }
 }
 
 public enum XMPSidecar {
 
     public static let lumenNamespace = "http://lumenapp.dev/xmp/1.0/"
+
+    // MARK: - What is on disk
+
+    /// What the writer may do with the bytes at a sidecar's path.
+    ///
+    /// The distinction this type exists to keep is `absent` versus `unreadable`, and
+    /// it used to be collapsed: the flush read the file with
+    /// `String(contentsOf:encoding:.utf8)`, whose failure looks exactly like no file
+    /// at all — so a UTF-16 sidecar written by another tool fell into the "no sidecar
+    /// yet" branch and was REPLACED WHOLESALE by a fresh Lumen document. Every
+    /// develop setting and keyword in it, gone on the first rating keystroke, which
+    /// is precisely the .lrcat-era failure the merge path was built to end.
+    public enum SidecarDocument: Equatable, Sendable {
+        /// No file, or nothing but whitespace — authoring a fresh document is safe.
+        case absent
+        /// A UTF-8 text document; the writer may attempt a field splice into it.
+        case document(String)
+        /// Bytes exist and are not UTF-8 text. The writer must leave the file
+        /// completely alone: Lumen cannot round-trip an encoding it cannot decode,
+        /// and the file is someone's work. (A UTF-16 sidecar lands here on purpose —
+        /// re-serializing it as UTF-8 under its original declaration would be a
+        /// different way of damaging it.)
+        case unreadable
+    }
+
+    /// Classify the raw bytes at a sidecar path. `nil` data means the read itself
+    /// found no file.
+    ///
+    /// The NUL check is not paranoia: BOM-less UTF-16 of an ASCII document is,
+    /// byte-for-byte, VALID UTF-8 — every second byte is a NUL, and NUL is a legal
+    /// UTF-8 scalar. Without the check such a file decodes into a NUL-riddled string,
+    /// passes for a document, and goes to the splicer; with it, the file is what it
+    /// actually is here — an encoding this build cannot edit without damage.
+    public static func classify(_ data: Data?) -> SidecarDocument {
+        guard let data, !data.isEmpty else { return .absent }
+        guard let text = String(data: data, encoding: .utf8),
+              !text.contains("\0") else { return .unreadable }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .absent
+        }
+        return .document(text)
+    }
 
     // MARK: - Write
 
@@ -142,6 +476,14 @@ public enum XMPSidecar {
     /// never disagree about what Lumen writes.
     static func fieldLines(_ content: SidecarContent) -> String {
         var fields = ""
+        // NOT −1 FOR A REJECT, deliberately, and `testFlagAndRatingSurviveEachOther`
+        // is the contract: `lumen:flag` exists precisely so a photograph can be four
+        // stars AND rejected, which Lightroom's convention cannot express because it
+        // spends the rating field on the reject. Writing −1 here would destroy the
+        // stars — which the reading half below already recovers into `lumen:flag`, so
+        // nothing is lost by staying on our own axis. What Lumen cannot do is make
+        // Lightroom SEE the reject on the way back out; that is a real interoperability
+        // gap and it is written up rather than fixed by breaking a pinned contract.
         fields += "   <xmp:Rating>\(content.rating)</xmp:Rating>\n"
         if content.flag != .none {
             fields += "   <lumen:flag>\(content.flag.rawValue)</lumen:flag>\n"
@@ -161,6 +503,12 @@ public enum XMPSidecar {
         }
         if let recipe = content.recipeJSON {
             fields += "   <lumen:recipe>\(escapeXML(recipe))</lumen:recipe>\n"
+        }
+        // Last, and after the recipe: it is the largest element by far, and a reader
+        // that gives up partway through a damaged file should have reached everything
+        // smaller first. `parsedCleanly` is what stops such a read being written back.
+        if let strokes = content.strokesPayload {
+            fields += "   <lumen:strokes>\(escapeXML(strokes))</lumen:strokes>\n"
         }
         return fields
     }
@@ -195,11 +543,18 @@ public enum XMPSidecar {
         let delegate = SidecarParserDelegate()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
-        _ = parser.parse()
+        let complete = parser.parse() && parser.parserError == nil
         // Partial salvage is deliberate: a truncated sidecar that yielded fields is
         // better recovered than dropped (docs/15 §15.5 conflict rules do the rest).
+        //
+        // But the salvage now says it is one. The result used to be discarded entirely,
+        // so a half-read document was indistinguishable from a whole one — and the writer
+        // seeds itself from the read, then strips and re-emits, so every element the
+        // parse never reached was deleted from the file. See `parsedCleanly`.
         guard delegate.sawAnyField else { return nil }
-        return delegate.content
+        var content = delegate.content
+        content.parsedCleanly = complete
+        return content
     }
 
     public static func parse(_ string: String) -> SidecarContent? {
@@ -216,7 +571,7 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     private static let interesting: Set<String> = [
         "xmp:Rating", "xmp:Label", "lumen:flag",
         "lumen:pipelineVersion", "lumen:recipeFingerprint",
-        "lumen:recipe", "lumen:catalogUUID", "lumen:writeStamp",
+        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp",
     ]
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,
@@ -259,8 +614,25 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
             // wrote, and the star row downstream will be asked to draw whatever it
             // says. `CatalogStore.setRating` clamps too, but the in-memory PhotoItem
             // does not, so 999 stars would reach the grid.
+            //
+            // MINUS ONE IS NOT A RATING, IT IS A REJECT. Lightroom, Bridge and every
+            // tool that follows them write `xmp:Rating` = −1 for a rejected frame; XMP
+            // itself reserves it. Clamping it to 0 lost the only thing the file said
+            // about that photograph — it arrived unrated and unflagged — and then the
+            // first culling keystroke wrote `<xmp:Rating>0</xmp:Rating>` over the
+            // stripped original, so the reject was gone from the file for good.
+            //
+            // Lumen keeps rejects on its own axis, so the marker lands there. It does
+            // not overwrite a `lumen:flag` that has already been read: this build's own
+            // word about its own photograph outranks another tool's convention, and
+            // field order in the document is not something to depend on.
             let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-            content.rating = Swift.min(Swift.max(parsed, 0), 5)
+            if parsed < 0 {
+                content.rating = 0
+                if content.flag == .none { content.flag = .reject }
+            } else {
+                content.rating = Swift.min(parsed, 5)
+            }
         case "lumen:flag":
             content.flag = SidecarFlag(
                 rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .none
@@ -271,6 +643,12 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
                 Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? currentPipelineVersion
         case "lumen:recipeFingerprint":
             content.recipeFingerprint = value
+        case "lumen:strokes":
+            // Whitespace-trimmed here rather than in the decoder: the XML writer indents
+            // and a third-party rewriter may re-wrap, and an all-whitespace element is
+            // "no payload", not "an empty one".
+            let payload = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            content.strokesPayload = payload.isEmpty ? nil : payload
         case "lumen:recipe":
             content.recipeJSON = value
         case "lumen:catalogUUID":

@@ -1,0 +1,15 @@
+{
+  "authority" : 45.043702697573536,
+  "deadSteps" : 0,
+  "frame" : "colourChart",
+  "frontLoading" : 0.7339273419451053,
+  "givenBack" : 0,
+  "hueRotation" : 37.58771673498279,
+  "id" : "mixer.aqua.hue",
+  "isMonotone" : true,
+  "meanSeparation" : 1.196833004084344,
+  "panel" : "Colour Mixer",
+  "smallestLiveStep" : 1.1544419735027418,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

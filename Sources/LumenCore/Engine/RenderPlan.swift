@@ -25,8 +25,24 @@ public struct RenderPlan: Sendable {
 
     public let recipe: Recipe
 
+    /// Renderer-measured chroma-weighted mean hue per mixer band — Uniformity's
+    /// convergence target when present (docs/05; docs/23 audit queue item 12). Stored
+    /// so `exactColor`'s engine is built from exactly what the table's engine was.
+    public let bandMeanHues: [Double]?
+
     // MARK: Stage S6 — the fused linear matrix
     public let linear: LinearStage
+
+    /// The neutral the picture is balanced TO once S6 has run — `develop.raw.temp` and
+    /// `.tint` where they are set, the file's own as-shot neutral where they are not.
+    ///
+    /// A plan owns no image, so it cannot look this up later; it is resolved here,
+    /// where `asShotKelvin` is in hand, by the same `?? asShot` rule `WhiteBalance
+    /// Engine.displayed` uses for the row. That shared rule is the whole point: a
+    /// mask's ABSOLUTE white balance is a delta from this number, so if the two
+    /// resolved "as shot" differently the mask would render one temperature and the
+    /// panel would print another.
+    public let balancedNeutral: WhiteBalanceEngine.Neutral
 
     // MARK: Stage S7 — tone
     public let tone: ToneEngine
@@ -44,6 +60,13 @@ public struct RenderPlan: Sendable {
     /// filter's domain is the unit cube, and an HDR rendition legitimately reaches
     /// several times display white; keeping the table normalized and multiplying by a
     /// scalar afterwards means no highlight can be silently clipped by the table.
+    ///
+    /// THE TWO ARE ONE VALUE. `finishScale` is the white the table beside it was baked
+    /// under — NOT necessarily this event's white, because a draft frame may be served
+    /// a stale table (see `PlanTableCache.pairedTableAllowingStale`). Reading either
+    /// alone, or recomputing the scalar while accepting a cached table, produces a
+    /// picture that belongs to no setting. Use `displayWhite` when what is wanted is
+    /// this recipe's white; that one is always current.
     public let finishLUT: LUT3D
     public let finishScale: Double
 
@@ -71,18 +94,54 @@ public struct RenderPlan: Sendable {
     public let displayTransform: DisplayTransform
     public let filmChain: FilmChain?
 
+    /// The grain stage, resolved — nil when nothing grains.
+    ///
+    /// Both renderers read THIS and neither asks about a film chain any more. Grain used
+    /// to be four independent `if let film = plan.filmChain, film.grainAmount > 0` tests
+    /// in three files, which is a shape that cannot survive a second source of grain;
+    /// `GrainPlan`'s header carries the argument and the precedence.
+    public let grain: GrainPlan?
+
     // MARK: Spatial parameters carried through for the image stages
     public let detail: Detail
     public let denoise: Denoise
     public let vignetteEV: Double
+    /// `Look.vignetteFeather`, 0…100 — how gradually the burn arrives. Carried beside
+    /// the EV so both renderers read one resolved pair;
+    /// `DetailEngine.vignetteInnerRadius(feather:)` turns it into geometry.
+    public let vignetteFeather: Double
+    /// The masks whose ADJUSTMENTS reach the picture: enabled, with their group's
+    /// enable and Amount already folded in, so neither renderer has to know that
+    /// folders exist.
     public let masks: [Mask]
+
+    /// Every mask in the recipe, in order, unfiltered — the list a `maskRef` resolves
+    /// against, and the one the overlay looks a selected mask up in.
+    ///
+    /// THESE HAD TO BE TWO LISTS, and the day they were one there was a bug in it.
+    /// `enabled` says whether a mask's ADJUSTMENTS reach the picture; it has never
+    /// meant that the mask stops SELECTING, and `MaskChannelAndReferenceTests
+    /// .testADisabledMaskStillLendsItsSelection` pins that — turning the Sky mask off
+    /// to look at something must not silently empty every mask built on it. But that
+    /// test calls `MaskRaster.combine` directly with the whole list, and the renderers
+    /// were handing it `plan.masks`, which was already filtered. So the rule held in
+    /// the unit test and not in either renderer. The same applies to the overlay: a
+    /// mask you have selected in order to edit is one you need to SEE, whether or not
+    /// its adjustments are switched on.
+    public let allMasks: [Mask]
 
     // MARK: Stage S3 — profiled classical noise reduction
     ///
     /// The Tier-1 engine, resolved through `ISODefaults.classic(for:)` so the mode
     /// switch means what the panel says: Off zeroes every row including Hot Pixels,
     /// Classic runs the recipe's own block, and AI drops the ISO-adaptive rows to zero
-    /// because the noise they compensate for is meant to be gone by then.
+    /// because the noise they compensate for is meant to be gone by then — **unless the
+    /// photographer set them by hand**, which the recipe now records.
+    ///
+    /// That exception used to be two parameters defaulting to `false`, and this call
+    /// site passed neither, so it never fired: switching to AI zeroed a hand-set
+    /// Luminance on every render. A default argument is a silent answer to a question
+    /// the caller was never asked, and the specification's word was "unless".
     public let classicalDenoise: ClassicalDenoise
     /// True when S3 cannot move a pixel, so the graph skips forty nodes.
     public let denoiseIsIdentity: Bool
@@ -91,6 +150,17 @@ public struct RenderPlan: Sendable {
     /// every threshold in S3 is denominated in. A file with no ISO recorded falls back
     /// to the base-ISO profile, which is the gentlest of the seed curve — under-denoising
     /// an unknown body is recoverable, over-denoising it is not.
+    /// `allowStaleTables` routes the two cached bakes through
+    /// `PlanTableCache.tableAllowingStale`: a plan built for a DRAFT frame may carry
+    /// the previous event's table while the exact one bakes off the render path —
+    /// one mouse event of slider travel stale, gone the moment the hand pauses.
+    /// Settle and export plans must leave it false; their tables are exact by
+    /// construction, which is what makes the staleness bounded instead of sticky.
+    /// `bandMeanHues` is the renderer-measured chroma-weighted mean hue per mixer
+    /// band (`ColorEngine.measureBandMeanHues`) — the convergence target docs/05
+    /// specifies for Uniformity. The plan cannot measure it itself: a plan owns no
+    /// image. nil is honest and self-consistent — Uniformity then converges on each
+    /// band's own core-arc midpoint, the user-writable fallback.
     public init(recipe: Recipe,
                 asShotKelvin: Double = 5500,
                 asShotTint: Double = 0,
@@ -98,8 +168,11 @@ public struct RenderPlan: Sendable {
                 lutSize: Int = LUT3D.interactiveSize,
                 captureISO: Double? = nil,
                 space: RGBColorSpace = .rec2020,
-                softProof: SoftProof? = nil) {
+                softProof: SoftProof? = nil,
+                allowStaleTables: Bool = false,
+                bandMeanHues: [Double]? = nil) {
         self.recipe = recipe
+        self.bandMeanHues = bandMeanHues
         let develop = recipe.develop
         let look = recipe.look
 
@@ -107,6 +180,11 @@ public struct RenderPlan: Sendable {
         let wb = WhiteBalanceEngine(asShotKelvin: asShotKelvin, asShotTint: asShotTint,
                                     targetKelvin: develop.raw.temp,
                                     targetTint: develop.raw.tint, space: space)
+        let asShot = WhiteBalanceEngine.Neutral(kelvin: asShotKelvin, tint: asShotTint)
+        let shown = WhiteBalanceEngine.displayed(temp: develop.raw.temp,
+                                                 tint: develop.raw.tint, asShot: asShot)
+        self.balancedNeutral = WhiteBalanceEngine.Neutral(kelvin: shown.temperature,
+                                                          tint: shown.tint)
         let toneEngine = ToneEngine(tone: develop.tone, zones: develop.zones)
         let grade = GradeEngine(wheels: look.wheels, printerLights: look.printerLights,
                                 whiteAnchorEV: toneEngine.whiteAnchorEV,
@@ -125,7 +203,7 @@ public struct RenderPlan: Sendable {
         // ---- S9 + S10 --------------------------------------------------------
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
                                 color: develop.color, primaries: look.primaries,
-                                bw: look.bw)
+                                bw: look.bw, bandMeanHues: bandMeanHues)
         let colorIdentity = color.isIdentity && grade.isIdentity
         self.colorGradeIsIdentity = colorIdentity
         if colorIdentity {
@@ -141,21 +219,32 @@ public struct RenderPlan: Sendable {
                     return LumenLog.encode(out)
                 }
             }
+            // The measured hues are a table input like any other: two photos with
+            // different skies bake different Uniformity fields, and a key without
+            // this part would hand photo B the table converged on photo A's blues —
+            // the Paste-Settings poisoning class, one cache over.
+            let huesPart = bandMeanHues.map {
+                $0.map(CanonicalJSON.canonicalNumber).joined(separator: ",")
+            } ?? "-"
             let key = PlanTableCache.key(
-                ["cg", "\(lutSize)", "\(space)",
+                ["cg", "\(lutSize)", "\(space)", huesPart,
                  CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
                  CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV)],
                 [develop.mixer, develop.pointColors, develop.color,
                  look.primaries, look.bw, look.wheels, look.printerLights])
             self.colorGradeLUT = key.map {
-                PlanTableCache.table(.colorGrade, key: $0, size: lutSize, build: bake)
+                allowStaleTables
+                    ? PlanTableCache.tableAllowingStale(.colorGrade, key: $0,
+                                                        size: lutSize, build: bake)
+                    : PlanTableCache.table(.colorGrade, key: $0, size: lutSize,
+                                           build: bake)
             } ?? bake()
         }
 
         // ---- S14 + S15 -------------------------------------------------------
-        var renderParams = look.render.resolved(displayWhiteTarget: displayWhiteTarget)
-        toneEngine.applyAnchors(to: &renderParams)
-        let transform = DisplayTransform(renderParams, space: space)
+        let transform = DisplayTransform.forRecipe(recipe,
+                                                   displayWhiteTarget: displayWhiteTarget,
+                                                   space: space)
         self.displayTransform = transform
         self.displayWhite = transform.white
 
@@ -166,18 +255,58 @@ public struct RenderPlan: Sendable {
             // zero on every render in the app: the engine honours the value, clamps it
             // to −2…+3 and threads it through the whole chain, and nothing outside a
             // test ever passed one.
+            //
+            // `base: transform` is docs/31 round two §2. Without it the chain rebuilt
+            // a Neutral transform, copied only `whiteTarget`, and blended the film
+            // against THAT — so with the gate above being `amount > 0`, Strength 0
+            // rendered through the user's transform and Strength 1 rendered 99%
+            // Neutral: a 51-code discontinuity on the "Linear" preset, and Black
+            // target dropped outright. The blend base is the recipe's solved
+            // transform, the same object the `else` branch of `display` below applies,
+            // so Strength walks between the two renderings with no jump at either end.
             chain = FilmChain(film, filmExposure: film.exposure,
-                              displayWhite: transform.white)
+                              displayWhite: transform.white, base: transform)
         } else {
             chain = nil
         }
         self.filmChain = chain
 
+        // ---- the grain stage -------------------------------------------------
+        //
+        // ONE question, answered once. A LIVE film chain OWNS the stage: its grain is
+        // what every recipe in every catalog already renders through, and changing that
+        // would move pixels on photographs nobody edited. Otherwise the creative grain
+        // renders — which covers every frame with no stock on it AND the case that used
+        // to be a dead end, Film Lab Strength at 0, where the chain is not built and the
+        // Effects panel's only remaining move was a sentence apologizing for the absence.
+        //
+        // Ownership is the CHAIN's existence, not `grainAmount > 0`, and the reason is on
+        // `GrainPlan.filmOwnsTheGrain`: the panel draws one set of rows or the other off
+        // this same predicate, and deciding it on the stock's grain Amount made that
+        // slider delete itself at the bottom of its own travel. A loaded stock with its
+        // grain at 0 therefore lays down no grain at all, which is exactly what its
+        // slider promises.
+        if let chain {
+            self.grain = chain.grainAmount > 0 ? GrainPlan.film(chain) : nil
+        } else if let creative = look.grain, !creative.isIdentity {
+            // `blackAndWhiteIsOn`, not `bw != nil`: a mix kept while the treatment is
+            // switched off is a colour picture, and it must get the colour grain. The
+            // two spellings diverged once already, which is why `Look` states the test
+            // in one property rather than leaving every reader to test the slot.
+            self.grain = GrainPlan.creative(creative,
+                                            monochrome: look.blackAndWhiteIsOn)
+        } else {
+            self.grain = nil
+        }
+
         let curve = CurveStack(develop.curve)
         let boundary = RenderPlan.sharedGamutBoundary
         let white = transform.white
         let scale = Swift.max(white, 1e-6)
-        self.finishScale = scale
+        // `finishScale` is NOT assigned here, deliberately: it has to be the scalar of
+        // whichever table is actually served below, and on a draft frame that may be a
+        // stale one baked under a different white. Assigning this event's value here is
+        // precisely the defect — see `pairedTableAllowingStale`.
         let proof = softProof?.transform(working: space)
         self.softProof = proof
         // One closure, used for both tables, so the proofed and unproofed versions
@@ -230,9 +359,41 @@ public struct RenderPlan: Sendable {
                 [look.render, develop.curve])
         }
         let bakePlain = { LUT3D(size: lutSize, transform: display) }
-        let plain = baseKey.map {
-            PlanTableCache.table(.finish, key: $0, size: lutSize, build: bakePlain)
-        } ?? bakePlain()
+        // The proofed variant below stays on the blocking path either way: it is a
+        // cheap map over `plain`, and mapping a stale `plain` keeps the two consistent.
+        //
+        // SERVED AS A PAIR. `bakePlain` normalizes by `scale` (the division at the end
+        // of `display`) and `RenderGraph` multiplies `finishScale` back, so the table
+        // and the scalar are two halves of one picture — and the stale path hands back
+        // a table baked under a DIFFERENT key. Taking this event's `scale` for a
+        // previous event's table yields `oldPicture × newWhite / oldWhite`: not a stale
+        // picture but one that existed at no setting. That is the tone cube's flicker
+        // exactly (see the `toneKey` comment below), one table over, and it survived
+        // that fix because the fix was made where the bug was FOUND rather than where
+        // the shape was.
+        //
+        // Latent as the app ships, and precisely so: `transform.white` is
+        // `max(whiteTarget, 1) / 100` and `applyAnchors` writes only the anchor EVs, so
+        // Whites and Blacks change this key without changing this scale — a stale serve
+        // there is correctly one event behind. It takes a control over
+        // `look.render.whiteTarget`, which has no UI yet, to make the two disagree. The
+        // fix is structural anyway: the cache returns the scalar it baked with, so
+        // `finishScale` is whatever pairs with the table actually served, and no future
+        // caller has to know any of the above.
+        let served: (table: LUT3D, pairedValue: Double)
+        if let baseKey {
+            served = allowStaleTables
+                ? PlanTableCache.pairedTableAllowingStale(.finish, key: baseKey,
+                                                          size: lutSize,
+                                                          pairedWith: scale,
+                                                          build: bakePlain)
+                : (PlanTableCache.table(.finish, key: baseKey, size: lutSize,
+                                        pairedWith: scale, build: bakePlain), scale)
+        } else {
+            served = (bakePlain(), scale)
+        }
+        let plain = served.table
+        self.finishScale = served.pairedValue
 
         // Baked ONCE and then mapped, not baked twice.
         //
@@ -264,10 +425,25 @@ public struct RenderPlan: Sendable {
             let proofKey = baseKey.flatMap { base in
                 PlanTableCache.key([base, "proof"], [proof.settings])
             }
-            self.finishLUT = proofKey.map {
-                PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
-                                     build: mapProof)
-            } ?? mapProof()
+            // A draft plan may be holding a STALE `plain` (that is what
+            // `tableAllowingStale` is for) — and `mapProof` closes over it. Storing
+            // that map under the exact `proofKey` poisoned the slot: the settle
+            // rebuilt the plan with the exact `plain`, hit the poisoned entry, and
+            // the soft-proofed picture at rest stayed one mouse event behind
+            // forever, with the gamut flag (computed from the exact before-proof
+            // table) disagreeing with the proofed pixels under it. On the draft
+            // path the map is built fresh and NOT cached — a few milliseconds of
+            // matrix-and-clamp per drag plan — and only the blocking path, whose
+            // `plain` is exact by construction, may populate the cache.
+            if allowStaleTables {
+                self.finishLUT = mapProof()
+            } else {
+                self.finishLUT = proofKey.map {
+                    PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                         pairedWith: served.pairedValue,
+                                         build: mapProof)
+                } ?? mapProof()
+            }
             // Kept only when there is a flag to draw; the flag needs the value from
             // before the map and nothing else does.
             self.finishLUTBeforeProof = proof.settings.showGamutWarning ? plain : nil
@@ -286,18 +462,82 @@ public struct RenderPlan: Sendable {
         self.detail = develop.detail
         self.denoise = develop.denoise
         self.vignetteEV = look.vignette
-        self.masks = recipe.masks.filter { $0.enabled }
+        self.vignetteFeather = look.vignetteFeather
+        self.allMasks = recipe.masks
+        self.masks = recipe.masks.compactMap { mask in
+            let state = recipe.effective(mask)
+            guard state.enabled else { return nil }
+            var resolved = mask
+            resolved.amount = state.amount
+            return resolved
+        }
 
-        // Baked once, here, and only when the tone stage will actually read it.
+        // Baked once, here, and only when the tone stage will actually read it. At
+        // the plan's own fidelity: an export plan (lutSize == exportSize) gets the
+        // export-grade cube, because MEASURED (AccuracyProbeTests) the 32-knot cube
+        // parks up to 0.080 EV of error on Whites +100 at scene +0.8 EV — sky tones,
+        // in the delivered file. 65 knots halves the spacing and trilinear error
+        // falls with its square; the bake is once per export, not per frame.
         if toneEngine.isIdentity {
-            self.toneGainCube32 = nil
+            self.toneGainCubeBaked = nil
         } else {
-            var peak = 1e-9
+            // The SAME floor as `toneGainScale`, because the graph multiplies the
+            // two back together and they are meaningless except as a pair. This
+            // floored at 1e-9 while the scale floored at 1.0 — so a tone curve whose
+            // gain is everywhere below 1 (global zones at −1 EV: every sample 0.5)
+            // baked a cube of 1.0s, the scale returned 1.0, and the GPU applied no
+            // gain while the reference darkened a stop.
+            // `testBakedToneCubeTimesScaleEqualsTheGainTable` holds the pair.
+            var peak = 1.0
             for v in self.toneGainLUT.samples { peak = Swift.max(peak, v) }
             let lut = self.toneGainLUT
-            self.toneGainCube32 = LUT3D(size: 32) { encoded in
-                RGB(gray: lut.evaluate(encoded.r) / peak)
+            let cubeSize = lutSize >= LUT3D.exportSize ? LUT3D.exportSize : 32
+            let bakeCube = {
+                LUT3D(size: cubeSize) { encoded in
+                    RGB(gray: lut.evaluate(encoded.r) / peak)
+                }
             }
+            // Through the cache, like every other expensive table. This was the one
+            // that was not: 32 768 samples rebuilt at plan init — during a drag, on
+            // every mouse event — and invalidated by exactly the six tone sliders and
+            // the zones, which is to say by the controls that are dragged most. The
+            // key is complete because `toneEngine` is built from these two subtrees
+            // alone, and `peak` is derived from the table they produce.
+            let toneKey = PlanTableCache.key(["tonecube", "\(cubeSize)"],
+                                             [develop.tone, develop.zones])
+            // CACHED, BUT NEVER SERVED STALE — unlike every other table here, and for
+            // a reason the comment above already states without following through:
+            // the cube and `toneGainScale` "are meaningless except as a pair".
+            //
+            // The cube stores `gain / peak` and the graph multiplies `toneGainScale`
+            // back. `toneGainScale` is not cached; it is recomputed from THIS event's
+            // `toneGainLUT`. `tableAllowingStale` returns, by design, the newest table
+            // in the slot when this event's key misses — a cube normalized by a
+            // PREVIOUS event's peak. So every draft frame of a tone drag computed
+            //
+            //     oldGain(v) / oldPeak × newPeak
+            //
+            // instead of `newGain(v)`: the whole picture wrong by `newPeak / oldPeak`,
+            // snapping back the moment a background bake landed. Measured on a Blacks
+            // drag, the shadows were applying a gain of 0.94 where the table said 1.48.
+            // That is the flicker the owner reported once the notching was gone, and it
+            // is worst on Contrast and Blacks because those move the peak gain most.
+            //
+            // Made exact rather than paired-and-cached because it is the cheapest table
+            // here by a wide margin — 32³ samples of a 1-D lookup, at or below the
+            // noise floor of `PlanCostProbeTests` in a release build, against 15–18 ms
+            // for the 33³ finish and colour-grade tables. It still goes through the
+            // cache, so dragging a control that is NOT tone hits and pays nothing; only
+            // a tone drag pays the bake, and it is a fraction of a millisecond.
+            //
+            // `testTheToneCubeAndItsScaleStayAPairOnTheDRAFTPath` holds this. Its
+            // sibling did not: it built its plan with the default
+            // `allowStaleTables: false`, so it only ever exercised the path a drag does
+            // not take — the same shape of blind spot as the draft ladder's.
+            self.toneGainCubeBaked = toneKey.map {
+                PlanTableCache.table(.toneGain, key: $0, size: cubeSize,
+                                     build: bakeCube)
+            } ?? bakeCube()
         }
     }
 
@@ -309,10 +549,19 @@ public struct RenderPlan: Sendable {
 
     /// The composed per-pixel colour function, for stages that have no spatial
     /// component. This is what the LUTs approximate — goldens compare the two.
-    public func referenceColor(_ sceneLinear: RGB) -> RGB {
+    ///
+    /// `space` must be the space the plan was built with, exactly as it must for
+    /// `exactColor` — the two are twins and take the parameter the same way. This one
+    /// hardcoded rec2020 for the tone stage's luminance while its twin used the
+    /// parameter, so on any plan built for another working space the two disagreed
+    /// about how bright a saturated colour is before either table was sampled — a
+    /// disagreement charged to "interpolation error" in every golden that compares
+    /// them.
+    public func referenceColor(_ sceneLinear: RGB,
+                               space: RGBColorSpace = .rec2020) -> RGB {
         var c = linear.apply(sceneLinear)
         if !toneIsIdentity {
-            let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
+            let lum = Swift.max(space.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
         }
         if !colorGradeIsIdentity {
@@ -352,7 +601,8 @@ public struct RenderPlan: Sendable {
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
         }
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
-                                color: develop.color, primaries: look.primaries, bw: look.bw)
+                                color: develop.color, primaries: look.primaries,
+                                bw: look.bw, bandMeanHues: bandMeanHues)
         let grade = GradeEngine(wheels: look.wheels, printerLights: look.printerLights,
                                 whiteAnchorEV: tone.whiteAnchorEV,
                                 blackAnchorEV: tone.blackAnchorEV)
@@ -398,7 +648,10 @@ public struct RenderPlan: Sendable {
     ///
     /// Built only when the tone stage is live, because that is the only time anything
     /// reads it and an identity plan should not pay for a quarter of a million samples.
-    public let toneGainCube32: LUT3D?
+    /// 32 knots on an interactive plan, `LUT3D.exportSize` on an export one — the
+    /// name stopped carrying the number the day the number started depending on what
+    /// the plan is for.
+    public let toneGainCubeBaked: LUT3D?
 
     public func toneGainCube(size: Int = 32) -> LUT3D {
         let scale = toneGainScale

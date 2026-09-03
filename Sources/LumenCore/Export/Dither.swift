@@ -94,14 +94,22 @@ public enum Dither {
         return linear + offset(x: x, y: y) * step
     }
 
-    /// Number of codes an integer channel of this depth carries. 8-bit is the only depth
-    /// that needs dithering — 16-bit's codes are 257× finer than the eye's threshold in
-    /// the worst part of the curve — so this is also the test the caller makes.
+    /// Number of codes an integer channel of this depth carries — and the number the
+    /// dither's amplitude MUST be denominated in, which is the units rule at the top
+    /// of this file wearing a third dress: half an 8-bit code on a 10-bit encode is
+    /// two full codes of noise, four times what the encode needs to stop banding.
+    /// The three rungs are the three depths Lumen writes: 8 (JPEG, 8-bit HEIC/TIFF/
+    /// PNG), 10 (HEVC Main-10 HEIC), 16 (deep TIFF/PNG).
     public static func levels(bitDepth: Int) -> Int {
-        bitDepth >= 16 ? 65_536 : 256
+        if bitDepth >= 16 { return 65_536 }
+        if bitDepth >= 10 { return 1_024 }
+        return 256
     }
 
-    /// Whether an encode at this depth is coarse enough to band.
+    /// Whether an encode at this depth is coarse enough to band. 16-bit's codes are
+    /// 257× finer than the eye's threshold in the worst part of the curve, so it is
+    /// written straight through; 10-bit is far better off than 8 but a long sky ramp
+    /// can still step, and half a 10-bit code of ordered offset costs nothing.
     public static func isWorthwhile(bitDepth: Int) -> Bool { bitDepth < 16 }
 }
 

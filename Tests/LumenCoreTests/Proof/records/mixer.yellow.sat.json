@@ -1,0 +1,15 @@
+{
+  "authority" : 122.10861134972586,
+  "deadSteps" : 0,
+  "frame" : "colourChart",
+  "frontLoading" : 0.749096975284837,
+  "givenBack" : 0.12490351886850704,
+  "hueRotation" : 4.0611898412283125,
+  "id" : "mixer.yellow.sat",
+  "isMonotone" : false,
+  "meanSeparation" : 6.312750166186832,
+  "panel" : "Colour Mixer",
+  "smallestLiveStep" : 3.336112337164579,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

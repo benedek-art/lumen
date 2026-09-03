@@ -391,12 +391,12 @@ public enum VST {
 ///
 /// | Slider | Symbol | Effect on the soft threshold `T(level, x)` |
 /// |---|---|---|
-/// | Luminance | `k_L = 4·(luma/100)^0.7` | Master luma shrink scale, in units of the per-scale noise σ. Gentle by doctrine: even at 100 it tops out at 4σ. |
+/// | Luminance | `k_L = 2.5·(luma/100)^0.755` | Master luma shrink scale, in units of the per-scale noise σ. Bounded at the measured knee — see `lumaK`. |
 /// | Luminance Detail | `1.5 − detail/100` | Multiplies the luma threshold. 50 ⇒ ×1.0; higher ⇒ lower threshold ⇒ texture (and noise) survives. This slider *is* the threshold. |
 /// | Luminance Contrast | `1 − 0.9·(contrast/100)·coarse(level)` | Biases shrinkage away from the coarse luma bands — preserves luminance contrast at the cost of mottling, LR's own tradeoff. |
-/// | Color | `k_C = 8·(chroma/100)^0.6` | Master chroma shrink scale. Aggressive by doctrine: reaches 8σ, and chroma shrinkage is visually nearly free. |
+/// | Color | `k_C = 2.5·(chroma/100)^0.322` | Master chroma shrink scale, bounded at the measured knee — see `chromaK`. |
 /// | Color Detail | `1 − (detail/100)·edge(x)` | Spatially reduces the chroma threshold on chroma edges, so thin colour edges survive. |
-/// | Color Smoothness | `1 + 3·(smooth/100)·coarse(level)`, plus a guided-filter blotch pass | Extends shrinkage into the coarsest chroma bands, which is where blotches live. |
+/// | Color Smoothness | `1 + 3·(smooth/100)·coarse(level)`, plus a guided-filter blotch pass mixed at `0.10·(smooth/100)·(chroma/100)` | Extends shrinkage into the coarsest chroma bands, which is where blotches live. |
 /// | Hot Pixels | `k = 2 + 10·(1 − h/100)²` | Median-deviation gate, separate pass. See `hotPixelK`. |
 ///
 /// `coarse(level)` is 0 at the finest band and 1 at the coarsest; `edge(x)` is the
@@ -433,10 +433,43 @@ public struct ClassicalDenoise: Sendable {
     /// Hardest level count the engine will honour, so a bad caller cannot blow the halo.
     public static let maximumLevels: Int = 6
 
-    /// Luma master scale at Luminance 100, in σ.
-    public static let lumaMaxK: Double = 4.0
-    /// Chroma master scale at Color 100, in σ.
-    public static let chromaMaxK: Double = 4.0
+    /// The `noiseScale` (= s² for a decode at linear scale s) at or below which the
+    /// classical bands stop running — see `scaled(noiseScale:)` for the argument and
+    /// the measurement. 0.5 is s ≈ 0.71: the downsample has already removed about a
+    /// third of sigma, which is more than these bands remove at their default strength,
+    /// and what is left is finer than the sample grid the viewer is drawing onto.
+    ///
+    /// Deliberately a named constant rather than a literal, because it is the number to
+    /// move if the owner ever CAN see the difference at fit. Raising it toward 1 buys
+    /// denoising back at the cost of the interactive frame; lowering it toward 0 spends
+    /// the frame on noise nobody can see.
+    public static let contributingNoiseScale: Double = 0.5
+
+    /// Luma master scale at Luminance 100, in σ — the ceiling the RESIDUAL-ERROR
+    /// measurement supports, not the one soft thresholding arithmetically allows.
+    /// See `lumaK` for the numbers.
+    public static let lumaMaxK: Double = 2.5
+    /// Chroma master scale at Color 100, in σ. Same ceiling, same reason (`chromaK`).
+    public static let chromaMaxK: Double = 2.5
+
+    /// The two curves are anchored rather than freely shaped: each master slider must
+    /// still reach a stated shrink strength at a stated setting, because that is the
+    /// authority `DenoiseTests` pins and the reason the sliders are worth having. The
+    /// exponent is then whatever carries the anchor to the ceiling — written as the
+    /// division rather than as its result, so a reader can check it.
+    ///
+    /// Luminance 60 must leave under a fifth of the luma noise on a flat field
+    /// (`testLuminanceRemovesLumaNoiseAndLeavesChromaAlone`), which needs k ≈ 1.55;
+    /// 1.7 keeps a margin. Colour 25 — Lightroom's default, and the setting the
+    /// aggressive-by-doctrine assertion is calibrated at — needs k ≈ 1.6.
+    public static let lumaAnchorK: Double = 1.7
+    public static let lumaAnchorSlider: Double = 60
+    public static let chromaAnchorK: Double = 1.6
+    public static let chromaAnchorSlider: Double = 25
+
+    /// How far the guided-filter blotch pass may be mixed in, at Colour 100 with Colour
+    /// Smoothness 100. See `GPUPlan.blotchMix` for what moved this from 0.5 and why.
+    public static let blotchMaxMix: Double = 0.10
     /// How much a strong luma edge backs the luma threshold off.
     public static let lumaEdgeProtection: Double = 0.80
     /// How far Luminance Contrast can pull the coarsest luma band's threshold down.
@@ -547,13 +580,47 @@ public struct ClassicalDenoise: Sendable {
     /// continuing to eat texture, since fine-band correlation with real detail falls
     /// from 0.155 at 50 to 0.025 at 100.
     ///
-    /// Linear in k spreads it evenly: 38.7% kept at 25, 10.6% at 50, 1.9% at 75, 0.1%
-    /// at 100. Every quarter of the slider now buys about as much as the last.
+    /// Linear in k spread that evenly — 38.7% kept at 25, 10.6% at 50, 1.9% at 75, 0.1%
+    /// at 100 — so every quarter of the slider bought about as much as the last.
+    ///
+    /// **What that remap never asked is what each quarter COSTS.** Measured against
+    /// ground truth on `noisyISO6400` (the docs/20 proof frame: a clean base carrying
+    /// real 6 px texture, plus a photon-and-read model at ISO 6400), residual error to
+    /// the clean twin in sRGB code values, Luminance only and Colour at 0:
+    ///
+    ///     slider     0      25      50      75     100
+    ///     RMS      3.623   3.563   3.910   4.291   4.611     ← k topping out at 4.0
+    ///     fine-band correlation with real texture
+    ///              0.856   0.841   0.814   0.782   0.748
+    ///
+    /// Undenoised is 3.623, so **the top three quarters of the slider were worse than
+    /// leaving the noise in**, while the flat-field noise σ they buy over the same span
+    /// goes 4.2% → 1.7%: 2.5 points. The travel is bounded at 2.5σ for that reason —
+    /// past it a soft threshold is spending texture to chase noise already gone.
+    ///
+    /// The curve is anchored at `lumaAnchorSlider` so the mid travel keeps the authority
+    /// the flat-field golden requires. After bounding, same frame:
+    ///
+    ///     slider     0      25      50      75     100
+    ///     RMS      3.623   3.537   3.711   3.916   4.108
+    ///     correlation
+    ///              0.856   0.843   0.829   0.814   0.799
+    ///
+    /// Still rising, and honestly so. This engine's edge map is stabilized by a σ 1.5
+    /// pre-blur, which cannot see 6 px texture, so nothing downstream can tell that
+    /// texture from the noise beside it. Bounding the travel is what is available
+    /// without changing an operator the GPU implements too; discriminating properly is
+    /// what DETAIL-17's per-camera profiles and the neural tier are for.
     public static func lumaK(_ slider: Double) -> Double {
         let s = Num.saturate(clampSlider(slider) / 100)
         guard s > 0 else { return 0 }
-        return lumaMaxK * pow(s, 1.0)
+        return lumaMaxK * pow(s, lumaExponent)
     }
+
+    /// The exponent carrying `lumaAnchorK` at `lumaAnchorSlider` up to `lumaMaxK` at 100.
+    public static let lumaExponent: Double =
+        Foundation.log(lumaAnchorK / lumaMaxK)
+            / Foundation.log(lumaAnchorSlider / 100)
 
     /// Color → master shrink scale in σ. Aggressive by doctrine (docs/07 §2.3).
     ///
@@ -568,14 +635,41 @@ public struct ClassicalDenoise: Sendable {
     /// preference: `testColourRemovesChromaNoiseAndLeavesLumaAlone` requires Colour 25 —
     /// Lightroom's default, and the setting most photographs are edited at — to leave
     /// under a fifth of the chroma noise. An exponent of 0.8 spread the travel nicely
-    /// and left 25.9%, so it failed, correctly. 0.65 leaves 18.0% at 25 and still
-    /// spreads the rest: 4.4% at 50, 1.0% at 75, 0.1% at 100, against the old curve's
-    /// 2.0% flat from 25 upward.
+    /// and left 25.9%, so it failed, correctly. 0.65 left 18.0% at 25 and spread the
+    /// rest: 4.4% at 50, 1.0% at 75, 0.1% at 100.
+    ///
+    /// **That curve then reached 4σ, and 4σ costs a colour edge.** Measured on
+    /// `chromaEdge` (a saturated red/blue boundary at EQUAL luminance, so nothing but a
+    /// chroma operation can move it), fraction of the step surviving at Colour 100 with
+    /// the shipped sub-slider defaults: **0.7094** — a third of the boundary gone. And
+    /// on a noisy colour chart at ISO 6400, residual error against the clean chart:
+    ///
+    ///     Colour     0      10      20      40      70     100
+    ///     RMS      3.379   2.642   2.820   3.432   4.299   5.040   ← k topping out at 4.0
+    ///
+    /// Anything past Colour ≈ 25 was **worse than not denoising at all**, which is the
+    /// compound half of DETAIL-16: the ISO-adaptive default resolved to 40 there.
+    ///
+    /// The ceiling comes down to 2.5σ and the exponent is re-anchored so Colour 25 keeps
+    /// the k it already had, which is the setting the aggressive-by-doctrine assertion
+    /// is calibrated at. After bounding, same two frames:
+    ///
+    ///     colour edge at Colour 100      0.7094 → 0.9158   (with `blotchMaxMix` below)
+    ///     Colour     0      10      20      40      70     100
+    ///     RMS      3.379   2.680   2.813   3.052   3.334   3.559
+    ///
+    /// — every setting on the travel now better than leaving the noise in, which is the
+    /// least a control can owe.
     public static func chromaK(_ slider: Double) -> Double {
         let s = Num.saturate(clampSlider(slider) / 100)
         guard s > 0 else { return 0 }
-        return chromaMaxK * pow(s, 0.65)
+        return chromaMaxK * pow(s, chromaExponent)
     }
+
+    /// The exponent carrying `chromaAnchorK` at `chromaAnchorSlider` up to `chromaMaxK`.
+    public static let chromaExponent: Double =
+        Foundation.log(chromaAnchorK / chromaMaxK)
+            / Foundation.log(chromaAnchorSlider / 100)
 
     /// Hot Pixels → the median-deviation gate `k` (docs/07 §12.5, defined here).
     ///
@@ -731,12 +825,15 @@ public struct ClassicalDenoise: Sendable {
                         edge: chromaEdge, edgeProtection: protection)
 
             // Large-scale chroma blotches survive band shrinkage because they *are* the
-            // coarse band; a luminance-guided edge-preserving smooth is what removes them
-            // without bleeding colour across an edge.
+            // coarse band, and a luminance-guided edge-preserving smooth is what removes
+            // them. It does NOT preserve every edge: the guide is luminance, so a
+            // boundary that is pure chroma at flat luminance is invisible to it and the
+            // filter bleeds straight across. That is where a third of `chromaEdge` went.
+            // `blotchMaxMix` is the bound; see `GPUPlan.blotchMix` for the measurement.
             let blotch = Num.saturate(smooth) * Num.saturate(chroma / 100)
             if blotch > 0 {
                 let guide = work.luminancePlane(space: space)
-                let mixAmount = 0.5 * blotch
+                let mixAmount = ClassicalDenoise.blotchMaxMix * blotch
                 let f1 = SpatialOps.guidedFilter(input: p1, guide: guide,
                                                  radius: ClassicalDenoise.blotchRadius,
                                                  epsilon: ClassicalDenoise.blotchEpsilon)
@@ -1022,6 +1119,23 @@ public struct ClassicalDenoise: Sendable {
         public let edgeKneeLow: Double
         public let edgeKneeHigh: Double
         /// Weight of the luminance-guided chroma blotch pass, 0 when it is off.
+        ///
+        /// Bounded by `ClassicalDenoise.blotchMaxMix`, and that bound is the single
+        /// biggest thing standing between Colour 100 and a destroyed colour edge. The
+        /// pass is guided by LUMINANCE, so across a boundary that is pure chroma the
+        /// guide is flat and the filter simply blurs colour through it. Measured on
+        /// `chromaEdge` at Colour 100 with the shrink held fixed, fraction of the step
+        /// surviving against the mix:
+        ///
+        ///     mix        0.000   0.050   0.100   0.150   0.250   0.500
+        ///     retention  0.961   0.916   0.871   0.826   0.736   0.513
+        ///     flat-field chroma σ still present
+        ///                0.0449  0.0431  0.0414  0.0396  0.0362  0.0281
+        ///
+        /// The trade is 45 points of colour edge for 1.7 points of chroma noise, per 0.1
+        /// of mix, and it gets worse as Colour rises because the band shrink has already
+        /// taken what the blotch pass was going to remove. The coefficient was 0.5 —
+        /// mixing HARDEST exactly where there was least left to remove.
         public let blotchMix: Double
         /// Hot-pixel gate `k`; infinite when the pass is off.
         public let hotPixelK: Double
@@ -1086,6 +1200,44 @@ public struct ClassicalDenoise: Sendable {
     public func scaled(noiseScale: Double) -> ClassicalDenoise {
         let k = (noiseScale.isFinite && noiseScale > 0) ? Swift.min(noiseScale, 1) : 1
         guard k < 1 else { return self }
+        // BELOW THE CONTRIBUTING SCALE, S3 DOES NOT RUN AT ALL.
+        //
+        // The paragraph above says a preview carries about a tenth the variance and
+        // scales the profile to match. What it left in place was the WORK: `levels`
+        // came through unchanged, so a preview paid all five à-trous bands — around
+        // thirty GPU passes, the deepest reading pixels eighty apart — to remove noise
+        // the decode's own downsample had already averaged away. Cost flat, benefit
+        // falling with scale.
+        //
+        // The owner measured what that costs: same photograph, same 4096 px settle,
+        // noise reduction off 30 ms and on 375.7 ms. Denoise was ninety-two percent of
+        // his settle. Then he looked for what it was buying at fit, on a noisy frame,
+        // and could not see any difference at all between Off, Classic and the AI
+        // stand-in — which is the expected answer rather than a broken stage: at fit a
+        // 33 MP frame is downsampled about 2.2x per axis, and averaging four samples
+        // has already halved sigma before this engine is asked for anything.
+        //
+        // So the rule is the honest form of the approximation this function already
+        // makes. `noiseScale` is s^2 for a decode at linear scale s; at s <= ~0.71 the
+        // downsample has taken more of the noise than these bands would, and the
+        // remaining structure is sub-pixel. Zeroing both amounts here (rather than in
+        // either renderer) is what keeps the GPU stage and the CPU reference agreeing,
+        // since both reach the engine through this one funnel — a rule applied in one
+        // of them would be a gpu-parity failure by construction.
+        //
+        // At 1:1 and on export the scale is 1, this branch never runs, and the
+        // photograph is denoised exactly as before. Zoomed region renders ask the
+        // sensor's own scale, so inspection keeps its noise reduction too. What is
+        // given up is denoising a view too small to show noise.
+        if k <= ClassicalDenoise.contributingNoiseScale {
+            return ClassicalDenoise(luma: 0, chroma: 0, hotPixels: hotPixels,
+                                    lumaDetail: lumaDetail, lumaContrast: lumaContrast,
+                                    colorDetail: colorDetail,
+                                    colorSmoothness: colorSmoothness,
+                                    profile: NoiseProfile(a: profile.a * k,
+                                                          b: profile.b * k),
+                                    levels: levels)
+        }
         return ClassicalDenoise(luma: luma, chroma: chroma, hotPixels: hotPixels,
                                 lumaDetail: lumaDetail, lumaContrast: lumaContrast,
                                 colorDetail: colorDetail,
@@ -1153,7 +1305,7 @@ public struct ClassicalDenoise: Sendable {
             chromaProtection: kC > 0 ? Num.saturate(colorDetail / 100) : 0,
             edgeKneeLow: ClassicalDenoise.edgeKneeLow * knee * scale,
             edgeKneeHigh: ClassicalDenoise.edgeKneeHigh * knee * scale,
-            blotchMix: kC > 0 ? 0.5 * blotch : 0,
+            blotchMix: kC > 0 ? ClassicalDenoise.blotchMaxMix * blotch : 0,
             hotPixelK: ClassicalDenoise.hotPixelK(hotPixels))
     }
 
@@ -1550,11 +1702,34 @@ public enum ISODefaults {
     /// in both directions from there, which is exactly the departure §2.1 claims — "LR's flat
     /// Color 25 is a guess that happens to be acceptable". Shown resolved in the UI as
     /// e.g. "25 auto" per D11.
+    ///
+    /// **The top of that curve was measured and it was wrong.** It reached 40 at ISO 6400
+    /// and 55 at ISO 25600, and on a frame carrying both chroma noise and a chroma edge
+    /// those settings scored WORSE than not denoising at all — the flagship
+    /// "profiled and ISO-adaptive rather than fixed" departure was handing every
+    /// high-ISO import something worse than the flat 25 it claims to beat. Residual
+    /// error against ground truth, ISO 6400, in sRGB code values: undenoised 3.181,
+    /// Colour 10 → 2.313, **Colour 40 → 3.300**.
+    ///
+    /// Half of that was the unbounded shrink curve, now bounded in `chromaK`. The other
+    /// half is here, and it is a double count: **the thresholds are already denominated
+    /// in the profile's σ, and σ already rises with ISO.** A slider that also rises with
+    /// ISO applies the gain adaptation twice. Measured on the same frame with the
+    /// bounded curve, the optimum does not move with ISO at all — it sits near Colour 10
+    /// at ISO 400, 1600, 6400 and 25600 alike, which is what a σ-denominated threshold
+    /// predicts and what nobody had checked.
+    ///
+    /// So the curve keeps its shape and loses its climb: the remaining rise is for the
+    /// part of high-ISO chroma noise that is NOT captured by a per-pixel σ — coarse
+    /// blotching, which grows with gain — and every anchor now resolves inside the
+    /// region the measurement supports. `DenoiseQualityTests` pins each resolved default
+    /// to within 5% of the best point on its own travel, so a future anchor edit has to
+    /// come past a number.
     public static let colorAnchors: [(x: Double, y: Double)] = [
         (x: log2(100.0), y: 10.0),
-        (x: log2(1600.0), y: 25.0),
-        (x: log2(6400.0), y: 40.0),
-        (x: log2(25600.0), y: 55.0),
+        (x: log2(1600.0), y: 20.0),
+        (x: log2(6400.0), y: 25.0),
+        (x: log2(25600.0), y: 30.0),
     ]
 
     /// Amount is pinned at 50 for every ISO by docs/07 §3.1 — the AI slider means one thing
@@ -1635,15 +1810,23 @@ public enum ISODefaults {
     }
 
     /// The auto-zero coupling of docs/14: when AI Denoise is on, ISO-adaptive Tier-1
-    /// defaults drop to zero — the noise they compensated for is gone — *unless* the user
-    /// hand-set them. `userSet` bits do not exist in the recipe yet (docs/07 §12.7), so they
-    /// are passed in explicitly rather than guessed at.
-    public static func coupled(_ params: ClassicNR, aiEnabled: Bool,
-                               lumaUserSet: Bool, chromaUserSet: Bool) -> ClassicNR {
+    /// defaults drop to zero — the noise they compensated for is gone — *unless* the
+    /// user hand-set them, in which case their values are respected.
+    ///
+    /// The exception reads `ClassicNR.lumaUserSet` / `.chromaUserSet`. It used to read
+    /// two parameters that **defaulted to false**, because the recipe carried no such
+    /// bits; the one caller on the shipping path (`RenderPlan`) therefore passed
+    /// neither, and the exception could not fire on any photograph. The sub-sliders are
+    /// carried through unchanged either way: they are shaping parameters for whatever
+    /// master survives, and zeroing a master already turns its half of the stage off.
+    /// Rebuilding the block from three fields — which this did — also reset Colour
+    /// Smoothness and Luminance Detail to their wire defaults on every mode switch.
+    public static func coupled(_ params: ClassicNR, aiEnabled: Bool) -> ClassicNR {
         guard aiEnabled else { return params }
-        return ClassicNR(luma: lumaUserSet ? params.luma : 0,
-                         chroma: chromaUserSet ? params.chroma : 0,
-                         hotPixels: params.hotPixels)
+        var out = params
+        if !params.lumaUserSet { out.luma = 0 }
+        if !params.chromaUserSet { out.chroma = 0 }
+        return out
     }
 
     /// The Tier-1 block a whole `Denoise` recipe resolves to, honouring `mode`:
@@ -1651,19 +1834,14 @@ public enum ISODefaults {
     ///  - `.classic` — the recipe's own `classic` block, untouched.
     ///  - `.ai` — the auto-zero coupling above, so Tier 1 runs as a finishing pass over an
     ///    already-denoised image rather than compensating twice.
-    ///
-    /// `userSet` bits are parameters because the recipe does not carry them yet (docs/07 §12.7).
-    public static func classic(for denoise: Denoise,
-                               lumaUserSet: Bool = false,
-                               chromaUserSet: Bool = false) -> ClassicNR {
+    public static func classic(for denoise: Denoise) -> ClassicNR {
         switch denoise.mode {
         case .off:
             return ClassicNR(luma: 0, chroma: 0, hotPixels: 0)
         case .classic:
             return denoise.classic
         case .ai:
-            return coupled(denoise.classic, aiEnabled: true,
-                           lumaUserSet: lumaUserSet, chromaUserSet: chromaUserSet)
+            return coupled(denoise.classic, aiEnabled: true)
         }
     }
 }

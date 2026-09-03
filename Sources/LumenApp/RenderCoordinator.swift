@@ -25,6 +25,46 @@ struct RenderResult: @unchecked Sendable {
     /// The UI must say so — a preview shown as if it were the edit is a lie.
     let usedEmbeddedPreview: Bool
     let note: String?
+    /// The source file's own long edge, in pixels — what a zoomed request should ask
+    /// for so that "1:1" means the sensor's pixels rather than a proxy's (docs/32
+    /// owner round: a 7008 px ARW at 1142% drew a 4096 proxy as mush, because 4096
+    /// was both the cap and the number the zoom was denominated in). Zero when the
+    /// source could not be opened at all.
+    let nativeLongEdge: Int
+    /// The unit rectangle of the delivered frame these pixels cover, top-left origin —
+    /// nil for a whole-frame render. Region renders are what make a zoomed draft
+    /// sharp for viewport cost (docs/32 fifth round); the viewer places the
+    /// sub-image inside the full drawn geometry, which `fullPixelSize` describes.
+    let regionUnit: CGRect?
+    /// The FULL delivered frame's pixel size for this render — the geometry basis the
+    /// viewer draws, clamps and samples against, whether or not the pixels are a
+    /// region of it. Nil only on the embedded-preview fallback.
+    let fullPixelSize: CGSize?
+    /// Wall time the RAW decode cost inside this render — near zero on a cache hit.
+    /// Zero on the paths that do not decode (the embedded-preview fallback).
+    let decodeMilliseconds: Double
+}
+
+/// What the renderer knows about one file's AI mattes after a pass, plus the files its
+/// bounded cache dropped along the way.
+///
+/// The third field is the one that had to exist. `PipelineRenderer` holds the mattes
+/// behind a bound of twelve files; `AppState` held a ledger of the same facts that was
+/// never trimmed, so browsing thirteen photographs with Vision masks and returning to
+/// the first left the app certain it had a matte the renderer had thrown away — the
+/// render read nothing, the panel said READY, and no edit short of an unrelated one
+/// could clear it. A copy of somebody else's bounded cache is only honest if the
+/// evictions come back with it.
+struct MattePass: Sendable {
+    /// Kinds this file now has a matte for.
+    let available: Set<String>
+    /// Kinds a pass has been RUN for on this file, whatever it found. The difference
+    /// between `available` and this is "Vision looked and found nothing", which the
+    /// panel says out loud and must not say about a request nobody made.
+    let attempted: Set<String>
+    /// Files whose mattes are gone. Any entry a caller holds for one of these is now a
+    /// lie and must be dropped, not refreshed.
+    let evicted: [URL]
 }
 
 actor RenderCoordinator {
@@ -38,6 +78,125 @@ actor RenderCoordinator {
     private static let sourceCacheLimit = 12
     private var sourceOrder: [URL] = []
 
+    /// THE PROCESS-WIDE CEILING ON HELD DECODES, which nothing had.
+    ///
+    /// `AppleRawSource` bounds what ONE source holds: eight entries, 320 MB of
+    /// interactive working set, plus one native inspection plane exempt from that budget
+    /// so a settle at zoom is not alternate-evicted by the drag beneath it. Every clause
+    /// of that is right, and all of it is per source — while this actor holds twelve.
+    /// Multiplied out, the shipped worst case is twelve exempt native planes at
+    /// 260–460 MB each on top of twelve interactive budgets at 320 MB each: on the order
+    /// of seven gigabytes of wired, IOSurface-backed half-float buffers, in a process
+    /// that also runs a 512 MB thumbnail cache and a Core Image context with
+    /// `cacheIntermediates: true`. The commit that introduced the exemption wrote the
+    /// worst case down as "one native plane per photograph the user actually zoomed
+    /// into" and did not multiply it by the source cache.
+    ///
+    /// What that costs is not a slow render, which is why it is hard to attribute: it is
+    /// the machine paging, and every part of the app gets slower at once — the owner's
+    /// "everything is slightly slow", with occasional stalls far longer than any render
+    /// could explain. A decode cache several times the size of the thumbnail cache is
+    /// the tail wagging the dog.
+    ///
+    /// THE NUMBER THAT USED TO BE HERE WAS A CLAIM, NOT A BOUND, and correcting it is
+    /// half of the fix. It read `768 * 1024 * 1024`, under a sentence saying 768 MiB
+    /// "holds one native inspection plane and a full interactive working set for the
+    /// photograph on screen, with room for a second photograph's settle beside it".
+    /// The sentence is the right policy and the arithmetic under it had never been
+    /// done: one inspection plane is up to 512 MiB and one interactive working set is
+    /// 320 MiB, so the photograph on screen ALONE is 832 MiB before a second one is
+    /// considered. 768 was below the residency of a single source, which no trim can
+    /// reach without evicting the decode of the photograph being rendered — and the
+    /// two loops below duly stopped at 1792 MiB, 2.33x the advertised figure, with
+    /// nothing anywhere able to notice because the budget was a constant in a target no
+    /// CI lane builds.
+    ///
+    /// So the budget is DERIVED from the per-source bounds it has to accommodate, in
+    /// LumenCore, where the multiplication can be run: `sourceCeilingBytes` (one
+    /// photograph entire) plus one more interactive working set (the compare pane
+    /// beside it). Changing either per-source bound moves this number; changing this
+    /// number without them goes red in `RenderBudgetTests`.
+    ///
+    /// It is LARGER than the constant it replaces, and that is the correction rather
+    /// than a regression. 768 MiB was never held. What was held was 1792 MiB, and what
+    /// is held now is a ceiling the trim below can actually reach from any state.
+    private static let decodeResidencyBudget = DecodeResidency.processBudgetBytes
+
+    /// Bring held decodes back under `decodeResidencyBudget`, least-recently-used source
+    /// first, never touching the newest.
+    ///
+    /// The ORDER is `DecodeResidency.releaseOrder` and its argument lives there; this is
+    /// the executor. Three phases, coarsening as they go: the cold sources' inspection
+    /// planes, then everything the cold sources hold, then — and this phase is what was
+    /// missing — everything the LIVE sources hold too, coldest first, still excluding
+    /// the newest. Without the third phase the walk simply stopped while over budget and
+    /// the four spared working sets were 960 MiB of a floor the trim could not reach.
+    ///
+    /// Why this is now a bound and was not before: after the last phase only the newest
+    /// source is holding anything, and one source cannot exceed
+    /// `DecodeResidency.sourceCeilingBytes`, which `budgetCoversOneSource` asserts is at
+    /// or below the budget. `DecodeResidency.residualBytes` walks the same order against
+    /// modelled holdings and proves it for every source count and live-set size.
+    ///
+    /// It learns what each release freed from the release's own return value rather than
+    /// from a model of what a source holds, which is why only the order is pushed down:
+    /// `AppleRawSource` publishes `heldDecodeBytes` as a total and no split.
+    ///
+    /// Releasing a decode is always CORRECT, never merely acceptable: the entry is
+    /// recomputable from a file that has not moved, the `CIRAWFilter` and the capture
+    /// metadata stay in the source, and the whole cost of a wrong guess is one demosaic
+    /// on a photograph the user came back to. That asymmetry is why this trims eagerly
+    /// rather than waiting for a memory-pressure notification that arrives after the
+    /// machine is already swapping.
+    ///
+    /// The downcast is deliberate and narrow. `ImageSource` has two conformers and only
+    /// one of them holds pixels — `RenderedImageSource` keeps a single lazy `CIImage` of
+    /// a file Core Image will re-read — so a protocol requirement would be a method
+    /// existing for one implementation. The cast says that in one line instead.
+    private func trimDecodeResidency() {
+        var total = sourceOrder.reduce(0) { running, url in
+            running + ((sources[url] as? AppleRawSource)?.heldDecodeBytes ?? 0)
+        }
+        guard total > Self.decodeResidencyBudget else { return }
+        for step in DecodeResidency.releaseOrder(sourceCount: sourceOrder.count,
+                                                 liveSources: Self.residencyLiveSources) {
+            guard total > Self.decodeResidencyBudget else { return }
+            guard let raw = sources[sourceOrder[step.index]] as? AppleRawSource
+            else { continue }
+            switch step {
+            case .inspection: total -= raw.releaseInspectionDecodes()
+            case .everything: total -= raw.releaseDecodes()
+            }
+        }
+    }
+
+    /// How many of the most recently used sources the trim releases from LAST.
+    ///
+    /// Not "the number of panes", which is not a fixed number — the survey is N-up over
+    /// whatever the photographer selected. It is the number of surfaces that alternate
+    /// at FULL render cost: the loupe (one), the two-up compare (two), and one spare for
+    /// the photograph an arrow press is about to land on. A survey's cells are 160–520 pt
+    /// and ask for a few hundred pixels each, so ten of them together hold a fraction of
+    /// the budget and the walk never reaches them however many there are.
+    ///
+    /// A PREFERENCE NOW, NOT AN EXEMPTION, and the difference is the whole of I3-02's
+    /// second half. These four used to be spared unconditionally, so a process over
+    /// budget with only live sources holding stayed over budget for as long as the user
+    /// kept looking: 320 MiB apiece that the trim was forbidden to take however badly
+    /// the machine needed it. They are now merely last in `releaseOrder`, which keeps
+    /// the alternation argument intact — the walk stops the moment it is under budget,
+    /// and with an honest budget a two-up compare never reaches them at all — while
+    /// removing the clause that turned a budget into a floor.
+    private static let residencyLiveSources = 4
+
+    /// Files the renderer's bounded matte cache has dropped since the app last asked.
+    ///
+    /// An export or a full-size render generates mattes inline and can therefore evict
+    /// somebody else's, with no return value going anywhere near the app. Holding the
+    /// evictions here until the next `ensureMattes` is what lets a ledger kept outside
+    /// this actor find out at all.
+    private var evictedMattes: Set<URL> = []
+
     /// A render that takes part in coalescing: it claims the newest ticket, and any
     /// request holding an older one is dropped wherever it happens to be.
     ///
@@ -49,15 +208,26 @@ actor RenderCoordinator {
                 generation: UInt64,
                 strokeSets: [String: BrushStrokeSet] = [:],
                 showingUncropped: Bool = false,
-                softProof: SoftProof? = nil) async -> RenderResult? {
+                softProof: SoftProof? = nil,
+                region: CGRect? = nil) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
         return await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
-                             draft: draft, generation: generation, coalesced: true,
+                             draft: draft,
+                             // A FRAME SOMEBODY IS LOOKING AT DECODES AT FULL DETAIL.
+                             // Apple's draft decode is a lower-quality demosaic — a
+                             // second quality knob beside the resolution one
+                             // `DraftLadder` holds, hard-coded where nothing measured
+                             // it, and the one the eye notices. The ladder trades
+                             // quality for speed by resolution; that is the only lever
+                             // here, and it is the only lever that is measured.
+                             coarseDecode: false,
+                             generation: generation, coalesced: true,
                              strokeSets: strokeSets,
                              showingUncropped: showingUncropped,
-                             softProof: softProof)
+                             softProof: softProof,
+                             region: region)
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
@@ -71,19 +241,68 @@ actor RenderCoordinator {
     func renderOneShot(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
                        strokeSets: [String: BrushStrokeSet] = [:]) async -> RenderResult? {
         await produce(url: url, recipe: recipe, maxLongEdge: maxLongEdge,
-                      draft: draft, generation: 0, coalesced: false,
+                      draft: draft,
+                      // A one-shot is an instrument input — a 512 px scope proxy or the
+                      // auto-tone probe — read as statistics rather than looked at, so
+                      // a cheap demosaic would cost nothing anyone can see. Tied to
+                      // `draft` because that is the honest rule for this path.
+                      //
+                      // Worth saying plainly: BOTH current callers pass `draft: false`,
+                      // and their own comments say why (an instrument must not read a
+                      // stale table, or it disagrees with the settle by exactly the
+                      // amount the user is asking it about). So no path in the app takes
+                      // the coarse decode today. It survives as the meaning of the flag,
+                      // not as a live shortcut — and if that stays true, the flag should
+                      // eventually go rather than sit here looking load-bearing.
+                      coarseDecode: draft,
+                      generation: 0, coalesced: false,
                       strokeSets: strokeSets)
     }
 
     private func produce(url: URL, recipe: Recipe, maxLongEdge: Int, draft: Bool,
+                         coarseDecode: Bool,
                          generation: UInt64, coalesced: Bool,
                          strokeSets: [String: BrushStrokeSet],
                          showingUncropped: Bool = false,
-                         softProof: SoftProof? = nil) async -> RenderResult? {
-        func stale() -> Bool { coalesced && generation < latestGeneration }
+                         softProof: SoftProof? = nil,
+                         region: CGRect? = nil) async -> RenderResult? {
+        // Stale by TICKET, or stale because the caller has gone away.
+        //
+        // The ticket alone could not drop a backlog. `latestGeneration` is claimed when
+        // a request ENTERS this actor, and the actor is serial with a synchronous
+        // render inside it — so while one frame is being produced, the twelve requests
+        // queued behind it have not raised the number and every one of them compares as
+        // current when its turn comes. A drag delivers an event every 8–16 ms and a
+        // render costs tens of milliseconds, so the queue grew for the whole gesture
+        // and every superseded frame was rendered in full. That is the mechanism behind
+        // "the image isn't really updating very well": not a slow render, an unbounded
+        // one per event.
+        //
+        // Cancellation is the signal that was already there and unread. The viewer
+        // drives these from `.task(id:)`, which cancels the previous task the moment
+        // the id moves, so a request nobody is waiting for arrives here already
+        // cancelled. Checking it costs a load and collapses the backlog to at most one
+        // frame behind. Work that must not be dropped — the export path — does not come
+        // through here.
+        func stale() -> Bool {
+            if Task.isCancelled { return true }
+            return coalesced && generation < latestGeneration
+        }
+
+        guard !stale() else { return nil }
 
         do {
             let source = try self.source(for: url)
+            // AND AFTER THE ALLOCATION, NOT ONLY BEFORE IT — the other half of the
+            // budget being advisory. `source(for:)` trims on the way in, which bounds
+            // the process against what the LAST render left behind and says nothing
+            // about what this one is about to add: a newest source holding nothing at
+            // the check can hold `DecodeResidency.sourceCeilingBytes` by the time the
+            // frame is delivered, and if the app then goes idle that total stands
+            // untrimmed until something asks for a source again. Which is precisely
+            // when it hurts — a wired IOSurface working set left sitting over budget
+            // while nothing is happening is the paging the budget exists to prevent.
+            defer { trimDecodeResidency() }
             guard !stale() else { return nil }
 
             // The fallback the kernel header promises, actually taken.
@@ -98,12 +317,22 @@ actor RenderCoordinator {
             // presented as a photograph.
             let image: CGImage
             let note: String?
+            var regionUnit: CGRect?
+            var fullPixelSize: CGSize?
+            var decodeMilliseconds: Double = 0
             if KernelLibrary.coreAvailable {
-                image = try renderer.renderPreview(source: source, recipe: recipe,
-                                                   maxLongEdge: maxLongEdge, draft: draft,
-                                                   showingUncropped: showingUncropped,
-                                                   strokeSets: strokeSets,
-                                                   softProof: softProof)
+                let delivery = try renderer.renderPreviewDelivery(
+                    source: source, recipe: recipe,
+                    maxLongEdge: maxLongEdge, draft: draft,
+                    coarseDecode: coarseDecode,
+                    showingUncropped: showingUncropped,
+                    strokeSets: strokeSets,
+                    softProof: softProof,
+                    region: region)
+                image = delivery.image
+                regionUnit = delivery.regionUnit
+                fullPixelSize = delivery.fullPixelSize
+                decodeMilliseconds = delivery.decodeMilliseconds
                 // Core kernels present but something else missing: the picture is real,
                 // and some stage of it silently did nothing. Say which.
                 let missing = KernelLibrary.unavailableKernels
@@ -113,24 +342,59 @@ actor RenderCoordinator {
                         + (missing.count == 1 ? "kernel" : "kernels")
                         + " unavailable: " + missing.joined(separator: ", ")
             } else {
+                // No region on the CPU fallback: it is rare, whole-frame by
+                // construction, and a region contract it half-honoured would be
+                // worse than the full frame it already delivers.
                 image = try renderer.renderReference(source: source, recipe: recipe,
                                                      maxLongEdge: maxLongEdge,
                                                      strokeSets: strokeSets,
                                                      softProof: softProof)
-                note = "CPU fallback — GPU kernels unavailable"
+                fullPixelSize = CGSize(width: image.width, height: image.height)
+                // The framing caveat is not decoration. `renderReference` never
+                // calls `applyGeometry`, so this path returns the WHOLE frame:
+                // no crop, no straighten, no flip. Everything else about the picture
+                // is right, which is what makes it dangerous — it reads as a correct
+                // render of a photograph the user did not compose.
+                //
+                // Not fixed here, deliberately. `applyGeometry` wants a `CIImage` and
+                // this path holds an `ImageBuffer`, and the bridge crosses the row-order
+                // convention `KernelGoldenTests` documents at length: Core Image extents
+                // are bottom-up, the UI hands down a top-down fraction, and
+                // `CIImage(bitmapData:)` is a third convention again. Getting it wrong
+                // returns a plausible picture mirrored about its centre line. None of
+                // this compiles on the machine the fix would be written on, so writing
+                // it blind trades a wrongly-framed preview for a possibly upside-down
+                // one. It wants a Mac and one golden.
+                note = "CPU fallback — GPU kernels unavailable; crop, straighten and "
+                    + "flip are not applied to this preview"
             }
 
-            guard !stale() else { return nil }
+            // No staleness check HERE, deliberately (FrameDelivery in LumenCore is
+            // the law and the arithmetic). This used to re-check `stale()` after the
+            // render — but a drag cancels the viewer's task on every event, events
+            // outpace renders, so every completed frame was paid for and then thrown
+            // away, and the picture moved only when the hand paused. Finished work is
+            // never stale by cancellation: the caller decides against
+            // `FrameDelivery.shouldShow`, whose only questions are identity and order.
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
-                                note: note)
+                                note: note,
+                                nativeLongEdge: Int(source.nativeLongEdge.rounded()),
+                                regionUnit: regionUnit,
+                                fullPixelSize: fullPixelSize,
+                                decodeMilliseconds: decodeMilliseconds)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
             if let preview = Self.embeddedPreview(url: url, maxLongEdge: maxLongEdge) {
                 return RenderResult(image: preview, generation: generation, isDraft: true,
                                     usedEmbeddedPreview: true,
-                                    note: "Embedded preview — \(Self.describe(error))")
+                                    note: "Embedded preview — \(Self.describe(error))",
+                                    nativeLongEdge: Int((try? self.source(for: url))
+                                        .map(\.nativeLongEdge)?.rounded() ?? 0),
+                                    regionUnit: nil,
+                                    fullPixelSize: nil,
+                                    decodeMilliseconds: 0)
             }
             return nil
         }
@@ -140,19 +404,48 @@ actor RenderCoordinator {
     func renderFullSize(url: URL, recipe: Recipe,
                         strokeSets: [String: BrushStrokeSet] = [:]) throws -> CGImage {
         let source = try self.source(for: url)
+        // Trimmed on the way OUT as well as the way in: this asks at the sensor's own
+        // long edge, so it mints an inspection-class entry of up to
+        // `DraftLadder.materializedDecodeByteCeiling` that nothing would otherwise
+        // reconsider until the next source lookup — and an export is often the last
+        // thing the app does before being left alone.
+        defer { trimDecodeResidency() }
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.renderPreview(source: source, recipe: recipe,
                                           maxLongEdge: Int(source.nativeLongEdge),
-                                          draft: false, strokeSets: strokeSets)
+                                          draft: false, coarseDecode: false,
+                                          strokeSets: strokeSets)
     }
 
+    /// Returns the names of the kernels that were unavailable, so the caller can report
+    /// a reduced file instead of counting it as a clean one. Empty means every stage
+    /// ran; a throw means nothing was delivered.
+    ///
+    /// THE SOFT PROOF REACHES THE FILE, which is the one input this call was missing.
+    /// `PipelineRenderer.exportedImage` built its plan with no proof at all, so ⇧S
+    /// proofed the preview and the exported file rendered to the working space and let
+    /// ColorSync clip per channel at encode time — the picture the photographer checked
+    /// and the picture he sent to the printer were different pictures, silently. The
+    /// renderer takes it in a DELIVERED form (the proofing transform kept; the
+    /// gamut-warning overlay and paper-white simulation forced off, because those are
+    /// pictures of the medium and must never be baked into a file), and this is the
+    /// parameter that lets the app hand it one.
+    ///
+    /// Defaulted to nil so every existing caller is unchanged: an export nobody proofs
+    /// is byte-for-byte what it was.
     func export(url: URL, recipe: Recipe, to destination: URL,
                 exportRecipe: ExportRecipe,
-                strokeSets: [String: BrushStrokeSet] = [:]) throws {
+                strokeSets: [String: BrushStrokeSet] = [:],
+                softProof: SoftProof? = nil) throws -> [String] {
         let source = try self.source(for: url)
+        // Same reason as `renderFullSize`, and more so for a batch: two hundred files
+        // through this call is two hundred native decodes, each one bounded by the trim
+        // on the way in to the NEXT file and the last one by nothing at all.
+        defer { trimDecodeResidency() }
         generateMattesNow(source: source, recipe: recipe)
-        try renderer.export(source: source, recipe: recipe, to: destination,
-                            using: exportRecipe, strokeSets: strokeSets)
+        return try renderer.export(source: source, recipe: recipe, to: destination,
+                                   using: exportRecipe, strokeSets: strokeSets,
+                                   softProof: softProof)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.
@@ -164,41 +457,131 @@ actor RenderCoordinator {
     /// failure this project has already shipped twice. A second per photo is the right
     /// price for the file being the picture.
     private func generateMattesNow(source: any ImageSource, recipe: Recipe) {
-        let wanted = VisionMattes.kinds(in: recipe)
-        guard !wanted.isEmpty, !renderer.hasAttemptedMattes(for: source.url) else { return }
+        // Per KIND. This used to ask whether the file had been attempted at all, so a
+        // recipe that gained a People mask after a Subject mask exported with the
+        // People component selecting nothing.
+        let missing = missingMatteKinds(url: source.url, recipe: recipe)
+        guard !missing.isEmpty else { return }
         guard let picture = renderer.matteSourceImage(source: source) else { return }
-        renderer.storeMattes(VisionMattes.generate(image: picture, kinds: wanted),
-                             for: source.url)
+        record(evicted: renderer.storeMattes(
+            VisionMattes.generate(image: picture, kinds: missing),
+            requested: Set(missing.map { $0.rawValue }), for: source.url))
+    }
+
+    /// The kinds this recipe wants that no pass has looked for yet on this file.
+    private func missingMatteKinds(url: URL, recipe: Recipe) -> Set<MaskKind> {
+        let wanted = VisionMattes.kinds(in: recipe)
+        guard !wanted.isEmpty else { return [] }
+        let done = renderer.attemptedMatteKinds(for: url)
+        return wanted.filter { !done.contains($0.rawValue) }
+    }
+
+    private func record(evicted: [URL]) {
+        for url in evicted { evictedMattes.insert(url) }
     }
 
     /// One mask's alpha, for the loupe's overlay. Small by construction — the raster is
     /// capped at 1024 px — so it does not claim a render ticket.
+    /// - Parameter longEdge: how big to rasterize, or nil for the full 1024. The
+    ///   overlay asks for half that while a gesture is running — see
+    ///   `AppState.refreshMaskOverlay`. The fold is O(pixels), so halving the edge is a
+    ///   straight 4× off the wait between moving a gradient and seeing where it went.
     func maskAlpha(url: URL, recipe: Recipe, maskID: String,
-                   strokeSets: [String: BrushStrokeSet]) -> Plane? {
+                   strokeSets: [String: BrushStrokeSet],
+                   longEdge: Int? = nil) -> Plane? {
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.renderMaskAlpha(source: source, recipe: recipe,
-                                        maskID: maskID, strokeSets: strokeSets)
+                                        maskID: maskID, strokeSets: strokeSets,
+                                        longEdge: longEdge)
+    }
+
+    /// A mask's alpha, small enough to draw in its own row.
+    ///
+    /// The thing that makes a stack of three components readable at a glance: the fold
+    /// stops being an abstraction and becomes three pictures and a result (docs/35
+    /// §4.3). A mask row carried a COUNT BADGE and nothing else, so "Mask 3" had to be
+    /// remembered rather than seen.
+    ///
+    /// 96 px is a hundredth of the proxy's pixels, so this is affordable per row per
+    /// edit in a way the 1024 px overlay is not.
+    func maskThumbnail(url: URL, recipe: Recipe, maskID: String,
+                       strokeSets: [String: BrushStrokeSet]) -> Plane? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.renderMaskAlpha(source: source, recipe: recipe,
+                                        maskID: maskID, strokeSets: strokeSets,
+                                        longEdge: AppState.maskThumbnailLongEdge)
     }
 
     /// Generate the Vision mattes this recipe's masks need, if they are not cached
-    /// already, and return every kind the file now has one for (docs/08 §8.7).
+    /// already, and hand back what the renderer knows afterwards (docs/08 §8.7).
     ///
     /// Never blocks a render. The segmentation runs on `VisionMatteWorker`, a
     /// different actor, so the `await` below SUSPENDS this one — frames keep being
     /// drawn from the cache while a matte is computed, which is the whole of the §8.7
     /// contract and the thing LrC's masking is most criticised for missing.
     ///
-    /// One pass per file: the result is stored even when it is empty, so a photograph
-    /// with no subject in it is not re-segmented on every slider move.
-    func ensureMattes(url: URL, recipe: Recipe) async -> Set<String> {
-        let wanted = VisionMattes.kinds(in: recipe)
-        guard !wanted.isEmpty else { return [] }
-        if renderer.hasAttemptedMattes(for: url) { return renderer.matteKinds(for: url) }
-        guard let source = try? self.source(for: url),
-              let picture = renderer.matteSourceImage(source: source) else { return [] }
-        let produced = await VisionMatteWorker.shared.mattes(image: picture, kinds: wanted)
-        renderer.storeMattes(produced, for: url)
-        return renderer.matteKinds(for: url)
+    /// One pass per file AND KIND: the result is recorded even when a kind produced
+    /// nothing, so a photograph with no subject in it is not re-segmented on every
+    /// slider move — and a kind added later is not skipped because a different one was
+    /// already done.
+    ///
+    /// Always safe to call. The authoritative check is here rather than in the caller
+    /// deliberately: the cache this reads is the renderer's own, it is bounded, and a
+    /// caller that decided for itself whether a pass was needed would be deciding from
+    /// a copy that eviction can silently invalidate. Two dictionary lookups is what the
+    /// fast path costs.
+    func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
+        let missing = missingMatteKinds(url: url, recipe: recipe)
+        if !missing.isEmpty,
+           let source = try? self.source(for: url),
+           let picture = renderer.matteSourceImage(source: source) {
+            let produced = await VisionMatteWorker.shared.mattes(image: picture,
+                                                                kinds: missing)
+            record(evicted: renderer.storeMattes(
+                produced, requested: Set(missing.map { $0.rawValue }), for: url))
+        }
+        let dropped = evictedMattes.subtracting([url])
+        evictedMattes.removeAll()
+        return MattePass(available: renderer.matteKinds(for: url),
+                         attempted: renderer.attemptedMatteKinds(for: url),
+                         evicted: Array(dropped))
+    }
+
+    /// Decode a photograph nobody has asked for yet, so that when they do, the file is
+    /// already read.
+    ///
+    /// This is the whole read-ahead: it does not render, it does not produce an image,
+    /// and it returns nothing. It puts the DECODE in `AppleRawSource`'s cache under the
+    /// exact key the real render will look for — same scale, same draft flag, same
+    /// recipe fields — so the render that follows finds it and skips the two and a half
+    /// seconds the owner measured for a read off his offload drive.
+    ///
+    /// Matching that key is the entire correctness requirement, and it is why the
+    /// caller passes the recipe rather than a neutral one: `DecodeKey` carries the noise
+    /// amounts, the capture sharpening and the lens profile, so a warm under the wrong
+    /// recipe is a second cache entry — twice the memory and no hit, which is worse
+    /// than not warming at all.
+    ///
+    /// Runs on this actor like everything else, and that is a deliberate constraint
+    /// rather than an oversight: a decode has no cancellation points, so a warm in
+    /// flight cannot yield to a photographer who has moved on. `DecodeWarming.mayWarm`
+    /// is what keeps that from mattering — it offers a warm only once the current
+    /// photograph has SETTLED, which happens when someone stops to work and never
+    /// happens while they page.
+    func warmDecode(url: URL, recipe: Recipe, longEdge: Int) {
+        guard let source = try? self.source(for: url) else { return }
+        // A warm is the one path whose ENTIRE product is a cache entry, so it is the one
+        // path that must not be allowed to leave the process over budget: read-ahead
+        // runs when the photographer has settled and stopped, which is exactly the state
+        // in which nothing else will call `source(for:)` and re-check.
+        defer { trimDecodeResidency() }
+        let native = source.nativeLongEdge
+        guard native > 0, longEdge > 0 else { return }
+        let scale = Swift.min(1.0, Double(longEdge) / native)
+        // The result is deliberately discarded. The value is the cache entry it leaves
+        // behind, which is also why a hit costs nothing: `decode` answers from the
+        // cache before it considers going to the file.
+        _ = source.decode(recipe: recipe, draft: false, scaleFactor: scale)
     }
 
     func nativeSize(for url: URL) -> (width: Int, height: Int)? {
@@ -206,11 +589,26 @@ actor RenderCoordinator {
         return source.nativePixelSize
     }
 
+    /// The neutral this file was actually shot at — the one the render adapts FROM.
+    ///
+    /// It has always been here and the panel has never seen it: `RenderPlan` gets it
+    /// from `source.asShotTemperature` on every render while the Temp row stood a
+    /// literal 5500 in for it. Same shape as `nativeSize(for:)`, and for the same
+    /// reason: the answer lives on the decoded source, which lives on this actor.
+    func asShotNeutral(for url: URL) -> WhiteBalanceEngine.Neutral? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return WhiteBalanceEngine.Neutral(kelvin: source.asShotTemperature,
+                                          tint: source.asShotTint)
+    }
+
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
-        // The matte was computed from this file's pixels, so it goes with them.
+        // The matte was computed from this file's pixels, so it goes with them — and
+        // anyone holding a copy of the ledger hears about it the same way they hear
+        // about an eviction, since to them the two are the same event.
         renderer.forgetMattes(for: url)
+        evictedMattes.insert(url)
     }
 
     /// One scene-linear sample, for the eyedroppers.
@@ -225,27 +623,71 @@ actor RenderCoordinator {
                                           sourceX: sourceX, sourceY: sourceY)
     }
 
-    /// One sample in the WORKING space — after white balance, exposure and printer
-    /// lights, which is where the colour stage sees its input.
+    /// The cull-time clipping measurement for one file.
     ///
-    /// A different tap from `solveNeutral`'s on purpose. The neutral solver wants the
-    /// value BEFORE white balance, because it is computing that white balance. Every
-    /// colour tool wants the value the colour stage will actually compare against, or a
-    /// swatch picked off a warm frame would stop matching the moment Temp moved.
+    /// On this actor for the same reason every other tap is: the decoded source lives
+    /// here, so measuring a photo the viewer is already showing costs no second decode.
+    /// It claims no render ticket — a measurement must never cancel the frame the user
+    /// is waiting on.
     ///
-    /// The linear stage is a 3x3, so this is the matrix rather than a second render.
-    func sampleWorking(url: URL, recipe: Recipe,
-                       sourceX: Double, sourceY: Double) -> RGB? {
+    /// The recipe is passed through because `decode` reads it (lens profile, capture
+    /// sharpening, Apple's stand-in denoise) and the decode cache is keyed on those; a
+    /// synthetic recipe here would evict the viewer's decode on every measurement.
+    /// Nothing downstream of the decode runs, so the tone and colour settings in it
+    /// have no effect on the numbers — which is the property that makes them worth
+    /// caching against the file rather than against the edit.
+    func clippingStatistics(url: URL,
+                            recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        guard let source = try? self.source(for: url) else { return nil }
+        return renderer.clippingStatistics(source: source, recipe: recipe)
+    }
+
+    // `sampleWorking` — the post-S6 tap — is deliberately GONE. Its doc-comment
+    // claimed it sampled "the value the colour stage will actually compare against",
+    // and it did not: the colour stage compares after tone and presence
+    // (`colorStageInput`), and its one caller, the global Point Colour eyedropper,
+    // now goes through `samplePointColorReference` below. A zero-caller tap whose
+    // contract is false is the FAKE class with an API instead of a tooltip.
+
+    /// One sample in the space a MASK compares against — `localStageInput`, S6 through
+    /// S10, the same image the mask rasterizer is handed.
+    ///
+    /// A third tap, and the third is not a luxury. `sampleWorking` stops after the
+    /// linear matrix, which is right for a tool whose comparison happens there and
+    /// wrong for `colorRangePlane` and `similarityPlane`, which compare a component's
+    /// stored samples against the picture AFTER tone and after the colour+grade table.
+    /// Storing the shorter tap meant that on any photograph with a real global edit the
+    /// clicked colour and the compared colour were different numbers — so a Colour
+    /// Range mask could fail to select the pixel that was clicked, and got worse the
+    /// more the picture had been worked on.
+    ///
+    /// A mask has to compare against what it will be applied to, and it is applied to
+    /// the output of this stage list.
+    func sampleMaskReference(url: URL, recipe: Recipe,
+                             sourceX: Double, sourceY: Double) -> RGB? {
         guard let source = try? self.source(for: url),
-              let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
-                                                     sourceX: sourceX, sourceY: sourceY),
+              let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
+                                                        sourceX: sourceX,
+                                                        sourceY: sourceY),
               sample.isFinite
         else { return nil }
-        let plan = RenderPlan(recipe: recipe,
-                              asShotKelvin: source.asShotTemperature,
-                              asShotTint: source.asShotTint)
-        let working = plan.linear.apply(sample)
-        return working.isFinite ? working : nil
+        return sample
+    }
+
+    /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
+    /// `ColorEngine.apply` compares a global Point Colour swatch against. The global
+    /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
+    /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
+    /// queue item 5).
+    func samplePointColorReference(url: URL, recipe: Recipe,
+                                   sourceX: Double, sourceY: Double) -> RGB? {
+        guard let source = try? self.source(for: url),
+              let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
+                                                          sourceX: sourceX,
+                                                          sourceY: sourceY),
+              sample.isFinite
+        else { return nil }
+        return sample
     }
 
     /// Sample a point and solve the Temp/Tint that make it neutral.
@@ -287,6 +729,13 @@ actor RenderCoordinator {
         if let cached = sources[url] {
             sourceOrder.removeAll { $0 == url }
             sourceOrder.append(url)
+            // Here rather than after the render, because this is the one line every
+            // consumer passes through — the viewer's frames, the scope proxy, the
+            // clipping measurement, the four eyedropper taps and the export — and the
+            // budget has to bound the process rather than the viewer. It costs a walk of
+            // at most twelve sources summing at most eight integers each; the thing it
+            // is standing in front of is a RAW demosaic.
+            trimDecodeResidency()
             return cached
         }
         let created: any ImageSource = PhotoFormats.isRendered(url)
@@ -298,6 +747,7 @@ actor RenderCoordinator {
             sourceOrder.removeFirst()
             sources.removeValue(forKey: oldest)
         }
+        trimDecodeResidency()
         return created
     }
 
@@ -311,13 +761,40 @@ actor RenderCoordinator {
         return "render failed"
     }
 
+    /// The picture shown when the RAW stage refused the file, labelled as such by the
+    /// caller.
+    ///
+    /// THE EMBEDDED PREVIEW IS TRIED FIRST AND THE SYNTHESIZED ONE ONLY IF THERE IS
+    /// NONE, which is not what this did. `kCGImageSourceCreateThumbnailFromImageAlways`
+    /// was true unconditionally, and with it ImageIO is entitled to decode the whole
+    /// file to produce the thumbnail — a full RAW demosaic through ImageIO, on this
+    /// actor, synchronously, for a file whose RAW decode has just failed. That is the
+    /// one thing `ThumbnailLoader` refuses to do anywhere on the browse path, and its
+    /// header says why in a sentence that applies here word for word: a contact sheet
+    /// that demosaics is a contact sheet the photographer waits for. The ask made it
+    /// worse rather than better — `maxLongEdge` on the zoomed loupe is the sensor's own
+    /// long edge now, so the size being requested is precisely the one that forces the
+    /// full-image path instead of the 1616 px JPEG the camera already wrote.
+    ///
+    /// Same picture in every case where an embedded preview exists, which is every
+    /// camera RAW; strictly the old behaviour when one does not. And the ask is capped
+    /// at the interactive ceiling deliberately: this is the frame the app puts up to say
+    /// it could not develop the file, it carries a badge saying so, and nobody judges
+    /// sharpness on it. `kCGImageSourceThumbnailMaxPixelSize` is a maximum and never
+    /// upscales, so a smaller preview still arrives at its own size.
     nonisolated static func embeddedPreview(url: URL, maxLongEdge: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
+        let pixels = min(max(maxLongEdge, 64), DraftLadder.interactiveLongEdgeCeiling)
+        var options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: false,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxLongEdge,
+            kCGImageSourceThumbnailMaxPixelSize: pixels,
         ]
+        if let embedded = CGImageSourceCreateThumbnailAtIndex(source, 0,
+                                                              options as CFDictionary) {
+            return embedded
+        }
+        options[kCGImageSourceCreateThumbnailFromImageAlways] = true
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

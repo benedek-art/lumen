@@ -1,0 +1,15 @@
+{
+  "authority" : 84.5509893378529,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.45944006418652594,
+  "givenBack" : 0,
+  "hueRotation" : 34.327470016751136,
+  "id" : "film.portra400.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 9.810420571017538,
+  "panel" : "Film Lab",
+  "smallestLiveStep" : 3.105651755537906,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

@@ -96,6 +96,19 @@ public enum OKLabTransform {
         return Mat3(rows)
     }()
 
+    /// THE INVERSE, ONCE, beside the matrix it inverts so the two cannot drift.
+    ///
+    /// `Mat3.inverse` is a COMPUTED property: it allocates four `[[Double]]`s and
+    /// re-derives the matrix on every read, and `toRGB` read it per conversion. Measured
+    /// at 2.07 µs per read — which is why OKLab→RGB cost 2.74 µs against RGB→OKLab's
+    /// 0.82, a 3.4× asymmetry between two operations that are the same amount of
+    /// arithmetic. Every hue-selective tool, both grading engines, `LumenUCS` and
+    /// `Gamut.softClip` paid it per pixel; building `Gamut.sharedBoundary` alone spends
+    /// about 32 ms in it, and the proof gamut builds five of those.
+    ///
+    /// No behaviour changes: this is the same matrix, derived once instead of per call.
+    public static let labToLMS: Mat3 = lmsToLab.inverse
+
     /// Cached matrix pair for one working space, so per-pixel work is two matrix
     /// multiplies and a cube root rather than a chain of derivations.
     public struct Context: Sendable {
@@ -133,7 +146,7 @@ public enum OKLabTransform {
         }
 
         public func toRGB(_ lab: OKLab) -> RGB {
-            let n = lmsToLab.inverse.apply(RGB(lab.L, lab.a, lab.b))
+            let n = OKLabTransform.labToLMS.apply(RGB(lab.L, lab.a, lab.b))
             let lms = RGB(n.r * n.r * n.r, n.g * n.g * n.g, n.b * n.b * n.b)
             return lmsToRGB.apply(lms)
         }

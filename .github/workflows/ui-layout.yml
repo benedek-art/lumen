@@ -1,0 +1,79 @@
+name: UI layout
+
+# THE ONLY LANE IN THIS PROJECT THAT CAN MEASURE THE INTERFACE.
+#
+# Everything else that checks the UI is a text scan: `check-swift-surface.py` reads
+# argument labels, the panel audits count call sites, and the review passes grep for a
+# constant. None of them has ever measured a type advance, which is why every claim about
+# what fits in `LumenControls.swift`, `LookPanel.swift` and the panel audit is an estimate
+# — the audit says so itself: "No CoreText on this machine, so widths are estimated two
+# ways."
+#
+# The fact this lane is built on: `NSAttributedString.size()` and `NSFont` are CoreText,
+# not AppKit drawing. They need no window server, so a macOS runner with no display
+# returns real metrics for real strings in the real faces the app sets. `LayoutMetricTests`
+# runs those through the real chain of insets and asserts numbers — label fit, points of
+# track travel per addressable step, readout width against the pill's inner room.
+#
+# WHY IT IS ITS OWN LANE RATHER THAN A FILTER ON `ci.yml`. Two reasons, and the second is
+# the one that matters. First, it is fast: one target's tests, no rendering, no fixtures,
+# seconds after the build. Second, its verdict is a different KIND of verdict. `test-fast`
+# answers "did the engine change what it computes"; this answers "did the panel stop
+# fitting", which is a question a designer and a reviewer read differently from a
+# regression and which is worth being able to see red or green on its own line.
+#
+# It runs on every push for the reason the suite exists: the geometry it measures is a
+# chain of literals spread across six files, and every one of the defects it found got in
+# because somebody changed one of them for a good local reason — the readout became a pill
+# and took eight points off every track in the app — with nothing anywhere able to notice.
+
+on:
+  push:
+    branches: ["**"]
+    # Same rule as `ci.yml`: a docs-only push must not start a macOS run. Runner minutes
+    # are the scarce resource here, and a status note has never moved a panel inset.
+    paths-ignore:
+      - "docs/**"
+  workflow_dispatch:
+
+# One run per branch, newest wins — the same shape `ci.yml` uses and for the same reason:
+# a burst of pushes should answer the last one, not queue an answer to each.
+concurrency:
+  group: ui-layout-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  layout-metrics:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+      - name: Measure the panels
+        shell: bash
+        run: |
+          set +e
+          swift test --filter LayoutMetricTests 2>&1 | tee layout.log
+          status=${PIPESTATUS[0]}
+
+          # The failures ARE the report. Each assertion in this suite gathers its whole
+          # census before failing — every label that does not fit, every slider under the
+          # precision floor, with its measured number — so the useful output is the
+          # message body rather than the count, and it is worth lifting out of a log
+          # nobody scrolls.
+          echo "=== compile errors ==="
+          grep -E "error:" layout.log | grep -v ": error: -\[" \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" layout.log | tail -1
+          echo "=== which measurements failed ==="
+          grep -E ": error: -\[" layout.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort -u
+          echo "=== the census ==="
+          # The bodies are multi-line and start after the XCTFail line, so print the
+          # whole failing region rather than trying to re-parse it: an instrument's
+          # numbers are what somebody came here to read.
+          sed -n '/error: -\[/,/^$/p' layout.log \
+            | sed 's#/Users/runner/work/lumen/lumen/##' | head -200
+          exit $status

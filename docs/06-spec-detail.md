@@ -127,6 +127,18 @@ matters mechanically: USM and bilateral-based local contrast overshoot across st
 (gradient reversal); the local Laplacian's per-level remapping cannot overshoot, which is why
 darktable adopted it and why LrC — still on its 2012-era decomposition — halos to this day.
 
+> **As built.** The local Laplacian above runs in `ReferenceRenderer`
+> (`DetailEngine`'s decomposition) — every headless render and the parity baseline.
+> The SHIPPING GPU path approximates it with a single guided-filter band
+> (picture minus its mid-radius guided base, the reference's own `Decomposition.base`
+> construction) using the reference's ε and its exposure-weighted remap. Measured on a
+> clean 3 EV step: peak rim 0.089–0.108 EV against the local Laplacian's 0.050–0.066,
+> with matching flat-side gain (1.627 vs 1.625) — within four hundredths of a stop of
+> the halo-free ideal, not equal to it. Moving the GPU path to the true local
+> Laplacian is docs/23 M3's first item; until it lands, this section describes the
+> reference and the destination, and `RenderGraph.applyDetailBands` describes what
+> ships. Mode (Natural/Punch) is not yet in the wire format.
+
 **How it feels.** Second slider. The Gaussian pyramid is part of the shared decomposition, so drags
 recombine cached levels: ≤16.7 ms at screen resolution, full-res refine ≤200 ms (D43). Alt-drag
 shows the signed change overlay. Mode dropdown defaults to Natural and most users should never

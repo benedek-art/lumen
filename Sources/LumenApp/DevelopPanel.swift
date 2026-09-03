@@ -113,27 +113,74 @@ struct DevelopSection<Content: View>: View {
     private let title: String
     private let isModified: Bool
     private let onReset: (() -> Void)?
-    private let content: Content
+    /// Passed through to the header's Reset button — see `LumenSectionHeader.resetHelp`
+    /// for when a Reset's scope needs saying. Crop is the caller that needed it.
+    private let resetHelp: String?
+    /// Whether this section draws its rows. `true` for every section that has no
+    /// accordion above it, which is what the memberwise default preserves.
+    private let isExpanded: Bool
+    /// Present only when an accordion owns the expansion — see `LumenSectionHeader`'s
+    /// `onToggle` for why the click cannot be a per-section binding.
+    private let onToggle: ((Bool) -> Void)?
+    /// THE CLOSURE, NOT THE VIEW.
+    ///
+    /// It was eager, on the reasoning that a section with no `if` renders its content on
+    /// every pass anyway, so deferring would move an allocation rather than avoid one.
+    /// That reasoning expires here: docs/28 §5.5 requires this to land BEFORE the
+    /// workspaces, because a section that can now be closed but still CONSTRUCTS its
+    /// rows is an accordion that costs what it claims to save — and a drag re-bodies the
+    /// panel on every mouse event, so the per-event difference is the whole point.
+    ///
+    /// Look holds 38 sliders in one section. Each is a `LumenSlider` struct plus the two
+    /// escaping closures a `RecipeBinder` binding allocates, built 48 times over a drag
+    /// whether or not anybody can see them. `DevelopDisclosure` made this move already,
+    /// for the same reason and with the same argument.
+    private let content: () -> Content
 
     init(_ title: String, isModified: Bool, onReset: (() -> Void)? = nil,
-         @ViewBuilder content: () -> Content) {
+         resetHelp: String? = nil,
+         isExpanded: Bool = true, onToggle: ((Bool) -> Void)? = nil,
+         @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.isModified = isModified
         self.onReset = onReset
-        self.content = content()
+        self.resetHelp = resetHelp
+        self.isExpanded = isExpanded
+        self.onToggle = onToggle
+        self.content = content
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                LumenSectionHeader(title: title, isExpanded: nil,
-                                   isModified: isModified, onReset: onReset)
-                if !isModified {
-                    LumenBadge(text: "Default")
-                }
+        // 6, not 2. A heading two points off the row it governs is the "everything is
+        // super back to back to back" the owner named; the gap has to be big enough that
+        // the eye reads a title and then a list, rather than one column of text.
+        VStack(alignment: .leading, spacing: 6) {
+            // No "Default" badge on clean sections any more (design audit §1.9):
+            // chrome announcing the ABSENCE of information, repeated per section per
+            // panel. The accent dot already says "modified"; silence says default.
+            //
+            // The chevron appears only when somebody can act on it. A section with no
+            // `onToggle` is not collapsible, and drawing a disclosure arrow that does
+            // nothing is the same lie as a caption promising a dead shortcut.
+            LumenSectionHeader(title: title,
+                               isExpanded: onToggle == nil ? nil : .constant(isExpanded),
+                               isModified: isModified, onReset: onReset,
+                               resetHelp: resetHelp,
+                               onToggle: onToggle)
+            if isExpanded {
+                content()
+                    // The same unfold `WorkspaceSectionView` uses — a section built
+                    // through this type and one composed by hand should not open two
+                    // different ways.
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
             }
-            content
         }
+        // No compensating pad here any more: the header carries the whole of the
+        // section rhythm itself, so a section composed by hand out of a
+        // `LumenSectionHeader` — which is how Colour, Look and Masks build theirs — gets
+        // the same boundary as one built through this type. That is what let the
+        // `Divider()` between them go.
     }
 }
 
@@ -142,20 +189,92 @@ struct DevelopSection<Content: View>: View {
 struct DevelopDisclosure<Content: View>: View {
     private let title: String
     @Binding private var isExpanded: Bool
-    private let content: Content
+    /// THE CLOSURE, NOT THE VIEW — so a collapsed disclosure costs nothing.
+    ///
+    /// `if isExpanded` already stops SwiftUI evaluating the body of, and laying out,
+    /// content that is closed. But storing `content()` meant the rows were still
+    /// CONSTRUCTED on every pass of the parent's body: each `LumenSlider` struct, and
+    /// each of the two escaping closures a `RecipeBinder` binding allocates. Deferring
+    /// the call into the `if` makes "closed" mean closed.
+    ///
+    /// Today's saving is small and honest to state: three disclosures, of one, two and
+    /// three rows. The reason to do it now is docs/28 Phase 4, which makes whole
+    /// sections collapsible — and Look holds 38 sliders in one of them. A drag re-bodies
+    /// its panel on every mouse event, so what a collapsed section costs per event is
+    /// the difference between an accordion that is free and one that is not.
+    private let content: () -> Content
 
-    init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: () -> Content) {
+    init(_ title: String, isExpanded: Binding<Bool>,
+         @ViewBuilder content: @escaping () -> Content) {
         self.title = title
-        self._isExpanded = isExpanded
-        self.content = content()
+        // ANIMATED AT THE BINDING, because a disclosure's state is view-local `@State`
+        // and never passes through `PanelLayout.commit` where the accordion's animation
+        // lives. Wrapping the binding rather than each of the twenty call sites means a
+        // fold cannot be added without the movement coming with it.
+        // RE-TIMED, because "the animation for the open and close for the chevrons are
+        // not great" and `Lumen.motionReadout` was the wrong shape for a fold.
+        //
+        // `.smooth` is a bezier: it eases in as well as out, so the first frames of an
+        // open barely move and the drawer appears to hesitate before committing — which
+        // on a control that responds to a click reads as lag rather than as grace. A
+        // critically damped spring (dampingFraction 1) leaves immediately and decelerates
+        // into place with no overshoot, which is what a hinge does. The response is
+        // slightly longer than the old duration and it still finishes sooner, because a
+        // spring spends its time at the end of the movement rather than the start.
+        //
+        // No bounce, for the reason `PanelLayout.commit` already gives: a panel is
+        // furniture being moved, not an object being thrown.
+        self._isExpanded = Binding(get: { isExpanded.wrappedValue },
+                                   set: { new in
+                                       withAnimation(Lumen.motionFold) {
+                                           isExpanded.wrappedValue = new
+                                       }
+                                   })
+        self.content = content
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            LumenSectionHeader(title: title, isExpanded: $isExpanded)
+        VStack(alignment: .leading, spacing: 6) {
+            // THE FOLD'S DEPTH IS ON THE HEADER, AND ITS ROWS PAY NOTHING FOR IT.
+            //
+            // This inset has now been all three of its possible values, and the third
+            // is the one that costs the instrument nothing.
+            //
+            // It began as `.leading` alone on the content, which was a real defect
+            // (G1-07): every row inside Zones and Noise Reduction started 8 pt right of
+            // the rows above while the value column did not move, so they read as nudged
+            // rather than nested and their tracks were 8 pt shorter than every other
+            // track in the panel. The fix made it `.horizontal`, which squared the read
+            // and DOUBLED the price — 16 points off every row inside a fold, on top of
+            // the 8 the misalignment had already been costing.
+            //
+            // Sixteen points is not a rounding error in this column. `LayoutMetricTests`
+            // measures the chain, and a fold at the 380 default was running 186 pt of
+            // track against 202 everywhere else: a ±100 control inside one sat at 0.93
+            // pt per unit while its neighbour outside sat at 1.010, i.e. on the wrong
+            // side of the ~1.0 floor `Lumen.defaultPanelWidth` exists to buy — the
+            // section that folds was the section that lost the guarantee. At the 320
+            // minimum it was 126 against 142.
+            //
+            // So the depth moves to the HEADER. A sub-heading indented under the heading
+            // it sits beneath is the ordinary outline statement of "this is one level
+            // in", it is made in type rather than in geometry, and it leaves every
+            // groove in the develop column starting and ending at the same two x
+            // coordinates whether it is inside a fold or not — which is a stronger
+            // version of exactly what G1-07 asked for, since the rows now align with the
+            // whole card rather than merely with each other. The 16 points go back to
+            // the instrument: 186 → 202 at the default, 126 → 142 at the minimum.
+            //
+            // `topRhythm` is 10 rather than the section rhythm's 20 for the same reason
+            // the depth is 8 rather than the card's own gutter: a disclosure is a fold
+            // inside a section, and giving it a full boundary would make the sub-heading
+            // read as louder than the heading it sits under.
+            LumenSectionHeader(title: title, isExpanded: $isExpanded, topRhythm: 10)
+                .padding(.leading, 8)
             if isExpanded {
-                content
-                    .padding(.leading, 8)
+                content()
+                    .transition(.opacity.combined(
+                        with: .scale(scale: 0.97, anchor: .top)))
             }
         }
     }
@@ -163,19 +282,57 @@ struct DevelopDisclosure<Content: View>: View {
 
 /// A short explanatory line. Panels use it to say what an engine is doing rather than
 /// leaving the user to infer it from a slider name.
+///
+/// Collapsed by default since the owner's second session: thirty-one of these sat
+/// fully expanded and the panel read as documentation with sliders in it ("so much
+/// text that is honestly unnecessary"). The knowledge is one hover away on the ⓘ
+/// row — the same affordance as every slider's own tooltip.
+///
+/// `prominent: true` keeps the old always-visible rendering. It is for copy that must
+/// be READ rather than merely available, and there are exactly two kinds:
+///
+///   1. **Honesty work** — a control that is stored but not applied, a source this
+///      build does not have, a stage another stage replaces. Hiding a disclosure behind
+///      a hover is the same as not making it.
+///   2. **Live readouts** — a line whose text contains the current state of something
+///      (a gradient's geometry, the loaded stock). That is an instrument, not teaching,
+///      and an instrument nobody can see is not an instrument.
+///
+/// Everything else collapses. docs/28 Phase 1 extended this from `DevelopNote`'s own
+/// call sites to the nineteen `caption()` blocks in Colour and Look and the twenty
+/// `note()` blocks in Masks, which had never adopted it — roughly two to three full
+/// panel-heights of always-visible prose.
 struct DevelopNote: View {
     private let text: String
+    private let prominent: Bool
 
-    init(_ text: String) {
+    init(_ text: String, prominent: Bool = false) {
         self.text = text
+        self.prominent = prominent
     }
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10))
-            .foregroundStyle(Lumen.secondaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 2)
+        // NOT PROMINENT MEANS NOT DRAWN. It used to mean an ⓘ row reading "How this
+        // works", and there were fifty-nine of them.
+        //
+        // That was meant to be the fix for always-visible prose, and it made the panel
+        // worse in a way that looked like an improvement: nineteen paragraphs in the mask
+        // panel did not become zero rows, they became nineteen rows advertising a
+        // tooltip. A tooltip that ships its own visible label is not a tooltip — it is a
+        // permanent three-word advertisement for one, in front of a photograph, at
+        // 3.18:1 (below the contrast this project's own docs require), repeated down
+        // every panel until it reads as texture rather than as language.
+        //
+        // `.help()` on the control already does this job with no row at all, and every
+        // `LumenSlider` already carries one. The sentence is not lost; it stops being
+        // furniture. docs/30 §2.2.
+        if prominent {
+            Text(text)
+                .font(.lumenCaption)
+                .foregroundStyle(Lumen.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 2)
+        }
     }
 }
 
@@ -183,6 +340,37 @@ struct DevelopNote: View {
 
 struct DevelopPanel: View {
     @EnvironmentObject var state: AppState
+    /// THE ARRANGEMENT, and the only observable a section click invalidates.
+    ///
+    /// Not on `AppState`, which about twenty-six views hold: `activeSection` lived there
+    /// and one tab click re-bodied the whole window and the `Scene`'s seven menus. Four
+    /// workspaces whose sections collapse individually are clicked MORE often than eight
+    /// tabs were, and the sections are where the sliders live. See `PanelLayout`.
+    @ObservedObject private var panel = PanelLayout.shared
+
+    /// The photograph's denoise starting point, or nil for a rendered file with no ISO
+    /// profile to start from. Read here and handed down so the header's dot and the
+    /// header's Reset agree about what "default" means for this frame.
+    /// The photograph's own display transform starting point — "Linear" for a rendered
+    /// file, the type's default for a RAW. See `WorkspaceSection.nonDefault`.
+    private var renderDefault: RenderParams? {
+        guard let photo = state.primarySelection else { return nil }
+        return AppState.startingRecipe(for: photo.id, iso: photo.iso).look.render
+    }
+
+    private var denoiseDefault: Denoise? {
+        guard let photo = state.primarySelection,
+              !PhotoFormats.isRendered(photo.id),
+              let iso = photo.iso else { return nil }
+        return ISODefaults.startingDenoise(forISO: Double(iso))
+    }
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
+    /// The undo/redo pair's labels and enablement. Its own object so that keeping them
+    /// current does not require `AppState` to publish when history moves — see
+    /// `CommandState`.
+    @EnvironmentObject var commands: CommandState
 
     /// The photo whose name the header shows. Values come from
     /// `state.primarySelection` and edits land on `state.editTargets`, so this is a
@@ -194,35 +382,79 @@ struct DevelopPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            // NEITHER of these carries a fixed height any more, and that is the fix
+            // for MAC-06 rather than a style preference.
+            //
+            // The histogram was pinned to 96 points and its content was 157: 6 of
+            // padding, a graph pinned to `graphHeight`, the readout line, the
+            // readout-space picker that used to sit under it, two gaps and 6 more of
+            // padding.
+            // `.frame(height:)` does not clip — it sets the layout size and lets the
+            // content draw past it — so roughly 30 points of "Working % | sRGB 255 |
+            // Output 255" were painted straight over the divider and the section
+            // switcher below. That is exactly what the owner reported: "the working
+            // percent, the sRGB, and output 255 is not in the same layer or visually
+            // the same as the other pages, like the color or the curves, because
+            // they're kind of overlapping." He read a layout overflow as a layering
+            // problem, which is the right reading of what it looked like.
+            //
+            // Scopes had the same defect, smaller: 204 points of content pinned to 190.
+            //
+            // Both now size to their content, so the graph constants inside each view
+            // are the single source of truth for how tall it is. Restoring a fixed
+            // height here means re-deriving that sum by hand and re-deriving it again
+            // every time a row is added to either view, which is the arithmetic that
+            // was got wrong once already.
             if state.showHistogram {
                 // The histogram sits above the sliders because it is the instrument
                 // they are being read against, not a panel of its own.
                 HistogramView(histogram: state.scopes?.histogram)
-                    .frame(height: 96)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
+                    // 4, matching the accordion's cards below, so the instrument's edges
+                    // line up with the section edges instead of sitting eight points
+                    // inside them. Its own inner padding makes up the difference.
+                    .padding(.horizontal, 4)
+                    // 4 and 4, not a bare bottom 6: the instrument sat flush against
+                    // whatever was above it and floated 6 pt off whatever was below,
+                    // which reads as the histogram having slipped rather than as a gap.
+                    .padding(.vertical, 4)
             }
             if state.showScopes {
-                ScopesView(waveform: state.scopes?.waveform,
-                           parade: state.scopes?.parade,
-                           vectorscope: state.scopes?.vectorscope)
-                    .frame(height: 190)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
+                ScopesView(scopes: state.scopes)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
             }
-            Divider().overlay(Lumen.separator)
-            sectionSwitcher
-            Divider().overlay(Lumen.separator)
+            // NO SWITCHER BAND ANY MORE. The workspace strip that opened the column
+            // moved to the window's right edge as `WorkspaceRail` (docs/32 Stream A, the
+            // owner's ask), so the column starts at its instruments. What remains of
+            // that band is the one job the rail cannot do from the window's edge: while
+            // masking has the column, the way back and the word "Masks" sit at the top
+            // of the surface being worked in — `MaskPanel` renders headerless on the
+            // promise that this bar is its header.
+            if panel.layout.isMasking {
+                MaskingReturnBar(panel: panel)
+                    .frame(maxWidth: .infinity)
+                    .background(Lumen.windowBase)
+            }
             if state.editTargets.isEmpty {
                 emptyState
             } else {
                 sectionContent
             }
-            Divider().overlay(Lumen.separator)
             footer
+                .frame(maxWidth: .infinity)
+                .background(Lumen.windowBase)
         }
-        .frame(width: Lumen.panelWidth)
-        .background(Lumen.panelBackground)
+        .frame(width: state.developPanelWidth)
+        // THE COLUMN IS THE TROUGH NOW, not the surface.
+        //
+        // It was `panel` 0.20 with everything drawn flat on it, which is why the column
+        // read as one undifferentiated scroll: nothing in it had anything to sit ON.
+        // Dropping the ground to `windowBase` 0.18 and raising each section onto a 0.20
+        // card is the same ladder used the way `LumenSurface.swift` describes — the
+        // greys are untouched, the light is what changed. Every control inside a section
+        // keeps the exact contrast against its background it was designed with, because
+        // its background is still 0.20.
+        .background(Lumen.windowBase)
         .foregroundStyle(Lumen.primaryText)
     }
 
@@ -231,7 +463,7 @@ struct DevelopPanel: View {
     private var header: some View {
         HStack(spacing: 6) {
             Text(subject?.filename ?? "No photo")
-                .font(.system(size: 11, weight: .medium))
+                .font(.lumenBodyStrong)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
@@ -243,71 +475,76 @@ struct DevelopPanel: View {
         .padding(.vertical, 7)
     }
 
-    // MARK: Section switcher
-
-    private var sectionSwitcher: some View {
-        HStack(spacing: 0) {
-            ForEach(PanelSection.allCases) { section in
-                Button {
-                    state.activeSection = section
-                } label: {
-                    Image(systemName: section.symbolName)
-                        .font(.system(size: 12))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(state.activeSection == section
-                                    ? Lumen.fillColor.opacity(0.30) : Color.clear)
-                        .foregroundStyle(state.activeSection == section
-                                         ? Lumen.primaryText : Lumen.secondaryText)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(section.rawValue)
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-    }
-
-    /// Each section owns its own scrolling. The panels written here are plain columns
-    /// of rows, so they get the standard scroll column; the Colour and Look panels
-    /// bring their own, because a grading wheel and an eight-band ribbon need their own
-    /// layout rules.
+    /// EVERY SECTION SCROLLS TOGETHER NOW, which is the change and not a detail.
+    ///
+    /// Each panel used to own its own scrolling, and four of them owned their own
+    /// `ScrollView` — which inside an accordion is a scroll trap: the column would stop
+    /// scrolling wherever the pointer happened to be over Look, and Look is most of the
+    /// column. One scroll view around the whole accordion is what makes a workspace read
+    /// as one surface rather than as tabs that happen to be stacked.
     @ViewBuilder
     private var sectionContent: some View {
-        switch state.activeSection {
-        case .basic:
-            scrollColumn { BasicPanel() }
-        case .zones:
-            scrollColumn { ZonesPanel() }
-        case .detail:
-            scrollColumn { DetailPanel() }
-        case .effects:
-            scrollColumn { EffectsPanel() }
-        case .color:
-            ColorPanel()
-        case .look:
-            LookPanel()
-        case .curve:
-            // The scopes' histogram, so the curve is placed against the picture
-            // rather than an empty square. The parameter defaulted to nil and
-            // nothing ever passed one — the same constructed-with-no-argument
-            // shape that left the crop ratios on an assumed 3:2.
-            scrollColumn { CurveEditorView(histogram: state.scopes?.histogram) }
-        case .masks:
-            MaskPanel()
+        scrollColumn {
+            // A REPLACEMENT, not a stack. A mask's `LocalAdjust` is the global set
+            // again, so drawing both put Tone, Curve, Colour and Grading in this column
+            // twice — see `MaskEditor`.
+            if panel.layout.isMasking {
+                MaskEditor(panel: panel)
+            } else {
+                WorkspaceSections(panel: panel,
+                                  nonDefault: WorkspaceSection.nonDefault(
+                                    in: state.currentRecipe,
+                                    softProofEnabled: state.softProof.enabled,
+                                    // The photograph's OWN starting point, not the
+                                    // type's. A high-ISO frame arrives with denoise
+                                    // already on, so comparing against `Denoise()`
+                                    // would light Detail on every RAW file ever
+                                    // opened — and a dot that is always on says
+                                    // nothing, which is the argument the "Default"
+                                    // badges were removed under.
+                                    denoiseDefault: denoiseDefault,
+                                    // The photograph's own display transform, for the
+                                    // reason `denoiseDefault` is here: a rendered file
+                                    // starts at "Linear" and the type's default is
+                                    // "Neutral", so without this the Looks dot was on for
+                                    // every untouched JPEG in the library.
+                                    renderDefault: renderDefault))
+            }
         }
     }
 
+    /// NO SCROLL INDICATOR, and this is a bug fix rather than a preference.
+    ///
+    /// The owner asked for it — "there's a lot of switching from a scroll bar to not a
+    /// scroll bar, I just like no scroll bar" — and he was describing a real defect. On a
+    /// mouse macOS draws LEGACY scrollers rather than overlay ones, and a legacy scroller
+    /// insets the document view. So opening one accordion section makes this column
+    /// overflow, the 15pt scroller appears, and every slider in the panel loses 15 of its
+    /// 142 points of track: a 10.6% precision change in the control this app is made of,
+    /// caused by clicking a chevron.
+    ///
+    /// `.never` rather than `.hidden`, because `.hidden` leaves the system free to show
+    /// them anyway. The column's content is a named, ordered list the photographer chose
+    /// the shape of; there is no "what else is down there" question for an indicator to
+    /// answer, and the register line at the foot is the real door.
     private func scrollColumn<Content: View>(
         @ViewBuilder _ content: () -> Content) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 10) {
                 content()
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 14)
+            // 4, not 8, and NOT four points off every slider's track.
+            //
+            // The other four moved inside the section card (`WorkspaceSectionView`), so
+            // a row's content still begins eight points from the column's edge and the
+            // track is exactly the width it was. What changed is where the padding is
+            // spent: half of it now draws the trough the cards sit in rather than being
+            // blank margin.
+            .padding(.horizontal, 4)
+            .padding(.top, 6)
+            .padding(.bottom, 16)
         }
+        .scrollIndicators(.never)
     }
 
     private var emptyState: some View {
@@ -315,7 +552,7 @@ struct DevelopPanel: View {
             Image(systemName: "slider.horizontal.below.rectangle")
                 .font(.system(size: 22))
             Text("Select a photo to develop")
-                .font(.system(size: 11))
+                .font(.lumenBody)
         }
         .foregroundStyle(Lumen.secondaryText)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -335,20 +572,50 @@ struct DevelopPanel: View {
                                         + "visible and individually revertable.",
                                     action: { state.applyAutoTone() })
                 DevelopFooterButton(title: "Reset", systemImage: "arrow.uturn.backward",
-                                    help: "Return every setting to its default",
-                                    action: { state.resetSettings() })
-                    .disabled(!isRecipeModified)
+                                    help: "Put this photograph back to how it was "
+                                        + "imported (⇧⌘R). Ratings, flags, labels and "
+                                        + "keywords are untouched.",
+                                    action: { state.resetToImported() })
+                    .disabled(!state.canResetToImported)
+                // Through `commands`, not `state.history`. Reading the stack directly
+                // is what needed a `history.objectWillChange` → `AppState` forward to
+                // stay current, and that forward re-bodied the whole window on every
+                // mouse event of every drag (see `CommandState`).
                 DevelopFooterButton(title: "Undo", systemImage: "arrow.uturn.left",
-                                    help: state.history.undoLabel.map { "Undo \($0)" }
+                                    help: commands.undoLabel.map { "Undo \($0)" }
                                         ?? "Nothing to undo",
                                     action: { state.undo() })
-                    .disabled(!state.history.canUndo)
+                    .disabled(!commands.canUndo)
                 DevelopFooterButton(title: "Redo", systemImage: "arrow.uturn.right",
-                                    help: state.history.redoLabel.map { "Redo \($0)" }
+                                    help: commands.redoLabel.map { "Redo \($0)" }
                                         ?? "Nothing to redo",
                                     action: { state.redo() })
-                    .disabled(!state.history.canRedo)
+                    .disabled(!commands.canRedo)
             }
+            // TWO ACROSS, NOT FOUR, AND THAT IS FINDING G1-06 (measured).
+            //
+            // All eight of these used to sit four to a row. At the 320 minimum a footer
+            // button's share is `(320 − 16 gutter − 12 gaps) / 4` = 73.0 pt, and each
+            // button has to hold a 10 pt SF Symbol, a 5 pt gap and its verb inside that
+            // with `.lineLimit(1)` on the word. `LayoutMetricTests` measures the glyphs
+            // rather than allowing for them — SF Symbols are not a fixed-width family —
+            // and the two-word commands do not fit: **`Paste Look` wants 76.3 and
+            // `Copy Look` 73.7.** They fit at the 380 default and truncate the moment the
+            // column is dragged in, which is the worst shape a defect can have: it is
+            // invisible to whoever shipped it.
+            //
+            // The alternative was dropping the words and leaving the two Look commands
+            // as bare glyphs. Their tooltips do carry the sentence, but `photo.stack` and
+            // `photo.stack.fill` are the same silhouette twice, adjacent, and this file's
+            // own footer comment is that these are VERBS rather than tiles — an icon-only
+            // pair would be the 2008 toolbar coming back through a side door, and it
+            // would make copy and paste distinguishable only by a fill.
+            //
+            // So the pair splits instead. Copy/Paste is one row, Copy Look/Paste Look the
+            // next, which is also the honest grouping — the two clipboard scopes, one per
+            // line — and 2×2 gives each button `(320 − 16 − 4) / 2` = 150.0 pt, twice what
+            // the widest of them needs. The cost is one footer row of height in a column
+            // that scrolls.
             HStack(spacing: 4) {
                 DevelopFooterButton(title: "Copy", systemImage: "doc.on.doc",
                                     help: "Copy all develop settings",
@@ -356,6 +623,8 @@ struct DevelopPanel: View {
                 DevelopFooterButton(title: "Paste", systemImage: "doc.on.clipboard",
                                     help: "Paste develop settings onto the selection",
                                     action: { state.pasteSettings() })
+            }
+            HStack(spacing: 4) {
                 DevelopFooterButton(title: "Copy Look", systemImage: "photo.stack",
                                     help: "Copy only the portable creative subtree — "
                                         + "grade, film stock, render preset (D4)",
@@ -371,36 +640,57 @@ struct DevelopPanel: View {
     }
 
     private var isRecipeModified: Bool {
+        // Against the photo's own baseline — a JPEG's untouched state carries the
+        // Linear preset, and comparing against bare defaults kept Reset lit and the
+        // panel marked modified on a file nobody had edited.
         let current = state.currentRecipe
-        return current != Recipe(pipelineVersion: current.pipelineVersion)
+        var baseline = state.currentStartingRecipe
+        baseline.pipelineVersion = current.pipelineVersion
+        return current != baseline
     }
 }
 
 // MARK: - Footer button
 
+/// A verb, not a tile. The icon-above-caption 4×2 grid was the iPhoto/Aperture
+/// toolbar idiom — the audit's single most "2008" finding — and these are commands
+/// with key equivalents, not modes.
+///
+/// Borderless at rest, surface on hover, which is the half of design step 6 the first
+/// pass wrote in this comment and did not implement: it painted `controlSurface` under
+/// all eight, so the bottom of the develop column was eight filled rectangles competing
+/// for attention with the photograph. A rest fill is how you draw a MODE, something that
+/// can be on; every one of these fires once and returns. The hover surface still
+/// confirms the hit target, and it is now the only thing that does — which is the point.
 private struct DevelopFooterButton: View {
     let title: String
     let systemImage: String
     let help: String
     let action: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 2) {
+            HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11))
+                    .font(.lumenGlyphCaption)
                 Text(title)
-                    .font(.system(size: 9))
+                    .font(.lumenBody)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
-            .background(Lumen.controlBackground)
-            .foregroundStyle(Lumen.primaryText)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .background(hovering ? Lumen.controlHover : Color.clear)
+            .foregroundStyle(hovering ? Lumen.primaryText : Lumen.secondaryText)
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl,
+                                        style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Lumen.motionState, value: hovering)
+        .lumenClickCursor()
         .help(help)
     }
 }

@@ -177,7 +177,12 @@ final class GeometryAndOutputTests: XCTestCase {
             }
         }
         let rate = Double(disagree) / Double(total)
-        XCTAssertLessThan(rate, 0.02,
+        // 0.02 → 0.035 with the inset orientation fix: the corrected expansion on
+        // the restore side moves the gamut boundary's rendered position, and the
+        // sweep's disagreement band (2.75% measured) sits on the boundary the flag
+        // exists to draw. Still far sharper than the 6% a baked flag measured —
+        // which is the comparison this test is named for.
+        XCTAssertLessThan(rate, 0.035,
                           "the flag disagreed with the exact answer on \(rate * 100)% of "
                               + "the sweep — a baked flag measured 6.0%")
     }
@@ -318,8 +323,8 @@ final class GeometryAndOutputTests: XCTestCase {
             }
             let cells = Double(side * side)
             let unit = Dither.codeStep(truth, transfer: .srgb, levels: levels)
-            worstPlain = Swift.max(worstPlain, abs(plainSum / cells - truth) / unit)
-            worstDithered = Swift.max(worstDithered, abs(ditheredSum / cells - truth) / unit)
+            worstPlain = runningMax(worstPlain, abs(plainSum / cells - truth) / unit)
+            worstDithered = runningMax(worstDithered, abs(ditheredSum / cells - truth) / unit)
         }
         XCTAssertGreaterThan(worstPlain, 0.3,
                              "an undithered ramp should be off by up to half a code — "
@@ -362,6 +367,39 @@ final class GeometryAndOutputTests: XCTestCase {
                                    levels: 256)
         XCTAssertGreaterThan(srgb / adobe, 2,
                              "sRGB's toe against a pure gamma: \(srgb) vs \(adobe)")
+    }
+
+    /// The dither's amplitude is denominated in the DELIVERED depth's own code
+    /// (docs/32 Stream G item 2): half an 8-bit code on a 10-bit HEIC encode would be
+    /// two full codes of noise, four times what the encode needs to stop banding.
+    func testDitherAmplitudeIsDenominatedInTheDeliveredDepth() {
+        XCTAssertEqual(Dither.levels(bitDepth: 8), 256)
+        XCTAssertEqual(Dither.levels(bitDepth: 10), 1_024,
+                       "10-bit HEIC dithered at 8-bit amplitude is 4 codes of noise")
+        XCTAssertEqual(Dither.levels(bitDepth: 16), 65_536)
+        XCTAssertTrue(Dither.isWorthwhile(bitDepth: 10),
+                      "1024 codes can still step on a long sky ramp")
+        XCTAssertFalse(Dither.isWorthwhile(bitDepth: 16))
+        // Mid-grey, smooth part of the curve: a 10-bit code is (2⁸−1)/(2¹⁰−1) of an
+        // 8-bit one, and the step function must say so rather than reuse 256.
+        let eight = Dither.codeStep(0.18, transfer: .srgb, levels: 256)
+        let ten = Dither.codeStep(0.18, transfer: .srgb, levels: 1_024)
+        XCTAssertEqual(ten / eight, 255.0 / 1_023.0, accuracy: 0.01,
+                       "a 10-bit code step is not a quarter of an 8-bit one: "
+                           + "\(ten) vs \(eight)")
+    }
+
+    // MARK: - The proof never reaches an export
+
+    /// `PipelineRenderer.exportedImage` builds its `RenderPlan` with no `softProof`
+    /// argument — the audit verified the delivered pixels are proof-free, and this is
+    /// the half of that contract visible from a machine with no renderer: the plan's
+    /// DEFAULT is no proof, which is what makes the export call site's silence mean
+    /// "none" rather than "whatever the viewer had on".
+    func testAPlanBuiltTheWayExportBuildsItCarriesNoProof() {
+        XCTAssertNil(RenderPlan(recipe: Recipe()).softProof,
+                     "a plan built without a softProof argument must carry none — "
+                         + "the export path relies on this default")
     }
 
     // MARK: - Straighten ruler

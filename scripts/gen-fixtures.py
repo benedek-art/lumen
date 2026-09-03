@@ -260,17 +260,33 @@ def render_identity(tree):
     Masks lose their name and their id: the name is a panel label, and the id is a
     random UUID whose presence meant renaming a mask threw away every cached render
     and two photos with identical mask edits could never share one.
+
+    A switched-off black-and-white mix goes too: it is eight numbers no pixel reads,
+    kept in the recipe so the photographer gets them back, and hashing them would make
+    turning the treatment off a cache miss on an unchanged picture.
     """
     out = json.loads(json.dumps(tree))
     for mask in out.get("masks", []) or []:
         mask["name"] = ""
         mask["id"] = ""
+    # A group's NAME and its open/shut state are cosmetic the same way a mask's name is.
+    # Its id is NOT: a mask names its group by id, so blanking them would fold every
+    # folder into one and make "member of A" and "member of B" hash alike.
+    for group in out.get("maskGroups", []) or []:
+        group["name"] = ""
+        group["collapsed"] = False
+    # Removed, not nulled: Swift encodes a nil optional by omitting the key, and a
+    # `"bw":null` that the default tree does not carry survives the sparse pass and
+    # takes the fingerprint with it.
+    bw = out.get("look", {}).get("bw")
+    if isinstance(bw, dict) and bw.get("enabled", True) is False:
+        del out["look"]["bw"]
     return out
 
 
 def canonical_recipe_json(full_tree, defaults):
     sp = sparse(full_tree, defaults)
-    sp["pipelineVersion"] = full_tree.get("pipelineVersion", 1)
+    sp["pipelineVersion"] = full_tree.get("pipelineVersion", PIPELINE_VERSION)
     return canonical_serialize(sp)
 
 
@@ -309,13 +325,18 @@ def color_balance():
             "saturation": balance_axis(), "brilliance": balance_axis()}
 
 
+# Mirror of `currentPipelineVersion` in Recipe.swift. Bumping it here without bumping
+# it there — or the reverse — shows up as a canonical-form drift on the Swift side,
+# which is what the mirror is for.
+PIPELINE_VERSION = 2
+
 DEFAULT_RECIPE = {
-    "pipelineVersion": 1,
+    "pipelineVersion": PIPELINE_VERSION,
     "develop": {
         "raw": {"decoder": "apple"},
         "tone": {"exposure": 0, "contrast": 0, "contrastPivot": 0, "highlights": 0,
                  "shadows": 0, "whites": 0, "blacks": 0},
-        "zones": {"pivots": [0.08, 0.25, 0.5, 0.75, 0.92],
+        "zones": {"pivots": [(ev - (-9.0)) / (5.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)],
                   "dark": zone_adjust(), "shadow": zone_adjust(), "mid": zone_adjust(),
                   "light": zone_adjust(), "bright": zone_adjust(), "global": zone_adjust()},
         "curve": {"parametric": {"highlights": 0, "lights": 0, "darks": 0,
@@ -332,10 +353,16 @@ DEFAULT_RECIPE = {
         # sub-sliders default to Lightroom's own 50 / 0 / 50 / 50, which are the same
         # numbers the engine used to hardcode, so a recipe written before they existed
         # decodes to exactly what it always rendered.
+        #
+        # lumaUserSet / chromaUserSet record whether the photographer set the two
+        # masters by hand, which is what the AI-mode auto-zero exception needs (docs/07
+        # §2.1: "unless the user has hand-set them"). False by default and sparse, so
+        # no recipe already written changes its canonical form or its fingerprint.
         "denoise": {"mode": "classic", "amount": 50,
                     "classic": {"luma": 0, "chroma": 25, "hotPixels": 0,
                                 "lumaDetail": 50, "lumaContrast": 0,
-                                "colorDetail": 50, "colorSmoothness": 50}},
+                                "colorDetail": 50, "colorSmoothness": 50,
+                                "lumaUserSet": False, "chromaUserSet": False}},
         "geometry": {"crop": {"x": 0, "y": 0, "w": 1, "h": 1}, "angle": 0,
                      "flipH": False, "lens": {"profile": True, "removeCA": True}},
         "heal": {"count": 0},
@@ -348,9 +375,17 @@ DEFAULT_RECIPE = {
         "primaries": {"rHue": 0, "rPurity": 0, "gHue": 0, "gPurity": 0,
                       "bHue": 0, "bPurity": 0, "tintHue": 0, "tintPurity": 0},
         "vignette": 0,
+        # 50 is the fixed geometry the engine always had (docs/32 Stream E item 4):
+        # the default is NOT zero, so an absent key keeps yesterday's pixels. Mirrors
+        # Look.vignetteFeatherDefault.
+        "vignetteFeather": 50,
         "render": {"preset": "Neutral"},
     },
     "masks": [],
+    # Folders (docs/36 §4 item 26). Empty by default and pruned by `sparse` like every
+    # other empty container, so a recipe with no groups is byte-identical to one written
+    # before they existed.
+    "maskGroups": [],
 }
 
 
@@ -361,7 +396,8 @@ def gen_canonical_fixture():
 
     # Case A: pristine default recipe -> everything pruned except pipelineVersion.
     a_canon = canonical_recipe_json(defaults, defaults)
-    check(a_canon == '{"pipelineVersion":1}', f"case A canonical unexpected: {a_canon}")
+    check(a_canon == '{"pipelineVersion":%d}' % PIPELINE_VERSION,
+          f"case A canonical unexpected: {a_canon}")
     cases.append({"name": "default", "canonical": a_canon,
                   "fingerprint": fp(canonical_recipe_json(render_identity(defaults), defaults))})
 
@@ -391,7 +427,13 @@ def gen_canonical_fixture():
     # form prunes at the recipe level and never descends into the mask array.
     c["masks"] = [{
         "id": "6f000000-0000-0000-0000-00000000la01",
+        # `blend` is written unconditionally like `invert` and `amount` beside it: the
+        # sparse form prunes at the recipe level and never descends into the mask array.
+        # Adding it therefore MOVED every masked recipe's fingerprint once, which is the
+        # accepted cost of a new non-optional mask field and the reason this fixture
+        # exists to be updated deliberately rather than drifted into.
         "name": "Sky", "enabled": True, "invert": False, "amount": 100,
+        "blend": "normal",
         "components": [
             {"op": "add", "kind": "aiSky", "amount": 100, "invert": False,
              "model": "skyseg/1.3"},
@@ -455,6 +497,30 @@ def gen_canonical_fixture():
     check(c_canon != canonical_recipe_json(renamed, defaults),
           "the stored recipe lost the mask name — only the fingerprint should")
 
+    # Case E: the black-and-white mix, on and then switched off with the mix kept
+    # (pipeline version 2). Two properties the mirror has to agree about: the stored
+    # recipe carries `enabled` and the eight bands either way, so the mix is still
+    # there after a quit; and the OFF form fingerprints as the default recipe, because
+    # a mix nothing renders must not cost a cache miss or mark the photo edited.
+    e_on = json.loads(json.dumps(defaults))
+    e_on["look"]["bw"] = {"bands": [0, 0, 0, 0, -40, -65, 0, 0], "enabled": True}
+    e_on_canon = canonical_recipe_json(e_on, defaults)
+    cases.append({"name": "blackAndWhiteOn", "canonical": e_on_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(e_on), defaults))})
+
+    e_off = json.loads(json.dumps(e_on))
+    e_off["look"]["bw"]["enabled"] = False
+    e_off_canon = canonical_recipe_json(e_off, defaults)
+    cases.append({"name": "blackAndWhiteKeptButOff", "canonical": e_off_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(e_off), defaults))})
+    check('"bands":[0,0,0,0,-40,-65,0,0]' in e_off_canon and '"enabled":false' in e_off_canon,
+          f"the switched-off mix did not survive serialization: {e_off_canon}")
+    check(fp(canonical_recipe_json(render_identity(e_off), defaults))
+          == fp(canonical_recipe_json(render_identity(defaults), defaults)),
+          "a switched-off B&W mix changed the render fingerprint")
+    check(e_on_canon != e_off_canon,
+          "turning the treatment off did not change the stored recipe")
+
     write_fixture("canonical.json", {"cases": cases})
     write_fixture("default-recipe.json", DEFAULT_RECIPE, sort_keys=True)
 
@@ -476,7 +542,7 @@ def gen_fingerprint_fixture():
         "The quick brown fox jumps over the lazy dog",     # >32
         "x" * 1000,                            # long
         "grüß-dich-☀️",                        # multibyte UTF-8
-        '{"pipelineVersion":1}',               # the default-recipe canonical form
+        '{"pipelineVersion":%d}' % PIPELINE_VERSION,   # default-recipe canonical form
     ]
     vectors = [{"input": s,
                 "xxh64": xxhash.xxh64(s.encode("utf-8"), seed=0).hexdigest()}
@@ -886,7 +952,10 @@ def exposure_stops(x, pivots, zone_ev, global_ev):
 
 def gen_zones_fixture():
     print("zones.json ...")
-    default_pivots = [0.08, 0.25, 0.5, 0.75, 0.92]
+    # The documented pivot EVs (docs/04: -4/-2/0/+2/+4 around mid-grey) through
+    # the default anchors (-9..+5), mirroring Zones.defaultPivots exactly —
+    # same operations, same IEEE doubles.
+    default_pivots = [(ev - (-9.0)) / (5.0 - (-9.0)) for ev in (-4.0, -2.0, 0.0, 2.0, 4.0)]
     custom_pivots = [0.1, 0.3, 0.6, 0.85]
     samples = [i / 24 for i in range(25)]
     cases = []
@@ -2282,7 +2351,15 @@ def gen_perceptual_checks():
 # ---------------------------------------------------------------------------
 
 MIN_KELVIN, MAX_KELVIN = 2000.0, 50000.0
+MIN_TINT, MAX_TINT = -150.0, 150.0
 TINT_UNIT_IN_V = 0.05 / 150.0
+
+# CAT16 cone response matrix (CAM16, Li et al. 2017) — mirrors
+# ChromaticAdaptation.cat16. Present here only because the magenta guard below is
+# defined in terms of the cone responses adaptation divides by.
+CAT16 = [[0.401288, 0.650173, -0.051461],
+         [-0.250268, 1.204414, 0.045854],
+         [-0.002079, 0.048952, 0.953127]]
 
 
 def xy_to_uv(x, y):
@@ -2333,12 +2410,157 @@ def locus(kelvin):
     return (p[0] + (d[0] - p[0]) * w, p[1] + (d[1] - p[1]) * w)
 
 
-def wb_chromaticity(kelvin, tint):
+# How much of a physical illuminant's cone response the magenta guard insists
+# survives. Mirrors ColorTemperature.tintConeFloor.
+#
+# The defect it exists for: chromatic adaptation divides by the cone response of the
+# illuminant it adapts FROM. Push tint far enough toward magenta and the S response
+# falls through zero, and the adaptation comes out the far side with a negative blue
+# gain — the picture inverts rather than going magenta. The S cone crossed zero at
+# tint +45 at 2000 K and +80 at 2750 K, both inside the slider's own travel.
+TINT_CONE_FLOOR = 0.15
+
+
+def _unguarded_cone_response(kelvin, tint):
+    """CAT16 cone response of the chromaticity a (K, tint) pair asks for, before the
+    guard — the quantity the guard is defined in terms of, so it must not call
+    wb_chromaticity."""
     base = locus(kelvin)
     if tint == 0:
+        c = base
+    else:
+        u, v = xy_to_uv(*base)
+        c = uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+    x, y = c
+    return mat_apply(CAT16, (x / y, 1.0, (1 - x - y) / y))
+
+
+def _cone_floor_limit(kelvin):
+    """Largest magenta tint at this temperature that still describes a colour a light
+    source could be. Only magenta is bounded; green moves toward the interior of the
+    plane where every cone response grows."""
+    base = _unguarded_cone_response(kelvin, 0.0)
+    if min(base) <= 0:
+        return MAX_TINT
+
+    def admissible(t):
+        c = _unguarded_cone_response(kelvin, t)
+        return all(c[i] >= TINT_CONE_FLOOR * base[i] for i in range(3))
+
+    ceiling = 300.0
+    if admissible(ceiling):
+        return ceiling
+    lo, hi = 0.0, ceiling
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if admissible(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+# The neutral the magenta bound is measured against: the daylight reference a file
+# that records no camera neutral adapts from.
+MAGENTA_REFERENCE_KELVIN = 5500.0
+
+_REC2020_FROM_XYZ = mat_inverse(_REC2020_TO_XYZ)
+
+
+def _von_kries(source_xy, destination_xy, cone):
+    """XYZ(source white) -> XYZ(destination white), by scaling cone responses."""
+    def xyz(ch):
+        x, y = ch
+        return (x / y, 1.0, (1 - x - y) / y)
+    s = mat_apply(cone, xyz(source_xy))
+    d = mat_apply(cone, xyz(destination_xy))
+    gains = [[d[0] / s[0], 0.0, 0.0], [0.0, d[1] / s[1], 0.0], [0.0, 0.0, d[2] / s[2]]]
+    return mat_mul(mat_mul(mat_inverse(cone), gains), cone)
+
+
+def _rendered_magenta(kelvin, tint):
+    """Where a mid-grey neutral lands on OKLab's green<->magenta axis once it has been
+    adapted from the (K, tint) illuminant to the reference neutral — or None when it
+    lands somewhere that is not a colour.
+
+    The cone floor above bounds the ILLUMINANT. This bounds the PICTURE, which is not
+    the same statement once the temperature move and the tint move compose: at as-shot
+    5500 K, target 2800 K, tint +80 — inside the cone floor's own +69.80 — the render
+    is (0.0967, -0.0872, 3.1857), a negative green channel, and its OKLab `a` is
+    -0.089 against -0.038 untinted, so the magenta slider moved the picture toward
+    green. OKLab rather than a linear-RGB opponent because the runaway is a
+    CHROMATICITY move: the linear `(r+b)/2 - g` goes on rising straight through the
+    reversal purely because blue is exploding.
+    """
+    base = locus(kelvin)
+    if tint == 0:
+        source = base
+    else:
+        u, v = xy_to_uv(*base)
+        source = uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+    adaptation = _von_kries(source, locus(MAGENTA_REFERENCE_KELVIN), CAT16)
+    m = mat_mul(mat_mul(_REC2020_FROM_XYZ, adaptation), _REC2020_TO_XYZ)
+    out = mat_apply(m, (0.18, 0.18, 0.18))
+    if not all(math.isfinite(c) for c in out) or min(out) < 0:
+        return None
+    return oklab_from_rgb(out)[1]
+
+
+def _magenta_monotone_limit(kelvin, ceiling):
+    """Largest magenta tint at which the rendered neutral is still MOVING toward
+    magenta, and still a colour.
+
+    A quarter of a tint unit is the probe: the finite difference across it is ~1e-5 of
+    `a` near the turn, ten orders of magnitude above double noise, and a twentieth of
+    the smallest step the slider can be dragged. Both halves of the predicate are
+    downward-closed on [0, ceiling] — the deflection is unimodal below the pole and the
+    channels fail once and stay failed — so a bisection lands on the boundary.
+    """
+    if ceiling <= 0:
+        return ceiling
+    probe = 0.25
+
+    def admissible(t):
+        here = _rendered_magenta(kelvin, t)
+        if here is None:
+            return False
+        ahead = _rendered_magenta(kelvin, t + probe)
+        return ahead is not None and ahead >= here
+
+    if admissible(ceiling):
+        return ceiling
+    lo, hi = 0.0, ceiling
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if admissible(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def tint_limit(kelvin):
+    """The largest magenta tint the render will honour: the smaller of the two bounds
+    above. The illuminant must still be a colour a light source could be, AND the
+    picture must still be going the way the slider says."""
+    physical = _cone_floor_limit(kelvin)
+    return min(physical, _magenta_monotone_limit(kelvin, physical))
+
+
+def clamped_tint(kelvin, tint):
+    """What a tint is actually worth once physics has had its say."""
+    if tint <= 0:
+        return tint
+    return min(tint, tint_limit(kelvin))
+
+
+def wb_chromaticity(kelvin, tint):
+    base = locus(kelvin)
+    guarded = clamped_tint(kelvin, tint)
+    if guarded == 0:
         return base
     u, v = xy_to_uv(*base)
-    return uv_to_xy(u, v + tint * TINT_UNIT_IN_V)
+    return uv_to_xy(u, v + guarded * TINT_UNIT_IN_V)
 
 
 def temperature_and_tint(chroma):
@@ -2365,8 +2587,9 @@ def temperature_and_tint(chroma):
             best, best_mired = b, hi
         step /= 2
     kelvin = 1e6 / best_mired
+    kelvin = min(max(kelvin, MIN_KELVIN), MAX_KELVIN)
     tint = (v - xy_to_uv(*locus(kelvin))[1]) / TINT_UNIT_IN_V
-    return (min(max(kelvin, MIN_KELVIN), MAX_KELVIN), min(max(tint, -300.0), 300.0))
+    return (kelvin, clamped_tint(kelvin, min(max(tint, -300.0), 300.0)))
 
 
 def gen_white_balance_checks():
@@ -2405,7 +2628,11 @@ def gen_white_balance_checks():
         for tint in (-120.0, -80.0, -40.0, 0.0, 40.0, 80.0, 120.0):
             chroma = wb_chromaticity(k, tint)
             got_k, got_t = temperature_and_tint(chroma)
-            dk, dt = abs(got_k - k) / k, abs(got_t - tint)
+            # Against the GUARDED tint: past the magenta bound the forward map is
+            # deliberately not injective, and an inverse that recovered the number it
+            # was handed rather than the one that was rendered would be lying.
+            dk = abs(got_k - k) / k
+            dt = abs(got_t - clamped_tint(k, tint))
             if dk > worst_k:
                 worst_k, where = dk, f"{k:.0f} K / tint {tint:.0f}"
             worst_t = max(worst_t, dt)
@@ -2488,6 +2715,18 @@ def soft_limited(amount, cap):
     return soft_limit(amount, cap, ZONAL_KNEE)
 
 
+def eased_scale(limit):
+    """A limit, eased so the top of every slider still moves.
+
+    A hard limit is a dead control: the limit is inversely proportional to the request,
+    so `scale * request` is constant the moment it binds. `limit * soft_knee(1 / limit)`
+    is exact while the request is under `ZONAL_KNEE * limit` and approaches the limit
+    without reaching it after."""
+    if limit <= 0:
+        return 0.0
+    return min(1.0, limit * soft_knee(1.0 / limit, ZONAL_KNEE))
+
+
 def raised_cosine(t):
     u = min(max(t, 0.0), 1.0)
     return 0.5 * (1 - math.cos(math.pi * u))
@@ -2507,69 +2746,117 @@ class ToneEngine:
         self.blacks = b
         self.white_anchor_ev = DEFAULT_WHITE_ANCHOR_EV - WHITE_BLACK_RANGE_EV * w
         self.black_anchor_ev = DEFAULT_BLACK_ANCHOR_EV - WHITE_BLACK_RANGE_EV * b
-        self._set_scale(1.0)
-        self._solve_zonal_scale()
+        self._solve_zonal_scales()
+
+    # -- the four zonal windows, as data -------------------------------------
+    #
+    # Written as a table rather than as four branches because every claim the solve
+    # rests on is a property of the table, and a table can be inspected:
+    #
+    #   HALF   which side of mid-grey the shelf lives on. `smoothstep` saturates its
+    #          argument, so `highlight_weight` and `white_weight` return 0.0 EXACTLY for
+    #          every t <= 0 and `shadow_weight` / `black_weight` return 0.0 EXACTLY for
+    #          every t >= 0. Not small — zero. So the two halves never share an interval
+    #          and can be solved apart with nothing lost.
+    #
+    #   FALLS  whether this window pulls the mapping downhill, which is a fact about the
+    #          SIGN of the slider and not about t. Each window is one monotone shelf
+    #          times one scalar, so its slope has one sign over the whole range. The
+    #          upper shelves ascend with t, so they fall when their slider is negative;
+    #          the lower shelves ascend toward the black anchor, so they fall in t when
+    #          their slider is POSITIVE. A window that cannot fall cannot invert
+    #          anything, so it is never eased and its whole contribution is slack for
+    #          the ones that can.
+    def _windows(self):
+        return (
+            ("upper", self.highlights, HL_SH_RANGE_EV, self.highlight_weight,
+             self.highlights < 0),
+            ("upper", self.whites, WHITE_TONE_EV, self.white_weight, self.whites < 0),
+            ("lower", self.shadows, HL_SH_RANGE_EV, self.shadow_weight,
+             self.shadows > 0),
+            ("lower", self.blacks, BLACK_TONE_EV, self.black_weight, self.blacks > 0),
+        )
+
+    def _applied(self):
+        """Slider value -> amount actually applied, per window."""
+        out = {}
+        for half, amount, _, weight, falls in self._windows():
+            scale = self.scales[half] if falls else 1.0
+            out[weight.__name__] = amount * scale
+        return out
 
     def _zonal_stops(self, t):
         s = 0.0
-        if self.effective_highlights != 0:
-            s += self.effective_highlights * HL_SH_RANGE_EV * self.highlight_weight(t)
-        if self.effective_shadows != 0:
-            s += self.effective_shadows * HL_SH_RANGE_EV * self.shadow_weight(t)
-        if self.whites != 0:
-            s += self.whites * self.zonal_scale * WHITE_TONE_EV * self.white_weight(t)
-        if self.blacks != 0:
-            s += self.blacks * self.zonal_scale * BLACK_TONE_EV * self.black_weight(t)
+        for half, amount, ev, weight, falls in self._windows():
+            if amount == 0:
+                continue
+            s += amount * (self.scales[half] if falls else 1.0) * ev * weight(t)
         return s
 
-    def _set_scale(self, scale):
-        self.zonal_scale = scale
-        self.effective_highlights = self.highlights * scale
-        self.effective_shadows = self.shadows * scale
+    def _force_scales(self, upper, lower):
+        self.scales = {"upper": upper, "lower": lower}
+        applied = self._applied()
+        self.effective_highlights = applied["highlight_weight"]
+        self.effective_shadows = applied["shadow_weight"]
+        self.effective_whites = applied["white_weight"]
+        self.effective_blacks = applied["black_weight"]
+        eased = 1.0
+        for half, amount, _, _, falls in self._windows():
+            if amount != 0 and falls:
+                eased = min(eased, self.scales[half])
+        self.zonal_scale = eased
 
-    def _solve_zonal_scale(self):
-        """ONE scale over the whole zonal sum, closed form, then eased onto the limit.
+    def _solve_zonal_scales(self):
+        """TWO scales, one per half of the range, closed form, then eased onto the limit.
 
-        See ToneEngine.solveZonalScale. Per-window caps were never a guarantee about
-        the total — each solved against the contrast slope alone and ignored the other
-        three windows — and they coupled what they did constrain, so Highlights' applied
-        amount swung 3.9x across the Contrast range. A clamp on the baked curve alone
-        removes the coupling and pays for it in flat patches: Highlights -100 with
-        Shadows +100, an ordinary "flatten it" move, left 160 of 1024 samples flat.
+        See ToneEngine.solveZonalLimits. One scale over the whole zonal SUM was the
+        previous answer and it coupled windows whose weights are exactly zero where the
+        other one acts: at contrast -100 with shadows/whites/blacks at -100, moving
+        Highlights from -100 to +40 lightened -2 EV by 24.4 code values, where
+        `highlight_weight` is 0. Solving each half against its own intervals removes
+        that; not easing a window that cannot fall removes the second one, where pushing
+        Highlights took away the help Whites was giving it and the applied amount peaked
+        at -90.
 
-        `mapped(t) = contrast_mapped(t) + scale * zonal(t)` is linear in `scale`, so
-        "mapped never falls" is one inequality per interval and the smallest ratio over
-        the intervals where the zonal sum falls IS the limit. The knee then keeps the
-        top of the slider alive: the limit is inversely proportional to the request, so
-        `scale * request` is constant the moment a hard cap binds."""
-        if (self.highlights == 0 and self.shadows == 0
-                and self.whites == 0 and self.blacks == 0):
-            self.zonal_limit = SEARCH_CEILING
-            self._set_scale(1.0)
-            return
-        self.zonal_limit = self._zonal_limit()
-        limit = self.zonal_limit
-        if limit <= 0:
-            self._set_scale(0.0)
-        else:
-            self._set_scale(min(1.0, limit * soft_knee(1.0 / limit, ZONAL_KNEE)))
+        `mapped(t) = contrast_mapped(t) + rising(t) + scale * falling(t)` is linear in
+        `scale`, so "mapped never falls" is one inequality per interval and the smallest
+        ratio over the intervals where the falling part falls IS the limit. The knee then
+        keeps the top of the slider alive."""
+        self.zonal_limits = {
+            "upper": self._half_limit("upper", 0.0, self.white_anchor_ev + 2),
+            "lower": self._half_limit("lower", self.black_anchor_ev - 2, 0.0),
+        }
+        self._force_scales(*(eased_scale(self.zonal_limits[h])
+                             for h in ("upper", "lower")))
 
-    def _zonal_limit(self):
-        """The largest scale on the zonal sum that keeps `mapped` non-decreasing."""
-        self._set_scale(1.0)
-        t = self.black_anchor_ev - 2
-        end = self.white_anchor_ev + 2
-        previous_zonal = self._zonal_stops(t)
-        previous_fixed = contrast_mapped(t, self.contrast, self.pivot)
+    def _half_limit(self, half, t0, t1):
+        """Largest scale on this half's falling windows that keeps `mapped` rising.
+
+        Both sweeps end at mid-grey, where all four weights are exactly zero, so no
+        interval ever straddles the halves and neither sweep can be charged for the
+        other's inversion."""
+        live = [w for w in self._windows() if w[0] == half and w[1] != 0]
+        if not any(w[4] for w in live):
+            return SEARCH_CEILING
+
+        def parts(t):
+            fall = sum(a * ev * wt(t) for _, a, ev, wt, f in live if f)
+            rise = sum(a * ev * wt(t) for _, a, ev, wt, f in live if not f)
+            return fall, rise
+
+        t = t0
+        p_fall, p_rise = parts(t)
+        p_fixed = contrast_mapped(t, self.contrast, self.pivot)
         limit = SEARCH_CEILING
-        while t < end:
-            t += MONOTONE_STEP_EV
-            zonal = self._zonal_stops(t)
+        while t < t1:
+            t = min(t + MONOTONE_STEP_EV, t1)
+            fall, rise = parts(t)
             fixed = contrast_mapped(t, self.contrast, self.pivot)
-            d_zonal = zonal - previous_zonal
-            if d_zonal < 0:
-                limit = min(limit, max((fixed - previous_fixed) / -d_zonal, 0.0))
-            previous_zonal, previous_fixed = zonal, fixed
+            d_fall = fall - p_fall
+            if d_fall < 0:
+                slack = (fixed - p_fixed) + (rise - p_rise)
+                limit = min(limit, max(slack / -d_fall, 0.0))
+            p_fall, p_rise, p_fixed = fall, rise, fixed
         return limit
 
     @property
@@ -2725,43 +3012,128 @@ def gen_tone_checks():
     # Highlights 57..100 all applying one identical value, dead over the top 43%
     # of the control. Every assertion above passes for a Highlights slider that
     # returns zero always, which is why neither showed up.
+    #
+    # This loop then swept ONE slider against Contrast, which is the one shape of the
+    # parameter space where the applied amount cannot run backwards: with nothing else
+    # in the zonal sum the limit is inversely proportional to the request, so
+    # `scale * request` rises by construction. Put a window that HELPS in the sum and it
+    # stops being true — at contrast -100 with whites +20 the applied Highlights amount
+    # peaked at -90 and fell back over the last ten settings. So the other four sliders
+    # now come along, through the region where they help and where they fight.
+    binding = 0
+    swept = 0
     for slider in ("highlights", "shadows"):
         for direction in (1, -1):
-            for contrast in (0.0, -60.0, 60.0):
-                previous = None
-                for setting in range(0, 101):
-                    kw = {slider: direction * setting, "contrast": contrast}
-                    e = ToneEngine(**kw)
-                    applied = abs(e.effective_highlights if slider == "highlights"
-                                  else e.effective_shadows)
-                    if previous is not None:
-                        check(applied >= previous - 1e-12,
-                              f"{slider} at {direction * setting} (contrast {contrast}) "
-                              f"applied LESS than at {direction * (setting - 1)}: "
-                              f"{applied:.6f} vs {previous:.6f}")
-                        check(setting < 2 or applied > previous + 1e-9,
-                              f"{slider} at {direction * setting} (contrast {contrast}) "
-                              f"applied exactly what {direction * (setting - 1)} did "
-                              f"({applied:.9f}) — the control is dead here")
-                    previous = applied
+            for contrast in (0.0, -100.0, -60.0, 60.0):
+                for whites in (-100.0, 0.0, 20.0, 100.0):
+                    for partner in (-100.0, 0.0, 100.0):
+                        previous = None
+                        for setting in range(0, 101):
+                            kw = {slider: direction * setting, "contrast": contrast,
+                                  "whites": whites, "blacks": partner,
+                                  "shadows" if slider == "highlights" else "highlights":
+                                      partner}
+                            e = ToneEngine(**kw)
+                            swept += 1
+                            if e.zonal_scale < 1 - 1e-12:
+                                binding += 1
+                            applied = abs(e.effective_highlights
+                                          if slider == "highlights"
+                                          else e.effective_shadows)
+                            where = (f"contrast {contrast} whites {whites} "
+                                     f"partner {partner}")
+                            if previous is not None:
+                                check(applied >= previous - 1e-12,
+                                      f"{slider} at {direction * setting} ({where}) "
+                                      f"applied LESS than at "
+                                      f"{direction * (setting - 1)}: "
+                                      f"{applied:.9f} vs {previous:.9f}")
+                                check(setting < 2 or applied > previous + 1e-12,
+                                      f"{slider} at {direction * setting} ({where}) "
+                                      f"applied exactly what "
+                                      f"{direction * (setting - 1)} did "
+                                      f"({applied:.9f}) — the control is dead here")
+                            previous = applied
+    check(binding > swept // 20,
+          f"only {binding} of {swept} settings bound the limiter — this sweep never "
+          f"reaches the region where the applied amount can run backwards")
 
-    # Moving one must not move the other — WHERE THAT IS POSSIBLE. Their windows are
-    # disjoint, so there is no reason for a healthy setting to couple them, and the old
-    # per-window caps coupled them anyway (Highlights -100 turned Shadows +60 into an
-    # effective +33.8). What replaced them is one scale over the whole zonal sum, which
-    # is 1.0 — no coupling at all — unless the four windows TOGETHER would run the tone
-    # response downhill. Then something has to give, and a shared scale gives least.
-    for contrast in (0.0, 60.0, 100.0):
-        for whites in (0.0, 100.0):
-            baseline = ToneEngine(shadows=60, contrast=contrast,
-                                  whites=whites).effective_shadows
-            for h in (-100.0, -50.0, 50.0, 100.0):
-                e = ToneEngine(shadows=60, highlights=h, contrast=contrast, whites=whites)
-                if e.zonal_scale >= 1 - 1e-12:
-                    check(abs(e.effective_shadows - baseline) < 1e-12,
-                          f"Highlights {h} moved Shadows +60 from {baseline:.6f} to "
-                          f"{e.effective_shadows:.6f} with the scale at 1 (contrast "
-                          f"{contrast}, whites {whites})")
+    # A window that cannot pull the mapping downhill is never eased. Whites above zero
+    # RISES everywhere its shelf acts, so it can no more invert the response than a
+    # window with no amount at all, and taking it down alongside Highlights was what
+    # made the applied Highlights amount fall back at the top of the slider.
+    helper_bound = 0
+    for contrast in (-100.0, -60.0, 0.0):
+        for whites in (20.0, 100.0):
+            e = ToneEngine(contrast=contrast, highlights=-100, whites=whites)
+            if e.zonal_scale < 1 - 1e-12:
+                helper_bound += 1
+            check(abs(e.effective_whites - whites / 100) < 1e-12,
+                  f"Whites {whites} rises everywhere it acts but was eased to "
+                  f"{e.effective_whites:.9f} at contrast {contrast}")
+    check(helper_bound > 0,
+          "Highlights -100 alongside Whites never bound the limiter, so nothing above "
+          "was measured under easing")
+
+    # Whites and Blacks are held to the same bar, now that the engine reports what they
+    # apply. They carry a tonal shelf and are eased by the same solve, and nothing
+    # anywhere asked whether the amount they end up applying rises with the slider. On
+    # the shared scale it did not: sweeping Whites at contrast -100 with Highlights -100
+    # and Shadows -100 handed back 0.00125 of applied amount between +97 and +98.
+    for slider in ("whites", "blacks"):
+        for direction in (1, -1):
+            for contrast in (-100.0, -60.0, 0.0):
+                for highlights in (-100.0, 0.0):
+                    for shadows in (-100.0, 0.0, 100.0):
+                        previous = None
+                        for setting in range(0, 101):
+                            kw = {slider: direction * setting, "contrast": contrast,
+                                  "highlights": highlights, "shadows": shadows}
+                            e = ToneEngine(**kw)
+                            applied = abs(e.effective_whites if slider == "whites"
+                                          else e.effective_blacks)
+                            where = (f"contrast {contrast} highlights {highlights} "
+                                     f"shadows {shadows}")
+                            if previous is not None:
+                                check(setting < 2 or applied > previous + 1e-15,
+                                      f"{slider} at {direction * setting} ({where}) "
+                                      f"applied no more than "
+                                      f"{direction * (setting - 1)} did: "
+                                      f"{applied:.12f} vs {previous:.12f}")
+                            previous = applied
+
+    # Moving one must not move the other. Their windows are disjoint — both weights
+    # return 0.0 EXACTLY on the other's side of mid-grey — so there is no tone at which
+    # one can reach the other, at any setting.
+    #
+    # This ran at contrast 0/60/100 and skipped every case where the scale was below 1,
+    # which is the only place they were ever able to reach each other: with one scale
+    # over the whole sum, Highlights -100 against contrast -100 cut Shadows -100 and
+    # Blacks -100 down by 58%, worth 24.4 code values at -2 EV. The guard is inverted
+    # now and the binding count is asserted.
+    bound = 0
+    for contrast in (0.0, -100.0, -60.0, 60.0):
+        for whites in (-100.0, 0.0, 20.0, 100.0):
+            for blacks in (-100.0, 0.0, 100.0):
+                alone = ToneEngine(shadows=60, contrast=contrast, whites=whites,
+                                   blacks=blacks)
+                for h in (-100.0, -50.0, 50.0, 100.0):
+                    e = ToneEngine(shadows=60, highlights=h, contrast=contrast,
+                                   whites=whites, blacks=blacks)
+                    if e.zonal_scale < 1 - 1e-12:
+                        bound += 1
+                    check(abs(e.effective_shadows - alone.effective_shadows) < 1e-12,
+                          f"Highlights {h} moved Shadows +60 from "
+                          f"{alone.effective_shadows:.9f} to "
+                          f"{e.effective_shadows:.9f} (contrast {contrast}, whites "
+                          f"{whites}, blacks {blacks})")
+                    check(abs(e.effective_blacks - alone.effective_blacks) < 1e-12,
+                          f"Highlights {h} moved Blacks {blacks} from "
+                          f"{alone.effective_blacks:.9f} to "
+                          f"{e.effective_blacks:.9f} (contrast {contrast}, whites "
+                          f"{whites})")
+    check(bound > 0, "the independence sweep never bound the limiter, so it is back to "
+                     "proving nothing")
 
     # Positive contrast steepens the base slope, so nothing the four windows can ask for
     # inverts it and the scale never binds at all.
@@ -2800,12 +3172,12 @@ def gen_tone_checks():
     for c, h, sh, w, b in ((-100, -100, 100, -100, 100), (-100, 0, 0, 0, 100),
                            (-60, -60, 60, 0, 40), (0, -100, 100, -100, 100)):
         e = ToneEngine(contrast=c, highlights=h, shadows=sh, whites=w, blacks=b)
-        limit = e.zonal_limit
-        check(limit < SEARCH_CEILING,
+        limits = dict(e.zonal_limits)
+        check(min(limits.values()) < SEARCH_CEILING,
               f"c{c} h{h} s{sh} w{w} b{b} was expected to bind and did not")
 
-        def mapped_falls(scale, e=e, c=c):
-            e._set_scale(scale)
+        def mapped_falls(upper, lower, e=e):
+            e._force_scales(upper, lower)
             t, worst_drop = e.black_anchor_ev - 2, 0.0
             previous = t + e.stops(t)
             while t < e.white_anchor_ev + 2:
@@ -2815,15 +3187,23 @@ def gen_tone_checks():
                 previous = m
             return worst_drop
 
-        check(mapped_falls(limit) >= -1e-9,
-              f"c{c} h{h} s{sh} w{w} b{b} already falls AT the limit {limit:.6f}")
-        check(mapped_falls(limit * 1.02) < -1e-9,
-              f"c{c} h{h} s{sh} w{w} b{b} is still monotone 2% above the limit "
-              f"{limit:.6f} — the limiter is being timid")
-        e._solve_zonal_scale()
-        check(e.zonal_scale < limit,
-              f"c{c} h{h} s{sh} w{w} b{b} applies the limit exactly, so the top of the "
-              f"slider is dead")
+        # AT both limits the response still rises. Each half is then pushed 2% past its
+        # own limit alone, with the other left at its limit, so a break belongs to the
+        # half that moved rather than to whichever half was weaker.
+        check(mapped_falls(limits["upper"], limits["lower"]) >= -1e-9,
+              f"c{c} h{h} s{sh} w{w} b{b} already falls AT its limits {limits}")
+        for half in ("upper", "lower"):
+            if limits[half] >= SEARCH_CEILING:
+                continue
+            pushed = dict(limits)
+            pushed[half] = limits[half] * 1.02
+            check(mapped_falls(pushed["upper"], pushed["lower"]) < -1e-9,
+                  f"c{c} h{h} s{sh} w{w} b{b} is still monotone 2% above the {half} "
+                  f"limit {limits[half]:.6f} — the limiter is being timid")
+            check(eased_scale(limits[half]) < limits[half],
+                  f"c{c} h{h} s{sh} w{w} b{b} applies the {half} limit exactly, so the "
+                  f"top of the slider is dead")
+        e._solve_zonal_scales()
 
     print("  zonal fixed points, anchor geometry, and a monotone composed picture")
     print("  every setting of Highlights and Shadows applies more than the last, "
@@ -2998,6 +3378,11 @@ def gen_colour_stage_checks():
 # ---------------------------------------------------------------------------
 
 LUM_RANGE_STOPS = 0.5
+# Stops of scene luminance realised per stop of requested perceptual brightness.
+# The wheels' Luminance scales UCS brightness J; J tracks OKLab L, and L is the cube
+# root of linear luminance, so the realised tone response is `1 + 3·scale·slope` —
+# GradeEngine.realisedStopsPerJStop, mirrored (docs/31 round two §1).
+REALISED_STOPS_PER_J_STOP = 3.0
 NOMINAL_HALF_WIDTH_EV = 1.5
 MINIMUM_HALF_WIDTH_EV = 0.05
 BLENDING_KNEE = 0.8
@@ -3056,7 +3441,11 @@ def solve_lum_scale(windows, shadows, mid, high):
     x = 0.0
     while x < 1:
         a = min(x + step, 1.0)
-        slope = (stops(a) - stops(x)) / ((a - x) * span)
+        # REALISED, not requested: the J-stops the wheels ask for come out of the
+        # picture three times over (L cubes back to light), so the monotonicity bound
+        # applies to three times the measured slope.
+        slope = ((stops(a) - stops(x)) / ((a - x) * span)
+                 * REALISED_STOPS_PER_J_STOP)
         if slope < 0:
             scale = min(scale, max((1 - margin) / -slope, 0.0))
         x = a
@@ -3114,10 +3503,16 @@ def gen_grade_checks():
           f"the hard-crossover case did not need scaling ({unscaled:.3f}) — "
           "the test no longer covers what it was written for")
 
-    # With the scale applied, the composed response is monotone at every setting.
+    # With the scale applied, the REALISED response is monotone at every setting. The
+    # response the photograph shows is `t + 3·(zone stops)·scale` — the wheels' stops
+    # are gains on UCS brightness J and L cubes back to light — and checking the
+    # requested stops instead is exactly the blind spot that let 345 of 810 sampled
+    # combinations invert behind a green check (docs/31 round two §1). Midtones against
+    # Highlights is in the set because it is the audit's own reproduction.
     for blending in (0.0, 10.0, 50.0, 100.0):
         for sh_lum, mid_lum, hi_lum in ((1.0, 0.0, -1.0), (-1.0, 0.0, 1.0),
-                                        (1.0, -1.0, 1.0), (0.6, 0.0, -0.6)):
+                                        (1.0, -1.0, 1.0), (0.6, 0.0, -0.6),
+                                        (0.0, 1.0, -1.0)):
             w = ZoneWindows(blending=blending)
             sh, md, hi = (LUM_RANGE_STOPS * sh_lum, LUM_RANGE_STOPS * mid_lum,
                           LUM_RANGE_STOPS * hi_lum)
@@ -3126,21 +3521,28 @@ def gen_grade_checks():
             while x <= 1.0:
                 t = -9.0 + x * w.span_ev
                 s_w, m_w, h_w = w.weights(x)
-                out = t + (s_w * sh + m_w * md + h_w * hi) * scale
+                out = t + REALISED_STOPS_PER_J_STOP * (
+                    s_w * sh + m_w * md + h_w * hi) * scale
                 check(out >= prev - 1e-9,
                       f"grade inverted at x={x:.3f} (blend {blending}, "
                       f"wheels {sh_lum}/{mid_lum}/{hi_lum}, scale {scale:.3f})")
                 prev = out
                 x += 0.002
 
-    # And the default settings must not be scaled at all, or the fix has quietly
-    # weakened the control everywhere instead of only where it had to.
+    # And the default settings keep effectively all of their strength, or the fix has
+    # quietly weakened the control everywhere instead of only where it had to. Not
+    # `> 0.999` any more: under the realised (3×) slope a FULL-deflection wheel at the
+    # default Blending genuinely sits just past the knee — the eased limit takes about
+    # a quarter of one percent, which no display can show — while gentle settings stay
+    # exactly at 1.
     default = ZoneWindows()
     for sh_lum, hi_lum in ((0.5, -0.5), (1.0, 0.0), (0.0, -1.0)):
         scale = solve_lum_scale(default, LUM_RANGE_STOPS * sh_lum, 0.0,
                                 LUM_RANGE_STOPS * hi_lum)
-        check(scale > 0.999,
+        check(scale > 0.99,
               f"default blending scaled wheels {sh_lum}/{hi_lum} to {scale:.3f}")
+    check(solve_lum_scale(default, LUM_RANGE_STOPS * 0.3, 0.0, 0.0) == 1.0,
+          "a gentle lone wheel at default blending must be exactly unlimited")
 
     # --- the Luminance ring must keep doing more, at every Blending ----------
     #
@@ -3149,6 +3551,11 @@ def gen_grade_checks():
     # +-0.50 and +-1.00 all produced 0.060681385, equal to 1e-12. Eighty percent
     # of the control, dead. The check above tests `scale > 0.999` at DEFAULT
     # blending only — the one setting where nothing was wrong.
+    # The tolerance is 1e-12, down from 1e-9: under the realised (3×) slope the
+    # blending-0 cap sits three times lower, so a full-deflection ring runs ~48× past
+    # it and the knee's power tail gains ~1e-9 per step out there — still strictly
+    # increasing, exactly representable in a double, and all the geometry can afford
+    # when the whole crossfade is a tenth of a stop wide.
     for blending in (0.0, 5.0, 10.0, 20.0, 50.0, 100.0):
         w = ZoneWindows(blending=blending)
         previous = None
@@ -3158,7 +3565,7 @@ def gen_grade_checks():
                                     -LUM_RANGE_STOPS * lum)
             applied = LUM_RANGE_STOPS * lum * scale
             if previous is not None:
-                check(applied > previous + 1e-9,
+                check(applied > previous + 1e-12,
                       f"the Luminance ring at {lum:.3f} (blending {blending}) applied "
                       f"{applied:.9f}, no more than {previous:.9f} at "
                       f"{(step_index - 1) / 40:.3f} — the control is dead here")

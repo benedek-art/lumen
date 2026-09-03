@@ -1,0 +1,18 @@
+{
+  "authority" : 23.374068605248,
+  "deadSteps" : 0,
+  "frame" : "wideStepEdge",
+  "frontLoading" : 0.9043826465015753,
+  "givenBack" : 0,
+  "hueRotation" : 0,
+  "id" : "sharpen.radius",
+  "isMonotone" : true,
+  "meanSeparation" : 0.05727999152903291,
+  "overshoot" : 8.522432647267749,
+  "overshootAbove" : 8.522432647267749,
+  "overshootBelow" : 5.879826753628107,
+  "panel" : "Detail",
+  "smallestLiveStep" : 0.8583280182863859,
+  "travelHigh" : 3,
+  "travelLow" : 0.5
+}

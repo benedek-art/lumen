@@ -176,4 +176,661 @@ final class PlanTableCacheTests: XCTestCase {
         XCTAssertEqual(draft.colorGradeLUT.size, 17)
         XCTAssertEqual(interactive.colorGradeLUT.size, LUT3D.interactiveSize)
     }
+
+    /// The HUD's counters (docs/23 M1b) count what actually happened: a cold key is
+    /// a bake, a repeat is a hit, a draft-miss with something to be stale from is a
+    /// stale serve. Deltas from a snapshot, so the test owes nothing to suite order.
+    func testTheStatsCountersCountWhatActuallyHappened() {
+        PlanTableCache.clear()
+        let before = PlanTableCache.currentStats
+
+        _ = PlanTableCache.table(.finish, key: "stats-A", size: 5) {
+            LUT3D(size: 5) { $0 }
+        }
+        _ = PlanTableCache.table(.finish, key: "stats-A", size: 5) {
+            LUT3D(size: 5) { $0 }
+        }
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "stats-B", size: 5) {
+            LUT3D(size: 5) { $0 }
+        }
+
+        let after = PlanTableCache.currentStats
+        XCTAssertEqual(after.bakes - before.bakes, 1, "one cold key, one bake")
+        XCTAssertEqual(after.hits - before.hits, 1, "one repeat, one hit")
+        XCTAssertEqual(after.staleServes - before.staleServes, 1,
+                       "one draft miss with a table to be stale from")
+    }
+
+    // MARK: - The tone gain cube (session C: the last uncached bake)
+
+    /// A tone drag re-plans on every mouse event, and the tone gain cube — 32³ =
+    /// 32 768 samples — was the one expensive table not routed through this cache, so
+    /// it was rebuilt on every one of them. Every basic tone slider and every zone
+    /// invalidates it, which is to say the controls a photographer reaches for first.
+    func testATonePlanBakesItsGainCubeOnceAcrossAWholeDrag() {
+        PlanTableCache.clear()
+        var recipe = Recipe()
+        // Contrast, not Exposure: exposure is a pure gain carried by the linear stage,
+        // so a tone engine holding only an exposure is still IDENTITY and bakes no
+        // cube at all. The controls that build this table are the ones that shape the
+        // curve.
+        recipe.develop.tone.contrast = 45
+        recipe.develop.tone.highlights = -30
+
+        // Per-SLOT traffic, deliberately: the aggregate counters cannot tell a cube
+        // that was cached from a cube that never came through the cache at all, so a
+        // test written against the totals stays green for the defect it exists to
+        // catch. Asked of the tone slot, the numbers have to be about the cube.
+        // Deltas: the counters are cumulative for the life of the process, and other
+        // cases in this file plan tone recipes too.
+        let before = PlanTableCache.traffic(.toneGain)
+        _ = RenderPlan(recipe: recipe)
+        let afterFirst = PlanTableCache.traffic(.toneGain)
+        XCTAssertEqual(afterFirst.bakes - before.bakes, 1,
+                       "the cold plan's tone cube must be baked THROUGH the cache")
+
+        // The rest of the drag: the same tone, re-planned the way every mouse event
+        // re-plans it. Not one further bake — the whole point.
+        for _ in 0..<20 { _ = RenderPlan(recipe: recipe) }
+        let afterDrag = PlanTableCache.traffic(.toneGain)
+        XCTAssertEqual(afterDrag.bakes, afterFirst.bakes,
+                       "re-planning an unchanged tone must not bake the cube again")
+        XCTAssertEqual(afterDrag.hits - afterFirst.hits, 20,
+                       "every re-plan must be a hit")
+    }
+
+    /// The key has to be complete in the other direction too: moving a tone control
+    /// must produce a DIFFERENT cube, not a cached one from the previous value.
+    func testTheToneCubeKeyTracksToneAndZones() {
+        PlanTableCache.clear()
+        var a = Recipe()
+        a.develop.tone.contrast = 40
+        var b = Recipe()
+        b.develop.tone.contrast = 80
+        var c = Recipe()
+        c.develop.tone.contrast = 40
+        c.develop.zones.mid.ev = 0.4
+
+        guard let cubeA = RenderPlan(recipe: a).toneGainCubeBaked,
+              let cubeB = RenderPlan(recipe: b).toneGainCubeBaked,
+              let cubeC = RenderPlan(recipe: c).toneGainCubeBaked else {
+            return XCTFail("a moved tone control must bake a cube")
+        }
+        XCTAssertNotEqual(cubeA.data, cubeB.data,
+                          "a moved Contrast must not be served A's cube")
+        XCTAssertNotEqual(cubeA.data, cubeC.data,
+                          "a zone move must not be served A's cube")
+        XCTAssertEqual(RenderPlan(recipe: a).toneGainCubeBaked?.data, cubeA.data,
+                       "the same tone must be served the same cube")
+        XCTAssertEqual(cubeB.data.count, cubeA.data.count)
+    }
+
+    // MARK: - Stale-while-bake (docs/23 M1a)
+    //
+    // The contract: a DRAFT frame may show the previous event's table while the exact
+    // one bakes off the render path; a settle or export frame may not. Staleness is
+    // bounded to "the newest table the slot holds", and it converges the moment the
+    // background bake lands. These tests drive the cache directly; the RenderPlan
+    // plumbing that chooses between `table` and `tableAllowingStale` is asserted by
+    // testACacheHitEqualsAColdBake above continuing to pass for the settle path.
+
+    /// A tiny distinguishable table: every sample carries `mark` in its red channel.
+    private func markedLUT(_ mark: Double) -> LUT3D {
+        LUT3D(size: 5) { rgb in RGB(mark, rgb.g, rgb.b) }
+    }
+
+    private func waitForBakes(timeoutSeconds: Double = 5.0) {
+        let deadline = Date(timeIntervalSinceNow: timeoutSeconds)
+        while PlanTableCache.hasPendingBake(.finish), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        XCTAssertFalse(PlanTableCache.hasPendingBake(.finish),
+                       "background bake did not drain within \(timeoutSeconds)s")
+    }
+
+    func testTheFirstEverRequestBakesSynchronously() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        var builds = 0
+        let out = PlanTableCache.tableAllowingStale(.finish, key: "first", size: 5) {
+            builds += 1
+            return self.markedLUT(1)
+        }
+        XCTAssertEqual(builds, 1, "an empty slot has nothing to be stale from")
+        XCTAssertEqual(out, markedLUT(1))
+    }
+
+    func testAStaleTableIsServedWhileTheExactOneBakesAndThenConverges() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A", size: 5) { self.markedLUT(1) }
+
+        let immediate = PlanTableCache.tableAllowingStale(.finish, key: "B", size: 5) {
+            self.markedLUT(2)
+        }
+        XCTAssertEqual(immediate, markedLUT(1),
+                       "the draft frame should get A's table while B bakes")
+
+        waitForBakes()
+        var rebaked = false
+        let after = PlanTableCache.tableAllowingStale(.finish, key: "B", size: 5) {
+            rebaked = true
+            return self.markedLUT(2)
+        }
+        XCTAssertEqual(after, markedLUT(2), "the next frame should pick up the exact table")
+        XCTAssertFalse(rebaked, "the exact table should come from the background bake, "
+                           + "not a second synchronous one")
+    }
+
+    func testTheBlockingPathNeverReturnsStale() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A", size: 5) { self.markedLUT(1) }
+        // The settle/export path asks `table` for a key the slot does not hold: it
+        // must bake NOW, whatever the stale machinery is doing.
+        let settled = PlanTableCache.table(.finish, key: "C", size: 5) { self.markedLUT(3) }
+        XCTAssertEqual(settled, markedLUT(3))
+    }
+
+    func testABurstOfKeysCoalescesToTheNewestBake() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A", size: 5) { self.markedLUT(0) }
+
+        let counterLock = NSLock()
+        var builds = 0
+        for i in 1...40 {
+            _ = PlanTableCache.tableAllowingStale(.finish, key: "k\(i)", size: 5) {
+                counterLock.lock(); builds += 1; counterLock.unlock()
+                Thread.sleep(forTimeInterval: 0.005)
+                return self.markedLUT(Double(i))
+            }
+        }
+        waitForBakes()
+
+        counterLock.lock(); let executed = builds; counterLock.unlock()
+        XCTAssertLessThan(executed, 10,
+            "a 40-event burst executed \(executed) background bakes — pending should "
+                + "keep only the newest, not replay the drag")
+
+        // The newest key must be exactly what the drain left behind.
+        var rebaked = false
+        let newest = PlanTableCache.table(.finish, key: "k40", size: 5) {
+            rebaked = true
+            return self.markedLUT(40)
+        }
+        XCTAssertFalse(rebaked, "k40 should already be in the cache from the drain")
+        XCTAssertEqual(newest, markedLUT(40))
+    }
+
+    // MARK: - The stale door never crosses photographs (docs/31 round two §4)
+    //
+    // The key describes the RECIPE completely, so an exact hit is correct for any
+    // photograph. The STALE serve is different: it is a claim about time — "the
+    // picture from one mouse event ago" — and across a photo change the newest
+    // entry in the slot is a different photograph's picture formation. Stepping
+    // from a black-and-white edit to a colour frame rendered the colour frame
+    // monochrome for a frame. These tests pin the identity discipline that ends
+    // it. Every other test in this file runs under the default (empty) identity,
+    // which is an identity like any other, so the pre-identity contract tests
+    // above are unchanged — including AccuracyProbeTests'
+    // `testTheFinishTableAndItsScaleStayAPairOnTheDRAFTPath`, which holds the
+    // table-and-scalar pairing across a stale serve.
+
+    func testAStaleServeNeverCrossesPhotographs() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        // Photograph A carries a B&W look; its finish table lands in the slot.
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "bw-look", size: 5) {
+            self.markedLUT(1)
+        }
+
+        // Step to photograph B, whose recipe is a colour look: a MISS with nothing
+        // of B's to be stale from. The old code returned the newest entry in the
+        // slot from ANY photograph — A's monochrome table — for a frame. The
+        // contract is a fresh, blocking bake instead.
+        PlanTableCache.setRenderIdentity("photo-B")
+        var baked = false
+        let served = PlanTableCache.tableAllowingStale(.finish, key: "colour-look",
+                                                       size: 5) {
+            baked = true
+            return self.markedLUT(2)
+        }
+        XCTAssertEqual(served, markedLUT(2),
+                       "photo B's first draft frame was served photo A's picture "
+                           + "formation — the stale door crossed photographs")
+        XCTAssertTrue(baked, "a cross-photo miss must bake fresh, not borrow")
+    }
+
+    func testAStaleServeStillBorrowsWithinOnePhotograph() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "drag-1", size: 5) {
+            self.markedLUT(1)
+        }
+        // The next event of the SAME photograph's drag: one mouse event stale is
+        // the documented contract, and the identity fix must not have broken it.
+        let immediate = PlanTableCache.tableAllowingStale(.finish, key: "drag-2",
+                                                          size: 5) {
+            self.markedLUT(2)
+        }
+        XCTAssertEqual(immediate, markedLUT(1),
+                       "the same photograph's drag frame should ride the previous "
+                           + "event's table while the exact one bakes")
+        waitForBakes()
+    }
+
+    func testAnExactHitCrossesPhotographsAndTheEntryAdoptsThem() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        // A bakes the default-recipe finish table.
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.table(.finish, key: "default-look", size: 5) {
+            self.markedLUT(1)
+        }
+
+        // B, carrying the SAME recipe, must hit — the key determines the table
+        // bit-for-bit, and rebaking 23.7 ms of identical samples on every photo
+        // step is the regression the identity fix was not allowed to introduce.
+        PlanTableCache.setRenderIdentity("photo-B")
+        var rebaked = false
+        let hit = PlanTableCache.table(.finish, key: "default-look", size: 5) {
+            rebaked = true
+            return self.markedLUT(1)
+        }
+        XCTAssertFalse(rebaked, "an exact key hit must be shared across photographs")
+        XCTAssertEqual(hit, markedLUT(1))
+
+        // And the hit ADOPTED photo B: B's next draft miss may now borrow it —
+        // it is the very picture B was showing a moment ago.
+        let borrowed = PlanTableCache.tableAllowingStale(.finish, key: "b-drag",
+                                                         size: 5) {
+            self.markedLUT(3)
+        }
+        XCTAssertEqual(borrowed, markedLUT(1),
+                       "after an exact hit, the entry belongs to photo B and its "
+                           + "drag may ride it")
+        waitForBakes()
+    }
+
+    // MARK: - Whose bake is outstanding (I1-04)
+    //
+    // `anyBakePending` used to answer for the ENTIRE cache. The viewer's settle loop
+    // is its only caller, and while it answers true that loop retries — each retry a
+    // full-resolution graph. A bake queued by another photograph therefore bought the
+    // photographer nothing and cost them a render, repeatedly: it cannot change a
+    // pixel of this frame, because the stale door never crosses photographs.
+    //
+    // The question is asked in two states that are a whole bake apart. `pending` is
+    // queued-not-started and has always carried an identity; the in-flight one did
+    // not — `drainPending` popped the request and dropped its identity on the floor,
+    // so for the entire duration of the bake there was nothing to ask.
+
+    func testABakeOutstandingForOnePhotographIsNotOutstandingForAnother() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        // A gate the deferred bake cannot pass until this test lets it: the drain has
+        // popped the request and stamped it in flight, and stays there. Without a gate
+        // the in-flight window is 15–24 ms of real bake and the assertion is a race.
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-1", size: 5) {
+            self.markedLUT(1)
+        }
+        // A's next drag event: a stale serve, which queues the exact bake and starts
+        // the drain. The drain pops it and blocks in the closure below.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-2", size: 5) {
+            entered.signal()
+            release.wait()
+            return self.markedLUT(2)
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 5), .success,
+                       "the deferred bake never started")
+
+        // PHASE 1 — in flight for A, nothing at all for B.
+        XCTAssertTrue(PlanTableCache.anyBakePending(for: "photo-A"),
+                      "A's own exact table is baking right now and A's settle would "
+                          + "find it fresher than the draft on screen")
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-B"),
+                       "a bake belonging to photograph A kept photograph B's settle "
+                           + "loop retrying full-resolution renders that could not "
+                           + "have changed a pixel")
+
+        // PHASE 2 — B queues one of its own behind A's, on the same slot. Now both
+        // states are live at once and they belong to different photographs, so a
+        // question that reads only one of the two answers wrong for somebody.
+        PlanTableCache.setRenderIdentity("photo-B")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "B-1", size: 5) {
+            self.markedLUT(3)
+        }
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "B-2", size: 5) {
+            self.markedLUT(4)
+        }
+        XCTAssertTrue(PlanTableCache.anyBakePending(for: "photo-B"),
+                      "B's exact table is queued behind A's — B's draft is riding a "
+                          + "stale table and its settle must not give up yet")
+        XCTAssertTrue(PlanTableCache.anyBakePending(for: "photo-A"),
+                      "A's bake is still in flight")
+
+        release.signal()
+        waitForBakes()
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-A"))
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-B"))
+    }
+
+    /// And the drain lets go of its stamp before it goes quiet — a stamp left behind
+    /// pins the settle loop awake forever for that photograph, retrying a full
+    /// render every 60 ms until `qualityAttempts` runs out, on every frame after.
+    ///
+    /// Substituted both ways round while writing it: removing EITHER clear on its own
+    /// leaves this green, because the drain's two exits cover each other (the store
+    /// clears, then the loop goes around and the empty exit clears again). Both are
+    /// kept anyway — the store's clear closes the unlock/lock window between landing
+    /// a table and popping the next request, in which the stamp would otherwise
+    /// describe a bake that has already finished — but the invariant this test is
+    /// allowed to claim is the one it can see, and that is "quiet means unstamped".
+    /// It goes red when both clears go.
+    func testTheInFlightStampIsClearedWhenTheDrainFinishes() {
+        defer { PlanTableCache.setRenderIdentity("") }
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+
+        PlanTableCache.setRenderIdentity("photo-A")
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-1", size: 5) {
+            self.markedLUT(1)
+        }
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "A-2", size: 5) {
+            self.markedLUT(2)
+        }
+        waitForBakes()
+        XCTAssertFalse(PlanTableCache.anyBakePending(for: "photo-A"),
+                       "the drain drained and the settle loop is still being told to "
+                           + "retry — an in-flight stamp outlived its bake")
+    }
+}
+
+// MARK: - Joining a bake instead of repeating it (I1-01, I1-03)
+//
+// The two doors into this cache did not know about each other. A drag frame goes
+// through `tableAllowingStale`: on a miss it serves the newest table and posts the
+// EXACT one to `pending` for the background queue. The settle frame that follows goes
+// through `table`, which read `entries` and nothing else — so it missed, and baked a
+// second copy of the table `bakeQueue` was already making. Then `drainPending` popped
+// its own entry, found the key it had queued, and baked a third.
+//
+// Measured on the release build: a Saturation settle is 269.4 ms against a 24.1 ms
+// draft, a Whites settle 388.0 against 69.0 — 245 and 319 ms of one and two 33³ bakes
+// the machine had already started. That is the third of a second of nothing between
+// letting go of a slider and the picture sharpening.
+//
+// The counters could not see it either. `drainPending` never touched `stats`, so the
+// HUD line added to make a defeated cache visible on a live machine was structurally
+// blind to every background bake.
+
+extension PlanTableCacheTests {
+
+    /// A build that announces itself and then takes its time, so the test can put a
+    /// settle inside the window where the bake is genuinely in flight.
+    private func slowBuild(_ mark: Double, started: DispatchSemaphore,
+                           counter: BuildCounter,
+                           seconds: Double = 0.25) -> LUT3D {
+        counter.bump()
+        started.signal()
+        Thread.sleep(forTimeInterval: seconds)
+        return LUT3D(size: 5) { rgb in RGB(mark, rgb.g, rgb.b) }
+    }
+
+    private func freshCache() {
+        PlanTableCache.clear()
+        waitForBakes()
+        PlanTableCache.clear()
+    }
+
+    /// Warm the slot so the next miss has something to be stale from — otherwise the
+    /// draft path bakes synchronously and there is no background bake to join.
+    private func warmSlot() {
+        _ = PlanTableCache.table(.finish, key: "warm", size: 5) {
+            LUT3D(size: 5) { rgb in RGB(0, rgb.g, rgb.b) }
+        }
+    }
+
+    // MARK: The defect
+
+    /// THE ONE THAT COSTS THE THIRD OF A SECOND. The settle asks for the key the drag
+    /// just queued, while that bake is running, and must wait for it rather than start
+    /// its own copy of it.
+    func testASettleJoinsTheDragsBackgroundBakeInsteadOfRepeatingIt() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        let started = DispatchSemaphore(value: 0)
+        let counter = BuildCounter()
+
+        // The drag's last event: serves stale, posts "final" to the bake queue.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "final", size: 5) {
+            self.slowBuild(2, started: started, counter: counter)
+        }
+        // Do not race the queue: wait until that bake has actually begun.
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success,
+                       "the background bake never started, so this proves nothing")
+
+        // The settle, on the same key, mid-bake.
+        _ = PlanTableCache.table(.finish, key: "final", size: 5) {
+            counter.bump()
+            return LUT3D(size: 5) { rgb in RGB(9, rgb.g, rgb.b) }
+        }
+        waitForBakes()
+
+        XCTAssertEqual(counter.count, 1,
+                       "the settle baked its own copy of a table that was already "
+                       + "baking — 245 ms on Saturation, 319 ms on Whites, for a table "
+                       + "the machine was seconds from having")
+        XCTAssertEqual(PlanTableCache.traffic(.finish).bakes, 0,
+                       "no bake belongs on the render path here")
+        XCTAssertEqual(PlanTableCache.traffic(.finish).joinedBakes, 1,
+                       "and the join must be visible on the HUD, or the next round "
+                       + "cannot tell whether it is still happening")
+    }
+
+    /// The other half: the bake is QUEUED but not started, so there is nothing to wait
+    /// for. The settle must take it off the queue, or the drain pops the same key
+    /// afterwards and bakes it a second time on top of the settle's own.
+    func testASettleTakesAQueuedBakeSoTheDrainCannotRepeatIt() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        let firstStarted = DispatchSemaphore(value: 0)
+        let busy = BuildCounter()
+        // Occupy the drain with a different key, so the next request only ever queues.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "mid-drag", size: 5) {
+            self.slowBuild(3, started: firstStarted, counter: busy)
+        }
+        XCTAssertEqual(firstStarted.wait(timeout: .now() + 5), .success)
+
+        let target = BuildCounter()
+        // The drag's LAST event lands while the drain is busy: queued, not started.
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "final", size: 5) {
+            target.bump()
+            return LUT3D(size: 5) { rgb in RGB(4, rgb.g, rgb.b) }
+        }
+        // The settle for that same last value.
+        _ = PlanTableCache.table(.finish, key: "final", size: 5) {
+            target.bump()
+            return LUT3D(size: 5) { rgb in RGB(4, rgb.g, rgb.b) }
+        }
+        waitForBakes()
+
+        XCTAssertEqual(target.count, 1,
+                       "the final table was baked twice: once by the settle and once "
+                       + "again by the drain, which still held the queued request")
+    }
+
+    /// Background bakes are real CPU competing with the render thread, and until they
+    /// were counted the HUD read `48b` for a drag performing up to 96 more.
+    func testADeferredBakeIsCounted() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "deferred", size: 5) {
+            LUT3D(size: 5) { rgb in RGB(5, rgb.g, rgb.b) }
+        }
+        waitForBakes()
+
+        XCTAssertEqual(PlanTableCache.currentStats.deferredBakes, 1,
+                       "the bake the stale serve queued happened, and the counter "
+                       + "that exists to make a defeated cache visible did not see it")
+        XCTAssertEqual(PlanTableCache.currentStats.staleServes, 1)
+    }
+
+    // MARK: What must NOT change
+
+    /// The join must not turn into "wait for anything". A settle for a DIFFERENT key
+    /// than the one baking has nothing to join and must bake immediately — waiting for
+    /// an unrelated table would be the same third of a second, spent differently.
+    func testASettleForADifferentKeyDoesNotWaitForTheBakeInFlight() {
+        freshCache()
+        warmSlot()
+        PlanTableCache.resetStats()
+
+        let started = DispatchSemaphore(value: 0)
+        let other = BuildCounter()
+        _ = PlanTableCache.tableAllowingStale(.finish, key: "in-flight", size: 5) {
+            self.slowBuild(6, started: started, counter: other, seconds: 0.6)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+
+        let clock = Date()
+        _ = PlanTableCache.table(.finish, key: "unrelated", size: 5) {
+            LUT3D(size: 5) { rgb in RGB(7, rgb.g, rgb.b) }
+        }
+        let elapsed = Date().timeIntervalSince(clock)
+        XCTAssertLessThan(elapsed, 0.3,
+                          "a settle waited \(elapsed)s on a bake for a key it will "
+                          + "never ask for")
+        waitForBakes()
+    }
+
+    /// And the table a joining settle receives is the RIGHT one — the exact table for
+    /// its key, not the stale one the drag frame was served.
+    func testTheJoinedSettleReceivesTheExactTableAndNotTheStaleOne() {
+        freshCache()
+        warmSlot()
+
+        let started = DispatchSemaphore(value: 0)
+        let counter = BuildCounter()
+        let draft = PlanTableCache.tableAllowingStale(.finish, key: "exact", size: 5) {
+            self.slowBuild(2, started: started, counter: counter)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+
+        let settle = PlanTableCache.table(.finish, key: "exact", size: 5) {
+            XCTFail("the settle should have joined the bake in flight")
+            return LUT3D(size: 5) { $0 }
+        }
+        waitForBakes()
+
+        // `data` is size³ × 4 interleaved floats, so element 0 is the first sample's
+        // red — which is where `markedLUT` writes its mark.
+        XCTAssertEqual(draft.data.first, 0,
+                       "the draft frame is served the warm table — one event stale")
+        XCTAssertEqual(settle.data.first, 2,
+                       "the settle must land on the exact table it waited for; serving "
+                       + "it the stale one would rest a wrong picture at rest")
+    }
+}
+
+// MARK: - Eviction by use, not by arrival (I1-05)
+
+extension PlanTableCacheTests {
+
+    /// The cache holds eight per slot and evicts with `removeLast`, so the order of the
+    /// array IS the eviction policy. A hit adopted the photograph and wrote the array
+    /// back but left the entry where it was, which made the policy "oldest arrival"
+    /// rather than "least recently used".
+    ///
+    /// A drag's drain inserts a fresh key roughly every 24 ms. Two seconds of dragging
+    /// is eighty new keys through an eight-slot cache — so the table a compare pane or
+    /// a before/after view keeps returning to is evicted while it is still in use, and
+    /// that pane's next frame pays a cold blocking bake the photographer cannot
+    /// attribute to anything they did.
+    func testAHitKeepsAnEntryAliveAcrossCapacityChurn() {
+        freshCache()
+
+        var builds = 0
+        func ask(_ key: String) {
+            _ = PlanTableCache.table(.finish, key: key, size: 5) {
+                builds += 1
+                return LUT3D(size: 5) { $0 }
+            }
+        }
+
+        ask("keeper")
+        // Seven more fills the slot; touching `keeper` between each is what a second
+        // pane does, and what must keep it alive.
+        for i in 0..<7 {
+            ask("churn-\(i)")
+            ask("keeper")
+        }
+        // The eighth eviction: with promotion, `keeper` is at the front and the oldest
+        // churn key goes; without it, `keeper` is the oldest and goes first.
+        ask("churn-7")
+
+        let before = builds
+        ask("keeper")
+        XCTAssertEqual(builds, before,
+                       "the table the second pane keeps asking for was evicted while it "
+                       + "was in use — eviction was ordered by arrival, not by use")
+    }
+
+    /// And the policy still EVICTS. A promotion that never dropped anything would keep
+    /// the slot growing without bound, which is the other way to pass the test above.
+    func testTheSlotStillEvictsWhatNobodyAsksFor() {
+        freshCache()
+        var builds = 0
+        func ask(_ key: String) {
+            _ = PlanTableCache.table(.finish, key: key, size: 5) {
+                builds += 1
+                return LUT3D(size: 5) { $0 }
+            }
+        }
+        ask("forgotten")
+        for i in 0..<8 { ask("fill-\(i)") }
+        let before = builds
+        ask("forgotten")
+        XCTAssertEqual(builds, before + 1,
+                       "a key nobody has asked for in eight insertions must be gone — "
+                       + "otherwise the cache has no capacity at all")
+    }
+}
+
+/// A build counter that is safe to bump from `bakeQueue` and read from the test.
+final class BuildCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func bump() { lock.lock(); value += 1; lock.unlock() }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
 }

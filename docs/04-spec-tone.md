@@ -41,6 +41,11 @@ The tone panel stack, top to bottom (UI order — pipeline order is `docs/14-pip
 └──────────────────────────────────────────┘
 ```
 
+> **Amendment (owner, 2026-08-26).** As shipped, the Basic panel's row order is
+> **Tone → Presence → WB → Colour** — tone first, white balance demoted to a
+> correction row. The sketch above predates that decision; docs/12's panel-order
+> section carries the amendment.
+
 Render sits at the top of the stack the way LrC's Profile does, because the display transform *is*
 the base look — everything else is judged through it. The Develop/Look split (`docs/00-vision.md`,
 D4) places this whole panel in Develop; the Zones panel and Curve are also mountable inside Look
@@ -195,7 +200,9 @@ falloff are visible and draggable on the histogram.
 | Global | same Exposure/wheel/Saturation | neutral | Unwindowed; composes with everything |
 
 Wire note (docs/15 §15.4): pivots are STORED as normalized positions on the tonal
-axis [0,1] (defaults 0.08/0.25/0.5/0.75/0.92); the EV values above are the UI
+axis [0,1]; the defaults are DERIVED from the EV row above through the axis
+(−4/−2/0/+2/+4 EV over −9…+5 ⇒ ≈0.357/0.5/0.643/0.786/0.929 — `Zones.defaultPivots`
+computes them, so the numbers and this table cannot drift apart); the EV values above are the UI
 denomination, mapped through the pipeline's log-luminance→axis function
 (docs/14-pipeline.md owns the mapping). Per-zone Saturation stores UI% − 100
 (so the sparse default is 0); per-zone Falloff stores 0…1 directly.
@@ -489,7 +496,7 @@ selectable readout space and a true raw histogram (D12).
 | Clipping triangles | hover = temporary overlay; click = lock | unlocked | Left = shadow clip (blue overlay), right = highlight clip (red) |
 | Overlay toggle | on/off | off | `J` toggles both persistent overlays |
 | Readout space | Working (Rec.2020 linear, %) \| sRGB 0–255 \| Output space | sRGB 0–255 | Applies to histogram, cursor readouts, curve coordinates |
-| Raw histogram | on/off toggle | off | Pre-development sensor histogram + per-channel clipped % |
+| Raw histogram | on/off toggle | off | Pre-development sensor histogram + per-channel clipped %. **Built as a scene-linear reading, not a sensor one** — see the note below and docs/10 §10.5 |
 | Capture info line | on/off | on | ISO · focal length · aperture · shutter under the graph |
 
 **How it works.** The histogram bins a ~1 MP proxy of the final rendered output on the GPU
@@ -502,6 +509,16 @@ the user's choice of working space, sRGB 0–255, or the current export target, 
 The **raw histogram** is computed from the sensor mosaic before development — actual raw clipping
 truth with per-channel clipped-percent stats, the FastRawViewer capability folded in; it is the
 same instrument that runs at cull time, where it earns its keep on every frame
+
+> **As built, that paragraph describes the target and not the code.** The instrument
+> exists and measures the **decoded scene-linear frame**, not the mosaic: Apple's RAW
+> API does not expose CFA values and Lumen has no raw reader. It is scene-referred and
+> carries the headroom above display white — which is the property this section is
+> really about, and which the rendered-proxy histogram above it does not have — but it
+> is post-demosaic. The cull-time surface is `⇧H` (docs/10 §10.5); the develop panel's
+> corner toggle for it is **not built**. Everything the panel prints is named
+> *Scene-linear (post-demosaic)*.
+
 (`docs/10-spec-library.md` owns the cull-time surface and its hold-key shadow-boost/highlight-
 inspect overlays). RGB parade, waveform, and the vectorscope live one disclosure away in the
 grading context and are owned by `docs/05-spec-color.md` (D22).

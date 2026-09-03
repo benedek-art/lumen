@@ -1,0 +1,15 @@
+{
+  "authority" : 69.26116437290887,
+  "deadSteps" : 0,
+  "frame" : "colourChart",
+  "frontLoading" : 0.6212014894302473,
+  "givenBack" : 0,
+  "hueRotation" : 23.072627656252223,
+  "id" : "pointColor.variance",
+  "isMonotone" : true,
+  "meanSeparation" : 2.724220322855566,
+  "panel" : "Point Colour",
+  "smallestLiveStep" : 2.3211736605721853,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

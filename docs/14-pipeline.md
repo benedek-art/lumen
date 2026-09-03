@@ -124,8 +124,10 @@ checkpoints (§6.1).
                  light, pre-curve)
 ══════════════ picture formation ══════════════
  S14 RENDER      THE display transform: AgX-class sigmoid │ film
-                 negative+print chain (density-domain grain inside);
-                 hue-preserving gamut mapping; display-peak-parameterized ◆
+                 negative+print chain; hue-preserving gamut mapping;
+                 display-peak-parameterized ◆ — film grain composites at
+                 the END of formation (after the local-curve tap), in the
+                 formed picture's own density domain
 ══════════════ display-referred · still linear-light, 0..peak ══════════════
  S15 CURVE       tone curve (parametric/point/R/G/B/Luma), local curve
                  tap, display-interpreted LUTs, soft clip
@@ -457,11 +459,17 @@ recorded here because they are pipeline structure:
   subtractive (saturated colors darken — the "expensive" film property). Negative + print = two in
   series with an inversion between. The spectral parts (layer sensitivities, masking couplers, DIR
   inhibition) never run live: baked offline per stock × print × push into 65³ LUTs.
-- **Density-domain grain (inside S14)** — pre-baked tileable unit-variance plates per channel
-  (particle-model authored offline: 0.2 µm² particles, channel size scale 0.8/1.0/2.0 RGB — blue
-  record coarsest), applied in density space with amplitude ∝ √(p(1−p)), p = D/Dmax: grain peaks
-  at mid densities and vanishes at Dmin/Dmax, anchored to output print size. Never applied in
-  display RGB — that is LR's constant-σ overlay, the thing this model exists to beat.
+- **Density-domain grain (end of formation)** — pre-baked tileable unit-variance plates per
+  channel (particle-model authored offline: 0.2 µm² particles, channel size scale 0.8/1.0/2.0
+  RGB — blue record coarsest), applied with amplitude ∝ √(p(1−p)), p = D/Dmax: grain peaks at
+  mid densities and vanishes at Dmin/Dmax, anchored to output print size. **As built**, both
+  paths (ReferenceRenderer.applyGrain, the lumenGrain kernel) composite grain AFTER picture
+  formation and the local-curve tap, reading the density of the FORMED picture — D = −log₁₀(v)
+  of display-linear — rather than injecting it inside the negative+print chain as this section
+  first designed; the dormant in-chain entry point was removed rather than left promising a
+  wiring that never ran. The physical envelope is identical either way; what the tap point
+  changes is that grain reads the print's density, not the negative's pre-print density. Never
+  a constant-σ RGB overlay — that is LR's model, the thing this one exists to beat.
 - **Push/Pull** — one parameter that swaps/interpolates adjacent baked LUTs (curve steepening +
   crossover) while scaling grain amount and plate scale.
 

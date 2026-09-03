@@ -30,14 +30,20 @@ import SwiftUI
 
 struct ScopesView: View {
 
-    private let waveform: Waveform?
-    private let parade: Parade?
-    private let vectorscope: Vectorscope?
+    // The whole feed, images included. This view used to rasterize 65k–197k pixels
+    // inside `body` — waveform 256×256, parade three times that, vectorscope 192×192,
+    // fresh byte arrays and CGImages every evaluation — and `DevelopPanel` re-bodies
+    // on every publish, which during a drag is every mouse event. The rasters now ride
+    // `ScopeData`, built once per measurement on the same detached task that binned
+    // the pixels; this view just draws them.
+    private let scopes: ScopeData?
 
-    init(waveform: Waveform?, parade: Parade?, vectorscope: Vectorscope?) {
-        self.waveform = waveform
-        self.parade = parade
-        self.vectorscope = vectorscope
+    private var waveform: Waveform? { scopes?.waveform }
+    private var parade: Parade? { scopes?.parade }
+    private var vectorscope: Vectorscope? { scopes?.vectorscope }
+
+    init(scopes: ScopeData?) {
+        self.scopes = scopes
     }
 
     enum ScopeKind: String, CaseIterable, Hashable {
@@ -63,9 +69,18 @@ struct ScopesView: View {
             LumenSegmented(options: kindOptions, selection: $kind)
             content
             Text(caption)
-                .font(.system(size: 10))
+                .font(.lumenCaption)
                 .foregroundStyle(Lumen.secondaryText)
                 .lineLimit(1)
+                .help(measurementStatement)
+            // Only when the answer is not the plain one — see `provenanceNote`.
+            if let provenanceNote {
+                Text(provenanceNote)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .lineLimit(1)
+                    .help(measurementStatement)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -90,8 +105,7 @@ struct ScopesView: View {
 
     @ViewBuilder
     private var waveformPanel: some View {
-        if let waveform, let image = ScopesView.raster(waveform, peak: waveform.peak,
-                                                       tint: ScopeTint.neutral) {
+        if let image = scopes?.waveformImage {
             tracePlate {
                 Image(decorative: image, scale: 1, orientation: .up)
                     .resizable()
@@ -106,34 +120,26 @@ struct ScopesView: View {
 
     @ViewBuilder
     private var paradePanel: some View {
-        if let parade {
-            // One normalization across all three panels: the parade is one instrument,
-            // and per-panel scaling would make a weak blue channel look full strength.
-            let peak: Int = parade.peak
+        if let images = scopes?.paradeImages, images.count == 3 {
             HStack(spacing: 2) {
-                paradeChannel(parade.red, peak: peak, tint: ScopeTint.red)
-                paradeChannel(parade.green, peak: peak, tint: ScopeTint.green)
-                paradeChannel(parade.blue, peak: peak, tint: ScopeTint.blue)
+                paradeChannel(images[0])
+                paradeChannel(images[1])
+                paradeChannel(images[2])
             }
             .frame(height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
         } else {
             emptyPlate("No parade yet")
         }
     }
 
     @ViewBuilder
-    private func paradeChannel(_ channel: Waveform, peak: Int, tint: ScopeTint) -> some View {
-        if let image = ScopesView.raster(channel, peak: peak, tint: tint) {
-            Image(decorative: image, scale: 1, orientation: .up)
-                .resizable()
-                .interpolation(.medium)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            Color.black.opacity(0.4)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+    private func paradeChannel(_ image: CGImage) -> some View {
+        Image(decorative: image, scale: 1, orientation: .up)
+            .resizable()
+            .interpolation(.medium)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: Vectorscope
@@ -144,7 +150,7 @@ struct ScopesView: View {
             let skin: [ScopePoint] = vectorscope.skinLinePoints(count: 2)
             let band: (low: [ScopePoint], high: [ScopePoint]) = vectorscope.skinBandPoints(count: 2)
             ZStack {
-                if let image = ScopesView.raster(vectorscope) {
+                if let image = scopes?.vectorscopeImage {
                     Image(decorative: image, scale: 1, orientation: .up)
                         .resizable()
                         .interpolation(.medium)
@@ -156,7 +162,7 @@ struct ScopesView: View {
             }
             .frame(width: ScopesView.panelHeight, height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
             .frame(maxWidth: .infinity)
             .help("OKLab a/b chroma scatter. The line is the skin-tone axis — "
                   + "faces sit along it whatever the skin colour.")
@@ -172,29 +178,51 @@ struct ScopesView: View {
             .frame(maxWidth: .infinity)
             .frame(height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
     }
 
     private func emptyPlate(_ message: String) -> some View {
         Text(message)
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .frame(maxWidth: .infinity)
             .frame(height: ScopesView.panelHeight)
             .background(Color.black.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusCard, style: .continuous))
     }
 
+    /// The caption is the scope's units, and a scope with unstated units is a picture of
+    /// a scope. Three things belong here and one of them was missing.
+    ///
+    /// It has to fit ONE LINE at the column's minimum width (320 pt, `Lumen
+    /// .minimumPanelWidth`), which is what pays for the compressions: `space.label`'s
+    /// full form ("Output profile 0–255") became `shortSpaceLabel`'s, and "256 columns ×
+    /// 256 bins" became "256×256". Both spellings survive in the tooltip, where there is
+    /// room. Without them the waveform caption is 70 characters and truncates.
+    ///
+    /// What it did NOT have, at any width, was the weighting behind the word "Luma":
+    /// `Waveform.compute` weights the WORKING triple by `transform.working
+    /// .luminanceWeights`, so this is a Rec.2020-luminance waveform and not a Rec.709
+    /// one and not a plain average — a distinction of several percent on saturated
+    /// colour, and the exact confusion `RGBColorSpace.luminanceWeights`' own comment
+    /// warns about. `ScopeReadout.lumaLabel` reads it off the transform the trace
+    /// actually carries, so the caption cannot drift from the arithmetic.
+    ///
+    /// The column count is printed because it is now DERIVED (`ScopeReadout
+    /// .traceColumns`) rather than fixed at 256: a narrow crop gets a narrower, complete
+    /// scope instead of a 256-column one with a third of its columns blank, and the
+    /// caption is where that shows.
     private var caption: String {
         switch kind {
         case .waveform:
             guard let waveform else { return "Waveform — luma, column by column" }
-            return "Luma waveform · \(waveform.columns) columns × \(waveform.bins) bins · "
-                + waveform.transform.space.label
+            return ScopeReadout.lumaLabel(waveform.transform) + " waveform · "
+                + "\(waveform.columns)×\(waveform.bins) · "
+                + ScopeReadout.shortSpaceLabel(waveform.transform.space)
         case .parade:
             guard let parade else { return "RGB parade" }
-            return "RGB parade · \(parade.red.columns) columns × \(parade.red.bins) bins · "
-                + parade.red.transform.space.label
+            return "RGB parade · \(parade.red.columns)×\(parade.red.bins) · "
+                + ScopeReadout.shortSpaceLabel(parade.red.transform.space)
         case .vectorscope:
             guard let vectorscope else { return "Vectorscope — OKLab a/b" }
             return "OKLab a/b · ±" + String(format: "%.2f", vectorscope.extent)
@@ -204,76 +232,52 @@ struct ScopesView: View {
         }
     }
 
+    /// The same disclosure the histogram makes, on the same terms: printed only when the
+    /// answer is not the plain one, because a permanent caption for the ordinary case is
+    /// chrome. Both panels read one `ScopeReadout.Provenance` off one measurement, so
+    /// they cannot describe different pictures.
+    private var provenanceNote: String? { scopes?.provenance?.note }
+
+    /// What these traces are a trace OF — the tooltip behind every panel.
+    private var measurementStatement: String {
+        let space: ReadoutSpace = waveform?.transform.space
+            ?? parade?.red.transform.space
+            ?? scopes?.histogram?.transform.space
+            ?? .srgb255
+        guard let provenance = scopes?.provenance else {
+            return "No measurement yet."
+        }
+        return provenance.statement(readout: space) + " " + gridSentence
+    }
+
+    /// The grid the caption compresses to "256×256", spelled out where there is room —
+    /// and with the vertical's own rule, which is neither the caption's business nor the
+    /// histogram's: a waveform cell's brightness is its count against the whole scope's
+    /// peak, through a 0.4 gamma, so a single sample stays visible beside a thousand.
+    private var gridSentence: String {
+        switch kind {
+        case .waveform:
+            guard let waveform else { return "" }
+            return "\(waveform.columns) columns × \(waveform.bins) bins; "
+                + "cell brightness is count ÷ peak through a 0.4 gamma, so one sample "
+                + "stays visible beside a thousand."
+        case .parade:
+            guard let parade else { return "" }
+            return "\(parade.red.columns) columns × \(parade.red.bins) bins per channel, "
+                + "all three normalized against one peak so a weak channel draws weak."
+        case .vectorscope:
+            guard let vectorscope else { return "" }
+            return "\(vectorscope.resolution)×\(vectorscope.resolution) cells over "
+                + "OKLab a/b; \(vectorscope.outOfRangeCount) samples fell outside the "
+                + "plot and are drawn in its border cells."
+        }
+    }
+
     // MARK: Rasterizing
+    //
+    // Lives in `ScopeRaster`, not on the view: the detached measurement task in
+    // ScopeData.swift calls it once per refresh, so `body` never rasterizes anything.
 
-    /// A waveform panel. `counts` is column-major with bin 0 at black, so the bitmap
-    /// row is `bins − 1 − bin`: the data never encodes a drawing convention, the
-    /// renderer does.
-    private static func raster(_ waveform: Waveform, peak: Int, tint: ScopeTint) -> CGImage? {
-        let width: Int = waveform.columns
-        let height: Int = waveform.bins
-        guard width > 0, height > 0, peak > 0 else { return nil }
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
-        let inverse: Double = 1.0 / Double(peak)
-        for column in 0..<width {
-            for bin in 0..<height {
-                let count: Int = waveform.count(column: column, bin: bin)
-                guard count > 0 else { continue }
-                let value: Double = gamma(Double(count) * inverse)
-                let row: Int = height - 1 - bin
-                let offset: Int = (row * width + column) * 4
-                guard offset >= 0, offset + 3 < bytes.count else { continue }
-                bytes[offset] = byte(value * tint.r)
-                bytes[offset + 1] = byte(value * tint.g)
-                bytes[offset + 2] = byte(value * tint.b)
-                bytes[offset + 3] = 255
-            }
-        }
-        return image(bytes: bytes, width: width, height: height)
-    }
-
-    /// The vectorscope's grid is already row-major with row 0 at the top (+b), which is
-    /// exactly a bitmap's layout — no flip.
-    private static func raster(_ scope: Vectorscope) -> CGImage? {
-        let n: Int = scope.resolution
-        guard n > 0, scope.peak > 0 else { return nil }
-        var bytes = [UInt8](repeating: 0, count: n * n * 4)
-        for row in 0..<n {
-            for column in 0..<n {
-                let value: Double = scope.intensity(column: column, row: row)
-                guard value > 0 else { continue }
-                let level: Double = gamma(value)
-                let offset: Int = (row * n + column) * 4
-                guard offset >= 0, offset + 3 < bytes.count else { continue }
-                let grey: UInt8 = byte(level * ScopeTint.neutral.r)
-                bytes[offset] = grey
-                bytes[offset + 1] = grey
-                bytes[offset + 2] = grey
-                bytes[offset + 3] = 255
-            }
-        }
-        return image(bytes: bytes, width: n, height: n)
-    }
-
-    /// A single sample must still be visible next to a thousand: the trace is shown
-    /// through a strong gamma rather than linearly, which is what every hardware scope
-    /// does and why they read as a glow instead of a histogram.
-    private static func gamma(_ intensity: Double) -> Double {
-        guard intensity.isFinite, intensity > 0 else { return 0 }
-        return clamp01(pow(clamp01(intensity), 0.4))
-    }
-
-    private static func image(bytes: [UInt8], width: Int, height: Int) -> CGImage? {
-        guard width > 0, height > 0, bytes.count == width * height * 4 else { return nil }
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
-        return CGImage(width: width, height: height,
-                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: space,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false,
-                       intent: .defaultIntent)
-    }
 
     // MARK: Graticule
 
@@ -338,6 +342,103 @@ struct ScopesView: View {
         return Swift.min(Swift.max(v, 0), 1)
     }
 
+}
+
+// MARK: - Trace tint
+
+/// How a panel's trace is coloured. Waveform and vectorscope are achromatic; the
+/// parade's three panels carry just enough tint to name themselves.
+
+/// Rasterizes scope traces to CGImages, off the view. Called once per measurement by
+/// ScopeData's detached task; ScopesView only draws the results.
+enum ScopeRaster {
+
+    /// A waveform panel. `counts` is column-major with bin 0 at black, so the bitmap
+    /// row is `bins − 1 − bin`: the data never encodes a drawing convention, the
+    /// renderer does.
+    static func waveform(_ waveform: Waveform, peak: Int, tint: ScopeTint) -> CGImage? {
+        let width: Int = waveform.columns
+        let height: Int = waveform.bins
+        guard width > 0, height > 0, peak > 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let inverse: Double = 1.0 / Double(peak)
+        for column in 0..<width {
+            for bin in 0..<height {
+                let count: Int = waveform.count(column: column, bin: bin)
+                guard count > 0 else { continue }
+                let value: Double = gamma(Double(count) * inverse)
+                let row: Int = height - 1 - bin
+                let offset: Int = (row * width + column) * 4
+                guard offset >= 0, offset + 3 < bytes.count else { continue }
+                bytes[offset] = byte(value * tint.r)
+                bytes[offset + 1] = byte(value * tint.g)
+                bytes[offset + 2] = byte(value * tint.b)
+                bytes[offset + 3] = 255
+            }
+        }
+        return image(bytes: bytes, width: width, height: height)
+    }
+
+    /// The vectorscope's grid is already row-major with row 0 at the top (+b), which is
+    /// exactly a bitmap's layout — no flip.
+    static func vectorscope(_ scope: Vectorscope) -> CGImage? {
+        let n: Int = scope.resolution
+        guard n > 0, scope.peak > 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: n * n * 4)
+        for row in 0..<n {
+            for column in 0..<n {
+                let value: Double = scope.intensity(column: column, row: row)
+                guard value > 0 else { continue }
+                let level: Double = gamma(value)
+                let offset: Int = (row * n + column) * 4
+                guard offset >= 0, offset + 3 < bytes.count else { continue }
+                let grey: UInt8 = byte(level * ScopeTint.neutral.r)
+                bytes[offset] = grey
+                bytes[offset + 1] = grey
+                bytes[offset + 2] = grey
+                bytes[offset + 3] = 255
+            }
+        }
+        return image(bytes: bytes, width: n, height: n)
+    }
+
+    /// A single sample must still be visible next to a thousand: the trace is shown
+    /// through a strong gamma rather than linearly, which is what every hardware scope
+    /// does and why they read as a glow instead of a histogram.
+    private static func gamma(_ intensity: Double) -> Double {
+        guard intensity.isFinite, intensity > 0 else { return 0 }
+        return clamp01(pow(clamp01(intensity), 0.4))
+    }
+
+    private static func image(bytes: [UInt8], width: Int, height: Int) -> CGImage? {
+        guard width > 0, height > 0, bytes.count == width * height * 4 else { return nil }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(width: width, height: height,
+                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                       space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false,
+                       intent: .defaultIntent)
+    }
+
+    /// One normalization across all three channels: the parade is one instrument, and
+    /// per-channel scaling would make a weak blue channel look full strength.
+    static func parade(_ parade: Parade) -> [CGImage]? {
+        let peak = parade.peak
+        guard let r = waveform(parade.red, peak: peak, tint: ScopeTint.red),
+              let g = waveform(parade.green, peak: peak, tint: ScopeTint.green),
+              let b = waveform(parade.blue, peak: peak, tint: ScopeTint.blue) else {
+            return nil
+        }
+        return [r, g, b]
+    }
+
+    private static func clamp01(_ v: Double) -> Double {
+        guard v.isFinite else { return 0 }
+        return Swift.min(Swift.max(v, 0), 1)
+    }
+
     private static func byte(_ v: Double) -> UInt8 {
         guard v.isFinite else { return 0 }
         let scaled: Double = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
@@ -345,11 +446,7 @@ struct ScopesView: View {
     }
 }
 
-// MARK: - Trace tint
-
-/// How a panel's trace is coloured. Waveform and vectorscope are achromatic; the
-/// parade's three panels carry just enough tint to name themselves.
-private struct ScopeTint {
+struct ScopeTint {
     let r: Double
     let g: Double
     let b: Double

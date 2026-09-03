@@ -1,0 +1,15 @@
+{
+  "authority" : 55.7352169136,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.8272513144245088,
+  "givenBack" : 0,
+  "hueRotation" : 137.61585793059547,
+  "id" : "grade.pivot.highlight",
+  "isMonotone" : true,
+  "meanSeparation" : 11.805883414199469,
+  "panel" : "Grade",
+  "smallestLiveStep" : 5.2312458548979635,
+  "travelHigh" : 1,
+  "travelLow" : 0.35
+}

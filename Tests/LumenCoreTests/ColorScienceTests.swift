@@ -190,15 +190,29 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertEqual(d50.y, 0.35850, accuracy: 1e-3, "5000 K is not at D50")
     }
 
+    /// The round trip is against the tint the RENDER USES, not the tint that was asked
+    /// for — which is what `temperatureAndTint` documents itself as returning: "a
+    /// colour sampled from beyond that bound reports the tint the render would actually
+    /// use rather than one it would silently pull in."
+    ///
+    /// It used to compare against the asked-for value and passed only by luck. Every
+    /// sampled pair was inside the bound except 2500 K / +60, where the bound was
+    /// +56.80 and the ±8 tolerance swallowed the 3.2 of clamping. When the magenta
+    /// bound tightened to +30.00 at 2500 K — see `ColorTemperature.magentaMonotoneLimit`
+    /// — the same lucky pass became a 30-unit failure, and the test was measuring the
+    /// bound rather than the round trip the whole time. Asking `clampedTint` what the
+    /// render will do makes it measure the round trip at every pair, INCLUDING the
+    /// clamped ones, which is strictly more than it checked before.
     func testTemperatureRoundTrip() {
         for kelvin in [2500.0, 3200, 5000, 5500, 6500, 9000, 15000] {
             for tint in [-80.0, 0, 60] {
                 let chroma = ColorTemperature.chromaticity(kelvin: kelvin, tint: tint)
                 let back = ColorTemperature.temperatureAndTint(for: chroma)
+                let rendered = ColorTemperature.clampedTint(kelvin: kelvin, tint: tint)
                 XCTAssertEqual(back.kelvin, kelvin, accuracy: kelvin * 0.03,
                                "K round trip at \(kelvin)/\(tint)")
-                XCTAssertEqual(back.tint, tint, accuracy: 8,
-                               "tint round trip at \(kelvin)/\(tint)")
+                XCTAssertEqual(back.tint, rendered, accuracy: 8,
+                               "tint round trip at \(kelvin)/\(tint), which renders as \(rendered)")
             }
         }
     }
@@ -436,6 +450,154 @@ final class ColorScienceTests: XCTestCase {
         }
     }
 
+    // MARK: - Protect Skin, where it is applied rather than where it is scored
+
+    /// A colour on the skin line at full skin weight, so `protection` is exactly
+    /// `1 − protectSkin/100` and the arithmetic under test is not diluted by the score.
+    private func skinLineColour(L: Double = 0.55, C: Double = 0.10) -> RGB {
+        OKLabTransform.working.toRGB(
+            OKLCh(L: L, C: C, h: ColorEngine.skinLineDegrees))
+    }
+
+    /// The same chroma and lightness, well off the skin line: the control colour that
+    /// makes "skin was spared" mean something rather than "nothing happened".
+    private func offLineColour(L: Double = 0.55, C: Double = 0.10) -> RGB {
+        OKLabTransform.working.toRGB(
+            OKLCh(L: L, C: C, h: ColorEngine.skinLineDegrees + 180))
+    }
+
+    private func chroma(_ c: RGB) -> Double { LumenUCS.fromRGB(c).C }
+
+    private func engine(_ adjust: ColorAdjust) -> ColorEngine {
+        ColorEngine(mixer: Mixer(), pointColors: [], color: adjust,
+                    primaries: Primaries(), bw: nil)
+    }
+
+    /// Saturation −100 reaches true black and white, ON SKIN, at the shipped default.
+    ///
+    /// `protection` multiplied the negative saturation amount as well as the positive
+    /// one, so at the default Protect Skin of 70 a full desaturation left every
+    /// skin-hued pixel at 30% of its chroma: a face still in colour inside a frame the
+    /// photographer had taken to black and white. The wire format says "−100 reaches
+    /// true B&W", the engine's own comment said it, and neither was true.
+    func testSaturationMinus100ReachesTrueBlackAndWhiteOnSkin() {
+        var adjust = ColorAdjust()          // density 50, protectSkin 70 — the defaults
+        adjust.saturation = -100
+        let e = engine(adjust)
+
+        for (name, rgb8) in Self.skinSwatches {
+            let input = working(rgb8)
+            XCTAssertGreaterThan(ColorEngine.skinWeight(input), 0.2,
+                                 "INVALID PROBE: \(name) does not score as skin")
+            XCTAssertLessThan(chroma(e.apply(input)), 1e-9,
+                              "\(name) kept \(chroma(e.apply(input))) of chroma at "
+                                  + "Saturation −100 — Protect Skin blocked the pull")
+        }
+
+        // Including the worst case the score can produce: full weight, full protection.
+        var full = ColorAdjust(protectSkin: 100)
+        full.saturation = -100
+        let onLine = skinLineColour()
+        XCTAssertEqual(ColorEngine.skinWeight(onLine), 1, accuracy: 1e-9,
+                       "INVALID PROBE: the probe colour is not at full skin weight")
+        XCTAssertLessThan(chroma(engine(full).apply(onLine)), 1e-9,
+                          "Protect Skin at 100 held colour in a black-and-white frame")
+    }
+
+    /// The other half, and the half that had no test at all: the attenuation itself.
+    ///
+    /// Both fixture tests zero `protectSkin`, so deleting `* protection` from the engine
+    /// left the whole suite green — the same shape as the 33° skin-line constant that
+    /// shipped wrong for months behind passing tests. This drives the multiplication on
+    /// both sliders and in both directions.
+    func testProtectSkinAttenuatesTheMovesItSaysItDoes() {
+        let onLine = skinLineColour()
+        let offLine = offLineColour()
+        XCTAssertEqual(ColorEngine.skinWeight(onLine), 1, accuracy: 1e-9,
+                       "INVALID PROBE: on-line colour is not at full skin weight")
+        XCTAssertEqual(ColorEngine.skinWeight(offLine), 0, accuracy: 1e-9,
+                       "INVALID PROBE: the control colour scores as skin")
+
+        // Saturation, pushing. Protection 100 leaves skin exactly alone; protection 0
+        // pushes it as hard as anything else.
+        var pushed = ColorAdjust(protectSkin: 0)
+        pushed.saturation = 100
+        var protected = ColorAdjust(protectSkin: 100)
+        protected.saturation = 100
+        XCTAssertGreaterThan(chroma(engine(pushed).apply(onLine)), chroma(onLine) * 1.1,
+                             "Saturation +100 did not push an unprotected skin tone")
+        XCTAssertEqual(chroma(engine(protected).apply(onLine)), chroma(onLine),
+                       accuracy: chroma(onLine) * 1e-9,
+                       "Protect Skin at 100 did not spare skin from a Saturation push")
+        XCTAssertGreaterThan(chroma(engine(protected).apply(offLine)),
+                             chroma(offLine) * 1.1,
+                             "Protect Skin at 100 attenuated a colour that is not skin")
+
+        // Vibrance keeps protection at BOTH signs: its negative end promises no
+        // endpoint, so there is no contract for the guard to break, and sparing skin is
+        // what the dial is named for.
+        for amount in [100.0, -100.0] {
+            var vibrance = ColorAdjust(protectSkin: 100)
+            vibrance.vibrance = amount
+            XCTAssertEqual(chroma(engine(vibrance).apply(onLine)), chroma(onLine),
+                           accuracy: chroma(onLine) * 1e-9,
+                           "Protect Skin at 100 did not spare skin from Vibrance \(amount)")
+            var unprotected = ColorAdjust(protectSkin: 0)
+            unprotected.vibrance = amount
+            XCTAssertNotEqual(chroma(engine(unprotected).apply(onLine)), chroma(onLine),
+                              accuracy: chroma(onLine) * 1e-3,
+                              "INVALID PROBE: Vibrance \(amount) does nothing here even "
+                                  + "unprotected, so protection cannot be measured")
+        }
+
+        // And the default is a partial attenuation, not a switch: 70 spares 70% of the
+        // push on a full-weight skin tone rather than all or none of it.
+        var half = ColorAdjust(protectSkin: 70)
+        half.saturation = 100
+        let none = chroma(engine(pushed).apply(onLine)) - chroma(onLine)
+        let some = chroma(engine(half).apply(onLine)) - chroma(onLine)
+        XCTAssertGreaterThan(some, 0, "Protect Skin 70 blocked the push entirely")
+        XCTAssertLessThan(some, none * 0.6,
+                          "Protect Skin 70 barely attenuated the push: \(some) of \(none)")
+    }
+
+    // MARK: - Density
+
+    /// Density is inert wherever Saturation is not pushing, and the recipe says so.
+    ///
+    /// The subtractive branch is a per-channel gamma above 1 — it densifies a colour as
+    /// it intensifies — and there is nothing to blend on the way down, so `ColorEngine`
+    /// guards it on `satAmount > 0`. That guard is right. What was wrong is that nothing
+    /// said so: the panel drew a live bipolar dial across half of Saturation's range
+    /// where it did exactly nothing.
+    ///
+    /// This test is what stops `ColorAdjust.densityIsLive` — the predicate the panel now
+    /// disables the row on — from drifting away from the engine's own guard, in either
+    /// direction: it fails if the flag claims a live dial that moves nothing, and it
+    /// fails if the flag claims a dead one that does.
+    func testDensityIsLiveExactlyWhereItChangesThePicture() {
+        // Ordinary saturated colours at ordinary brightness, none of them on the skin
+        // line, so neither the rolloff nor the protection can stand in for the guard.
+        let probes = [RGB(0.30, 0.10, 0.08), RGB(0.08, 0.22, 0.30),
+                      RGB(0.12, 0.28, 0.09), RGB(0.26, 0.09, 0.28)]
+
+        for saturation in [-100.0, -50.0, -1.0, 0.0, 1.0, 25.0, 100.0] {
+            let low = engine(ColorAdjust(saturation: saturation,
+                                         density: 0, protectSkin: 0))
+            let high = engine(ColorAdjust(saturation: saturation,
+                                          density: 100, protectSkin: 0))
+            let moved = probes.contains {
+                low.apply($0).maxAbsDifference(high.apply($0)) > 1e-9
+            }
+            let claimed = ColorAdjust(saturation: saturation).densityIsLive
+            XCTAssertEqual(moved, claimed,
+                           "at Saturation \(saturation) the Density dial "
+                               + (moved ? "moves" : "does not move")
+                               + " the picture but the panel is told it is "
+                               + (claimed ? "live" : "dead"))
+        }
+    }
+
     // MARK: - The advanced grading grid (D15)
     //
     // `ColorBalanceGrid` was written, tested for its own arithmetic, and referenced by
@@ -481,6 +643,43 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertGreaterThan(
             plan.referenceColor(scene).maxAbsDifference(base.referenceColor(scene)),
             1e-3, "the baked table ignores the grid")
+    }
+
+    /// `referenceColor` and `exactColor` are twins, and both take the space the plan
+    /// was built with. referenceColor hardcoded rec2020 for the tone stage's
+    /// luminance while its twin used the parameter (docs/23 audit queue item 9), so
+    /// on a plan built for another working space the two disagreed about how bright
+    /// a saturated colour is BEFORE either table was sampled — a real divergence
+    /// silently charged to "interpolation error" in every golden comparing them.
+    ///
+    /// Exact, not tolerance-bounded: with an identity colour/grade stack,
+    /// referenceColor IS finishedColor over the tone-gained linear value, so the
+    /// expectation reproduces its own code path and the only degree of freedom is
+    /// which space weighed the luminance.
+    func testReferenceColorWeighsLuminanceInTheSpaceItIsAskedAbout() {
+        var recipe = Recipe()
+        recipe.develop.tone.shadows = 80
+        let plan = RenderPlan(recipe: recipe, space: .displayP3)
+        // Blue: the weight rec2020 and P3 disagree on most (0.0593 vs 0.0793 —
+        // 0.42 EV apart on a pure-blue pixel), deep in the shadows where +80
+        // Shadows makes the gain steep.
+        let scene = RGB(0.01, 0.01, 0.5)
+
+        let c = plan.linear.apply(scene)
+        let lum = Swift.max(RGBColorSpace.displayP3.luminance(c), 0)
+        let expected = plan.finishedColor(encoded: LumenLog.encode(
+            c * plan.tone.gain(at: Num.safeLog2(lum / 0.18))))
+
+        let got = plan.referenceColor(scene, space: .displayP3)
+        XCTAssertEqual(got.maxAbsDifference(expected), 0, accuracy: 1e-12,
+                       "the tone stage weighed luminance in a different space "
+                           + "than the one it was asked about")
+
+        // And the default stays the default: no space argument means rec2020,
+        // bit-for-bit, so every existing golden keeps measuring what it measured.
+        XCTAssertEqual(plan.referenceColor(scene)
+                        .maxAbsDifference(plan.referenceColor(scene, space: .rec2020)),
+                       0)
     }
 
     /// The grid grades ZONES, and the zones are the ones the strip above the wheels
@@ -679,6 +878,47 @@ final class ColorScienceTests: XCTestCase {
                        "Uniformity ignored the band's own core arc")
     }
 
+    /// The wiring docs/23 audit queue item 12 asked for, at the plan level: a
+    /// measurement handed to `RenderPlan(bandMeanHues:)` must reach the colour-grade
+    /// TABLE — the thing every shipping pixel goes through — and must be part of that
+    /// table's cache key. The key half is the sharp edge: build the measured plan
+    /// first and the unmeasured one second, and a key without the hues part would
+    /// hand the second plan the first plan's cached table — photo B rendered with
+    /// photo A's convergence field, the Paste-Settings poisoning class one cache over.
+    func testRenderPlanThreadsMeasuredHuesIntoTheTableAndItsKey() {
+        PlanTableCache.clear()
+        defer { PlanTableCache.clear() }
+
+        var recipe = Recipe()
+        recipe.develop.mixer.uniformity = 100
+        let centre = ColorEngine.bandHueCentres[5]
+        var means = ColorEngine.bandHueCentres
+        means[5] = Num.wrapHue(centre + 20)
+
+        // Measured FIRST, so a hues-blind cache key would poison the nil plan below.
+        let measured = RenderPlan(recipe: recipe, bandMeanHues: means)
+        let unmeasured = RenderPlan(recipe: recipe)
+
+        let colour = swatch(hue: centre)
+        let encoded = LumenLog.encode(colour)
+        let measuredHue = hue(of: LumenLog.decode(measured.colorGradeLUT.sample(encoded)))
+        let unmeasuredHue = hue(of: LumenLog.decode(unmeasured.colorGradeLUT.sample(encoded)))
+
+        XCTAssertEqual(Num.hueDelta(centre, unmeasuredHue), 0, accuracy: 1.0,
+                       "with no measurement, a pixel on the band centre should rest")
+        // Most of the 20° arrives; the shortfall is the 33³ table interpolating a
+        // hue rotation (measured 14.2° on this swatch — the engine-direct test above
+        // this one shows the full 20° when the table is not in the way). What this
+        // asserts is the THREADING: the measurement moved the shipping table's
+        // pixels, in the right direction, by most of the asked-for amount.
+        XCTAssertGreaterThan(Num.hueDelta(centre, measuredHue), 10,
+                             "the measured mean never reached the shipping table")
+
+        // And the cache serves the measured plan its own table on a rebuild.
+        let again = RenderPlan(recipe: recipe, bandMeanHues: means)
+        XCTAssertEqual(again.colorGradeLUT, measured.colorGradeLUT)
+    }
+
     /// The writer `bandMeanHues` never had. Before this the field was read at
     /// `bandTargetHue` and assigned `nil` in `init`, so these two engines were the same
     /// engine and no measurement could change a pixel.
@@ -799,6 +1039,40 @@ final class ColorScienceTests: XCTestCase {
         let out = engine.apply(colour, localMean: neighbourhood)
         XCTAssertEqual(Num.hueDelta(centre, hue(of: out)), -20, accuracy: 1.5,
                        "the local mean was ignored")
+    }
+
+    // MARK: - The black-and-white treatment reads its own flag (COLOR-20)
+
+    /// `look.bw` being present is no longer the treatment being on, and the stage that
+    /// paints the pixels has to agree — otherwise a mix kept for later renders every
+    /// photo it is kept on in black and white.
+    ///
+    /// Asserted on `RenderPlan`, which is what the shipping bake and the export path
+    /// both build, rather than on `ColorEngine` alone.
+    func testAStoredButSwitchedOffMixRendersInColour() {
+        let mix: [Double] = [0, 0, 0, 0, -40, -65, 0, 0]
+        let colour = RGB(0.22, 0.31, 0.55)     // a blue the mix has real authority over
+
+        var off = Recipe()
+        off.look.bw = BlackAndWhite(bands: mix, enabled: false)
+        var on = off
+        on.look.bw?.enabled = true
+
+        let plain = RenderPlan(recipe: Recipe()).exactColor(colour)
+        let kept = RenderPlan(recipe: off).exactColor(colour)
+        let treated = RenderPlan(recipe: on).exactColor(colour)
+
+        XCTAssertLessThan(kept.maxAbsDifference(plain), 1e-12,
+                          "a mix the user switched off is still painting the picture")
+        XCTAssertTrue(RenderPlan(recipe: off).colorGradeIsIdentity,
+                      "the switched-off mix is still baking a colour table")
+
+        // The other direction, so the assertion above cannot pass by the stage being
+        // dead: switched on, the same mix must reach a true neutral.
+        XCTAssertGreaterThan(treated.maxAbsDifference(plain), 0.02,
+                             "the treatment did nothing when switched on")
+        XCTAssertLessThan(Swift.max(abs(treated.r - treated.g), abs(treated.g - treated.b)),
+                          1e-6, "the treatment did not produce a neutral")
     }
 
 }

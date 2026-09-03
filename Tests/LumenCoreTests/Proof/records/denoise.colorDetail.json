@@ -1,0 +1,18 @@
+{
+  "authority" : 11.784315925895186,
+  "deadSteps" : 0,
+  "frame" : "noisyChromaEdge",
+  "frontLoading" : 0.5561013952313193,
+  "givenBack" : 0,
+  "hueRotation" : 5.062779351988755,
+  "id" : "denoise.colorDetail",
+  "isMonotone" : true,
+  "meanSeparation" : 0.1846338881225259,
+  "overshoot" : 0,
+  "overshootAbove" : 0,
+  "overshootBelow" : 0,
+  "panel" : "Detail",
+  "smallestLiveStep" : 0.6275219078304275,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

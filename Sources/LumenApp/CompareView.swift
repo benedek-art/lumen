@@ -46,26 +46,25 @@ final class CompareSync: ObservableObject {
     @Published var center: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     func fit() {
-        zoom = 0
+        zoom = ZoomLadder.fit
         center = CGPoint(x: 0.5, y: 0.5)
     }
 
     func setZoom(_ ratio: Double, at unitPoint: CGPoint?) {
-        let clamped: Double = ratio.isFinite ? Swift.max(0, Swift.min(ratio, 16)) : 0
+        let clamped: Double = ZoomLadder.clamp(ratio)
         zoom = clamped
-        if clamped <= 0 {
+        if ZoomLadder.isFit(clamped) {
             center = CGPoint(x: 0.5, y: 0.5)
         } else if let unitPoint {
             center = unitPoint
         }
     }
 
+    /// The same rung the loupe's Space and Z land on, from the same function. A third
+    /// implementation of "fit ↔ 1:1" is a third chance for the panes and the viewer to
+    /// disagree about where a key lands.
     func toggleZoom(at unitPoint: CGPoint?) {
-        if zoom > 0 {
-            fit()
-        } else {
-            setZoom(1, at: unitPoint)
-        }
+        setZoom(ZoomLadder.toggleTarget(from: zoom), at: unitPoint)
     }
 }
 
@@ -74,6 +73,9 @@ final class CompareSync: ObservableObject {
 struct CompareView: View {
 
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
     /// Pass a layout to pin one; leave it nil and the view follows `AppState.viewMode`,
     /// so `C` and `N` reach the same view without the shell having to know which.
     var layout: CompareLayout?
@@ -96,56 +98,70 @@ struct CompareView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Lumen.viewerBackground)
+        // THE FIELD THE PHOTOGRAPHS SIT ON, read from the state rather than from the
+        // palette — the same correction as `LoupeView`'s, for the same reason.
+        //
+        // `⌘B` and `L` write one value, `AppState.surroundValue`, and `ContentView`
+        // painted it once on the outermost stack. Every viewer surface then covered
+        // that stack opaquely with the `Lumen.viewerBackground` constant: four of the
+        // six painters were in this file — the audit that found this counted three and
+        // missed the empty second pane below, which is the kind of thing a constant
+        // spread across four grounds does. So assessment mode announced ISO 12646
+        // mid-grey and compare kept showing both frames on 0.165, which is the wrong
+        // field for the judgement the mode exists to support — and comparing two
+        // frames IS that judgement, so of the two surfaces this is the one that
+        // could least afford the no-op.
+        //
+        // Nothing changes for ordinary use: with neither control on,
+        // `ViewingConditions.surround` returns `Lumen.surroundCanvasValue` (0.165) and
+        // `AppState.surroundColor` builds the same `NSColor(white: 0.165, alpha: 1)`
+        // that `Lumen.surroundCanvas` — hence `Lumen.viewerBackground` — is defined as.
+        .background(state.surroundColor)
     }
 
-    /// What is being compared. A real multi-selection is the answer; with one photo
-    /// selected the obvious second frame is its neighbour, which is what "compare this
-    /// to the next one" means during a cull.
-    private var comparisonSet: [PhotoItem] {
-        let selected = state.selectedPhotos
-        if selected.count >= 2 { return selected }
-        guard let primary = state.primarySelection else { return selected }
-        let all = state.photos
-        if let index = all.firstIndex(of: primary), index + 1 < all.count {
-            return [primary, all[index + 1]]
-        }
-        return [primary]
-    }
+    /// What is being compared. The rule lives on `AppState` because the arrow keys move
+    /// the cursor INSIDE this set and must be looking at the same set the panes draw;
+    /// a copy here is how the key and the view come to disagree.
+    private var comparisonSet: [PhotoItem] { state.comparisonSet }
 
     private var empty: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 34))
-            Text("Select two or more photos to compare")
-                .font(.system(size: 12))
-        }
-        .foregroundStyle(Lumen.secondaryText)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        LumenEmptyState(symbol: "rectangle.split.2x1",
+                        headline: "Select two or more photos to compare",
+                        detail: "Shift-click in the grid or the filmstrip, or press C "
+                            + "with a selection.")
     }
 
     // MARK: 2-up
 
     private var twoUp: some View {
-        let pair = Array(comparisonSet.prefix(2))
+        // The window follows the cursor rather than being the first two, always. With
+        // three or more frames selected, `prefix(2)` meant → moved the cursor to member
+        // four while these two panes stayed on members one and two — the highlight left
+        // the canvas and the key that cycles the candidate did nothing anyone could see.
+        // With two selected, which is the ordinary compare, this is the same pair.
+        let set = comparisonSet
+        let cursor = set.firstIndex { $0.id == state.primarySelection?.id }
+        let window = ComparePanes.pairWindow(cursor: cursor, count: set.count)
+        let pair = Array(set[window])
         return HStack(spacing: 1) {
             ForEach(pair) { photo in
                 ComparePane(photo: photo,
                             sync: sync,
                             isPrimary: photo.id == state.primarySelection?.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .onTapGesture(count: 2) { state.primarySelection = photo }
+                    // The cursor verb's double-click lives INSIDE the pane's own
+                    // drag gesture (clickCount, the LumenControls way) — a tap
+                    // gesture attached here sat behind the pane's
+                    // minimumDistance-0 drag and never fired.
             }
             if pair.count == 1 {
-                VStack(spacing: 6) {
-                    Image(systemName: "plus.rectangle")
-                        .font(.system(size: 26))
-                    Text("Select a second photo")
-                        .font(.system(size: 11))
-                }
-                .foregroundStyle(Lumen.secondaryText)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Lumen.viewerBackground)
+                LumenEmptyState(symbol: "plus.rectangle",
+                                headline: "Select a second photo")
+                // The empty half of a 2-up is still half the field the other pane's
+                // photograph is judged against, so it follows the surround too. The
+                // group background above already paints it; this is here so the two
+                // halves cannot ever disagree, not because they currently would.
+                .background(state.surroundColor)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -168,11 +184,14 @@ struct CompareView: View {
                         SurveyCell(photo: photo,
                                    isPrimary: photo.id == state.primarySelection?.id)
                             .frame(height: minimum * 0.78)
-                            .onTapGesture { state.primarySelection = photo }
+                            .onTapGesture { state.moveCursor(to: photo) }
                     }
                 }
                 .padding(6)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
         }
     }
 
@@ -194,6 +213,7 @@ struct CompareView: View {
 private struct ComparePane: View {
 
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var edits: EditRevision
     let photo: PhotoItem
     @ObservedObject var sync: CompareSync
     let isPrimary: Bool
@@ -201,25 +221,24 @@ private struct ComparePane: View {
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var dragStartCenter: CGPoint?
-
-    private struct RenderKey: Equatable {
-        let url: URL
-        let recipe: Recipe
-        let longEdge: Int
-    }
+    /// The press turned out to be the cursor verb's double-click; swallow the rest
+    /// of the gesture so it neither pans nor toggles zoom on release.
+    @State private var pressWasCursorMove = false
 
     var body: some View {
         GeometryReader { geometry in
             let container = geometry.size
             let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
-                Lumen.viewerBackground
+                // The pane's own ground, and the layer that used to hide the surround
+                // from the photograph it is drawn closest to. See `CompareView.body`.
+                state.surroundColor
 
                 if let cg = model.image, model.imageURL == photo.id {
                     plate(cg, container: container)
                 } else if model.isUnreadable {
                     Text("Can't read \(photo.filename)")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                         .foregroundStyle(Lumen.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -246,9 +265,9 @@ private struct ComparePane: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
-            .task(id: RenderKey(url: photo.id,
-                                recipe: state.recipe(for: photo),
-                                longEdge: longEdge)) {
+            .task(id: ViewerRenderKey.current(url: photo.id,
+                                              recipe: state.recipe(for: photo),
+                                              longEdge: longEdge, state: state)) {
                 await render(longEdge: longEdge)
             }
         }
@@ -261,15 +280,59 @@ private struct ComparePane: View {
                          recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
-                         draftLongEdge: LoupeView.draftLongEdge,
+                         // `DraftResolution`, exactly as the loupe: a fixed draft size
+                         // above fit drew the photograph at half size and doubled it on
+                         // every render — the zoom pump, fixed in the loupe and still
+                         // live here until this line.
+                         draftLongEdge: DraftResolution.draftLongEdge(
+                             settledLongEdge: longEdge,
+                             fitLongEdge: LoupeView.draftLongEdge,
+                             zoomRatio: sync.zoom),
                          fullLongEdge: longEdge,
-                         strokeSets: state.strokeSets(for: recipe))
+                         strokeSets: state.strokeSets(for: recipe),
+                         // ⇧S must mean the same thing in E and C: the loupe passes
+                         // the proof, so the panes do too.
+                         softProof: state.activeSoftProof,
+                         // THE TWO ARGUMENTS THE LOUPE PASSES AND THESE PANES DID NOT.
+                         //
+                         // `PhotoRenderModel.load` defaults them to `0` and `{ false }`,
+                         // so every event of a slider drag scheduled a FULL-RESOLUTION
+                         // settle from these panes — on the same serial coordinator the
+                         // loupe's drafts queue on, whose passes have no cancellation
+                         // points. That is verbatim the defect the loupe documents and
+                         // fixed in one place only: "once one started every event behind
+                         // it waited 100-300 ms for a lane that could not be given
+                         // back." With a pane open it lands in the loupe's own frame
+                         // interval as a scattered several-hundred-millisecond gap,
+                         // which is exactly what the owner's HUD reported.
+                         //
+                         // Passing `settleTick` is not optional alongside the guard: the
+                         // guard SKIPS a settle during the gesture, and the tick moving
+                         // at release is what asks for it again. `ViewerRenderKey`
+                         // already carries the tick, so the task re-fires and the pane
+                         // settles once, at rest — the loupe's exact bargain. It also
+                         // gives these panes' ladders their `gestureEnded()`, which they
+                         // have never once received.
+                         settleTick: state.settleTick,
+                         gestureInFlight: { state.sliderGestureActive },
+                         )
     }
 
     // MARK: Geometry
 
     private func ratio(for cg: CGImage, container: CGSize) -> Double {
-        if sync.zoom > 0 { return sync.zoom }
+        if sync.zoom > 0 {
+            // Normalized for proxy resolution, exactly as the loupe (MAC-07): a bare
+            // `sync.zoom` drew a 2048-px draft at half the size of its 4096-px settle
+            // and doubled it back per event — the zoom pump, fixed in the loupe and
+            // still alive here through the DRAW ratio (the request size above was
+            // fixed first and the fix stopped one line short).
+            return LoupeGeometry.zoomedRatio(
+                zoomLevel: sync.zoom,
+                fullLongEdge: model.displayFullLongEdge
+                    ?? Swift.max(cg.width, cg.height),
+                renderedLongEdge: Swift.max(cg.width, cg.height))
+        }
         return LoupeGeometry.fitRatio(imageWidth: cg.width, imageHeight: cg.height,
                                       container: container, displayScale: displayScale)
     }
@@ -286,7 +349,11 @@ private struct ComparePane: View {
         let r = ratio(for: cg, container: container)
         let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
                                             ratio: r, displayScale: displayScale)
-        return Image(decorative: cg, scale: 1, orientation: .up)
+        // The inspection holds work in Compare too (docs/10 §10.5 names loupe, survey
+        // and compare), and a hold that lifted one pane and not the other would be
+        // worse than none.
+        return Image(decorative: InspectionGain.displayed(cg, hold: state.inspectionHold),
+                     scale: 1, orientation: .up)
             .resizable()
             .interpolation(r >= 1 ? .none : .high)
             .antialiased(r < 1)
@@ -299,6 +366,17 @@ private struct ComparePane: View {
     private func dragGesture(container: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // The cursor verb's double-click, read the way every control behind a
+                // minimumDistance-0 drag has to read it (LumenControls): the outer
+                // onTapGesture(count: 2) never fired behind this drag, and the press
+                // fell through to onEnded's sub-3-pt branch — so double-clicking a
+                // pane to move the cursor toggled 1:1 instead, twice.
+                if dragStartCenter == nil, !pressWasCursorMove,
+                   let event = NSApp.currentEvent, event.clickCount >= 2 {
+                    pressWasCursorMove = true
+                    return
+                }
+                if pressWasCursorMove { return }
                 guard let cg = model.image else { return }
                 let r = ratio(for: cg, container: container)
                 let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width,
@@ -317,6 +395,11 @@ private struct ComparePane: View {
                                       y: 0.5 - clamped.height / drawn.height)
             }
             .onEnded { value in
+                if pressWasCursorMove {
+                    pressWasCursorMove = false
+                    state.moveCursor(to: photo)
+                    return
+                }
                 dragStartCenter = nil
                 let travel = abs(value.translation.width) + abs(value.translation.height)
                 guard travel < 3 else { return }
@@ -336,6 +419,11 @@ private struct ComparePane: View {
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {
+        // DELIBERATELY still the interactive cap, where the loupe went native
+        // (docs/32 owner round): compare renders one frame PER PANE, and N native
+        // planes at 260 MB each is a different budget than one. A pixel-level verdict
+        // belongs to the loupe; if the owner wants native compare at 1:1, this is the
+        // one line, and the decode-cache inspection rule already handles residency.
         if sync.zoom > 0 { return LoupeView.maxRenderLongEdge }
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
@@ -353,34 +441,34 @@ private struct ComparePane: View {
 private struct SurveyCell: View {
 
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var edits: EditRevision
     let photo: PhotoItem
     let isPrimary: Bool
 
     @StateObject private var model: PhotoRenderModel = PhotoRenderModel()
     @Environment(\.displayScale) private var displayScale: CGFloat
 
-    private struct RenderKey: Equatable {
-        let url: URL
-        let recipe: Recipe
-        let longEdge: Int
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let container = geometry.size
             let longEdge: Int = requestedLongEdge(container: container)
             ZStack(alignment: .bottomLeading) {
-                Lumen.viewerBackground
+                // As in `ComparePane`: the cell's ground is the surround, so a survey
+                // in assessment mode sits every frame on the same reference grey
+                // instead of on the constant this used to be.
+                state.surroundColor
 
                 if let cg = model.image, model.imageURL == photo.id {
-                    Image(decorative: cg, scale: 1, orientation: .up)
+                    Image(decorative: InspectionGain.displayed(cg,
+                                                               hold: state.inspectionHold),
+                          scale: 1, orientation: .up)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if model.isUnreadable {
                     Text("Can't read \(photo.filename)")
-                        .font(.system(size: 10))
+                        .font(.lumenCaption)
                         .foregroundStyle(Lumen.secondaryText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -401,7 +489,7 @@ private struct SurveyCell: View {
                     state.selection.remove(photo.id)
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.lumenGlyphCaptionStrong)
                         .padding(4)
                         .background(Color.black.opacity(0.55), in: Circle())
                         .foregroundStyle(Lumen.primaryText)
@@ -416,9 +504,9 @@ private struct SurveyCell: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
-            .task(id: RenderKey(url: photo.id,
-                                recipe: state.recipe(for: photo),
-                                longEdge: longEdge)) {
+            .task(id: ViewerRenderKey.current(url: photo.id,
+                                              recipe: state.recipe(for: photo),
+                                              longEdge: longEdge, state: state)) {
                 await render(longEdge: longEdge)
             }
         }
@@ -431,9 +519,22 @@ private struct SurveyCell: View {
                          recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
-                         draftLongEdge: 512,
+                         // Survey panes have no zoom; DraftResolution at fit returns
+                         // the floor, so this stays the cheap 512 draft it was — but
+                         // through the shared rule rather than a bare number.
+                         draftLongEdge: DraftResolution.draftLongEdge(
+                             settledLongEdge: longEdge,
+                             fitLongEdge: 512,
+                             zoomRatio: 0),
                          fullLongEdge: longEdge,
-                         strokeSets: state.strokeSets(for: recipe))
+                         strokeSets: state.strokeSets(for: recipe),
+                         softProof: state.activeSoftProof,
+                         // Same two arguments, same reason — see the compare pane
+                         // above. A survey grid renders many panes, so the settle storm
+                         // this removes is multiplied by however many are on screen.
+                         settleTick: state.settleTick,
+                         gestureInFlight: { state.sliderGestureActive },
+                         )
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {

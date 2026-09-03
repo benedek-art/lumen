@@ -329,15 +329,29 @@ public struct LUT3D: Equatable, Sendable {
 
     /// Parse an Iridas/Resolve `.cube` file. Returns nil on anything malformed —
     /// a user's LUT collection is untrusted input.
+    ///
+    /// Two things about the line splitting are load-bearing, because the format is a
+    /// twenty-year-old de-facto standard and the files in circulation vary:
+    ///
+    /// * Lines are split on `isNewline` and trimmed with `.whitespacesAndNewlines`.
+    ///   Most `.cube` files were authored on Windows and end their lines `\r\n`.
+    ///   Splitting on `"\n"` and trimming `.whitespaces` — space and tab only — leaves a
+    ///   carriage return glued to the last field of every line, `Float("0.5\r")` is nil,
+    ///   and the whole file is rejected as malformed.
+    /// * Fields are split on `isWhitespace`, not on a literal space. Tab-separated
+    ///   triples are common and are just as valid.
+    ///
+    /// Widening what is *accepted* is not the same as trusting it: a 1-D cube, a size
+    /// out of range, a short triple and a wrong sample count are all still nil.
     public static func fromCubeFile(_ text: String) -> LUT3D? {
         var size = 0
         var values: [Float] = []
         var domainMin = RGB(0, 0, 0)
         var domainMax = RGB(1, 1, 1)
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+        for rawLine in text.split(whereSeparator: { $0.isNewline }) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             if line.isEmpty || line.hasPrefix("#") { continue }
-            let parts = line.split(separator: " ").filter { !$0.isEmpty }
+            let parts = line.split(whereSeparator: { $0.isWhitespace })
             guard let head = parts.first else { continue }
             switch head {
             case "TITLE":

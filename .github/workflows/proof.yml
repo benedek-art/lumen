@@ -1,0 +1,134 @@
+# The control-sweep drift check (docs/20), moved out of ci.yml's push path.
+#
+# At 80 minutes it never survived a working session on the push trigger — the next push
+# cancelled it, so during exactly the bursts where drift happens it reported nothing.
+# Now it runs where it can finish: on pushes that touch the engine or the proof harness
+# (its own file included), nightly on the default branch, and on demand. The per-push
+# tripwire that replaced it in the fast lanes is ProofSmokeTests inside engine-linux —
+# eight sentinel controls in about three and a half minutes.
+#
+# The nightly schedule only fires on the repository's default branch; while the work
+# lives on a feature branch, the paths trigger is the one doing the guarding.
+name: Proof sweep
+on:
+  push:
+    paths:
+      - "Sources/LumenCore/**"
+      - "Tests/LumenCoreTests/Proof/**"
+      - "scripts/install-linux-toolchain.sh"
+      - ".github/workflows/proof.yml"
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      record_proofs:
+        description: >-
+          Re-record the committed proof records instead of checking them. Use after a
+          DELIBERATE behaviour change, then download the `proof-records-linux` artifact
+          and commit what it contains. The drift test is what makes an accidental
+          change visible, so this must never run on a push.
+        type: boolean
+        default: false
+
+concurrency:
+  group: proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The drift check docs/20 describes: every registered control swept at 21 settings,
+  # measured in sRGB code values, compared against the records committed under
+  # `Tests/LumenCoreTests/Proof/records`. A number that moves here is either a fix or a
+  # regression and the commit message has to say which — which is the whole point of
+  # committing them, since every defect docs/19 found was invisible until somebody
+  # thought to measure and none would have surfaced in a code review.
+  #
+  # It is slow because it is doing real work: each setting bakes a 65-cubed colour cube.
+  # That is the cost of the answer, and the lever is the size of the registry rather
+  # than the concurrency — `LUT3D` already parallelises its own bake, so a concurrent
+  # outer loop oversubscribes instead of helping. If the sweep grows again the honest
+  # lever is still the registry, not the clock.
+  proof-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache the Swift toolchain
+        id: swift-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/swift
+          key: swift-6.1.2-ubuntu24.04
+      - name: Install the Swift toolchain
+        if: steps.swift-cache.outputs.cache-hit != 'true'
+        run: sh scripts/install-linux-toolchain.sh
+      - name: Every registered control still measures what the record says
+        shell: bash
+        env:
+          # Set to '1' only by a manual dispatch asking for it. On a push the
+          # expression yields the empty string, WHICH GITHUB STILL SETS — and that is
+          # fine now, because `ControlProofTests.isRecording` refuses empty (and "0",
+          # "false", "no", "off") since 62f301c. The guard lives in the Swift, not in
+          # this file: the silent-re-record incident (run 181 reported no drift while
+          # tone.exposure measured 251.54 against a committed 169.07) was the pairing
+          # of THIS empty string with a Swift check that read mere presence as yes.
+          #
+          # Do NOT move this expression into the `run:` script instead. That was tried
+          # in 62f301c — `if [ "${{ inputs.record_proofs }}" = "true" ]` inline — and
+          # GitHub refused to create jobs for the whole workflow: runs 182, 183 and 184
+          # each report "failure" with ZERO jobs, created and completed in the same
+          # second, while a one-job canary workflow on the same push ran fine. The YAML
+          # parses; the run-creation service rejects it anyway. This env: form had run
+          # 181 times before the change.
+          LUMEN_RECORD_PROOFS: ${{ inputs.record_proofs && '1' || '' }}
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          if [ "$LUMEN_RECORD_PROOFS" = "1" ]; then
+            echo "RECORDING — this run rewrites the records and proves nothing."
+          fi
+          set +e
+          swift test --filter ControlProofTests 2>&1 | tee proof.log
+          # `$?` and not `${PIPESTATUS[0]}` because GitHub runs `shell: bash` as
+          # `bash --noprofile --norc -eo pipefail`, so the pipeline already carries the
+          # first non-zero status and `set +e` above turns off errexit without touching
+          # pipefail. Checked rather than assumed: this construct is what reported
+          # engine-linux's three failures on run 178.
+          status=$?
+          echo "=== measured authority ==="
+          sed -n '/control authority/,/^$/p' proof.log | head -200
+          echo "=== failures ==="
+          # `: error: ` and NOT `: error: -\[`. The bracketed form is Apple XCTest's
+          # `-[Class testName]`; swift-corelibs-xctest writes `Class.testName : XCT...`
+          # with no brackets at all. This job runs on ubuntu, so the old pattern matched
+          # NOTHING here and every failing sweep printed an empty failures list under a
+          # non-zero exit — a ceremony that says a control moved and refuses to say
+          # which. Run 33723153890 is the example: 135 evidence sheets, exit 1, and no
+          # diagnosis. Both formats carry `: error: `, and the `sed` strips whatever
+          # precedes it either way.
+          # `-A 40`, not 12, and a `head` well past one block. The assertion message is
+          # MULTI-LINE and it EMBEDS THE COMPLETE NEW JSON for every control that moved —
+          # deliberately, so a considered change can be committed straight out of a red
+          # run's log (`ControlProofTests.recordJSON`). A record is about fifteen lines,
+          # so `-A 12` cut the first one off mid-JSON and hid every control after it.
+          # This lane failed unreadably twice in one night: first because the pattern was
+          # Apple XCTest's and the runner is Ubuntu, then because the window was shorter
+          # than the thing it was quoting. A summary that names one mover and truncates
+          # the rest is the same defect wearing a smaller number. The `sed` only rewrites
+          # the first line of each block; continuation lines pass through as they are.
+          grep -A 40 -E ": error: " proof.log | sed 's/^.*error: //' | head -400
+          exit $status
+      - name: Keep the evidence sheets
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-evidence-linux
+          path: Tests/LumenCoreTests/Proof/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Keep the re-recorded records
+        if: ${{ always() && inputs.record_proofs }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-records-linux
+          path: Tests/LumenCoreTests/Proof/records/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,5 +1,10 @@
 # 18 — The 70% plan
 
+> **Superseded by docs/23-master-plan.md** (2026-08-24). The scoring approach here —
+> status improving by written claims — is exactly what docs/20 and docs/23 replace with
+> recorded proofs and checkboxes updated in the same commit as the work. Kept as
+> history; do not treat any status in this file as current.
+
 Docs 00–17 decide *what* Lumen is and *when* each part gets built. This one decides what
 gets built **next**, and it exists because a five-way audit of the shipped code against
 those specs found something the roadmap could not have predicted: the gap is

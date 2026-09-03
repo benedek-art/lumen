@@ -1,0 +1,18 @@
+{
+  "authority" : 14.21202309986623,
+  "deadSteps" : 0,
+  "frame" : "wideFineTexture",
+  "frontLoading" : 0.5549406258630231,
+  "givenBack" : 0,
+  "hueRotation" : 0,
+  "id" : "sharpen.masking",
+  "isMonotone" : true,
+  "meanSeparation" : 5.4771909623727,
+  "overshoot" : 0,
+  "overshootAbove" : 0,
+  "overshootBelow" : 0,
+  "panel" : "Detail",
+  "smallestLiveStep" : 0.6946111592748139,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

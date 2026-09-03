@@ -21,11 +21,20 @@ import Foundation
 
 public struct DisplayTransformParams: Equatable, Sendable {
 
-    /// Slope at mid-grey, log-log. darktable-sigmoid-compatible range/default.
+    /// Slope at mid-grey, log-log — CALIBRATED: 1.5 here produces a measured
+    /// log-log slope of 1.5 at the pivot, by construction. The range and default
+    /// number match darktable's sigmoid, but not the semantic: dt's "contrast 1.5"
+    /// is a steepness knob whose realized mid-grey slope measures ~1.23
+    /// (docs/26 §3, measured via scripts/baselines). Same dial label, more actual
+    /// contrast here.
     public var contrast: Double = 1.5
     /// Toe ↔ shoulder emphasis. Slope at the pivot is unchanged by construction.
     public var skew: Double = 0
-    /// 0 = per-channel character (hotter sunsets), 100 = hue-stable.
+    /// 0 = per-channel character (hotter sunsets), 100 = hue-stable through the
+    /// midtones. Every setting ramps toward per-channel across the shoulder so
+    /// highlights bleach to display white (the path-to-white ramp in `apply`):
+    /// hue preservation is a promise about colour, not a licence to render a
+    /// +5 EV overexposure as pastel.
     public var huePreservation: Double = 100
     /// Display white in % of SDR white. 100 = SDR; up to 1600 on an EDR display.
     public var whiteTarget: Double = 100
@@ -202,15 +211,36 @@ public struct DisplayTransform: Sendable {
         self.toePower = Swift.max(aToe - toeLambda * shape, 0.05)
         self.shoulderPower = Swift.max(aShoulder - shoulderLambda * shape, 0.05)
 
-        // Primaries inset/outset (the AgX mechanism).
+        // Primaries inset/outset (the AgX mechanism) — orientation matters and it
+        // shipped BACKWARDS for the project's whole life until the six-agent audit's
+        // numeric recompute caught it. The two candidate matrices:
+        //   · inset.matrix(to: space) reinterprets the image's numbers as amounts of
+        //     the LESS saturated inset primaries — all-positive entries, rows summing
+        //     to 1: it moves every colour TOWARD the neutral axis. This is the AgX
+        //     pre-curve purity reduction, the direction whose per-channel curve can
+        //     then bleach anything to white.
+        //   · space.matrix(to: inset) converts coordinates INTO the inset basis —
+        //     diagonal > 1, negative off-diagonals: it pushes saturated colours
+        //     AWAY from neutral, and a rec2020 red's green/blue channels go negative,
+        //     where tone()'s x > 0 guard pins them at the black floor forever. A
+        //     colour in that state cannot bleach at ANY exposure or hue-preservation
+        //     setting — measured 0.935 residual chroma at +7 EV, all settings — and
+        //     purityRestore's meaning inverts with it.
+        // The defect hid because every probe patch (sun-lit sand here, the same
+        // orange in the darktable/RawTherapee baselines) stays inside the inset
+        // gamut, where both orientations bleach; the saturated-red prong of
+        // testOverexposureBleachesTowardWhite is the tripwire that keeps this
+        // direction from ever flipping again.
         let inset = DisplayTransform.insetSpace(space, attenuation: p.attenuation,
                                                 rotation: p.rotation)
-        let toInset = space.matrix(to: inset)
-        self.insetMatrix = toInset
-        let back = inset.matrix(to: space)
+        let compress = inset.matrix(to: space)
+        self.insetMatrix = compress
+        let expand = space.matrix(to: inset)
         let restore = Num.clamp(p.purityRestore, 0, 1)
-        // Purity restore blends between "stay inset" (identity) and "fully undo".
-        self.outsetMatrix = DisplayTransform.blend(Mat3.identity, back, restore)
+        // Purity restore blends between "stay compressed" (identity) and "fully undo
+        // the compression" (the expanding inverse) — so 1.0 RECOVERS purity, which
+        // is what the parameter has always claimed to mean.
+        self.outsetMatrix = DisplayTransform.blend(Mat3.identity, expand, restore)
     }
 
     private static func blend(_ a: Mat3, _ b: Mat3, _ t: Double) -> Mat3 {
@@ -295,8 +325,17 @@ public struct DisplayTransform: Sendable {
         let scaled = tone(norm)
         let ratio = norm > 0 ? inset * (scaled / norm) : RGB(black, black, black)
 
+        // Path to white. Ratios may hold through the midtones, but a display cannot
+        // show "brighter than white": above the pivot the only honest rendering of
+        // more light is less chroma, which the per-channel branch does by
+        // construction and the ratio branch never does — without this ramp a +5 EV
+        // overexposure kept 96% of its chroma (the owner's "pastel wash" screenshot).
+        // Quadratic in shoulder position: untouched at the pivot, fully per-channel
+        // at the white anchor.
         let t = Num.clamp(params.huePreservation, 0, 100) / 100
-        var out = perChannel.mix(ratio, t)
+        let evX = (log2(norm / DisplayTransform.midGrey) - minEV) / range
+        let shoulderU = Num.saturate((evX - pivotX) / Swift.max(1 - pivotX, 1e-6))
+        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU))
 
         out = outsetMatrix.apply(out)
         out = RGB(Swift.max(out.r, 0), Swift.max(out.g, 0), Swift.max(out.b, 0))
@@ -309,6 +348,22 @@ public struct DisplayTransform: Sendable {
             out = mapped * white
         }
         return out
+    }
+
+    /// The transform a recipe renders through, without building a whole `RenderPlan`.
+    ///
+    /// `RenderPlan` calls this too, so the two cannot drift. Anything that needs to
+    /// reason about where a rendered pixel came from — Auto's scene statistics are the
+    /// first — needs exactly the transform the render used, including the anchors
+    /// Whites and Blacks moved, and reassembling those at the call site is how you get
+    /// a measurement taken against a curve the picture was never put through.
+    public static func forRecipe(_ recipe: Recipe,
+                                 displayWhiteTarget: Double? = nil,
+                                 space: RGBColorSpace = .rec2020) -> DisplayTransform {
+        var params = recipe.look.render.resolved(displayWhiteTarget: displayWhiteTarget)
+        ToneEngine(tone: recipe.develop.tone,
+                   zones: recipe.develop.zones).applyAnchors(to: &params)
+        return DisplayTransform(params, space: space)
     }
 
     /// Monotonicity check on the baked curve — what the inverted-curve warning in the

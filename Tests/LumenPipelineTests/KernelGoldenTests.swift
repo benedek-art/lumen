@@ -15,6 +15,7 @@
 
 import CoreImage
 import Foundation
+import ImageIO
 import XCTest
 @testable import LumenCore
 @testable import LumenPipeline
@@ -121,7 +122,8 @@ final class KernelGoldenTests: XCTestCase {
         let extent = CGRect(x: 0, y: 0, width: width, height: height)
         let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.portra400),
                               displayWhite: 1.0)
-        guard let plate = PipelineRenderer.grainPlate(film: chain, extent: extent),
+        guard let plate = RenderGraph.grainPlate(GrainPlan.film(chain), extent: extent,
+                                          longEdge: width),
               let channels = plateChannels(plate, width: width, height: height)
         else { return XCTFail("no grain plate") }
 
@@ -150,7 +152,8 @@ final class KernelGoldenTests: XCTestCase {
         XCTAssertTrue(FilmStock.triX400.monochrome, "this test needs a monochrome stock")
         let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.triX400),
                               displayWhite: 1.0)
-        guard let plate = PipelineRenderer.grainPlate(film: chain, extent: extent),
+        guard let plate = RenderGraph.grainPlate(GrainPlan.film(chain), extent: extent,
+                                          longEdge: width),
               let channels = plateChannels(plate, width: width, height: height)
         else { return XCTFail("no grain plate") }
 
@@ -167,6 +170,367 @@ final class KernelGoldenTests: XCTestCase {
             .reduce(0, +) / Double(channels[0].count)
         XCTAssertGreaterThan(variance.squareRoot(), 1e-4,
                              "the monochrome plate is flat, so this proves nothing")
+    }
+
+
+    // MARK: - Grain, against the reference renderer
+
+    /// THE GRAIN PARITY GOLDEN (I2-04). There was none, anywhere, while three source
+    /// comments said there was: `Kernels.swift` on `lumenGrain`'s layer mix — "this line
+    /// changes pixels — deliberately, and identically in `ReferenceRenderer.applyGrain`,
+    /// which is what gpu-parity checks" — and `ReferenceRenderer.applyGrain` twice,
+    /// "gpu-parity is what holds them together", once about `plateScale` and once about
+    /// the two mix weights. Nothing held them together. The whole grain roster before
+    /// this test: `testGrainPlateCarriesThreeLayersOnAColourStock` and
+    /// `testGrainPlateIsGreyOnAMonochromeStock` assert properties of the PLATE and build
+    /// no reference render; `testGrainIsAppliedOnTheGridThatIsDelivered` compares two
+    /// GPU exports to each other; `testTheGamutFlagIsGrainedLikeTheReference` is named
+    /// for the reference and calls it nowhere. And none of the three whole-graph parity
+    /// goldens sets `recipe.look.filmLab`, so the film chain sits outside those as well.
+    ///
+    /// TRI-X 400, and the stock is the instrument rather than a detail. A monochrome
+    /// profile takes `plateSeed`'s single seed for all three layers, `sizeScale`
+    /// (1, 1, 1), and `noiseMixWeights` of exactly (0, 1) — so this compares ONE field
+    /// at ONE cell size with no mix to average a disagreement away. Portra's three
+    /// records at three cell sizes are compared below, on statistics, where an
+    /// interpolation difference cannot be mistaken for a defect either.
+    ///
+    /// AND AT ONE PLATE TEXEL PER RENDER PIXEL, which is what makes this exact rather
+    /// than approximate. `plateScale` is linear in the long edge — pitch × pixels ÷
+    /// gate, with the print size cancelling — so the render size at which it lands on
+    /// 1.0 is one division away, and it is solved for here rather than written down. At
+    /// that size Core Image's affine scale is the identity, `affineTile`'s period is the
+    /// plate's own 128, and the kernel's `__sample` lands on texel centres, so the
+    /// bilinear weights are 1 and 0 and both renderers read the same stored float.
+    /// What is left is fp32 against f64 through `pow(10, −d)`, a few times 1e-6 on this
+    /// frame. The bound is 1e-3 — three orders under the ±10% of level Tri-X's grain
+    /// moves the picture by at its own default.
+    ///
+    /// THE FRAME IS RUN AT TWO HEIGHTS, and that is the whole of the second assertion.
+    /// `ImageBuffer` is top-down and Core Image's extent is bottom-up, so image row `y`
+    /// renders at `y_CI = h − 1 − y`; the plate is built from a top-down array through
+    /// the same `CIImage(bitmapData:)`, so its row 0 lands at `y_CI = 127`, and
+    /// `affineTile` repeats it with a period of 128 anchored at the origin. Compose
+    /// those and the GPU reads plate row `(128 − h + y) mod 128` where
+    /// `ReferenceRenderer.applyGrain` reads row `y`: the same row only when the frame's
+    /// height is a multiple of the plate. 128 and 96 are therefore one question asked
+    /// twice, and if only the 96 case fails then the difference is the plate's
+    /// PLACEMENT and nothing else — the seed, the persistence, the encode scale, the
+    /// packing and the mix are all pinned by the 128 case passing. That is the
+    /// distinction the audit's "not a different amount, a different field" names, and
+    /// it is the one a σ-based assertion can never make.
+    ///
+    /// The width is 160 rather than 128 so the tile WRAPS in x as well. The x direction
+    /// carries no flip, so a wrap there should be exact; asserting it is how that stays
+    /// true.
+    ///
+    /// THE 96-ROW CASE WAS RED ON ITS FIRST RUN, AND THAT WAS THE FINDING. The
+    /// arithmetic above was derived from the source on a machine with no GPU, so it was
+    /// a prediction; the run settled it — 128 green to 1e-6, 96 red by
+    /// 0.16699093580245972 at (16, 0), which is the grain's own amplitude and not an
+    /// interpolation. The divergence is a TRANSLATION and not a mirror: the image and
+    /// the plate cross the top-down/bottom-up boundary in the same direction, so `y`'s
+    /// coefficient survives with its sign and only the offset moves. That is the one
+    /// thing the printed offset above says that the assertion message cannot, and it is
+    /// what made the fix one number rather than a flip of the stored array.
+    ///
+    /// It is fixed: `RenderGraph.grainPlate` now anchors the tile lattice to
+    /// `extent.maxY` — a tile's top edge on the frame's top edge, which is where the
+    /// plate's own row 0 lives — so top-down row `y` reads plate row `y` at every frame
+    /// height. Both heights are held here because the fix is a translation and a
+    /// translation is invisible at the height where it is zero: 128 alone would pass
+    /// with the placement broken, which is exactly how this shipped.
+    ///
+    /// WHAT THIS DOES NOT COVER, so the next reader is not told more than is true. At
+    /// one texel per pixel every octave resolves, so the band limit is inert here and
+    /// C2-01b cannot fail this test. It is held instead by
+    /// `GrainParityScanTests.testEveryPlateTheShippingPipelineBuildsCarriesTheRenderScale`,
+    /// which reads the builder as text on the Linux lane, and by
+    /// `GrainPlateTests.testAPlateBuiltForARenderIsNotTheUnlimitedPlate`.
+    func testGrainMatchesTheReferenceRenderer() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        XCTAssertTrue(FilmStock.triX400.monochrome,
+                      "this fixture needs a monochrome stock — one seed, one cell size "
+                          + "and a mix of (0, 1) — or a difference here is three "
+                          + "differences averaged")
+        let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.triX400),
+                              displayWhite: 1.0)
+        let plan = GrainPlan.film(chain)
+
+        // Solve for one plate texel per render pixel. Asserted rather than assumed: if a
+        // stock's pitch or gate moves this fails with the number instead of quietly
+        // comparing two interpolations and calling the difference parity.
+        let probe = 2000
+        let probeScale = plan.plateScale(longEdgePixels: probe, channel: 0)
+        let longEdge = Int((Double(probe) / probeScale).rounded())
+        let scale = plan.plateScale(longEdgePixels: longEdge, channel: 0)
+        XCTAssertEqual(scale, 1.0, accuracy: 1e-9,
+                       "this fixture needs exactly one plate texel per render pixel and "
+                           + "got \(scale) at a \(longEdge) px render — solve again, or "
+                           + "the exactness argument in the comment above is void")
+        for channel in 1..<3 {
+            XCTAssertEqual(plan.plateScale(longEdgePixels: longEdge, channel: channel),
+                           scale, accuracy: 1e-9,
+                           "a monochrome stock's three records must share one cell size")
+        }
+
+        let width = 160
+        for height in [128, 96] {
+            let source = densityRamp(width: width, height: height, dMax: plan.dMax)
+            let extent = CGRect(x: 0, y: 0, width: width, height: height)
+            guard let plate = RenderGraph.grainPlate(plan, extent: extent,
+                                                     longEdge: longEdge) else {
+                return XCTFail("no grain plate at \(width)x\(height)")
+            }
+            let grained = RenderGraph().applyGrain(ciImage(from: source), plate: plate,
+                                                   grain: plan)
+            guard let gpu = readBack(grained, width: width, height: height) else { return }
+            let reference = ReferenceRenderer.applyGrain(
+                source, grain: plan,
+                seed: FilmGrainProfile.defaultPlateSeed, longEdge: longEdge)
+
+            // The stage has to have DONE something, or "the two agree" is a statement
+            // about two copies of the input.
+            var moved = 0.0
+            for y in 0..<height {
+                for x in 0..<width {
+                    moved = Swift.max(moved,
+                                      source[x, y].maxAbsDifference(reference[x, y]))
+                }
+            }
+            XCTAssertGreaterThan(moved, 0.01,
+                                 "the reference laid no grain on the \(height)-row frame, "
+                                     + "so comparing anything against it proves nothing")
+
+            var worst = 0.0
+            var worstAt = (0, 0)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                    if d > worst { worst = d; worstAt = (x, y) }
+                }
+            }
+            // Printed on every run, passes included, for I2-03's reason: a bound with no
+            // measurement recorded under it is a bound nobody can ever tighten.
+            print(String(format:
+                "GRAINPARITY trix400 %3dx%-3d @ %d px, scale %.4f: worst %.3e, "
+                    + "reference moved %.4f, predicted plate-row offset %d",
+                width, height, longEdge, scale, worst, moved,
+                (GrainPlan.plateSize - height % GrainPlan.plateSize) % GrainPlan.plateSize))
+            // THE EXPECTED FAILURE THAT USED TO STAND HERE IS GONE, because what it
+            // expected is fixed. It was scoped to `height % GrainPlan.plateSize != 0`,
+            // it fired on the 96-row case at 0.16699093580245972, and its own message
+            // asked for its deletion the day the placement landed. Leaving it would red
+            // this lane as an unexpected pass on a correct fix — which is the same
+            // reason it was an expectation rather than a skip: this comparison runs and
+            // prints its number on every lane, and neither a fix nor a regression can
+            // reach the shipping path quietly.
+            XCTAssertLessThan(worst, 1e-3,
+                              "the GPU's grain differs from the reference's by \(worst) "
+                                  + "at \(worstAt) on the \(width)x\(height) frame. At one "
+                                  + "texel per render pixel there is no interpolation to "
+                                  + "blame: the two are reading different rows of the "
+                                  + "same plate. `ImageBuffer` is top-down and Core "
+                                  + "Image's extent is bottom-up, so an unanchored tiled "
+                                  + "plate is sampled at row (\(GrainPlan.plateSize) − h "
+                                  + "+ y) mod \(GrainPlan.plateSize) where the reference "
+                                  + "reads row y — identical only when the height is a "
+                                  + "multiple of \(GrainPlan.plateSize), which is why "
+                                  + "this ran at two heights. If the 128-row case passed "
+                                  + "and this did not, that translation is the whole of "
+                                  + "the difference and the answer is the plate's "
+                                  + "placement in `RenderGraph.grainPlate` — which "
+                                  + "anchors the tile lattice to `extent.maxY` for "
+                                  + "exactly this reason — not anything here")
+        }
+    }
+
+    /// The colour stock, where the three records have three cell sizes and the layer mix
+    /// is not the identity — compared on statistics, because the non-unit scales put a
+    /// bilinear interpolation between the two paths that a pixel comparison would read
+    /// as a defect.
+    ///
+    /// Two numbers, and each is a defect this project has already shipped once.
+    ///
+    /// σ OF THE RECOVERED FIELD is the encode scale. `FilmGrainProfile.plateEncodeScale`
+    /// exists because the store packed with 0.25 and the kernel recovered with ×2, so
+    /// the GPU laid HALF the amplitude the reference defines — in every preview and
+    /// every export — and clamped away the strongest 3.4% of the grains on the way.
+    /// That is a ratio of 0.5 here.
+    ///
+    /// σ(R−G) ÷ σ(luma) is the layer mix (C2-02). Three independent unit fields put
+    /// 2.45× as much noise into colour as into luminance; the mix scales that back
+    /// while holding the luminance exactly, and at Portra's χ = 0.30 the model says
+    /// 0.486. A renderer that dropped the mix, or applied it twice, moves this number
+    /// by a factor of five and moves nothing else.
+    ///
+    /// Both are translation-invariant on purpose. If the field PLACEMENT above is wrong,
+    /// these still say whether the amplitude and the colour of the grain agree — which
+    /// is the difference between "the same grain in the wrong place" and "a different
+    /// grain", and it is the difference that decides what the fix is.
+    func testGrainAmplitudeAndLayerMixMatchTheReferenceOnAColourStock() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.portra400),
+                              displayWhite: 1.0)
+        let plan = GrainPlan.film(chain)
+
+        // A render size at which the FINEST record is already one texel per pixel, so
+        // every layer is magnified and none is minified. A minification would let Core
+        // Image apply an antialiasing filter the reference's point sample does not,
+        // and the σ comparison would then be measuring Core Image's resampler.
+        let probe = 2000
+        let longEdge = Int((Double(probe)
+                            / plan.plateScale(longEdgePixels: probe, channel: 0)).rounded())
+        var scales: [Double] = []
+        for channel in 0..<3 {
+            scales.append(plan.plateScale(longEdgePixels: longEdge, channel: channel))
+        }
+        XCTAssertEqual(scales[0], 1.0, accuracy: 1e-6,
+                       "the fixture wants the finest record at one texel per pixel and "
+                           + "got \(scales[0])")
+        for (channel, s) in scales.enumerated() {
+            XCTAssertGreaterThanOrEqual(s, 1.0,
+                                        "record \(channel) is minified at \(s) texels per "
+                                            + "pixel, so this test would be comparing "
+                                            + "Core Image's downsampling filter against a "
+                                            + "point sample")
+        }
+
+        let width = 192, height = 128
+        let source = densityRamp(width: width, height: height, dMax: plan.dMax)
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        guard let plate = RenderGraph.grainPlate(plan, extent: extent,
+                                                 longEdge: longEdge) else {
+            return XCTFail("no grain plate")
+        }
+        let grained = RenderGraph().applyGrain(ciImage(from: source), plate: plate,
+                                               grain: plan)
+        guard let gpu = readBack(grained, width: width, height: height) else { return }
+        let reference = ReferenceRenderer.applyGrain(
+            source, grain: plan, seed: FilmGrainProfile.defaultPlateSeed,
+            longEdge: longEdge)
+
+        let gpuField = recoveredGrain(input: source, output: gpu, grain: plan)
+        let referenceField = recoveredGrain(input: source, output: reference, grain: plan)
+        XCTAssertGreaterThan(referenceField[0].count, width * height * 9 / 10,
+                             "only \(referenceField[0].count) of \(width * height) pixels "
+                                 + "carry enough grain envelope to divide back out — the "
+                                 + "ramp is sitting off the density range and the numbers "
+                                 + "below would be rounding error over rounding error")
+
+        for channel in 0..<3 {
+            let ref = standardDeviation(referenceField[channel])
+            let mine = standardDeviation(gpuField[channel])
+            XCTAssertGreaterThan(ref, 0.2,
+                                 "the reference's recovered field on record \(channel) "
+                                     + "has σ \(ref); a unit-variance plate through this "
+                                     + "mix is about 0.6, so the fixture is not measuring "
+                                     + "grain at all")
+            let ratio = mine / ref
+            print(String(format:
+                "GRAINPARITY portra400 record %d @ %d px, scale %.3f: sigma gpu %.5f "
+                    + "reference %.5f  ratio %.4f", channel, longEdge, scales[channel],
+                mine, ref, ratio))
+            XCTAssertGreaterThan(ratio, 0.7,
+                                 "record \(channel)'s GPU grain is \(ratio)x the "
+                                     + "reference's amplitude. 0.5 is the encode scale "
+                                     + "disagreeing — the store packing with one constant "
+                                     + "and `lumenGrain` recovering with another, which "
+                                     + "shipped once and was invisible to every test")
+            XCTAssertLessThan(ratio, 1.4,
+                              "record \(channel)'s GPU grain is \(ratio)x the reference's "
+                                  + "amplitude")
+        }
+
+        func chromaToLuma(_ field: [[Double]]) -> Double {
+            var difference: [Double] = []
+            var luma: [Double] = []
+            for i in 0..<field[0].count {
+                difference.append(field[0][i] - field[1][i])
+                luma.append((field[0][i] + field[1][i] + field[2][i]) / 3)
+            }
+            let base = standardDeviation(luma)
+            return base > 1e-9 ? standardDeviation(difference) / base : 0
+        }
+        let referenceChroma = chromaToLuma(referenceField)
+        let gpuChroma = chromaToLuma(gpuField)
+        print(String(format:
+            "GRAINPARITY portra400 chroma/luma: gpu %.4f reference %.4f  ratio %.4f",
+            gpuChroma, referenceChroma, gpuChroma / Swift.max(referenceChroma, 1e-9)))
+        XCTAssertLessThan(referenceChroma, 1.0,
+                          "the reference's own chroma-to-luma noise ratio is "
+                              + "\(referenceChroma); three independent layers laid at "
+                              + "full amplitude give 2.45 and Portra's mix is derived to "
+                              + "give 0.486, so this says the layer mix is not reaching "
+                              + "the reference path either (C2-02)")
+        XCTAssertGreaterThan(gpuChroma / Swift.max(referenceChroma, 1e-9), 0.7,
+                             "the GPU's grain carries \(gpuChroma) of chroma per unit of "
+                                 + "luma where the reference carries \(referenceChroma) — "
+                                 + "`lumenGrain` and `ReferenceRenderer.applyGrain` are "
+                                 + "not performing the same multiply-add from the same "
+                                 + "two weights, which is the only thing that decides how "
+                                 + "much of the three dye layers' independence reaches "
+                                 + "the delivered file")
+        XCTAssertLessThan(gpuChroma / Swift.max(referenceChroma, 1e-9), 1.4,
+                          "the GPU's grain carries \(gpuChroma) of chroma per unit of "
+                              + "luma where the reference carries \(referenceChroma)")
+    }
+
+    /// A frame that spans the grain envelope: density from 8% to 92% of `dMax`, so
+    /// √(p(1−p)) is at least 0.27 at every pixel and no column is measuring the stage
+    /// where it does nothing. Row-invariant, for `testImage`'s reason.
+    private func densityRamp(width: Int, height: Int, dMax: Double) -> ImageBuffer {
+        ImageBuffer(width: width, height: height) { u, _ in
+            RGB(gray: pow(10.0, -Swift.max(dMax, 0.1) * (0.08 + 0.84 * u)))
+        }
+    }
+
+    /// The noise field a grain stage laid down, recovered from its input and output.
+    ///
+    /// `applyGrain` computes `out = 10^−(d + √(p(1−p))·n·amount)` from `in = 10^−d`, so
+    /// `n = log10(in ÷ out) ÷ (√(p(1−p))·amount)` gives back the MIXED noise — the thing
+    /// both renderers claim to compute identically — with the density envelope divided
+    /// out. Comparing `n` rather than pixels is what makes the numbers mean one thing: a
+    /// σ ratio is then an amplitude claim and nothing else, rather than a claim
+    /// entangled with where on the ramp the pixel happened to sit.
+    ///
+    /// Pixels whose envelope is near zero carry no grain and would divide a rounding
+    /// error by a rounding error, so they are dropped. The gate reads the INPUT, so both
+    /// calls keep the same pixels in the same order and the two fields stay comparable.
+    private func recoveredGrain(input: ImageBuffer, output: ImageBuffer,
+                                grain: GrainPlan) -> [[Double]] {
+        var field: [[Double]] = [[], [], []]
+        let dmax = Swift.max(grain.dMax, 0.1)
+        let amount = grain.amount
+        guard amount > 1e-9 else { return field }
+        for y in 0..<input.height {
+            for x in 0..<input.width {
+                let source = input[x, y]
+                var amplitude = RGB.zero
+                var usable = true
+                for channel in 0..<3 {
+                    let v = Swift.max(source[channel], 1e-5)
+                    let p = Swift.min(Swift.max(-log10(v) / dmax, 0), 1)
+                    amplitude[channel] = (p * (1 - p)).squareRoot()
+                    if amplitude[channel] < 0.15 { usable = false }
+                }
+                guard usable else { continue }
+                let result = output[x, y]
+                for channel in 0..<3 {
+                    let a = Swift.max(source[channel], 1e-5)
+                    let b = Swift.max(result[channel], 1e-5)
+                    field[channel].append(log10(a / b) / (amplitude[channel] * amount))
+                }
+            }
+        }
+        return field
+    }
+
+    private func standardDeviation(_ values: [Double]) -> Double {
+        guard values.count > 1 else { return 0 }
+        let n = Double(values.count)
+        let mean = values.reduce(0, +) / n
+        return (values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / n).squareRoot()
     }
 
     // MARK: - A mask, through the graph that ships
@@ -225,8 +589,7 @@ final class KernelGoldenTests: XCTestCase {
             var graph = RenderGraph()
             graph.maskImages[mask.id] = alphaImage
             let output = graph.build(ciImage(from: source), plan: plan,
-                                     options: RenderGraph.Options(longEdge: width,
-                                                                  draft: false))
+                                     options: RenderGraph.Options(longEdge: width))
             guard let gpu = readBack(output, width: width, height: height) else {
                 return nil
             }
@@ -260,8 +623,7 @@ final class KernelGoldenTests: XCTestCase {
         let plainPlan = RenderPlan(recipe: plainRecipe, lutSize: LUT3D.exportSize)
         guard let plain = readBack(
             RenderGraph().build(ciImage(from: source), plan: plainPlan,
-                                options: RenderGraph.Options(longEdge: width,
-                                                             draft: false)),
+                                options: RenderGraph.Options(longEdge: width)),
             width: width, height: height) else { return XCTFail("plain render failed") }
         // Column 44 of 64, NOT the middle. `testImage` maps `ev = -14 + u * 20`, so the
         // middle column sits at -3.8 EV — nearly four stops below middle grey, where the
@@ -325,6 +687,160 @@ final class KernelGoldenTests: XCTestCase {
             }
         }
         print("LOCAL CURVE table-vs-exact worst: \(curveWorst)")
+    }
+
+    // MARK: - A mask's colour table is baked for the render it is in
+
+    /// A masked colour edit must be baked at the size the RENDER asked for, not at the
+    /// preview's.
+    ///
+    /// `LocalPlan` hardcoded `LUT3D.interactiveSize`, so every masked contrast, temp,
+    /// tint, hue, saturation, vibrance, point colour and grading wheel in a DELIVERED
+    /// file came out of a 33-cube while the global colour/grade table, the finish table
+    /// and the local point curve two stages later all came out of a 65. The curve was
+    /// the tell: it has taken `options.lutSize` since it was written, sitting six lines
+    /// from a table that did not.
+    ///
+    /// Two assertions, because either alone can be satisfied by the wrong code. The
+    /// first says `LocalPlan` bakes what it is handed — it fails the moment a size is
+    /// hardcoded again. The second says the size REACHES PIXELS through the shipping
+    /// graph, which is the proof the first one cannot give: a plan built at 65 that
+    /// nothing hands 65 to is exactly the defect this replaces.
+    /// docs/36 §4 item 22 — a mask whose ONLY edit is an absolute Kelvin.
+    ///
+    /// This is the third time a local field has been added to the identity test's
+    /// conjunction after shipping without it: `pointColors` and `wheels` both spent a
+    /// release declaring a mask identity, returning a two-point cube, and doing nothing
+    /// at all on every preview and every export. `LocalPlan.isIdentity` is the single
+    /// point where that failure is possible, and it has no coverage on the CPU side
+    /// because it does not exist there — `ReferenceRenderer` has no such short-circuit,
+    /// so a parity test between them would pass while the GPU did nothing.
+    ///
+    /// The second half is what makes it a proof rather than a flag check: the baked
+    /// table has to move a colour, and move it in the direction the number names.
+    func testAMaskWhoseOnlyEditIsAnAbsoluteKelvinIsNotIdentity() throws {
+        var adjust = LocalAdjust()
+        adjust.kelvin = 3000
+
+        let anchors = RenderPlan(recipe: Recipe()).tone
+        let balanced = WhiteBalanceEngine.Neutral(kelvin: 6500, tint: 0)
+        let local = LocalPlan(adjust: adjust, scale: 1,
+                              whiteAnchorEV: anchors.whiteAnchorEV,
+                              blackAnchorEV: anchors.blackAnchorEV,
+                              size: LUT3D.exportSize,
+                              globalColor: ColorAdjust(),
+                              globalWheels: GradingWheels(),
+                              balanced: balanced)
+        XCTAssertFalse(local.isIdentity,
+                       "an absolute white balance is the mask's whole edit and the "
+                           + "stage declared itself a no-op")
+
+        // Declaring a colder illuminant than the balance assumed removes warming
+        // compensation, so the region goes blue — the same direction the global
+        // Temperature row moves, which `MaskWhiteBalanceTests` pins on the CPU side.
+        let grey = ReferenceRenderer.LocalWhiteBalance.resolve(
+            adjust, amount: 1, balanced: balanced, space: .rec2020).apply(RGB(0.4, 0.4, 0.4))
+        XCTAssertGreaterThan(grey.b, grey.r,
+                             "3000 K declared against a 6500 K balance is a cool edit")
+        XCTAssertGreaterThan(abs(grey.b - 0.4), 0.01, "and a decisive one")
+    }
+
+    func testAMaskedColourEditIsBakedAtTheRendersOwnTableSize() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+
+        // A colour-only local set. Exposure is deliberately absent: it is a matrix
+        // multiply upstream of the table and would move pixels whatever the table size
+        // is, which would let the second half of this test pass on the broken code.
+        var adjust = LocalAdjust()
+        adjust.contrast = 45
+        adjust.temp = 30
+        adjust.sat = 35
+        adjust.vibrance = 20
+
+        // ---- The table is the size it was asked for. ----
+        let anchors = RenderPlan(recipe: Recipe()).tone
+        for size in [LUT3D.interactiveSize, LUT3D.exportSize] {
+            let local = LocalPlan(adjust: adjust, scale: 1,
+                                  whiteAnchorEV: anchors.whiteAnchorEV,
+                                  blackAnchorEV: anchors.blackAnchorEV, size: size,
+                                  globalColor: ColorAdjust(),
+                                  globalWheels: GradingWheels(),
+                                  balanced: WhiteBalanceEngine.Neutral.reference)
+            XCTAssertFalse(local.isIdentity,
+                           "a mask with contrast, temp, saturation and vibrance "
+                               + "declared itself identity, so this test measures "
+                               + "a two-point cube and proves nothing")
+            XCTAssertEqual(local.lut.size, size,
+                           "LocalPlan baked \(local.lut.size) when the render asked "
+                               + "for \(size)")
+        }
+
+        // ---- The size reaches pixels through the graph that ships. ----
+        let width = 64, height = 32
+        let source = texturedTestImage(width: width, height: height)
+
+        // Vertical, for the reason the mask golden above states: the frame is constant
+        // down each column, so any difference between two ROWS of one column is the
+        // mask and nothing else.
+        var mask = Mask(id: "m1", name: "grad")
+        var component = MaskComponent(op: .add, kind: .linear)
+        component.line = [0.5, 0, 0.5, 1]
+        mask.components = [component]
+        mask.adjust = adjust
+
+        var recipe = Recipe()
+        recipe.masks = [mask]
+        recipe.develop.denoise.mode = .off
+        // ONE plan for both renders, at export size, so the global colour/grade and
+        // finish tables are bit-identical across the pair and the only thing that can
+        // differ is the local table.
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+
+        let alpha = MaskRaster.combine(mask: mask,
+                                       size: (width: width, height: height))
+        guard let alphaImage = PipelineRenderer.image(
+            from: alpha,
+            targetExtent: CGRect(x: 0, y: 0, width: width, height: height))
+        else { return XCTFail("mask raster failed") }
+        var graph = RenderGraph()
+        graph.maskImages[mask.id] = alphaImage
+
+        func render(lutSize: Int) -> ImageBuffer? {
+            let out = graph.build(ciImage(from: source), plan: plan,
+                                  options: RenderGraph.Options(longEdge: width,
+                                                               lutSize: lutSize))
+            return readBack(out, width: width, height: height)
+        }
+        guard let interactive = render(lutSize: LUT3D.interactiveSize),
+              let exported = render(lutSize: LUT3D.exportSize)
+        else { return XCTFail("masked render failed") }
+
+        // The blend is `mix(original, adjusted, alpha)`, so the gap between the two
+        // table sizes is scaled by alpha at every pixel: it must be largest where the
+        // mask selects and vanish where it does not. That split is what separates "the
+        // local table changed" from "something global changed".
+        var selected = 0.0
+        var unselected = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = interactive[x, y].maxAbsDifference(exported[x, y])
+                if y >= height / 2 {
+                    selected = Swift.max(selected, d)
+                } else {
+                    unselected = Swift.max(unselected, d)
+                }
+            }
+        }
+        XCTAssertGreaterThan(selected, 0,
+                             "the two table sizes rendered identical pixels — "
+                                 + "`options.lutSize` does not reach the masked "
+                                 + "colour table, so an export bakes it at preview "
+                                 + "precision")
+        XCTAssertGreaterThan(selected, unselected,
+                             "the table size moved the unselected end by \(unselected) "
+                                 + "against \(selected) selected — what changed is not "
+                                 + "the mask's own table")
+        print(String(format: "LOCAL TABLE 33-vs-65 worst under the mask: %.6f", selected))
     }
 
     // MARK: - Presence must not put a rim on an edge
@@ -552,34 +1068,38 @@ final class KernelGoldenTests: XCTestCase {
     /// to put it, and once because the fine band was blurred at a fixed sigma that
     /// equalled the working radius at its default, making the two components of the
     /// cross-fade bit-identical. Both times every test in the suite passed.
-    /// What `CIGaussianBlur.radius` actually means, measured rather than assumed.
+    /// What `CIGaussianBlur.radius` actually means, measured rather than assumed — and
+    /// ASSERTED, which for one round it was not.
     ///
-    /// `RenderGraph.gaussianBlur` sets `filter.radius = sigma * 3`, on the stated
-    /// grounds that the parameter is a SUPPORT radius rather than a standard deviation.
-    /// That conversion has never been measured. It matters now because the sharpen
-    /// stage mixes two high-pass bands and the mix direction depends entirely on which
-    /// is wider: `usm = lum − G(radius)` against the reference's a-trous band
-    /// `lum − 0.5·(s1 + s2)`, whose smooths have sigma 1.0 and 2.24 by construction
-    /// (B3-spline variance is 1 at step 1, 4 at step 2).
+    /// This test blurred an impulse, measured the second moment of the response (which
+    /// IS sigma by definition), and `print`ed it. Zero assertions. `RenderGraph`'s own
+    /// header records the answer as measured fact — 2.0→2.0, 6.0→6.01, 8.95→9.0, so
+    /// the parameter is the standard deviation and not a support radius — and the
+    /// correction that followed landed in `RenderGraph.gaussianBlur` and MISSED
+    /// `applyHalation`, which had built its own `CIFilter.gaussianBlur()` with the old
+    /// `sigma * 3` in it. Every shipping preview and export rendered the glow three
+    /// times wider than the 65 µm the profile derives, and this test, whose entire
+    /// subject is that conversion, could not go red — nor could it have gone red for
+    /// the original bug it was written to investigate. A measurement nobody compares
+    /// against anything is a diagnostic, not a test.
     ///
-    /// In Fourier terms the a-trous band should be the WIDER high-pass and therefore
-    /// the larger one — yet `testDetailSliderMovesThePicture` measures Detail 100
-    /// sharpening roughly half as hard as Detail 0. Either the reasoning is wrong or
-    /// the sigma conversion is, and `CIBoxBlur.radius` turned out this morning to be
-    /// the window WIDTH rather than the half-width, so an unmeasured Core Image blur
-    /// parameter is not something to keep assuming about.
+    /// The bar is now the measurement itself: the helper must return the sigma it was
+    /// asked for. `sigma * 3` fails every row by a factor of three.
     ///
-    /// Measures the second moment of the impulse response, which IS sigma.
+    /// The a-trous smooths the sharpen stage cross-fades against are asserted as a
+    /// RATIO rather than against absolute numbers. Doubling the tap spacing doubles the
+    /// standard deviation whatever the kernel's normalization is, so the ratio is the
+    /// part of the claim that is structural; the step-1 band is given a wide window
+    /// around the B3-spline's unit variance.
     func testWhatCIGaussianBlurRadiusMeans() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let side = 129
-        for askedSigma in [0.5, 1.0, 2.0, 3.0] {
-            var impulse = Plane(width: side, height: side)
-            impulse[side / 2, side / 2] = 1.0
-            guard let blurred = RenderGraph.gaussianBlur(ciImage(from: broadcast(impulse)),
-                                                         sigma: askedSigma),
-                  let got = readBack(blurred, width: side, height: side)
-            else { continue }
+
+        /// The standard deviation of the central row of an impulse response. The
+        /// marginal of an isotropic 2-D Gaussian is a 1-D Gaussian of the same sigma,
+        /// and the mean sits at the impulse by symmetry, so this is sigma with no fit.
+        func measuredSigma(_ image: CIImage) -> Double? {
+            guard let got = readBack(image, width: side, height: side) else { return nil }
             var sum = 0.0, second = 0.0
             for x in 0..<side {
                 let v = Double(got[x, side / 2].r)
@@ -587,29 +1107,262 @@ final class KernelGoldenTests: XCTestCase {
                 sum += v
                 second += v * d * d
             }
-            let measured = sum > 0 ? (second / sum).squareRoot() : 0
-            print(String(format: "GAUSSIAN asked sigma %.1f -> measured sigma %.3f "
-                                 + "(radius passed to CI: %.1f)",
-                         askedSigma, measured, Swift.max(askedSigma * 3, 0.5)))
+            guard sum > 0 else { return nil }
+            return (second / sum).squareRoot()
         }
 
-        // And the a-trous smooths the sharpen stage compares against, same measurement.
-        for step in [1, 2] {
+        func impulseImage() -> CIImage {
             var impulse = Plane(width: side, height: side)
             impulse[side / 2, side / 2] = 1.0
-            guard let sm = RenderGraph.bSplinePass(ciImage(from: broadcast(impulse)),
-                                                   step: step),
-                  let got = readBack(sm, width: side, height: side) else { continue }
-            var sum = 0.0, second = 0.0
-            for x in 0..<side {
-                let v = Double(got[x, side / 2].r)
-                let d = Double(x - side / 2)
-                sum += v
-                second += v * d * d
-            }
-            print(String(format: "ATROUS step %d -> measured sigma %.3f",
-                         step, sum > 0 ? (second / sum).squareRoot() : 0))
+            return ciImage(from: broadcast(impulse))
         }
+
+        // 9.0 is the widest row the runner's recorded measurement covers, and three
+        // sigmas of it still sit 37 px inside a 129 px frame, so nothing here is
+        // measuring truncation.
+        for askedSigma in [1.0, 2.0, 4.0, 6.0, 9.0] {
+            guard let blurred = RenderGraph.gaussianBlur(impulseImage(),
+                                                         sigma: askedSigma) else {
+                return XCTFail("gaussianBlur returned nothing at sigma \(askedSigma)")
+            }
+            guard let measured = measuredSigma(blurred) else {
+                return XCTFail("blurred impulse read back empty at sigma \(askedSigma)")
+            }
+            print(String(format: "GAUSSIAN asked sigma %.1f -> measured sigma %.3f",
+                         askedSigma, measured))
+            // 5% of the request, floored so the narrowest row is not held to a
+            // sub-pixel bar on a filter that works in pixels.
+            XCTAssertEqual(measured, askedSigma,
+                           accuracy: Swift.max(0.12, askedSigma * 0.05),
+                           "`CIGaussianBlur.radius` is not the standard deviation: "
+                               + "asked \(askedSigma), measured \(measured). A ratio "
+                               + "near 3 means a support-radius conversion has come "
+                               + "back somewhere in the graph")
+        }
+
+        // And the a-trous smooths the sharpen stage cross-fades against.
+        var atrous: [Double] = []
+        for step in [1, 2] {
+            guard let smoothed = RenderGraph.bSplinePass(impulseImage(), step: step),
+                  let measured = measuredSigma(smoothed) else {
+                return XCTFail("a-trous step \(step) produced nothing")
+            }
+            print(String(format: "ATROUS step %d -> measured sigma %.3f", step, measured))
+            atrous.append(measured)
+        }
+        guard atrous.count == 2 else { return XCTFail("a-trous measurement incomplete") }
+        XCTAssertEqual(atrous[0], 1.0, accuracy: 0.25,
+                       "the step-1 B3-spline smooth measured \(atrous[0]); its variance "
+                           + "is 1 by construction")
+        XCTAssertEqual(atrous[1] / Swift.max(atrous[0], 1e-9), 2.0, accuracy: 0.2,
+                       "doubling the a-trous tap spacing must double the standard "
+                           + "deviation; measured \(atrous[1]) against \(atrous[0])")
+    }
+
+    // MARK: - Halation
+
+    /// One clipped highlight, both paths, and the width of the glow it throws.
+    ///
+    /// The halation stage kept a private `CIFilter.gaussianBlur()` with
+    /// `radius = sigma * 3` in it long after the shared helper had been corrected, so
+    /// every preview and every export rendered the glow three times wider than the
+    /// 65 µm first bounce the profile derives, while `ReferenceRenderer.applyHalation`
+    /// rendered it at one. Nothing could see it: the only halation tests were on the
+    /// reference path, and a grep of this whole directory for "halation" returned
+    /// nothing at all.
+    ///
+    /// What is measured is the second moment of the glow field about the highlight,
+    /// which for a sum of Gaussians against a small uniform source is `2·Σwσ²/Σw` plus
+    /// the source's own variance — the first derived here from the profile the two
+    /// stages share rather than written down, so the bar moves with the model instead
+    /// of pinning today's numbers. A support-radius conversion multiplies it by NINE.
+    ///
+    /// The frame is 128 px and the render's long edge is declared as 2215, which is
+    /// what puts the first bounce at 4 px: halation is denominated at the gate, so on a
+    /// literal 128 px frame the whole glow would be a third of a pixel wide and this
+    /// would be measuring quantization. Nothing else in `applyHalation` reads the long
+    /// edge.
+    func testHalationGlowIsAsWideAsTheProfileSays() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 128
+        let longEdge = 2215
+        let block = 4
+        // The block straddles the frame's centre EVENLY, so it is its own mirror image
+        // about `centre` under a vertical flip. `ciImage(from:)` and `readBack` are the
+        // two halves of a bitmap bridge whose row order this file pins only
+        // transitively, and a second moment taken about a centre that is one pixel off
+        // is inflated by exactly one. Making the frame symmetric costs nothing and
+        // takes the question off the table.
+        let centre = Double(side) / 2 - 0.5
+        let low = side / 2 - block / 2
+        let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                     halation: 100),
+                             filmExposure: 0, displayWhite: 1.0)
+        let profile = film.halation(longEdgePixels: longEdge)
+
+        // Two stops over the clip, on a background four and a half stops BELOW the
+        // reconstruction's onset — so both the reference's smoothstep and the shader's
+        // pedestal read exactly zero everywhere but the block, and the two energy
+        // fields differ in amplitude only, never in footprint.
+        var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
+        for y in low..<(low + block) {
+            for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
+        }
+
+        let input = ciImage(from: source)
+        guard let before = readBack(input, width: side, height: side) else { return }
+        let glowed = RenderGraph().applyHalation(input, film: film, longEdge: longEdge)
+        guard let gpu = readBack(glowed, width: side, height: side) else { return }
+        let reference = ReferenceRenderer.applyHalation(source, film: film,
+                                                        longEdge: longEdge)
+
+        /// Total glow in one channel, and its second moment about the highlight.
+        func glow(_ after: ImageBuffer, _ start: ImageBuffer, channel: Int)
+            -> (mass: Double, spread: Double) {
+            var mass = 0.0, second = 0.0
+            for y in 0..<side {
+                for x in 0..<side {
+                    let delta = after[x, y][channel] - start[x, y][channel]
+                    guard delta > 0 else { continue }
+                    let dx = Double(x) - centre, dy = Double(y) - centre
+                    mass += delta
+                    second += delta * (dx * dx + dy * dy)
+                }
+            }
+            return (mass, mass > 0 ? second / mass : 0)
+        }
+
+        // The model's own prediction, from the profile the two stages share: variances
+        // add, so the glow's is the weighted mean of the bounces' plus the block's.
+        var weightSum = 0.0, varianceSum = 0.0
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights) {
+            weightSum += weight
+            varianceSum += weight * sigma * sigma
+        }
+        XCTAssertGreaterThan(weightSum, 0, "the halation profile carries no bounces")
+        // A uniform w x w source has variance (w² − 1)/12 per axis, and variances add.
+        let blockVariance = 2 * (Double(block) * Double(block) - 1) / 12.0
+        let predicted = 2 * varianceSum / Swift.max(weightSum, 1e-12) + blockVariance
+
+        let gpuGlow = glow(gpu, before, channel: 0)
+        let referenceGlow = glow(reference, source, channel: 0)
+        print(String(format: "HALATION predicted spread %.2f  gpu %.2f  reference %.2f  "
+                             + "(mass gpu %.4f reference %.4f)",
+                     predicted, gpuGlow.spread, referenceGlow.spread,
+                     gpuGlow.mass, referenceGlow.mass))
+
+        XCTAssertGreaterThan(gpuGlow.mass, 1e-4,
+                             "the graph's halation stage added no light at all")
+        XCTAssertGreaterThan(referenceGlow.mass, 1e-4,
+                             "the reference's halation stage added no light at all")
+        // 12%: the measurement is a discrete second moment of an f32 read-back, and the
+        // two paths' reconstruction ramps differ in amplitude. A support-radius
+        // conversion is 900%.
+        XCTAssertEqual(gpuGlow.spread, predicted, accuracy: predicted * 0.12,
+                       "the graph blurred halation at a spread of \(gpuGlow.spread) "
+                           + "where the profile says \(predicted). A ratio near 9 is "
+                           + "`sigma * 3` back in the stage")
+        XCTAssertEqual(referenceGlow.spread, predicted, accuracy: predicted * 0.12,
+                       "the reference blurred halation at a spread of "
+                           + "\(referenceGlow.spread) where the profile says "
+                           + "\(predicted)")
+        XCTAssertEqual(gpuGlow.spread, referenceGlow.spread,
+                       accuracy: referenceGlow.spread * 0.10,
+                       "the two paths disagree about how wide the glow is: "
+                           + "\(gpuGlow.spread) against \(referenceGlow.spread)")
+
+        // The energy divergence the engine has claimed is "matched at the half-power
+        // point" and never measured: the shader reconstructs highlights with a hard
+        // pedestal and the reference with a C¹ smoothstep. Recorded as a number with a
+        // bound on it, so a change in either ramp shows up here rather than in a
+        // photograph.
+        XCTAssertEqual(gpuGlow.mass, referenceGlow.mass,
+                       accuracy: referenceGlow.mass * 0.30,
+                       "the pedestal and the smoothstep now disagree about total glow "
+                           + "energy by more than 30%: \(gpuGlow.mass) against "
+                           + "\(referenceGlow.mass)")
+
+        // Halation is red because the stock's measured strengths are, and Portra's blue
+        // strength is exactly zero. A glow that is not red is a glow through the wrong
+        // gain.
+        let blue = glow(gpu, before, channel: 2)
+        XCTAssertLessThan(blue.mass, gpuGlow.mass * 0.02,
+                          "the glow carried \(blue.mass) of blue against "
+                              + "\(gpuGlow.mass) of red, and this stock's blue halation "
+                              + "strength is zero")
+    }
+
+    /// Halation has to reach pixels THROUGH `RenderGraph.build`.
+    ///
+    /// Every halation test in the repository ran on the reference path or called the
+    /// stage directly, so deleting the call to it from `build` left the whole suite
+    /// green while every preview and every export lost the glow. This is the same hole
+    /// that was closed for masks and is still open for grain.
+    ///
+    /// Halation is a spatial stage and never enters the baked finish table, so the only
+    /// difference between these two renders is the stage itself — which is also why the
+    /// far corner is asserted to stay put: a table that had somehow started reading
+    /// Amount would move the whole frame, and that is a different defect wearing this
+    /// one's result.
+    func testHalationReachesPixelsThroughTheGraph() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 128
+        let longEdge = 2215
+        let block = 4
+        let centre = Double(side) / 2 - 0.5
+        let low = side / 2 - block / 2
+
+        var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
+        for y in low..<(low + block) {
+            for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
+        }
+
+        func render(halation: Double) -> ImageBuffer? {
+            var recipe = Recipe()
+            // `Recipe()` denoises; S3 is not what this is about.
+            recipe.develop.denoise.mode = .off
+            recipe.look.filmLab = FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                          halation: halation)
+            let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+            let output = RenderGraph().build(
+                ciImage(from: source), plan: plan,
+                options: RenderGraph.Options(longEdge: longEdge))
+            return readBack(output, width: side, height: side)
+        }
+
+        guard let off = render(halation: 0), let on = render(halation: 100) else {
+            return XCTFail("film render failed")
+        }
+
+        // An annulus four to ten pixels out: clear of the block, whose farthest pixel
+        // sits 2.1 from the centre, and well inside the first bounce's four-pixel
+        // sigma.
+        var ring = 0.0
+        var ringCount = 0
+        for y in 0..<side {
+            for x in 0..<side {
+                let dx = Double(x) - centre, dy = Double(y) - centre
+                let radius = (dx * dx + dy * dy).squareRoot()
+                guard radius >= 4, radius <= 10 else { continue }
+                ring += on[x, y].maxAbsDifference(off[x, y])
+                ringCount += 1
+            }
+        }
+        ring = ringCount > 0 ? ring / Double(ringCount) : 0
+        let corner = on[2, 2].maxAbsDifference(off[2, 2])
+
+        print(String(format: "HALATION through the graph: ring %.5f corner %.5f",
+                     ring, corner))
+        // The floor is a noise floor and says so: with the call deleted this difference
+        // is identically zero to f32, not merely small. The substance of the test is
+        // the pair — something moved, and it moved AT the highlight.
+        XCTAssertGreaterThan(ring, 1e-3,
+                             "turning Halation to 100 moved the pixels beside a clipped "
+                                 + "highlight by \(ring) — the stage is not running in "
+                                 + "`RenderGraph.build`")
+        XCTAssertLessThan(corner, ring / 4,
+                          "the far corner moved \(corner) against \(ring) at the "
+                              + "highlight, so whatever changed is not a local glow")
     }
 
     func testDetailSliderMovesThePicture() throws {
@@ -722,6 +1475,14 @@ final class KernelGoldenTests: XCTestCase {
         let url = URL(fileURLWithPath: "/dev/null")
         let asShotTemperature: Double = 5500
         let asShotTint: Double = 0
+        // `.unspecified`, not `.sceneLinearDecode`. The stub hands back a CIImage it was
+        // given with NO DECODER BEHIND IT, and `.sceneLinearDecode` means something
+        // specific — CIRAWFilter at Lumen's flat settings, read before every Lumen stage.
+        // Claiming it here would put a decoder's label on numbers no decoder produced,
+        // which is precisely the failure the protocol requirement was added to prevent.
+        // `.unspecified` is documented as "numbers of unknown origin", which is what
+        // these are.
+        let statisticsProvenance: RawStatistics.Provenance = .unspecified
         private let image: CIImage
         init(_ image: CIImage) { self.image = image }
         var nativePixelSize: (width: Int, height: Int) {
@@ -787,6 +1548,254 @@ final class KernelGoldenTests: XCTestCase {
         }
     }
 
+    // MARK: - Grain lands on the grid that is delivered
+
+    /// Two exports of the same picture at the same delivered size must contain the same
+    /// grain, whether or not the export had to resize to get there.
+    ///
+    /// `export` applied grain inside `build`, at DECODE resolution, and then resampled
+    /// to the target — so a 900 px file delivered at 300 px carried a grain pattern
+    /// three times finer than the one a 300 px render of the same recipe produces, and
+    /// three times finer than the preview the photographer approved. σ is a poor
+    /// instrument for that: measured on the reference path, a 3x average costs the
+    /// amplitude only about 4% (`testFilmGrainHasTheSameAmplitudeAtEveryRenderSize`),
+    /// which is why this compares the PICTURES and not their standard deviations. Two
+    /// uncorrelated grain fields of the same σ differ by √2·σ; the same field twice
+    /// differs by nothing.
+    ///
+    /// A flat field, so every difference between the two files is grain. Denoise off,
+    /// output sharpening off, no watermark: each of those would put structure into the
+    /// comparison that is not the thing being measured.
+    ///
+    /// Uncropped, deliberately. A crop is the case where the delivered pixel count is
+    /// NOT the long edge the plate must be scaled for, and that arithmetic is pinned
+    /// where it can actually be run:
+    /// `testAGrainPlateIsScaledForPixelsPerGateAndNotForPixelCount` in LumenCore.
+    func testGrainIsAppliedOnTheGridThatIsDelivered() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+
+        let delivered = 300
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
+                                      grain: FilmGrain(size: 1, amount: 100))
+        let exportRecipe = ExportRecipe(name: "grain", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .longEdge,
+                                        resizeValue: Double(delivered))
+        let renderer = PipelineRenderer()
+
+        func delivery(sourceLongEdge: Int) throws -> ImageBuffer {
+            let w = sourceLongEdge, h = sourceLongEdge * 2 / 3
+            let flat = ImageBuffer(width: w, height: h) { _, _ in RGB(gray: 0.18) }
+            let image = try renderer.exportedImage(source: StubSource(ciImage(from: flat)),
+                                                   recipe: recipe, using: exportRecipe)
+            let ow = Int(image.extent.width.rounded())
+            let oh = Int(image.extent.height.rounded())
+            XCTAssertEqual(ow, delivered,
+                           "a \(sourceLongEdge) px source delivered \(ow) px")
+            guard let pixels = readBack(image, width: ow, height: oh) else {
+                throw RenderError.renderFailed
+            }
+            return pixels
+        }
+
+        // Native: 300 px in, 300 px out, no resize anywhere in the path.
+        let native = try delivery(sourceLongEdge: delivered)
+        // Downsized: the same picture, three times larger, delivered at the same size.
+        let downsized = try delivery(sourceLongEdge: delivered * 3)
+
+        // Inset by two pixels, down from six. Six existed to dodge the darkened
+        // Lanczos rim `scaled()` used to produce on every resized export (docs/31
+        // round one §12) — a defect this comparison was stepping around instead of
+        // failing on. With the edge clamp in `scaled()` the borders of a flat
+        // field survive the resample, and `testAResizedExportHasNoDarkenedRim`
+        // pins that directly; what remains is the honest half-pixel phase
+        // difference of resampled-vs-native at the outermost rows, which two
+        // pixels covers.
+        let inset = 2
+        var sum = 0.0, sumSquares = 0.0, difference = 0.0, count = 0.0
+        for y in inset..<(native.height - inset) {
+            for x in inset..<(native.width - inset) {
+                let a = native[x, y].g
+                sum += a
+                sumSquares += a * a
+                difference += (a - downsized[x, y].g) * (a - downsized[x, y].g)
+                count += 1
+            }
+        }
+        let mean = sum / Swift.max(count, 1)
+        let sigma = Swift.max(sumSquares / Swift.max(count, 1) - mean * mean, 0)
+            .squareRoot()
+        let rms = (difference / Swift.max(count, 1)).squareRoot()
+        print(String(format: "EXPORT GRAIN mean %.4f  sigma %.5f  rms difference %.5f",
+                     mean, sigma, rms))
+
+        // Grain has to be present, or the comparison below is between two flat fields
+        // and passes for a pipeline that dropped the stage entirely.
+        XCTAssertGreaterThan(sigma, 0.02 * mean,
+                             "the delivered file varies by \(sigma) on a mean of "
+                                 + "\(mean) — under 2% of the level is not a grain, so "
+                                 + "the comparison below proves nothing")
+        // The two deliveries are the same plate, at the same scale, over the same flat
+        // picture, so they should agree to the resampler's own error. Grain applied
+        // before the resize instead puts two UNCORRELATED fields side by side, which
+        // lands near √2·σ — a factor of ten above this bar.
+        XCTAssertLessThan(rms, 0.15 * sigma,
+                          "two exports of the same picture at the same delivered size "
+                              + "differ by \(rms) against a grain σ of \(sigma) — the "
+                              + "resized one is not carrying the grain of the size it "
+                              + "was delivered at")
+    }
+
+    // MARK: - The AI matte ledger
+
+    /// The matte ledger answers per KIND, and it says what it threw away.
+    ///
+    /// Two shipped defects, one ledger, and no kernel involved in either — which is why
+    /// this test needs no GPU and would have caught both on any Mac.
+    ///
+    /// It was per FILE. "Has a pass run for this photograph" is the wrong question:
+    /// add a Subject mask, the pass runs for `{aiSubject}` and the file is marked done;
+    /// add a People mask afterwards and every guard on both the preview and the export
+    /// path short-circuits, so the People matte is never generated at all — and the
+    /// panel then prints "Vision found no person in this frame" about a request nobody
+    /// issued.
+    ///
+    /// And the renderer's cache is bounded at twelve files while the app's copy of the
+    /// same facts was never trimmed. Browse thirteen photographs carrying Vision masks,
+    /// return to the first, and the app skipped the regeneration while the render read
+    /// an empty matte and the panel still said READY. `storeMattes` now returns what it
+    /// evicted, so the only place that can drop a matte is the only place that reports
+    /// one — the two cannot drift apart the way two independent ledgers did.
+    func testTheMatteLedgerIsPerKindAndReportsWhatItEvicts() {
+        let renderer = PipelineRenderer()
+        let first = URL(fileURLWithPath: "/tmp/lumen-matte-ledger-first.raw")
+        let subject = MaskKind.aiSubject.rawValue
+        let person = MaskKind.aiPerson.rawValue
+        let plane = Plane(width: 2, height: 2)
+
+        // A pass that looked for Subject and found one.
+        XCTAssertTrue(renderer.storeMattes([subject: plane], requested: [subject],
+                                           for: first).isEmpty,
+                      "the first store of thirteen evicted something")
+        XCTAssertEqual(renderer.matteKinds(for: first), [subject])
+        XCTAssertEqual(renderer.attemptedMatteKinds(for: first), [subject])
+
+        // The whole of the first defect: People has not been looked for, on a file that
+        // HAS been looked at.
+        XCTAssertFalse(renderer.attemptedMatteKinds(for: first).contains(person),
+                       "the ledger says People was attempted because Subject was — "
+                           + "which is the per-file answer to a per-kind question, and "
+                           + "it is what stopped the second Vision mask ever being "
+                           + "computed")
+
+        // A pass that looked for People and found nobody. Recorded as attempted, so it
+        // is not re-segmented on every edit; NOT recorded as available, so the panel
+        // can still tell "found nothing" from "not asked".
+        renderer.storeMattes([:], requested: [person], for: first)
+        XCTAssertTrue(renderer.attemptedMatteKinds(for: first).contains(person))
+        XCTAssertFalse(renderer.matteKinds(for: first).contains(person),
+                       "a kind that produced no plane is being reported as available")
+        XCTAssertTrue(renderer.matteKinds(for: first).contains(subject),
+                      "the second pass overwrote the first one's matte")
+
+        // Twelve more files push the first out of a twelve-file cache, and the store
+        // has to SAY so — a caller holding a copy has no other way to find out.
+        var evicted: [URL] = []
+        for i in 0..<12 {
+            let other = URL(fileURLWithPath: "/tmp/lumen-matte-ledger-\(i).raw")
+            evicted += renderer.storeMattes([subject: plane], requested: [subject],
+                                            for: other)
+        }
+        XCTAssertEqual(evicted, [first],
+                       "the cache dropped \(evicted) on its way past twelve files; the "
+                           + "file it dropped is the one whose ledger entry elsewhere "
+                           + "is now a lie")
+        XCTAssertTrue(renderer.matteKinds(for: first).isEmpty,
+                      "the evicted file still reports a matte")
+        XCTAssertTrue(renderer.attemptedMatteKinds(for: first).isEmpty,
+                      "the file's mattes went and its attempt ledger stayed — the two "
+                          + "dictionaries that used to disagree, now in one value so "
+                          + "that they cannot")
+    }
+
+    // MARK: - An export is a promise
+
+    /// A picture the GPU cannot form must not be delivered as though it were the edit.
+    ///
+    /// The preview path has checked `coreAvailable` and fallen back to the reference
+    /// since it was written. Export had no equivalent: it built the graph
+    /// unconditionally, every `KernelLibrary.apply(...) ?? image` no-opped a missing
+    /// stage into the file, and `AppState.export` recorded a failure only when
+    /// something threw — so with the core four missing it wrote the fallback-tone
+    /// approximation and the status line said "Exported 1 file".
+    ///
+    /// `KernelLibrary`'s kernels are `static let` and compile once, so on a healthy
+    /// runner they cannot be made to fail and this behaviour could not be tested at
+    /// all. `PipelineRenderer.availability` is the seam that makes it testable, and
+    /// these two tests are the only reason it exists.
+    func testAnExportRefusesToDeliverAPictureTheGPUCannotForm() {
+        let renderer = PipelineRenderer()
+        renderer.availability = KernelAvailability(
+            coreAvailable: false, unavailable: ["logEncode", "logDecode", "multiply"])
+        let flat = ImageBuffer(width: 32, height: 24) { _, _ in RGB(gray: 0.18) }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-out15-refused-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        do {
+            _ = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                    recipe: Recipe(), to: destination,
+                                    using: ExportRecipe(name: "t", format: .png))
+            XCTFail("export delivered a file with the core colour kernels missing")
+        } catch RenderError.kernelsUnavailable(let missing) {
+            XCTAssertEqual(missing, ["logEncode", "logDecode", "multiply"],
+                           "the refusal did not carry the names the caller has to "
+                               + "report")
+        } catch {
+            XCTFail("export threw \(error) rather than naming the kernels that were "
+                        + "not there")
+        }
+        // Refusing has to mean nothing was written. A truncated or half-written
+        // delivery is the failure this replaces, wearing an error message.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path),
+                       "a refused export left a file on disk anyway")
+    }
+
+    /// A file written with one stage absent is not a failure and is not clean either,
+    /// and the caller has to be told which stage.
+    func testAnExportNamesTheStagesThatSilentlyDidNothing() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let renderer = PipelineRenderer()
+        let flat = ImageBuffer(width: 32, height: 24) { _, _ in RGB(gray: 0.18) }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-out15-reduced-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        // A healthy build reports nothing missing, and the file is clean.
+        let clean = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                        recipe: Recipe(), to: destination,
+                                        using: ExportRecipe(name: "t", format: .png))
+        XCTAssertEqual(clean, [],
+                       "this runner compiled every kernel and the export still "
+                           + "reported \(clean) missing")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path),
+                      "a clean export wrote nothing")
+
+        // A non-core kernel missing still delivers — grain, vignette and the presence
+        // stages degrade individually — but the list has to come back so the status
+        // line can name them instead of counting the file as clean.
+        renderer.availability = KernelAvailability(coreAvailable: true,
+                                                   unavailable: ["grain", "vignette"])
+        let reduced = try renderer.export(source: StubSource(ciImage(from: flat)),
+                                          recipe: Recipe(), to: destination,
+                                          using: ExportRecipe(name: "t", format: .png))
+        XCTAssertEqual(reduced, ["grain", "vignette"],
+                       "a reduced export reported \(reduced) — `AppState.export` has "
+                           + "nothing to put in the status line and counts the file "
+                           + "as clean, which is the defect")
+    }
+
     // MARK: - Availability
 
     /// The load-bearing environment check. If this fails, the app still renders — via
@@ -795,6 +1804,17 @@ final class KernelGoldenTests: XCTestCase {
     func testEveryKernelCompiles() {
         XCTAssertTrue(KernelLibrary.isAvailable,
                       "kernels failed to compile: \(KernelLibrary.unavailableKernels)")
+        // THE MASK KERNELS TOO. They are not in `unavailableKernels` because a failed
+        // mask kernel has an honest CPU fallback and must not take the GPU path down
+        // with it — but that is exactly how `lumenMaskLinear` and `lumenMaskRadial`
+        // failed to compile on every macOS build with this test green: the sentinel
+        // never looked at them, the parity tests below skipped themselves as
+        // "kernels unavailable", and every gradient mask rasterized on the CPU.
+        XCTAssertTrue(KernelLibrary.parametricMasksAvailable,
+                      "mask kernels failed to compile: "
+                          + "\(KernelLibrary.unavailableMaskKernels) — the parametric "
+                          + "fast path is silently off and every gradient mask is on "
+                          + "the CPU")
     }
 
     // MARK: - Helpers
@@ -1121,18 +2141,21 @@ final class KernelGoldenTests: XCTestCase {
         recipe.develop.tone.exposure = 0.5
         recipe.develop.tone.contrast = 25
         recipe.develop.color.saturation = 15
+        // Off explicitly: a default recipe denoises, the reference has no S3, and
+        // `draft: true` — which used to hide that gap by gating S3 out — is gone.
+        recipe.develop.denoise.mode = .off
 
         let source = testImage(width: 48, height: 12)
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
         let graph = RenderGraph()
         let output = graph.build(ciImage(from: source), plan: plan,
-                                 options: RenderGraph.Options(longEdge: 48, draft: true))
+                                 options: RenderGraph.Options(longEdge: 48))
         guard let gpu = readBack(output, width: source.width, height: source.height) else {
             return XCTFail("graph render failed")
         }
 
-        // Draft skips the spatial stages on both sides, so this compares exactly the
-        // colour path: matrix, tone gain, tables.
+        // Presence is zero, sharpening is zero and denoise is forced off, so this
+        // compares exactly the colour path: matrix, tone gain, tables.
         let reference = ReferenceRenderer.render(source, plan: plan)
 
         var worst = 0.0
@@ -1161,10 +2184,11 @@ final class KernelGoldenTests: XCTestCase {
         let source = ImageBuffer(width: 32, height: 4) { u, _ in
             RGB(gray: 0.18 * pow(2, -8 + u * 12))
         }
-        let plan = RenderPlan(recipe: Recipe())
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off   // a default recipe denoises; not the subject
+        let plan = RenderPlan(recipe: recipe)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
-                                         options: RenderGraph.Options(longEdge: 32,
-                                                                      draft: true))
+                                         options: RenderGraph.Options(longEdge: 32))
         guard let result = readBack(output, width: source.width, height: source.height)
         else { return XCTFail("render failed") }
 
@@ -1190,17 +2214,45 @@ final class KernelGoldenTests: XCTestCase {
     /// capture sharpening, vignette and mask rasterization were compared to the
     /// reference renderer NEVER. This is the one that turns them on.
     ///
-    /// The tolerance is a SMOKE-TEST BOUND, not a measurement. These stages are
-    /// separable-kernel approximations of the reference's exact filters and I have no
-    /// GPU to measure the real divergence on, so 0.25 is set to catch a stage wired to
-    /// the wrong input, applied twice, or missing entirely — not to certify the last
-    /// percent of a blur. Tighten it to the measured value on the first green run;
-    /// leaving a number here that was guessed tight would just cost a red cycle.
+    /// THE WHOLE-FRAME TOLERANCE IS 0.25 OF FULL SCALE, which is sixty-four sRGB code
+    /// values per channel per pixel, and it certifies almost nothing. It was written as
+    /// a smoke-test bound — these stages are separable-kernel approximations of the
+    /// reference's exact filters, there was no GPU to measure the real divergence on,
+    /// and 0.25 catches a stage wired to the wrong input, applied twice, or missing
+    /// entirely — with the instruction to "tighten it to the measured value on the first
+    /// green run". There have been many green runs and it has not moved, for a reason
+    /// that is the actual defect: THE TEST NEVER PRINTED THE NUMBER. `worst` lived only
+    /// in an assertion message, which XCTest emits on failure, so no lane log has ever
+    /// carried a value to tighten it to. Compare the colour-path golden above, which
+    /// does the job properly: bound 0.035, measured 0.028001785278320312, and the
+    /// stability of those digits — not the bound — is what guards it.
     ///
-    /// The second half of the test carries the real weight and needs no calibration:
-    /// turning the spatial stages off must move the picture. Without that, this would
-    /// be comparing two copies of the colour path and would pass with every spatial
-    /// kernel unwired.
+    /// So the measurement is now printed on EVERY run, passes included, in the
+    /// PerfProbe house style: worst, RMS, the 99.9th percentile and the share of pixels
+    /// past 0.05. The next lane run records four numbers, and the bound can then be set
+    /// from them with the colour-path golden's reasoning written in. Same discipline as
+    /// the RAW-corpus lane's R-5 and R-7, which log the measured chroma for every file
+    /// on every run precisely so their loose first thresholds can be replaced by
+    /// evidence rather than by another guess. Whoever tightens this: the bound wants to
+    /// sit above the worst figure the lane has printed and below any number a real
+    /// defect produces, and the reason for the gap belongs in this comment.
+    ///
+    /// WHAT DOES NOT NEED CALIBRATION IS A RATIO, and that is the rest of the test.
+    /// Both renderers implement the same contract for each stage, so the GPU's movement
+    /// divided by the reference's movement is near 1 or the contract is not being
+    /// implemented — no measurement required, and no GPU needed to derive the bar. That
+    /// matters because at 0.25 the defect this file records as having shipped is still
+    /// invisible: set `lumenDetailGain`'s clamp to ±0.4 instead of ±4, or drop the
+    /// `perStop = LumenLog.range` conversion in `RenderGraph`, and the picture changes
+    /// by a factor of twenty-four while the worst-pixel figure stays under the bound.
+    /// The Texture and Clarity ratios below are two-sided for that reason; the Clarity
+    /// gate used to be one-sided at 0.2, so the GPU was free to apply anywhere from a
+    /// fifth to an unbounded multiple of the reference's gain — including the crunchy
+    /// over-processed direction the stage was rewritten to escape.
+    ///
+    /// And turning each stage off must still move the picture, measured ONE AT A TIME.
+    /// Without that, this would be comparing two copies of the colour path and would
+    /// pass with every spatial kernel unwired.
     func testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         var recipe = Recipe()
@@ -1238,8 +2290,7 @@ final class KernelGoldenTests: XCTestCase {
         let source = texturedTestImage(width: 64, height: 32)
         let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
-                                         options: RenderGraph.Options(longEdge: 64,
-                                                                      draft: false))
+                                         options: RenderGraph.Options(longEdge: 64))
         guard let gpu = readBack(output, width: source.width, height: source.height) else {
             return XCTFail("graph render failed")
         }
@@ -1247,14 +2298,35 @@ final class KernelGoldenTests: XCTestCase {
 
         var worst = 0.0
         var worstAt = (0, 0)
+        var differences: [Double] = []
         for y in 0..<source.height {
             for x in 0..<source.width {
                 let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                differences.append(d)
                 if d > worst { worst = d; worstAt = (x, y) }
             }
         }
+        let sorted = differences.sorted()
+        let rms = (differences.map { $0 * $0 }.reduce(0, +)
+                    / Double(differences.count)).squareRoot()
+        let tail = sorted[Swift.min(Int(Double(sorted.count) * 0.999), sorted.count - 1)]
+        let loud = differences.filter { $0 > 0.05 }.count
+        // PRINTED ON EVERY RUN, PASSES INCLUDED. See this test's docstring: the bound
+        // above has stood at 0.25 through every green lane run because the number to
+        // tighten it to has never been written anywhere. Four numbers rather than one,
+        // because a worst-pixel figure can be a single outlier at a frame edge and the
+        // bound that replaces 0.25 should be set knowing whether it is.
+        print(String(format:
+            "SPATIALPARITY 64x32 texture+clarity+vignette: worst %.6f at (%d, %d)  "
+                + "rms %.6f  p99.9 %.6f  over 0.05 %.2f%% of pixels",
+            worst, worstAt.0, worstAt.1, rms, tail,
+            100 * Double(loud) / Double(differences.count)))
         XCTAssertLessThan(worst, 0.25,
-                          "the spatial path diverged by \(worst) at \(worstAt)")
+                          "the spatial path diverged by \(worst) at \(worstAt) "
+                              + "(rms \(rms), p99.9 \(tail)). 0.25 is a smoke-test bound "
+                              + "worth 64 sRGB code values, so a failure here is a stage "
+                              + "wired to the wrong input, applied twice or missing — "
+                              + "not a blur approximation drifting")
 
         // And each stage actually ran — measured ONE AT A TIME.
         //
@@ -1272,8 +2344,7 @@ final class KernelGoldenTests: XCTestCase {
             let p = RenderPlan(recipe: r, lutSize: LUT3D.exportSize)
             guard let out = readBack(
                 RenderGraph().build(ciImage(from: frame), plan: p,
-                                    options: RenderGraph.Options(longEdge: 64,
-                                                                 draft: false)),
+                                    options: RenderGraph.Options(longEdge: 64)),
                 width: frame.width, height: frame.height) else {
                 throw XCTSkip("render failed")
             }
@@ -1314,6 +2385,59 @@ final class KernelGoldenTests: XCTestCase {
                                  + "band collapsed, a few e-4 means the gain is being "
                                  + "computed in the shaper's encoded units, not stops")
 
+        // AND AGAINST THE REFERENCE, two-sided. The absolute bar above separates a dead
+        // stage from a live one; it cannot separate a live one from one applying
+        // twenty-four times the gain, which is the exact defect this test was written
+        // after and did not catch. A ratio can, and it needs no calibration: both paths
+        // implement the same contract, so the number is near 1 or the contract is not
+        // being implemented.
+        //
+        // Denoise OFF on BOTH sides, for the reason the Clarity block gives below.
+        // `ReferenceRenderer.render` starts at S6 and never denoises, so a GPU render
+        // that does is being compared on a frame whose Nyquist ripple — the one thing
+        // Texture acts on — has been smoothed away on one side only. That is why this
+        // is a second pair rather than a reuse of `plain` and `texture` above, which
+        // both denoise and whose 0.001 bar is derived on that basis.
+        //
+        // The window is 0.1x to 10x, and it is wide on purpose: unlike Clarity, whose
+        // measured GPU-to-reference window is recorded on `lumenDetailRemap` as 0.5x to
+        // 1.3x, Texture's has never been measured. 10x still catches the 24x units
+        // error in either direction with margin, and the measured ratio is printed
+        // below so the next person can replace this with the Clarity gate's rigour
+        // instead of another guess.
+        var textureRecipe = Recipe()
+        textureRecipe.develop.denoise.mode = .off
+        let gpuTexturePlain = try render(source) { $0.develop.denoise.mode = .off }
+        let gpuTexture = movement(source, gpuTexturePlain, try render(source) {
+            $0.develop.denoise.mode = .off
+            $0.develop.detail.texture = 40
+        })
+        let referenceTexturePlain = ReferenceRenderer.render(
+            source, plan: RenderPlan(recipe: textureRecipe))
+        textureRecipe.develop.detail.texture = 40
+        let referenceTexture = movement(
+            source, referenceTexturePlain,
+            ReferenceRenderer.render(source,
+                                     plan: RenderPlan(recipe: textureRecipe)))
+        XCTAssertGreaterThan(referenceTexture, 1e-5,
+                             "the REFERENCE moved this frame by \(referenceTexture) with "
+                                 + "Texture +40, so there is nothing to compare the GPU "
+                                 + "against and the ratio below would be meaningless")
+        let textureRatio = gpuTexture / Swift.max(referenceTexture, 1e-12)
+        XCTAssertGreaterThan(textureRatio, 0.1,
+                             "Texture +40 moved the frame \(gpuTexture) on the GPU where "
+                                 + "the reference moves it \(referenceTexture) — a ratio "
+                                 + "of \(textureRatio). A gain computed in the shaper's "
+                                 + "encoded plane instead of in stops is 1/24 of the "
+                                 + "contract, and the whole-frame bound above cannot see "
+                                 + "it")
+        XCTAssertLessThan(textureRatio, 10.0,
+                          "Texture +40 moved the frame \(gpuTexture) on the GPU where the "
+                              + "reference moves it \(referenceTexture) — a ratio of "
+                              + "\(textureRatio). The over-processed direction is the one "
+                              + "this stage was rewritten to escape, and an untethered "
+                              + "upper end is how it comes back")
+
         // Clarity gets its own frame, and its own bar, measured against the reference
         // on that frame rather than borrowed from Texture's derivation.
         //
@@ -1346,11 +2470,31 @@ final class KernelGoldenTests: XCTestCase {
                                  + "reference moves it \(referenceClarity) — the GPU is "
                                  + "applying \(referenceClarity / clarity)x less gain "
                                  + "than the stage it is supposed to implement")
+        // AND AN UPPER END. This gate was one-sided, so the GPU was free to apply
+        // anywhere from a fifth of the reference's Clarity to an unbounded multiple of
+        // it — and `lumenDetailRemap`'s own comment records the measured window as 0.5x
+        // to 1.3x, so a regression to 3x, the crunchy over-processed direction the
+        // stage was rewritten to escape, was invisible. 2.0 sits above the measured top
+        // of the window with room and well under anything a defect produces.
+        XCTAssertLessThan(clarity / referenceClarity, 2.0,
+                          "Clarity +30 moved the frame by \(clarity) where the reference "
+                              + "moves it \(referenceClarity) — the GPU is applying "
+                              + "\(clarity / referenceClarity)x the gain of the stage it "
+                              + "implements, against a measured window of 0.5x to 1.3x")
 
         let vignette = movement(source, plain,
                                 try render(source) { $0.look.vignette = -1.0 })
         XCTAssertGreaterThan(vignette, 0.05,
                              "a −1 EV vignette moved the frame by \(vignette)")
+
+        // The per-stage numbers, on every run, passes included — the same reason the
+        // whole-frame figures are printed above. A ratio that drifts from run to run
+        // says something a pass/fail line never will.
+        print(String(format:
+            "SPATIALPARITY per stage: texture gpu %.6f reference %.6f ratio %.3f  |  "
+                + "clarity gpu %.6f reference %.6f ratio %.3f  |  vignette gpu %.6f",
+            gpuTexture, referenceTexture, textureRatio,
+            clarity, referenceClarity, clarity / referenceClarity, vignette))
     }
 
     // MARK: - S3 denoise
@@ -2029,7 +3173,7 @@ final class KernelGoldenTests: XCTestCase {
             let expected = plan.classicalDenoise.apply(source)
             let output = RenderGraph().applyDenoise(
                 input, plan: plan,
-                options: RenderGraph.Options(longEdge: width, draft: false))
+                options: RenderGraph.Options(longEdge: width))
             guard let got = readBack(output, width: width, height: height) else {
                 return XCTFail("\(name): denoise render failed")
             }
@@ -2076,7 +3220,7 @@ final class KernelGoldenTests: XCTestCase {
         let expected = plan.classicalDenoise.apply(source)
         let output = RenderGraph().applyDenoise(
             ciImage(from: source), plan: plan,
-            options: RenderGraph.Options(longEdge: width, draft: false))
+            options: RenderGraph.Options(longEdge: width))
         guard let got = readBack(output, width: width, height: height) else {
             return XCTFail("blotch render failed")
         }
@@ -2111,7 +3255,7 @@ final class KernelGoldenTests: XCTestCase {
         let expected = plan.classicalDenoise.hotPixelPass(source)
         let output = RenderGraph().applyDenoise(
             ciImage(from: source), plan: plan,
-            options: RenderGraph.Options(longEdge: width, draft: false))
+            options: RenderGraph.Options(longEdge: width))
         guard let got = readBack(output, width: width, height: height) else {
             return XCTFail("hot pixel render failed")
         }
@@ -2145,13 +3289,13 @@ final class KernelGoldenTests: XCTestCase {
         let source = noisyFrame(width: width, height: height, profile: profile)
         let input = ciImage(from: source)
 
-        func render(_ denoise: Denoise, draft: Bool = false) throws -> ImageBuffer {
+        func render(_ denoise: Denoise) throws -> ImageBuffer {
             var recipe = Recipe()
             recipe.develop.denoise = denoise
             let plan = RenderPlan(recipe: recipe, captureISO: iso)
             let out = RenderGraph().build(
                 input, plan: plan,
-                options: RenderGraph.Options(longEdge: width, draft: draft))
+                options: RenderGraph.Options(longEdge: width))
             guard let buffer = readBack(out, width: width, height: height) else {
                 throw RenderError.renderFailed
             }
@@ -2186,10 +3330,11 @@ final class KernelGoldenTests: XCTestCase {
     func testMidGreyLandsWhereTheTransformPromises() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let source = ImageBuffer(width: 8, height: 4) { _, _ in RGB(gray: 0.18) }
-        let plan = RenderPlan(recipe: Recipe())
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off   // a default recipe denoises; not the subject
+        let plan = RenderPlan(recipe: recipe)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
-                                         options: RenderGraph.Options(longEdge: 8,
-                                                                      draft: true))
+                                         options: RenderGraph.Options(longEdge: 8))
         guard let result = readBack(output, width: 8, height: 4) else {
             return XCTFail("render failed")
         }
@@ -2239,9 +3384,11 @@ final class KernelGoldenTests: XCTestCase {
         }
         let proof = SoftProof(enabled: true, space: .srgb,
                               intent: .relativeColorimetric, showGamutWarning: true)
-        let plan = RenderPlan(recipe: Recipe(), lutSize: LUT3D.exportSize,
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off   // a default recipe denoises; not the subject
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize,
                               softProof: proof)
-        let options = RenderGraph.Options(longEdge: width, draft: true)
+        let options = RenderGraph.Options(longEdge: width)
         let output = RenderGraph().build(ciImage(from: source), plan: plan,
                                          options: options)
         guard let gpu = readBack(output, width: width, height: height) else {
@@ -2257,7 +3404,7 @@ final class KernelGoldenTests: XCTestCase {
         // And the neutral half has to survive proofing untouched, which is the half a
         // stage that tinted everything would still pass without.
         let plain = RenderGraph().build(ciImage(from: source),
-                                        plan: RenderPlan(recipe: Recipe(),
+                                        plan: RenderPlan(recipe: recipe,
                                                          lutSize: LUT3D.exportSize),
                                         options: options)
         guard let unproofed = readBack(plain, width: width, height: height) else {
@@ -2285,19 +3432,21 @@ final class KernelGoldenTests: XCTestCase {
         let source = ImageBuffer(width: width, height: height) { u, _ in
             u < 0.5 ? RGB(0.02, 1.1, 0.02) : RGB(gray: 0.18)
         }
-        let options = RenderGraph.Options(longEdge: width, draft: true)
+        let options = RenderGraph.Options(longEdge: width)
+        var quietRecipe = Recipe()
+        quietRecipe.develop.denoise.mode = .off   // a default recipe denoises
         let proof = SoftProof(enabled: true, space: .srgb,
                               intent: .relativeColorimetric, showGamutWarning: false)
         guard let proofed = readBack(
                 RenderGraph().build(ciImage(from: source),
-                                    plan: RenderPlan(recipe: Recipe(),
+                                    plan: RenderPlan(recipe: quietRecipe,
                                                      lutSize: LUT3D.exportSize,
                                                      softProof: proof),
                                     options: options),
                 width: width, height: height),
               let plain = readBack(
                 RenderGraph().build(ciImage(from: source),
-                                    plan: RenderPlan(recipe: Recipe(),
+                                    plan: RenderPlan(recipe: quietRecipe,
                                                      lutSize: LUT3D.exportSize),
                                     options: options),
                 width: width, height: height)
@@ -2347,6 +3496,59 @@ final class KernelGoldenTests: XCTestCase {
                        "the dither shifted the tile's mean, so it is a bias not a dither")
     }
 
+    /// The two `ColorCube.filter` entry points are the SAME filter.
+    ///
+    /// This is the guarantee the cached-bytes overload rests on, and no other test in
+    /// this file can see it: both paths set the same dimension and the same bytes on the
+    /// same stock filter, so every golden passes either way and a divergence would show
+    /// up only as a wrong picture in somebody's photographs. Asserted on a table with
+    /// real structure per channel — an identity cube would agree even if the bytes were
+    /// transposed.
+    func testBakedCubeRendersIdenticallyToRebuildingItPerCall() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let lut = LUT3D(size: 17) { c in
+            RGB(c.r * c.r, sqrt(c.g), 1 - c.b)
+        }
+        let side = 16
+        let source = ImageBuffer(width: side, height: side) { x, y in
+            RGB(Double(x) / Double(side - 1), Double(y) / Double(side - 1), 0.5)
+        }
+        let input = ciImage(from: source)
+        guard let perCall = ColorCube.filter(lut, image: input),
+              let cached = ColorCube.filter(ColorCube.Baked(lut), image: input),
+              let a = readBack(perCall, width: side, height: side),
+              let b = readBack(cached, width: side, height: side)
+        else { return XCTFail("cube render failed") }
+
+        for y in 0..<side {
+            for x in 0..<side {
+                XCTAssertEqual(a[x, y].maxAbsDifference(b[x, y]), 0,
+                               "the cached cube changed the picture at \(x),\(y)")
+            }
+        }
+    }
+
+    /// The dither's step table is copied once, not once per frame.
+    ///
+    /// The defect this pins was invisible to every other test here, because the picture
+    /// was always right: `ColorCube.filter` rebuilt a fresh 4 MB `Data` from the same
+    /// `static let` table on every call, and `renderPreview` dithers every frame it
+    /// shows. Only the storage identity can tell the fixed version from the broken one,
+    /// so a revert — `forTransfer` handing back a `LUT3D` again — fails here rather than
+    /// in a drag nobody is profiling.
+    func testDitherStepTableIsCopiedOnceAndReusedAcrossFrames() {
+        let first = DitherStepCube.forTransfer(.srgb, levels: 256)
+        let second = DitherStepCube.forTransfer(.srgb, levels: 256)
+        XCTAssertEqual(first.size, 64, "the step table's size is part of its accuracy")
+        XCTAssertEqual(first.data.count, 64 * 64 * 64 * 4 * MemoryLayout<Float>.size)
+        // `Data` compares equal by CONTENT, so equality would pass on two fresh copies
+        // and prove nothing. The shared backing store is the whole claim.
+        let shared = first.data.withUnsafeBytes { a in
+            second.data.withUnsafeBytes { b in a.baseAddress == b.baseAddress }
+        }
+        XCTAssertTrue(shared, "the 4 MB dither table was copied again for this frame")
+    }
+
     /// 16-bit does not band, and paying for a dither there would be noise for nothing.
     func testDitherLeaves16BitAlone() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
@@ -2361,6 +3563,732 @@ final class KernelGoldenTests: XCTestCase {
                 XCTAssertEqual(result[x, y].g, 0.18, accuracy: 1e-4)
             }
         }
+    }
+
+    // MARK: - The log-luminance guide floors at zero (docs/31 round two §5)
+
+    /// A negative-luminance pixel must encode the way the reference encodes it:
+    /// floored at zero FIRST, so it lands at `LumenLog.encode(0)` ≈ +0.0024.
+    ///
+    /// Scene-linear luminance goes negative routinely after white balance, and the
+    /// shaper's toe is linear and UNBOUNDED below — the GPU guide encoded −0.01 to
+    /// −4.83 where `ReferenceRenderer.applyTone` (which guides on
+    /// `LumenLog.encode(max(lum, 0))`) gives +0.0024. One such pixel drives the
+    /// guided filter's `a` from 0.087 to 0.917 across a 103×103 patch: the
+    /// edge-aware tone mask degenerates into the raw luminance around every deep
+    /// saturated shadow. This pins the encode itself, which is the number
+    /// everything downstream inherits.
+    func testLogLuminanceFloorsANegativeLuminancePixelAtZero() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 8, height = 4
+        // Left half: the audit's own probe value, −0.01 in every channel — a pixel
+        // whose luminance is unambiguously negative. Right half: mid-grey, so the
+        // floor provably does not touch positive luminance.
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            u < 0.5 ? RGB(-0.01, -0.01, -0.01) : RGB(gray: 0.18)
+        }
+        guard let lum = RenderGraph.logLuminance(ciImage(from: source)),
+              let result = readBack(lum, width: width, height: height)
+        else { return XCTFail("logLuminance render failed") }
+
+        let floored = LumenLog.encode(0)
+        let grey = LumenLog.encode(0.18)
+        XCTAssertEqual(Double(result[1, 1].g), floored, accuracy: 2e-4,
+                       "a −0.01 luminance encoded to \(result[1, 1].g) — the "
+                           + "reference floors at zero first and gives \(floored); "
+                           + "the unbounded toe gives −4.83, which is the "
+                           + "guided-filter blowup of docs/31 round two §5")
+        XCTAssertEqual(Double(result[6, 1].g), grey, accuracy: 2e-4,
+                       "the floor moved a positive-luminance pixel")
+    }
+
+    // MARK: - Texture's gain carries the reference's ±4 EV limit (docs/31 R2 §15)
+
+    /// The texture kernels' exponent clamps at ±4 EV, exactly where the reference
+    /// clamps every presence excursion (`DetailEngine.applyLumaRatio(limit: 4)`).
+    ///
+    /// Driven at the kernel level, because that is where the limit lives: a band
+    /// of 0.5 encoded units (12 EV) under Texture +100's own coefficient
+    /// (0.9 · range = 21.6 per encoded unit) asks for 2^10.8 ≈ 1783× — the
+    /// unbounded gain the GPU used to apply — and must get 2^4 = 16.
+    func testTextureGainClampsAtFourEVLikeTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.detailGain != nil
+                              && KernelLibrary.detailGainGated != nil,
+                          "kernels unavailable")
+        let width = 8, height = 4
+        let hi = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.75)
+        })
+        let lo = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.25)
+        })
+        // A gate plane of zero coherence: fully open for both signs, so the clamp
+        // — not the gate — is what bounds the result.
+        let gate = ciImage(from: ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0)
+        })
+        let k = 100.0 / 100.0 * 0.9 * LumenLog.range
+
+        guard let up = KernelLibrary.apply(KernelLibrary.detailGain,
+                                           extent: hi.extent, [hi, lo, Float(k)]),
+              let upPixels = readBack(up, width: width, height: height)
+        else { return XCTFail("detailGain render failed") }
+        XCTAssertEqual(Double(upPixels[2, 2].g), 16.0, accuracy: 0.5,
+                       "a 12 EV band at Texture +100 produced a gain of "
+                           + "\(upPixels[2, 2].g) — the reference clamps the "
+                           + "excursion at +4 EV (gain 16); unbounded it is 2^10.8")
+
+        guard let down = KernelLibrary.apply(KernelLibrary.detailGain,
+                                             extent: hi.extent, [hi, lo, Float(-k)]),
+              let downPixels = readBack(down, width: width, height: height)
+        else { return XCTFail("detailGain render failed") }
+        XCTAssertEqual(Double(downPixels[2, 2].g), 0.0625, accuracy: 0.002,
+                       "the negative direction must clamp at −4 EV (gain 1/16), "
+                           + "got \(downPixels[2, 2].g)")
+
+        guard let gated = KernelLibrary.apply(
+                KernelLibrary.detailGainGated, extent: hi.extent,
+                [hi, lo, gate, Float(k), Float(0.0),
+                 Float(DetailEngine.texturePositiveGateLo),
+                 Float(DetailEngine.texturePositiveGateHi)]),
+              let gatedPixels = readBack(gated, width: width, height: height)
+        else { return XCTFail("detailGainGated render failed") }
+        XCTAssertEqual(Double(gatedPixels[2, 2].g), 16.0, accuracy: 0.5,
+                       "the gated kernel must carry the same ±4 EV clamp, got "
+                           + "\(gatedPixels[2, 2].g)")
+    }
+
+    // MARK: - The vignette clamps its amount like the reference (docs/31 R2 §15)
+
+    /// An out-of-range vignette amount renders the reference's picture, not a
+    /// deeper one: `DetailEngine.vignette` opens with `clamp(ev, −3, +1)` and the
+    /// GPU stage took the raw value, so a recipe carrying −5 (a foreign sidecar, a
+    /// hand-edited file — the slider never leaves −3…+1) burned its corners 2^2
+    /// darker on the GPU than on the reference path.
+    func testTheVignetteClampsItsAmountLikeTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.vignette != nil, "kernel unavailable")
+        let width = 64, height = 32
+        // Uniform mid-grey: the vignette is then the only structure, and the frame
+        // is symmetric about both axes, so the row-order convention cannot bite.
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.18)
+        }
+        let gpuImage = RenderGraph().applyVignette(ciImage(from: source), ev: -5,
+                                                   feather: Look.vignetteFeatherDefault,
+                                                   crop: Crop())
+        guard let gpu = readBack(gpuImage, width: width, height: height) else {
+            return XCTFail("vignette render failed")
+        }
+        let reference = DetailEngine.vignette(source, ev: -5)
+
+        var worst = 0.0
+        var worstAt = (0, 0)
+        for y in 0..<height {
+            for x in 0..<width {
+                let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                if d > worst { worst = d; worstAt = (x, y) }
+            }
+        }
+        // The corner at −3 (clamped) is 0.0225; unclamped −5 delivers 0.0056 — a
+        // 0.017 gap this bar sits well under, while the kernel's own f16/f32 error
+        // plus the exponent dither (±0.006 EV ≈ 0.4% of gain) sit an order of
+        // magnitude below it.
+        XCTAssertLessThan(worst, 0.005,
+                          "vignette at −5 diverged from the reference by \(worst) "
+                              + "at \(worstAt) — the GPU stage is missing the "
+                              + "reference's clamp(ev, −3, +1)")
+    }
+
+    // MARK: - The vignette's feather agrees between the renderers (docs/32 E4)
+
+    /// One recipe feather, two renderers, the same geometry — at every stop of the
+    /// range. Both paths derive the inner radius through the ONE function
+    /// (`DetailEngine.vignetteInnerRadius(feather:)`), and this golden is what makes
+    /// re-deriving it in either place a red build instead of a drifted picture. The
+    /// default-feather case doubles as the compatibility anchor: recipes without the
+    /// field must render the geometry both renderers always drew (LumenCore pins
+    /// `vignetteInnerRadius(feather: 50) == vignetteInnerRadius` on its side).
+    func testTheVignetteFeatherAgreesBetweenTheRenderers() throws {
+        try XCTSkipUnless(KernelLibrary.vignette != nil, "kernel unavailable")
+        let width = 64, height = 32
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: 0.18)
+        }
+        for feather in [0.0, 25.0, 50.0, 75.0, 100.0] {
+            let gpuImage = RenderGraph().applyVignette(ciImage(from: source), ev: -2,
+                                                       feather: feather, crop: Crop())
+            guard let gpu = readBack(gpuImage, width: width, height: height) else {
+                return XCTFail("vignette render failed at feather \(feather)")
+            }
+            let reference = DetailEngine.vignette(source, ev: -2, feather: feather)
+            var worst = 0.0
+            var worstAt = (0, 0)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let d = reference[x, y].maxAbsDifference(gpu[x, y])
+                    if d > worst { worst = d; worstAt = (x, y) }
+                }
+            }
+            // Same bar as the clamp golden above, and for the same reason: the
+            // kernel's f16/f32 error plus the exponent dither sit an order of
+            // magnitude under it, while a wrong inner radius moves mid-frame gain
+            // by whole percents of 0.18.
+            XCTAssertLessThan(worst, 0.005,
+                              "vignette at feather \(feather) diverged from the "
+                                  + "reference by \(worst) at \(worstAt) — the two "
+                                  + "renderers are not deriving the inner radius "
+                                  + "from the same function")
+        }
+    }
+
+    // MARK: - A strong vignette must not band on the half-float plane (docs/31 R2 §7)
+
+    /// The banding the owner reported at −3, as a NUMBER: when the log-encoded
+    /// plane is materialized at the shipping context's working precision (RGBAh),
+    /// the vignette's ramp must keep its local mean instead of stepping.
+    ///
+    /// Mechanism: the finish stage samples its cube on the log-encoded plane,
+    /// which parks real pictures where one fp16 step is 2⁻¹¹ · 24 ≈ 0.0117 EV
+    /// (`RenderGraph.encodedFP16QuantumEV`). A strong burn is a slow, noise-free
+    /// synthetic gradient — exactly the signal that quantum turns into visible
+    /// rings, and the 8-bit output dither cannot break bands born upstream of it.
+    /// The fix dithers the vignette's own exponent by ±half a quantum, so the
+    /// encoded plane's rounding preserves the ramp's local mean.
+    ///
+    /// The harness materializes the encoded plane EXPLICITLY (`insertingIntermediate`
+    /// under an RGBAh working format), because whether the shipping graph buffers
+    /// at that node is Core Image's scheduling decision — the golden pins the
+    /// property that must hold whenever it does.
+    ///
+    /// The fixture is CALIBRATED, not guessed: the exact kernel arithmetic
+    /// (LumenLog, the smoothstep falloff, IEEE fp16 round-to-nearest, Lumen's own
+    /// Bayer matrix) was simulated in double for this very frame. Base grey 1.44
+    /// parks the burn's whole travel in encoded [0.5, 1), where the fp16 quantum is
+    /// the full 0.0117 EV; each measurement point averages one Bayer period of rows
+    /// about the midline (rows there share a radius, so a quantised staircase stays
+    /// in phase) and the column's mirror twin (whose Bayer column is a DIFFERENT
+    /// subset of the cell, which is what makes the dithered mean converge).
+    ///
+    /// WHY THE MEAN IS JUDGED AGAINST A SAME-RUN UNDITHERED CONTROL rather than an
+    /// absolute bar: the first version pinned worst-deviation-from-f64 at 0.003
+    /// (simulated: quantised 0.0059, dithered 0.0013) and the real driver measured
+    /// 0.0072 — deterministically, in both macOS lanes — while the STEP metric,
+    /// which is the rings the owner actually reported, passed its bar. The forced
+    /// materialization carries a constant bias the idealized fp16 model does not,
+    /// and a constant offset is not banding. So the step bar stays absolute (rings
+    /// are rings on any driver), the zero-mean claim became comparative (the dither
+    /// must beat the staircase's step and never worsen the mean, measured against
+    /// the undithered render of the same frame on the same driver), and the
+    /// absolute mean keeps one full quantum as its insanity ceiling.
+    func testAStrongVignetteKeepsItsMeanThroughAHalfFloatEncodedPlane() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 3072, height = 512
+        let baseGrey = 1.44
+        let source = ImageBuffer(width: width, height: height) { _, _ in
+            RGB(gray: baseGrey)
+        }
+        // The graceful-degradation path (plate build fails → undithered render)
+        // must not quietly turn this golden into staircase-versus-staircase.
+        _ = try XCTUnwrap(
+            PipelineRenderer.ditherPlate(extent: CGRect(x: 0, y: 0,
+                                                        width: width, height: height)),
+            "the dither plate could not be built in this harness — the shipping "
+                + "fallback renders undithered and this golden cannot judge the fix")
+        // The SHIPPING context's precision, not the test context's: this file's
+        // `context` works in RGBAf precisely so goldens measure arithmetic, and
+        // this one test exists to measure the fp16 plane the app renders on.
+        let fp16 = CIContext(options: [
+            .workingColorSpace: CGColorSpace(
+                name: CGColorSpace.extendedLinearITUR_2020) as Any,
+            .workingFormat: CIFormat.RGBAh,
+            .cacheIntermediates: true,
+        ])
+
+        let reference = DetailEngine.vignette(source, ev: -3)
+        func idealEV(_ x: Int) -> Double {
+            log2(Swift.max(Double(reference[x, height / 2].g), 1e-9) / 0.18)
+        }
+        // The falloff region along the midline: from where the burn starts to the
+        // frame's edge, staying 16 px off the border.
+        let inner = Int(Double(width / 2)
+                        * (1 + DetailEngine.vignetteInnerRadius * 2.0.squareRoot()))
+
+        /// Render the burn through the materialized fp16 encode and measure the
+        /// midline: worst adjacent-column step of the local mean, and its worst
+        /// deviation from the f64 reference.
+        func measure(dithered: Bool) throws -> (step: Double, deviation: Double) {
+            let vignetted = RenderGraph().applyVignette(
+                ciImage(from: source), ev: -3,
+                feather: Look.vignetteFeatherDefault,
+                crop: Crop(), dithered: dithered)
+            guard let encoded = KernelLibrary.apply(KernelLibrary.logEncode,
+                                                    extent: vignetted.extent,
+                                                    [vignetted]),
+                  let decoded = KernelLibrary.apply(
+                      KernelLibrary.logDecode, extent: vignetted.extent,
+                      [encoded.insertingIntermediate()])
+            else { throw XCTSkip("encode/decode kernels failed to apply") }
+
+            var pixels = [Float](repeating: 0, count: width * height * 4)
+            pixels.withUnsafeMutableBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                fp16.render(decoded, toBitmap: base, rowBytes: width * 16,
+                            bounds: CGRect(x: 0, y: 0,
+                                           width: width, height: height),
+                            format: .RGBAf, colorSpace: nil)
+            }
+            // Mean EV at column x: one Bayer period of rows about the midline, in
+            // this column and its mirror twin (the vignette is symmetric, so the
+            // ideal values are identical and only the dither phase differs).
+            func columnMeanEV(_ x: Int) -> Double {
+                var sum = 0.0
+                let mid = height / 2
+                for y in (mid - 4)..<(mid + 4) {
+                    sum += Double(pixels[(y * width + x) * 4 + 1])
+                    sum += Double(pixels[(y * width + (width - 1 - x)) * 4 + 1])
+                }
+                return log2(Swift.max(sum / 16.0, 1e-9) / 0.18)
+            }
+            var worstStep = 0.0
+            var worstDeviation = 0.0
+            var previous = columnMeanEV(inner)
+            for x in (inner + 1)..<(width - 16) {
+                let ev = columnMeanEV(x)
+                worstStep = Swift.max(worstStep, abs(ev - previous))
+                worstDeviation = Swift.max(worstDeviation, abs(ev - idealEV(x)))
+                previous = ev
+            }
+            return (worstStep, worstDeviation)
+        }
+
+        var idealStep = 0.0
+        var previousIdeal = idealEV(inner)
+        for x in (inner + 1)..<(width - 16) {
+            let ideal = idealEV(x)
+            idealStep = Swift.max(idealStep, abs(ideal - previousIdeal))
+            previousIdeal = ideal
+        }
+
+        let dithered = try measure(dithered: true)
+        let staircase = try measure(dithered: false)
+        print(String(format: "VIGNETTE BANDING dithered step %.5f dev %.5f | "
+                         + "undithered step %.5f dev %.5f | ideal step %.5f, "
+                         + "quantum %.5f",
+                     dithered.step, dithered.deviation,
+                     staircase.step, staircase.deviation,
+                     idealStep, RenderGraph.encodedFP16QuantumEV))
+
+        XCTAssertLessThan(idealStep, 0.005,
+                          "the fixture's ideal ramp steps \(idealStep) EV per "
+                              + "column — too steep to tell a band from the ramp")
+        XCTAssertLessThan(dithered.step, 0.0065,
+                          "the −3 EV burn steps \(dithered.step) EV between "
+                              + "adjacent columns (a quantised band edge costs the "
+                              + "full 0.0117) — the encoded plane is quantising "
+                              + "the ramp into the rings the owner reported")
+        XCTAssertLessThan(dithered.step, staircase.step * 0.75,
+                          "dithered steps \(dithered.step) EV against the "
+                              + "staircase's \(staircase.step) — the dither is "
+                              + "not breaking the bands (equal numbers mean the "
+                              + "plate never reached the kernel)")
+        XCTAssertLessThan(dithered.deviation, staircase.deviation * 1.15 + 1e-4,
+                          "dithered local mean sits \(dithered.deviation) EV off "
+                              + "the reference against the staircase's "
+                              + "\(staircase.deviation) — a zero-mean dither must "
+                              + "never worsen the mean it exists to preserve")
+        XCTAssertLessThan(dithered.deviation, RenderGraph.encodedFP16QuantumEV,
+                          "dithered local mean sits \(dithered.deviation) EV off "
+                              + "the reference — more than one full fp16 quantum, "
+                              + "which no materialization bias explains")
+    }
+
+    // MARK: - The gamut flag sits where the reference puts it: before grain
+
+    /// A flagged pixel is GRAINED, because that is what the reference renders:
+    /// `ReferenceRenderer.render` computes the flag inside `finishedColor` at
+    /// S14/S15 and then runs the local curves and grain over it. The graph used to
+    /// paint the flag LAST — a deliberate design the reference does not implement
+    /// — so every flagged pixel under grain disagreed between the two renderers
+    /// (docs/31 round two §15). The discriminator is variance: painted last, the
+    /// flagged region is EXACTLY the constant warning colour; painted where the
+    /// reference paints it, the grain modulates it like any other pixel.
+    func testTheGamutFlagIsGrainedLikeTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 64, height = 32
+        // Left half: the Rec.2020 green sRGB cannot hold (the proof suite's own
+        // fixture). Right half: mid-grey control.
+        let source = ImageBuffer(width: width, height: height) { u, _ in
+            u < 0.5 ? RGB(0.02, 1.1, 0.02) : RGB(gray: 0.18)
+        }
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
+                                      grain: FilmGrain(size: 1, amount: 100))
+        let proof = SoftProof(enabled: true, space: .srgb,
+                              intent: .relativeColorimetric, showGamutWarning: true)
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize,
+                              softProof: proof)
+        guard let film = plan.filmChain else {
+            return XCTFail("the film lab did not build a chain")
+        }
+        let extent = CGRect(x: 0, y: 0, width: width, height: height)
+        let options = RenderGraph.Options(longEdge: width)
+
+        // Control first, with NO plate, so `build` skips the grain stage: the
+        // flagged half must be the exact warning colour. This is the self-check
+        // that the film-formed green still leaves sRGB — if a stock change ever
+        // pulls the fixture into gamut, the failure names the fixture instead of
+        // the variance assertion passing on an unflagged region.
+        guard let control = readBack(RenderGraph().build(ciImage(from: source),
+                                                         plan: plan,
+                                                         options: options),
+                                     width: width, height: height) else {
+            return XCTFail("control render failed")
+        }
+        let flag = SoftProof.warningColor
+        let probe = control[width / 4, height / 2]
+        XCTAssertLessThan(probe.maxAbsDifference(flag), 0.02,
+                          "the fixture's green is no longer flagged through the "
+                              + "film chain (\(probe) vs \(flag)) — grain over "
+                              + "the flag cannot be judged on it")
+
+        var graph = RenderGraph()
+        graph.grainPlate = RenderGraph.grainPlate(GrainPlan.film(film),
+                                                  extent: extent,
+                                                  longEdge: width)
+        XCTAssertNotNil(graph.grainPlate, "no grain plate — this test needs grain")
+        let output = graph.build(ciImage(from: source), plan: plan, options: options)
+        guard let gpu = readBack(output, width: width, height: height) else {
+            return XCTFail("render failed")
+        }
+
+        // Grained, the same region must still read as the flag on average — and
+        // must VARY, because the reference grains its flagged pixels like any
+        // others.
+        var mean = RGB(0, 0, 0)
+        var lo = Double.infinity, hi = -Double.infinity
+        var count = 0.0
+        for y in 4..<(height - 4) {
+            for x in 4..<(width / 2 - 4) {
+                let c = gpu[x, y]
+                mean = mean + c
+                lo = Swift.min(lo, Double(c.g))
+                hi = Swift.max(hi, Double(c.g))
+                count += 1
+            }
+        }
+        mean = mean / count
+        XCTAssertLessThan(mean.maxAbsDifference(flag), 0.1,
+                          "the grained flag drifted from the warning colour "
+                              + "(\(mean) vs \(flag))")
+        XCTAssertGreaterThan(hi - lo, 0.002,
+                             "the flagged region is EXACTLY constant under grain "
+                                 + "— the flag is painted after grain again, "
+                                 + "which is the opposite of the reference's "
+                                 + "placement")
+    }
+
+    // MARK: - A settle mask edge is resolved at the render, not at 1024 (R2 §3)
+
+    /// The mask raster's resolution must track the render target on the settle
+    /// path: a hard mask edge stays a couple of delivered pixels wide at EVERY
+    /// render size, instead of widening with renderSize/1024.
+    ///
+    /// Every path used to rasterize at the 1024 proxy and upsample — on this
+    /// fixture's 4096 px render that is a 4 px ramp; on a 45 MP export it is 8 px
+    /// with the boundary quantised to 8 px (docs/31 round two §3). The mask is a
+    /// linear ramp collapsed to a hard step by the levels remap (`hi ≤ lo` is the
+    /// documented hard-step form), under a +2 EV exposure, so the delivered edge
+    /// is unmissable; the transition count is measured in the delivered pixels.
+    func testASettleMaskEdgeIsResolvedAtTheRendersOwnResolution() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        var mask = Mask(id: "m-edge", name: "step")
+        var component = MaskComponent(op: .add, kind: .linear)
+        component.line = [0.5, 0, 0.5, 1]
+        mask.components = [component]
+        mask.refine.levelsLo = 50
+        mask.refine.levelsHi = 50
+        mask.adjust.exposure = 2.0
+        var recipe = Recipe()
+        recipe.masks = [mask]
+        recipe.develop.denoise.mode = .off
+        let renderer = PipelineRenderer()
+
+        func transitionRows(renderLongEdge: Int) throws -> Int {
+            let w = renderLongEdge, h = renderLongEdge / 8
+            let flat = ImageBuffer(width: w, height: h) { _, _ in RGB(gray: 0.18) }
+            let cg = try renderer.renderPreview(source: StubSource(ciImage(from: flat)),
+                                                recipe: recipe, maxLongEdge: w,
+                                                draft: false, coarseDecode: false)
+            guard let delivered = readBack(CIImage(cgImage: cg), width: w, height: h)
+            else { throw RenderError.renderFailed }
+            // Down one column: the step is horizontal, so rows strictly between
+            // the two plateaus are the edge's ramp. The margin clears the output
+            // dither by an order of magnitude.
+            let x = w / 4
+            let top = Double(delivered[x, 2].g)
+            let bottom = Double(delivered[x, h - 3].g)
+            let lo = Swift.min(top, bottom), hi = Swift.max(top, bottom)
+            let margin = 0.12 * (hi - lo)
+            var between = 0
+            for y in 0..<h {
+                let v = Double(delivered[x, y].g)
+                if v > lo + margin && v < hi - margin { between += 1 }
+            }
+            XCTAssertGreaterThan(hi - lo, 0.05,
+                                 "the masked +2 EV moved the plateaus by "
+                                     + "\(hi - lo) — the mask is not reaching "
+                                     + "pixels, so the edge width means nothing")
+            return between
+        }
+
+        let small = try transitionRows(renderLongEdge: 1024)
+        let large = try transitionRows(renderLongEdge: 4096)
+        print("MASK EDGE transition rows: 1024 px \(small), 4096 px \(large)")
+        XCTAssertLessThanOrEqual(small, 2,
+                                 "a hard mask edge spans \(small) rows at a "
+                                     + "1024 px render")
+        XCTAssertLessThanOrEqual(large, 2,
+                                 "a hard mask edge spans \(large) rows at a "
+                                     + "4096 px render — the raster is still the "
+                                     + "1024 proxy, upsampled, on the settle path")
+    }
+
+    // MARK: - "Don't resize" does not resample (docs/31 round one §11)
+
+    /// `.none` must mean the resampler DOES NOT RUN — scale exactly 1 — even when
+    /// the crop extent is fractional. The old path computed a target from the
+    /// TRUNCATED crop extent and resampled the whole frame through Lanczos at
+    /// ~0.9997×, landing a pixel short per axis and blending every pixel with its
+    /// neighbours on the way.
+    ///
+    /// A one-pixel checkerboard is the instrument: with no resample the delivered
+    /// values are bimodal; a 0.9977× Lanczos drifts up to ~0.7 px of phase across
+    /// this frame and fills the gap between the modes with blends.
+    func testDontResizeDoesNotResampleACroppedPhotograph() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let w = 300, h = 200
+        let checker = ImageBuffer(width: w, height: h) { u, v in
+            let x = Int((u * Double(w)).rounded(.down))
+            let y = Int((v * Double(h)).rounded(.down))
+            return RGB(gray: (x + y) % 2 == 0 ? 0.5 : 0.05)
+        }
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        // A fractional crop extent: 0.999 × 300 = 299.7 px.
+        recipe.develop.geometry.crop.w = 0.999
+        let exportRecipe = ExportRecipe(name: "noresize", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .none)
+        let renderer = PipelineRenderer()
+        let image = try renderer.exportedImage(source: StubSource(ciImage(from: checker)),
+                                               recipe: recipe, using: exportRecipe)
+
+        let ow = Int(image.extent.width.rounded())
+        let oh = Int(image.extent.height.rounded())
+        guard let pixels = readBack(image, width: ow, height: oh) else {
+            return XCTFail("export render failed")
+        }
+        // Interior only: the fractional crop's own last column is legitimately
+        // partial, and the phase drift that betrays a resample is largest
+        // mid-frame anyway.
+        var lo = Double.infinity, hi = -Double.infinity
+        for y in 20..<(oh - 20) {
+            for x in 20..<(ow - 20) {
+                let v = Double(pixels[x, y].g)
+                lo = Swift.min(lo, v); hi = Swift.max(hi, v)
+            }
+        }
+        let third = (hi - lo) / 3
+        var blended = 0, counted = 0
+        for y in 20..<(oh - 20) {
+            for x in 20..<(ow - 20) {
+                let v = Double(pixels[x, y].g)
+                if v > lo + third && v < hi - third { blended += 1 }
+                counted += 1
+            }
+        }
+        print("DONT-RESIZE blended pixels \(blended) of \(counted), "
+              + "delivered \(ow)×\(oh)")
+        XCTAssertGreaterThan(hi - lo, 0.01,
+                             "the checkerboard survived with no contrast — this "
+                                 + "fixture proves nothing")
+        XCTAssertLessThan(Double(blended), 0.01 * Double(counted),
+                          "\(blended) of \(counted) delivered pixels sit between "
+                              + "the checkerboard's modes — \"Don't resize\" ran "
+                              + "the resampler anyway")
+    }
+
+    // MARK: - A resized export has no darkened rim (docs/31 round one §12)
+
+    /// Every border pixel of a resized flat-field export matches the centre:
+    /// Lanczos taps reach past the extent, and without the edge clamp they
+    /// averaged real pixels with transparent black — a darkened, semi-transparent
+    /// rim on every resized delivery.
+    func testAResizedExportHasNoDarkenedRim() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let flat = ImageBuffer(width: 900, height: 600) { _, _ in RGB(gray: 0.5) }
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        let exportRecipe = ExportRecipe(name: "rim", format: .png, bitDepth: 16,
+                                        colorSpace: .srgb, resizeMode: .longEdge,
+                                        resizeValue: 300)
+        let renderer = PipelineRenderer()
+        let image = try renderer.exportedImage(source: StubSource(ciImage(from: flat)),
+                                               recipe: recipe, using: exportRecipe)
+        guard let pixels = readBack(image, width: 300, height: 200) else {
+            return XCTFail("export render failed")
+        }
+        let centre = Double(pixels[150, 100].g)
+        var worst = centre
+        var worstAt = (0, 0)
+        for y in 0..<200 {
+            for x in 0..<300 where y < 3 || y >= 197 || x < 3 || x >= 297 {
+                let v = Double(pixels[x, y].g)
+                if v < worst { worst = v; worstAt = (x, y) }
+            }
+        }
+        XCTAssertGreaterThan(centre, 0.05, "the flat field rendered black — "
+                                 + "this fixture proves nothing")
+        XCTAssertGreaterThan(worst, centre * 0.98,
+                             "border pixel \(worstAt) delivered \(worst) against "
+                                 + "a centre of \(centre) — the Lanczos rim is "
+                                 + "back; `scaled()` has lost its edge clamp")
+    }
+
+    // MARK: - The metadata policy edits the SOURCE dictionary (docs/31 §13)
+
+    /// The policy's base is the ORIGINAL file's properties, and the geometry
+    /// fields are reconciled with the delivered pixels.
+    ///
+    /// The old code read `image.properties` off the RENDERED image — after ~40
+    /// kernels — which is either empty (the whole policy a no-op: "EXIF: on"
+    /// delivered no camera data at all) or the decode's dictionary verbatim (the
+    /// source's orientation and pixel dimensions surviving onto a rotated,
+    /// resized file). This drives the new seam directly with a fixture dictionary
+    /// standing in for the source file's.
+    func testTheMetadataPolicyEditsTheSourceDictionaryAndReconcilesGeometry() throws {
+        let delivered = ciImage(from: ImageBuffer(width: 20, height: 10) { _, _ in
+            RGB(gray: 0.18)
+        })
+        let fixture: [String: Any] = [
+            kCGImagePropertyExifDictionary as String: [
+                kCGImagePropertyExifISOSpeedRatings as String: [400],
+                kCGImagePropertyExifPixelXDimension as String: 6000,
+                kCGImagePropertyExifPixelYDimension as String: 4000,
+            ],
+            kCGImagePropertyGPSDictionary as String: [
+                kCGImagePropertyGPSLatitude as String: 37.33,
+            ],
+            kCGImagePropertyTIFFDictionary as String: [
+                kCGImagePropertyTIFFModel as String: "ILCE-7M4",
+                kCGImagePropertyTIFFOrientation as String: 6,
+            ],
+            kCGImagePropertyOrientation as String: 6,
+            kCGImagePropertyPixelWidth as String: 6000,
+            kCGImagePropertyPixelHeight as String: 4000,
+        ]
+        let policy = MetadataPolicy(includeEXIF: true, includeCameraSerial: false,
+                                    includeGPS: false, includeKeywords: true)
+        let out = PipelineRenderer.applyMetadataPolicy(delivered, policy,
+                                                       resolutionPPI: 300,
+                                                       sourceProperties: fixture)
+        let props = out.properties
+
+        // The whole point: with "EXIF: on", the camera data REACHES the output —
+        // the rendered image's own dictionary is empty, so the old code delivered
+        // nothing here.
+        let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        XCTAssertNotNil(exif, "EXIF on delivered no EXIF dictionary — the policy "
+                            + "is editing the rendered image's empty properties, "
+                            + "not the source's")
+        XCTAssertNotNil(exif?[kCGImagePropertyExifISOSpeedRatings as String],
+                        "the source's ISO did not survive an EXIF-on export")
+        let tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
+        XCTAssertEqual(tiff?[kCGImagePropertyTIFFModel as String] as? String,
+                       "ILCE-7M4", "the camera model did not survive")
+
+        // Strip GPS means stripped, from the dictionary that actually has it.
+        XCTAssertNil(props[kCGImagePropertyGPSDictionary as String],
+                     "Strip GPS left the source's coordinates in the output")
+
+        // And the geometry is the DELIVERY's, not the source's: orientation 1
+        // (the pixels are rendered upright) and this render's pixel dimensions.
+        XCTAssertEqual(props[kCGImagePropertyOrientation as String] as? Int, 1,
+                       "the source's orientation 6 survived onto rendered-upright "
+                           + "pixels — viewers will rotate the delivery again")
+        XCTAssertEqual(tiff?[kCGImagePropertyTIFFOrientation as String] as? Int, 1,
+                       "the TIFF dictionary still carries the source's rotation")
+        XCTAssertEqual(props[kCGImagePropertyPixelWidth as String] as? Int, 20,
+                       "the delivered file claims the source's pixel width")
+        XCTAssertEqual(exif?[kCGImagePropertyExifPixelXDimension as String] as? Int,
+                       20, "EXIF still claims the source's pixel dimensions")
+    }
+
+    // MARK: - 10-bit HEIC: written 10 deep, or refused loudly (docs/32 Stream G §2)
+
+    /// Whether this machine can author a Main-10 HEIC is a runtime property, so the
+    /// assertion follows the probe instead of assuming: where the encoder accepted
+    /// `canWriteTenBitHEIC`'s one-time probe, a 10-bit export must deliver a file
+    /// whose own container reports more than 8 bits per sample; where it declined,
+    /// the export must THROW rather than quietly deliver an 8-bit file under a recipe
+    /// that says 10 — the silent-lie class the write path refuses by design. Either
+    /// way the run prints the answer, which is the honest record docs/32 asked for.
+    func testTenBitHEICWritesTenDeepOrRefusesLoudly() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let ramp = ImageBuffer(width: 96, height: 64) { u, _ in
+            RGB(gray: 0.1 + 0.8 * u)
+        }
+        let exportRecipe = ExportRecipe(name: "ten", format: .heif, quality: 100,
+                                        bitDepth: 10, colorSpace: .displayP3,
+                                        resizeMode: .none)
+        XCTAssertEqual(exportRecipe.effectiveBitDepth, 10)
+        let renderer = PipelineRenderer()
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-heif10-\(UUID().uuidString).heic")
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        print("HEIF10 canWriteTenBitHEIC = \(PipelineRenderer.canWriteTenBitHEIC)")
+        guard PipelineRenderer.canWriteTenBitHEIC else {
+            XCTAssertThrowsError(
+                try renderer.export(source: StubSource(ciImage(from: ramp)),
+                                    recipe: Recipe(), to: destination,
+                                    using: exportRecipe),
+                "an encoder that declined the probe must refuse, not deliver 8 bits")
+            return
+        }
+        _ = try renderer.export(source: StubSource(ciImage(from: ramp)),
+                                recipe: Recipe(), to: destination,
+                                using: exportRecipe)
+        guard let container = CGImageSourceCreateWithURL(destination as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(container, 0, nil)
+                as? [String: Any],
+              let depth = properties[kCGImagePropertyDepth as String] as? Int
+        else {
+            return XCTFail("the delivered 10-bit HEIC could not be read back")
+        }
+        print("HEIF10 delivered depth = \(depth) bits per sample")
+        XCTAssertGreaterThan(depth, 8,
+                             "the recipe said 10 and the container reports \(depth) "
+                                 + "— the 10-bit path delivered an 8-bit file")
+    }
+
+    // MARK: - A watermark never changes the delivered extent
+
+    /// The bounds fix, pinned in one assertion: a mark rasterized wider than its
+    /// frame is shrunk to fit, clamped inside, and the composite is cropped back —
+    /// so the delivered file is the size the Size section promised. Before the fix,
+    /// `composited(over:)` took the UNION of the extents and a long notice at Size
+    /// 20% on a portrait frame delivered wrong dimensions with a transparent band.
+    func testAWatermarkNeverChangesTheDeliveredExtent() throws {
+        let image = ciImage(from: ImageBuffer(width: 200, height: 300) { _, _ in
+            RGB(gray: 0.4)
+        })
+        let mark = Watermark(text: "© A Very Long Studio Name And Then Some",
+                             position: .centre, opacity: 80, sizePercent: 20,
+                             insetPercent: 2)
+        let out = PipelineRenderer.applyWatermark(image, mark)
+        XCTAssertEqual(out.extent, image.extent,
+                       "the mark leaked past the frame: \(out.extent)")
     }
 }
 

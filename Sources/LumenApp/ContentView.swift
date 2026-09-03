@@ -6,39 +6,257 @@
 
 #if os(macOS)
 
+import AppKit
+import LumenCore
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
+    /// `showsMaskPanel` reads `state.currentRecipe.masks`, and `AppState.recipes` is not
+    /// `@Published` — so without this declaration that expression has NO invalidation
+    /// source (I1-06). It happened to re-body because `addMask` also writes selection
+    /// and overlay state, which is coincidence rather than mechanism: the empty →
+    /// non-empty transition this line gates is exactly the one the coincidence covers
+    /// least reliably, so the floating Masks box could fail to appear when the first
+    /// mask was created, or fail to leave when the last was deleted, depending on which
+    /// unrelated published property the surrounding action happened to touch.
+    ///
+    /// The rule is stated in `EditRevision`'s own header and was, until now, enforced by
+    /// nothing. `EditRevisionRuleTests` is the mechanism.
+    @EnvironmentObject private var edits: EditRevision
+
+    /// THE SIDEBAR CAN BE HIDDEN, AND THAT IS THE LARGEST SINGLE THING THIS WINDOW CAN
+    /// DO FOR THE PHOTOGRAPH.
+    ///
+    /// The composition audit ran the arithmetic and it is counter-intuitive enough to
+    /// write down. For an 1800x1169 window, chrome is 41.3% and a 3:2 landscape frame is
+    /// 49.35% of the window. Then:
+    ///
+    ///     delete the top bar AND the status bar  ->  landscape photograph: +0.00 points
+    ///     hide the 230pt sidebar                 ->  landscape photograph: +19.95 points
+    ///
+    /// A landscape photograph in this window is WIDTH-limited. Every horizontal band
+    /// removed gives back letterbox, not picture. The sidebar is worth more than every
+    /// other composition change combined — and until now the app declared no
+    /// `columnVisibility`, no toggle, and no sidebar row in its own 65-row keyboard
+    /// reference, so there was no way to get those points at all.
+    ///
+    /// `Tab` is the key, because it is Lightroom's and has been for twenty years, and
+    /// because `KeyGrammar.dispatchedKeys` did not claim it.
+    /// THE DIVIDER IS THE HANDLE. Owner: "what if I can have a click and drag? So if I
+    /// wanted a specific size, I can click or drag the right side pop-up window either
+    /// out more or in more, and the only thing that changes there is the size of the
+    /// sliders."
+    ///
+    /// That last clause is the whole reason this is worth doing, and it needed no work:
+    /// a slider row spends a fixed `labelWidth + valueWidth + gaps` on text, so every
+    /// point the column gains lands in the TRACK. Dragging from 320 to 520 takes a ±100
+    /// control from 0.90 points per unit to 1.90 — from below the threshold where a
+    /// one-pixel tremor costs a whole unit, to twice it.
+    ///
+    /// A 6pt hit region over a 1pt line, because a hairline is not a target; the drawn
+    /// rule stays exactly where it was. The width is written on every event so the
+    /// column tracks the hand, and persisted once on release — a `UserDefaults` write
+    /// per mouse event is the same defect the slider gesture sink exists to avoid.
+    private var columnResizer: some View {
+        Divider()
+            .overlay(Lumen.separator)
+            .frame(width: 1)
+            .overlay {
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 6)
+                    .contentShape(Rectangle())
+                    // Through the balanced modifier: the raw pair here pushed on
+                    // enter and popped on exit with no record of whether the push had
+                    // happened, so a second enter without an exit — which SwiftUI
+                    // delivers across a re-layout, and this handle sits on a divider
+                    // that re-lays out as the column resizes — left the whole app
+                    // wearing a resize cursor.
+                    .lumenScrubCursor()
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { drag in
+                                // Leftward drag widens the column, so the delta is
+                                // negated: the pointer and the edge move together.
+                                let next = state.developPanelWidth - drag.translation.width
+                                state.developPanelWidth = Swift.min(
+                                    Swift.max(next, Lumen.minimumPanelWidth),
+                                    Lumen.maximumPanelWidth)
+                            }
+                            .onEnded { _ in state.persistDevelopPanelWidth() })
+            }
+    }
+
+    /// Whether the floating Masks box is on screen.
+    ///
+    /// Masking has to be the current tool, there has to be a mask to list, and the
+    /// photographer must not have dismissed it. The middle condition is the owner's
+    /// rule verbatim — the box "comes out when there is a mask" rather than sitting
+    /// there empty waiting for one.
+    private var showsMaskPanel: Bool {
+        // `PanelLayout.shared` read directly rather than observed, matching
+        // `showsDevelopColumn` two properties down — this view deliberately does not
+        // observe `PanelLayout`, and the workspace change that flips `isMasking` already
+        // republishes through `state`.
+        PanelLayout.shared.layout.isMasking && state.maskPanelVisible
+            && !state.currentRecipe.masks.isEmpty
+    }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { state.sidebarVisible ? .all : .detailOnly },
+            set: { state.sidebarVisible = ($0 != .detailOnly) })) {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 190, ideal: 230, max: 320)
         } detail: {
             VStack(spacing: 0) {
-                FilterBar()
-                Divider().overlay(Lumen.separator)
+                // No rule under the bar: it sits on `panel` 0.20 and the photo's field
+                // below is `surroundCanvas` 0.165, so the surfaces already divide
+                // themselves (design audit §1.1, and Phase 1's rule for the develop
+                // column's own bands).
+                // THE CHROME OBEYS THE SURROUND CONTROLS. Removed at the `out` rung
+                // rather than drawn at zero opacity, so nothing invisible can take a
+                // click; dimmed at `dim` and in assessment mode, where it is still
+                // meant to be reachable. `chromeOpacity` is 1 and `chromeHidden` false
+                // in ordinary use, so every one of these is a no-op until a key is
+                // pressed.
+                if !state.chromeHidden {
+                    FilterBar()
+                        .opacity(state.chromeOpacity)
+                }
                 HStack(spacing: 0) {
                     centre
-                    if showsDevelopColumn {
-                        Divider().overlay(Lumen.separator)
+                        // The clipping panel and the hold badge ride the centre pane
+                        // rather than the develop column, because the develop column
+                        // is loupe-and-compare only and a keep/kill call is made in
+                        // the grid as often as anywhere else.
+                        .overlay(alignment: .topTrailing) {
+                            if state.showRawTruth {
+                                RawTruthPanel()
+                                    .padding(10)
+                            }
+                        }
+                        // THE MASKS BOX, over the photograph on the RIGHT — beside
+                        // the histogram, which is where the owner asked for it twice and
+                        // where he dragged it the first time he saw it on the left. It appears on its own once a photograph
+                        // has a mask ("a separate box that comes out when there is a
+                        // mask"), minimizes to its title bar, drags anywhere inside the
+                        // pane, and fades out of the way while the hand is on the
+                        // picture. `GeometryReader` supplies the pane's size so the drag
+                        // can be clamped to it — a panel dragged off the window is a
+                        // panel you cannot get back.
+                        .overlay(alignment: .topTrailing) {
+                            if showsMaskPanel {
+                                // The reader fills the pane so the drag can be clamped
+                                // against it; it draws nothing itself, so only the card
+                                // inside it ever takes a click.
+                                //
+                                // THE INNER `.frame(alignment:)` IS LOAD-BEARING and its
+                                // absence is why the panel opened on the LEFT, which was
+                                // the owner's first complaint on first use. A
+                                // `GeometryReader` is greedy: it takes every point it is
+                                // offered, so `.overlay(alignment: .topTrailing)` was
+                                // top-trailing-aligning a view that already filled the
+                                // whole pane — a no-op — and the reader then placed its
+                                // own child at its own top-LEADING corner, which is what
+                                // a `GeometryReader` does. The alignment has to be
+                                // restated INSIDE the reader, against the reader's own
+                                // filled frame, or it does not happen at all.
+                                GeometryReader { proxy in
+                                    MaskFloatingPanel(bounds: proxy.size)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                               alignment: .topTrailing)
+                                        // Out from under the clipping panel, which owns
+                                        // this corner when it is showing. Both are
+                                        // top-trailing and a silent overlap reads as a
+                                        // broken window rather than as two panels.
+                                        .padding(.top, state.showRawTruth ? 118 : 0)
+                                }
+                            }
+                        }
+                        .overlay(alignment: .bottom) { inspectionBadge }
+                    if showsDevelopColumn, !state.chromeHidden {
+                        columnResizer
                         DevelopPanel()
-                            .frame(width: Lumen.panelWidth)
+                            .frame(width: state.developPanelWidth)
+                            .opacity(state.chromeOpacity)
+                    }
+                    // THE RAIL, on the window's right edge, outside the `if` above —
+                    // which is the whole point. Navigation used to live inside the
+                    // develop column, so Cull (no column) took the tabs with it, and
+                    // `WorkspaceReturnBar` had to re-draw them over the grid (docs/30
+                    // §7.7's stranding trap, patched at 538eb08). The rail belongs to
+                    // the window: it is on screen in every view mode and every
+                    // workspace, masking included, so no state of the app lacks visible
+                    // navigation. It observes `PanelLayout` itself — this view still
+                    // deliberately does not.
+                    if !state.chromeHidden {
+                        Divider().overlay(Lumen.separator).frame(width: 1)
+                        WorkspaceRail()
+                            .opacity(state.chromeOpacity)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if state.showFilmstrip && !state.photos.isEmpty {
+                if state.showFilmstrip, !state.photos.isEmpty, !state.chromeHidden {
                     Divider().overlay(Lumen.separator)
+                    // No fixed frame here any more: the strip sizes itself from its
+                    // own persisted height step (see `FilmstripView`).
                     FilmstripView()
-                        .frame(height: 96)
+                        .opacity(state.chromeOpacity)
                 }
-                StatusBar()
+                if !state.chromeHidden {
+                    StatusBar()
+                        .opacity(state.chromeOpacity)
+                }
             }
-            .background(Lumen.viewerBackground)
+            // THE FIELD THE PHOTOGRAPH SITS ON, which is a control rather than a
+            // constant now: `surroundCanvas` normally, black at the lights-out rung,
+            // and ISO 12646's mid-grey in assessment mode — where it wins over black,
+            // because black is the wrong field for judging tone and judging tone is
+            // the only thing assessment mode is for. `ViewingConditions` holds the
+            // rule and the argument.
+            .background(state.surroundColor)
         }
         .frame(minWidth: 1180, minHeight: 720)
         .keyboardGrammar()
+        // Every slider and wheel in the tree reports its gesture through this one
+        // hook (RenderRequest.swift), so a drag defers per-event catalog writes and
+        // scope re-bins to its release without ninety call sites knowing about it.
+        // The closure is STORED on the state, not built here. An environment value is
+        // compared by identity, and a closure allocated inside `body` is a new
+        // identity on every body pass — so every descendant reading this key (every
+        // slider, both canvases, the wheels, the curve, the zones) was invalidated
+        // unconditionally on each pass. Today the global re-body hides that; the
+        // moment AppState moves to `@Observable` it would BECOME the bug.
+        .environment(\.sliderGestureChanged, state.sliderGestureSink)
+        // The focus half of the same story (docs/28 Phase 7): a slider reports taking
+        // and losing keyboard focus so `KeyDispatcher` hands the arrows back. Stored on
+        // the state for the same reason as the gesture sink — a closure built here would
+        // be a new identity on every body pass, invalidating every slider in the tree.
+        .environment(\.sliderFocusChanged, state.sliderFocusSink)
+        // AN OVERLAY, NOT A SHEET, and deliberately not routed through the presenter
+        // below. A sheet is modal, animates in, and dims what is behind it — right for
+        // Export, wrong for a thing you open, type four letters into and dismiss. It is
+        // also the reason it does not share `activeSheet`: the palette must be able to
+        // open while a sheet is up without either of them fighting for the presenter.
+        //
+        // The scrim takes a click so that dismissing is the obvious thing anywhere
+        // outside it, which is the grammar every other ⌘K palette has taught.
+        .overlay {
+            if state.showControlPalette {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { state.showControlPalette = false }
+                    ControlPalette()
+                        // Below the top rather than centred: a palette that opens over
+                        // the middle of the frame covers the photograph it is about.
+                        .padding(.top, 120)
+                }
+            }
+        }
         // One presenter, not three: chained `.sheet` modifiers on a single view are
         // not reliably independent, and "Export silently does nothing because the
         // keyboard sheet flag is also set" is not a failure anybody would diagnose.
@@ -53,7 +271,39 @@ struct ContentView: View {
     }
 
     private var showsDevelopColumn: Bool {
-        state.primarySelection != nil && (state.viewMode == .loupe || state.viewMode == .compare)
+        ContentView.showsDevelopColumn(layout: PanelLayout.shared.layout, state: state)
+    }
+
+    /// Whether the column is on screen RIGHT NOW — workspace, view mode and selection.
+    ///
+    /// This used to be one of two questions, the other belonging to a
+    /// `WorkspaceReturnBar` that re-drew the tab strip over the grid whenever the column
+    /// was gone. The rail retired that bar — navigation sits on the window's edge in
+    /// every state — so this is the only question left, and it is only about the column.
+    ///
+    /// CULL DRAWS NO COLUMN, and the emptiness is the feature rather than a hidden panel:
+    /// docs/12 §12.1 asks for "Photo Mechanic's emptiness without an architectural wall
+    /// behind it", which is why `Workspace.cull` has an empty section list instead of the
+    /// column being suppressed by some separate flag. `WorkspaceLayout.showsDevelopColumn`
+    /// is that list being empty, asked as a question.
+    static func showsDevelopColumn(layout: WorkspaceLayout, state: AppState) -> Bool {
+        layout.showsDevelopColumn
+            && state.primarySelection != nil
+            && (state.viewMode == .loupe || state.viewMode == .compare)
+    }
+
+    /// What is on screen while `[` or `]` is held. A momentary change to the picture
+    /// that does not announce itself is indistinguishable from an edit the user made by
+    /// accident, and this one deliberately does not reach the recipe — so the badge is
+    /// the only thing that says why the frame looks different.
+    @ViewBuilder
+    private var inspectionBadge: some View {
+        if let hold = state.inspectionHold {
+            LumenBadge(text: hold.badge(stops: InspectionHolds.defaultStops),
+                       emphasized: true)
+                .padding(.bottom, 12)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
@@ -88,13 +338,17 @@ struct ContentView: View {
 /// catalog structures that had complete store APIs and no way in from the app at all:
 /// albums, keywords and stacks.
 ///
-/// The keyboard verbs are Command-modified rather than the bare `B` / `S` / `⇧S` that
-/// docs/10 §10.9 specifies. The bare-key dispatcher in Keymap.swift already spends
-/// those two letters on the Basic panel and the scopes, and moving them is a change to
-/// the culling grammar that belongs in one deliberate pass over the whole keymap, not
-/// as a side effect of giving albums a sidebar. `⌘B`, `⌘G`, `⇧⌘G` and `⌘K` are free,
-/// they are attached to visible controls, and every one of them is disabled — visibly —
-/// when there is nothing for it to act on.
+/// The keyboard verbs here are Command-modified — `⌘G`, `⇧⌘G`, `⇧⌘K` — attached to
+/// visible controls and every one of them disabled, visibly, when there is nothing for
+/// it to act on.
+///
+/// ALBUMS IS THE EXCEPTION AND IT IS NOT A CHORD. This comment used to say that `⌘B`
+/// was free and spend it on the album button, because bare `B` was the Basic panel at
+/// the time. K-104 took `B` and `L` back for docs/10 §10.9's culling grammar, so
+/// add-to-album is the bare `B` in `Keymap.swift` and `⌘B` is the assessment surround
+/// in the View menu. Nothing in this file may attach `⌘B` again: two attachments of one
+/// chord is a dead shortcut, and `KeyGrammarAttachmentTests` in LumenAppTests now fails
+/// when any chord is attached twice.
 private struct Sidebar: View {
     @EnvironmentObject var state: AppState
 
@@ -102,87 +356,194 @@ private struct Sidebar: View {
     @State private var newKeyword: String = ""
     @FocusState private var keywordFieldFocused: Bool
 
+    /// ⇧⌘K now fires from the Scene, which cannot reach a view-local `@FocusState`.
+    /// `KeywordEntry.shared` is a counter it bumps and this column watches; only the
+    /// section that draws the field can put the cursor in it. Named `keywordRequests`
+    /// rather than `keywordEntry` because this struct already has a `keywordEntry`
+    /// view below.
+    @ObservedObject private var keywordRequests = KeywordEntry.shared
+
+    // Expansion is `@AppStorage`, deliberately, and never a published field on
+    // `AppState` (docs/28 §5.5): it persists for free and it invalidates this column
+    // and nothing else, where a publish on AppState re-bodies the whole window.
+    //
+    // Keywords and Stack start CLOSED because they are inert until a photo is selected
+    // or a stack exists, and on a fresh folder they were two full-height sections of
+    // "nothing here yet". Defaults, not options, set perceived complexity — docs/12
+    // §12.12 says so about darktable and it is just as true of a sidebar. Neither is
+    // ever secret: a closed section whose contents hold state wears the accent dot.
+    //
+    // THE RULE NOW RUNS THE OTHER WAY, and the fold was only ever half of it. A
+    // `.keyboardShortcut` on a view that is not in the hierarchy is never registered,
+    // so collapsing a section that contains one leaves the shortcut in the source,
+    // still passing `KeyGrammarTests` — which reads shortcuts as TEXT — and dead in
+    // the app. Keeping every shortcut-bearing button above the fold fixed that case
+    // and left the bigger one open: ⌥⌘S hides this entire column, and a chord attached
+    // anywhere in it dies with the column. That is not a fold problem, and no
+    // arrangement inside these sections can solve it.
+    //
+    // So no chord is attached here at all any more. ⌘G, ⇧⌘G and ⇧⌘K live in the
+    // Scene's `CommandMenu("Photo")`, where nothing on screen can take them away, and
+    // ⇧⌘K shows the sidebar before it asks for the cursor. The buttons stay, and their
+    // `.help` still names the chord — the section still leads with its one-click entry
+    // point, which is what docs/12 §12.12 asked for on its own merits. What is gone is
+    // the assumption that this column is always there to hold a key equivalent.
+    @AppStorage("sidebar.library") private var libraryExpanded = true
+    @AppStorage("sidebar.albums") private var albumsExpanded = true
+    @AppStorage("sidebar.keywords") private var keywordsExpanded = false
+    @AppStorage("sidebar.stack") private var stackExpanded = false
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Button {
-                    state.chooseFolder()
-                } label: {
-                    Label("Open Folder…", systemImage: "folder")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.borderless)
-
-                if let folder = state.folderURL {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(folder.lastPathComponent)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                        Text(folder.deletingLastPathComponent().path)
-                            .font(.system(size: 10))
-                            .foregroundStyle(Lumen.secondaryText)
-                            .lineLimit(2)
-                            .truncationMode(.head)
-                    }
-                }
-
-                Divider().overlay(Lumen.separator)
-
-                counts
-
+            // Four sections on the SAME header the develop panels use, which is most of
+            // the answer to "the side bar with the files is hard to understand": it was
+            // five unrelated jobs — an action, a path, three counts, three catalog
+            // structures and a help button — stacked with hairlines between them and no
+            // grouping, in a column whose own idiom appeared nowhere else in the app.
+            // One idiom, four groups, and the rules are gone the way they went in the
+            // panels (Phase 1): the header carries its own 16 pt boundary.
+            VStack(alignment: .leading, spacing: 2) {
+                librarySection
                 if state.isCatalogAvailable {
-                    Divider().overlay(Lumen.separator)
-                    albums
-                    Divider().overlay(Lumen.separator)
-                    keywords
-                    Divider().overlay(Lumen.separator)
-                    stacks
+                    albumsSection
+                    keywordsSection
+                    stackSection
                 }
 
                 if let catalogStatus = state.catalogStatus {
+                    // Was .orange — the one chroma violation in the chrome (Law 7:
+                    // zero-chroma everywhere the photo isn't). Urgency reads through
+                    // primary-value text in a quiet chrome just as well.
                     Text(catalogStatus)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 12)
                 }
-
-                Button {
-                    state.showKeyReference = true
-                } label: {
-                    Label("Keyboard", systemImage: "keyboard")
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(Lumen.secondaryText)
             }
-            .padding(12)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 16)
             // A VStack inside a ScrollView is only as wide as its widest child, and the
             // album rows put their count on a trailing Spacer — without this they draw
             // the count hard against the name instead of at the column edge.
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // docs/30: every scroll view in the app is silent. A legacy scroller insets
+        // its content, so an indicator appearing is a relayout of everything inside it.
+        .scrollIndicators(.never)
         .background(Lumen.panelBackground)
     }
 
+    // MARK: Library
+
+    private var librarySection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Library", isExpanded: $libraryExpanded)
+            if libraryExpanded {
+                Button {
+                    state.chooseFolder()
+                } label: {
+                    Label("Open Folder…", systemImage: "folder")
+                        .font(.lumenBody)
+                }
+                .buttonStyle(.borderless)
+
+                if let folder = state.folderURL {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(folder.lastPathComponent)
+                            .font(.lumenBodyStrong)
+                            .lineLimit(1)
+                        Text(folder.deletingLastPathComponent().path)
+                            .font(.lumenCaption)
+                            .foregroundStyle(Lumen.tertiaryText)
+                            .lineLimit(2)
+                            .truncationMode(.head)
+                    }
+                    .padding(.bottom, 2)
+                }
+
+                counts
+            }
+        }
+    }
+
+    /// The culling counts, and they are CONTROLS now rather than readouts.
+    ///
+    /// A row reading "Picked  14" beside an album list that selects on click is a row a
+    /// photographer will click, and it did nothing — which is most of what "hard to
+    /// understand" meant here. Every other library sidebar in the field (Lightroom's
+    /// collections, Capture One's filters, Finder's tags) answers a click on a count by
+    /// showing you those items, so this one does too: it writes the flag criterion the
+    /// Filter popover writes, and the two stay in step because both read `state.filter`.
+    ///
+    /// "Showing" is gone: the status bar now says "12 of 239" beside the sentence that
+    /// explains why, which is a better home for a derived number than a list of sources.
     private var counts: some View {
-        let picked = state.allPhotos.filter { $0.flag == .pick }.count
-        let rejected = state.allPhotos.filter { $0.flag == .reject }.count
-        return VStack(alignment: .leading, spacing: 3) {
-            row("All photos", state.allPhotos.count)
-            row("Picked", picked)
-            row("Rejected", rejected)
-            if state.filter.isActive || state.selectedCollectionID != nil {
-                row("Showing", state.photos.count)
+        // Memoised in AppState.cullCounts; these were two more full passes per body.
+        let picked = state.cullCounts.flags[.picked] ?? 0
+        let rejected = state.cullCounts.flags[.rejected] ?? 0
+        // Named and typed rather than written as bare `[.picked]` literals at four
+        // sites: `LumenApp` compiles only on macOS and the surface checker misses
+        // everything type-level, so an inference that needs help is an inference this
+        // machine cannot find out about.
+        let picks: Set<PhotoFlag> = [.picked]
+        let rejects: Set<PhotoFlag> = [.rejected]
+        let noFlag: Set<PhotoFlag> = []
+        return VStack(alignment: .leading, spacing: 1) {
+            // These three set the FLAG criterion and nothing else, which the help text
+            // says out loud: a rating or a label filter set elsewhere still applies, so
+            // "All photos" means "no flag restriction", not "clear everything". ⌘\ is
+            // what clears everything, and the status bar's sentence always says which
+            // it is.
+            sourceRow(title: "All photos", count: state.allPhotos.count,
+                      isSelected: state.filter.flags.isEmpty, isTarget: false,
+                      help: "No flag restriction — any other criteria still apply") {
+                state.filter.flags = noFlag
+            }
+            sourceRow(title: "Picked", count: picked,
+                      isSelected: state.filter.flags == picks, isTarget: false,
+                      help: "Show only picks") {
+                state.filter.flags = state.filter.flags == picks ? noFlag : picks
+            }
+            sourceRow(title: "Rejected", count: rejected,
+                      isSelected: state.filter.flags == rejects, isTarget: false,
+                      help: "Show only rejects") {
+                state.filter.flags = state.filter.flags == rejects ? noFlag : rejects
             }
         }
     }
 
     // MARK: Albums
 
+    private var albumsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Albums", isExpanded: $albumsExpanded,
+                               isModified: state.selectedCollectionID != nil)
+            // Above the fold: the section's one-click verb. It holds NO chord.
+            //
+            // It held ⌘B until K-104 settled the keymap the other way round: bare `B`
+            // is add-to-album (`Keymap.swift`, `case "b"`) and ⌘B is the assessment
+            // surround (`LumenApp.swift`, the View menu). Both were attached and only
+            // one can win — a menu item's key equivalent is offered by the main menu
+            // before the window's view hierarchy sees the event — so this button's ⌘B
+            // was a dead shortcut, and its `.help` advertised it anyway. The tooltip
+            // now names the bare key it actually has.
+            Button {
+                state.addSelectionToTargetCollection()
+            } label: {
+                Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
+                    .font(.lumenBody)
+            }
+            .buttonStyle(.borderless)
+            .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
+            .help("Add the selection to the target album (B)")
+
+            if albumsExpanded { albums }
+        }
+    }
+
     private var albums: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("Albums")
-
             sourceRow(title: "This folder", count: state.allPhotos.count,
                       isSelected: state.selectedCollectionID == nil,
                       isTarget: false) {
@@ -206,33 +567,32 @@ private struct Sidebar: View {
             HStack(spacing: 4) {
                 TextField("New album", text: $newAlbumName)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .onSubmit { createAlbum() }
                 Button {
                     createAlbum()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 9))
+                        .font(.lumenGlyphCaption)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
                 .disabled(newAlbumName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            Button {
-                state.addSelectionToTargetCollection()
-            } label: {
-                Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
-                    .font(.system(size: 11))
-            }
-            .buttonStyle(.borderless)
-            .keyboardShortcut("b", modifiers: [.command])
-            .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
-            .help("Add the selection to the target album (⌘B)")
+            // A WELL, not a clipped rectangle. `LumenSurface.swift` names text fields as
+            // the case `lumenWell` exists for — the light lands on the far lip, so the
+            // highlight sits along the BOTTOM and a dark inner edge sits along the top,
+            // which is what makes a field read as somewhere you type into rather than as
+            // a grey rectangle that happens to hold a cursor. The modifier had two call
+            // sites in the app and neither was a field.
+            //
+            // And the radius is the token now: this was a hardcoded 4, from before there
+            // were three radii, so it stayed at the Aqua proportion while every surface
+            // around it moved to 9 and 14.
+            .lumenWell(radius: Lumen.radiusControl)
         }
     }
 
@@ -248,28 +608,100 @@ private struct Sidebar: View {
 
     // MARK: Keywords
 
+    private var keywordsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Keywords", isExpanded: $keywordsExpanded,
+                               isModified: !state.primaryKeywords.isEmpty)
+            // Above the fold: the field you type into, and the button that names ⌘K.
+            keywordEntry
+            if keywordsExpanded { keywords }
+        }
+        // ⇧⌘K asked for the cursor. The Scene has already shown this column; opening
+        // the section is this view's half of the job, because `keywordEntry` is drawn
+        // whether or not the section is expanded but a collapsed section is a strange
+        // place to land a caret.
+        .onChange(of: keywordRequests.requests) { _, _ in
+            keywordsExpanded = true
+            keywordFieldFocused = true
+        }
+    }
+
+    private var keywordEntry: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                TextField("Add keyword", text: $newKeyword)
+                    .textFieldStyle(.plain)
+                    .font(.lumenBody)
+                    .focused($keywordFieldFocused)
+                    .onSubmit { addKeyword() }
+                Button {
+                    addKeyword()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.lumenGlyphCaption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.secondaryText)
+                .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(Lumen.controlBackground)
+            // A WELL, not a clipped rectangle. `LumenSurface.swift` names text fields as
+            // the case `lumenWell` exists for — the light lands on the far lip, so the
+            // highlight sits along the BOTTOM and a dark inner edge sits along the top,
+            // which is what makes a field read as somewhere you type into rather than as
+            // a grey rectangle that happens to hold a cursor. The modifier had two call
+            // sites in the app and neither was a field.
+            //
+            // And the radius is the token now: this was a hardcoded 4, from before there
+            // were three radii, so it stayed at the Aqua proportion while every surface
+            // around it moved to 9 and 14.
+            .lumenWell(radius: Lumen.radiusControl)
+
+            // ⌘⇧K puts the cursor in the field rather than applying anything: the verb
+            // a photographer wants from a keyword shortcut is "let me type one". It also
+            // opens the section, so the keywords already on the photo come into view
+            // with the cursor.
+            //
+            // It was ⌘K until the control palette took that key (docs/29 §2.2, the
+            // owner's decision). Keywording is a deliberate, low-frequency act performed
+            // with the sidebar already open, so a modifier costs it nothing; the palette
+            // is the opposite, and its whole value is that ⌘K is the key your hands
+            // already know from every other tool.
+            Button("Keyword the selection") {
+                keywordsExpanded = true
+                keywordFieldFocused = true
+            }
+            .buttonStyle(.borderless)
+            .font(.lumenBody)
+            .disabled(state.editTargets.isEmpty)
+            .help("Type a keyword for the selection (⌘⇧K)")
+        }
+    }
+
+    /// What is already on the photo — the part that folds away, because on a fresh
+    /// folder with nothing selected it is a section-height way of saying "nothing yet".
     private var keywords: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("Keywords")
-
             if state.primaryKeywords.isEmpty {
                 Text(state.primarySelection == nil
                      ? "Select a photo to keyword it"
                      : "None on this photo")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Lumen.secondaryText)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.tertiaryText)
             } else {
                 ForEach(state.primaryKeywords, id: \.self) { word in
                     HStack(spacing: 4) {
                         Text(word)
-                            .font(.system(size: 11))
+                            .font(.lumenBody)
                             .foregroundStyle(Lumen.primaryText)
                         Spacer()
                         Button {
                             state.removeKeyword(word)
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 8))
+                                .font(.lumenGlyphCaption)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Lumen.secondaryText)
@@ -277,36 +709,6 @@ private struct Sidebar: View {
                     }
                 }
             }
-
-            HStack(spacing: 4) {
-                TextField("Add keyword", text: $newKeyword)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11))
-                    .focused($keywordFieldFocused)
-                    .onSubmit { addKeyword() }
-                Button {
-                    addKeyword()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 9))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
-            .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            // ⌘K puts the cursor in the field rather than applying anything: the verb a
-            // photographer wants from a keyword shortcut is "let me type one".
-            Button("Keyword the selection") { keywordFieldFocused = true }
-                .buttonStyle(.borderless)
-                .font(.system(size: 11))
-                .keyboardShortcut("k", modifiers: [.command])
-                .disabled(state.editTargets.isEmpty)
-                .help("Type a keyword for the selection (⌘K)")
         }
     }
 
@@ -317,15 +719,36 @@ private struct Sidebar: View {
 
     // MARK: Stacks
 
+    private var stackSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LumenSectionHeader(title: "Stack", isExpanded: $stackExpanded,
+                               isModified: state.primaryStack != nil)
+            // Above the fold: the verb that makes a stack, and the holder of ⌘G.
+            Button("Stack Selection") { state.stackSelection() }
+                .buttonStyle(.borderless)
+                .font(.lumenBody)
+                .disabled(state.selection.count < 2)
+                .help("Group the selection into one stack (⌘G)")
+
+            // ⇧⌘G used to be held here by a zero-size invisible button, because a
+            // `.keyboardShortcut` on a view that is not in the hierarchy is never
+            // registered and this section ships closed. That fixed the fold and left
+            // the larger hole open: every chord in this column dies with ⌥⌘S, which
+            // hides the whole sidebar. ⌘G, ⇧⌘G and ⇧⌘K now live in the Scene's
+            // commands, where nothing on screen can take them away, and the invisible
+            // button is gone with them.
+
+            if stackExpanded { stacks }
+        }
+    }
+
     private var stacks: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionLabel("Stack")
-
             if let stack = state.primaryStack {
                 Text("\(stack.memberCount) frame\(stack.memberCount == 1 ? "" : "s")"
                      + " · \(stack.collapsed ? "collapsed" : "expanded")"
                      + (stack.isPick ? " · this is the pick" : ""))
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -335,81 +758,72 @@ private struct Sidebar: View {
                     Text(stack.collapsed ? "Expand Stack" : "Collapse Stack")
                 }
                 .buttonStyle(.borderless)
-                .font(.system(size: 11))
+                .font(.lumenBody)
 
                 Button("Promote to Pick") { state.promoteStackPick() }
                     .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .disabled(stack.isPick)
 
+                // Unstack's BUTTON stays here beside the other stack verbs, where it
+                // reads; ⇧⌘G moved above the fold. See the note there.
                 Button("Unstack") { state.unstackSelection() }
                     .buttonStyle(.borderless)
-                    .font(.system(size: 11))
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .font(.lumenBody)
                     .help("Unstack (⇧⌘G)")
             } else {
-                Text("Collapsed stacks show one frame each — the pick. Filter the grid "
-                     + "to them with the Metadata chip.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Lumen.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Three lines of teaching in front of one button, on a fresh folder,
+                // for a feature nobody has used yet — the same complaint the develop
+                // panels answered in Phase 1, and the same answer: the ⓘ row, with the
+                // words a hover away. `DevelopNote` is the app's one form for this.
+                DevelopNote("Collapsed stacks show one frame each — the pick. Filter "
+                            + "the grid to them from the Filter popover's Metadata "
+                            + "menu.")
             }
-
-            Button("Stack Selection") { state.stackSelection() }
-                .buttonStyle(.borderless)
-                .font(.system(size: 11))
-                .keyboardShortcut("g", modifiers: [.command])
-                .disabled(state.selection.count < 2)
-                .help("Group the selection into one stack (⌘G)")
         }
     }
 
     // MARK: Pieces
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 9, weight: .semibold))
-            .tracking(0.5)
-            .foregroundStyle(Lumen.secondaryText)
-    }
+    // `sectionLabel` is gone with the four sections that used it: this column now takes
+    // `LumenSectionHeader` like every panel does. It was one of the three separately
+    // hand-rolled caps-label styles the audit counted (§1.2), and at 9 pt it was under
+    // the type floor the same audit set. One idiom, one size, one place to change it.
 
     private func sourceRow(title: String, count: Int, isSelected: Bool,
-                           isTarget: Bool, action: @escaping () -> Void) -> some View {
+                           isTarget: Bool, help: String? = nil,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if isTarget {
                     Image(systemName: "target")
-                        .font(.system(size: 8))
+                        .font(.lumenGlyphCaption)
                         .foregroundStyle(Lumen.secondaryText)
                 }
                 Text(title)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .lineLimit(1)
                 Spacer()
                 Text("\(count)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.lumenCaption.monospacedDigit())
                     .foregroundStyle(Lumen.secondaryText)
             }
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
             .background(isSelected ? Lumen.fillColor.opacity(0.28) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            // `radiusChip`, not a hardcoded 3. A sidebar row is a chip by every other
+            // measure in this app and it was the last place still drawing the pre-token
+            // radius, so the selected album sat in a squarer rectangle than anything
+            // beside it.
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         }
         .buttonStyle(.plain)
+        .help(help ?? "")
     }
 
-    private func row(_ title: String, _ count: Int) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(Lumen.primaryText)
-            Spacer()
-            Text("\(count)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Lumen.secondaryText)
-        }
-    }
+    // `row` is gone too: the culling counts were the only caller and they are
+    // `sourceRow`s now, because a count sitting in a source list is a thing people click.
 }
 
 // MARK: - Status bar
@@ -418,35 +832,96 @@ private struct StatusBar: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        HStack(spacing: 12) {
+        // Built once and read twice, by the label and by its own tooltip — the tooltip
+        // is what a truncated sentence falls back on in a 22-point bar.
+        let sentence = state.filter.sentence(catalogLive: state.isLibraryQueryLive)
+        return HStack(spacing: 12) {
             if state.isScanning {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.6)
+                // `LumenSpinner`, not `ProgressView()`: the indeterminate AppKit
+                // spinner is tinted by the system accent like every other stock control,
+                // and this one sits in the status bar under the photograph.
+                LumenSpinner(diameter: 11, lineWidth: 1.6)
             }
-            Text(state.statusMessage ?? "")
-                .font(.system(size: 10))
+            if let message = state.statusMessage, !message.isEmpty {
+                Text(message)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+            }
+            // The query, in words. It used to own the second row of a full-width filter
+            // bar; the bar is one row now (docs/28 Phase 3) and the sentence outlived it
+            // because it is the part worth keeping — better product thinking than
+            // Lightroom's filter bar, which shows you lit chips and leaves you to
+            // reconstruct what they mean together. Here it sits beside the count it
+            // qualifies, which is where a query result belongs.
+            Text(sentence)
+                .font(.lumenCaption)
+                .foregroundStyle(state.filter.isActive
+                                 ? Lumen.primaryText : Lumen.tertiaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(sentence)
+            Text(countText)
+                .font(.lumenCaptionNumeric)
                 .foregroundStyle(Lumen.secondaryText)
             Spacer()
             if state.isExporting {
-                Text("Exporting \(Int(state.exportProgress * 100))%")
-                    .font(.system(size: 10))
+                // Two states, not one. Once a stop has been asked for, the percentage
+                // keeps climbing through the file being finished — and this readout is
+                // the only always-visible sign of an export, so a photographer who
+                // pressed Stop and then closed the sheet was watching a number rise on
+                // a batch that was already stopping. `exportCancelRequested` was
+                // published and nothing read it; the sheet's own "Cancelling…" is local
+                // `@State` and goes away with the sheet.
+                Text(state.exportCancelRequested
+                     ? "Stopping — finishing this file"
+                     : "Exporting \(Int(state.exportProgress * 100))%")
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
             }
-            if let photo = state.primarySelection {
-                Text(photo.filename)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Lumen.secondaryText)
-            }
+            // NO FILENAME HERE. `DevelopPanel.header` draws it whenever the develop
+            // column is showing, which is every loupe and compare session — so the same
+            // string sat at both ends of the window, about 990 points apart. The panel's
+            // copy is the one beside the controls that act on that photograph; this one
+            // was decoration at the far corner.
             if state.selection.count > 1 {
                 Text("\(state.selection.count) selected")
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .foregroundStyle(Lumen.accent)
             }
+            // THE FILMSTRIP'S SWITCH, and it lives here rather than only on the strip
+            // because a hide control that exists only on the thing it hides strands the
+            // way back the moment it works — the Cull lesson, one storey down. The
+            // status bar is persistent chrome directly under the strip, so the toggle
+            // is beside what it governs and survives it in both directions. `F` and
+            // the View menu drive the same flag.
+            Button {
+                state.showFilmstrip.toggle()
+            } label: {
+                Image(systemName: "film")
+                    .font(.lumenGlyphCaption)
+                    .foregroundStyle(state.showFilmstrip
+                                     ? Lumen.primaryText : Lumen.secondaryText)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .lumenClickCursor()
+            .help(state.showFilmstrip
+                  ? "Hide the filmstrip (F)" : "Show the filmstrip (F)")
         }
         .padding(.horizontal, 10)
         .frame(height: 22)
         .background(Lumen.panelBackground)
+    }
+
+    /// Read off the grid itself rather than counted separately, so the number and the
+    /// contact sheet under it can never disagree — an older version re-ran the whole
+    /// in-memory predicate on every keystroke to produce a second answer.
+    private var countText: String {
+        let total = state.allPhotos.count
+        guard state.filter.isActive || state.selectedCollectionID != nil else {
+            return "\(total) photos"
+        }
+        return "\(state.photos.count) of \(total)"
     }
 }
 
@@ -456,20 +931,11 @@ private struct EmptyState: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 40))
-                .foregroundStyle(Lumen.secondaryText)
-            Text("Open a folder of photographs")
-                .font(.system(size: 13))
-                .foregroundStyle(Lumen.primaryText)
-            Text("Folders are the library. Nothing is copied, moved, or modified.")
-                .font(.system(size: 11))
-                .foregroundStyle(Lumen.secondaryText)
-            Button("Open Folder…") { state.chooseFolder() }
-                .padding(.top, 6)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        LumenEmptyState(
+            symbol: "photo.on.rectangle.angled",
+            headline: "Open a folder of photographs",
+            detail: "Folders are the library. Nothing is copied, moved, or modified.",
+            actionTitle: "Open Folder…") { state.chooseFolder() }
     }
 }
 
@@ -482,7 +948,7 @@ private struct KeyReferenceSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Keyboard")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.lumenTitle)
                 Spacer()
                 Button("Done") { state.showKeyReference = false }
                     .keyboardShortcut(.defaultAction)
@@ -502,11 +968,11 @@ private struct KeyReferenceSheet: View {
                             ForEach(group.entries) { entry in
                                 HStack(alignment: .top, spacing: 10) {
                                     Text(entry.keys)
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(.lumenNumeric)
                                         .frame(width: 84, alignment: .leading)
                                         .foregroundStyle(Lumen.primaryText)
                                     Text(entry.action)
-                                        .font(.system(size: 11))
+                                        .font(.lumenBody)
                                         .foregroundStyle(Lumen.secondaryText)
                                         .fixedSize(horizontal: false, vertical: true)
                                     Spacer()
@@ -517,10 +983,20 @@ private struct KeyReferenceSheet: View {
                 }
                 .padding(14)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
         }
         .frame(width: 460, height: 560)
         .background(Lumen.panelBackground)
     }
 }
+
+// `WorkspaceReturnBar` is gone: it existed to re-draw the workspace strip over the grid
+// whenever the column that carried the strip was not on screen. The strip itself is
+// gone — `WorkspaceRail` sits on the window's right edge in every state — so there is
+// nothing left to return. The lesson it taught survives in the rail's placement: the
+// subscription to `PanelLayout` lives in the small view that needs it, never on this
+// window.
 
 #endif

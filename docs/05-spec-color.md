@@ -79,6 +79,18 @@ Variance and the Skin tools' Uniformity sliders (three surfaces, one kernel — 
 are weighted by chroma so near-neutral pixels, whose hue is numerically meaningless noise, are untouched.
 Pipeline stage: mid-Color, scene-referred input converted to OKLab for the op and back.
 
+> **As built.** Two deviations from the paragraph above, both deliberate and measured.
+> (1) The variance kernel ships in its FLAT-NEIGHBOURHOOD form on both paths: S9 compiles
+> to a 3D LUT over one colour, and the texture-preserving local mean μ is a second,
+> spatially varying input no table can carry — making Uniformity/Variance
+> texture-preserving needs a stage, not a parameter (`ColorEngine.varianceCompress`'s
+> note is the authority). The algebra and direction are exact; only the
+> texture-preservation half is deferred. (2) The "mean hue of the band's members" target
+> is real now — `PipelineRenderer.measuredBandMeanHues` measures each file once, off a
+> small NEUTRAL decode, threaded through `RenderPlan(bandMeanHues:)` — with the recorded
+> limitation that the basis is the neutral rendition, so a strong user WB change shifts
+> the picture's hues off the measured basis (docs/27 §2).
+
 **How it feels.** One panel: hue ring on top with the selected band's arc and four handles, three sliders
 plus Uniformity beneath, TAT icons per attribute. The eyedropper is the primary entry: click the thing you
 want to change and the right band lights up with its range visible on the ring — no guessing whether

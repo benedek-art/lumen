@@ -1,0 +1,164 @@
+// ProofRunner.swift
+//
+// Sweeps one `ControlSpec` and produces its `ProofRecord`.
+//
+// Everything renders at `LUT3D.exportSize`. The interactive size is what a photographer
+// sees while dragging, but a proof is a statement about what the control DOES, and at
+// size 33 the baked table contributes up to 0.197 stops of its own — which would put a
+// measurable slice of every authority number in this file down to interpolation error
+// rather than to the control. docs/18 measured that ladder; this is it being used.
+
+import Foundation
+import LumenCore
+
+enum ProofRunner {
+
+    /// Measurements are cached across test methods.
+    ///
+    /// Not premature optimisation: a sweep is 21 renders and each one bakes a 65³ colour
+    /// cube — 274,625 evaluations through the colour and grade engines — so measuring
+    /// eleven controls once costs about a minute and measuring them four times, once per
+    /// test method that wants them, costs more than the whole rest of the engine suite
+    /// put together. The cache is keyed by control id and the specs are immutable, so
+    /// every reader sees the same numbers the record was written from.
+    private static var cache = [String: ProofRecord]()
+    private static let cacheLock = NSLock()
+
+    static func measured(_ spec: ControlSpec) -> ProofRecord {
+        cacheLock.lock()
+        if let hit = cache[spec.id] { cacheLock.unlock(); return hit }
+        cacheLock.unlock()
+        let fresh = measure(spec)
+        cacheLock.lock(); cache[spec.id] = fresh; cacheLock.unlock()
+        return fresh
+    }
+
+    /// Measure a whole registry in one pass, filling the cache.
+    ///
+    /// Deliberately SERIAL, and the first version of this was not — which was a mistake
+    /// worth leaving a note about, because it is the same misreading of a system this
+    /// codebase keeps making.
+    ///
+    /// Measuring controls concurrently looks like free parallelism: they are independent
+    /// by construction, each building its own recipe and rendering its own frame. But
+    /// `LUT3D`'s bake ALREADY runs `DispatchQueue.concurrentPerform` across the cube's
+    /// slices (LUT.swift:223), so a concurrent outer loop nests concurrentPerform inside
+    /// concurrentPerform — which on four cores oversubscribes rather than parallelises,
+    /// and is a documented way to explode a thread pool. It also defeats
+    /// `PlanTableCache`: sweeping one control re-uses the colour cube across all 21 of
+    /// its steps, and interleaving four controls evicts it four ways.
+    ///
+    /// The cost is therefore real and structural — a sweep is 21 plan bakes — and the
+    /// lever is the size of the registry, not the concurrency. That is one of the
+    /// reasons the registry covers the forty controls of an ordinary edit rather than
+    /// all two hundred and fifty (docs/21 §6).
+    static func measureAll(_ specs: [ControlSpec]) {
+        for spec in specs { _ = measured(spec) }
+    }
+
+    /// Render one setting of one control.
+    static func render(_ spec: ControlSpec, at setting: Double,
+                       frame: ImageBuffer) -> ImageBuffer
+    {
+        var recipe = Recipe()
+        spec.apply(&recipe, setting)
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize,
+                              captureISO: spec.captureISO)
+        // S3, for the controls that live in it. `ReferenceRenderer.render` starts at S6,
+        // so the reference path applies classical denoise to the buffer BEFORE calling
+        // it (PipelineRenderer.swift:1468) — at decode scale 1, which is what a proof
+        // frame renders at, `scaled(noiseScale:)` is the identity and this is exactly
+        // that call. Sweeping a denoise slider without it renders through a stage that
+        // never ran, which is the pipeline-shaped version of sweeping on the wrong
+        // frame.
+        var staged = frame
+        if spec.denoisedFirst, !plan.denoiseIsIdentity {
+            staged = plan.classicalDenoise.apply(frame)
+        }
+        return ReferenceRenderer.render(staged, plan: plan)
+    }
+
+    /// The neutral render — the control sitting where it does nothing.
+    static func neutralRender(_ spec: ControlSpec, frame: ImageBuffer) -> ImageBuffer {
+        render(spec, at: spec.neutral, frame: frame)
+    }
+
+    /// Measure a control end to end and produce its record.
+    static func measure(_ spec: ControlSpec, steps: Int = 21) -> ProofRecord {
+        let frame = spec.frame()
+        let sweep = ProofMetrics.sweep(from: spec.low, to: spec.high, steps: steps) {
+            render(spec, at: $0, frame: frame)
+        }
+
+        // `authorityEnd` is `spec.high` for every ordinary control and the ANTIPODE for
+        // a circular one, where `render(high)` is `render(low)` and every metric taken
+        // between them would report a working control as a dead one (docs/20 P4).
+        let lowEnd = render(spec, at: spec.low, frame: frame)
+        let highEnd = render(spec, at: spec.authorityEnd, frame: frame)
+        let neutral = neutralRender(spec, frame: frame)
+
+        // Overshoot is only a defect for an operator that claims to work within the
+        // picture's own range. Asking it of Exposure would report "overshoot 120" and
+        // mean nothing: raising exposure is SUPPOSED to leave the input's range.
+        // Measured for every control that could produce one, asserted only where a
+        // ceiling has been agreed. A control entitled to leave the range — a global
+        // exposure move — records nil, because "overshoot 120" on Exposure is not a
+        // finding, it is the control working.
+        //
+        // Both ends, both directions. `overshoot` stays the larger of the two so the
+        // ceiling assertion reads exactly the quantity it always read; the two halves
+        // are recorded beside it so a future ceiling can be put on the one that means
+        // "rim" rather than on their maximum (PROOF-02).
+        let excursion: (above: Double, below: Double)? = spec.mayLeaveRange ? nil : {
+            let atHigh = ProofMetrics.overshoot(highEnd, against: neutral)
+            let atLow = ProofMetrics.overshoot(lowEnd, against: neutral)
+            return (Swift.max(atHigh.above, atLow.above),
+                    Swift.max(atHigh.below, atLow.below))
+        }()
+        let overshootAbove = excursion?.above
+        let overshootBelow = excursion?.below
+        let overshoot = excursion.map { Swift.max($0.above, $0.below) }
+
+        // Hue rotation is only defined where the frame carries chroma. On a grey ramp
+        // every pixel is on the neutral axis and the angle is rounding error — the
+        // unguarded-angle trap that hid the Protect Skin defect for months.
+        let hueRotation: Double? = spec.frameName == "neutralRamp"
+            ? nil
+            : Swift.max(ProofMetrics.hueRotation(neutral, highEnd),
+                        ProofMetrics.hueRotation(neutral, lowEnd))
+
+        return ProofRecord(
+            id: spec.id, panel: spec.panel, frame: spec.frameName,
+            travelLow: spec.low, travelHigh: spec.high,
+            deadSteps: sweep.deadSteps.count,
+            smallestLiveStep: sweep.smallestLiveStep,
+            // Identical to `sweep.authority` for a non-circular control — the same two
+            // renders, deterministically — and the antipode separation for a circular
+            // one, where `sweep.authority` is zero by construction.
+            authority: spec.isCircular
+                ? ProofMetrics.authority(lowEnd, highEnd)
+                : sweep.authority,
+            meanSeparation: ProofMetrics.meanSeparation(lowEnd, highEnd),
+            frontLoading: sweep.frontLoading,
+            isMonotone: sweep.isMonotone,
+            givenBack: sweep.givenBack,
+            overshoot: overshoot,
+            overshootAbove: overshootAbove, overshootBelow: overshootBelow,
+            hueRotation: hueRotation,
+            baselineTier: nil, baselineNote: nil)
+    }
+
+    /// Render the three evidence frames for a control — full negative, neutral, full
+    /// positive — as one contact sheet the owner can open and judge.
+    static func evidence(_ spec: ControlSpec) -> ImageBuffer {
+        let frame = spec.frame()
+        return ProofEvidence.contactSheet([
+            render(spec, at: spec.low, frame: frame),
+            neutralRender(spec, frame: frame),
+            // The antipode on a circle, for the same reason the record reads it there:
+            // a contact sheet whose third panel is a copy of its first shows a working
+            // hue wheel doing nothing.
+            render(spec, at: spec.authorityEnd, frame: frame),
+        ])
+    }
+}

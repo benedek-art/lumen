@@ -1,0 +1,15 @@
+{
+  "authority" : 157.09572035497288,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.7479512131892648,
+  "givenBack" : 0,
+  "hueRotation" : 25.713045597974315,
+  "id" : "cb.chroma.mid",
+  "isMonotone" : true,
+  "meanSeparation" : 12.639313157460116,
+  "panel" : "Colour Balance",
+  "smallestLiveStep" : 7.797667787802098,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

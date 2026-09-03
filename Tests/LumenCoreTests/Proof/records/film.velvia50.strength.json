@@ -1,0 +1,15 @@
+{
+  "authority" : 84.97631355248012,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.4837024935994018,
+  "givenBack" : 0,
+  "hueRotation" : 36.88316869016961,
+  "id" : "film.velvia50.strength",
+  "isMonotone" : true,
+  "meanSeparation" : 11.65427481990523,
+  "panel" : "Film Lab",
+  "smallestLiveStep" : 3.60696921221961,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

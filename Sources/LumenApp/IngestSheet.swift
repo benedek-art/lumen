@@ -3,12 +3,15 @@
 // destinations, folder and filename templates with live previews, verify, start. No
 // wizard, no pages — insert a card, glance at the previews, press Return.
 //
-// Two pieces of honesty are built into this file rather than papered over:
+// The copy engine is NOT here. It is `VerifiedCopyDriver` in LumenCore, behind the
+// `IngestDriver` seam below, and it is there rather than here for one reason: the part
+// of this app that moves the only copy of somebody's wedding has to be testable on a
+// machine with no Core Image, no SwiftUI and no card reader in it. This file is the
+// screen — it scans, it plans, it previews, it starts the engine, and it reports what
+// the engine says, verbatim.
 //
-//   · The copy engine does not exist yet. The sheet drives an `IngestDriver`; the
-//     default implementation is `UnavailableIngestDriver`, which copies nothing and
-//     says so. The Start button is disabled and the banner explains why, because a
-//     button that looks live and silently does nothing is worse than no button.
+// One piece of honesty is built into this file rather than papered over:
+//
 //   · The documented default rename template `{date}-{seq4}-{orig}` does NOT validate
 //     against `RenameTemplate` as shipped — `seqWidth` only recognises the `{seq:N}`
 //     form, so `{seq4}` is an unknown token that renders empty. Rather than quietly
@@ -50,32 +53,74 @@ struct IngestRequest: Sendable {
     var ejectWhenDone: Bool
 }
 
-enum IngestStartResult: Sendable {
-    case started
+enum IngestRunOutcome: Sendable {
+    /// Nothing was attempted, and why — shown verbatim, never paraphrased into
+    /// "something went wrong".
     case refused(String)
+    /// The engine ran. What it did — including every frame that failed and why — is in
+    /// the report.
+    case finished(IngestReport)
 }
 
-/// The seam the copy engine will land behind. Deliberately tiny: plan in, "did it
-/// start" out. Progress reporting belongs to the engine's own queue model, not here.
-protocol IngestDriver {
-    /// `nil` when the driver can really copy. Otherwise the reason it cannot, shown
-    /// verbatim in the sheet — never paraphrased into "something went wrong".
-    var unavailableReason: String? { get }
-
-    func start(_ request: IngestRequest) -> IngestStartResult
+/// The seam the copy engine lands behind. One method, because a copy that takes twenty
+/// minutes needs exactly two things the old "did it start" shape could not carry: a way
+/// to say how far it has got, and a way to be stopped.
+protocol IngestDriver: Sendable {
+    func run(_ request: IngestRequest,
+             cancellation: IngestCancellation,
+             progress: @escaping @Sendable (IngestProgress) -> Void) async -> IngestRunOutcome
 }
 
-/// The default. It plans, validates and previews; it moves no bytes.
-struct UnavailableIngestDriver: IngestDriver {
-    var unavailableReason: String? {
-        "The verified-copy engine is not built yet. This sheet plans the ingest and "
-            + "checks the templates — it will not copy, verify or eject anything."
-    }
+/// The real one. `IngestPlanner` turns the sheet's templates into the exact paths that
+/// will be written, `VerifiedCopyDriver` streams the bytes and reads every landed file
+/// back, and this adapts the sheet's request to both.
+///
+/// It refuses instead of copying in the two cases where copying is worse than stopping:
+/// nothing to copy, and a backup destination that IS the primary destination — which is
+/// not a second copy of anything, and would spend the whole ingest writing
+/// `DSCF0001-1.RAF` beside every frame it had just written.
+struct VerifiedCopyIngestDriver: IngestDriver {
 
-    func start(_ request: IngestRequest) -> IngestStartResult {
-        .refused("Nothing was copied: the verified-copy engine is not implemented yet. "
-                 + "\(request.files.count) file\(request.files.count == 1 ? "" : "s") "
-                 + "would have been written to \(request.primaryDestination.path).")
+    func run(_ request: IngestRequest,
+             cancellation: IngestCancellation,
+             progress: @escaping @Sendable (IngestProgress) -> Void) async -> IngestRunOutcome {
+        guard !request.files.isEmpty else {
+            return .refused("Nothing was copied: there are no frames to copy.")
+        }
+        var roots = [IngestDestinationRoot(url: request.primaryDestination, role: .primary)]
+        if let backup = request.backupDestination {
+            guard backup.standardizedFileURL != request.primaryDestination.standardizedFileURL
+            else {
+                return .refused("Nothing was copied: the backup destination is the primary "
+                                + "destination. A second copy has to be a second volume.")
+            }
+            roots.append(IngestDestinationRoot(url: backup, role: .backup))
+        }
+        // The date the templates date-stamp with. Read here rather than in the engine so
+        // a plan is a pure function of its inputs — and read from the same place the
+        // preview reads it, so the path previewed is the path written.
+        let sources = request.files.map { file in
+            IngestSourceFile(url: file.url, byteCount: file.byteSize,
+                             captureDate: ingestCreationDate(of: file.url) ?? Date())
+        }
+        let plan = IngestPlanner.plan(sources: sources,
+                                      destinations: roots,
+                                      folderTemplate: request.folderTemplate,
+                                      renameTemplate: request.renameEnabled
+                                          ? request.renameTemplate : nil,
+                                      job: request.jobName.isEmpty ? nil : request.jobName,
+                                      calendar: Calendar.current)
+        guard !plan.copies.isEmpty else {
+            return .refused("Nothing was copied: "
+                            + (plan.refusals.first ?? "the plan named no file to write."))
+        }
+        let driver = VerifiedCopyDriver(verify: request.verify)
+        // Off the main thread: this is a card being drained, not a UI update. The
+        // progress callback arrives on that thread and hops back on its own.
+        let report = await Task.detached(priority: .userInitiated) {
+            driver.run(plan, cancellation: cancellation, progress: progress)
+        }.value
+        return .finished(report)
     }
 }
 
@@ -87,7 +132,7 @@ struct IngestSheet: View {
 
     let driver: any IngestDriver
 
-    init(driver: any IngestDriver = UnavailableIngestDriver()) {
+    init(driver: any IngestDriver = VerifiedCopyIngestDriver()) {
         self.driver = driver
     }
 
@@ -114,13 +159,22 @@ struct IngestSheet: View {
     @State private var ejectWhenDone: Bool = false
     @State private var statusLine: String? = nil
 
+    // The run
+    @State private var isRunning: Bool = false
+    @State private var runProgress: IngestProgress? = nil
+    @State private var lastReport: IngestReport? = nil
+    @State private var cancellation: IngestCancellation? = nil
+    /// Latched separately from the token so the button can say "Stopping…" the instant
+    /// it is pressed, rather than at the next chunk boundary.
+    @State private var stopRequested: Bool = false
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().overlay(Lumen.separator)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    unavailableBanner
+                    failureBanner
                     sourceSection
                     destinationSection
                     templateSection
@@ -129,6 +183,9 @@ struct IngestSheet: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
             Divider().overlay(Lumen.separator)
             footer
         }
@@ -142,33 +199,64 @@ struct IngestSheet: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("Ingest")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.lumenTitle)
                 .foregroundStyle(Lumen.primaryText)
             Spacer()
+            // Closing is not stopping, and it must not silently become stopping: a card
+            // half drained is the one state this sheet exists to prevent. So Close puts
+            // the sheet away and the copy carries on, and the tooltip says so rather
+            // than leaving a photographer to find out by looking at the destination.
             Button("Close") { dismiss() }
                 .keyboardShortcut(.cancelAction)
+                .help(isRunning
+                      ? "Puts this sheet away. The copy carries on — press Stop first if "
+                        + "you meant to stop it."
+                      : "Put this sheet away")
         }
         .padding(14)
     }
 
+    /// The frames the last run did not land, by name.
+    ///
+    /// The status line carries the one-sentence summary; this carries the list, because
+    /// "3 failed" is not something a photographer standing at a card reader can act on
+    /// and "DSCF0417.RAF → backup: could not be written to the destination: No space
+    /// left on device" is.
     @ViewBuilder
-    private var unavailableBanner: some View {
-        if let reason = driver.unavailableReason {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 11))
+    private var failureBanner: some View {
+        if !failureLines.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(failureLines.indices, id: \.self) { index in
+                    HStack(alignment: .top, spacing: 5) {
+                        Image(systemName: "xmark.octagon")
+                            .font(.lumenGlyphCaption)
+                        Text(failureLines[index])
+                            .font(.lumenCaption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
                     .foregroundStyle(Lumen.primaryText)
-                Text(reason)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Lumen.primaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+                }
             }
             .padding(8)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl))
             .padding(.bottom, 6)
         }
+    }
+
+    /// Capped, and the cap is counted out loud: a card whose every frame failed would
+    /// otherwise push the whole sheet off the screen.
+    private var failureLines: [String] {
+        guard let report = lastReport else { return [] }
+        var lines = report.failures.prefix(8).map {
+            $0.label + ": " + ($0.failure?.message ?? "")
+        }
+        if report.failures.count > 8 {
+            lines.append("+ \(report.failures.count - 8) more frames failed.")
+        }
+        lines.append(contentsOf: report.refusals.prefix(4))
+        return lines
     }
 
     // MARK: Source
@@ -177,33 +265,52 @@ struct IngestSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Source")
             IngestFieldRow("Volume") {
-                Menu {
+                // THE NAME, NOT THE PATH. The old trigger printed the whole POSIX path
+                // head-truncated — "…/Volumes/EOS_R5/DCIM" — because an `NSPopUpButton`
+                // will happily print a hundred characters and let the truncation sort
+                // it out. What a photographer identifies a card by is its name, so the
+                // trigger says that and the tooltip carries the path in full, which is
+                // the only place the path was ever actually read.
+                LumenMenu(title: sourceURL?.lastPathComponent
+                              ?? "Choose a card or folder",
+                          symbol: sourceSymbol,
+                          minWidth: 220,
+                          help: sourceURL?.path
+                              ?? "The card or folder these frames are copied from") {
                     ForEach(volumes, id: \.self) { volume in
-                        Button(ingestVolumeLabel(volume)) { chooseSource(volume) }
+                        // "(DCIM)" was inside the name; it is an annotation about the
+                        // volume rather than part of what it is called, so it sits in
+                        // the annotation column where the eye can skip it — and the
+                        // card gets the card glyph, which is faster than either.
+                        LumenMenuItem(title: ingestVolumeName(volume),
+                                      symbol: ingestLooksLikeCard(volume)
+                                          ? "sdcard" : "externaldrive",
+                                      detail: ingestLooksLikeCard(volume)
+                                          ? "DCIM" : nil,
+                                      isSelected: volume == sourceURL) {
+                            chooseSource(volume)
+                        }
                     }
                     if volumes.isEmpty {
-                        Text("No mounted volumes found")
+                        LumenMenuItem(title: "No mounted volumes found",
+                                      symbol: "exclamationmark.triangle",
+                                      isEnabled: false) {}
                     }
-                    Divider()
-                    Button("Rescan volumes") { refreshVolumes() }
-                    Button("Choose Folder…") { browseForSource() }
-                } label: {
-                    Text(sourceURL.map { $0.path } ?? "Choose a card or folder")
-                        .font(.system(size: 11))
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                    LumenMenuDivider()
+                    LumenMenuItem(title: "Rescan volumes",
+                                  symbol: "arrow.clockwise") { refreshVolumes() }
+                    LumenMenuItem(title: "Choose Folder…",
+                                  symbol: "folder") { browseForSource() }
                 }
-                .controlSize(.small)
-                .frame(maxWidth: 380)
             }
 
             HStack(spacing: 6) {
                 Text("Files")
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                     .frame(width: Lumen.labelWidth, alignment: .leading)
                 Text(fileCountSummary)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                 Spacer(minLength: 0)
             }
@@ -225,12 +332,12 @@ struct IngestSheet: View {
                     ForEach(files) { file in
                         HStack(spacing: 6) {
                             Text(file.filename)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.lumenCaptionNumeric)
                                 .foregroundStyle(Lumen.primaryText)
                                 .lineLimit(1)
                             Spacer(minLength: 8)
                             Text(ingestByteString(file.byteSize))
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.lumenCaptionNumeric)
                                 .foregroundStyle(Lumen.secondaryText)
                         }
                         .padding(.horizontal, 8)
@@ -239,9 +346,12 @@ struct IngestSheet: View {
                 }
                 .padding(.vertical, 4)
             }
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            .scrollIndicators(.never)
             .frame(height: 120)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl))
         }
     }
 
@@ -260,7 +370,7 @@ struct IngestSheet: View {
             IngestFieldRow("Primary") {
                 HStack(spacing: 6) {
                     Text(primaryDestination.map { $0.path } ?? "Not chosen")
-                        .font(.system(size: 11))
+                        .font(.lumenBody)
                         .foregroundStyle(primaryDestination == nil
                                          ? Lumen.secondaryText : Lumen.primaryText)
                         .lineLimit(1)
@@ -275,7 +385,7 @@ struct IngestSheet: View {
                 IngestFieldRow("Backup") {
                     HStack(spacing: 6) {
                         Text(backupDestination.map { $0.path } ?? "Not chosen")
-                            .font(.system(size: 11))
+                            .font(.lumenBody)
                             .foregroundStyle(backupDestination == nil
                                              ? Lumen.secondaryText : Lumen.primaryText)
                             .lineLimit(1)
@@ -311,7 +421,7 @@ struct IngestSheet: View {
 
             IngestFieldRow("Preview") {
                 Text(pathPreview)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.lumenNumeric)
                     .foregroundStyle(Lumen.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -322,9 +432,9 @@ struct IngestSheet: View {
                     ForEach(templateProblems, id: \.self) { problem in
                         HStack(alignment: .top, spacing: 5) {
                             Image(systemName: "xmark.octagon")
-                                .font(.system(size: 10))
+                                .font(.lumenGlyphCaption)
                             Text(problem)
-                                .font(.system(size: 10))
+                                .font(.lumenCaption)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                         }
@@ -337,15 +447,20 @@ struct IngestSheet: View {
                 }
                 .padding(8)
                 .background(Lumen.controlBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl))
                 .padding(.vertical, 4)
             }
 
             IngestNote("Tokens: " + Self.tokenList
                        + ". A width form is written {seq:4}, not {seq4}. Unknown tokens are "
                        + "an error here rather than an empty stretch in a delivered filename.")
-            IngestNote("Preview uses the first file's creation date; camera, serial and ISO "
-                       + "tokens resolve from EXIF during the copy, so they read as empty here.")
+            // This note used to promise that {camera}, {serial} and {iso} "resolve from
+            // EXIF during the copy". Nothing reads EXIF yet, and now that the copy is
+            // real that sentence would have been a lie about a delivered filename
+            // rather than a promise about a preview — so it says what actually happens.
+            IngestNote("Dates come from each file's creation date. {camera}, {serial} and "
+                       + "{iso} are not read yet: they render empty here AND in the copy, so "
+                       + "a template using one produces a name with a gap in it.")
         }
     }
 
@@ -377,33 +492,66 @@ struct IngestSheet: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if isRunning {
+                VStack(alignment: .leading, spacing: 3) {
+                    LumenProgressBar(value: runProgress?.fraction ?? 0)
+                    HStack(spacing: 8) {
+                        Text(progressCaption)
+                            .font(.lumenCaption)
+                            .foregroundStyle(Lumen.secondaryText)
+                        Spacer(minLength: 0)
+                        // THE WAY OUT, and deliberately NOT ⎋: this sheet's Close is
+                        // already ⎋, and a photographer putting a dialog away must not
+                        // thereby stop a card halfway through draining. Stopping is
+                        // also safe — the frame in flight is discarded rather than left
+                        // half-written, so the destination afterwards holds exactly the
+                        // frames that finished and verified.
+                        Button(stopRequested ? "Stopping…" : "Stop") {
+                            stopRequested = true
+                            cancellation?.cancel()
+                        }
+                        .disabled(stopRequested)
+                        .help("Stop after the frame being copied. Frames already "
+                              + "verified are kept; the one in flight is discarded "
+                              + "rather than left half-written.")
+                    }
+                }
+            }
             if let statusLine {
                 Text(statusLine)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(Lumen.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
                 Text(readinessSummary)
-                    .font(.system(size: 11))
+                    .font(.lumenBody)
                     .foregroundStyle(canStart ? Lumen.primaryText : Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                Button(startButtonTitle) { start() }
+                Button("Ingest") { start() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canStart)
-                    .help(driver.unavailableReason ?? "Copy and verify every checked frame")
+                    .help("Copy every frame to every destination, read each copy back, "
+                          + "and report anything that did not match")
             }
         }
         .padding(14)
     }
 
-    private var startButtonTitle: String {
-        driver.unavailableReason == nil ? "Ingest" : "Ingest (unavailable)"
+    /// What the caption under the bar says. Frames first, because frames are what a
+    /// photographer is counting; bytes second, because they are what the time is.
+    private var progressCaption: String {
+        if stopRequested { return "Stopping — the frame in flight is being discarded" }
+        guard let progress = runProgress else { return "Starting…" }
+        let name = progress.currentFile.map { " · " + $0 } ?? ""
+        return "\(progress.filesCompleted) of \(progress.filesTotal) frames · "
+            + ingestByteString(progress.bytesCopied) + " of "
+            + ingestByteString(progress.bytesTotal) + name
     }
 
     private var canStart: Bool {
-        driver.unavailableReason == nil
+        !isRunning
             && !files.isEmpty
             && primaryDestination != nil
             && (!backupEnabled || backupDestination != nil)
@@ -411,7 +559,7 @@ struct IngestSheet: View {
     }
 
     private var readinessSummary: String {
-        if driver.unavailableReason != nil { return "Planning only — nothing will be copied." }
+        if isRunning { return "Copying — leave the card in the reader." }
         if files.isEmpty { return "Choose a source with readable frames." }
         if primaryDestination == nil { return "Choose a primary destination." }
         if backupEnabled && backupDestination == nil { return "Choose a backup destination." }
@@ -478,13 +626,15 @@ struct IngestSheet: View {
 
     /// Folder templates are sanitised **per path component**: split on `/` first, then
     /// render, or the separator itself would be scrubbed to a dash.
+    ///
+    /// Through `IngestPlanner`, which is the same call the copy makes. A preview that
+    /// renders a path one way while the engine writes it another is a lie told in the
+    /// one place a photographer looks before pressing Return, so there is exactly one
+    /// implementation and this is a call to it.
     private var folderPreview: String {
-        let context = previewContext
-        let components = folderTemplate.split(separator: "/", omittingEmptySubsequences: true)
-        let rendered = components
-            .map { RenameTemplate.render(String($0), context: context, seq: 1) }
-            .filter { !$0.isEmpty }
-        return rendered.joined(separator: "/")
+        IngestPlanner.folderComponents(template: folderTemplate,
+                                       context: previewContext,
+                                       seq: 1).joined(separator: "/")
     }
 
     private var renamedBasename: String {
@@ -511,6 +661,15 @@ struct IngestSheet: View {
     }
 
     // MARK: Source scanning
+
+    /// The trigger's glyph: what the chosen source IS, or the shape of the thing you
+    /// are being asked to choose while there is nothing chosen. A card and a folder are
+    /// different objects to a photographer standing at a reader, and the DCIM
+    /// heuristic already knows which one this is.
+    private var sourceSymbol: String {
+        guard let url = sourceURL else { return "externaldrive" }
+        return ingestLooksLikeCard(url) ? "sdcard" : "folder"
+    }
 
     private func refreshVolumes() {
         volumes = ingestMountedVolumes()
@@ -553,6 +712,7 @@ struct IngestSheet: View {
             statusLine = "Choose a primary destination first."
             return
         }
+        guard !isRunning else { return }
         let request = IngestRequest(
             files: files,
             primaryDestination: primary,
@@ -564,11 +724,38 @@ struct IngestSheet: View {
             verify: verify,
             ejectWhenDone: ejectWhenDone)
 
-        switch driver.start(request) {
-        case .started:
-            statusLine = "Ingest running — the contact sheet fills as frames verify."
-        case .refused(let reason):
-            statusLine = reason
+        let token = IngestCancellation()
+        cancellation = token
+        stopRequested = false
+        isRunning = true
+        runProgress = nil
+        lastReport = nil
+        statusLine = nil
+        // Captured now rather than read at the end: the run outlives the toggles, and
+        // what the photographer asked for when they pressed Ingest is what should
+        // happen when it lands — not whatever the checkbox says twenty minutes later.
+        let ejectWanted = ejectWhenDone
+        let card = sourceURL
+
+        Task {
+            let outcome = await driver.run(request, cancellation: token, progress: { progress in
+                // The engine reports from the copy thread. `@State` is main-actor
+                // storage, so the hop is explicit.
+                Task { @MainActor in self.runProgress = progress }
+            })
+            self.isRunning = false
+            self.cancellation = nil
+            self.stopRequested = false
+            self.runProgress = nil
+            switch outcome {
+            case .refused(let reason):
+                self.lastReport = nil
+                self.statusLine = reason
+            case .finished(let report):
+                self.lastReport = report
+                self.statusLine = report.summary
+                    + ingestEjectNote(report, wanted: ejectWanted, source: card)
+            }
         }
     }
 }
@@ -582,10 +769,12 @@ private func ingestMountedVolumes() -> [URL] {
     return mounted
 }
 
-private func ingestVolumeLabel(_ url: URL) -> String {
+/// What the volume calls itself. The DCIM mark used to be glued on the end of this
+/// string; the menu draws it in its own annotation column now, so the name comes back
+/// as a name.
+private func ingestVolumeName(_ url: URL) -> String {
     let values = try? url.resourceValues(forKeys: [.volumeNameKey])
-    let name = values?.volumeName ?? url.lastPathComponent
-    return ingestLooksLikeCard(url) ? name + "  (DCIM)" : name
+    return values?.volumeName ?? url.lastPathComponent
 }
 
 /// The DCIM heuristic: a directory named DCIM at the volume root means "camera card".
@@ -622,6 +811,35 @@ private func ingestByteString(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 }
 
+/// Eject, on the one condition docs/10 §10.7 allows: every frame proven on every
+/// destination. Anything less and the card is still the only copy of something, so a
+/// run that was stopped, that failed a frame, or that refused one does not get to
+/// unmount the evidence — and it says which of those happened rather than silently
+/// leaving the card mounted.
+///
+/// Not `@MainActor`: it is called from the main actor, and `NSWorkspace` does not need
+/// the annotation to get there. The card is also only ejected when it is REMOVABLE —
+/// an ingest from a folder on the internal disk must not unmount the internal disk.
+private func ingestEjectNote(_ report: IngestReport, wanted: Bool, source: URL?) -> String {
+    guard wanted else { return "" }
+    guard report.allVerified else {
+        return " The card was NOT ejected: not every frame verified on every destination."
+    }
+    guard let source,
+          let values = try? source.resourceValues(forKeys: [.volumeURLKey,
+                                                            .volumeIsRemovableKey]),
+          let volume = values.volume else { return "" }
+    guard values.volumeIsRemovable == true else {
+        return " \(volume.lastPathComponent) is not a removable volume, so it was left mounted."
+    }
+    do {
+        try NSWorkspace.shared.unmountAndEjectDevice(at: volume)
+        return " \(volume.lastPathComponent) ejected."
+    } catch {
+        return " The card was not ejected: " + error.localizedDescription
+    }
+}
+
 @MainActor
 private func ingestChooseDirectory(prompt: String) -> URL? {
     let panel = NSOpenPanel()
@@ -648,7 +866,7 @@ private struct IngestFieldRow<Content: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(label)
-                .font(.system(size: 11))
+                .font(.lumenBody)
                 .foregroundStyle(Lumen.secondaryText)
                 .frame(width: Lumen.labelWidth, alignment: .leading)
                 .lineLimit(1)
@@ -672,7 +890,7 @@ private struct IngestTextEntry: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
             .frame(maxWidth: 340)
     }
 }
@@ -684,7 +902,7 @@ private struct IngestNote: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10))
+            .font(.lumenCaption)
             .foregroundStyle(Lumen.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 2)

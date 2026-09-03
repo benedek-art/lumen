@@ -7,9 +7,12 @@ of error, all of which a tree that has not been compiled in a while is likely to
   1. a capitalized identifier that is declared nowhere in-tree and is not a known
      platform name — a typo, a rename that missed a site, a type from a module that is
      not imported;
-  2. a `Type(...)` call whose argument labels match none of that type's declared
-     initializers — the error class that reshaping a struct's `init` produces at every
-     call site the change forgot;
+  2. a `Type(...)` call whose argument labels match none of that type's initializers —
+     the DECLARED ones, and for a struct with no `init` of its own the MEMBERWISE one
+     Swift synthesizes. The memberwise half arrived late and mattered most: 170 of the
+     app layer's 195 types declare no init, so every call to them — every
+     `LumenSlider(...)` included — was silently unchecked, which is how a `help:`
+     passed before `step:` shipped under a green run (docs/31 postscript);
   3. a call to an actor-isolated member with no `await` — written because exactly that
      was found by hand in this codebase, in code that passes 1 and 2 both accept;
   4. a `TypeName.member` reference naming nothing that type has — a rename that updated
@@ -20,7 +23,10 @@ label, extra argument, reordered labels, missing required argument, a renamed ty
 type from an unimported module, a stripped `await`, and two renamed statics — are
 caught nine times out of nine, and the unmutated tree stays silent. A check that has
 never failed proves nothing, which is the rule the rest of this project's verification
-is built on.
+is built on. That verification is now PERMANENT rather than anecdotal:
+`scripts/test-check-swift-surface.py` runs a fixture suite of known-good and known-bad
+trees on every CI push, and the known-bad set includes the exact false negative this
+script shipped (the memberwise call with a multi-line ternary argument, out of order).
 
 WHAT IT STILL CANNOT SEE, so that a clean run is not read as more than it is: types.
 Every argument here is checked by label and never by type, so passing a Double where an
@@ -120,8 +126,34 @@ def strip_comments(text):
     return _scan(text, blank_strings=False)
 
 
+def strip_all_keep_quotes(text):
+    """String bodies blanked, delimiter quotes kept.
+
+    Pass 2 needs both halves: prose inside a string must not read as a call (so bodies
+    go), but a positional string ARGUMENT must still count as an argument (so the
+    quotes stay, and the argument walk sees a non-empty part where `"Tone"` was).
+    Blanking the quotes too made `DevelopSection("Tone", isModified: …)` read as a
+    call missing its first argument — 70 false reports in one run. `_scan` preserves
+    length, so the two variants recombine by position.
+    """
+    bodies = strip_all(text)
+    delims = strip_comments(text)
+    return "".join('"' if q == '"' else c for c, q in zip(bodies, delims))
+
+
 def strip_all(text):
-    """Comments AND string bodies out, so prose cannot invent symbols."""
+    r"""Comments AND string bodies out, so prose cannot invent symbols.
+
+    Known limit: a string literal NESTED inside an interpolation, as in
+    `"\(flag ? "yes" : "no")"`, defeats the quote tracking — the scanner closes the
+    outer string at the first inner quote, so the text between the inner quotes is read
+    as code. A capitalized word there is reported by pass 1 as an identifier declared
+    nowhere in-tree. That is a false POSITIVE, which is the safe direction to fail, and
+    the remedy at a call site is to compute the value outside the interpolation. Teaching
+    `_scan` to track interpolation depth would fix it and risks false NEGATIVES in a tool
+    whose whole value is that it does not miss things, so it is left as a documented
+    limit rather than a clever scanner.
+    """
     return _scan(text, blank_strings=True)
 
 
@@ -154,10 +186,15 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
     "UInt64", "Double", "Float", "Float32", "Float64", "Bool", "String", "Substring",
     "Character", "Array", "Dictionary", "Set", "Optional", "Result", "Range",
+    # `#filePath` and `#line` defaults on a test helper, so a failure reports the
+    # CALL site rather than the helper's own line.
+    "StaticString",
     "ClosedRange", "Sequence", "Collection", "Comparable", "Equatable", "Hashable",
-    "Hasher", "Codable", "Encodable", "Decodable", "Sendable", "Error", "Any",
+    "Hasher", "Codable", "Encodable", "Decodable", "Sendable", "Error",
+    "LocalizedError", "Any",
     "AnyObject", "AnyHashable", "Void", "Never", "Self", "Swift", "Identifiable",
     "CustomStringConvertible", "RawRepresentable", "CaseIterable", "Numeric",
+    "OptionSet",
     "AdditiveArithmetic", "BinaryFloatingPoint", "BinaryInteger", "FloatingPoint",
     "StringProtocol", "ContiguousArray", "ArraySlice", "MemoryLayout", "Mirror",
     "ObjectIdentifier", "OpaquePointer", "UnsafePointer", "UnsafeMutablePointer",
@@ -169,11 +206,12 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
     "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
-    "FileManager", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
+    "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
-    "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSLog", "NSAttributedString",
-    "NSItemProvider", "NSSize", "Notification", "NotificationCenter", "Locale",
+    "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
+    "NSLog", "NSAttributedString",
+    "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
     "Calendar", "TimeZone", "ISO8601DateFormatter", "NumberFormatter",
     "ByteCountFormatter", "CharacterSet", "IndexSet", "Scanner", "Timer", "Process",
     "Pipe", "Thread", "OperationQueue", "DispatchQueue", "DispatchGroup",
@@ -185,9 +223,13 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "UnkeyedDecodingContainer", "UnkeyedEncodingContainer",
     # XCTest
     "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
+    # `XCTWaiter` for a test that must bound how long it waits rather than
+    # assert on a value — a hang produces no failing test to assert on.
+    "XCTWaiter", "XCTExpectFailure",
     "XCTUnwrap", "XCTFail", "XCTAssertEqual", "XCTAssertNotEqual", "XCTAssertTrue",
     "XCTAssertFalse", "XCTAssertNil", "XCTAssertNotNil", "XCTAssertGreaterThan",
     "XCTAssertLessThan", "XCTAssertGreaterThanOrEqual", "XCTAssertLessThanOrEqual",
+    "XCTAssertThrowsError", "XCTAssertNoThrow",
     # CoreGraphics / ImageIO / CoreImage / CoreText
     "CoreGraphics", "CGFloat", "CGPoint", "CGSize", "CGRect", "CGVector",
     "CGAffineTransform", "CGImage", "CGColor", "CGColorSpace", "CGContext",
@@ -195,24 +237,41 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGColorRenderingIntent", "CGImageSource", "CGImageDestination",
     "CGImagePropertyOrientation", "CGDirectDisplayID",
     "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex",
+    "CGImageDestinationCreateWithURL", "CGImageDestinationAddImage",
+    "CGImageDestinationFinalize",
     "ImageIO", "CFString", "CFDictionary", "CFData", "CFURL",
     "CoreImage", "CIImage", "CIContext", "CIFilter", "CIFilterBuiltins", "CIColor",
-    "CIVector", "CIRAWFilter", "CIKernel", "CIColorKernel", "CIWarpKernel",
+    "CIVector", "CIRAWFilter", "CIRAWDecoderVersion", "CIKernel", "CIColorKernel", "CIWarpKernel",
+    "OSSignposter",
     "CIBlendKernel", "CISampler", "CIFormat", "CIRenderDestination", "CIColorCube",
     "CIImageRepresentationOption", "CIContextOption",
     "RGBAf", "RGBAh", "RGBA8", "RGBA16",
     "CoreText", "CTFontCreateWithName",
     "CVPixelBuffer", "IOSurface", "OSStatus",
+    # Compilation conditions, not identifiers: SwiftPM defines DEBUG in the debug
+    # configuration, and `#if DEBUG` is how a probe says which build its numbers
+    # came from.
+    "DEBUG", "SWIFT_PACKAGE",
     # Vision + CoreVideo: the subject / person mattes (docs/08 §8.8). Listed
     # individually rather than by prefix, so a typo in a request's name is still a
     # failure here; the prefixes below are what make the IMPORT check work.
     "Vision", "VNImageRequestHandler", "VNGenerateForegroundInstanceMaskRequest",
     "VNGeneratePersonSegmentationRequest", "VNInstanceMaskObservation",
     "VNPixelBufferObservation", "VNObservation", "VNRequest",
+    # CryptoKit: the updater's SHA-256 over the downloaded asset (L-03). Named
+    # individually for the same reason Vision's requests are — this tree uses exactly
+    # one primitive from it, and a typo in a second should still fail here.
+    "CryptoKit", "SHA256", "SHA256Digest",
+    # `Darwin` appears only inside `#if canImport(Darwin)`, which is how a test spells
+    # "Apple's XCTest, not swift-corelibs-xctest" — `XCTExpectFailure` exists in one and
+    # not the other, and `swiftc -parse` accepts it either way. The condition names a
+    # platform module rather than an in-tree type, so the symbols pass has to be told.
+    "Darwin",
     "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
     "CVPixelBufferUnlockBaseAddress", "CVPixelBufferLockFlags",
+    "CVPixelBufferCreate",
     # Metal
     "MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLPixelFormat",
     "MTLCreateSystemDefaultDevice",
@@ -222,12 +281,16 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "NSCursor", "NSMenu", "NSMenuItem", "NSPasteboard", "NSSavePanel", "NSOpenPanel",
     "NSWorkspace", "NSBezierPath", "NSGraphicsContext", "NSScreen", "NSFont",
     "NSSound", "NSAlert", "NSStatusBar", "NSTextField", "NSTextView", "NSHostingView",
-    "NSHostingController", "ModifierFlags", "OK",
+    "NSHostingController", "ModifierFlags", "OK", "NSHapticFeedbackManager",
     "NSLeftArrowFunctionKey", "NSRightArrowFunctionKey", "NSUpArrowFunctionKey",
     "NSDownArrowFunctionKey", "NSDeleteFunctionKey",
     # SwiftUI
+    # `Font` arrived with `LumenType`, the app's type scale — `Font.system(size:weight:)`
+    # is the only way to build one, so the ramp cannot be declared without it.
+    "Font",
     "SwiftUI", "View", "Text", "Image", "Color", "VStack", "HStack", "ZStack",
-    "Spacer", "Button", "Slider", "Toggle", "Picker", "TextField", "SecureField",
+    "Spacer", "Button", "Slider", "Toggle", "Picker", "ColorPicker", "TextField",
+    "SecureField",
     "List", "ForEach", "ScrollView", "ScrollViewReader", "LazyVGrid", "LazyHGrid",
     "LazyVStack", "LazyHStack", "GridItem", "NavigationStack", "NavigationSplitView",
     "NavigationLink", "Divider", "Group", "GroupBox", "Form", "Section", "Menu",
@@ -239,9 +302,11 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "PreferenceKey", "ViewModifier", "ViewBuilder", "App", "Scene", "WindowGroup",
     "Settings", "Commands", "CommandGroup", "CommandMenu", "AppStorage",
     "SceneStorage", "FocusState", "Namespace", "Animation", "Transaction",
+    "KeyPress",
     "Alignment", "HorizontalAlignment", "VerticalAlignment", "Edge", "EdgeInsets",
     "Angle", "UnitPoint", "Font", "LinearGradient", "RadialGradient",
     "AngularGradient", "Gradient", "DragGesture", "TapGesture", "Gesture",
+    "MagnifyGesture",
     "MagnificationGesture", "RotationGesture", "LongPressGesture", "AnyView",
     "EmptyView", "ToolbarItem", "ToolbarItemGroup", "KeyboardShortcut",
     "KeyEquivalent", "EventModifiers", "ContentMode", "ColorScheme", "Axis",
@@ -299,6 +364,16 @@ def pass_symbols():
 # ==========================================================================
 
 LABEL = re.compile(r"^\s*(?:([a-zA-Z_]\w*)\s+)?([a-zA-Z_]\w*)\s*:")
+# A parameter can open with attributes — `@ViewBuilder content: () -> Content` — which
+# LABEL cannot see past. Stripping them before the match is what kept `ExportFieldRow`'s
+# real `init(_:content:)` on the books; losing it both hid the declaration AND (before
+# suppression was split from parsing) let a wrong memberwise signature be synthesized
+# over it, which reported thirteen perfectly good call sites.
+PARAM_ATTRS = re.compile(r"^\s*(?:@\w+(?:\([^()]*\))?\s+)+")
+
+
+def strip_param_attrs(param):
+    return PARAM_ATTRS.sub("", param, count=1)
 TYPE_DECL = re.compile(r"\b(?:struct|class|enum|actor)\s+([A-Z]\w*)")
 INIT_DECL = re.compile(r"\binit\s*(?:\?|!)?\s*\(")
 EXT_DECL = re.compile(r"\bextension\s+([A-Z][\w.]*)")
@@ -328,14 +403,29 @@ def match_paren(text, open_index):
 
 
 def split_top(text):
-    """Split on commas not nested in brackets or strings.
+    """Split on commas not nested in brackets, generic arguments, or strings.
 
-    `<`/`>` are NOT treated as brackets: `->` appears in every closure-typed parameter
-    and counting its `>` as a close ran the depth negative, which swallowed the
-    parameter after it. That produced four confident false reports the first time this
-    was run, which is the whole reason the note is here.
+    `<`/`>` cannot be counted as plain brackets: `->` appears in every closure-typed
+    parameter and counting its `>` as a close ran the depth negative, which swallowed
+    the parameter after it and produced four confident false reports the first time
+    this was run.
+
+    But leaving them out entirely was worse, and silently so. A comma inside a generic
+    argument list — `WritableKeyPath<LocalAdjust, Double?>` — split one parameter into
+    two halves, the second (` Double?>`) matched no label pattern, and `collect_methods`
+    dropped the WHOLE METHOD rather than the parameter. Twenty-three method names went
+    unrecorded that way, and they were not obscure: `adjustSlider`, `optionalSlider`,
+    `refineSlider`, `bipolarSlider`, `wheelValue`, `brushValue` — the panel's slider
+    builders, which is to say the most-called helpers in the code that has broken the
+    macOS lane three times. Every call site to all twenty-three was unchecked, and one
+    of them was the extra-argument error that broke it a fourth.
+
+    So `<` opens a level only where it can only be a generic: immediately after an
+    identifier character, and never as part of `->`. `>` closes one only while a level
+    is open and it is not the tail of `->`. A comparison in a default value (`= a < b`)
+    has a space before its `<` and opens nothing.
     """
-    parts, depth, cur, i, n = [], 0, [], 0, len(text)
+    parts, depth, angle, cur, i, n = [], 0, 0, [], 0, len(text)
     while i < n:
         ch = text[i]
         if ch == '"':
@@ -354,7 +444,13 @@ def split_top(text):
         elif ch in ")]}":
             depth -= 1
             cur.append(ch)
-        elif ch == "," and depth == 0:
+        elif ch == "<" and i > 0 and (text[i - 1].isalnum() or text[i - 1] == "_"):
+            angle += 1
+            cur.append(ch)
+        elif ch == ">" and angle > 0 and not (i > 0 and text[i - 1] == "-"):
+            angle -= 1
+            cur.append(ch)
+        elif ch == "," and depth == 0 and angle == 0:
             parts.append("".join(cur))
             cur = []
         else:
@@ -366,10 +462,20 @@ def split_top(text):
 
 
 def collect_inits():
-    """type name -> [(parameter labels, required labels)]."""
+    """type name -> [(parameter labels, required labels)].
+
+    Returns (inits, main_body_init_names): the second set records which type names
+    declare an explicit `init` in a MAIN type body (not an extension), because that —
+    and only that — is what suppresses Swift's memberwise initializer.
+    """
     inits = {}
+    main_body_init_names = set()
     for path in FILES:
-        text = strip_comments(path.read_text())
+        # Strings blanked, not just comments: `print("… Exposure (draft path) …")`
+        # reads as a call to the test fixture's `Exposure` the moment that struct has
+        # a synthesized signature, and prose must not be judged as code. Labels and
+        # defaults survive blanking — only string BODIES go.
+        text = strip_all_keep_quotes(path.read_text())
         scopes, depth, i, n = [], 0, 0, len(text)
         while i < n:
             ch = text[i]
@@ -383,19 +489,29 @@ def collect_inits():
                     scopes.pop()
                 i += 1
                 continue
-            m = TYPE_DECL.match(text, i) or EXT_DECL.match(text, i)
+            m = TYPE_DECL.match(text, i)
+            kind = "type" if m else "ext"
+            if not m:
+                m = EXT_DECL.match(text, i)
             if m:
                 if text.find("{", m.end()) != -1:
-                    scopes.append((m.group(1).split(".")[-1], depth + 1))
+                    scopes.append((m.group(1).split(".")[-1], depth + 1, kind))
                 i = m.end()
                 continue
             m = INIT_DECL.match(text, i)
             if m and scopes:
+                # ANY init in a main type body suppresses the memberwise initializer,
+                # whether or not its parameters parse below — Swift suppresses on the
+                # declaration's existence, so synthesis must too, or an unparseable
+                # init leaves a wrong synthesized signature standing in for a real one.
+                if scopes[-1][2] == "type":
+                    main_body_init_names.add(scopes[-1][0])
                 open_i = m.end() - 1
                 close = match_paren(text, open_i)
                 if close:
                     labels, required, ok = [], [], True
                     for param in split_top(text[open_i + 1:close - 1]):
+                        param = strip_param_attrs(param)
                         lm = LABEL.match(param)
                         if not lm:
                             ok = False
@@ -410,15 +526,260 @@ def collect_inits():
                     i = close
                     continue
             i += 1
-    return inits
+    return inits, main_body_init_names
+
+
+# --------------------------------------------------------------------------
+# Memberwise synthesis, for pass 2.
+#
+# The hole this closes was live and measured: 170 of the app layer's 195 types declare
+# no explicit `init`, so every call to them — `LumenSlider(...)` at ~90 sites included —
+# was invisible to pass 2, silently, with no entry in the skip count. That is how a
+# `help:` passed before `step:` sailed under "2797 call sites match a declared
+# initializer, 0 unparseable" and cost a macOS CI round. docs/31's postscript blamed
+# `split_top`; the truth was that the site was never looked at.
+#
+# Swift synthesizes a memberwise initializer for a struct with no init in its MAIN
+# body (an init in an extension does not suppress it), taking the stored properties in
+# declaration order. The synthesis below models the rules that matter for label
+# checking, and BAILS (per struct, counted and printed) on anything it cannot model
+# with confidence, because a wrong signature here manufactures false reports:
+#   - `let` with a value is not a parameter; `let` without one is required
+#   - `var` with a value is defaulted; a plain optional `var` defaults to nil (SE-0242)
+#   - a wrapped property whose attribute carries arguments (@Environment(\.x),
+#     @AppStorage("k")) is initialized by the attribute and is not a parameter
+#   - a private/fileprivate stored property WITH a value is not a parameter and does
+#     not restrict the initializer (this is what lets `@State private var` views be
+#     built from other files); one WITHOUT a value makes the whole signature
+#     unmodelable from here, so the struct is bailed
+#   - computed properties (body without willSet/didSet) are not parameters
+#   - `lazy`, `#if` in the body, or an unparseable property → bail the struct
+# --------------------------------------------------------------------------
+
+STRUCT_DECL = re.compile(r"\bstruct\s+([A-Z]\w*)")
+# Wrappers whose no-argument `init()` the compiler reaches for, so the property is no
+# parameter at all. Only wrappers KNOWN to self-initialize belong here; an unknown
+# wrapper is kept in the labels un-required instead, which cannot false-report.
+# Wrappers that build themselves and can therefore never be a memberwise parameter.
+# A PRIVATE stored property with no default otherwise forces `synthesize_memberwise` to
+# bail on the whole struct — and a bailed struct is one whose every call site goes
+# UNCHECKED, silently.
+#
+# `Environment` arrived here the expensive way. `LumenSlider` holds two of them
+# (`@Environment(\.sliderGestureChanged) private var …`), so it was one of thirteen
+# bailed structs, so all ninety-odd `LumenSlider(…)` call sites — the most-used control
+# in the application — were exempt from the init pass. A new parameter was then added in
+# the middle of its property list and called in the wrong position at four sites: the
+# `accepts` walk below would have caught it in a second, and never saw the calls. It
+# cost four red pushes and the dev build with them.
+#
+# The list is a claim about SwiftUI, not a guess: none of these has an
+# `init(wrappedValue:)`, so none can appear in a synthesized memberwise initializer.
+SELF_INITIALIZING_WRAPPERS = {"EnvironmentObject", "Namespace", "GestureState",
+                              "FocusState", "Environment", "ScaledMetric",
+                              "FocusedValue", "Query"}
+PROP_ATTR = r"@\w+(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?"
+PROP_MOD = (r"(?:public|internal|open|final|static|lazy|weak|nonisolated|override|"
+            r"indirect|dynamic|package|private(?:\(set\))?|fileprivate(?:\(set\))?|"
+            r"internal\(set\)|unowned(?:\(safe\)|\(unsafe\))?)")
+PROP_DECL = re.compile(
+    r"(?:^|\n)[ \t]*((?:(?:" + PROP_ATTR + r")\s+|" + PROP_MOD + r"\s+)*)"
+    r"(let|var)\s+([a-zA-Z_]\w*)\s*([:=])")
+
+
+def _depth0_mask(body):
+    """The body with everything inside nested braces blanked, offsets preserved."""
+    out, depth = list(body), 0
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+            continue
+        if ch == "}":
+            depth -= 1
+            continue
+        if depth > 0 and ch != "\n":
+            out[i] = " "
+    return "".join(out)
+
+
+def synthesize_memberwise(suppressed):
+    """struct name -> (labels, required) for structs with no main-body init."""
+    out, bailed = {}, set()
+    for path in FILES:
+        # strip_all for the same reason as collect_inits: a multi-line string at a
+        # struct body's top level (an SQL literal, a help paragraph) must not donate
+        # phantom properties to the signature.
+        text = strip_all_keep_quotes(path.read_text())
+        for m in STRUCT_DECL.finditer(text):
+            name = m.group(1)
+            if name in suppressed:
+                continue
+            brace = text.find("{", m.end())
+            if brace == -1:
+                continue
+            body = brace_body(text, brace)
+            if "#if" in _depth0_mask(body):
+                bailed.add(name)
+                continue
+            mask = _depth0_mask(body)
+            labels, required, ok = [], [], True
+            for pm in PROP_DECL.finditer(mask):
+                mods, keyword, pname, sep = pm.groups()
+                if re.search(r"\bstatic\b", mods):
+                    continue
+                if re.search(r"\blazy\b", mods):
+                    ok = False
+                    break
+                attrs = re.findall(r"@(\w+)(\()?", mods)
+                wrapped = [a for a, _ in attrs if a[0].isupper()]
+                attr_initialized = any(p for a, p in attrs if a[0].isupper())
+                private = re.search(r"\b(?:private|fileprivate)\b(?!\(set\))", mods)
+                has_default, is_computed, type_text = sep == "=", False, ""
+                if sep == ":":
+                    i, depth, n = pm.end(), 0, len(mask)
+                    while i < n:
+                        ch = mask[i]
+                        if ch in "([":
+                            depth += 1
+                        elif ch in ")]":
+                            depth -= 1
+                        elif depth == 0 and ch == "=":
+                            has_default = True
+                            break
+                        elif depth == 0 and ch == "{":
+                            inner = brace_body(body, i)
+                            is_computed = not re.match(r"\s*(?:willSet|didSet)\b",
+                                                       inner)
+                            break
+                        elif depth == 0 and ch == "\n":
+                            break
+                        type_text += ch
+                        i += 1
+                if is_computed:
+                    continue
+                if attr_initialized:
+                    continue                       # the attribute built the wrapper
+                if any(w in SELF_INITIALIZING_WRAPPERS for w in wrapped):
+                    continue                       # the wrapper builds itself
+                if private:
+                    # AN OPTIONAL HAS AN IMPLICIT `nil`, which is a default like any
+                    # other. `optional_plain` is computed below for exactly this
+                    # reason and was consulted only for the non-private branch, so
+                    # `@State private var closer: Task<Void, Never>?` — one property,
+                    # in one view — vetoed the whole struct.
+                    #
+                    # That veto is expensive in a way the tally does not show: a bailed
+                    # struct is not "partly checked", it is a struct whose EVERY call
+                    # site is silently exempt. `LumenSlider` bailed on this line, so all
+                    # ninety-odd of its call sites went unchecked, and a parameter added
+                    # in the middle of its property list and passed in the wrong
+                    # position at four sites reached CI as four red pushes. The
+                    # `accepts` walk would have caught it in a second.
+                    if has_default or type_text.rstrip().endswith(("?", "!")):
+                        continue                   # not a parameter, and not a veto
+                    ok = False                     # signature unknowable from here
+                    break
+                if wrapped:
+                    # In the labels, so a reordered call is still caught — but never
+                    # REQUIRED, because whether a wrapper self-initializes is the
+                    # wrapper's knowledge, not this script's, and a wrong "required"
+                    # here reports working calls. `@Binding` omitted at a call site is
+                    # the price, and the macOS lanes still catch that.
+                    labels.append(pname)
+                    continue
+                optional_plain = type_text.rstrip().endswith(("?", "!"))
+                if keyword == "let":
+                    if has_default:
+                        continue
+                    labels.append(pname)
+                    required.append(pname)
+                else:
+                    labels.append(pname)
+                    if not (has_default or optional_plain):
+                        required.append(pname)
+            if ok:
+                out.setdefault(name, []).append((labels, required))
+            else:
+                bailed.add(name)
+    for name in bailed:
+        out.pop(name, None)
+    return out, bailed
+
+
+# A raw-value enum's `init?(rawValue:)`, for pass 2.
+#
+# Swift synthesizes a failable `init?(rawValue:)` for every enum with a raw type, and
+# this script did not model it — so EVERY `SomeEnum(rawValue: x)` in the tree was
+# reported as matching no initializer. That was the sole finding standing between the
+# tree and a clean exit code during the final fix wave, and it is a false one: the
+# initializer exists, the compiler wrote it.
+#
+# The raw type is the FIRST entry in the inheritance clause and only when it is a
+# literal-convertible type; everything after it is protocols. Restricting to a known
+# set rather than "anything capitalized" is what keeps `enum Kind: Codable` — which has
+# no raw value and no such initializer — from being handed a signature it does not have,
+# which would hide a real error instead of clearing a false one.
+RAW_TYPES = {"String", "Character", "Double", "Float",
+             "Int", "Int8", "Int16", "Int32", "Int64",
+             "UInt", "UInt8", "UInt16", "UInt32", "UInt64"}
+ENUM_RAW_DECL = re.compile(r"\benum\s+([A-Z]\w*)\s*:\s*([A-Z]\w*)")
+
+
+def synthesize_raw_value_inits():
+    """Enum name -> the synthesized `init?(rawValue:)`, for enums with a raw type."""
+    out = {}
+    for path in FILES:
+        text = strip_all_keep_quotes(path.read_text())
+        for m in ENUM_RAW_DECL.finditer(text):
+            name, first = m.group(1), m.group(2)
+            if first in RAW_TYPES:
+                out.setdefault(name, []).append((["rawValue"], ["rawValue"]))
+    return out
+
+
+CONDITION_HEAD = re.compile(r"\n[ \t]*(?:\}\s*)?(?:if|guard|while)\b")
+
+
+def opens_a_condition_body(text, call_start, close):
+    """True when the `{` after this call opens an if/guard/while body, not a closure.
+
+    `if let section = WorkspaceSection(rawValue: words[1]) {` reads, to a scanner that
+    only looks at the character after the closing paren, exactly like a call with a
+    trailing closure — so the walk below dropped `rawValue` as "the closure fills it"
+    and then reported the site for passing an argument the initializer does not take.
+    Every failable initializer used in an optional binding was affected, which is the
+    idiomatic way to call one.
+
+    The test is structural rather than lexical: find the nearest preceding `if`, `guard`
+    or `while` at the start of a line, and confirm no brace intervenes between it and
+    this call. An intervening `{` means that statement's body has already opened and
+    this call is somewhere inside it, so the brace after us is our own.
+    """
+    window = text[max(0, call_start - 600):call_start]
+    head = None
+    for m in CONDITION_HEAD.finditer(window):
+        head = m.end()
+    if head is None:
+        return False
+    between = window[head:]
+    return "{" not in between and "}" not in between
+
+
+MULTI_TRAILING = re.compile(r"\s*\w+\s*:\s*\{")
 
 
 def pass_inits():
-    inits = collect_inits()
+    inits, suppressed = collect_inits()
+    synthesized, bailed = synthesize_memberwise(suppressed)
+    for name, sigs in synthesized.items():
+        inits.setdefault(name, []).extend(sigs)
+    raw_value = synthesize_raw_value_inits()
+    for name, sigs in raw_value.items():
+        inits.setdefault(name, []).extend(sigs)
     problems, checked, skipped = [], 0, 0
 
     for path in FILES:
-        text = strip_comments(path.read_text())
+        text = strip_all_keep_quotes(path.read_text())
         for m in CALL.finditer(text):
             name = m.group(1)
             if name not in inits:
@@ -428,7 +789,20 @@ def pass_inits():
             if close is None:
                 skipped += 1
                 continue
-            trailing = text[close:close + 40].lstrip().startswith("{")
+            trailing = (text[close:close + 40].lstrip().startswith("{")
+                        and not opens_a_condition_body(text, m.start(), close))
+            if trailing:
+                # A second, LABELED trailing closure (`} label: {`) carries its label
+                # outside the parentheses, where the argument walk below cannot see
+                # it — judging the site on the parenthesized labels alone manufactures
+                # a missing-argument report. Skip it, counted, rather than guess.
+                brace_i = text.find("{", close)
+                inner = brace_body(text, brace_i)
+                end = brace_i + len(inner) + 2
+                if (end <= len(text) and text[end - 1] == "}"
+                        and MULTI_TRAILING.match(text, end)):
+                    skipped += 1
+                    continue
 
             call_labels, parse_ok = [], True
             for arg in split_top(text[open_i + 1:close - 1]):
@@ -463,13 +837,16 @@ def pass_inits():
                 problems.append((path.relative_to(ROOT).as_posix(), line, name,
                                  call_labels, inits[name]))
 
+    tally = (f"({skipped} unparseable, skipped; {len(synthesized)} memberwise "
+             f"signatures synthesized, {len(raw_value)} raw-value enums, "
+             f"{len(bailed)} structs too odd to synthesize)")
     if not problems:
-        print(f"inits:    {checked} call sites match a declared initializer "
-              f"({skipped} unparseable, skipped)")
+        print(f"inits:    {checked} call sites match a declared or memberwise "
+              f"initializer {tally}")
         return True
 
     print(f"inits:    {len(problems)} of {checked} call sites match NO declared "
-          f"initializer ({skipped} unparseable, skipped)\n")
+          f"or memberwise initializer {tally}\n")
     for path, line, name, labels, sigs in problems:
         shown = [l if l else "_" for l in labels]
         print(f"  {path}:{line}  {name}({', '.join(shown)})")
@@ -506,8 +883,63 @@ def brace_body(text, brace_index):
     return ""
 
 
-METHOD_DECL = re.compile(r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(")
-METHOD_CALL = re.compile(r"(?<![\w.])(?:[a-z]\w*|\))\s*\.\s*([a-z]\w*)\s*\(")
+METHOD_DECL = re.compile(
+    r"(private\s+|fileprivate\s+)?(?:static\s+|class\s+|mutating\s+|nonmutating\s+"
+    r"|final\s+|override\s+|@\w+(?:\([^)]*\))?\s+)*"
+    r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(")
+METHOD_CALL = re.compile(r"(?<![\w.])([a-z]\w*|\))\s*\.\s*([a-z]\w*)\s*\(")
+
+# Words that can sit immediately before a leading-dot expression WITHOUT being a
+# receiver. `case .mask(let id):` and `return .failure(error)` are an enum case pattern
+# and an implicit-member expression; neither is a method call on anything named `case` or
+# `return`, but the regex above cannot tell — a keyword is spelled like an identifier.
+#
+# This was a live false positive rather than a hypothetical one: three `case .mask(let
+# id):` patterns in `CurveEditorView` were being judged against `MaskPanel`'s private
+# `mask(_:)`, and passed only because the labels happened to line up. Once private
+# declarations stopped being visible across files the disguise came off, which is how the
+# older bug got found.
+RECEIVER_KEYWORDS = {
+    "case", "return", "try", "await", "throw", "throws", "in", "else", "where", "is",
+    "as", "do", "catch", "default", "break", "continue", "guard", "if", "while", "for",
+    "let", "var", "repeat", "switch", "yield", "some", "any", "init", "deinit",
+}
+
+# The same call, but through a TYPE rather than a value: `Self.applyLocalAdjust(...)`,
+# `RenderGraph.gaussianBlur(...)`. METHOD_CALL requires a lowercase receiver, so every
+# static call site was invisible to this pass — which matters most in exactly the code
+# this script exists for: `RenderGraph` reaches its stages through `Self.` throughout,
+# and none of it compiles on the machine the script runs on. Found by deleting a newly
+# required argument at one of those call sites and watching the checker stay silent.
+#
+# Gated on the receiver being `Self` or a type declared IN-TREE, so a platform call like
+# `CGImageDestination.finalize()` is never judged against an in-tree signature that
+# happens to share its name.
+METHOD_CALL_TYPED = re.compile(r"(?<![\w.])(Self|[A-Z]\w*)\s*\.\s*([a-z]\w*)\s*\(")
+
+# The same call with NO receiver at all: `optionalSlider(id, i, …)` inside the type that
+# declares it. Both regexes above require something before the dot, so every implicit-
+# `self` call in the application was invisible to this pass — which is most of the calls
+# in a SwiftUI view, and it is where the extra-argument error that broke the macOS lane
+# lived.
+#
+# Three filters make it report nothing false over the tree, and each one is a real
+# language rule rather than a patch:
+#
+#   SHADOWING. `commit(edit)` in `MaskCanvas` calls a stored closure PROPERTY, and there
+#   is a `func commit` elsewhere in the tree. A bare name that is also bound as a value
+#   or a parameter anywhere in the file is a call on that value.
+#
+#   VARIADICS. `run("/usr/bin/ditto", "-x", …)` is one declared parameter and five
+#   arguments, and the label walk counts them. A variadic declaration is skipped whole.
+#
+#   ENUM CASES. `case mask(String)` inside an enum body is a declaration, not a call.
+METHOD_CALL_BARE = re.compile(r"(?<![\w.$@\\#?])([a-z_]\w*)\s*\(")
+VALUE_BOUND = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)")
+PARAM_LABELLED = re.compile(r"[(,]\s*(?:[a-z_]\w*|_)\s+([a-z_]\w*)\s*:")
+PARAM_PLAIN = re.compile(r"[(,]\s*([a-z_]\w*)\s*:")
+VARIADIC_DECL = re.compile(
+    r"\bfunc\s+([a-z]\w*)\s*(?:<[^<>]*>)?\s*\(([^)]*\.\.\.[^)]*)\)")
 
 # Method names that also exist on stdlib or platform types, where an in-tree
 # declaration of the same name says nothing about a call on something else.
@@ -530,12 +962,24 @@ METHOD_SKIP = {
 
 
 def collect_methods():
-    """method name -> [(labels, required labels)] for every in-tree func."""
+    """method name -> [(labels, required labels, file, file_local)] for every in-tree func.
+
+    THE FILE AND THE ACCESS LEVEL COME WITH IT, and they have to, because this pass is
+    name-based. `EventRate` declares `private mutating func trim(before:)`; SwiftUI
+    declares `Shape.trim(from:to:)`. Without the access level the checker read a
+    `Circle().trim(from:to:)` in a different target as a call to the private helper and
+    reported a real platform call as a mistake — the exact false positive that trains
+    people to add names to `METHOD_SKIP` until the pass stops finding anything.
+
+    A `private` or `fileprivate` declaration is invisible outside its own file, so it
+    cannot be what a call in another file resolves to, and must not be judged against.
+    """
     out = {}
     for path in FILES:
         text = strip_comments(path.read_text())
         for m in METHOD_DECL.finditer(text):
-            name = m.group(1)
+            file_local = m.group(1) is not None
+            name = m.group(2)
             open_i = m.end() - 1
             close = match_paren(text, open_i)
             if close is None:
@@ -544,6 +988,7 @@ def collect_methods():
             for param in split_top(text[open_i + 1:close - 1]):
                 if not param.strip():
                     continue
+                param = strip_param_attrs(param)
                 lm = LABEL.match(param)
                 if not lm:
                     ok = False
@@ -555,7 +1000,7 @@ def collect_methods():
                 if len(rest) > 1 and "=" not in rest[1]:
                     required.append(label)
             if ok:
-                out.setdefault(name, []).append((labels, required))
+                out.setdefault(name, []).append((labels, required, path, file_local))
     return out
 
 
@@ -577,10 +1022,46 @@ def pass_method_labels():
     methods = collect_methods()
     problems, checked = [], 0
 
+    variadic = set()
     for path in FILES:
-        text = strip_comments(path.read_text())
+        for m in VARIADIC_DECL.finditer(strip_comments(path.read_text())):
+            variadic.add(m.group(1))
+
+    intree_types = set()
+    for path in FILES:
+        body = strip_comments(path.read_text())
+        intree_types.update(DECL.findall(body))
+        intree_types.update(EXTENSION.findall(body))
+
+    def call_sites(text, shadowed):
+        """Every method call this pass can judge: value-, type- and no-receiver."""
         for m in METHOD_CALL.finditer(text):
+            if m.group(1) in RECEIVER_KEYWORDS:
+                continue
+            yield m, m.group(2)
+        for m in METHOD_CALL_TYPED.finditer(text):
+            receiver = m.group(1)
+            if receiver == "Self" or receiver in intree_types:
+                yield m, m.group(2)
+        for m in METHOD_CALL_BARE.finditer(text):
             name = m.group(1)
+            if name in RECEIVER_KEYWORDS or name in shadowed or name in variadic:
+                continue
+            before = text[max(0, m.start() - 40):m.start()]
+            # The declaration itself, and an enum case with an associated value.
+            if re.search(r"\b(?:func|case)\s+$", before):
+                continue
+            yield m, name
+
+    for path in FILES:
+        # Bodies blanked so prose — the schema strings in `CatalogStore`, above all —
+        # cannot invent a call, but the delimiter quotes kept so a positional string
+        # argument still counts as one. `strip_comments` alone read `photo(added_at)`
+        # out of a CREATE INDEX as twenty-three calls to `func photo`.
+        text = strip_all_keep_quotes(path.read_text())
+        shadowed = (set(VALUE_BOUND.findall(text)) | set(PARAM_LABELLED.findall(text))
+                    | set(PARAM_PLAIN.findall(text)))
+        for m, name in call_sites(text, shadowed):
             if name in METHOD_SKIP or name not in methods:
                 continue
             open_i = m.end() - 1
@@ -612,7 +1093,7 @@ def pass_method_labels():
                 return gi == len(call_labels) and all(r in call_labels for r in required)
 
             def accepts(sig):
-                labels, required = sig
+                labels, required, _, _ = sig
                 # A `{` after a method call is a trailing closure OR the body of the
                 # `if`/`guard`/`while` the call sits in. Pass 2 can assume the former
                 # because `Type(...) {` is nearly always a closure; here both readings
@@ -625,11 +1106,19 @@ def pass_method_labels():
                     return matches(trimmed, [r for r in required if r in trimmed])
                 return False
 
+            # Only the declarations this file can actually SEE. A `private` or
+            # `fileprivate` func is invisible outside its own file, so a call elsewhere
+            # cannot be resolving to it — and judging against it turns a real platform
+            # call into a reported mistake. See `collect_methods`.
+            visible = [s for s in methods[name] if not s[3] or s[2] == path]
+            if not visible:
+                continue
+
             checked += 1
-            if not any(accepts(s) for s in methods[name]):
+            if not any(accepts(s) for s in visible):
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line, name,
-                                 call_labels, methods[name]))
+                                 call_labels, visible))
 
     if not problems:
         print(f"labels:   {checked} method call sites match a declared signature")
@@ -820,6 +1309,9 @@ MODULE_PREFIXES = {
     # would swallow ordinary words the same way a bare `CG` would.
     "Vision": ("VN",),
     "CoreVideo": ("CVPixelBuffer", "kCVPixelFormatType"),
+    # No prefix convention at all — `SHA256` is the whole name — so the import check
+    # matches the two symbols themselves.
+    "CryptoKit": ("SHA256",),
 }
 
 # `import CoreImage.CIFilterBuiltins` imports CoreImage. Submodule paths count.
@@ -1024,6 +1516,74 @@ USE = re.compile(r"(?<![\w.])([a-z_]\w*)\??\.([a-zA-Z_]\w*)")
 INFERRED = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*=")
 CLOSURE_ARG = re.compile(r"[{(]\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s+in\b")
 
+# The platform value types this pass knows the whole surface of.
+#
+# `_type_index` indexes IN-TREE types only, so a value annotated with a platform type
+# was skipped entirely — and `CGRect.isFinite`, which does not exist, parsed cleanly on
+# this Linux box, passed every pass here, and failed on the first Mac that compiled
+# LumenPipeline. That target is not built or tested on the free lane at all, so this
+# checker plus `swiftc -parse` are the ONLY guards it gets, and `-parse` does not
+# type-check. This table is what makes the geometry structs a real check rather than a
+# skipped one.
+#
+# Only these four, and deliberately: they are small, closed, and stable across OS
+# releases, they are the platform types this codebase's geometry is actually written
+# in, and every member below is verifiable from the CoreGraphics headers rather than
+# remembered. A type whose surface this file cannot enumerate confidently does not
+# belong here — a checker with false positives gets ignored, which is the argument the
+# unbound-receiver pass already makes about itself.
+#
+# In-tree extensions still contribute: `_type_index` collects `extension CGRect` bodies
+# under the same name, and the lookup below unions the two.
+CG_COMMON = {
+    # Equatable/Hashable/Codable/CustomStringConvertible, and the bridging surface
+    # every CG struct carries.
+    "hashValue", "hash", "encode", "description", "debugDescription",
+    "dictionaryRepresentation", "applying", "init", "self",
+}
+
+PLATFORM_MEMBERS = {
+    "CGPoint": CG_COMMON | {"x", "y", "zero"},
+    "CGSize": CG_COMMON | {"width", "height", "zero"},
+    "CGVector": CG_COMMON | {"dx", "dy", "zero"},
+    "CGRect": CG_COMMON | {
+        "origin", "size", "width", "height",
+        "minX", "midX", "maxX", "minY", "midY", "maxY",
+        "standardized", "integral", "isEmpty", "isNull", "isInfinite",
+        "zero", "null", "infinite",
+        "insetBy", "offsetBy", "union", "intersection", "intersects", "contains",
+        "divided", "standardize", "makeIntegral", "formUnion", "formIntersection",
+    },
+}
+
+# What a CONFORMANCE supplies, for the few protocols whose surface this file can
+# enumerate confidently.
+#
+# `_type_index` records each type's declared conformances but has never known what any
+# of them CONTRIBUTES, so a protocol extension's members read as absent. That was
+# invisible while every in-tree type conformed only to protocols whose members it also
+# declares itself (Codable, Equatable, Sendable). The first `OptionSet` in this codebase
+# broke it: `SidecarStatedFields` gets `subtracting` from `SetAlgebra` and declares
+# nothing, so the values pass reported a member that is unquestionably there.
+#
+# The same rule as PLATFORM_MEMBERS applies to what goes in here — a protocol whose
+# surface this file cannot enumerate confidently does not belong, because a checker with
+# false positives gets switched off. This is NOT a fix for K-014 ("the checker cannot see
+# protocol conformance"): it is one table for one protocol family, and a conformance
+# absent from it is treated exactly as before.
+SET_ALGEBRA_MEMBERS = {
+    "contains", "insert", "remove", "update",
+    "union", "intersection", "symmetricDifference", "subtracting",
+    "formUnion", "formIntersection", "formSymmetricDifference", "subtract",
+    "isSubset", "isSuperset", "isStrictSubset", "isStrictSuperset", "isDisjoint",
+    "isEmpty", "rawValue",
+}
+
+PROTOCOL_MEMBERS = {
+    "OptionSet": SET_ALGEBRA_MEMBERS,
+    "SetAlgebra": SET_ALGEBRA_MEMBERS,
+}
+
 # Members every value effectively has, or that are not member lookups at all.
 VALUE_UNIVERSAL = {
     "self", "init", "map", "flatMap", "compactMap", "filter", "reduce", "forEach",
@@ -1132,7 +1692,14 @@ def pass_value_members():
                 if len(names) != 1 or name in ambiguous:
                     continue
                 tname = next(iter(names))
-                if "." in tname or tname not in members or tname not in kinds:
+                if "." in tname:
+                    continue
+                # A platform geometry type is checked against its own table rather
+                # than against the in-tree index, which does not have it.
+                if tname in PLATFORM_MEMBERS:
+                    typed[name] = tname
+                    continue
+                if tname not in members or tname not in kinds:
                     continue
                 if kinds[tname] == "protocol":
                     continue
@@ -1145,10 +1712,28 @@ def pass_value_members():
             for m in USE.finditer(scope):
                 name, member = m.group(1), m.group(2)
                 tname = typed.get(name)
-                if tname is None or member in VALUE_UNIVERSAL:
+                if tname is None:
                     continue
-                if member in members.get(tname, set()):
-                    continue
+                if tname in PLATFORM_MEMBERS:
+                    # NOT exempted by VALUE_UNIVERSAL: that set exists because an
+                    # in-tree member list is incomplete for anything a protocol
+                    # extension supplies, and these tables are complete. Letting it
+                    # through here is exactly what would have waved `CGRect.isFinite`
+                    # past — `isFinite` is in VALUE_UNIVERSAL, for the Doubles that
+                    # really do have it.
+                    if member in PLATFORM_MEMBERS[tname]:
+                        continue
+                    if member in members.get(tname, set()):
+                        continue  # an in-tree `extension CGRect` added it
+                else:
+                    if member in VALUE_UNIVERSAL:
+                        continue
+                    if member in members.get(tname, set()):
+                        continue
+                    # A member the type does not declare but a conformance supplies.
+                    if any(member in PROTOCOL_MEMBERS.get(proto, ())
+                           for proto in conforms.get(tname, [])):
+                        continue
                 line = text.count("\n", 0, offset + m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line,
                                  name, tname, member))
@@ -1209,6 +1794,11 @@ BINDERS = [
     # associated values: `case .thing(let x)` is covered by the let rule; `x)` in a
     # pattern with `case let .thing(x, y)` is not, so take those too
     re.compile(r"\bcase\s+let\s+[.\w]*\(\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)"),
+    # …and with a capture list in the way: `{ [weak self] event in`. Both closure
+    # binders above want the `{` and the first name adjacent, so every escaping closure
+    # in the application — which is to say every one that touches `self` — lost its
+    # parameter.
+    re.compile(r"\{\s*\[[^\]]*\]\s*\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
 ]
 
 # Not member lookups on a value: language keywords, and the property-wrapper and
@@ -1327,6 +1917,475 @@ def pass_unbound_receivers():
     return False
 
 
+
+# ==========================================================================
+# Pass 9 — a member reached across a module boundary must be public
+# ==========================================================================
+#
+# Pass 4 asks whether `TypeName.member` NAMES something. It does not ask whether the
+# caller is allowed to see it, and those are different questions the moment a reference
+# crosses one of the four targets.
+#
+# `PipelineRenderer.maskSourceFingerprint` cost a CI round for exactly this. The
+# function existed, pass 4 resolved it, `swiftc -parse` had no opinion — and it was
+# `static func` with no access modifier, which is internal, so `AppState` in LumenApp
+# could not reach into LumenPipeline for it. Nothing on this Linux box could say so,
+# because the two macOS targets are never built here.
+#
+# Swift's rule, which this encodes:
+#   - a declaration with no modifier is INTERNAL, visible only inside its own module
+#   - `public` and `open` cross the boundary
+#   - a type being public does NOT make its members public — `public struct S { let x }`
+#     has an internal `x` — with two exceptions, both of which are here:
+#       * members of a `public extension` are public unless marked otherwise
+#       * an enum's CASES carry the enum's own access level
+#
+# Two directions of caution, both chosen to under-report rather than over-report:
+#   - a member name declared more than once is accessible if ANY declaration is public,
+#     because the crude member scan cannot tell a nested type's members from the outer
+#     one's, and a wrong report is how a checker gets ignored
+#   - `Tests/` is skipped entirely: `@testable import` grants internal access, so a test
+#     file reaching for an internal member is correct code
+
+ACCESS_LEVEL = re.compile(
+    r"(?:^|\n)([ \t]*(?:@\w+(?:\([^)]*\))?[ \t]*)*"
+    r"(?:public|open|internal|private|fileprivate|final|static|class|nonisolated"
+    r"|mutating|nonmutating|lazy|weak|unowned|override|indirect|dynamic|convenience"
+    r"|required|unsafe|package)?"
+    r"(?:[ \t]+(?:public|open|internal|private|fileprivate|final|static|class"
+    r"|nonisolated|mutating|nonmutating|lazy|weak|unowned|override|indirect|dynamic"
+    r"|convenience|required|unsafe|package))*[ \t]+)"
+    r"(?:let|var|func|struct|class|enum|actor|typealias|protocol|init|subscript)"
+    r"(?:[ \t]+([A-Za-z_]\w*))?")
+
+CROSSES = ("public", "open")
+
+
+def _leading_modifiers(text, index):
+    """The modifier words immediately before `index`, back to the line start."""
+    line_start = text.rfind("\n", 0, index) + 1
+    return set(re.findall(r"[a-z]+", text[line_start:index]))
+
+
+def _module_surface():
+    """(module, TypeName) -> {member: reachable}, and whether the type itself is."""
+    surface, type_public = {}, {}
+    for path in FILES:
+        module = _module_of(path)
+        if module is None or path.relative_to(ROOT).parts[0] == "Tests":
+            continue
+        text = strip_comments(path.read_text())
+        for m in TYPE_BLOCK.finditer(text):
+            name = m.group(2).split(".")[-1]
+            kind = m.group(1)
+            outer = _leading_modifiers(text, m.start())
+            opens = bool(outer & set(CROSSES))
+            key = (module, name)
+            if kind != "extension":
+                type_public[key] = type_public.get(key, False) or opens
+            elif opens:
+                type_public.setdefault(key, False)
+            body = brace_body(text, m.end() - 1)
+            found = surface.setdefault(key, {})
+            # A `public extension` hands its access to every member that does not
+            # override it; anywhere else a member starts internal.
+            inherited = opens and kind == "extension"
+            for hit in ACCESS_LEVEL.finditer(body):
+                member = hit.group(2)
+                if not member:
+                    continue
+                words = set(re.findall(r"[a-z]+", hit.group(1)))
+                reachable = bool(words & set(CROSSES)) or (
+                    inherited and not (words & {"private", "fileprivate", "internal"}))
+                found[member] = found.get(member, False) or reachable
+            # An enum's cases carry the enum's own access level, and `public` is not
+            # spellable on a `case` line, so they are read off the container.
+            if kind in ("enum", "extension"):
+                cases = opens if kind == "extension" else (
+                    type_public.get(key, False) or opens)
+                for line in CASE_LINE.findall(body):
+                    for part in line.split(","):
+                        hit = re.match(r"^\s*(\w+)", part)
+                        if hit:
+                            found[hit.group(1)] = found.get(hit.group(1), False) or cases
+    return surface, type_public
+
+
+def pass_cross_module_access():
+    surface, type_public = _module_surface()
+    modules_of = {}
+    for module, name in surface:
+        modules_of.setdefault(name, set()).add(module)
+
+    problems = []
+    for path in FILES:
+        module = _module_of(path)
+        if module is None or path.relative_to(ROOT).parts[0] == "Tests":
+            continue
+        text = strip_all(path.read_text())
+        for m in QUALIFIED.finditer(text):
+            tname, member = m.group(1), m.group(2)
+            homes = modules_of.get(tname)
+            # Declared nowhere in tree, in this very module, or in two modules at once:
+            # not this pass's question.
+            if not homes or module in homes or len(homes) != 1 or member in UNIVERSAL:
+                continue
+            home = next(iter(homes))
+            here = surface[(home, tname)]
+            line = text.count("\n", 0, m.start()) + 1
+            site = (path.relative_to(ROOT).as_posix(), line)
+            if not type_public.get((home, tname), True):
+                problems.append((*site, tname, "", home))
+                continue
+            # Absent means the crude scan did not see it — an inherited member, a
+            # protocol requirement, a synthesized conformance. Pass 4 owns existence.
+            if here.get(member, True):
+                continue
+            problems.append((*site, tname, member, home))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"access:   every cross-module TypeName.member reference is public "
+              f"({len(surface)} type/module pairs)")
+        return True
+    grouped = {}
+    for path, line, tname, member, home in problems:
+        key = f"{tname}.{member}" if member else tname
+        grouped.setdefault((key, home), []).append(f"{path}:{line}")
+    print(f"access:   {len(grouped)} references reach a non-public declaration "
+          f"in another module\n")
+    for (key, home) in sorted(grouped, key=lambda k: -len(grouped[k])):
+        sites = grouped[(key, home)]
+        more = f" (+{len(sites) - 3} more)" if len(sites) > 3 else ""
+        print(f"  {key:<44} internal in {home}   {', '.join(sites[:3])}{more}")
+    return False
+
+
+
+# ==========================================================================
+# Pass 10 — an argument's value must be a name that exists
+# ==========================================================================
+#
+# The receiver pass asks whether `name` in `name.member` is bound. It never looks at a
+# bare name passed AS an argument, and that is where the second of the two errors that
+# went red on macOS lived: `swatchSlider` carried a copy of two trailing arguments from
+# a neighbouring helper — `behaviour: behaviour, behaviourValue: (current - …)` — and
+# neither name existed anywhere in its scope.
+#
+# WHY THE RECEIVER PASS'S OWN BINDING SET CANNOT BE REUSED. `BINDERS` reads a function
+# parameter as `[(,] name :`, which is also exactly what a call-site LABEL looks like.
+# Over a whole function body that binds every label the function passes to anything — so
+# `behaviour: behaviour` binds `behaviour` from its own left-hand side, and the bug
+# makes itself invisible. That over-broad rule is deliberate and correct for receivers,
+# where a false positive is expensive and a miss is cheap. Here it is fatal, so this
+# pass builds its own set: the label rule applies to the SIGNATURE only, and everything
+# else — locals, `for`, `case let`, closure parameters — applies to the whole scope.
+#
+# Two more things this pass needs that the receiver pass does not:
+#   - a nested `func`'s body is lexically inside its parent's scope, so its parameters
+#     read as unbound there. Nested spans are subtracted; each nested function is
+#     checked separately against its own signature.
+#   - `kCGImagePropertyOrientation` and its family are genuine globals from a C header,
+#     and the `k`-prefix convention is the only thing in the file that identifies them.
+#
+# Run against the whole tree it reports nothing, and against the commit that was red it
+# reports the one line. That is the entire claim.
+
+ARGUMENT_VALUE = re.compile(
+    r"(?<![\w.$@\\#])[a-z_]\w*\s*:\s*\(?\s*([a-z_]\w*)\s*(?=[,)\-+*/<>=!&|?\s])")
+LABEL_BINDER = re.compile(r"[(,]\s*([a-z_]\w*)\s*:")
+EXTERNAL_LABEL_BINDER = re.compile(r"[(,]\s*(?:[a-z_]\w*|_)\s+([a-z_]\w*)\s*:")
+PLATFORM_CONSTANT = re.compile(r"^k[A-Z]")
+
+# Words that are grammar rather than values. `inout` is the one that matters most:
+# `_ context: inout GraphicsContext` reads as a label followed by a value, sixty times.
+GRAMMAR = set("""
+if else guard return for in while switch case default break continue fallthrough
+throw throws rethrows defer do catch as is where inout async await try lazy weak
+unowned mutating nonmutating static final class public private internal fileprivate
+open override required convenience indirect nonisolated dynamic package unsafe
+consume copy discard let var func init deinit subscript
+""".split())
+
+
+def _value_bindings(scope):
+    """Every name in scope, WITHOUT reading call-site labels as parameters."""
+    names = _declaration_list_names(scope)
+    for pattern in BINDERS:
+        if pattern.pattern == LABEL_BINDER.pattern:
+            continue
+        for hit in pattern.findall(scope):
+            for part in hit.split(","):
+                names.add(part.strip())
+    # `catch { … error … }` binds `error` with nothing written down.
+    if re.search(r"\bcatch\b", scope):
+        names.add("error")
+    return names | _signature_parameters(scope)
+
+
+def _signature_parameters(scope):
+    """The label rule, applied only where a label really is a parameter."""
+    m = FUNC_HEAD.search(scope)
+    if not m:
+        return set()
+    depth, i, n = 0, m.end() - 1, len(scope)
+    while i < n:
+        if scope[i] == "(":
+            depth += 1
+        elif scope[i] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    signature = scope[m.start():i + 1]
+    return set(LABEL_BINDER.findall(signature)) | set(
+        EXTERNAL_LABEL_BINDER.findall(signature))
+
+
+def pass_argument_values():
+    members, _kinds, conforms = _type_index()
+    globals_ = _file_level_names()
+    problems = []
+    for path in FILES:
+        text = strip_all(path.read_text())
+        spans = _enclosing_types(text)
+        functions = list(_function_scopes(text))
+        records = [(off, off + len(sc), sc) for off, sc in functions]
+        for offset, scope in functions:
+            owners = [name for start, end, name in spans if start <= offset < end]
+            if not owners:
+                continue
+            available = set(globals_)
+            for owner in owners:
+                available |= members.get(owner, set())
+                for parent in conforms.get(owner, []):
+                    available |= members.get(parent, set())
+            for start, end, enclosing in records:
+                if start <= offset < end:
+                    available |= _value_bindings(enclosing)
+            nested = [(start - offset, end - offset) for start, end, _ in records
+                      if start > offset and end <= offset + len(scope)]
+            for m in ARGUMENT_VALUE.finditer(scope):
+                name = m.group(1)
+                if any(a <= m.start() < b for a, b in nested):
+                    continue
+                if (name in available or name in GRAMMAR
+                        or name in RECEIVER_EXEMPT
+                        or PLATFORM_CONSTANT.match(name)):
+                    continue
+                line = text.count("\n", 0, offset + m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line, name,
+                                 owners[-1]))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print("args:     every bare name passed as an argument is bound in its scope")
+        return True
+    plural = "argument names" if len(problems) == 1 else "arguments name"
+    print(f"args:     {len(problems)} {plural} something that is not in scope\n")
+    for path, line, name, owner in problems[:25]:
+        print(f"  {name:<28} no {name} in scope inside {owner}   {path}:{line}")
+    return False
+
+
+
+# ==========================================================================
+# Pass 11 — a switch over an in-tree enum must handle every case
+# ==========================================================================
+#
+# The one thing this checker could not see that a compiler catches for free, and it cost
+# real time: adding `MaskKind.luminosity` and `.polygon` meant finding five switches in
+# `MaskPanel` by hand, with a throwaway script, because LumenApp is behind
+# `#if os(macOS)` and nothing on this machine compiles it. Miss one and the macOS lane
+# goes red on an error that was mechanical.
+#
+# HOW THE ENUM IS IDENTIFIED, since a text checker has no types. Every case in the switch
+# is written as `.name`, the union of those names is collected, and the in-tree enums
+# whose case list CONTAINS that union are looked up. Exactly one candidate means the
+# switch is identified; zero or several means it is skipped. That is a heuristic, and it
+# is the conservative half of one: it can decline to check a switch, and it can only
+# report when one enum in the whole tree could be the subject.
+#
+# Two things had to be right about the index before this reported nothing false:
+#
+#   NESTED TYPES. `MaskKind` contains `enum MatteProvider { case none, vision, model }`,
+#   and reading the outer enum's body whole gave `MaskKind` three cases it does not have
+#   — which made every switch over it look non-exhaustive. Nested type bodies are blanked
+#   before the case lines are read.
+#
+#   NAME COLLISIONS. `Mode` is declared in several types with different cases. Merging
+#   them made each look larger than it is. Two declarations of one name that disagree
+#   means the name cannot identify an enum, so it is refused rather than merged.
+#
+# Skipped by design: any switch with a `default` (it is exhaustive by construction), and
+# any whose cases carry a `where` clause — `case .a where p:` does NOT exhaust `.a`, and
+# Swift demands a default there, so nothing is lost by declining.
+
+ENUM_BLOCK = re.compile(r"\benum\s+([A-Z]\w*)(?:\s*:[^{]*)?\s*\{")
+NESTED_TYPE = re.compile(
+    r"\b(?:enum|struct|class|actor|extension)\s+[A-Z]\w*(?:\s*:[^{]*)?\s*\{")
+SWITCH_HEAD = re.compile(r"(?<![\w.])switch\s+[^\n{]{1,200}\{")
+SWITCH_CASE = re.compile(r"(?:^|\n)\s*case\s+((?:\.\w+(?:\([^)]*\))?\s*,?\s*)+):")
+HAS_DEFAULT = re.compile(r"(?:^|\n)\s*(?:@unknown\s+)?default\s*:")
+CASE_WHERE = re.compile(r"case[^:\n]*\bwhere\b")
+
+
+def _own_body(body):
+    """`body` with every nested type block blanked, so an enum's cases are its own."""
+    out = list(body)
+    i = 1
+    while True:
+        m = NESTED_TYPE.search(body, i)
+        if not m:
+            break
+        brace = body.find("{", m.end() - 1)
+        if brace == -1:
+            break
+        inner = brace_body(body, brace)
+        for j in range(m.start(), min(brace + len(inner), len(out))):
+            if out[j] != "\n":
+                out[j] = " "
+        i = brace + len(inner)
+    return "".join(out)
+
+
+def _enum_index():
+    """enum name -> its own cases, for names that identify exactly one enum."""
+    cases_of, seen = {}, {}
+    for path in FILES:
+        text = strip_all_keep_quotes(path.read_text())
+        for m in ENUM_BLOCK.finditer(text):
+            brace = text.find("{", m.end() - 1)
+            if brace == -1:
+                continue
+            body = _own_body(brace_body(text, brace))
+            found = set()
+            for line in CASE_LINE.findall(body):
+                for part in line.split(","):
+                    hit = re.match(r"^\s*(\w+)", part)
+                    if hit:
+                        found.add(hit.group(1))
+            if not found:
+                continue
+            name = m.group(1)
+            if seen.get(name, found) is None:
+                continue
+            if name in seen and seen[name] != found:
+                cases_of.pop(name, None)
+                seen[name] = None
+                continue
+            seen[name] = found
+            cases_of[name] = found
+    return cases_of
+
+
+def pass_switch_exhaustive():
+    cases_of = _enum_index()
+    problems, checked = [], 0
+    for path in FILES:
+        text = strip_all_keep_quotes(path.read_text())
+        for m in SWITCH_HEAD.finditer(text):
+            brace = text.rfind("{", 0, m.end())
+            inner = brace_body(text, brace)[1:-1]
+            if HAS_DEFAULT.search(inner) or CASE_WHERE.search(inner):
+                continue
+            used, parsed = set(), True
+            for cm in SWITCH_CASE.finditer(inner):
+                for part in cm.group(1).split(","):
+                    hit = re.match(r"\s*\.(\w+)", part)
+                    if hit:
+                        used.add(hit.group(1))
+                    elif part.strip():
+                        parsed = False
+            # One case identifies far too many enums to be worth a guess.
+            if not parsed or len(used) < 2:
+                continue
+            candidates = [n for n, all_cases in cases_of.items() if used <= all_cases]
+            if len(candidates) != 1:
+                continue
+            name = candidates[0]
+            checked += 1
+            missing = cases_of[name] - used
+            if missing:
+                line = text.count("\n", 0, m.start()) + 1
+                problems.append((path.relative_to(ROOT).as_posix(), line, name,
+                                 tuple(sorted(missing))))
+
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"switches: {checked} switches over {len(cases_of)} in-tree enums handle "
+              f"every case")
+        return True
+    plural = "switch misses" if len(problems) == 1 else "switches miss"
+    print(f"switches: {len(problems)} {plural} a case of the enum "
+          f"they are over\n")
+    for rel, line, name, missing in problems[:25]:
+        print(f"  {rel}:{line}  switch over {name}: missing {', '.join(missing)}")
+    return False
+
+
+# ── Pass 13: Core Image kernel sources ─────────────────────────────────────────
+#
+# The one thing in this tree the compiler does not compile: every GPU kernel is a Swift
+# string literal in Core Image Kernel Language, handed to `CIKernel(source:)` at
+# runtime. A kernel that does not parse is not a build error — it is a `nil` in
+# `KernelLibrary`, an honest CPU fallback, and a lane that stays green. Two of the four
+# parametric-mask kernels shipped that way for their whole life: `float long = …` and
+# `float out;` — both GLSL reserved words used as identifiers, both parse errors, both
+# invisible to `swiftc`, to this checker's other twelve passes, and to a sentinel test
+# whose roster did not include them.
+#
+# This pass is the mechanical half of the fix. It finds every triple-quoted literal that
+# declares a `kernel`, and flags any declared identifier — a parameter or a local — that
+# is a keyword of the language. It does not parse CIKL; it only knows the keyword list,
+# which is what a person checking by eye did not.
+KERNEL_RESERVED = set("""
+attribute const uniform varying buffer shared coherent volatile restrict readonly writeonly
+atomic_uint layout centroid flat smooth noperspective patch sample break continue do for
+while switch case default if else subroutine in out inout float double int void bool true
+false invariant precise discard return lowp mediump highp precision struct common
+partition active asm class union enum typedef template this resource goto inline noinline
+public static extern external interface long short half fixed unsigned superp input output
+hvec2 hvec3 hvec4 fvec2 fvec3 fvec4 filter sizeof cast namespace using
+mat2 mat3 mat4 vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 uint uvec2 uvec3 uvec4
+sampler1D sampler2D sampler3D samplerCube sampler2DRect
+kernel __sample __color __table
+""".split())
+KERNEL_LITERAL = re.compile(r'"""\n(.*?)\n[ \t]*"""', re.S)
+KERNEL_DECL = re.compile(
+    r"\b(?:float|int|bool|uint|vec[234]|ivec[234]|bvec[234]|mat[234]|__sample|__color|sampler)"
+    r"\s+([A-Za-z_]\w*)")
+
+
+def pass_kernel_reserved():
+    problems, kernels = [], 0
+    for path in FILES:
+        text = path.read_text()
+        for lit in KERNEL_LITERAL.finditer(text):
+            body = lit.group(1)
+            if not re.search(r"\bkernel\s+\w+\s+\w+\s*\(", body):
+                continue
+            kernels += 1
+            base = text.count("\n", 0, lit.start(1)) + 1
+            for m in KERNEL_DECL.finditer(body):
+                ident = m.group(1)
+                if ident in KERNEL_RESERVED:
+                    line = base + body.count("\n", 0, m.start())
+                    problems.append((path.relative_to(ROOT).as_posix(), line, ident,
+                                     body.splitlines()[line - base].strip()))
+    problems = sorted(set(problems))
+    if not problems:
+        print(f"kernels:  {kernels} kernel sources declare no reserved-word identifier")
+        return True
+    plural = "kernel declares" if len(problems) == 1 else "kernels declare"
+    print(f"kernels:  {len(problems)} {plural} a reserved word of the kernel language "
+          f"as an identifier — a parse error at runtime, a nil in KernelLibrary, and a "
+          f"CPU fallback nothing reports\n")
+    for rel, line, ident, src in problems[:25]:
+        print(f"  {rel}:{line}  `{ident}` is reserved: {src}")
+    return False
+
+
 if __name__ == "__main__":
     ok = pass_symbols()
     print()
@@ -1344,4 +2403,12 @@ if __name__ == "__main__":
     ok = pass_value_members() and ok
     print()
     ok = pass_unbound_receivers() and ok
+    print()
+    ok = pass_cross_module_access() and ok
+    print()
+    ok = pass_argument_values() and ok
+    print()
+    ok = pass_switch_exhaustive() and ok
+    print()
+    ok = pass_kernel_reserved() and ok
     sys.exit(0 if ok else 1)

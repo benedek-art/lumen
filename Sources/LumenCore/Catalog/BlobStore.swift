@@ -33,6 +33,65 @@ public final class BlobStore: @unchecked Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
+    // MARK: - Backup
+
+    /// Copy every payload into `directory`, beside a catalog snapshot (K-018).
+    ///
+    /// THE BACKUP WAS NOT A BACKUP OF THE MASKS. `CatalogStore.backup` is
+    /// `VACUUM main INTO`, which snapshots the catalog database and nothing else, and
+    /// the brush strokes do not live there — they live here, as content-addressed files
+    /// beside it. So a restore gave back every recipe intact, each one referencing a
+    /// `strokesRef` whose bytes were never copied, and every brush mask in the library
+    /// rasterized to nothing. The sidecar is not the second copy either: it carries
+    /// strokes only up to its size cap.
+    ///
+    /// Content addressing makes this cheap and safe to repeat. A payload's name IS its
+    /// digest, so a file that is already there is already correct — nothing is
+    /// overwritten, and a second backup into the same place copies only what is new.
+    ///
+    /// Returns the number of payloads copied, so the caller can say something true
+    /// about what it just protected.
+    @discardableResult
+    public func backUp(to destination: URL) throws -> Int {
+        let fm = FileManager.default
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+        let names = try fm.contentsOfDirectory(atPath: directory.path)
+        var copied = 0
+        for name in names where name.hasSuffix(".blob") {
+            let target = destination.appendingPathComponent(name)
+            guard !fm.fileExists(atPath: target.path) else { continue }
+            try fm.copyItem(at: directory.appendingPathComponent(name), to: target)
+            copied += 1
+        }
+        return copied
+    }
+
+    /// Put payloads back from a backup, next to a restored catalog.
+    ///
+    /// The other half, and it has to exist for the same reason: a catalog restored
+    /// without its blobs is a library of empty masks. Never overwrites — a payload
+    /// present in the live store is, by content addressing, the same bytes, and the
+    /// live one may be NEWER work that the restore has no business replacing.
+    @discardableResult
+    public func restore(from source: URL) throws -> Int {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: source.path) else { return 0 }
+        let names = try fm.contentsOfDirectory(atPath: source.path)
+        var restored = 0
+        for name in names where name.hasSuffix(".blob") {
+            let target = directory.appendingPathComponent(name)
+            guard !fm.fileExists(atPath: target.path) else { continue }
+            try fm.copyItem(at: source.appendingPathComponent(name), to: target)
+            restored += 1
+        }
+        if restored > 0 {
+            lock.lock()
+            cache.removeAll()
+            lock.unlock()
+        }
+        return restored
+    }
+
     /// Where a reference lives on disk. A ref is `blob:xxh64:<16 hex>`; anything else
     /// is refused rather than turned into a path, because a reference arriving from a
     /// sidecar written elsewhere is untrusted input and `../../` is a valid string.

@@ -46,24 +46,27 @@ public struct ColorEngine: Sendable {
     /// treatment is on. The engine-side half of the state-preservation fix (docs/06
     /// brief §7.3): nothing in the colour path reads or writes Mixer state on behalf of
     /// B&W — the Mixer runs identically in both treatments — so toggling the treatment
-    /// is lossless as far as rendering is concerned, and the UI can round-trip these.
+    /// is lossless as far as rendering is concerned.
+    ///
+    /// The recipe now holds the other half. `BlackAndWhite.enabled` is what says whether
+    /// the mix renders, so the mix stays in `look.bw` while it is switched off instead of
+    /// being kept alive by whichever panel happened to be on screen.
     public let blackAndWhiteBands: [Double]
 
     /// Measured chroma-weighted mean hue per band, if the renderer has image statistics
     /// (docs/06 brief §1.6). `nil` falls back to the user's own core arc — see
     /// `bandTargetHue(_:)`.
     ///
-    /// A `let` fed by an init parameter, and a `var` assigned `nil` in `init` before
-    /// that. It had a reader at `bandTargetHue` and NO writer anywhere in Sources or
-    /// Tests, so Uniformity could only ever converge on the eight fixed band centres —
-    /// which is not what docs/05 specifies ("computes the chroma-weighted mean hue of
-    /// the band's members") and is visibly the wrong answer on the photograph the
-    /// feature exists for: a sky whose blues all sit at 250° got dragged toward 254.2°
-    /// as a body rather than converging on itself.
-    ///
-    /// `measureBandMeanHues` is the producer. Wiring it into the shipping path needs a
-    /// change in `RenderPlan`, which does not own an image — see this file's note on
-    /// `varianceCompress` for what else that same wiring has to carry.
+    /// WIRED, at last (docs/23 audit queue item 12; it spent two audits as a let with
+    /// a reader and no writer): `PipelineRenderer.measuredBandMeanHues` measures each
+    /// file once off a small neutral decode and threads the result through
+    /// `RenderPlan(bandMeanHues:)` into both this engine and the colour-grade table's
+    /// cache key, on every path that renders pixels — preview, export, HDR pair, the
+    /// reference fallback, and both mask-stage taps. So Uniformity converges on the
+    /// sky's own 250° blues instead of dragging them toward the 254.2° band centre as
+    /// a body. The basis (a NEUTRAL decode, so the target holds still while editing)
+    /// and its limitation (a strong user WB change shifts hues off the measured
+    /// basis) are recorded at the producer and in docs/27 §2.
     public let bandMeanHues: [Double]?
 
     // MARK: - Derived state
@@ -140,9 +143,31 @@ public struct ColorEngine: Sendable {
 
     /// ±100 on a Hue slider lands exactly on the adjacent band centre.
     public static let hueRangeDegrees: Double = 45.0
-    /// Luminance shaping constant: ±100 moves L by at most ±0.25 at L = 0.5, with
-    /// fixed points at black and white.
+    /// Luminance shaping constant: ±100 moves L by at most ±0.25, at and above L = 0.5.
     public static let lumKappa: Double = 1.0
+
+    /// Where the chroma-preserving lightness kernel reaches full authority and HOLDS it.
+    ///
+    /// The kernel is `t·(1−t)`: zero at t = 0, peaking at t = 0.5. The zero is a real
+    /// fixed point — there is nothing below black to darken toward, and evaluating at
+    /// the pixel's own lightness there makes `L − shape` come out as `L²`, so full
+    /// negative deflection cannot drive a pixel through zero.
+    ///
+    /// The argument used to be `saturate(L)`, which gave the kernel a SECOND zero at
+    /// L = 1 and put the peak in the middle of the two. That is the display-referred
+    /// mistake this file's own note on `satRolloffHi0` describes: the Mixer and Point
+    /// Colour lightness stages run before the display transform, on unbounded
+    /// scene-referred data, where 1.0 is not white and not an endpoint — it is about
+    /// +2.5 EV over mid-grey and entirely ordinary. Every pixel at or above it moved
+    /// not at all, and one at L ≈ 0.9 moved at a third of authority: bright sky, lit
+    /// cloud, sunlit skin, the three subjects a Luminance slider exists for.
+    ///
+    /// Clamping the ARGUMENT at the peak instead of at 1.0 keeps the black fixed point
+    /// and the `L²` bound exactly as they were below the peak, keeps the response
+    /// monotone in L at both extremes of deflection, and leaves the control at full
+    /// authority everywhere above it. There is no taper: a taper would need a highlight
+    /// to converge to, and scene-referred data does not have one.
+    public static let lumShapePeak: Double = 0.5
     /// B&W band gain constant: −100 on a band takes that colour's grey to zero.
     public static let bwKappa: Double = 1.0
 
@@ -155,10 +180,48 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Point Colour (docs/06 brief §2.2)
 
-    public static let pointSigmaL: Double = 0.60
-    public static let pointSigmaC: Double = 0.25
-    public static let pointSigmaH: Double = 0.30
-    /// Range = 0 collapses a tolerance to a hard match; this floors the divisor.
+    // THE SELECTION AXES, AND THEY ARE PHOTOGRAPHIC TOLERANCES NOW.
+    //
+    // They were 0.60 / 0.25 / 0.30, and each of those spans most or all of its own
+    // axis: OKLab L runs 0…1, so a sigma of 0.60 cannot exclude anything by lightness,
+    // and photographic chroma tops out near 0.25, so neither could C. Measured on a
+    // swatch sampled on a blue sky at Range 100, the selection weights were 1.000 on
+    // the sampled colour, **1.000 on pure neutral grey**, 0.953 ninety degrees away in
+    // hue, and 0.692 on skin. That is not a selection — it is a global slider with a
+    // colour picker attached, and the photographer has no way to attribute the result:
+    // click a sky, pull Luminance to −100 to deepen it, and the concrete, the wall and
+    // the faces in the same frame darken with it.
+    //
+    // Now: 0.30 of L is about a stop and a half, 0.09 of C is a real chroma tolerance,
+    // and the hue term below is normalized so 0.46 is about 80° of arc. Measured on the
+    // same swatch, every one of grey, near-neutral, ninety-degrees-away, skin and
+    // foliage now weighs 0.000 at EVERY Range, while a blue 30° along still weighs 1.00
+    // and one a stop darker 0.74.
+    public static let pointSigmaL: Double = 0.30
+    public static let pointSigmaC: Double = 0.09
+    /// In NORMALIZED ANGULAR units — see `applySwatch`, where the hue term became
+    /// `gate · Δh/180` rather than a chord. 0.46 is roughly 80° of arc at full Range.
+    public static let pointSigmaH: Double = 0.46
+
+    /// What Range = 0 leaves of the tolerances, as a fraction of Range = 100.
+    ///
+    /// BOTH ENDS OF THIS SLIDER WERE DEAD and this is the half of the fix nobody was
+    /// looking for. The scale was `range/100` straight, floored at 1e-4 — so Range 0
+    /// selected only a bit-exact match, which is no pixels, and Range 100 selected
+    /// everything. A control whose declared 0…100 travel is inert at the bottom and
+    /// non-selective at the top has no useful setting anywhere.
+    ///
+    /// `0.55 + 0.45·r` makes the whole travel a tolerance: Range 0 reaches about 30° of
+    /// hue and a stop of lightness, Range 100 about 60° and two stops, and neither end
+    /// is a degenerate case. It is what lets the sigmas above be tight enough to
+    /// exclude at MAXIMUM range while the default still selects a sky rather than a
+    /// pixel — with a straight `r` those two are not simultaneously satisfiable, which
+    /// is why the first attempt at this fix made Range 50 a point sample.
+    public static let pointRangeBase: Double = 0.55
+
+    /// Kept as a guard on the divisor. With `pointRangeBase` above it can no longer be
+    /// reached from the wire format — the smallest scale is 0.55 — and a floor that
+    /// cannot fire is exactly what this constant used to be relied on to do.
     public static let pointSigmaFloor: Double = 1e-4
     public static let pointHueShiftLimit: Double = 60.0
 
@@ -294,7 +357,10 @@ public struct ColorEngine: Sendable {
             }
         }
         self.blackAndWhiteBands = bandsOut
-        self.bwEnabled = bw != nil
+        // The slot being present is no longer the treatment being on: a mix the user
+        // has switched off stays in the recipe so it is still there tomorrow, and it
+        // must render as colour while it waits.
+        self.bwEnabled = bw?.enabled == true
         var anyBand = false
         for v in bandsOut where v != 0 { anyBand = true }
         self.bwHasBands = anyBand
@@ -354,8 +420,25 @@ public struct ColorEngine: Sendable {
         let mean: RGB = source == c ? out : applyPrimaries(source)
         out = applyMixer(out, localMean: mean)
         out = applyPointColors(out, localMean: mean)
+        // THE B&W MIX READS ITS BANDS OFF THE COLOUR BEFORE THE CHROMA SCALE.
+        //
+        // Saturation is a chroma scale, and the mix's per-band gain is multiplied by
+        // the chroma gate of the pixel it is handed — so reading it off the
+        // post-saturation value drove the gate to zero as Saturation went down. At
+        // −75 the eight band sliders were 84% dead; at −100, exactly inert, with no
+        // message. "Desaturate, then mix the sky down in B&W" is the ordinary route
+        // into a black-and-white edit and it produced a flat conversion and eight
+        // sliders that moved nothing.
+        //
+        // The value captured here is the colour AFTER the Mixer and Point Colour and
+        // BEFORE Saturation: a deliberate hue edit still steers which band a pixel
+        // falls in (turn a blue sky cyan and mix the cyan band, as you would expect),
+        // while a chroma scale — which changes no hue and selects nothing — cannot
+        // switch the instrument off. The luminance the mix scales is still the
+        // saturated pixel's own.
+        let bandSource: RGB = out
         out = applyVibranceSaturation(out)
-        out = applyBlackAndWhite(out)
+        out = applyBlackAndWhite(out, bandSource: bandSource)
         guard out.isFinite else { return c }
         // NO gamut clip here. Display-gamut mapping is the last colour operation
         // inside S14 (docs/14 §2), and `DisplayTransform.apply` does it there, on
@@ -521,6 +604,48 @@ public struct ColorEngine: Sendable {
         return 1 - Num.raisedCosine(Num.saturate(distance / extent))
     }
 
+    // MARK: - Which band owns a colour (docs/28 Phase 5, the picker-first mixer)
+
+    /// The band a hue reads as: the one whose membership at that hue is largest.
+    ///
+    /// The engine grades every hue through ALL eight bands — that is what the partition
+    /// of unity is for — so "which band is this orange" is a question about what the
+    /// photographer should reach for, not about what the maths does, and the honest
+    /// answer is the band carrying most of the weight. Asking `bandWeights` rather than
+    /// comparing against `bandHueCentres` is the point: the arcs are draggable, so a
+    /// widened Blue really does own a hue that the default geometry gives to Aqua, and
+    /// an answer derived from the centres would contradict the ring the user drew.
+    ///
+    /// Ties go to the lower index, which is only reachable at an exact midpoint between
+    /// two equally-shaped neighbours; determinism matters more there than the choice.
+    public static func dominantBand(hue: Double, arcs: [BandArc]) -> Int {
+        let w = bandWeights(hue: hue, arcs: arcs)
+        var best = 0
+        var bestWeight = -Double.infinity
+        for i in 0..<bandCount where w[i] > bestWeight {
+            bestWeight = w[i]
+            best = i
+        }
+        return best
+    }
+
+    /// The band a sampled COLOUR reads as, or nil when it has no colour to read.
+    ///
+    /// Near-greys are the reason this is optional. Below the chroma gate a pixel's hue
+    /// angle is numerical noise — the same noise `skinWeight` refuses to act on — so
+    /// selecting a band from it would be selecting at random and then showing the
+    /// photographer three sliders for a decision nobody made. "There is no colour there"
+    /// is a true answer and a cheap one to say.
+    public static func dominantBand(
+        for colour: RGB,
+        arcs: [BandArc],
+        context: OKLabTransform.Context = OKLabTransform.working) -> Int? {
+        guard colour.isFinite else { return nil }
+        let lch = context.toLCh(colour)
+        guard lch.C.isFinite, lch.h.isFinite, chromaGate(lch.C) > 0 else { return nil }
+        return dominantBand(hue: lch.h, arcs: arcs)
+    }
+
     /// Chroma gate. Multiplies adjustment magnitude, never membership.
     public static func chromaGate(_ chroma: Double) -> Double {
         Num.smoothstep(gateLoChroma, gateHiChroma, chroma)
@@ -572,6 +697,29 @@ public struct ColorEngine: Sendable {
         case .chroma, .lightness:
             return v + q * beta * weight * (mu - target)
         }
+    }
+
+    /// WHETHER A MEASUREMENT OFF THE IMAGE IS NEEDED AT ALL.
+    ///
+    /// `bandMeanHues` is consulted from exactly one place — `bandTargetHue`, under
+    /// `if q != 0`, where `q` is Uniformity. Uniformity defaults to 0, so on every
+    /// photograph nobody has moved that slider on, the measurement is computed and
+    /// never read.
+    ///
+    /// That would be a harmless waste if it were cheap, and it is the opposite of
+    /// cheap. The renderer measures it by DECODING THE RAW AGAIN at 512 px under a
+    /// neutral recipe, and a RAW decode at any scale reads the WHOLE FILE — a 512 px
+    /// measurement costs what a full-size one costs on the bus. The owner's HUD, on a
+    /// 33 MP ARW on an external drive: one decode 2578 ms, and the first draft of a
+    /// newly opened photograph 5580 ms. Two file reads, one of them for eight numbers
+    /// nothing was going to look at.
+    ///
+    /// So the renderer asks first. The predicate lives here, beside its one consumer,
+    /// so "does this recipe read the measurement" has a single answer that the GPU path
+    /// and the CPU reference cannot disagree about — and so that the day Uniformity
+    /// stops being the only reader, this function is what fails to compile.
+    public static func needsMeasuredBandHues(_ mixer: Mixer) -> Bool {
+        mixer.uniformity != 0
     }
 
     /// Uniformity's convergence target for band `i`: the measured chroma-weighted mean
@@ -807,6 +955,17 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Colour Mixer (D13)
 
+    /// The chroma-preserving lightness kernel, shared by the Mixer's Luminance sliders
+    /// and Point Colour's. Chroma is not an argument and never moves (invariant #1).
+    ///
+    /// Rises from a true zero at black to full authority at `lumShapePeak`, then holds.
+    /// See `lumShapePeak` for why it holds rather than falling back to zero at 1.0.
+    public static func lumShape(_ lightness: Double) -> Double {
+        guard lightness.isFinite else { return 0 }
+        let t = Num.clamp(lightness, 0, lumShapePeak)
+        return t * (1 - t)
+    }
+
     private static func sanitizedBands(_ input: [MixerBand]) -> [MixerBand] {
         var out: [MixerBand] = [MixerBand](repeating: MixerBand(), count: bandCount)
         for i in 0..<bandCount where i < input.count { out[i] = input[i] }
@@ -834,8 +993,20 @@ public struct ColorEngine: Sendable {
         var hueSum: Double = 0
         var satSum: Double = 0
         var lumSum: Double = 0
-        var converge: Double = 0
         let q = -uniformity / 100
+        // Uniformity converges on ONE blended target — the weighted circular mean of
+        // the member bands' targets — not on a sum of per-band pulls. The summed form
+        // shipped first and `SliderContractTests`' probe convicted its field: each
+        // band scaled the FULL deviation to its own centre, so at a seam two large
+        // opposing pulls nearly cancelled and slightly overshot — hues 20° from a
+        // centre moved backwards, and the wheel-wide aggregate convergence of
+        // uniformity 100 measured +0.1° on 54°. The blended target makes the field a
+        // smooth monotone staircase: flat near each centre (strong convergence),
+        // steep only at seams (a boundary hue belongs to both sides and stays), no
+        // anti-convergent pockets. Hue is a circle, so the blend is a vector sum —
+        // averaging 350° and 10° arithmetically is the opposite colour.
+        var targetX: Double = 0
+        var targetY: Double = 0
         for i in 0..<Self.bandCount {
             let weight = w[i] * gate
             if weight == 0 { continue }
@@ -844,21 +1015,27 @@ public struct ColorEngine: Sendable {
             satSum += weight * (Num.clamp(band.sat, -100, 100) / 100)
             lumSum += weight * (Num.clamp(band.lum, -100, 100) / 100)
             if q != 0 {
-                // Uniformity is evaluated against the STAGE INPUT hue (invariant #4:
-                // a selection never sees the move it is driving).
-                let moved = Self.varianceCompress(value: lch.h, localMean: meanHue,
-                                                  target: bandTargetHue(i),
-                                                  q: q, beta: 1, weight: weight, axis: .hue)
-                converge += Num.hueDelta(lch.h, moved)
+                let radians = bandTargetHue(i) * .pi / 180
+                targetX += weight * cos(radians)
+                targetY += weight * sin(radians)
             }
+        }
+        var converge: Double = 0
+        if q != 0, targetX * targetX + targetY * targetY > 1e-12 {
+            let blendedTarget = atan2(targetY, targetX) * 180 / .pi
+            // Still evaluated against the STAGE INPUT hue (invariant #4: a selection
+            // never sees the move it is driving), through the same shared kernel.
+            let moved = Self.varianceCompress(value: lch.h, localMean: meanHue,
+                                              target: blendedTarget,
+                                              q: q, beta: 1, weight: gate, axis: .hue)
+            converge = Num.hueDelta(lch.h, moved)
         }
 
         let gC = Swift.max(0, 1 + satSum)
         // Chroma is carried through the luminance move literally unchanged — invariant
-        // #1. The shaping term uses the saturated L so the fixed points at black and
-        // white hold even for the above-white values scene-referred data reaches.
-        let shaped = Num.saturate(lch.L)
-        let L = lch.L + lumSum * Self.lumKappa * shaped * (1 - shaped)
+        // #1. The shaping term holds the black fixed point and keeps full authority on
+        // the above-white values scene-referred data reaches.
+        let L = lch.L + lumSum * Self.lumKappa * Self.lumShape(lch.L)
         let h = Num.wrapHue(lch.h + hueSum + converge)
         return context.toRGB(OKLCh(L: L, C: lch.C * gC, h: h))
     }
@@ -896,10 +1073,13 @@ public struct ColorEngine: Sendable {
             // The wire format carries one master Range; the per-axis refine ranges are a
             // documented format gap (brief §2.1), so all three axes share it.
             let r = Num.clamp(pc.range, 0, 100) / 100
+            // Sub-linear, so neither end of the slider is a degenerate case. See
+            // `pointRangeBase`.
+            let scale = pointRangeBase + (1 - pointRangeBase) * r
             out.append(Swatch(target: target,
-                              sigmaL: Swift.max(pointSigmaL * r, pointSigmaFloor),
-                              sigmaC: Swift.max(pointSigmaC * r, pointSigmaFloor),
-                              sigmaH: Swift.max(pointSigmaH * r, pointSigmaFloor),
+                              sigmaL: Swift.max(pointSigmaL * scale, pointSigmaFloor),
+                              sigmaC: Swift.max(pointSigmaC * scale, pointSigmaFloor),
+                              sigmaH: Swift.max(pointSigmaH * scale, pointSigmaFloor),
                               shiftH: shiftH, shiftS: shiftS, shiftL: shiftL, q: q))
         }
         return out
@@ -928,9 +1108,28 @@ public struct ColorEngine: Sendable {
         let dL = lch.L - s.target.L
         let dC = lch.C - s.target.C
         let dh = Num.hueDelta(s.target.h, lch.h)
-        // Chordal ΔH, the CIEDE-style form: hue distance shrinks correctly as either
-        // colour approaches the neutral axis, where hue stops meaning anything.
-        let dH = 2 * Swift.max(0, lch.C * s.target.C).squareRoot() * sin(dh * .pi / 360)
+        // ANGULAR ΔH, GATED — not the chord.
+        //
+        // The chordal CIEDE form is `2√(C·C_t)·sin(Δh/2)`, and it has the right
+        // behaviour near the neutral axis: hue distance shrinks as either colour
+        // approaches grey, where hue stops meaning anything. What it cannot do is
+        // EXCLUDE. At ordinary photographic chroma its maximum — a full 180° reversal
+        // — is about 0.24, so against any sigma large enough to admit a real
+        // neighbourhood, the opposite hue was still inside the selection. Measured:
+        // 0.953 at ninety degrees away, on the old sigmas.
+        //
+        // The angular form says what the control means — "how far round the wheel" —
+        // and the chroma gate restores the property the chord was bought for: at
+        // `gateLoChroma` and below the term is exactly zero, so a near-neutral is never
+        // excluded BY ITS HUE, which is noise there. `min` of the two chromas, so a
+        // grey pixel and a grey sample are both admitted, and a grey pixel against a
+        // saturated sample is judged on chroma instead — which is the axis that
+        // actually separates them.
+        //
+        // `abs`, because `hueDelta` is signed and this is a distance. The square below
+        // would cancel the sign anyway; writing it out is the difference between an
+        // expression that happens to be right and one that says what it means.
+        let dH = Self.chromaGate(Swift.min(lch.C, s.target.C)) * (abs(dh) / 180)
 
         let tL = dL / s.sigmaL
         let tC = dC / s.sigmaC
@@ -945,8 +1144,24 @@ public struct ColorEngine: Sendable {
         var C = lch.C
         var h = lch.h
 
+        // THE CHROMA GATE IS THIS ENGINE'S LAW, not Variance's local variable.
+        //
+        // The file's own header states it: every hue-selective tool shares the gate, so
+        // near-neutral pixels — whose hue is numerically noise — are never rotated by
+        // one. `applyMixer` obeys it. Point Colour computed it INSIDE the Variance
+        // branch and left the three shift lines below ungated, so a swatch could rotate
+        // the hue of a pixel the Mixer refuses to touch: measured on a warm grey at
+        // C = 0.02, exactly `gateLoChroma`, a +60° hue shift arrived as +59.8° and
+        // swung sRGB (138,126,117) to (126,130,117) — twelve code values from warm to
+        // green, on a pixel with no hue to speak of.
+        //
+        // Hue only. Saturation on a near-neutral is already almost a no-op (it scales a
+        // chroma near zero), and lightness is legitimate — dodging a grey is a real
+        // thing to want, and the gate exists to protect hue from noise, not to make
+        // neutrals untouchable.
+        let gate = Self.chromaGate(lch.C)
+
         if s.q != 0 {
-            let gate = Self.chromaGate(lch.C)
             // The neighbourhood, in the same coordinates the deviations are measured in.
             // Identical to `lch` on the flat path, so this costs one comparison there.
             let mu: OKLCh = localMean == c ? lch : {
@@ -963,11 +1178,10 @@ public struct ColorEngine: Sendable {
                                       q: s.q, beta: 0.5, weight: weight, axis: .lightness)
         }
 
-        h += weight * s.shiftH
+        h += weight * gate * s.shiftH
         C = Swift.max(0, C * (1 + weight * s.shiftS / 100))
         // Same chroma-preserving lightness kernel as the Mixer: C is untouched here.
-        let shaped = Num.saturate(L)
-        L += weight * (s.shiftL / 100) * Self.lumKappa * shaped * (1 - shaped)
+        L += weight * (s.shiftL / 100) * Self.lumKappa * Self.lumShape(L)
         return context.toRGB(OKLCh(L: L, C: C, h: Num.wrapHue(h)))
     }
 
@@ -1035,9 +1249,23 @@ public struct ColorEngine: Sendable {
 
         // The rolloff tapers *pushes* only. Negative Saturation still reaches true B&W
         // at −100 everywhere in the frame, including the extremes.
+        //
+        // Skin protection now obeys the same rule on Saturation, and did not: it
+        // multiplied the negative amount too, so at the shipped default of 70 a full
+        // desaturation left every skin-hued pixel at 30% of its chroma — a face still
+        // in colour inside a black-and-white frame. The wire format says "−100 reaches
+        // true B&W" (Recipe.swift), the comment directly above says it, Lightroom does
+        // it, and the code did not. A guard on a PUSH is a preference; a guard that
+        // stops a pull from reaching its stated endpoint is a broken control.
+        //
+        // Vibrance keeps protection at both signs on purpose. Its negative end is not
+        // an endpoint anybody is promised — `lowChroma` already means a saturated
+        // colour barely moves — so there is no contract for the guard to break, and
+        // "leave skin alone" is exactly what the dial is named for. Saturation at −100
+        // still wins over it: gain 0 zeroes chroma whatever Vibrance did first.
         let vibAmount = (vibrance >= 0 ? vibrance * rolloff : vibrance)
             * Self.lowChroma(input.C) * protection
-        let satAmount = (saturation >= 0 ? saturation * rolloff : saturation) * protection
+        let satAmount = saturation >= 0 ? saturation * rolloff * protection : saturation
 
         var mid: RGB = c
         if vibAmount != 0 {
@@ -1052,7 +1280,78 @@ public struct ColorEngine: Sendable {
         let density = Num.clamp(color.density, 0, 100) / 100
         guard density > 0 else { return additive }
         let subtractive = Self.subtractivePush(mid, amount: satAmount)
-        return additive.mix(subtractive, density)
+        let blended = additive.mix(subtractive, density)
+
+        // THE DENSITY MODEL IS ABOUT LIGHTNESS AND CHROMA. IT IS NOT ABOUT HUE.
+        //
+        // The photographic idea is real and worth keeping: colour intensifies by
+        // DENSIFYING, the absorbing layers deepening while the transmitting one holds,
+        // so a saturated colour darkens instead of pushing its channels apart toward
+        // neon. That is a statement about how light and how colourful the result is.
+        // Nothing in the docs, the panel, or this file's own header claims it is a
+        // statement about WHICH colour it is.
+        //
+        // The rotation was never the model. It is an artefact of how the model is
+        // implemented: `subtractivePush` raises the channel ratios to a power in linear
+        // RGB, which multiplies all three log-ratios by the same gamma — and a log-RGB
+        // ray is not an iso-hue line in OKLab. Only the six primaries and secondaries
+        // lie on one. Everything between them turns.
+        //
+        // WHAT IT COST, measured over 720 colours (36 hues x 5 lightnesses x 4 gamut
+        // fills) at the SHIPPED Density default, before this line existed:
+        //
+        //     Saturation  +10 -> 2.14 deg   +25 -> 4.71   +50 -> 7.83   +100 -> 11.57
+        //     on the skin band            +25 -> 2.21     +50 -> 4.15   +100 ->  7.29
+        //
+        // Read charitably as film-likeness it still fails on its own terms. It is
+        // UNBOUNDED — gamma is 1 + satAmount, so the rotation grows with the slider and
+        // never reaches a ceiling in range. It is ASYMMETRIC — exactly zero below zero,
+        // so +50 and -50 are not one instrument seen from two sides. And it is not what
+        // any dye actually does: stacked dye darkens, it does not walk skin four degrees
+        // toward orange.
+        //
+        // So keep the darkening and drop the turn. The hue is restored ONCE, after the
+        // blend, on the colour the two branches are two renderings of — one restore
+        // rather than one per branch, cheaper than either, and exactly zero rotation by
+        // construction rather than approximately zero.
+        //
+        // EASED ACROSS THE GATE, not switched at it — `chromaGate` is this file's own
+        // idiom and its comment states the rule: it "multiplies adjustment magnitude,
+        // never membership". The hue of a near-neutral is the arctangent of two
+        // nearly-zero numbers and carries nothing to preserve, so the restore has to
+        // fade out down there; but fading it out with a `guard` puts a STEP in the
+        // transform at chroma 0.02, and a step is the one thing a colour cube cannot
+        // represent at any lattice size.
+        //
+        // AND THE MEASUREMENT REFUTED THE REASON. The switched form was caught by
+        // `testTheColourTableConverges`, which measures the composed transform at 33,
+        // 65 and 129 — it left the 129-cube at 0.020475 EV against a 0.02 bound. The
+        // obvious reading was "the step is why", since interpolation error falls with
+        // lattice size and a discontinuity does not. That reading is WRONG, and easing
+        // it is what proved so: the eased form measures 0.020462. The step was worth
+        // about 1.3e-5 EV. What actually costs is the CURVATURE — a hue restore is a
+        // nonlinear correction, and tabulating it is simply harder.
+        //
+        // The easing stays anyway, on principle rather than on that number: a transform
+        // that gets baked into a cube should not carry a step, whether or not this
+        // particular metric happens to notice one. But the honest cost of this fix is
+        // written where the bounds are, not here, and it is a bound that moved rather
+        // than a discontinuity that was removed.
+        //
+        // So the hue is rotated from where the blend put it TOWARD the source hue by
+        // the gate's weight: identical to the full restore above `gateHiChroma`, exactly
+        // nothing below `gateLoChroma`, and smooth in between. `hueDelta` takes the
+        // short way round, so the interpolation crosses the 0/360 seam correctly rather
+        // than travelling the long way when the two hues straddle it.
+        let source = context.toLCh(mid)
+        let out = context.toLCh(blended)
+        guard source.h.isFinite, out.h.isFinite,
+              out.L.isFinite, out.C.isFinite else { return blended }
+        let weight = Self.chromaGate(source.C)
+        guard weight > 0 else { return blended }
+        let hue = Num.wrapHue(out.h + Num.hueDelta(out.h, source.h) * weight)
+        let held = context.toRGB(OKLCh(L: out.L, C: out.C, h: hue))
+        return held.isFinite ? held : blended
     }
 
     /// Scale chroma in Lumen UCS — holding H-K-corrected perceived brightness and hue
@@ -1088,13 +1387,15 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Black & White (D20)
 
-    private func applyBlackAndWhite(_ c: RGB) -> RGB {
+    /// - Parameter bandSource: the colour whose hue and chroma choose the band — the
+    ///   pre-Saturation pixel, so a chroma scale cannot gate the mix off. See `apply`.
+    private func applyBlackAndWhite(_ c: RGB, bandSource: RGB) -> RGB {
         guard bwEnabled else { return c }
         let base = lumaWeights.r * c.r + lumaWeights.g * c.g + lumaWeights.b * c.b
         guard base.isFinite else { return c }
         var gain: Double = 1
         if bwHasBands {
-            let lch = context.toLCh(c)
+            let lch = context.toLCh(bandSource.isFinite ? bandSource : c)
             if lch.C.isFinite, lch.L.isFinite {
                 // The same smooth periodic band model as the Mixer, which is why an
                 // aggressive mix (Blue −80 skies) darkens cleanly instead of banding —

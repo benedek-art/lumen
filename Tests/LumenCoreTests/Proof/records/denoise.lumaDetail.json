@@ -1,0 +1,18 @@
+{
+  "authority" : 6.770752735559071,
+  "deadSteps" : 0,
+  "frame" : "noisyISO6400",
+  "frontLoading" : 0.5575478572412802,
+  "givenBack" : 0,
+  "hueRotation" : 0.7383127706204391,
+  "id" : "denoise.lumaDetail",
+  "isMonotone" : true,
+  "meanSeparation" : 1.7194642108013856,
+  "overshoot" : 2.354114987080921,
+  "overshootAbove" : 0.15126625294158202,
+  "overshootBelow" : 2.354114987080921,
+  "panel" : "Detail",
+  "smallestLiveStep" : 0.35477773640826626,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

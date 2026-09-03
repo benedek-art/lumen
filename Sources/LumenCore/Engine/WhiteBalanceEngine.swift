@@ -57,6 +57,76 @@ public struct WhiteBalanceEngine: Sendable {
         asShot.kelvin == target.kelvin && asShot.tint == target.tint
     }
 
+    /// The tint the render actually uses at the current target: `target.tint` with
+    /// its magenta half bounded by `ColorTemperature.tintLimit(kelvin:)`.
+    ///
+    /// Surfaced for the same reason `ToneEngine.effectiveHighlights` is: the engine
+    /// has clamped this correctly since the tint guard landed and told nobody, so on
+    /// a warm frame the slider's last stretch moved a number on screen and no pixel —
+    /// which reads as a broken control unless the UI can say "bounded by physics
+    /// here". The panel reads this and badges when it diverges from the slider.
+    public var effectiveTint: Double {
+        ColorTemperature.clampedTint(kelvin: target.kelvin, tint: target.tint)
+    }
+
+    // MARK: - What the Temp/Tint rows show while the recipe says "as shot"
+
+    /// The neutral a file was actually shot at — `CIRAWFilter.neutralTemperature` for a
+    /// camera file, and the fixed daylight reference for a rendered one, which is the
+    /// same pair `RenderPlan` is handed and adapts from.
+    public struct Neutral: Equatable, Sendable {
+        public let kelvin: Double
+        public let tint: Double
+
+        public init(kelvin: Double, tint: Double) {
+            self.kelvin = kelvin
+            self.tint = tint
+        }
+
+        /// What a file recording no camera neutral adapts from (docs/04's fallback for
+        /// non-raw input). It is a real answer for a JPEG and a WRONG one for a RAW,
+        /// which is the whole of the defect below.
+        public static let reference = Neutral(kelvin: 5500, tint: 0)
+    }
+
+    /// What a Temp/Tint row displays, and therefore what its first drag writes.
+    public struct AsShotDisplay: Equatable, Sendable {
+        public let temperature: Double
+        public let tint: Double
+        /// True while the recipe carries no override and the numbers above are the
+        /// file's own neutral rather than the photographer's.
+        public let isAsShot: Bool
+    }
+
+    /// `raw.temp`/`raw.tint` are optional, and nil means "as shot" — the decode's own
+    /// neutral, a real number that lives on the image source. A slider cannot show "no
+    /// value", so it stands a number in while the field is nil.
+    ///
+    /// That stand-in was the literal 5500, for every file. On a 3200 K tungsten frame
+    /// the row read 5500 K when the render was adapting from 3200, and the first touch
+    /// of the slider wrote the number the row was showing — so the picture jump-cut
+    /// 2300 K on a drag the photographer had not finished starting. The panel's own
+    /// comment admitted it: "the decode's own neutral, which is a real number the UI
+    /// does not know."
+    ///
+    /// The contract this function exists to keep is one line long: **what the row shows,
+    /// written back into the recipe, must change no pixel**. Everything else about the
+    /// display follows from that, and `testTheTempRowShowsTheNeutralTheRenderAdaptsFrom`
+    /// asserts it against the adaptation matrix rather than against the number.
+    ///
+    /// Clamped to the same limits `init` clamps its target to, so a file reporting
+    /// something absurd shows the value the engine will actually use rather than one it
+    /// will silently pull in.
+    public static func displayed(temp: Double?, tint: Double?,
+                                 asShot: Neutral) -> AsShotDisplay {
+        let kelvin = Num.clamp(asShot.kelvin,
+                               ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
+        let tintValue = Num.clamp(asShot.tint, -300, 300)
+        return AsShotDisplay(temperature: temp ?? kelvin,
+                             tint: tint ?? tintValue,
+                             isAsShot: temp == nil && tint == nil)
+    }
+
     // MARK: - Eyedropper (D9)
 
     /// Kelvin/Tint that render `sample` neutral, where `sample` is a working-space

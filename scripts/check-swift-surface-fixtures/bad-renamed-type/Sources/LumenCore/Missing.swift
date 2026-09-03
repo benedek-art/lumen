@@ -1,0 +1,3 @@
+func fixtureLost() {
+    _ = FixtureMissingType()
+}

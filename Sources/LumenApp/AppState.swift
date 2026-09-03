@@ -13,22 +13,65 @@
 #if os(macOS)
 
 import AppKit
-import Combine
 import Foundation
 import LumenCore
 import LumenPipeline
 import SwiftUI
+
+// MARK: - Formats
+
+/// What Lumen will browse. Deliberately NOT on `AppState`: the folder scan runs off
+/// the main actor, and a main-actor-isolated constant it has to reach for is both a
+/// concurrency warning today and an error under Swift 6.
+enum PhotoFormats {
+    /// Everything CIRAWFilter will decode. The short list this started as made a
+    /// Hasselblad, Phase One, Leica or Minolta file invisible in the grid and uncounted
+    /// by the ingest planner — not an error the user could act on, just an empty folder
+    /// where their shoot was.
+    static let raw: Set<String> = [
+        "arw", "sr2", "srf", "arq",              // Sony
+        "cr2", "cr3", "crw",                     // Canon
+        "nef", "nrw",                            // Nikon
+        "orf",                                   // Olympus / OM
+        "pef", "dng",                            // Pentax, and the open format
+        "raf",                                   // Fujifilm
+        "rw2",                                   // Panasonic
+        "rwl",                                   // Leica
+        "srw",                                   // Samsung
+        "erf",                                   // Epson
+        "x3f",                                   // Sigma
+        "3fr", "fff",                            // Hasselblad
+        "iiq", "cap",                            // Phase One
+        "mrw",                                   // Minolta
+        "dcr", "kdc",                            // Kodak
+        "mef",                                   // Mamiya
+        "raw",                                   // generic
+    ]
+    static let rendered: Set<String> = [
+        "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff",
+    ]
+    static let browsable: Set<String> = raw.union(rendered)
+
+    static func isRaw(_ url: URL) -> Bool {
+        raw.contains(url.pathExtension.lowercased())
+    }
+
+    /// Already-rendered files, which decode through `RenderedImageSource` rather than
+    /// the RAW stage. A sibling of `isRaw` so callers do not each write the
+    /// lowercase-the-extension dance and drift apart on the one that forgets.
+    static func isRendered(_ url: URL) -> Bool {
+        rendered.contains(url.pathExtension.lowercased())
+    }
+}
 
 // MARK: - Photo
 
 struct PhotoItem: Identifiable, Hashable, Sendable {
     let id: URL
     var catalogID: Int64?
-    var flag: PhotoFlag = .unflagged
+    var flag: PhotoFlag = .none
     var rating: Int = 0
-    /// `nil` is unlabelled. Not a sixth `ColorLabel` case: unlabelled is a NULL in
-    /// `photo.label`, which is why the filter carries `includeUnlabeled` beside its set.
-    var label: ColorLabel?
+    var label: ColorLabel = .none
     /// What the file says it was shot at, from the catalog's EXIF row. It is what makes
     /// an unedited photo's noise-reduction defaults ISO-adaptive; nil until the
     /// metadata backfill has reached this photo, and nil forever for a file that
@@ -48,6 +91,9 @@ enum PickTarget: Equatable, Sendable {
     case neutral
     /// Append a Point Colour swatch carrying the clicked colour.
     case newPointColor
+    /// Select the mixer band that owns the clicked colour (docs/28 Phase 5). Writes no
+    /// recipe: it moves the panel's selection to the band already grading that hue.
+    case mixerBand
     /// Re-sample an existing swatch.
     case pointColor(index: Int)
     /// Add a sample to a Colour Range or Similarity mask component.
@@ -55,13 +101,72 @@ enum PickTarget: Equatable, Sendable {
     /// Append a Point Colour swatch to a mask's own sub-recipe.
     case maskPointColor(maskID: String)
 
+    /// True for the targets whose value is compared against the LOCAL STAGE INPUT
+    /// rather than against the linear stage's output.
+    ///
+    /// The global Point Colour swatches are deliberately not on this list, and that is
+    /// not because they are correct — `ColorEngine` evaluates them inside the S9/S10
+    /// table, whose input already carries S7 tone, so a global swatch has the same
+    /// class of divergence one stage smaller. Moving it is a change to what the colour
+    /// panel's eyedropper means and belongs with that panel.
+    var samplesTheMaskStage: Bool {
+        switch self {
+        case .maskSample, .maskPointColor: return true
+        // `.mixerBand` reads the same tap as the global Point Colour, and for the same
+        // reason: the mixer is evaluated inside the S9/S10 table, so the hue that
+        // decides which band owns a pixel has to be the hue that table sees.
+        case .neutral, .newPointColor, .pointColor, .mixerBand: return false
+        }
+    }
+
     /// What the status line says while the click is being waited for.
     var prompt: String {
         switch self {
         case .neutral: return "Click something neutral grey in the picture."
         case .newPointColor, .pointColor: return "Click the colour to work on."
+        case .mixerBand: return "Click a colour — its band selects itself."
         case .maskSample: return "Click the colour this mask should select."
         case .maskPointColor: return "Click the colour to work on inside this mask."
+        }
+    }
+}
+
+enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
+    case rejected = -1
+    case none = 0
+    case picked = 1
+
+    var symbolName: String {
+        switch self {
+        case .picked: return "flag.fill"
+        case .rejected: return "xmark"
+        case .none: return "flag"
+        }
+    }
+}
+
+enum ColorLabel: Int, Codable, Sendable, CaseIterable {
+    case none = 0, red, yellow, green, blue, purple
+
+    var displayName: String {
+        switch self {
+        case .none: return "None"
+        case .red: return "Red"
+        case .yellow: return "Yellow"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .purple: return "Purple"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .none: return .clear
+        case .red: return Color(red: 0.85, green: 0.25, blue: 0.25)
+        case .yellow: return Color(red: 0.90, green: 0.75, blue: 0.20)
+        case .green: return Color(red: 0.30, green: 0.70, blue: 0.35)
+        case .blue: return Color(red: 0.25, green: 0.50, blue: 0.85)
+        case .purple: return Color(red: 0.60, green: 0.35, blue: 0.80)
         }
     }
 }
@@ -72,31 +177,224 @@ enum ViewMode: String, Sendable {
     case grid, loupe, compare, survey
 }
 
-/// Which panel group the develop column is showing. The simple register is the
-/// default; depth is one disclosure away (D3).
-enum PanelSection: String, CaseIterable, Identifiable, Sendable {
-    case basic = "Basic"
-    case zones = "Zones"
-    case curve = "Curve"
-    case color = "Color"
-    case detail = "Detail"
-    case effects = "Effects"
-    case masks = "Masks"
-    case look = "Look"
+// MARK: - Filtering
+
+/// ISO as a chip: bands rather than a free-form pair of numbers, because the question
+/// a photographer actually asks a filter is "show me the clean ones" or "show me the
+/// ones that will need denoise", and because a band is one click.
+enum ISOBand: String, CaseIterable, Identifiable, Sendable {
+    case upTo400 = "≤ 400"
+    case to1600 = "401–1600"
+    case to6400 = "1601–6400"
+    case above6400 = "≥ 6401"
 
     var id: String { rawValue }
 
-    var symbolName: String {
+    var range: ClosedRange<Int> {
         switch self {
-        case .basic: return "slider.horizontal.3"
-        case .zones: return "square.stack.3d.down.right"
-        case .curve: return "point.topleft.down.curvedto.point.bottomright.up"
-        case .color: return "paintpalette"
-        case .detail: return "wand.and.rays"
-        case .effects: return "camera.filters"
-        case .masks: return "theatermasks"
-        case .look: return "photo.stack"
+        case .upTo400: return 0...400
+        case .to1600: return 401...1600
+        case .to6400: return 1601...6400
+        case .above6400: return 6401...4_000_000
         }
+    }
+}
+
+/// The stack-state chip (docs/10 §10.2): everything, one row per collapsed stack, or
+/// only the frames that were never grouped.
+enum StackFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "All frames"
+    case collapsedTops = "Collapsed stacks"
+    case unstacked = "Unstacked only"
+
+    var id: String { rawValue }
+}
+
+struct LibraryFilter: Equatable, Sendable {
+    /// Criteria OR within themselves and AND across themselves — the day-one rule
+    /// (D39). An empty set means "no constraint from this criterion". `matchAny` is
+    /// the bar's All/Any toggle and flips the join BETWEEN criteria, never within one.
+    var flags: Set<PhotoFlag> = []
+    var minRating: Int = 0
+    var labels: Set<ColorLabel> = []
+    var text: String = ""
+    var rawOnly: Bool = false
+
+    /// nil = no constraint, true = has an edit that changes the picture, false = as
+    /// shot. Reads `photo.edited`, which `saveRecipe` maintains in the same transaction
+    /// as the recipe — no join, no parse, and true only when the recipe actually
+    /// renders differently.
+    var edited: Bool? = nil
+    var cameras: Set<String> = []
+    var lenses: Set<String> = []
+    var isoBands: Set<ISOBand> = []
+    var stackState: StackFilter = .any
+    var keywords: Set<String> = []
+    var matchAny: Bool = false
+
+    /// The criteria that only exist in SQL. The memory fallback cannot evaluate any of
+    /// them — it has no camera, no ISO and no stack table — so the bar hides these
+    /// chips rather than offering controls that would quietly do nothing.
+    var usesCatalogOnlyCriteria: Bool {
+        edited != nil || !cameras.isEmpty || !lenses.isEmpty || !isoBands.isEmpty
+            || stackState != .any || !keywords.isEmpty
+    }
+
+    var isActive: Bool {
+        !flags.isEmpty || minRating > 0 || !labels.isEmpty || !text.isEmpty || rawOnly
+            || usesCatalogOnlyCriteria
+    }
+
+    /// The memory path, used only when there is no catalog to ask. It answers the five
+    /// criteria a `PhotoItem` can answer and is deliberately not extended past them:
+    /// a filter that silently ignores a lit chip is the failure this file exists to
+    /// avoid, which is why the bar hides those chips in this mode instead.
+    func matches(_ photo: PhotoItem) -> Bool {
+        if !flags.isEmpty && !flags.contains(photo.flag) { return false }
+        if photo.rating < minRating { return false }
+        if !labels.isEmpty && !labels.contains(photo.label) { return false }
+        if rawOnly && !photo.isRaw { return false }
+        if !text.isEmpty
+            && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
+        return true
+    }
+
+    /// How many criteria are lit, for the badge on the Filter button.
+    ///
+    /// Criteria, not values: three flag chips lit is ONE criterion, because they OR
+    /// together into a single clause of the query. A badge counting chips would read
+    /// "5" for what the sentence calls two conditions.
+    var activeCriteriaCount: Int {
+        var n = 0
+        if !flags.isEmpty { n += 1 }
+        if minRating > 0 { n += 1 }
+        if !labels.isEmpty { n += 1 }
+        if rawOnly { n += 1 }
+        if edited != nil { n += 1 }
+        if !cameras.isEmpty { n += 1 }
+        if !lenses.isEmpty { n += 1 }
+        if !isoBands.isEmpty { n += 1 }
+        if !keywords.isEmpty { n += 1 }
+        if stackState != .any { n += 1 }
+        if !text.isEmpty { n += 1 }
+        return n
+    }
+
+    /// The criteria that are actually HIDDEN behind the Filter button.
+    ///
+    /// Search text is a criterion like any other and `activeCriteriaCount` counts it,
+    /// but its field is right there in the strip with its own contents and its own
+    /// clear ✕. Badging the button "1" for something the eye can already read would
+    /// send the photographer into a popover where every group is empty.
+    var hiddenCriteriaCount: Int {
+        activeCriteriaCount - (text.isEmpty ? 0 : 1)
+    }
+
+    /// The active query written out. "or" inside a criterion, and between criteria
+    /// whatever the Match toggle says — the sentence IS the documentation, which is why
+    /// it survived the filter bar being taken apart (docs/28 Phase 3) and moved to the
+    /// status bar rather than being deleted with its container.
+    ///
+    /// It lives on the filter rather than in a view because two surfaces now read it:
+    /// the status bar shows it, and the filter popover shows the same words back inside
+    /// the control that produced them. Two hand-rolled versions of a sentence that is
+    /// supposed to be authoritative is exactly one too many.
+    ///
+    /// `catalogLive` only changes what the EMPTY sentence says: with no catalog the app
+    /// filters in memory over `PhotoItem`, and a bar that did not say so would be
+    /// claiming a reach it does not have.
+    func sentence(catalogLive: Bool) -> String {
+        guard isActive else {
+            return catalogLive
+                ? "No filter — showing every photo"
+                : "No filter — filtering in memory, without the catalog"
+        }
+        var parts: [String] = []
+        if !flags.isEmpty {
+            parts.append(flags.sorted { $0.rawValue > $1.rawValue }
+                .map(Self.flagName).joined(separator: " or "))
+        }
+        if minRating > 0 {
+            parts.append("★ \(minRating) or better")
+        }
+        if !labels.isEmpty {
+            parts.append(labels.sorted { $0.rawValue < $1.rawValue }
+                .map { $0 == ColorLabel.none ? "Unlabelled" : $0.displayName }
+                .joined(separator: " or "))
+        }
+        if rawOnly { parts.append("RAW only") }
+        if let edited { parts.append(edited ? "edited" : "untouched") }
+        if !cameras.isEmpty { parts.append(cameras.sorted().joined(separator: " or ")) }
+        if !lenses.isEmpty { parts.append(lenses.sorted().joined(separator: " or ")) }
+        if !isoBands.isEmpty {
+            parts.append(ISOBand.allCases.filter { isoBands.contains($0) }
+                .map { "ISO " + $0.rawValue }.joined(separator: " or "))
+        }
+        if !keywords.isEmpty { parts.append(keywords.sorted().joined(separator: " or ")) }
+        if stackState != .any { parts.append(stackState.rawValue.lowercased()) }
+        if !text.isEmpty { parts.append("matching \"\(text)\"") }
+        return parts.joined(separator: matchAny ? "  or  " : "  and  ")
+    }
+
+    static func flagName(_ flag: PhotoFlag) -> String {
+        switch flag {
+        case .picked: return "Picked"
+        case .rejected: return "Rejected"
+        case .none: return "Unflagged"
+        }
+    }
+
+    /// The bar, compiled. Every chip becomes an indexed predicate in `CatalogStore`'s
+    /// builder — which was 200 lines of correct, tested SQL with no caller at all while
+    /// this struct filtered five criteria with a linear scan of the roll.
+    func query(sort: SortOrder, ascending: Bool, albumID: Int64?) -> PhotoQuery {
+        var query = PhotoQuery()
+        query.flags = flags.map(CatalogService.coreFlag)
+        if minRating > 0 {
+            query.rating = minRating
+            query.ratingComparison = .atLeast
+        }
+        for label in labels {
+            if let core = CatalogService.coreLabel(label) {
+                query.labels.append(core)
+            } else {
+                // `.none` in the app's vocabulary is "unlabelled", which is a NULL in
+                // the catalog's and therefore its own predicate — `label IN (…)` can
+                // never match a NULL.
+                query.includeUnlabeled = true
+            }
+        }
+        if rawOnly { query.fileTypes = PhotoFormats.raw.sorted() }
+        query.edited = edited
+        query.cameras = cameras.sorted()
+        query.lenses = lenses.sorted()
+        query.keywords = keywords.sorted()
+        if !isoBands.isEmpty {
+            // One predicate per lit band, OR-ed — NOT one range spanning them all.
+            //
+            // This used to take the minimum lower bound and the maximum upper bound and
+            // call the span "the honest reading of OR within a criterion". It is not:
+            // lighting "≤ 400" and "≥ 6401" asked for two bands and returned every ISO
+            // 800 frame between them. Adjacent bands still collapse naturally, because
+            // adjacent BETWEENs cover the same rows either way.
+            query.isoRanges = isoBands.map { $0.range }.sorted { $0.lowerBound < $1.lowerBound }
+        }
+        switch stackState {
+        case .any: query.stackState = .any
+        case .collapsedTops: query.stackState = .collapsedTopsOnly
+        case .unstacked: query.stackState = .unstacked
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        query.text = trimmed.isEmpty ? nil : trimmed
+        query.matchAny = matchAny
+        query.albumID = albumID
+        // The grid shows files that are on the disk. Rows for frames that have gone
+        // offline keep their edits and stay findable, but putting them in the contact
+        // sheet would put cells in it that cannot be opened.
+        query.includeMissing = false
+        query.sortKey = sort.sortKey
+        query.ascending = ascending
+        return query
     }
 }
 
@@ -116,7 +414,15 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
     case filename = "File name"
     case fileType = "File type"
     case aspectRatio = "Aspect ratio"
-    case userOrder = "User order"
+    /// The order photos were ADDED to the album, not one the user arranged.
+    ///
+    /// It was called "User order" and captioned "drag to reorder inside an album", and
+    /// there is no drag-reorder anywhere in Lumen — `onMove` appears in no file, and
+    /// `album_photo.position` has exactly one writer, `addToAlbum`, which assigns
+    /// `MAX(position) + 1` per photo at insert. Nothing can change a position
+    /// afterwards except removing the photo and adding it again. The spec still asks
+    /// for the gesture (docs/10 §sort keys); the menu no longer claims it is here.
+    case userOrder = "Album order"
     case sharpness = "Sharpness score"
     case aesthetic = "Aesthetic score"
 
@@ -233,17 +539,30 @@ final class AppState: ObservableObject {
             saveSourceState()
         }
     }
-    @Published var selection: Set<URL> = []
+    @Published var selection: Set<URL> = [] {
+        didSet { selectedPhotosCache = nil }
+    }
     @Published var primarySelection: PhotoItem? {
         didSet {
             guard primarySelection?.id != oldValue?.id else { return }
+            // A gesture cannot span photos: if a drag's release was dropped, the
+            // switch is the moment its deferred writes land (audit queue item 4 —
+            // the second unlatch beside the watchdog).
+            sliderGesture(active: false)
             primaryFrameSize = nil
+            // Which way up is a fact about THIS photograph: the next one starts without
+            // an answer rather than inheriting the previous one's.
+            primaryFrameTransposed = false
+            primaryAsShotNeutral = nil
             refreshPrimaryFrameSize()
+            refreshPrimaryAsShotNeutral()
             refreshPrimaryLibraryDetail()
             // A photo whose recipe already carries a Subject mask needs its matte
             // before the first frame is worth looking at; the call is a no-op for the
             // overwhelming majority of photographs, which have no AI component at all.
             ensureMaskMattes()
+            // Export's menu item is enabled by there being a photograph.
+            refreshCommandState()
         }
     }
 
@@ -262,8 +581,47 @@ final class AppState: ObservableObject {
     /// shape.
     @Published private(set) var primaryFrameSize: CGSize?
 
+    /// Whether `primaryFrameSize` is the delivered frame seen SIDEWAYS.
+    ///
+    /// A camera sensor is landscape. A portrait exposure is a landscape readout plus an
+    /// EXIF orientation; the decode applies that orientation and the reported native
+    /// size does not — so on a vertical photograph the number above is horizontal while
+    /// the picture is not. The owner met it as the crop tool "stretching my entire image
+    /// out into a horizontal landscape photo, not a vertical photo like it is". The
+    /// comment just above had already recorded another face of the same defect — "on a
+    /// portrait-orientation frame every ratio came out roughly half of what the menu
+    /// said" — and put it down to the assumed 3:2 instead.
+    ///
+    /// Learned by the loupe from the first WHOLE-FRAME delivery for the photograph
+    /// (`FrameOrientation` in LumenCore, with tests) rather than decided here, because
+    /// only a delivery can settle it and only an uncropped one is admissible: a crop can
+    /// turn a landscape frame portrait honestly. False until something knows better,
+    /// which makes every landscape photograph — and every photograph at all, the day the
+    /// source reports an oriented size — take exactly the path it took before.
+    @Published private(set) var primaryFrameTransposed: Bool = false
+
+    /// What the reported size MEANS, once reconciled: the frame the overlays, the crop
+    /// arithmetic and the mask conversions all place themselves against.
+    ///
+    /// Every consumer reads this rather than `primaryFrameSize`, and that is the whole
+    /// point. Two call sites disagreeing about which of the two they hold is precisely
+    /// the class of defect `RenderRequest.swift`'s header was written about — "a correct
+    /// rule that lives in one view is a defect with a delay".
+    var sourceFrameSize: CGSize? {
+        guard let size = primaryFrameSize else { return nil }
+        return FrameOrientation.sourceSize(reported: size,
+                                           transposed: primaryFrameTransposed)
+    }
+
+    /// Told by the loupe when a whole-frame delivery has answered the question.
+    /// Idempotent: writing the same answer publishes nothing.
+    func noteFrameTransposed(_ transposed: Bool) {
+        guard primaryFrameTransposed != transposed else { return }
+        primaryFrameTransposed = transposed
+    }
+
     var primaryFrameAspect: Double? {
-        guard let size = primaryFrameSize, size.height > 0 else { return nil }
+        guard let size = sourceFrameSize, size.height > 0 else { return nil }
         return Double(size.width / size.height)
     }
 
@@ -285,27 +643,93 @@ final class AppState: ObservableObject {
     @Published var maskOverlayTint: MaskOverlay.Tint = .red
 
     private var maskOverlayGeneration: Int = 0
+    private var maskOverlayTask: Task<Void, Never>?
 
     /// Rebuild it for the mask the panel is showing. Superseded by generation, like
     /// every other background render here, so a fast sequence of edits does not land
     /// out of order.
+    ///
+    /// Supersession is checked BEFORE the actor call, not only after. The old shape —
+    /// an unstored `Task {}` whose generation check sat past the `await` — meant every
+    /// mouse event of a drag queued a full mask rasterization on the render actor and
+    /// only threw the result away afterwards: the exact claimed-too-late defect the
+    /// render coalescer was fixed for (391563a), rebuilt in the one path that fix did
+    /// not touch, and blocking viewer frames during precisely the edits the overlay
+    /// exists to visualise.
     func refreshMaskOverlay() {
         maskOverlayGeneration &+= 1
         let generation = maskOverlayGeneration
+        maskOverlayTask?.cancel()
         guard let maskID = soloMaskOverlay, let photo = primarySelection else {
-            maskOverlayAlpha = nil
+            // Guarded, not written blind. `@Published` does no equality check, so the
+            // bare assignment published on EVERY pixel-touching edit — every mouse
+            // event of every drag — to set nil to nil, re-bodying the window for a
+            // change that had not happened.
+            if maskOverlayAlpha != nil { maskOverlayAlpha = nil }
             return
         }
         let recipe = recipe(for: photo)
         let strokes = strokeSets(for: recipe)
-        Task { [weak self] in
+        // IS A GESTURE RUNNING? Answered by the clock rather than by a flag, because
+        // there is no one flag to read: a radial dragged on the CANVAS, an Edge slider
+        // dragged in the panel and a brush stroke all arrive here as an ordinary edit,
+        // and the only thing they have in common is that the next one is already on its
+        // way. Refreshes closer together than `maskOverlayBurstGapMS` are a drag.
+        //
+        // This is the answer to "the mask isn't updating quick enough, so if I drag it
+        // around, it's still delayed". The supersession below already stopped a drag
+        // QUEUEING sixty rasterizations; what it could not do is make the one that
+        // survives cheap. Every surviving frame still paid for a full 1024-px fold of
+        // the whole stack plus a 2048-px composite over it, which is why the overlay
+        // trailed the gradient by a beat no matter how well the queue behaved.
+        let now = Date()
+        let live = now.timeIntervalSince(maskOverlayLastRefresh) < Self.maskOverlayBurstGapMS
+        maskOverlayLastRefresh = now
+        maskOverlayTask = Task { [weak self] in
             guard let self else { return }
+            // Let the burst settle: of N refreshes queued in one runloop turn, only
+            // the newest survives to touch the actor at all.
+            await Task.yield()
+            guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
+            if live {
+                // DRAFT FIRST, so the hand gets an answer this frame. Half the long
+                // edge is a quarter of the pixels through a fold that is O(pixels),
+                // and `MaskOverlayView.build` follows it down so the composite over it
+                // costs a quarter too. What is lost is a slightly softer boundary on a
+                // selection that is still moving, which nobody is judging yet.
+                let draft = await self.renderCoordinator.maskAlpha(
+                    url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes,
+                    longEdge: Self.maskOverlayDraftLongEdge)
+                guard !Task.isCancelled,
+                      self.maskOverlayGeneration == generation else { return }
+                if let draft { self.maskOverlayAlpha = draft }
+                // THEN WAIT FOR THE HAND TO STOP before paying for the real one. The
+                // next mouse event supersedes this task during the sleep, so a
+                // sustained drag pays for drafts only and the full-size raster happens
+                // exactly once, when the drag ends.
+                try? await Task.sleep(nanoseconds: Self.maskOverlaySettleMS * 1_000_000)
+                guard !Task.isCancelled,
+                      self.maskOverlayGeneration == generation else { return }
+            }
             let raster = await self.renderCoordinator.maskAlpha(
                 url: photo.id, recipe: recipe, maskID: maskID, strokeSets: strokes)
-            guard self.maskOverlayGeneration == generation else { return }
+            guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
             self.maskOverlayAlpha = raster
         }
     }
+
+    /// When the overlay was last asked to rebuild, so a drag can be told from an edit.
+    private var maskOverlayLastRefresh: Date = .distantPast
+    /// Refreshes closer together than this are one continuous gesture, in seconds.
+    ///
+    /// 140 ms is comfortably longer than the gap between two mouse events at any frame
+    /// rate a Mac runs at, and comfortably shorter than the gap between two deliberate
+    /// nudges of a slider — so a held drag reads as live and two taps do not.
+    private static let maskOverlayBurstGapMS: TimeInterval = 0.14
+    /// The long edge a live gesture's overlay is rasterized at, against 1024 settled.
+    private static let maskOverlayDraftLongEdge = 512
+    /// How long the hand must be still before the full-size raster is paid for.
+    private static let maskOverlaySettleMS: UInt64 = 160
 
     /// Which AI matte kinds each file has, so the views that consume them can go stale
     /// when one arrives.
@@ -316,11 +740,23 @@ final class AppState: ObservableObject {
     /// brush blob, and a `.task(id:)` that does not name it renders the mask empty and
     /// stays that way until an unrelated edit moves the recipe.
     @Published private(set) var availableMattes: [URL: Set<String>] = [:]
-    /// Files a generation pass has already FINISHED for, whatever it found. Without
-    /// this a photograph with no subject in it would be re-segmented on every edit.
-    /// Separate from `pendingMattes` so "still working" and "looked and found nothing"
-    /// are different states — the panel says different things about them.
-    private var attemptedMattes: Set<URL> = []
+    /// Which KINDS a generation pass has already finished for, per file, whatever it
+    /// found. Separate from `pendingMattes` so "still working" and "looked and found
+    /// nothing" are different states — the panel says different things about them.
+    ///
+    /// This was a `Set<URL>`: a file was attempted or it was not. Two consequences,
+    /// both shipped. Adding a Subject mask ran the pass for `{aiSubject}` and marked
+    /// the FILE done, so adding a People mask afterwards never generated its matte and
+    /// the panel reported "Vision found no person in this frame" about a request
+    /// nobody had made. And it was never trimmed, while the renderer's matte cache is
+    /// bounded at twelve files — so after browsing thirteen photographs with Vision
+    /// masks, the first one's entry here said ready about a matte that had been
+    /// evicted, the mask rendered as nothing, and no edit could clear it.
+    ///
+    /// Both entries below are a COPY of state `PipelineRenderer` owns. They are
+    /// replaced from its answer on every pass and dropped when it says a file was
+    /// evicted; nothing here decides on its own that a pass can be skipped.
+    private var attemptedMattes: [URL: Set<String>] = [:]
     private var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
@@ -347,50 +783,511 @@ final class AppState: ObservableObject {
         case .vision:
             guard let url = primarySelection?.id else { return .working }
             if maskMatteKinds(for: url).contains(kind.rawValue) { return .ready }
-            return attemptedMattes.contains(url) && !pendingMattes.contains(url)
+            if pendingMattes.contains(url) { return .working }
+            // Per KIND. Asking whether the FILE had been attempted made this say
+            // NOTHING FOUND about a kind added after the pass ran — a specific,
+            // actionable error message about a request that was never issued, which is
+            // worse than a vague one.
+            return (attemptedMattes[url] ?? []).contains(kind.rawValue)
                 ? .notFound : .working
         }
     }
 
     /// Ask for whatever Vision mattes the current photo's masks need. Cheap and
-    /// idempotent: it returns immediately when there is nothing to compute or the pass
-    /// has already run for this file.
-    func ensureMaskMattes() {
+    /// idempotent: it returns immediately when the recipe has no AI component at all,
+    /// which is the overwhelming majority of photographs, and the coordinator's own
+    /// fast path is two dictionary lookups when every kind has already been tried.
+    ///
+    /// There is deliberately NO "this file was already attempted" short circuit here.
+    /// The ledger below is a copy of a bounded cache the renderer owns, so a guard
+    /// written against it can only be as fresh as the last thing that happened to tell
+    /// it — and the thing that used to be missing, an eviction, is exactly the case
+    /// where skipping the pass renders the mask as nothing. The authoritative check
+    /// lives beside the cache, in `RenderCoordinator.ensureMattes`.
+    /// `attemptedSoFar` is the union of every kind previous re-entries already tried for
+    /// this photograph. Empty from the outside; carried forward by the one recursive
+    /// call, which is what turns "try again" into "try again only if the last try got
+    /// somewhere". See the note at the re-entry below for what it costs when it does not.
+    func ensureMaskMattes(attemptedSoFar: Set<String> = []) {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
         guard !VisionMattes.kinds(in: recipe).isEmpty else { return }
-        guard !attemptedMattes.contains(url), !pendingMattes.contains(url) else { return }
+        guard !pendingMattes.contains(url) else { return }
         pendingMattes.insert(url)
         Task { [weak self] in
             guard let self else { return }
             // `await`: the coordinator is an actor, and the segmentation it runs is on
             // a third one, so neither this actor nor the render loop is blocked.
-            let kinds = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
+            let pass = await self.renderCoordinator.ensureMattes(url: url, recipe: recipe)
             self.pendingMattes.remove(url)
-            self.attemptedMattes.insert(url)
-            guard !kinds.isEmpty else { return }
-            self.availableMattes[url] = kinds
-            // The overlay is a picture of the mask, and the mask just changed.
-            self.refreshMaskOverlay()
+            self.applyMattePass(pass, for: url)
+            // A kind added WHILE the pass ran was swallowed by the pendingMattes
+            // guard above — a People mask added during a Subject segmentation
+            // rasterized empty under a WORKING spinner until the next edit happened
+            // to call back in. One re-entry closes the gap: it no-ops unless the
+            // recipe wants a kind the pass did not attempt.
+            //
+            // AND IT ONLY RE-ENTERS ON PROGRESS, which is what stops it being an
+            // unbounded loop. `RenderCoordinator.ensureMattes` records `attempted` only
+            // INSIDE its optional-binding chain, so when the source cannot be built —
+            // the original is missing, the volume is ejected, Apple RAW refuses the file
+            // — nothing is attempted, the `allSatisfy` is false forever, and the
+            // `pendingMattes` guard has already been released a line above. Select a
+            // photograph with a Subject mask whose file is gone and the app span at
+            // 100%: a main-actor Task, an actor hop and a decode attempt per iteration,
+            // thousands a second, while the loupe showed the embedded preview and looked
+            // fine. Requiring the attempted set to have GROWN makes a pass that could
+            // not run a pass that will not run again.
+            let progressed = !pass.attempted.isSubset(of: attemptedSoFar)
+            if progressed,
+               self.primarySelection?.id == url,
+               let current = self.primarySelection.map(self.recipe(for:)),
+               !VisionMattes.kinds(in: current)
+                   .allSatisfy({ pass.attempted.contains($0.rawValue) }) {
+                self.ensureMaskMattes(attemptedSoFar: attemptedSoFar.union(pass.attempted))
+            }
+        }
+    }
+
+    /// Replace this file's ledger with what the renderer reported, and drop every file
+    /// it says it evicted.
+    ///
+    /// The eviction half is not housekeeping. `LoupeView`'s render key names
+    /// `availableMattes` precisely so that a matte ARRIVING re-renders the frame — and
+    /// a matte that was evicted and then regenerated arrives at the same value it had
+    /// before, so unless the entry is removed when the eviction is reported the key
+    /// never moves and the loupe keeps showing the empty-mask render.
+    private func applyMattePass(_ pass: MattePass, for url: URL) {
+        for dropped in pass.evicted where dropped != url {
+            attemptedMattes.removeValue(forKey: dropped)
+            if availableMattes[dropped] != nil {
+                availableMattes.removeValue(forKey: dropped)
+            }
+        }
+        attemptedMattes[url] = pass.attempted
+        let before = availableMattes[url]
+        if pass.available.isEmpty {
+            if before != nil { availableMattes.removeValue(forKey: url) }
+        } else if before != pass.available {
+            availableMattes[url] = pass.available
+        }
+        // The overlay is a picture of the mask, and the mask only changed if this did.
+        if before != availableMattes[url] {
+            refreshMaskOverlay()
+            // A matte ARRIVING changes what a Subject mask selects, and the row's
+            // picture of it has to follow — but the recipe did not move, so the
+            // thumbnail key would not have changed on its own.
+            maskThumbnailKey = nil
+            refreshMaskThumbnails()
         }
     }
 
     /// `O`: show or hide the overlay for the mask the panel has selected. With no mask
     /// selected there is nothing to show, so the key does nothing rather than picking
     /// a mask on the user's behalf.
+    ///
+    /// This is the PINNED overlay: pressing the key says "leave it up", and it survives
+    /// the hover and auto-hide rules below.
     func toggleMaskOverlay() {
         if soloMaskOverlay != nil {
+            maskOverlayPinned = false
+            // O means OFF, including off a mask that is still being made. Leaving the
+            // persistent id set would put the red straight back on the next hover exit.
+            maskOverlayPersistentID = nil
+            cancelMaskOverlayTimers()
             soloMaskOverlay = nil
             return
         }
         guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        cancelMaskOverlayTimers()
+        maskOverlayPinned = true
         soloMaskOverlay = id
+    }
+
+    // MARK: - The ambient overlay (docs/35 §4.4)
+
+    /// Whether the floating Masks panel is on screen.
+    ///
+    /// Defaults to TRUE: the owner's rule is "a separate box that comes out when there
+    /// is a mask", so the panel appears on its own the first time a photograph has one
+    /// and is dismissed by hand, not summoned by hand. `ContentView` gates it on there
+    /// being a mask to list.
+    @Published var maskPanelVisible: Bool = true
+
+    /// Collapsed to a single column of mask thumbnails.
+    ///
+    /// NOT collapsed to the title bar, which is what this used to mean and what the
+    /// owner rejected: "if I press minimize in some sort of way, I just want one row,
+    /// not one row, one column, and one column just shows the picture of the black and
+    /// white gradient, and it shows all of them down the line."
+    ///
+    /// The difference is that a title bar is a control with nothing in it, while a
+    /// column of thumbnails is the mask list at its smallest useful size — you can
+    /// still see what every mask selects and still switch between them. That is what
+    /// makes minimizing worth doing rather than an on/off switch spelled twice.
+    ///
+    /// Held here rather than in the view so it survives every rebuild of the pane
+    /// underneath.
+    @Published var maskPanelMinimized: Bool = false
+
+    /// Whether the roster board — every kind of mask, on one board — is disclosed.
+    ///
+    /// Shared state rather than the panel's own `@State` because the control that opens
+    /// it and the surface that draws it are two different views: the round `+` lives in
+    /// the floating panel's title bar, where it is reachable in BOTH the full panel and
+    /// the collapsed thumbnail column, and the board itself is drawn by `MaskPanel` in
+    /// the content below. One flag, one board — the two-flag arrangement this replaces
+    /// is what put the same twenty tiles on screen twice for one press.
+    @Published var maskCreateBoardOpen: Bool = false
+
+    /// Where the photographer dragged it, relative to the pane's top-left.
+    ///
+    /// Not persisted across launches on purpose: a window that opens at a different size
+    /// would restore the panel to a place that no longer exists, and re-clamping it on
+    /// launch would move it anyway.
+    @Published var maskPanelOffset: CGSize = .zero
+
+    /// Whether the photographer asked for the overlay and it should stay up.
+    ///
+    /// The three transient rules below — flash on create, show on hover, hide while an
+    /// adjustment is dragged — all defer to this. A pinned overlay is a decision; an
+    /// ambient one is feedback, and feedback that will not go away is an obstruction.
+    private(set) var maskOverlayPinned = false
+
+    /// Hover intent, and the auto-hide after a creation flash. Both are `Task`s rather
+    /// than timers so a second event supersedes the first by cancellation.
+    private var maskOverlayHideTask: Task<Void, Never>?
+    private var maskOverlayHoverTask: Task<Void, Never>?
+
+    /// Milliseconds of pointer dwell before a hovered row shows its overlay.
+    ///
+    /// Without it, a pointer crossing a ten-mask list on its way somewhere else is ten
+    /// overlay builds and ten flashes of red over the photograph — worse than not having
+    /// the feature (docs/36 §1.4). 120 ms is below the threshold at which a deliberate
+    /// hover feels laggy and above the time a pointer spends passing over a 30 pt row.
+    static let maskOverlayHoverIntentMS: UInt64 = 120
+    /// How long a newly created mask shows itself before getting out of the way.
+    static let maskOverlayFlashMS: UInt64 = 1_400
+
+    // MARK: - Mask thumbnails (docs/35 §4.3)
+
+    /// Long edge a mask row's thumbnail is rasterized at.
+    ///
+    /// 96 px is about a hundredth of the proxy's pixels, so a whole list of them costs
+    /// less than one overlay. That ratio is what makes "every row is a picture of its
+    /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+    /// editor does it live is that they compute it at mask resolution.
+    static let maskThumbnailLongEdge = 96
+
+    /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+    /// thumbnail lands.
+    @Published private(set) var maskThumbnails: [String: CGImage] = [:]
+
+    /// What the held thumbnails were computed FROM. A mask id is not enough of a key:
+    /// the picture behind a Colour Range moves when Exposure does, and the same mask id
+    /// exists on the next photograph after Paste Settings.
+    private var maskThumbnailKey: String?
+    private var maskThumbnailTask: Task<Void, Never>?
+
+    /// Rebuild the thumbnails if anything they depend on has changed.
+    ///
+    /// Coalesced the same way `refreshMaskOverlay` is, and for the same reason: this is
+    /// called from the edit path, so a drag would otherwise queue one job per mouse
+    /// event on an actor whose queue can hold a cold decode.
+    func refreshMaskThumbnails() {
+        guard let photo = primarySelection else {
+            if !maskThumbnails.isEmpty { maskThumbnails = [:] }
+            maskThumbnailKey = nil
+            return
+        }
+        let recipe = recipe(for: photo)
+        guard !recipe.masks.isEmpty else {
+            if !maskThumbnails.isEmpty { maskThumbnails = [:] }
+            maskThumbnailKey = nil
+            return
+        }
+        // The masks themselves, minus their names — renaming a mask must not re-render
+        // ninety-six pixels — plus everything the mask SOURCE is a function of, which is
+        // what `PipelineRenderer.maskSourceFingerprint` already knows how to state.
+        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
+            .map(CanonicalJSON.serialize) ?? UUID().uuidString
+        let key = [photo.id.absoluteString, shape,
+                   PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-"]
+            .joined(separator: "|")
+        guard key != maskThumbnailKey else { return }
+        maskThumbnailKey = key
+
+        let ids = recipe.masks.map(\.id)
+        let strokes = strokeSets(for: recipe)
+        maskThumbnailTask?.cancel()
+        maskThumbnailTask = Task { [weak self] in
+            guard let self else { return }
+            // A REAL QUIET PERIOD, not one runloop turn.
+            //
+            // `Task.yield()` coalesces refreshes queued in the SAME turn, which is
+            // enough for a burst of edits and not nearly enough for a DRAG: dragging a
+            // radial gradient changes its geometry on every mouse event, each event is
+            // its own turn, so each one cancelled the task before the previous one had
+            // finished rasterizing and started again. The thumbnails therefore never
+            // landed at all while the hand was down — they appeared only on release,
+            // which is exactly when they stop being useful.
+            //
+            // That was survivable while a thumbnail was 40 points of a row. It is not
+            // survivable now that collapsing the panel makes the thumbnails the ONLY
+            // thing on screen. 90 ms is below the point a settled image feels late and
+            // above the gap between two mouse events.
+            try? await Task.sleep(nanoseconds: 90 * 1_000_000)
+            guard !Task.isCancelled else { return }
+            var built: [String: CGImage] = [:]
+            for id in ids {
+                guard !Task.isCancelled else { return }
+                let plane = await self.renderCoordinator.maskThumbnail(
+                    url: photo.id, recipe: recipe, maskID: id, strokeSets: strokes)
+                if let plane, let image = AppState.greyImage(from: plane) {
+                    built[id] = image
+                }
+            }
+            guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
+            self.maskThumbnails = built
+        }
+    }
+
+    /// An alpha plane as a grey image a row can draw.
+    ///
+    /// 8-bit grey with no alpha channel: this is a PICTURE of a mask, not a mask, and
+    /// giving it an alpha channel is how the overlay once ended up drawing a flat tint
+    /// over the whole frame.
+    nonisolated static func greyImage(from plane: Plane) -> CGImage? {
+        let w = plane.width, h = plane.height
+        guard w > 0, h > 0 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            bytes[i] = UInt8(Num.saturate(Double(plane.values[i])) * 255)
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let space = CGColorSpace(name: CGColorSpace.linearGray)
+                  ?? CGColorSpace(name: CGColorSpace.genericGrayGamma2_2)
+        else { return nil }
+        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 8,
+                       bytesPerRow: w, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: 0),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)
+    }
+
+    /// Keep the overlay up until it is deliberately taken down.
+    ///
+    /// For the row menu's "Keep it showing", which is the pointer's version of what `O`
+    /// does. Separate from `toggleMaskOverlay` because the menu has already decided
+    /// WHICH mask and does not want the key's "pick one if none is selected" rule.
+    /// Leave the overlay up until told otherwise, optionally raising a named mask's.
+    ///
+    /// Takes the id so its one caller stops writing `soloMaskOverlay` directly — the
+    /// raw write is how the pin and the solo got out of step in the first place.
+    func pinMaskOverlay(_ id: String? = nil) {
+        cancelMaskOverlayTimers()
+        maskOverlayPinned = true
+        maskOverlayPersistentID = nil
+        if let id, soloMaskOverlay != id { soloMaskOverlay = id }
+    }
+
+    /// Take the pin off, and take the overlay down with it.
+    ///
+    /// THE MISSING HALF OF `pinMaskOverlay`, and its absence was a trap. The row menu's
+    /// "Keep it hidden" set `soloMaskOverlay = nil` and left `maskOverlayPinned` TRUE —
+    /// and `flashMaskOverlay`, `hoverMaskOverlay` and `setMaskEdgeGesture` all open with
+    /// `guard !maskOverlayPinned`. So showing an overlay once and hiding it once killed
+    /// every ambient path for the rest of the photograph: no creation flash, no hover,
+    /// no overlay while dragging an edge. Nothing said so, and only `O` could undo it.
+    func unpinMaskOverlay() {
+        cancelMaskOverlayTimers()
+        maskOverlayPinned = false
+        maskOverlayPersistentID = nil
+        if soloMaskOverlay != nil { soloMaskOverlay = nil }
+    }
+
+    /// A mask is new and has not been adjusted yet: leave its overlay up.
+    ///
+    /// THE RULE THIS COMPLETES, in one sentence: a mask's overlay is persistent from the
+    /// moment it is created until the first time an Effect control is touched, and
+    /// hover-only afterwards.
+    ///
+    /// Before this there was no persistent state at all. Every path was a 1400 ms
+    /// countdown or a pointer dwell, so the answer to "show me what I just selected"
+    /// was a flash you had to catch — and for a brush, a gradient, a radial or an
+    /// outline the flash rendered NOTHING, because an undrawn mask's alpha is zero and
+    /// `colorOverlay` composites `c.mix(tint, a·s)`: at `a = 0` the output is the
+    /// photograph, byte for byte. Painting did not raise it either. So a brush mask
+    /// could go from creation to fully adjusted without the red being visible for one
+    /// frame, which is exactly what the owner reported.
+    ///
+    /// Setting it on an undrawn mask is right rather than merely harmless: nothing is
+    /// selected, so nothing SHOULD be washed red, and the moment the first stroke lands
+    /// the alpha stops being zero and the overlay is already standing there. The
+    /// feedback arrives with the selection instead of before it.
+    ///
+    /// It defers to the pin, because a pin is a decision and this is a default.
+    func beginPersistentMaskOverlay(_ id: String) {
+        guard !maskOverlayPinned else { return }
+        cancelMaskOverlayTimers()
+        maskOverlayPersistentID = id
+        soloMaskOverlay = id
+    }
+
+    /// The mask whose overlay stays up because it has not been adjusted yet, if any.
+    ///
+    /// Not published: every reader of it goes through `soloMaskOverlay`, which is.
+    private var maskOverlayPersistentID: String?
+
+    /// The three inputs every ambient overlay rule is gated on, as one value.
+    ///
+    /// `MaskOverlayRule` lives in LumenCore because this class needs a catalog on disk
+    /// to construct and therefore cannot be unit tested, which is how a five-input state
+    /// machine reached the owner with three defects and no test on any of them. The
+    /// guards below CALL it rather than restating it.
+    private var maskOverlayRule: MaskOverlayRule {
+        MaskOverlayRule(pinned: maskOverlayPinned,
+                        persistentID: maskOverlayPersistentID,
+                        suppressed: maskOverlaySuppressed)
+    }
+
+    /// A mask was just created: show what it selected, then stand down.
+    ///
+    /// The first second of every mask used to look like nothing at all — `addMask`
+    /// appended, selected, and returned without touching the overlay, so the one moment
+    /// a photographer most needs to see what a mask does had no feedback in it
+    /// (docs/35 §2.3).
+    func flashMaskOverlay(_ id: String) {
+        // SUPPRESSION IS AUTHORITATIVE NOW. `maskOverlaySuppressed` existed, was set on
+        // every Effect press, and was read by nothing except its own dedup guard — so a
+        // flash arriving mid-drag (clicking another mask's pin, say) put the red back
+        // over the pixels the photographer was in the middle of judging.
+        guard maskOverlayRule.ambientAllowed else { return }
+        cancelMaskOverlayTimers()
+        soloMaskOverlay = id
+        // `Task` inherits this type's `@MainActor` isolation, so the body already
+        // runs where `soloMaskOverlay` lives — a `MainActor.run` here would be a
+        // second hop to the actor it is already on.
+        maskOverlayHideTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.maskOverlayFlashMS * 1_000_000)
+            guard !Task.isCancelled, let self, !self.maskOverlayPinned,
+                  self.soloMaskOverlay == id else { return }
+            // A mask that has not been adjusted yet keeps its overlay. The stand-down
+            // is for feedback that has been seen, not for a selection still being made.
+            guard self.maskOverlayRule.mayStandDown(id) else { return }
+            self.soloMaskOverlay = nil
+        }
+    }
+
+    /// A mask row (or its pin) is under the pointer, or the pointer has left.
+    ///
+    /// Entering arms the intent timer; leaving cancels it and takes the overlay down
+    /// unless it was pinned. Passing the SAME id again while it is already showing is a
+    /// no-op rather than a re-arm, so a row that redraws under a stationary pointer does
+    /// not make the overlay blink.
+    func hoverMaskOverlay(_ id: String?) {
+        guard maskOverlayRule.ambientAllowed else { return }
+        maskOverlayHoverTask?.cancel()
+        maskOverlayHideTask?.cancel()
+        guard let id else {
+            // THE POINTER LEFT. Fall back to the persistent overlay if one is standing
+            // rather than to nothing: hovering a second mask's row while a new, unadjusted
+            // mask is lit used to end with the photograph dark, because the exit cleared
+            // the solo outright and nothing put the persistent one back.
+            let fallback = maskOverlayRule.afterHoverExit
+            if soloMaskOverlay != fallback { soloMaskOverlay = fallback }
+            return
+        }
+        guard soloMaskOverlay != id else { return }
+        maskOverlayHoverTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.maskOverlayHoverIntentMS * 1_000_000)
+            guard !Task.isCancelled, let self,
+                  self.maskOverlayRule.ambientAllowed else { return }
+            self.soloMaskOverlay = id
+        }
+    }
+
+    /// An adjustment slider is being dragged: the overlay is in the way of the thing
+    /// being judged, so it goes — even if it was pinned, and it comes back when the
+    /// drag ends. Lightroom's rule, and it is right.
+    func setMaskOverlaySuppressed(_ suppressed: Bool) {
+        guard maskOverlaySuppressed != suppressed else { return }
+        maskOverlaySuppressed = suppressed
+        if suppressed {
+            // THE FIRST EFFECT TOUCH ENDS THE PERSISTENT PHASE, and this is the line
+            // that decides the whole rule. Up to here the mask was still being MADE and
+            // its overlay stayed up so the selection could be judged; from here the
+            // photographer is judging pixels, and a red wash over the exact pixels being
+            // judged is an obstruction. It ends on the PRESS rather than the release, so
+            // the overlay is already gone for the very first adjustment.
+            //
+            // Deliberately not fired by the Edge zone: refining an edge is still
+            // selection work, and `setMaskEdgeGesture` is what that zone calls.
+            maskOverlayPersistentID = nil
+            maskOverlayResumeID = soloMaskOverlay
+            cancelMaskOverlayTimers()
+            if soloMaskOverlay != nil { soloMaskOverlay = nil }
+        } else if maskOverlayPinned, let id = maskOverlayResumeID,
+                  currentRecipe.masks.contains(where: { $0.id == id }) {
+            soloMaskOverlay = id
+            maskOverlayResumeID = nil
+        } else {
+            maskOverlayResumeID = nil
+        }
+    }
+
+    /// An EDGE control is being dragged: show the matte, because the edge IS the thing
+    /// being judged. The exact complement of `setMaskOverlaySuppressed`, and they are a
+    /// pair rather than two rules — an Effect slider moves the picture and the overlay
+    /// covers it up, an Edge slider moves the SELECTION and the overlay is the only
+    /// place it is visible at all.
+    ///
+    /// Dragging Refine, Expand/Contract, Soften Edge or a Levels handle with no overlay
+    /// up is a control whose whole output is invisible while you are using it, which is
+    /// the "I want to know what Feather does" complaint in its purest form: the glyph
+    /// says what the parameter means, and this says what it just did to THIS photograph.
+    ///
+    /// It stands down the way a creation flash does rather than snapping off, so
+    /// nudging a value repeatedly does not strobe. A PINNED overlay is left exactly
+    /// alone in both directions — that is a decision, and this is feedback.
+    func setMaskEdgeGesture(_ active: Bool, mask id: String?) {
+        guard !maskOverlayPinned else { return }
+        if active {
+            guard let id else { return }
+            cancelMaskOverlayTimers()
+            maskEdgeGestureID = id
+            if soloMaskOverlay != id { soloMaskOverlay = id }
+        } else {
+            guard let held = maskEdgeGestureID else { return }
+            maskEdgeGestureID = nil
+            guard soloMaskOverlay == held else { return }
+            flashMaskOverlay(held)
+        }
+    }
+
+    private var maskEdgeGestureID: String?
+
+    private var maskOverlaySuppressed = false
+    private var maskOverlayResumeID: String?
+
+    private func cancelMaskOverlayTimers() {
+        maskOverlayHideTask?.cancel()
+        maskOverlayHideTask = nil
+        maskOverlayHoverTask?.cancel()
+        maskOverlayHoverTask = nil
     }
 
     /// `⌥O` and `⇧O`: cycle the mode and the colour. Cycling either turns the overlay
     /// ON if it is off — pressing a key that changes how a thing is drawn and seeing
     /// nothing happen is how a user concludes the key is broken.
+    ///
+    /// THEY NO LONGER PIN AS A SIDE EFFECT. Both used to run
+    /// `else { maskOverlayPinned = true }`, so cycling the colour of an overlay that was
+    /// merely hovering silently converted it into a permanent one — a key that says it
+    /// changes an appearance quietly changing a persistence rule instead. Turning a
+    /// missing overlay on is still right and still goes through `toggleMaskOverlay`,
+    /// which pins deliberately; an overlay already up is left exactly as it was found.
     func cycleMaskOverlayMode() {
         maskOverlayMode = maskOverlayMode.next
         if soloMaskOverlay == nil { toggleMaskOverlay() }
@@ -399,6 +1296,18 @@ final class AppState: ObservableObject {
     func cycleMaskOverlayTint() {
         maskOverlayTint = maskOverlayTint.next
         if soloMaskOverlay == nil { toggleMaskOverlay() }
+    }
+
+    /// Whether the component under the panel's cursor is a brush.
+    ///
+    /// The gate on the digit keys. Digits are RATINGS everywhere else in this
+    /// application, and a rating lost to a brush's Flow would be unrecoverable — so the
+    /// brush has to be the thing actually selected, not merely possible.
+    var activeComponentIsBrush: Bool {
+        guard let id = activeMaskID,
+              let mask = currentRecipe.masks.first(where: { $0.id == id }),
+              mask.components.indices.contains(activeComponentIndex) else { return false }
+        return mask.components[activeComponentIndex].kind == .brush
     }
 
     /// `'`: invert the component the mask panel has selected (docs/08 §8.6).
@@ -429,6 +1338,29 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The neutral the primary selection was shot at; nil until the source has answered.
+    ///
+    /// The White Balance rows need it and had no way to get it: `raw.temp` nil means
+    /// "as shot", the slider has to stand a number in while the field is nil, and the
+    /// number it stood in was the literal 5500 for every file in the library. nil here
+    /// means "not known yet" and the rows say so rather than showing a number that is
+    /// not this photograph's — the same rule DetailPanel follows for the ISO the
+    /// denoise profile resolves against.
+    @Published private(set) var primaryAsShotNeutral: WhiteBalanceEngine.Neutral?
+
+    private func refreshPrimaryAsShotNeutral() {
+        guard let url = primarySelection?.id else { return }
+        // Same shape and the same reasoning as `refreshPrimaryFrameSize`: the first call
+        // for a photo opens the file, and a selection change must never wait on it.
+        Task { [weak self] in
+            guard let self else { return }
+            guard let neutral = await self.renderCoordinator.asShotNeutral(for: url)
+            else { return }
+            guard self.primarySelection?.id == url else { return }
+            self.primaryAsShotNeutral = neutral
+        }
+    }
+
     /// The units the pixel readout speaks, everywhere it appears.
     ///
     /// One home, because there were two: the histogram panel's segmented control wrote
@@ -452,26 +1384,147 @@ final class AppState: ObservableObject {
     @Published var gridThumbnailSize: Double = 160 {
         didSet { scheduleSourceStateSave() }
     }
-    @Published var showFilmstrip = true
+    /// WHETHER THE SOURCES COLUMN IS DRAWN, and it is the single largest thing this
+    /// window can do for the photograph.
+    ///
+    /// Measured (docs/30 §3): deleting the top bar AND the status bar changes a 3:2
+    /// landscape frame by +0.00 percentage points, because a landscape photograph in
+    /// this window is WIDTH-limited — every horizontal band removed returns letterbox
+    /// rather than picture. Hiding the 230pt sidebar is worth +19.95 points on its own,
+    /// more than every other composition change combined.
+    ///
+    /// On `AppState` rather than in the view because the View menu has to reach it, and
+    /// a `Scene`'s commands cannot see a view's `@State`. One publish per toggle, which
+    /// is a thing that happens a handful of times a session.
+    /// How wide the develop column is, in points, dragged by its own divider.
+    ///
+    /// On `AppState` rather than in a view because both `ContentView` (which draws the
+    /// divider) and `DevelopPanel` (which is the column) need it, and they are siblings.
+    /// `@AppStorage` would have been the obvious home except that a drag writes it on
+    /// every mouse event, and `@AppStorage` writes through to `UserDefaults` each time —
+    /// so it persists on release instead, the same bargain every slider in this app
+    /// already makes.
+    ///
+    /// Clamped on read rather than on write, because a value restored from a previous
+    /// version's bounds is not the user doing anything wrong.
+    @Published var developPanelWidth: CGFloat = {
+        let stored = UserDefaults.standard.double(forKey: "develop.panelWidth")
+        guard stored > 0 else { return Lumen.defaultPanelWidth }
+        return Swift.min(Swift.max(CGFloat(stored), Lumen.minimumPanelWidth),
+                         Lumen.maximumPanelWidth)
+    }()
+
+    /// Called on release, not per event.
+    func persistDevelopPanelWidth() {
+        UserDefaults.standard.set(Double(developPanelWidth), forKey: "develop.panelWidth")
+    }
+
+    @Published var sidebarVisible = true
+
+    /// Persisted (docs/32 Stream A): the strip's visibility is furniture the
+    /// photographer arranged, and an editor that forgets it makes them arrange it every
+    /// launch. A `didSet` write costs one defaults write per toggle — this is flipped
+    /// by `F`, the View menu and the status bar's switch, never per event.
+    /// `object(forKey:) as? Bool` rather than `bool(forKey:)` for the reason
+    /// `PanelLayout.restore` records: the typed accessor answers false both for
+    /// "stored false" and for "never written", and this flag defaults to true.
+    @Published var showFilmstrip = UserDefaults.standard.object(
+        forKey: "filmstrip.visible") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showFilmstrip, forKey: "filmstrip.visible") }
+    }
+    /// THE SURROUND, which docs/00's Law 7 treats as part of the instrument.
+    ///
+    /// `L` cycles lights-out (normal → dim → out) and `⌘B` toggles ISO 12646 assessment
+    /// mode. Both keys were named in docs/12 and neither was bound, because neither
+    /// feature existed; `L` had been spent on the Look panel and `⌘B` on the target
+    /// album. The rules — the cycle order, which control wins the field, what the grey
+    /// actually is — live in `ViewingConditions` in LumenCore, where they are tested.
+    ///
+    /// Neither is persisted. Both are things you turn on to look at something and turn
+    /// off again, and an editor that opened in lights-out because you left it there
+    /// three days ago would read as broken.
+    @Published var lightsOut: LightsOut = .normal
+    @Published var assessmentMode = false
+
+    /// What the viewer paints behind the photograph.
+    var surroundValue: Double {
+        ViewingConditions.surround(lights: lightsOut, assessment: assessmentMode,
+                                   normalSurround: Lumen.surroundCanvasValue)
+    }
+
+    var surroundColor: Color {
+        Color(nsColor: NSColor(white: surroundValue, alpha: 1))
+    }
+
+    /// How loud the chrome is. `1` in ordinary use, so every view that reads it is a
+    /// no-op until one of the two controls is on.
+    var chromeOpacity: Double {
+        ViewingConditions.chromeOpacity(lights: lightsOut, assessment: assessmentMode)
+    }
+
+    /// Whether the chrome is gone from the layout rather than merely quiet — the views
+    /// remove it, so nothing invisible can take a click.
+    var chromeHidden: Bool { lightsOut.hidesChrome }
+
+    func cycleLightsOut() {
+        lightsOut = lightsOut.next
+        statusMessage = "Lights: " + lightsOut.rawValue
+    }
+
+    func toggleAssessmentMode() {
+        assessmentMode.toggle()
+        statusMessage = assessmentMode
+            ? "Assessment surround on — ISO 12646 mid-grey"
+            : "Assessment surround off"
+    }
+
     /// Published by the grid as it lays out, so ↑/↓ move by a real row rather than by
     /// a guess. Never zero — a divide-by-row-count would be a crash in the key path.
     @Published var gridColumns: Int = 6
     /// Which modal is up. Three independent booleans let two of them be true at once,
     /// which a single presenter cannot honour; these stay as the vocabulary every call
     /// site already speaks, and all three agree on one source of truth.
+    /// ⌘K's palette. Not a `SheetKind`: a sheet is modal and animates in, and this is a
+    /// thing you open, type four letters into and dismiss — closer to a menu than to the
+    /// export dialog. Published because the chord that opens it lives in a `Scene`'s
+    /// commands and the view that draws it does not.
+    @Published var showControlPalette = false
+
     @Published var activeSheet: SheetKind?
+
+    /// Put a sheet up, unless doing so would take the Stop button off screen.
+    ///
+    /// `activeSheet` holds exactly ONE sheet, and the export sheet now stays up for the
+    /// whole run because it holds the only Stop button in the application. Before that
+    /// change nothing could displace anything — the export sheet was never up during a
+    /// batch — and afterwards a single ⌘/ or ⇧⌘I replaced it and the export carried on
+    /// writing with no way to stop it anywhere in the app. ⌘E brings it back, and
+    /// nothing told the photographer that.
+    ///
+    /// Refused rather than queued, and it says why: a request to see the key reference
+    /// during a two-hundred-file export is a request the photographer will repeat in ten
+    /// seconds, and silently swallowing it is how a menu item becomes untrustworthy.
+    /// Closing the sheet by hand is still allowed — that is a deliberate act, and the
+    /// status bar keeps saying an export is running.
+    private func present(_ sheet: SheetKind?) {
+        if isExporting, activeSheet == .export, let sheet, sheet != .export {
+            statusMessage = "An export is running — stop it or let it finish first"
+            return
+        }
+        activeSheet = sheet
+    }
 
     var showKeyReference: Bool {
         get { activeSheet == .keyReference }
-        set { activeSheet = newValue ? .keyReference : (showKeyReference ? nil : activeSheet) }
+        set { present(newValue ? .keyReference : (showKeyReference ? nil : activeSheet)) }
     }
     var showExportSheet: Bool {
         get { activeSheet == .export }
-        set { activeSheet = newValue ? .export : (showExportSheet ? nil : activeSheet) }
+        set { present(newValue ? .export : (showExportSheet ? nil : activeSheet)) }
     }
     var showIngestSheet: Bool {
         get { activeSheet == .ingest }
-        set { activeSheet = newValue ? .ingest : (showIngestSheet ? nil : activeSheet) }
+        set { present(newValue ? .ingest : (showIngestSheet ? nil : activeSheet)) }
     }
 
     /// True while anything modal is on screen — the bare-key grammar stands down.
@@ -479,8 +1532,25 @@ final class AppState: ObservableObject {
 
     // MARK: Editor
 
-    @Published var recipes: [URL: Recipe] = [:]
-    @Published var activeSection: PanelSection = .basic
+    /// Every photograph's edit, keyed by file.
+    ///
+    /// DELIBERATELY NOT `@Published`. It is written once per mouse event for the whole
+    /// length of a slider drag, and publishing it here fired `objectWillChange` on an
+    /// object that the menu bar, the filmstrip, the grid, the sidebar, the filter bar
+    /// and the status bar all observe — none of which show an edit. `EditRevision` is
+    /// the signal now, and its header has the whole argument, including the rule for
+    /// any view added later that reads a recipe.
+    var recipes: [URL: Recipe] = [:] {
+        didSet { edits.bump() }
+    }
+
+    /// The invalidation the twelve edit-facing views subscribe to. Hung off `recipes`'
+    /// `didSet` rather than called at each of the five mutation sites: a notification
+    /// you have to remember to send is one that eventually is not sent, and the failure
+    /// mode — a panel that renders once and then silently stops following the
+    /// photograph — is not one a test in this repository would catch.
+    let edits = EditRevision()
+
     @Published var showBefore = false
     /// What the next click on the image is FOR, if anything. The picker overlay only
     /// exists while this is set, so it can never eat a pan or a click-to-zoom the rest
@@ -490,6 +1560,19 @@ final class AppState: ObservableObject {
     /// the same click and the same coordinate inverse, and four booleans would be four
     /// chances for two of them to be true at once.
     @Published var pickTarget: PickTarget?
+
+    /// Which mixer band the Colour panel is editing, and whether it is editing all
+    /// eight at once.
+    ///
+    /// These were `@State` inside `ColorPanel` and they moved here for one reason: the
+    /// eyedropper resolves on the render actor and has to write the answer somewhere the
+    /// panel will see. That is a real cost — a band click now publishes, and a publish
+    /// re-bodies the window — and it is affordable precisely because it is a CLICK.
+    /// `CommandState` exists to keep per-mouse-event work off this path; one publish per
+    /// deliberate selection is what that budget was protecting.
+    @Published var mixerBand: Int = 0
+    @Published var mixerAllBands: Bool = false
+
     /// Which mask the loupe is showing as an overlay, if any. Setting it rasterizes
     /// that mask's alpha.
     @Published var soloMaskOverlay: String? {
@@ -503,6 +1586,24 @@ final class AppState: ObservableObject {
     @Published var activeMaskID: String?
     @Published var activeComponentIndex: Int = 0
     @Published var clippingOverlay: ClippingOverlay.Mode?
+    /// Focus peaking — the edge-detection overlay that makes a wide-aperture or
+    /// manual-focus roll cullable at all. At grid size a sharp frame and a near miss are
+    /// the same picture; this is the only instrument in the app that tells them apart
+    /// without zooming every frame to 1:1 one at a time.
+    ///
+    /// ONE VALUE, not three published properties. `FocusPeakingSettings` carries the
+    /// switch, the sensitivity and the tint together because `@Published` broadcasts per
+    /// property: three of them would re-body the window three times for the one ⇧F
+    /// keystroke that writes all three, and re-bodying the window while the photograph is
+    /// on screen is the exact bill `DragBroadcastTests` exists to stop this app running
+    /// up again. The struct is `Equatable`, so a write that changes nothing still costs
+    /// one broadcast rather than none — but never more than one.
+    ///
+    /// It lives here beside the clipping overlay and the soft proof rather than in the
+    /// recipe for the reason docs/11 gives for both: peaking is a way of LOOKING at a
+    /// photograph, not an edit of it. Switching frames must not carry it along, and
+    /// copying settings must not paste it.
+    @Published var focusPeaking: FocusPeakingSettings = .off
     /// The soft proof, which is a VIEWING mode and not an edit (docs/11) — so it lives
     /// here beside the clipping overlay rather than in the recipe, and switching photos
     /// or copying settings never carries it along.
@@ -521,10 +1622,41 @@ final class AppState: ObservableObject {
     /// user happens to touch a slider.
     @Published var showHistogram = true { didSet { scopesBecameVisible(oldValue) } }
     @Published var showScopes = false { didSet { scopesBecameVisible(oldValue) } }
+    /// The latency instrument (docs/23 M1b): draft/settle wall times and input→draft
+    /// in the loupe's corner. Debug menu; off by default and free when off.
+    @Published var showLatencyHUD = false {
+        didSet {
+            LatencyHUD.shared.enabled = showLatencyHUD
+            refreshCommandState()
+        }
+    }
     /// The histogram and scopes for the current photo, binned from a small proxy of
     /// the actual composite off the main actor.
     @Published var scopes: ScopeData?
     var scopeGeneration: UInt64 = 0
+
+    /// `⇧H` — the cull-time clipping panel (docs/10 §10.5, README goal 3).
+    ///
+    /// A separate switch from `showHistogram` because the two instruments measure
+    /// different images and answer different questions. The histogram bins the render;
+    /// this bins the decoded scene-linear frame, before every Lumen stage and before
+    /// the display transform, and reports per-channel clipped percentages. It is not
+    /// the sensor's mosaic — nothing here can read one — and `RawTruth` supplies the
+    /// words the panel uses to say so.
+    @Published var showRawTruth = false { didSet { rawTruthBecameVisible(oldValue) } }
+    /// The measurement for `primarySelection`, from the cache when there is one.
+    @Published var rawTruth: RawStatistics?
+    /// How the measurement in hand was taken, when it was taken this session. Nil for
+    /// one read back from the cache — the row records its own site stride and the
+    /// readout rebuilds the caption from that.
+    @Published var rawTruthPlan: RawTruth.Plan?
+    /// Set while a measurement is being taken, so the panel can say "measuring" rather
+    /// than showing the last photo's numbers under this photo's name.
+    @Published var rawTruthMeasuring = false
+    var rawTruthGeneration: UInt64 = 0
+    /// The inspection currently held down (`[` / `]`), or nil. Never written to a
+    /// recipe: it is a display gain over the frame already on screen.
+    @Published var inspectionHold: InspectionHold?
     /// Which folder scan is the current one. Opening B while A is still enumerating
     /// must not let A's results land on top of B's.
     var scanGeneration: UInt64 = 0
@@ -534,7 +1666,14 @@ final class AppState: ObservableObject {
 
     let thumbnails = ThumbnailLoader()
     let history = HistoryStack()
-    private(set) var catalog: CatalogService?
+    private(set) var catalog: CatalogService? {
+        didSet { refreshCommandState() }
+    }
+    /// The disk preview cache. Lives beside the catalog because it is bookkeeping in
+    /// `cache.preview` plus payloads under `~/Library/Caches/Lumen`, and nil when the
+    /// catalog could not be opened — a session without one browses out of memory, which
+    /// is what every session did before this was wired.
+    private(set) var previews: PreviewStore?
     let renderCoordinator = RenderCoordinator()
 
     /// The export recipes, as edited. Persisted on every change.
@@ -562,9 +1701,17 @@ final class AppState: ObservableObject {
     private static var storedExportRecipes: [ExportRecipe] { loadExportRecipes() }
 
     private static func loadExportRecipes() -> [ExportRecipe] {
+        // `decodeList` and not `JSONDecoder().decode([ExportRecipe].self, …)`: an array
+        // decodes atomically, so ONE unreadable element used to take the whole list with
+        // it and this `guard` answered with the stock four. The tolerant per-field
+        // decoding in `ExportRecipe` cannot reach that — it is the container that throws.
+        //
+        // `nil` here means the blob is missing or is not an array at all, which is the
+        // only case the defaults are right for. An EMPTY list is returned as itself: a
+        // photographer who deleted all his presets meant it, and handing back four he
+        // threw away is the same class of wrong as losing the ones he made.
         guard let data = UserDefaults.standard.data(forKey: exportRecipesKey),
-              let stored = try? JSONDecoder().decode([ExportRecipe].self, from: data),
-              !stored.isEmpty else {
+              let stored = ExportRecipe.decodeList(data) else {
             return ExportRecipe.defaults
         }
         return stored
@@ -583,18 +1730,119 @@ final class AppState: ObservableObject {
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
 
-    /// `HistoryStack` is its own observable object, and SwiftUI only re-renders a
-    /// view for the object it observes. The Edit menu reads `state.history`, so
-    /// without this the undo item's enablement only refreshed when a recipe happened
-    /// to change on the same tick — correct by accident, and wrong the first time
-    /// history moves on its own.
-    private var historyObserver: AnyCancellable?
+    /// Whether the running batch has been asked to stop.
+    ///
+    /// A flag rather than `Task.cancel()`, and the distinction is the whole design: the
+    /// file being written right now has to finish encoding and rename into place. Tearing
+    /// down mid-encode is how you get the truncated delivery the temp-file-and-rename
+    /// dance in `PipelineRenderer.write` exists to prevent — cancelling into a half-file
+    /// would defeat the thing that makes cancelling safe.
+    @Published private(set) var exportCancelRequested = false
 
-    init() {
+    /// Ask the running batch to stop after the file now being written.
+    ///
+    /// Guarded on `isExporting` so a stale click cannot arm the flag for the NEXT batch,
+    /// which would cancel a run the photographer had just started.
+    func cancelExport() {
+        guard isExporting else { return }
+        exportCancelRequested = true
+    }
+
+    /// Disarm the flag. Called at both ends of a batch — on the way in so a run that was
+    /// cancelled and restarted does not inherit the previous stop, and on the way out so
+    /// the next one starts clean.
+    ///
+    /// A named verb rather than a settable property because the setter is `private(set)`
+    /// and the batch lives in `AppStateActions.swift`: the only way to arm this flag is
+    /// `cancelExport()`, which checks that a batch is actually running first.
+    func clearExportCancel() {
+        exportCancelRequested = false
+    }
+
+    /// What the menu bar and the develop footer DISPLAY about history, the catalog and
+    /// the selection — kept here so those two surfaces can observe something small
+    /// instead of observing this object.
+    ///
+    /// This replaces a `history.objectWillChange` → `self.objectWillChange` forward.
+    /// The forward answered a real question (the Edit menu's undo item only refreshed
+    /// when a recipe happened to change on the same tick) at a price nobody had priced:
+    /// `updateRecipe` records a step on every mouse event of every drag, coalescing
+    /// REPLACES `steps[position - 1]`, and the forward turned that into a full
+    /// invalidation of the window and of `LumenApp`'s `Scene` — all seven `.commands`
+    /// menus rebuilt per mouse event. `CommandState`'s header has the rest of it.
+    let commands = CommandState()
+
+    /// WHERE THE SESSION'S TWO ON-DISK LOCATIONS COME FROM — as closures, rather than
+    /// as calls hard-coded inside `openCatalog`.
+    ///
+    /// This pair is the test seam, and it is the only reason either property exists.
+    /// `init()` opened the REAL catalog under `~/Library/Application Support/Lumen` and
+    /// created the REAL preview cache under `~/Library/Caches/Lumen`, unconditionally,
+    /// from the initializer body — so merely CONSTRUCTING an `AppState` was an act with
+    /// consequences on the owner's own machine, and no test could ever do it. That is
+    /// not a small inconvenience. An `AppState` is what every view in this app needs as
+    /// its `@EnvironmentObject`, so a hub that cannot be constructed in a test is a UI
+    /// layer that cannot be HOSTED in a test — which is why every UI check in this tree
+    /// is a scan of source text, and why this application has never once measured its
+    /// own layout. `Package.swift`'s LumenAppTests header states the restriction in as
+    /// many words: "never a full `AppState`, whose init opens the real catalog in
+    /// Application Support". This closes that, and nothing else.
+    ///
+    /// Closures and not a `URL`, because production's route is not a constant: it is
+    /// `FileManager`'s lookup with `create: true`, which can fail, and whose failure has
+    /// to keep landing in `openCatalog`'s existing `catch` — "catalog unavailable, edits
+    /// live in memory this session" — rather than in an initializer that has no way to
+    /// say it. Deferring the whole call keeps the failure where it was and keeps the
+    /// order it happened in. Nothing about the app's route to its catalog moved; it only
+    /// acquired a name.
+    private let catalogDirectory: () throws -> URL
+
+    /// The disk half of the browse cache, by the same seam and for the same reason:
+    /// `PreviewStore.defaultDirectory()` CREATES `~/Library/Caches/Lumen` on the way
+    /// past, so a test that redirected only the catalog would still leave a directory
+    /// behind in the owner's Library and would still not be an isolated test.
+    private let previewDirectory: () -> URL?
+
+    /// Production's catalog location: `~/Library/Application Support/Lumen`, created if
+    /// it is not there. Lifted verbatim out of `openCatalog` — same lookup, same
+    /// `create: true`, same `createDirectory` behind it — and still invoked from inside
+    /// that method's `do`, so both throws land in the same `catch` they always did.
+    nonisolated static func applicationSupportCatalogDirectory() throws -> URL {
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        let directory = support.appendingPathComponent("Lumen", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// The app constructs this as `AppState()`, and both defaults are production's own
+    /// routes, so the launch path is character for character the one it has always been.
+    /// A test passes temporary directories instead and gets a hub that touches nothing
+    /// outside them.
+    init(catalogDirectory: @escaping () throws -> URL
+            = AppState.applicationSupportCatalogDirectory,
+         previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory) {
+        self.catalogDirectory = catalogDirectory
+        self.previewDirectory = previewDirectory
         openCatalog()
-        historyObserver = history.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        // Every history mutation, and nothing else. `refresh` is equality-guarded, so
+        // a drag — one coalesced step, label "Edit" from first event to last — reaches
+        // it on every event and publishes on none of them.
+        history.onChange = { [weak self] in self?.refreshCommandState() }
+        refreshCommandState()
+    }
+
+    /// Bring `commands` up to date. Cheap and idempotent by construction, so it is
+    /// called from anywhere one of its five facts might have moved rather than from a
+    /// carefully-maintained list of places.
+    func refreshCommandState() {
+        commands.refresh(undoLabel: history.undoLabel,
+                         redoLabel: history.redoLabel,
+                         hasCatalog: catalog != nil,
+                         hasSelection: primarySelection != nil,
+                         showLatencyHUD: showLatencyHUD)
     }
 
     // MARK: Derived
@@ -621,7 +1869,104 @@ final class AppState: ObservableObject {
     /// every mutation of those four inputs calls it.
     private var photoCache: [PhotoItem]?
 
-    func invalidatePhotoCache() { photoCache = nil }
+    /// URL to catalog row id, memoised beside the contact sheet.
+    ///
+    /// `persist` needed this and did not have it, so it ran
+    /// `allPhotos.first(where: { $0.id == url })` — a linear scan of every photograph in
+    /// the source, comparing URLs, ONCE PER CHANGED PHOTO PER MOUSE EVENT. On a batch
+    /// drag over a forty-frame selection at five thousand files that is two hundred
+    /// thousand URL comparisons per event, on the main actor, in front of the render.
+    /// And it was pure waste: `updateRecipe` iterates `editTargets`, which are
+    /// `PhotoItem`s that already carry `catalogID`. The scan existed only because
+    /// `persist` had been handed a `[URL: Recipe]` and had thrown the items away.
+    ///
+    /// Keyed and invalidated exactly like `photoCache`, because it is derived from the
+    /// same array.
+    private var catalogIDCache: [URL: Int64]?
+
+    /// Where a photograph sits in the roll, without walking the roll to find out.
+    ///
+    /// Six call sites reached for `photos.firstIndex(of:)` on the keystroke path —
+    /// `comparisonSet`, both halves of a shift-extended `select`, `moveSelection` on
+    /// every arrow press, `advanceIfNeeded` after a cull and `cursorIndex`. Each is a
+    /// linear scan, and at least three of them run on a single arrow key.
+    ///
+    /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
+    /// an approximation of what those calls did — it is the same comparison, memoised.
+    /// `RollCursor` verifies its own answer against the roll it is handed (the length
+    /// matches and the photograph is still standing at the remembered index) before it
+    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
+    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
+    /// that cannot be checked in constant time.
+    private var rollCursor = RollCursor()
+
+    /// The index of `photo` in the roll as it stands, or nil when the roll no longer
+    /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
+    func rollIndex(of photo: PhotoItem) -> Int? {
+        let list = photos
+        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+    }
+
+    func invalidatePhotoCache() {
+        photoCache = nil
+        catalogIDCache = nil
+        cullCountsCache = nil
+        selectedPhotosCache = nil
+    }
+
+    /// One pass over the roll for every number the chrome shows, memoised.
+    ///
+    /// `FilterBar` is on screen in every view mode and used to run FOURTEEN separate
+    /// `reduce` passes over `allPhotos` per body evaluation — three flags, five rating
+    /// thresholds, six labels — and the sidebar ran two `filter` passes more, on every
+    /// one of the ≥2 `objectWillChange` publishes a slider event produces. At 5,000
+    /// photos that is ~80,000 element visits of pure bookkeeping per mouse move,
+    /// before a pixel was requested. The numbers only change when the roll or a cull
+    /// decision does, which is exactly `invalidatePhotoCache()`'s definition.
+    struct CullCounts: Equatable {
+        var flags: [PhotoFlag: Int] = [:]
+        /// Index r = photos with rating ≥ r, for r in 1...5. Index 0 unused.
+        var ratingAtLeast = [Int](repeating: 0, count: 6)
+        var labels: [ColorLabel: Int] = [:]
+
+        /// Pure and static so `LumenAppTests` can pin it without constructing an
+        /// `AppState` — whose init opens the real catalog in Application Support,
+        /// which no unit test should touch.
+        static func counting(_ photos: [PhotoItem]) -> CullCounts {
+            var counts = CullCounts()
+            for photo in photos {
+                counts.flags[photo.flag, default: 0] += 1
+                counts.labels[photo.label, default: 0] += 1
+                if photo.rating > 0 {
+                    for r in 1...Swift.min(photo.rating, 5) {
+                        counts.ratingAtLeast[r] += 1
+                    }
+                }
+            }
+            return counts
+        }
+    }
+
+    private var cullCountsCache: CullCounts?
+    private var selectedPhotosCache: [PhotoItem]?
+
+    var cullCounts: CullCounts {
+        if let cullCountsCache { return cullCountsCache }
+        let counts = CullCounts.counting(allPhotos)
+        cullCountsCache = counts
+        return counts
+    }
+
+    /// The catalog row for a file, in one lookup.
+    func catalogID(for url: URL) -> Int64? {
+        if let catalogIDCache { return catalogIDCache[url] }
+        var built = [URL: Int64](minimumCapacity: allPhotos.count)
+        for item in allPhotos {
+            if let id = item.catalogID { built[item.id] = id }
+        }
+        catalogIDCache = built
+        return built[url]
+    }
 
     var photos: [PhotoItem] {
         if let photoCache { return photoCache }
@@ -663,9 +2008,7 @@ final class AppState: ObservableObject {
         case .flag:
             return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
         case .label:
-            return filtered.sorted {
-                by(($0.label?.metaSlot ?? 0) < ($1.label?.metaSlot ?? 0))
-            }
+            return filtered.sorted { by($0.label.rawValue < $1.label.rawValue) }
         default:
             return filtered.sorted {
                 by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
@@ -678,7 +2021,10 @@ final class AppState: ObservableObject {
     /// selecting forty frames quietly shrank both the export and the count that
     /// promised what would be exported.
     var selectedPhotos: [PhotoItem] {
-        allPhotos.filter { selection.contains($0.id) }
+        if let selectedPhotosCache { return selectedPhotosCache }
+        let selected = allPhotos.filter { selection.contains($0.id) }
+        selectedPhotosCache = selected
+        return selected
     }
 
     // MARK: The library query
@@ -882,6 +2228,11 @@ final class AppState: ObservableObject {
             let cameras = await catalog.facets(.camera, folderPath: folder.path)
             let lenses = await catalog.facets(.lens, folderPath: folder.path)
             guard let self else { return }
+            // The folder guard its siblings all carry: two overlapping refreshes
+            // (folder A then B) can resume out of order, and A's chips must not
+            // replace B's. Membership changes re-call this, so a dropped stale
+            // answer costs nothing.
+            guard self.folderURL == folder else { return }
             self.collections = albums
             self.keywordVocabulary = keywords.map {
                 LibraryFacet(name: $0.value, count: $0.count)
@@ -1112,6 +2463,26 @@ final class AppState: ObservableObject {
         return strokeSet(ref: ref) != nil
     }
 
+    /// The brush blobs a delivery needs, and the ones it could not get.
+    ///
+    /// This is the export path's answer to `strokeSets(for:)`, which is memory-only by
+    /// design and therefore not an answer at all for a file being written: the blobs
+    /// load on a detached task at catalog open, so an export starting before that task
+    /// finishes saw an empty cache, rasterized every brush component to nothing, and
+    /// delivered the frame with its masking silently absent.
+    ///
+    /// `strokesAreResolved` reaches the blob store synchronously on a miss — a few tens
+    /// of kilobytes, once per component — so asking the question also warms the cache
+    /// that `strokeSets(for:)` reads on the next line. Blocking here is the point: the
+    /// alternative is a wrong file.
+    func resolveStrokeSets(for recipe: Recipe)
+        -> (sets: [String: BrushStrokeSet], unresolved: [String]) {
+        let unresolved = BrushStrokes.unresolvedReferences(in: recipe) { component in
+            self.strokesAreResolved(for: component)
+        }
+        return (sets: strokeSets(for: recipe), unresolved: unresolved)
+    }
+
     /// Record a set the user just painted. The bytes are already in hand, so this
     /// closes the loop without a round trip through the disk.
     func remember(_ set: BrushStrokeSet, ref: String) {
@@ -1137,9 +2508,15 @@ final class AppState: ObservableObject {
                 if let set = blobs.strokeSet(for: ref) { loaded[ref] = set }
             }
             guard !loaded.isEmpty else { return }
-            await MainActor.run {
+            // `loaded` is bound to a `let` before the hop, and `self` is captured
+            // explicitly in the capture list rather than referenced through the
+            // enclosing scope. Both were warnings — "reference to captured var in
+            // concurrently-executing code" — and both are ERRORS under the Swift 6
+            // language mode this package will move to.
+            let resolved = loaded
+            await MainActor.run { [weak self] in
                 guard let self else { return }
-                for (ref, set) in loaded { self.strokeCache[ref] = set }
+                for (ref, set) in resolved { self.strokeCache[ref] = set }
             }
         }
     }
@@ -1156,12 +2533,7 @@ final class AppState: ObservableObject {
 
     private func openCatalog() {
         do {
-            let support = try FileManager.default.url(
-                for: .applicationSupportDirectory, in: .userDomainMask,
-                appropriateFor: nil, create: true)
-            let directory = support.appendingPathComponent("Lumen", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
+            let directory = try catalogDirectory()
             let service = try CatalogService(directory: directory)
             service.onFailure = { [weak self] message in
                 Task { @MainActor in
@@ -1170,7 +2542,21 @@ final class AppState: ObservableObject {
                 }
             }
             catalog = service
-            catalogStatus = nil
+            // The browse cache's disk half (docs/15 §15.6). Payloads go under
+            // `~/Library/Caches` rather than beside the catalog because that is where
+            // the OS expects reclaimable data and where Time Machine will not carry
+            // tens of gigabytes of regenerable previews.
+            if let cacheDirectory = previewDirectory() {
+                let store = PreviewStore(catalog: service, directory: cacheDirectory)
+                previews = store
+                thumbnails.attach(previews: store)
+            }
+            // The open-time integrity check has already run and already acted (§15.8).
+            // Told, not asked: by the time this line executes the catalog on disk is
+            // either the one that passed or the newest backup that did, and the only
+            // thing left is to say so. A healthy catalog has no notice and stays silent.
+            catalogStatus = service.recovery.notice
+            if let notice = service.recovery.notice { statusMessage = notice }
         } catch {
             catalog = nil
             catalogStatus = "Catalog unavailable — edits live in memory this session "
@@ -1191,7 +2577,54 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: Reopening the last folder
+
+    /// Security-scoped bookmark of the last folder the owner opened, so a launch does
+    /// not start at the empty state every single time. UserDefaults rather than the
+    /// catalog's `folder.bookmark` column for now: the column has no store API yet,
+    /// and a bookmark is genuinely per-machine state — it names a sandbox grant, not a
+    /// fact about the photographs. (When folder rows grow an API, this migrates.)
+    private static let lastFolderBookmarkKey = "lumen.lastFolder.bookmark"
+
+    /// Reopen the folder from the previous session, if its bookmark still resolves.
+    /// Called once at launch by the scene; quietly does nothing on a fresh install, a
+    /// deleted folder, or a revoked grant — the empty state is the correct fallback,
+    /// not an error dialog about a folder the owner may not remember.
+    func reopenLastFolder() {
+        guard folderURL == nil,
+              let data = UserDefaults.standard.data(forKey: Self.lastFolderBookmarkKey)
+        else { return }
+        var stale = false
+        // Scoped first, plain second: the app ships ad-hoc signed with no sandbox
+        // entitlement today, where scoped bookmarks fail to CREATE but a plain one
+        // resolves fine — and if it ever moves into the sandbox, the scoped branch is
+        // the one that works. `startAccessingSecurityScopedResource` is called for the
+        // scoped case and its result deliberately unchecked: on a plain bookmark it
+        // returns false and means nothing.
+        let url = (try? URL(resolvingBookmarkData: data, options: [.withSecurityScope],
+                            relativeTo: nil, bookmarkDataIsStale: &stale))
+            ?? (try? URL(resolvingBookmarkData: data, options: [],
+                         relativeTo: nil, bookmarkDataIsStale: &stale))
+        guard let url else { return }
+        _ = url.startAccessingSecurityScopedResource()
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        if stale { rememberFolder(url) }
+        openFolder(url)
+    }
+
+    private func rememberFolder(_ url: URL) {
+        let data = (try? url.bookmarkData(options: [.withSecurityScope],
+                                          includingResourceValuesForKeys: nil,
+                                          relativeTo: nil))
+            ?? (try? url.bookmarkData(options: [],
+                                      includingResourceValuesForKeys: nil,
+                                      relativeTo: nil))
+        guard let data else { return }
+        UserDefaults.standard.set(data, forKey: Self.lastFolderBookmarkKey)
+    }
+
     func openFolder(_ url: URL) {
+        rememberFolder(url)
         folderURL = url
         selection = []
         primarySelection = nil
@@ -1204,16 +2637,14 @@ final class AppState: ObservableObject {
         isScanning = true
         statusMessage = "Scanning…"
 
-        // The undo stack belongs to the folder that produced it. `HistoryStack.clear`
-        // existed and had no callers, and `recipes` was never reset, so opening folder
-        // A, editing a frame, opening folder B and pressing ⌘Z wrote a recipe for a URL
-        // that is no longer in `allPhotos`: no catalog row was found, so the catalog
-        // write was skipped — but the sidecar write was still enqueued, silently
-        // reverting an .xmp next to a photo in a folder that is not open, with nothing
-        // on screen changing to show it.
-        history.clear()
-        recipes = [:]
-
+        // The recipes/history wipe happens in `applyScan`, at the moment the roll
+        // actually changes — NOT here. It used to happen here, seconds before the new
+        // roll arrived, while the OLD roll stayed fully visible and clickable: a
+        // click plus one slider move during the scan window edited a photo whose
+        // saved recipe had just been wiped, so the edit started from defaults and
+        // persisted default-plus-delta over the real recipe in the catalog AND the
+        // sidecar. The wipe and the roll swap are one atomic step or they are a
+        // data-loss window.
         let extensions = Self.browsableExtensions
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -1225,28 +2656,42 @@ final class AppState: ObservableObject {
             // main-actor hop, which stopped the run loop for the whole of a 5,000
             // frame card.
             let stored = catalog?.registerAndLoad(folder: url, files: found) ?? [:]
-            await MainActor.run {
+            // Whether the roll this scan built is still the one the user wants —
+            // decided on the main actor, and the BACKFILL LAUNCH depends on it too:
+            // a superseded folder's scan used to fire its full EXIF pass anyway,
+            // thousands of file opens on the catalog's serial maintenance queue,
+            // AHEAD of the folder actually on screen (audit queue item 11).
+            let stillCurrent = await MainActor.run { () -> Bool in
                 // Open folder A, then B before A finishes, and A's scan can land
                 // second. The newest folder the user asked for is the one on screen.
-                guard let self, self.scanGeneration == generation else { return }
+                guard let self, self.scanGeneration == generation else { return false }
                 self.applyScan(found, stored: stored)
+                return true
             }
+            guard stillCurrent else { return }
             // AFTER the grid, never before it. Reading EXIF is a file open per photo,
             // and capture time, body, lens and exposure are what ten of the twelve sort
             // orders and every metadata filter read — until now nothing wrote them, so
             // all of it was reading NULL. Fire-and-forget on the catalog's own serial
             // queue: it is an enrichment, it resumes by itself next launch, and nothing
             // on screen waits for it.
-            catalog?.backfillMetadata(folder: url) { done, total in
+            catalog?.backfillMetadata(folder: url) { _, finished in
                 // The default sort is capture time and the grid is already up, ordered
                 // on rows whose `capture_at` is still NULL. Re-asking when the last
                 // batch lands is what turns the EXIF pass into something the user can
                 // see; without it the frames only fall into shooting order on the next
                 // launch, which reads as the sort having ignored them.
-                guard done >= total else { return }
+                guard finished else { return }
                 Task { @MainActor [weak self] in
                     guard let self, self.folderURL == url else { return }
                     self.refreshLibraryQuery()
+                    // The facet lists read the very rows this pass just filled, and
+                    // nothing else re-asks until membership changes — so without this
+                    // the camera and lens menus said "No camera has been read yet"
+                    // until the NEXT launch, on a folder whose EXIF had been sitting
+                    // in the catalog since seconds after it opened (session C, the
+                    // owner's Sony a7 IV / Lumix GX85 report).
+                    self.refreshLibrarySections()
                 }
             }
         }
@@ -1268,7 +2713,22 @@ final class AppState: ObservableObject {
     }
 
     private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState]) {
+        // The old roll's last deferred writes land BEFORE its state is wiped — a
+        // gesture whose release never arrived must not lose its edit to a folder
+        // switch (the same promise `prepareToQuit` makes at the other exit).
+        // Through `sliderGesture(active: false)` so the watchdog is retired with it.
+        sliderGesture(active: false)
+        // The undo stack and the in-memory recipes belong to the roll that produced
+        // them; they die at the exact moment `allPhotos` is replaced, never earlier.
+        // (⌘Z across a folder switch used to revert an .xmp in a folder that is not
+        // open; wiping early opened the scan-window loss above. Both ends of the
+        // history live here now.)
+        history.clear()
         var items = urls.map { PhotoItem(id: $0) }
+        // Built locally and assigned once. `recipes` signals every write, and a folder
+        // of five thousand photographs would otherwise signal five thousand times
+        // before the first frame is drawn.
+        var loaded: [URL: Recipe] = [:]
         for i in items.indices {
             if let row = stored[items[i].id] {
                 items[i].catalogID = row.catalogID
@@ -1276,10 +2736,15 @@ final class AppState: ObservableObject {
                 items[i].rating = row.rating
                 items[i].label = row.label
                 items[i].iso = row.iso
-                if let recipe = row.recipe { recipes[items[i].id] = recipe }
+                if let recipe = row.recipe { loaded[items[i].id] = recipe }
             }
         }
+        recipes = loaded
         allPhotos = items
+        // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
+        // dictionary is the join, and it has been coming back from `registerAndLoad`
+        // unread for as long as both have existed.
+        previews?.register(stored.mapValues(\.catalogID))
         for recipe in recipes.values where !recipe.masks.isEmpty {
             loadStrokeSets(for: recipe)
         }
@@ -1288,13 +2753,39 @@ final class AppState: ObservableObject {
         refreshLibraryQuery()
         refreshLibrarySections()
         isScanning = false
-        statusMessage = "\(items.count) photo\(items.count == 1 ? "" : "s")"
+        // NO COUNT HERE. `ContentView.countText` owns the count and prints it a few
+        // points to the right, so writing it into `statusMessage` put "239 photos" on
+        // screen twice, in one band, permanently — `statusMessage` is cleared only by a
+        // pick cancel or a colour pick, so it was not a transient toast. Counting the
+        // sidebar's "All photos 239" and "This folder 239", both drawn as active, the
+        // number 239 appeared four times in one window in three phrasings (docs/30 §2.4).
+        // This one had the weakest claim: it is a scan completing, and a scan that
+        // completes with the expected number is not news.
+        statusMessage = nil
         if primarySelection == nil, let first = photos.first {
             select(first)
         }
     }
 
     // MARK: Selection
+
+    /// What Compare and Survey are showing.
+    ///
+    /// A real multi-selection is the answer; with one photo selected the obvious second
+    /// frame is its neighbour, which is what "compare this to the next one" means during
+    /// a cull. It lives here rather than in the view because the arrow keys have to know
+    /// what set they are moving inside — the view drawing it and the key moving through
+    /// it disagreeing about which set that is would be the same class of bug again.
+    var comparisonSet: [PhotoItem] {
+        let selected = selectedPhotos
+        if selected.count >= 2 { return selected }
+        guard let primary = primarySelection else { return selected }
+        let all = photos
+        if let index = rollIndex(of: primary), index + 1 < all.count {
+            return [primary, all[index + 1]]
+        }
+        return [primary]
+    }
 
     func select(_ photo: PhotoItem, extending: Bool = false, toggling: Bool = false) {
         let changedPhoto = primarySelection?.id != photo.id
@@ -1305,8 +2796,8 @@ final class AppState: ObservableObject {
                 selection.insert(photo.id)
             }
         } else if extending, let anchor = primarySelection,
-                  let from = photos.firstIndex(of: anchor),
-                  let to = photos.firstIndex(of: photo) {
+                  let from = rollIndex(of: anchor),
+                  let to = rollIndex(of: photo) {
             let range = from <= to ? from...to : to...from
             selection = Set(photos[range].map(\.id))
         } else {
@@ -1314,34 +2805,98 @@ final class AppState: ObservableObject {
         }
         primarySelection = photo
         guard changedPhoto else { return }
-        // Every path lands here, including ⌘-click and ⇧-click, which used to return
-        // early and leave the histogram describing the previous frame.
-        //
-        // Mask selection is per-photo, so it does not travel: mask "c-9F3B" on this
-        // photo is not the same object as mask 1 on the next one, and carrying the
-        // index across would point the on-image handles at a component that is not
-        // there.
+        cursorDidChange(to: photo)
+    }
+
+    /// Move the cursor to a photo WITHOUT rebuilding the selection.
+    ///
+    /// Compare and Survey are views of the selection: the frames on screen are the
+    /// selected photos. A key that moves attention between them must not edit them, and
+    /// `select` — which resets `selection` to a single photo — did exactly that, so →
+    /// in a six-frame survey collapsed it to two.
+    func moveCursor(to photo: PhotoItem) {
+        let changedPhoto = primarySelection?.id != photo.id
+        primarySelection = photo
+        guard changedPhoto else { return }
+        cursorDidChange(to: photo)
+    }
+
+    /// Everything that has to follow the cursor, wherever the cursor was moved from.
+    ///
+    /// Every path lands here, including ⌘-click and ⇧-click, which used to return early
+    /// and leave the histogram describing the previous frame.
+    ///
+    /// Mask selection is per-photo, so it does not travel: mask "c-9F3B" on this photo
+    /// is not the same object as mask 1 on the next one, and carrying the index across
+    /// would point the on-image handles at a component that is not there.
+    private func cursorDidChange(to photo: PhotoItem) {
         activeMaskID = nil
         activeComponentIndex = 0
+        // AND THE SOLO, for the same reason and it was the one that got left behind. A
+        // mask id is per-photograph, so after arrowing to the next frame `soloMaskOverlay`
+        // still held the previous photo's mask: the overlay did not draw (its raster
+        // comes back nil for an id this recipe has no mask for) AND the next press of `O`
+        // took the "solo is set, clear it" branch — so the first O after every photo
+        // change did nothing and you had to press it twice.
+        // And the ambient state with it: a pin, a pending hover and a pending flash all
+        // name a mask that belongs to the photograph being left.
+        maskOverlayPinned = false
+        maskOverlayResumeID = nil
+        // The persistent overlay is per-mask and a mask id is per-photograph, so it
+        // travels with the pin and the pending timers rather than outliving them.
+        maskOverlayPersistentID = nil
+        cancelMaskOverlayTimers()
+        soloMaskOverlay = nil
         loadStrokeSets(for: recipe(for: photo))
         scheduleScopeRefresh()
+        // The clipping panel follows the cursor and NOTHING ELSE. It is measured on the
+        // decode, before every Lumen stage, so no slider in the app can move a number
+        // in it — which is exactly why the cache is keyed on the file and why the edit
+        // paths above do not schedule it.
+        scheduleRawTruthRefresh()
         refreshMaskOverlay()
+        refreshMaskThumbnails()
     }
+
+    /// The direction the photographer last travelled, for `DecodeWarming`: forward
+    /// unless an arrow said otherwise. Starts forward because a shoot is opened at its
+    /// beginning and worked through, and because auto-advance only goes one way.
+    private(set) var movingForward: Bool = true
 
     func selectNext() { moveSelection(by: 1) }
     func selectPrevious() { moveSelection(by: -1) }
 
+    /// One arrow press. Which list it walks — the roll, or the selection being
+    /// compared — is `ArrowNavigation.step`, in LumenCore, where it has tests; this
+    /// method supplies the indices and carries out the answer.
     func moveSelection(by delta: Int) {
+        // Which way the read-ahead should look. Set here rather than inferred from two
+        // consecutive selections, because a jump (a filmstrip click, a filter change)
+        // has no direction and must not flip the guess for the next arrow press.
+        if delta != 0 { movingForward = delta > 0 }
         let list = photos
-        guard !list.isEmpty else { return }
-        guard let current = primarySelection,
-              let index = list.firstIndex(of: current) else {
-            select(list[0])
+        // The photos actually chosen, in the order the panes draw them — the same
+        // branch `comparisonSet` takes, so the set the key walks and the set on screen
+        // cannot be two different sets. Below two, a comparison is the cull gesture
+        // "this one against the next one" and the arrows browse the roll as usual.
+        let selected = selectedPhotos
+        let step = ArrowNavigation.step(
+            delta: delta,
+            libraryCursor: primarySelection.flatMap { rollIndex(of: $0) },
+            libraryCount: list.count,
+            selectionCursor: primarySelection.flatMap { selected.firstIndex(of: $0) },
+            selectionCount: selected.count,
+            comparing: viewMode == .compare || viewMode == .survey)
+        switch step {
+        case .stay:
             return
+        case .selectSingle(let index):
+            guard list.indices.contains(index) else { return }
+            select(list[index])
+        case .moveWithinSelection(let index):
+            guard selected.indices.contains(index) else { return }
+            moveCursor(to: selected[index])
         }
-        let next = Swift.min(Swift.max(index + delta, 0), list.count - 1)
-        guard next != index else { return }
-        select(list[next])
     }
 
     func selectAll() { selection = Set(photos.map(\.id)) }
@@ -1357,8 +2912,28 @@ final class AppState: ObservableObject {
     /// photos of which three are already picked must leave ten picked — deciding
     /// per-item toggled the three back off, which is how a pass over a selection ends
     /// up with holes in it.
+    /// Delete the mask the panel and canvas are pointed at.
+    ///
+    /// On `AppState` rather than in the panel because the keyboard needs it and the
+    /// panel's own `deleteMask` is private to a view — which is why Delete, while
+    /// masking, used to reach for the only deletion it could see and flag the
+    /// PHOTOGRAPH rejected instead.
+    ///
+    /// Through the pin, like every other path that removes a mask: deleting the mask
+    /// whose overlay was pinned would otherwise leave the pin standing over nothing,
+    /// which silently disables flash and hover for the rest of the session.
+    func deleteActiveMask() {
+        guard let id = activeMaskID ?? currentRecipe.masks.first?.id else { return }
+        updateRecipe(coalescingKey: nil, label: "Delete Mask") { recipe in
+            recipe.masks.removeAll { $0.id == id }
+        }
+        if soloMaskOverlay == id { unpinMaskOverlay() }
+        activeMaskID = currentRecipe.masks.first?.id
+        activeComponentIndex = 0
+    }
+
     func setFlag(_ flag: PhotoFlag) {
-        let target: PhotoFlag = referenceItem?.flag == flag ? .unflagged : flag
+        let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
         let from = cursorIndex
         mutateTargets("Flag") { $0.flag = target }
         advanceIfNeeded(from: from)
@@ -1373,9 +2948,7 @@ final class AppState: ObservableObject {
     }
 
     func setLabel(_ label: ColorLabel) {
-        // Pressing a colour that is already set clears it, which is now `nil` rather
-        // than a `.none` case — same gesture, one fewer enum case to mean "no value".
-        let target: ColorLabel? = referenceItem?.label == label ? nil : label
+        let target: ColorLabel = referenceItem?.label == label ? .none : label
         let from = cursorIndex
         mutateTargets("Label") { $0.label = target }
         advanceIfNeeded(from: from)
@@ -1383,6 +2956,13 @@ final class AppState: ObservableObject {
 
     private func scopesBecameVisible(_ wasOn: Bool) {
         if !wasOn { scheduleScopeRefresh() }
+    }
+
+    /// Opening the panel on an unmeasured frame has to measure it. docs/10 §10.5 gives
+    /// that request a ≤400 ms budget and lets it jump the queue, which is what the
+    /// on-demand path here is: nothing is measured until somebody asks.
+    private func rawTruthBecameVisible(_ wasOn: Bool) {
+        if !wasOn { scheduleRawTruthRefresh() }
     }
 
     /// The photo whose current state decides whether a cull key sets or clears.
@@ -1407,19 +2987,37 @@ final class AppState: ObservableObject {
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
-        for i in allPhotos.indices where targets.contains(allPhotos[i].id) {
-            let was = Self.culling(of: allPhotos[i])
-            body(&allPhotos[i])
-            let now = Self.culling(of: allPhotos[i])
+        // Mutate a local copy and publish once, for the reason `adoptCaptureISO`
+        // already documents: `allPhotos` is `@Published`, so a per-element write
+        // republishes the whole grid. This is the cull path, where a keystroke over a
+        // forty-frame selection therefore fired forty `objectWillChange` publishes and
+        // forty `invalidatePhotoCache()` runs — each one throwing away the contact
+        // sheet the next iteration rebuilds. Rating a whole selection is one edit and
+        // is now one publish.
+        var updated = allPhotos
+        var freshPrimary: PhotoItem?
+        for i in updated.indices where targets.contains(updated[i].id) {
+            let was = Self.culling(of: updated[i])
+            body(&updated[i])
+            let now = Self.culling(of: updated[i])
             guard now != was else { continue }
-            before[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: was)
-            after[allPhotos[i].id] = HistoryStack.PhotoEdit(culling: now)
-            catalog?.saveCullingState(allPhotos[i])
-            if allPhotos[i].id == primarySelection?.id {
-                primarySelection = allPhotos[i]
+            before[updated[i].id] = HistoryStack.PhotoEdit(culling: was)
+            after[updated[i].id] = HistoryStack.PhotoEdit(culling: now)
+            // Whether this keystroke is entitled to speak about the colour label. A
+            // flag or a rating is not: `photo.label` cannot tell "no label" from "a
+            // label this build has no word for", so asserting it deleted other tools'
+            // labels from the file.
+            catalog?.saveCullingState(updated[i], labelChanged: was.label != now.label)
+            if updated[i].id == primarySelection?.id {
+                freshPrimary = updated[i]
             }
         }
         guard !after.isEmpty else { return }
+        // Only now, and only once. `after` being empty means nothing actually changed,
+        // so the early return above also spares the grid a publish for a keystroke that
+        // set a rating to the rating it already had.
+        allPhotos = updated
+        if let freshPrimary { primarySelection = freshPrimary }
         // No coalescing key: every cull decision is its own step. One keystroke over a
         // multi-selection is already one step, because it is one `record` call.
         history.record(before: before, after: after, coalescingKey: nil, label: label)
@@ -1434,10 +3032,11 @@ final class AppState: ObservableObject {
     /// Put a culling state back on a photo, wherever it currently sits in the roll.
     private func restore(_ culling: HistoryStack.Culling, to url: URL) {
         guard let i = allPhotos.firstIndex(where: { $0.id == url }) else { return }
+        let wasLabel = allPhotos[i].label
         allPhotos[i].flag = culling.flag
         allPhotos[i].rating = culling.rating
         allPhotos[i].label = culling.label
-        catalog?.saveCullingState(allPhotos[i])
+        catalog?.saveCullingState(allPhotos[i], labelChanged: wasLabel != culling.label)
         if allPhotos[i].id == primarySelection?.id {
             primarySelection = allPhotos[i]
         }
@@ -1453,7 +3052,7 @@ final class AppState: ObservableObject {
         let list = photos
         guard !list.isEmpty else { return }
         guard let current = primarySelection,
-              let found = list.firstIndex(of: current) else {
+              let found = rollIndex(of: current) else {
             // The photo left the filtered list under us. Its old neighbour is the
             // honest place to land.
             if let index {
@@ -1468,7 +3067,7 @@ final class AppState: ObservableObject {
     /// Where the cursor sits in the list as it stands right now.
     private var cursorIndex: Int? {
         guard let current = primarySelection else { return nil }
-        return photos.firstIndex(of: current)
+        return rollIndex(of: current)
     }
 
     // MARK: Recipes
@@ -1501,24 +3100,43 @@ final class AppState: ObservableObject {
     /// Rendered files are left alone for the same reason they start on Linear: the
     /// camera has already denoised them, and their pixels no longer follow any sensor
     /// noise model this table knows.
+    /// The rule itself now lives in `Recipe.asImported(from:)` in LumenCore, where it
+    /// compiles and is tested on a machine with no Apple frameworks. This is the
+    /// bridge, and it is the only place that knows a URL is how you tell a rendered
+    /// file from a raw — `Recipe.SourceFile` takes that as a fact so the recipe model
+    /// does not carry a second copy of `PhotoFormats`' extension list.
+    ///
+    /// Six call sites read this. Before it was a bridge, each was an independent
+    /// reading of a baseline that has to agree with Reset exactly, or Reset lands
+    /// somewhere a fresh import never would.
     static func startingRecipe(for url: URL, iso: Int? = nil) -> Recipe {
-        var recipe = Recipe()
-        if PhotoFormats.isRendered(url) {
-            recipe.look.render.preset = "Linear"
-        } else if let iso {
-            recipe.develop.denoise = ISODefaults.startingDenoise(forISO: Double(iso))
-        }
-        return recipe
+        Recipe.asImported(from: Recipe.SourceFile(
+            isRendered: PhotoFormats.isRendered(url), iso: iso))
     }
 
     var currentRecipe: Recipe {
         primarySelection.map(recipe(for:)) ?? Recipe()
     }
 
+    /// What "unedited" means for the CURRENT photo — the baseline every modified-dot
+    /// and reset affordance must compare against. Comparing against bare `Recipe()`
+    /// instead is how an untouched JPEG wore a modified dot (its baseline is the
+    /// Linear preset) and how Reset applied a second tone map to it.
+    var currentStartingRecipe: Recipe {
+        guard let photo = primarySelection else { return Recipe() }
+        return AppState.startingRecipe(for: photo.id, iso: photo.iso)
+    }
+
 
     /// The grey a colour-driven mask component is born with, so it is a valid
     /// component before anything has been picked. Named because two places have to
     /// agree it is a placeholder rather than a choice.
+    /// Reach of a freshly planted similarity point, as a fraction of the long edge.
+    /// docs/08 §8.2's "~15% long edge" — big enough that one click on a sky selects
+    /// sky rather than a coin, small enough that it is visibly LOCAL, which is the
+    /// property that distinguishes this component from Colour Range.
+    static let similarityPointRadius: Double = 0.15
+
     static let placeholderSample: [Double] = [0.18, 0.18, 0.18]
 
     /// Arm the next click on the image, and say what it is for.
@@ -1535,10 +3153,17 @@ final class AppState: ObservableObject {
 
     /// A click landed. Resolve it against whatever the pick was for.
     ///
-    /// Two different taps, deliberately. The neutral solver wants the value BEFORE
-    /// white balance, because it is computing that white balance; every colour tool
-    /// wants the value the colour stage will compare against, or a swatch picked off a
-    /// warm frame would stop matching the moment Temp moved.
+    /// THREE different taps, deliberately, and the rule is one sentence: a sample is
+    /// taken from the same image the thing that will read it compares against.
+    ///
+    /// The neutral solver wants the value BEFORE white balance, because it is
+    /// computing that white balance. The global Point Colour swatches want the working
+    /// image — after the linear matrix — or a swatch picked off a warm frame would stop
+    /// matching the moment Temp moved. And a MASK's samples want the local stage input,
+    /// because that is what `colorRangePlane`, `similarityPlane` and `LocalPlan` all
+    /// compare against; they used to be given the working image too, which is one tap
+    /// short of the comparison by the whole of the tone stage and the whole of the
+    /// colour and grade table.
     ///
     /// Every write goes through `updateRecipe`, so a picked colour is one undo step and
     /// one history entry, exactly like the sliders it replaces.
@@ -1546,12 +3171,29 @@ final class AppState: ObservableObject {
         guard let target = pickTarget else { return }
         let current = recipe(for: photo)
         let url = photo.id                      // PhotoItem.id IS the URL
+        // Disarmed BEFORE the hop, not after: cleared on the far side of the await, a
+        // second click while the first solve was in flight spawned a second task and a
+        // colour mask collected its sample twice.
+        pickTarget = nil
         Task {
+            // Every branch below awaits an actor whose queue can hold a cold decode,
+            // then writes through `updateRecipe` — which reads the CURRENT selection.
+            // Without this re-check, arrowing to the next photo mid-solve landed
+            // DSC_1's neutral in DSC_2's recipe, persisted, with a status line saying
+            // it worked. The sibling refreshes all carry this guard; the one path
+            // that WRITES was the one that lacked it.
+            // (@MainActor because a local func does NOT inherit the Task closure's
+            // actor isolation the way its surrounding statements do.)
+            @MainActor func selectionStillOnPickedPhoto() -> Bool {
+                if primarySelection?.id == url { return true }
+                statusMessage = "Pick discarded — the selection moved before it resolved."
+                return false
+            }
             switch target {
             case .neutral:
                 let solved = await renderCoordinator.solveNeutral(
                     url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                pickTarget = nil
+                guard selectionStillOnPickedPhoto() else { return }
                 guard let solved else {
                     statusMessage = "Too dark there to read a neutral — try a lit grey."
                     return
@@ -1563,16 +3205,52 @@ final class AppState: ObservableObject {
                 statusMessage = String(format: "Neutral picked — %.0f K, tint %.0f",
                                        solved.kelvin, solved.tint)
 
-            case .newPointColor, .pointColor, .maskSample, .maskPointColor:
-                let sample = await renderCoordinator.sampleWorking(
-                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                pickTarget = nil
+            case .newPointColor, .pointColor, .maskSample, .maskPointColor, .mixerBand:
+                // WHICH TAP depends on what will compare against the stored value.
+                // A mask's samples are compared by `colorRangePlane` and
+                // `similarityPlane` against `localStageInput` — after tone, after the
+                // colour and grade table — and a mask's own Point Colour is evaluated
+                // inside `LocalPlan`, whose input is that same image. A GLOBAL Point
+                // Colour is compared inside S9, whose input is the colour stage's —
+                // after tone and presence, before the colour+grade table. It used to
+                // store `sampleWorking` (post-S6 only), so a swatch picked on a
+                // photograph carrying any tone move selected the wrong colour, and
+                // the error grew with the edit (docs/23 dossier queue item 5).
+                let sample: RGB?
+                if target.samplesTheMaskStage {
+                    sample = await renderCoordinator.sampleMaskReference(
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                } else {
+                    sample = await renderCoordinator.samplePointColorReference(
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                }
+                guard selectionStillOnPickedPhoto() else { return }
                 guard let sample else {
                     statusMessage = "Could not read a colour there."
                     return
                 }
                 let rgb = [sample.r, sample.g, sample.b]
                 switch target {
+                case .mixerBand:
+                    // The only pick that writes no recipe. It answers "which of eight
+                    // bands is this colour?" — a question the photographer previously
+                    // had to answer from memory before the three sliders meant
+                    // anything — and moves the panel's selection there.
+                    //
+                    // Through `ColorEngine.dominantBand`, which reads the LIVE arcs off
+                    // the recipe rather than the canonical geometry: the ring's handles
+                    // are draggable, so a widened Blue really does own hues that the
+                    // default geometry gives to Aqua, and selecting from the centres
+                    // would contradict the ring on screen.
+                    let arcs = ColorEngine.bandArcs(current.develop.mixer.bands)
+                    guard let band = ColorEngine.dominantBand(for: sample, arcs: arcs) else {
+                        statusMessage = "No colour to work on there — that pixel is grey."
+                        return
+                    }
+                    mixerBand = band
+                    mixerAllBands = false
+                    statusMessage = "\(ColorEngine.bandNames[band]) selected."
+                    return
                 case .newPointColor:
                     updateRecipe { recipe in
                         guard recipe.develop.pointColors.count < 8 else { return }
@@ -1596,13 +3274,36 @@ final class AppState: ObservableObject {
                         // sitting beside it. Otherwise every colour mask would select
                         // its target plus mid-grey, which on a photograph is most of
                         // the frame.
-                        if list == [AppState.placeholderSample] {
+                        let replacing = list == [AppState.placeholderSample]
+                        if replacing {
                             list = [rgb]
                         } else {
                             guard list.count < 8 else { return }
                             list.append(rgb)
                         }
                         recipe.masks[m].components[component].samples = list
+
+                        // A Colour Pick is "pixels like this one, NEAR HERE", so the
+                        // click that takes the colour also plants the point. Without
+                        // this the spatial half of the component would be a control
+                        // nobody could reach: there is no other gesture in the app that
+                        // knows where on the photograph a sample came from.
+                        //
+                        // Colour Range is deliberately excluded — it IS the global
+                        // version, and that distinction is the whole reason both kinds
+                        // exist.
+                        let kind = recipe.masks[m].components[component].kind
+                        if kind == .similarity || kind == .similarityLine {
+                            var points = recipe.masks[m].components[component].points ?? []
+                            let planted = [sourceX, sourceY,
+                                           AppState.similarityPointRadius, 1]
+                            if replacing || points.isEmpty {
+                                points = [planted]
+                            } else {
+                                points.append(planted)
+                            }
+                            recipe.masks[m].components[component].points = points
+                        }
                     }
                 case .maskPointColor(let maskID):
                     updateRecipe { recipe in
@@ -1620,8 +3321,32 @@ final class AppState: ObservableObject {
         }
     }
 
-    func updateRecipe(coalescingKey: String? = nil, _ mutate: (inout Recipe) -> Void) {
-        let targets = editTargets
+    func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
+                      _ mutate: (inout Recipe) -> Void) {
+        updateRecipe(coalescingKey: coalescingKey, label: label) { _, recipe in
+            mutate(&recipe)
+        }
+    }
+
+    /// The photo-aware overload, for edits whose result depends on WHICH photo —
+    /// a reset must land on `startingRecipe(for:)`, which is not the same for every
+    /// file (Linear preset for rendered files, ISO-resolved denoise for RAW), and a
+    /// closure that cannot see the photo can only reset everyone to the same wrong
+    /// baseline. Session findings: Reset flipped a JPEG's Linear preset to the
+    /// default sigmoid — a second tone map, persisted, and undo recorded the same
+    /// wrong baseline so it could not come back.
+    /// `targets` narrows the write to specific photographs. Nil means the whole
+    /// selection, which is what every ordinary edit wants and what this always did.
+    ///
+    /// It exists for the gestures that are about ONE picture even when several are
+    /// selected. Escape in the crop tool is the case that forced it: the baseline it puts
+    /// back is taken for the primary selection alone, so writing it through the selection
+    /// stamped that photograph's framing onto every other one and destroyed their crops —
+    /// from a key that means "cancel".
+    func updateRecipe(coalescingKey: String? = nil, label: String? = nil,
+                      targets explicit: [PhotoItem]? = nil,
+                      _ mutate: (PhotoItem, inout Recipe) -> Void) {
+        let targets = explicit ?? editTargets
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
@@ -1630,7 +3355,7 @@ final class AppState: ObservableObject {
         for photo in targets {
             let old = recipe(for: photo)
             var updated = old
-            mutate(&updated)
+            mutate(photo, &updated)
             guard updated != old else { continue }
             if !updated.rendersSameAs(old) { touchedPixels = true }
             before[photo.id] = HistoryStack.PhotoEdit(recipe: old)
@@ -1639,25 +3364,232 @@ final class AppState: ObservableObject {
             recipes[photo.id] = updated
         }
         guard !after.isEmpty else { return }
-        history.record(before: before, after: after, coalescingKey: coalescingKey)
-        persist(changed)
-        // Renaming a mask changes the recipe without changing the picture. Re-binning
-        // the scopes for it would mean a proxy render per keystroke.
+        history.record(before: before, after: after, coalescingKey: coalescingKey,
+                       label: label, gestureEpoch: recordingEpoch)
+        if sliderGestureActive {
+            // Mid-gesture: the in-memory recipe is current (the render reads that),
+            // the catalog write and the scope re-bin land once at release. The overlay
+            // stays live below — it is the picture OF the drag.
+            noteGestureActivity()
+            for (url, recipe) in changed { pendingGesturePersist[url] = recipe }
+            if touchedPixels { pendingGestureTouchedPixels = true }
+        } else {
+            persist(changed)
+            // Renaming a mask changes the recipe without changing the picture.
+            // Re-binning the scopes for it would mean a proxy render per keystroke.
+            if touchedPixels {
+                scheduleScopeRefresh()
+                // Adding a Subject or People component is the moment its matte is
+                // wanted.
+                ensureMaskMattes()
+            }
+        }
         if touchedPixels {
-            scheduleScopeRefresh()
-            // The overlay is a picture of the mask, so editing the mask must move it.
-            // Cheap when nothing is soloed — the refresh guards on that first.
+            // The overlay is a picture of the mask, so editing the mask must move it —
+            // including while dragging the mask's own sliders. Its refresh is
+            // generation-guarded and cancels its predecessor, so per-event is cheap.
             refreshMaskOverlay()
-            // Adding a Subject or People component is the moment its matte is wanted.
-            ensureMaskMattes()
+            // And the rows' pictures of the same masks. Keyed on the masks' own shape
+            // plus the mask-source fingerprint, so an edit that moves neither — a
+            // rename, a crop the masks reproject through — costs nothing.
+            refreshMaskThumbnails()
+            // The HUD's input side: the next draft that lands closes the loop.
+            LatencyHUD.shared.noteInput()
         }
     }
 
-    private func persist(_ changes: [URL: Recipe]) {
+    // MARK: Slider gestures
+
+    /// True between the first movement of a slider gesture and its release.
+    ///
+    /// While it holds, `updateRecipe` keeps the in-memory recipe current (the render
+    /// path reads that) but defers the catalog write — a SQLite statement plus four
+    /// whole-recipe JSON codings for the fingerprint, previously paid PER PHOTO PER
+    /// MOUSE EVENT on the lane every thumbnail decode shares — and the scope
+    /// re-binning, whose 180 ms debounce a drag restarted every event and so never
+    /// fired anyway. Both land once, at release.
+    /// True from the first movement of any slider or wheel gesture to its release.
+    ///
+    /// Read OUTSIDE this type by the loupe, which must not start a full-resolution
+    /// settle while a hand is moving — see `settleTick`. Not `@Published`: the render
+    /// key changes on the tick, not on the latch, so publishing this would re-body the
+    /// window twice per gesture for nothing.
+    private(set) var sliderGestureActive = false
+
+    /// Bumped once per completed gesture, and read by `ViewerRenderKey`.
+    ///
+    /// The settle is deferred while a gesture runs, so something has to ask for it
+    /// when the hand stops — and the release alone cannot, because `onEnded` commits
+    /// a value that is usually EQUAL to the last motion sample, leaving the render key
+    /// unchanged and the picture on its last draft. This tick is that ask. It is
+    /// bumped in `flushSliderGesture`, which the release, the photo switch and the
+    /// 8-second watchdog all already call, so the deferred settle inherits all three
+    /// safety nets rather than needing its own.
+    @Published private(set) var settleTick: Int = 0
+
+    private var pendingGesturePersist: [URL: Recipe] = [:]
+    private var pendingGestureTouchedPixels = false
+
+    /// The two unlatches for a release SwiftUI dropped (docs/23 audit queue item 4).
+    ///
+    /// `.onEnded` is not a promise: a drag cancelled by a window teardown or a view
+    /// rebuild never delivers it, and the latch used to stay shut — every LATER edit,
+    /// gesture or not, deferred its catalog write until the next completed gesture,
+    /// a folder switch, or quit. A real drag's events are milliseconds apart, so
+    /// silence this long means the release is not coming; the watchdog closes the
+    /// gesture and lands the deferred writes. The photo switch in
+    /// `primarySelection.didSet` is the second unlatch: a gesture cannot span photos.
+    static let gestureSilenceTimeout: TimeInterval = 8
+    private var lastGestureEventAt = Date.distantPast
+    private var gestureWatchdog: Task<Void, Never>?
+
+    /// The gesture hook, allocated ONCE and handed to the environment as a stable
+    /// value — see the injection site in `ContentView`. `lazy` so `self` is available.
+    lazy var sliderGestureSink: (Bool) -> Void = { [weak self] active in
+        self?.sliderGesture(active: active)
+    }
+
+    /// Slider keyboard focus, and DELIBERATELY NOT `@Published`.
+    ///
+    /// Only `KeyDispatcher` reads it, imperatively, at key-down time — no view renders
+    /// anything from it — so publishing would re-body the window every time focus moved
+    /// between two sliders for no one's benefit. `EditRevision`'s header states the rule
+    /// this is the other side of: a view reading state must observe it, and state no
+    /// view reads must not be observable.
+    ///
+    /// A COUNT rather than a flag, because SwiftUI does not order focus changes: moving
+    /// from one slider to the next can deliver the new row's `true` before the old row's
+    /// `false`, and a flag would end up clear while a slider plainly had focus — arrows
+    /// paging photographs out from under a control the photographer is using, which is
+    /// the exact failure this whole mechanism exists to prevent.
+    private var sliderFocusCount = 0
+
+    var sliderHoldsFocus: Bool { sliderFocusCount > 0 }
+
+    /// The focus hook, allocated ONCE and handed to the environment as a stable value —
+    /// same pattern as `sliderGestureSink`, and for the same reason.
+    lazy var sliderFocusSink: (Bool) -> Void = { [weak self] focused in
+        self?.noteSliderFocus(focused)
+    }
+
+    func noteSliderFocus(_ focused: Bool) {
+        // Floored rather than allowed to go negative: a slider that disappears while
+        // focused reports its blur from `onDisappear` as well, and a double-decrement
+        // that went to −1 would leave the count unable to reach zero again.
+        sliderFocusCount = focused ? sliderFocusCount + 1
+                                   : Swift.max(0, sliderFocusCount - 1)
+    }
+
+    /// The grid's hover-rating hook, on the same pattern and for the same reason.
+    ///
+    /// `PhotoCell` is value-typed by contract — "it never reads AppState, so a rating
+    /// written three cells away does not invalidate the whole sheet" — so the click has
+    /// to arrive as a value. Allocating a closure per cell inside the grid's `body`
+    /// would mean sixty new closure identities on every pass of a view that re-bodies
+    /// on selection, scroll and every culling keystroke. One stored closure, handed
+    /// down unchanged.
+    lazy var ratingSink: (PhotoItem, Int) -> Void = { [weak self] photo, rating in
+        self?.rate(photo, rating)
+    }
+
+    /// Rate one photograph from the contact sheet.
+    ///
+    /// It SELECTS first, which is what makes it correct rather than merely convenient:
+    /// `setRating` acts on `editTargets`, so a click on an unselected thumbnail would
+    /// otherwise rate whatever was selected somewhere else on screen. Selecting first
+    /// is also what every other grid in the field does with a click, and it leaves the
+    /// keyboard grammar — 1…5 on the selection, toggling, honouring auto-advance —
+    /// as the single implementation of what a rating means.
+    func rate(_ photo: PhotoItem, _ rating: Int) {
+        if primarySelection?.id != photo.id || selection.count > 1 {
+            select(photo)
+        }
+        setRating(rating)
+    }
+
+    /// Which drag is in flight, counted rather than flagged.
+    ///
+    /// The undo boundary needs to know that two edits came from the SAME gesture, and
+    /// a bool cannot say that: released and re-pressed inside the coalescing window, it
+    /// reads identical. Monotonic, bumped once when the latch closes, never reused —
+    /// so a wheel drag writing hue and sat under two different coalescing keys still
+    /// folds into one step, and nothing outside the drag can collide with it.
+    private(set) var gestureEpoch: Int = 0
+
+    /// The epoch to attach to an edit recorded right now, or nil outside a gesture.
+    var recordingEpoch: Int? { sliderGestureActive ? gestureEpoch : nil }
+
+    func sliderGesture(active: Bool) {
+        if active {
+            lastGestureEventAt = Date()
+            if !sliderGestureActive {
+                sliderGestureActive = true
+                gestureEpoch &+= 1
+                armGestureWatchdog()
+            }
+            return
+        }
+        guard sliderGestureActive else { return }
+        sliderGestureActive = false
+        gestureWatchdog?.cancel()
+        gestureWatchdog = nil
+        flushSliderGesture()
+    }
+
+    /// Note a mid-gesture edit, so the watchdog measures silence rather than duration:
+    /// a long careful drag is not a dropped one.
+    func noteGestureActivity() {
+        lastGestureEventAt = Date()
+    }
+
+    private func armGestureWatchdog() {
+        gestureWatchdog?.cancel()
+        gestureWatchdog = Task { @MainActor [weak self] in
+            while let self, self.sliderGestureActive {
+                let silence = Date().timeIntervalSince(self.lastGestureEventAt)
+                let remaining = Self.gestureSilenceTimeout - silence
+                if remaining <= 0 {
+                    self.sliderGestureActive = false
+                    self.gestureWatchdog = nil
+                    self.flushSliderGesture()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1e9))
+                if Task.isCancelled { return }
+            }
+        }
+    }
+
+    /// Also called from `prepareToQuit`: a gesture whose release the app never saw
+    /// (a cancelled drag, a window torn down mid-gesture) must not cost the edit.
+    func flushSliderGesture() {
+        if !pendingGesturePersist.isEmpty {
+            persist(pendingGesturePersist)
+            pendingGesturePersist = [:]
+        }
+        if pendingGestureTouchedPixels {
+            pendingGestureTouchedPixels = false
+            scheduleScopeRefresh()
+            ensureMaskMattes()
+        }
+        // The hand has stopped: ask every viewer for the quality pass its drag
+        // deferred. Unconditional — a gesture that changed nothing costs one settle
+        // whose every table and decode is already cached, and a gesture that landed on
+        // its last drafted value would otherwise never settle at all.
+        settleTick &+= 1
+    }
+
+    /// INTERNAL, not private, because `AppStateActions` is an extension in another file
+    /// and `private` in Swift is file-scoped. Auto Tone lived over there writing the
+    /// catalog by hand for want of this, and so skipped the library requery that keeps an
+    /// "Edited: no" filter honest.
+    func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
         for (url, recipe) in changes {
-            let id = allPhotos.first(where: { $0.id == url })?.catalogID
-            catalog.saveRecipe(recipe, url: url, catalogID: id)
+            // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
+            // of the whole source, per changed photo, per mouse event, on the main
+            // actor, in front of the render. See `catalogIDCache`.
+            catalog.saveRecipe(recipe, url: url, catalogID: catalogID(for: url))
         }
         refreshLibraryQueryIfEditStateShows()
     }
@@ -1672,6 +3604,17 @@ final class AppState: ObservableObject {
     /// pending batch and then checkpoints and closes the database. It is synchronous
     /// because `applicationWillTerminate` is the last moment anything runs.
     func prepareToQuit() {
+        // A gesture whose release never arrived must not cost the edit.
+        flushSliderGesture()
+        // The thumbnail-size debounce (800 ms) has the same quit window the sidecar
+        // flush once had: resize the grid and ⌘Q inside it, and the size reverted
+        // next launch. The final event lands here.
+        sourceStateSaveTask?.cancel()
+        saveSourceState()
+        // Eviction before the database closes, because the eviction runs through it.
+        // docs/10 §10.10: the photographer never hears about this — no menu item, no
+        // confirmation, no "Optimize Catalog" ritual.
+        previews?.prune()
         catalog?.close()
     }
 
@@ -1704,24 +3647,103 @@ final class AppState: ObservableObject {
             }
         }
         persist(recipeChanges)
-        if touchedPixels { scheduleScopeRefresh() }
+        if touchedPixels {
+            scheduleScopeRefresh()
+            // AND THE MASK OVERLAY, which undo never told. `maskOverlayAlpha` is written
+            // only by `refreshMaskOverlay`, whose callers are the solo toggle,
+            // `updateRecipe`, the matte pass and a photo change — none of which fires
+            // here. So turning a mask's overlay on, dragging its radius and pressing ⌘Z
+            // reverted the picture and left the red wash at the pre-undo shape: the
+            // instrument and the photograph disagreeing about the same mask. Undoing a
+            // mask DELETION was worse — the overlay for a mask that no longer existed
+            // stayed painted until some unrelated edit happened to refresh it.
+            refreshMaskOverlay()
+            refreshMaskThumbnails()
+            // Same reason: a restored Vision mask needs its matte asked for again.
+            ensureMaskMattes()
+        }
     }
 
     // MARK: Copy / paste settings
 
-    private var copiedRecipe: Recipe?
+    /// `@Published` because two menu items are `.disabled` on whether it is nil, and a
+    /// plain stored property does not tell SwiftUI to look again — so "Paste Masks"
+    /// would stay greyed out until something else happened to redraw the menu bar.
+    @Published private var copiedRecipe: Recipe?
     private var copiedLook: Look?
 
     func copySettings() { copiedRecipe = primarySelection.map(recipe(for:)) }
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
-        updateRecipe { recipe in
+        updateRecipe(label: "Paste Settings") { recipe in
             recipe.develop = source.develop
+            // `.look` whole EXCEPT the one leaf in it that describes the target rather
+            // than the look. `LookSubset.carriedRenderPreset` is that rule, and it lives
+            // in LumenCore precisely because there are four doors into a look — this
+            // one, Paste Settings Without Masks, Paste Look, and `LookSubset.applied` —
+            // and a copy of the decision at each is how they drift. See that function's
+            // header: carrying `render.preset` across the tone-mapped boundary applies a
+            // second tone map (sRGB 32 goes to 13, 255 to 222) or clips two and a half
+            // stops, depending on direction.
+            // `own` is read BEFORE the assignment: after it, `recipe.look` IS
+            // `source.look` and the target's own preset is already gone.
+            let own = recipe.look.render.preset
             recipe.look = source.look
+            recipe.look.render.preset =
+                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
             recipe.masks = source.masks
+            // The folders come with their masks. Without this line every pasted mask
+            // names a group the target photograph has not got, which `Recipe.effective`
+            // treats as ungrouped — so the edit survives and the organization silently
+            // does not, which is the kind of loss nobody notices until they go looking.
+            recipe.maskGroups = source.maskGroups
         }
     }
+
+    /// Everything except the masks — the develop and look, with this photograph's own
+    /// masks left exactly where they are.
+    ///
+    /// The variant that makes Paste Settings usable across a shoot. Masks are geometry
+    /// in SOURCE coordinates, so a radial placed over a face in one frame lands on a
+    /// shoulder in the next; pasting a whole recipe across forty frames therefore
+    /// destroys forty sets of local work to deliver one white balance. Lightroom asks
+    /// with a checkbox dialog every time, which is a question you answer identically
+    /// nine times out of ten. Two commands cost nothing and ask nothing.
+    func pasteSettingsWithoutMasks() {
+        guard let source = copiedRecipe else { return }
+        updateRecipe(label: "Paste Settings Without Masks") { recipe in
+            recipe.develop = source.develop
+            let own = recipe.look.render.preset
+            recipe.look = source.look
+            recipe.look.render.preset =
+                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
+        }
+    }
+
+    /// Only the masks, and their folders. The develop and look of each target are left
+    /// alone, which is what "put this sky mask on the rest of the sequence" means when
+    /// the frames were exposed differently.
+    ///
+    /// APPENDED, not replaced, and that is the difference between this and the two
+    /// above: those are "make this photograph like that one", and this one is "also do
+    /// this". Replacing would silently delete whatever local work each target already
+    /// had, with no way back but undo — and it is the same gesture people use to build a
+    /// stack up mask by mask across a sequence.
+    func pasteMasks() {
+        guard let source = copiedRecipe, !source.masks.isEmpty else { return }
+        // `Recipe.appendingMasks` owns the id remapping, in LumenCore where
+        // `PasteMasksTests` can reach it — the interesting half of this command is an
+        // algorithm about references, not a menu item.
+        updateRecipe(label: "Paste Masks") { recipe in
+            recipe = recipe.appendingMasks(from: source)
+        }
+    }
+
+    /// True when there is something on the clipboard worth offering the mask commands
+    /// for — the menu greys them out rather than offering a paste that does nothing.
+    var hasCopiedMasks: Bool { !(copiedRecipe?.masks.isEmpty ?? true) }
+    var hasCopiedSettings: Bool { copiedRecipe != nil }
 
     /// Copy Look copies exactly the look-tagged slice (D4) — grade, film stock,
     /// transform preset — and nothing else. Each target keeps its own white balance,
@@ -1731,12 +3753,146 @@ final class AppState: ObservableObject {
 
     func pasteLook() {
         guard let look = copiedLook else { return }
-        updateRecipe { $0.look = look }
+        updateRecipe(label: "Paste Look") { recipe in
+            let own = recipe.look.render.preset
+            recipe.look = look
+            recipe.look.render.preset =
+                LookSubset.carriedRenderPreset(look.render.preset, onto: own)
+        }
     }
 
-    func resetSettings() {
-        updateRecipe { recipe in
-            recipe = Recipe(pipelineVersion: recipe.pipelineVersion)
+    // MARK: Saved looks
+
+    /// The looks in the catalog, as the browser lists them.
+    ///
+    /// Refreshed on demand — when the panel appears and after anything that changes the
+    /// list — and never on a timer, for the reason `refreshLibrarySections` gives about
+    /// a list that moves while you are reading it.
+    @Published private(set) var savedLooks: [LookRow] = []
+
+    func refreshSavedLooks() {
+        guard let catalog else {
+            savedLooks = []
+            return
+        }
+        Task { [weak self] in
+            let rows = await catalog.looks()
+            self?.savedLooks = rows
+        }
+    }
+
+    /// Save the Look layer of the photo under the cursor, under a name.
+    ///
+    /// What gets saved is decided by `LookSubset.extracted(from:)` in LumenCore, not
+    /// here: which subtrees a look carries is the whole design of the feature and it is
+    /// tested where it can fail, rather than being a line in an untestable view model.
+    func saveCurrentLook(named name: String) {
+        guard let catalog else {
+            statusMessage = "No catalog — a look needs somewhere to live"
+            return
+        }
+        guard primarySelection != nil else {
+            statusMessage = "Select a photo whose look you want to keep"
+            return
+        }
+        guard let clean = LookSubset.normalizedName(name) else {
+            statusMessage = "A look needs a name"
+            return
+        }
+        let replacing = savedLooks.contains { $0.name == clean }
+        let subset = LookSubset.extracted(from: currentRecipe)
+        Task { [weak self] in
+            let saved = await catalog.saveLook(name: clean, subset: subset)
+            guard let self else { return }
+            if saved == nil {
+                self.statusMessage = "\"\(clean)\" could not be saved"
+            } else {
+                self.statusMessage = replacing ? "Look \"\(clean)\" updated"
+                                               : "Look \"\(clean)\" saved"
+            }
+            self.refreshSavedLooks()
+        }
+    }
+
+    /// Put a saved look on the selection: one history step, undoable, and every frame
+    /// keeps its own white balance, exposure, crop and masks.
+    ///
+    /// `amount` IS HOW MUCH OF IT LANDS, and the three rules that go with it live here
+    /// rather than in the panel: clamp what arrives, refuse at zero, and say the strength
+    /// in the status line when it is not the whole look. `LookPanel`'s own comment is that
+    /// "a panel that kept them would be a panel whose second caller silently does not have
+    /// them" — the command palette and the speed edit are both waiting to be that second
+    /// caller, and neither of them has a slider to have clamped the value on the way in.
+    ///
+    /// Defaulted to the whole look so that "apply this look" stays one word for every
+    /// caller that has no strength to express. `LookSubset.applied(to:)` takes 100 as the
+    /// exact path it has always taken — no blend, the same bytes, no pinned render
+    /// re-baked — so the default is not merely equivalent to the old call, it is it.
+    ///
+    /// The clamp is `LookSubset.clampedAmount`, which reads a non-finite value as FULL
+    /// rather than as zero: every unreadable answer to "how much of this look" has to
+    /// fail toward the look being there, and a bare clamp would let NaN through to poison
+    /// the blend into black.
+    func applyLook(_ look: LookRow, amount: Double = LookSubset.fullAmount) {
+        let targets = editTargets.count
+        guard targets > 0 else {
+            statusMessage = "Select the photos to apply \"\(look.name)\" to"
+            return
+        }
+        let strength = LookSubset.clampedAmount(amount)
+        // Refused rather than recorded. `applied(to:)` returns the target untouched at
+        // zero, so the edit would be a history step that changes nothing — an undo the
+        // photographer has to press twice to get past, and a status line claiming a look
+        // was applied when the frame is exactly as it was.
+        guard strength > 0 else {
+            statusMessage = "\"\(look.name)\" at 0% would change nothing"
+            return
+        }
+        guard var subset = try? look.subset() else {
+            statusMessage = "\"\(look.name)\" could not be read"
+            return
+        }
+        // The saved look carries whatever amount it was stored at; what the caller asks
+        // for now overrides it. The amount is spent at the moment of applying and is not
+        // kept on the photograph (`applied(to:)` argues that at length), so this is the
+        // only place it can be said.
+        subset.amount = strength
+        updateRecipe(label: "Apply Look") { recipe in
+            recipe = subset.applied(to: recipe)
+        }
+        // The strength is named only when it is not the whole look, because "Applied
+        // Portra at 100%" reads as a setting the photographer chose rather than as the
+        // ordinary gesture it is.
+        let partial = strength < LookSubset.fullAmount
+            ? " at \(Int(strength.rounded()))%"
+            : ""
+        statusMessage = targets == 1
+            ? "Applied \"\(look.name)\"\(partial)"
+            : "Applied \"\(look.name)\"\(partial) to \(targets) photos"
+    }
+
+    func renameLook(_ look: LookRow, to name: String) {
+        guard let catalog else { return }
+        guard let clean = LookSubset.normalizedName(name), clean != look.name else {
+            return
+        }
+        Task { [weak self] in
+            let renamed = await catalog.renameLook(id: look.id, to: clean)
+            guard let self else { return }
+            if !renamed { self.statusMessage = "There is already a look called \"\(clean)\"" }
+            self.refreshSavedLooks()
+        }
+    }
+
+    func deleteLook(_ look: LookRow) {
+        guard let catalog else { return }
+        Task { [weak self] in
+            await catalog.deleteLook(id: look.id)
+            guard let self else { return }
+            // Deliberately said out loud: throwing a look away is not undoable, and
+            // every photograph already graded with it keeps its grade.
+            self.statusMessage = "Deleted \"\(look.name)\" — graded photos keep their grade"
+            self.refreshSavedLooks()
         }
     }
 

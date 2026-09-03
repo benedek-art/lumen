@@ -145,7 +145,7 @@ final class SidecarAndIngestTests: XCTestCase {
     /// through `XMPSidecar`, and nothing proved that a pick which exists ONLY in the
     /// sidecar comes back into the catalog on rescan — which is the exact scenario the
     /// flag field was added for, and it lived in `LumenApp`, a target with no tests.
-    /// The rule now lives in `SidecarMerge`, in LumenCore, and this is it.
+    /// The rules now live in `SidecarMerge`, in LumenCore, and these are them.
     func testTheSidecarFillsInWhatTheCatalogDoesNotKnow() throws {
         var recipe = Recipe()
         recipe.develop.tone.exposure = 0.75
@@ -155,38 +155,188 @@ final class SidecarAndIngestTests: XCTestCase {
 
         // A catalog that knows nothing — restored from an older backup, or a photo
         // that just arrived from another machine. Everything comes back.
-        let recovered = SidecarMerge.resolve(catalog: SidecarMerge.State(),
-                                             sidecar: sidecar)
-        XCTAssertEqual(recovered.rating, 4)
-        XCTAssertEqual(recovered.flag, .reject)
-        XCTAssertEqual(recovered.label, "Green")
-        XCTAssertEqual(recovered.recipe, recipe)
+        let resolved = SidecarMerge.resolve(catalog: SidecarMerge.State(),
+                                            sidecar: sidecar)
+        XCTAssertEqual(resolved.decision, .catalogWins)
+        XCTAssertEqual(resolved.state.rating, 4)
+        XCTAssertEqual(resolved.state.flag, .reject)
+        XCTAssertEqual(resolved.state.label, "Green")
+        XCTAssertEqual(resolved.state.recipe, recipe)
 
         // Flag and rating are separate axes all the way through: four stars AND
         // rejected survives the merge, not just the round trip.
-        XCTAssertEqual(recovered.rating, 4)
-        XCTAssertEqual(recovered.flag, .reject)
+        XCTAssertEqual(resolved.state.rating, 4)
+        XCTAssertEqual(resolved.state.flag, .reject)
     }
 
-    func testTheCatalogWinsWhereverItHasSomethingToSay() throws {
+    /// docs/15 §15.5 RULE 1 — the sidecar is unchanged since we last touched it, so the
+    /// catalog wins and only fills in where it is silent.
+    ///
+    /// This test used to assert catalog-wins UNCONDITIONALLY, with no mtime anywhere in
+    /// it. That was rule 1 mistaken for the whole policy, and it pinned the defect: the
+    /// merge had no way to notice a sidecar that had moved, so the assertion could never
+    /// have failed and the two rules that make a newer sidecar count could never have
+    /// been implemented without it going red. It now states the PRECONDITION as well as
+    /// the outcome, which is strictly more than it pinned before — a run with the stamps
+    /// matching, and a second run proving that matching stamps are what decided it.
+    func testRule1TheCatalogWinsWhileTheSidecarIsUnchangedSinceOurLastWrite() throws {
         var catalogRecipe = Recipe()
         catalogRecipe.develop.tone.exposure = 1.5
         var sidecarRecipe = Recipe()
         sidecarRecipe.develop.tone.exposure = -1.5
 
-        let catalog = SidecarMerge.State(rating: 2, flag: .pick, label: "Blue",
-                                         recipe: catalogRecipe)
-        let sidecar = SidecarContent(rating: 5, flag: .reject, label: "Red",
-                                     recipeJSON: try CanonicalJSON
-                                        .canonicalRecipeJSON(sidecarRecipe))
-        let merged = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar)
+        let catalog = SidecarMerge.State(
+            rating: 2, flag: .pick, label: "Blue", recipe: catalogRecipe,
+            recipeFingerprint: try RecipeFingerprint.fingerprint(catalogRecipe),
+            sidecarMTime: 1_800_000_000)
+        let sidecar = SidecarContent(
+            rating: 5, flag: .reject, label: "Red",
+            recipeFingerprint: try RecipeFingerprint.fingerprint(sidecarRecipe),
+            recipeJSON: try CanonicalJSON.canonicalRecipeJSON(sidecarRecipe))
 
+        // The file on disk is exactly as we left it.
+        let unchanged = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
+                                             sidecarMTime: 1_800_000_000)
+        XCTAssertEqual(unchanged.decision, .catalogWins)
         // The catalog is what the running app just edited; the sidecar may be seconds
-        // stale behind its debounce. Letting the sidecar win would undo the last edit.
-        XCTAssertEqual(merged.rating, 2, "the sidecar overwrote a rating")
-        XCTAssertEqual(merged.flag, .pick, "the sidecar overwrote a flag")
-        XCTAssertEqual(merged.label, "Blue", "the sidecar overwrote a label")
-        XCTAssertEqual(merged.recipe, catalogRecipe, "the sidecar overwrote an edit")
+        // stale behind its debounce. Letting it win here would undo the last edit.
+        XCTAssertEqual(unchanged.state.rating, 2, "the sidecar overwrote a rating")
+        XCTAssertEqual(unchanged.state.flag, .pick, "the sidecar overwrote a flag")
+        XCTAssertEqual(unchanged.state.label, "Blue", "the sidecar overwrote a label")
+        XCTAssertEqual(unchanged.state.recipe, catalogRecipe,
+                       "the sidecar overwrote an edit")
+        XCTAssertNil(unchanged.unpreservedSidecar)
+
+        // An OLDER stamp than ours IS evidence the file moved — restores travel
+        // backwards in time. This assertion used to pin `.catalogWins` here, under a
+        // comment calling an older file "a restore we had already superseded" — while
+        // the resolver's own header credits this rule with making restore-from-
+        // Time-Machine work, which a forward-only comparison makes impossible (a
+        // restored file arrives wearing its ORIGINAL mtime, and rsync/Syncthing
+        // deliveries wear the other machine's). The two claims contradicted each
+        // other and the audit chose: a deliberate restore is a user action, and the
+        // catalog yields to it exactly when it holds nothing unflushed — the
+        // unflushed-edits guard above is still what protects live work.
+        XCTAssertEqual(SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
+                                            sidecarMTime: 1_799_999_000).decision,
+                       .sidecarWins)
+
+        // And with NO recorded stamp there is no evidence the file moved at all. Acting
+        // on no evidence is the mirror image of the bug: a stale sidecar would then
+        // overwrite a fresh catalog on every open.
+        var neverStamped = catalog
+        neverStamped.sidecarMTime = nil
+        let blind = SidecarMerge.resolve(catalog: neverStamped, sidecar: sidecar,
+                                         sidecarMTime: 1_900_000_000)
+        XCTAssertEqual(blind.decision, .catalogWins)
+        XCTAssertEqual(blind.state.recipe, catalogRecipe)
+    }
+
+    /// docs/15 §15.5 RULE 2 — the sidecar is newer than our last write AND its recipe
+    /// fingerprint differs, so the sidecar wins and the catalog updates silently.
+    ///
+    /// This is the whole point of the section: edit on the other Mac, or restore a
+    /// sidecar from Time Machine, and open here. Before this, the newer recipe was
+    /// ignored because this catalog held an older one — and then the next edit here
+    /// flushed the STALE recipe back over the sidecar, so the copy that exists to
+    /// survive losing the catalog was destroyed by the catalog.
+    func testRule2ANewerSidecarWithADifferentRecipeWins() throws {
+        var here = Recipe()
+        here.develop.tone.exposure = 0.25
+        var overThere = Recipe()
+        overThere.develop.tone.exposure = 1.75
+        overThere.develop.detail.clarity = 30
+
+        let catalog = SidecarMerge.State(
+            rating: 2, flag: .pick, label: "Blue", recipe: here,
+            recipeFingerprint: try RecipeFingerprint.fingerprint(here),
+            sidecarMTime: 1_800_000_000)
+        let sidecar = SidecarContent(
+            rating: 5, flag: .reject, label: "Red",
+            recipeFingerprint: try RecipeFingerprint.fingerprint(overThere),
+            recipeJSON: try CanonicalJSON.canonicalRecipeJSON(overThere))
+
+        let resolved = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
+                                            sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(resolved.decision, .sidecarWins)
+        XCTAssertEqual(resolved.state.recipe, overThere,
+                       "the newer sidecar's edit lost to a stale catalog")
+        XCTAssertEqual(resolved.state.recipeFingerprint,
+                       try RecipeFingerprint.fingerprint(overThere))
+        XCTAssertEqual(resolved.state.rating, 5)
+        XCTAssertEqual(resolved.state.flag, .reject)
+        XCTAssertEqual(resolved.state.label, "Red")
+        XCTAssertNil(resolved.unpreservedSidecar, "nothing was discarded under rule 2")
+
+        // The rule is keyed on the FINGERPRINT, not on the mtime alone. A sidecar that
+        // was merely touched, re-synced, or rewritten by another tool that left the
+        // lumen: namespace alone says the same thing it said before and takes nothing.
+        let sameEdit = SidecarContent(
+            rating: 5,
+            recipeFingerprint: try RecipeFingerprint.fingerprint(here),
+            recipeJSON: try CanonicalJSON.canonicalRecipeJSON(here))
+        let touched = SidecarMerge.resolve(catalog: catalog, sidecar: sameEdit,
+                                           sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(touched.decision, .catalogWins)
+        XCTAssertEqual(touched.state.rating, 2, "a touched file overwrote a rating")
+
+        // A newer sidecar with NO recipe at all cannot trigger rule 2 either — §15.5's
+        // condition is that the fingerprint differs, and a sidecar that states no recipe
+        // states no fingerprint. Recorded as a deliberate limit: a rating changed on the
+        // other Mac and flushed alone does not come across.
+        let ratingOnly = SidecarContent(rating: 5, flag: .reject)
+        let scalarsOnly = SidecarMerge.resolve(catalog: catalog, sidecar: ratingOnly,
+                                               sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(scalarsOnly.decision, .catalogWins)
+        XCTAssertEqual(scalarsOnly.state.rating, 2)
+    }
+
+    /// docs/15 §15.5 RULE 3 — both sides changed, so the catalog wins and the sidecar's
+    /// state is meant to be preserved as a snapshot named "Imported from sidecar <date>".
+    ///
+    /// The snapshot does NOT exist: `saveRecipe` only ever writes `kind = .working`
+    /// (LIB-06), and building version machinery is not in this fix. So the resolution
+    /// hands back exactly what could not be kept, and this test pins that it is handed
+    /// back rather than dropped — "nothing is ever silently discarded" is downgraded to
+    /// "the discard is not silent", and the difference is visible in the API.
+    func testRule3BothChangedKeepsTheCatalogAndReportsWhatItCouldNotSnapshot() throws {
+        var unflushed = Recipe()
+        unflushed.develop.tone.exposure = 0.9
+        var overThere = Recipe()
+        overThere.develop.tone.exposure = -1.1
+
+        let catalog = SidecarMerge.State(
+            rating: 3, recipe: unflushed,
+            recipeFingerprint: try RecipeFingerprint.fingerprint(unflushed),
+            sidecarMTime: 1_800_000_000,
+            hasUnflushedEdits: true)
+        let sidecar = SidecarContent(
+            rating: 5, flag: .pick, label: "Red",
+            recipeFingerprint: try RecipeFingerprint.fingerprint(overThere),
+            recipeJSON: try CanonicalJSON.canonicalRecipeJSON(overThere))
+
+        let resolved = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
+                                            sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(resolved.decision, .conflictCatalogWins)
+        XCTAssertEqual(resolved.state.recipe, unflushed,
+                       "an unflushed edit was overwritten by the sidecar")
+        XCTAssertEqual(resolved.state.rating, 3, "an unflushed rating was overwritten")
+        XCTAssertEqual(resolved.unpreservedSidecar, sidecar,
+                       "the sidecar's state was discarded without being reported")
+
+        // The catalog winning is still not the same as the sidecar being ignored: what
+        // the catalog is silent about still fills in.
+        XCTAssertEqual(resolved.state.flag, .pick)
+        XCTAssertEqual(resolved.state.label, "Red")
+
+        // Same two sides, but nothing unflushed here: that is rule 2, and the reported
+        // discard disappears with it. The flag is what separates the two rules.
+        var flushed = catalog
+        flushed.hasUnflushedEdits = false
+        let clean = SidecarMerge.resolve(catalog: flushed, sidecar: sidecar,
+                                         sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(clean.decision, .sidecarWins)
+        XCTAssertNil(clean.unpreservedSidecar)
     }
 
     func testMergingIsAdditivePerField() throws {
@@ -195,39 +345,97 @@ final class SidecarAndIngestTests: XCTestCase {
         let sidecar = SidecarContent(rating: 5, flag: .pick, label: "Red")
         let partial = SidecarMerge.resolve(
             catalog: SidecarMerge.State(rating: 3), sidecar: sidecar)
-        XCTAssertEqual(partial.rating, 3)
-        XCTAssertEqual(partial.flag, .pick)
-        XCTAssertEqual(partial.label, "Red")
+        XCTAssertEqual(partial.state.rating, 3)
+        XCTAssertEqual(partial.state.flag, .pick)
+        XCTAssertEqual(partial.state.label, "Red")
 
-        // No sidecar at all is the identity.
+        // No sidecar at all is the identity, and says so.
         let alone = SidecarMerge.State(rating: 1, flag: .reject, label: "Yellow")
-        XCTAssertEqual(SidecarMerge.resolve(catalog: alone, sidecar: nil), alone)
+        let none = SidecarMerge.resolve(catalog: alone, sidecar: nil)
+        XCTAssertEqual(none.state, alone)
+        XCTAssertEqual(none.decision, .noSidecar)
 
         // A sidecar with nothing in it cannot erase anything.
-        XCTAssertEqual(SidecarMerge.resolve(catalog: alone, sidecar: SidecarContent()),
-                       alone)
+        XCTAssertEqual(
+            SidecarMerge.resolve(catalog: alone, sidecar: SidecarContent()).state, alone)
 
         // An empty label in either place is treated as absent rather than as a value,
         // so an empty string cannot shadow a real label.
         let blank = SidecarMerge.resolve(catalog: SidecarMerge.State(label: ""),
                                          sidecar: SidecarContent(label: "Purple"))
-        XCTAssertEqual(blank.label, "Purple")
+        XCTAssertEqual(blank.state.label, "Purple")
     }
 
     /// A sidecar whose recipe will not parse must leave the catalog's nil alone rather
     /// than becoming an empty recipe. "No edit recorded" and "edited back to default"
     /// are different states, and only one of them is a lie about the photographer's
     /// work.
-    func testACorruptSidecarRecipeDoesNotBecomeAnEmptyEdit() {
+    ///
+    /// It must also be unable to win under rule 2, however new it is: replacing a real
+    /// recipe with nothing because a corrupt file claims a different fingerprint is the
+    /// loss this whole section exists to prevent, arriving by the other door.
+    func testACorruptSidecarRecipeDoesNotBecomeAnEmptyEdit() throws {
+        var held = Recipe()
+        held.develop.tone.exposure = 1.4
+
         for json in ["{not json", "", "null", "[]", "{\"pipelineVersion\":"] {
             let merged = SidecarMerge.resolve(
                 catalog: SidecarMerge.State(),
                 sidecar: SidecarContent(rating: 3, recipeJSON: json))
-            XCTAssertNil(merged.recipe,
+            XCTAssertNil(merged.state.recipe,
                          "a recipe parsed out of \(json.debugDescription)")
             // The fields that DID parse still come through — partial salvage, same as
             // the sidecar parser's own policy.
-            XCTAssertEqual(merged.rating, 3)
+            XCTAssertEqual(merged.state.rating, 3)
+
+            let newer = SidecarMerge.resolve(
+                catalog: SidecarMerge.State(
+                    recipe: held,
+                    recipeFingerprint: try RecipeFingerprint.fingerprint(held),
+                    sidecarMTime: 1_800_000_000),
+                sidecar: SidecarContent(recipeFingerprint: "xxh64:0000000000000000",
+                                        recipeJSON: json),
+                sidecarMTime: 1_800_000_600)
+            XCTAssertEqual(newer.decision, .catalogWins)
+            XCTAssertEqual(newer.state.recipe, held,
+                           "an unparseable sidecar took an edit under rule 2")
+        }
+    }
+
+    // The writer's read-side classification (docs/23 audit queue item 2). The case
+    // that convicts the old behaviour is the UTF-16 document: a UTF-8 read fails on
+    // it exactly the way it fails on a missing file, so the flush authored a fresh
+    // Lumen document over somebody's real sidecar. `classify` keeps the two apart —
+    // "absent" invites a fresh document, "unreadable" forbids touching the file.
+    func testSidecarClassificationKeepsAbsentAndUnreadableApart() {
+        XCTAssertEqual(XMPSidecar.classify(nil), .absent)
+        XCTAssertEqual(XMPSidecar.classify(Data()), .absent)
+        XCTAssertEqual(XMPSidecar.classify(Data("  \n\t".utf8)), .absent)
+
+        let document = XMPSidecar.serialize(SidecarContent(rating: 3))
+        XCTAssertEqual(XMPSidecar.classify(Data(document.utf8)), .document(document))
+
+        // UTF-16 bytes built by hand so BOM presence is explicit. The BOM-less
+        // little-endian form is the treacherous one: ASCII interleaved with NULs is
+        // byte-for-byte VALID UTF-8, so only the NUL check catches it.
+        var littleEndian = Data()
+        var bigEndian = Data()
+        for unit in document.utf16 {
+            littleEndian.append(UInt8(unit & 0xFF))
+            littleEndian.append(UInt8(unit >> 8))
+            bigEndian.append(UInt8(unit >> 8))
+            bigEndian.append(UInt8(unit & 0xFF))
+        }
+        let cases: [(String, Data)] = [
+            ("UTF-16LE (no BOM)", littleEndian),
+            ("UTF-16BE (no BOM)", bigEndian),
+            ("UTF-16LE with BOM", Data([0xFF, 0xFE]) + littleEndian),
+            ("UTF-16BE with BOM", Data([0xFE, 0xFF]) + bigEndian),
+        ]
+        for (label, bytes) in cases {
+            XCTAssertEqual(XMPSidecar.classify(bytes), .unreadable,
+                           "a \(label) sidecar must be left alone, not treated "
+                               + "as absent and replaced wholesale")
         }
     }
 

@@ -384,6 +384,127 @@ public enum SpatialOps {
         return out
     }
 
+    // MARK: - Frame-denominated sizing
+
+    /// The long edge every spatial size in this engine that is a statement about the
+    /// PICTURE is quoted at.
+    ///
+    /// The same number as `DetailEngine.pyramidReferenceLongEdge`, and it has to stay the
+    /// same number: Clarity's pyramid depth, Texture's band centre and — since the
+    /// sharpening fix below — S12's radius all mean "this much AT 2560 px". A render at
+    /// 2560 px therefore reproduces the settings all three were tuned at exactly, and
+    /// every other size is that one picture scaled rather than a different edit.
+    public static let spatialReferenceLongEdge: Double = 2560
+
+    /// The render's long edge as a multiple of the reference frame.
+    ///
+    /// Deliberately UNCLAMPED, unlike `DetailEngine.bandCenter`'s
+    /// `clamp(log2(longEdge/2560), -1, 2)` and `pyramidLevels`' `clamp(…, 2, 9)`. Those
+    /// two clamp because they index a resource with a finite number of rungs — a
+    /// five-level wavelet stack, a pyramid an image can actually carry — and a band
+    /// index outside the stack is not a coarser band, it is a crash. A sigma has no
+    /// rungs. Its only floor is the sampling grid, and `gaussianBlur` already states
+    /// that floor once, in the right place, as `sigma > 0.05`: below it the operator has
+    /// no support, so it returns the plane untouched and the stage correctly does
+    /// nothing. Adding a second floor here would say "show the preview more sharpening
+    /// than the file will get", which is the defect this function exists to remove.
+    public static func frameScale(longEdge: Int) -> Double {
+        Double(Swift.max(longEdge, 1)) / spatialReferenceLongEdge
+    }
+
+    /// The Gaussian sigma for a radius that is a statement about the picture rather than
+    /// about the buffer it happens to be rendered into.
+    ///
+    /// S12 sharpening handed its Radius straight to `gaussianBlur` as a pixel count, so
+    /// the same setting addressed a different FRACTION of the photograph at every render
+    /// size — while `DetailEngine.pyramidLevels`, `DetailEngine.bandCenter` and
+    /// `RenderGraph.structureRadius` (sharpening's own masking gate) all tracked the
+    /// frame, and `RenderGraph.swift`'s denoise comment named sharpening as one of the
+    /// stages that does. Measured on a texture one two-hundredth of the frame wide, at
+    /// Amount 100 / Radius 1.0 / Detail 25, in sRGB code values of added contrast:
+    ///
+    ///     render long edge   1600    2560    4096    7008
+    ///     pixel-denominated  +3.81   +1.94   +0.82   +0.29
+    ///     frame-denominated  +2.50   +1.94   +2.23   +1.57
+    ///
+    /// The delivered 7008 px file received **7%** of what the fit preview showed, and
+    /// +0.29 is an order of magnitude under the 2.9-code-value floor docs/20 calls
+    /// invisible. The photographer set sharpening on a picture and got it on a buffer.
+    ///
+    /// The other denomination — RT's `radius / scale`, anchored to the file's own native
+    /// long edge, which would leave exports byte-identical and soften previews to match
+    /// — is not what this is. It cannot be: the reference path is handed a buffer and
+    /// nothing else (`ReferenceRenderer.render(_:plan:)` has no native size to divide
+    /// by), and anchoring to 2560 is what the three neighbouring stages already do.
+    ///
+    /// Note what this is NOT for. Output sharpening — a halo sized for a screen or for
+    /// 300 ppi matte paper — genuinely is denominated in delivery pixels, and Lumen
+    /// already ships it as its own stage: `OutputSharpen`, applied by
+    /// `PipelineRenderer.applyOutputSharpen` AFTER the resize, on the output grid. S12
+    /// is the creative half and only the creative half. Until this fix the two halves
+    /// were both pixel-denominated, so a photographer exporting with Sharpen For: Screen
+    /// was getting two output sharpeners and no creative one.
+    public static func frameDenominatedSigma(radius: Double, longEdge: Int) -> Double {
+        guard radius.isFinite else { return 0 }
+        return Swift.max(radius, 0) * frameScale(longEdge: longEdge)
+    }
+
+    /// Where a frame-denominated fine band sits in an à-trous stack, as a CONTINUOUS
+    /// level index — one level per doubling, which is the relationship `bandCenter` and
+    /// `pyramidLevels` both use, written the same way so the three cannot drift apart.
+    ///
+    /// Continuous rather than rounded, and that is load-bearing. `pyramidLevels` rounds
+    /// because a pyramid depth is an integer and one level of Clarity's local Laplacian
+    /// is barely visible. A whole octave of a sharpening band is not: rounding puts a
+    /// step at `2560·√2 ≈ 3620 px`, and measured on the frame above at Radius 2.0 the
+    /// added contrast jumps **7.20 → 8.75 code values (+21.6%) between 3619 px and
+    /// 3621 px** — the picture changing because the preview ladder stepped, which is the
+    /// same defect this file is fixing, in miniature. Blended, the same two sizes read
+    /// 7.977 and 7.977.
+    ///
+    /// Floors at 0 and ceilings at `levels − 3`: level 0 carries ~2 px of structure and
+    /// is the finest thing a sampled image HAS, and the top leaves room for the band to
+    /// reach one level above its centre. With `DetailEngine.waveletLevels` at 5 the
+    /// ceiling is level 2, i.e. 10240 px — exactly where `bandCenter`'s `clamp(…, -1, 2)`
+    /// tops out, for exactly the same reason.
+    public static func fineBandLevel(longEdge: Int, levels: Int) -> Double {
+        let ceiling = Double(Swift.max(levels - 3, 0))
+        let steps = log2(Double(Swift.max(longEdge, 1)) / spatialReferenceLongEdge)
+        guard steps.isFinite else { return 0 }
+        return Num.clamp(steps, 0, ceiling)
+    }
+
+    /// The two-scale fine band a deconvolution-weighted sharpener puts its energy in,
+    /// placed on the frame rather than on the pixel grid.
+    ///
+    /// `details[c] + 0.5·details[c+1]` at the continuous level `c` from
+    /// `fineBandLevel`, linearly blended between the two adjacent integer bands. At
+    /// 2560 px `c` is 0 and this is `details[0] + 0.5·details[1]` — the exact expression
+    /// S12 used at every resolution before, so a 2560 px render is unchanged.
+    ///
+    /// `longEdge` is the long edge of the grid the DETAILS live on, not of the render:
+    /// the level index selects an à-trous dilation, and a dilation is a fact about the
+    /// stack's own sampling. A caller resampling the band onto a different render extent
+    /// resamples the result of this, afterwards.
+    ///
+    /// Public, and returning the band rather than the sigma, because the GPU has a twin
+    /// of it (`RenderGraph.applySharpen` builds the same band out of `bSplinePass`) and
+    /// two paths agreeing on "the fine band" is worth more than two paths agreeing on a
+    /// number they each then use differently.
+    public static func fineDetailBand(_ details: [Plane], longEdge: Int) -> Plane? {
+        guard details.count >= 2 else { return nil }
+        let level = fineBandLevel(longEdge: longEdge, levels: details.count)
+        let lower = Swift.min(Swift.max(Int(level.rounded(.down)), 0), details.count - 2)
+        let fraction = level - Double(lower)
+
+        func band(_ i: Int) -> Plane {
+            guard i + 1 < details.count else { return details[i] }
+            return details[i].zip(details[i + 1]) { $0 + 0.5 * $1 }
+        }
+        guard fraction > 0, lower + 2 < details.count else { return band(lower) }
+        return band(lower).zip(band(lower + 1)) { Num.mix($0, $1, fraction) }
+    }
+
     // MARK: - Dehaze primitives (He/Sun/Tang, TPAMI 2011)
 
     /// Dark channel: the minimum over RGB, then a windowed minimum over a `(2r+1)²` patch.

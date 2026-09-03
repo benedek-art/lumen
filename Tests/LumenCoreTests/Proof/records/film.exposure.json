@@ -1,0 +1,15 @@
+{
+  "authority" : 186.0089897219169,
+  "deadSteps" : 0,
+  "frame" : "tonalColourWedge",
+  "frontLoading" : 0.6764740293515615,
+  "givenBack" : 0,
+  "hueRotation" : 47.47819964313919,
+  "id" : "film.exposure",
+  "isMonotone" : true,
+  "meanSeparation" : 81.89645571736654,
+  "panel" : "Film Lab",
+  "smallestLiveStep" : 12.664116888445932,
+  "travelHigh" : 3,
+  "travelLow" : -2
+}

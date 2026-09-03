@@ -203,3 +203,119 @@ public struct BrushStrokeSet: Codable, Equatable, Sendable {
         "blob:xxh64:" + String(format: "%016llx", XXH64.hash([UInt8](data)))
     }
 }
+
+// MARK: - The sidecar payload
+
+/// Stroke sets as an XMP sidecar carries them (docs/08 §8.9, docs/36 §7.1 of docs/35).
+///
+/// THE DEFECT THIS EXISTS FOR. The sidecar carried the whole recipe — mask parameters
+/// included — which is why docs/08 §8.9 could claim masks survive catalog loss. But a
+/// brush component stores only `strokesRef`, a content hash into the blob store, and the
+/// blob store lives in the catalog. Restore a sidecar onto a machine without that store,
+/// or lose the catalog and re-import from sidecars, and every brush component resolved
+/// to nothing and rasterized EMPTY, forever, with no badge and no error —
+/// indistinguishable from a mask that selects nothing on purpose. That is the
+/// `.lrcat-data` folklore docs/08 §8.7 exists to prevent, reproduced in the one place the
+/// spec promised it could not happen.
+///
+/// Format: a JSON object of `ref → stroke set`, base64'd. Base64 rather than raw JSON in
+/// the element because the payload is then a single opaque token that no XML escaping,
+/// re-indenting or third-party rewriter can corrupt in a way that reads as valid. The
+/// spec's eventual form adds delta encoding and zstd inside the base64; that is a
+/// transport change under this same key, and `decodeSidecar` refuses anything it cannot
+/// parse rather than guessing.
+///
+/// Size: a stroke is a point list. Twenty heavy strokes are tens of kilobytes of JSON,
+/// which base64 inflates by a third — an ordinary XMP file. `sidecarPayloadLimit` caps
+/// it so a pathological painting cannot produce a sidecar no other application will open.
+public enum BrushStrokeSidecar {
+
+    /// Refuse to write beyond this many base64 characters (~1 MB of payload). Past it
+    /// the sidecar stops being a file other tools will handle, and the catalog is still
+    /// the primary copy. The writer omits the key rather than truncating it: half a
+    /// stroke map that decodes is worse than none, because none is visible.
+    public static let payloadLimit = 1_400_000
+
+    /// Every stroke set a recipe's masks reference, resolved through `blob`.
+    ///
+    /// Returns nil when the recipe references no strokes at all, so a photograph with no
+    /// brush masking does not grow a sidecar key. A reference `blob` cannot resolve is
+    /// SKIPPED rather than failing the whole map — one unreadable blob must not cost the
+    /// nineteen that are fine.
+    /// What `payload(for:blob:)` decided, when the caller needs to tell the three
+    /// answers apart.
+    ///
+    /// `payload` returns `String?` and collapses two of them — "this photograph has no
+    /// brush masking" and "its painting is too big for a sidecar" both come back nil —
+    /// and the caller then writes `.some(nil)`, which means "drop the key". So passing
+    /// the cap DELETED the payload a previous flush had written: the photographer
+    /// painted for a few more minutes and the sidecar's copy of the whole painting went
+    /// away, with no log line and nothing on screen. The catalog was still the primary
+    /// copy, which is why this was survivable and why it was invisible.
+    ///
+    /// Measured: the cap is about 22,300 points with a mouse and 20,200 with a tablet —
+    /// roughly three minutes of brush time on one photograph at 120 Hz.
+    public enum PayloadDecision: Equatable, Sendable {
+        /// No brush masking; the key should be dropped.
+        case none
+        /// Write this.
+        case payload(String)
+        /// Too large to embed. The caller must leave whatever is already in the file
+        /// alone, and say so. Carries the size it would have been, for the message.
+        case tooLarge(characters: Int)
+    }
+
+    /// The same resolution as `payload(for:blob:)`, with the three answers kept apart.
+    public static func decision(for recipe: Recipe,
+                                blob: (String) -> BrushStrokeSet?) -> PayloadDecision {
+        guard let encoded = encodedSets(for: recipe, blob: blob) else { return .none }
+        guard encoded.count <= payloadLimit else {
+            return .tooLarge(characters: encoded.count)
+        }
+        return .payload(encoded)
+    }
+
+    /// Nil for "nothing to write", for the callers that cannot act on the difference.
+    public static func payload(for recipe: Recipe,
+                               blob: (String) -> BrushStrokeSet?) -> String? {
+        if case .payload(let p) = decision(for: recipe, blob: blob) { return p }
+        return nil
+    }
+
+    private static func encodedSets(for recipe: Recipe,
+                                    blob: (String) -> BrushStrokeSet?) -> String? {
+        var sets: [String: BrushStrokeSet] = [:]
+        for mask in recipe.masks {
+            for component in mask.components where component.kind == .brush {
+                guard let ref = component.strokesRef, !ref.isEmpty,
+                      sets[ref] == nil, let set = blob(ref) else { continue }
+                guard !set.strokes.isEmpty else { continue }
+                sets[ref] = set
+            }
+        }
+        guard !sets.isEmpty else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(sets) else { return nil }
+        return data.base64EncodedString()
+    }
+
+    /// The stroke sets in a sidecar payload, keyed by the reference each one belongs to.
+    ///
+    /// Read-path posture (docs/15 §15.7): anything unparseable is an empty map, never a
+    /// throw. A sidecar written by a newer build, or damaged in transit, must not stop a
+    /// photograph opening.
+    public static func decode(_ base64: String) -> [String: BrushStrokeSet] {
+        let trimmed = base64.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = Data(base64Encoded: trimmed,
+                              options: [.ignoreUnknownCharacters]),
+              let sets = try? JSONDecoder().decode([String: BrushStrokeSet].self, from: data)
+        else { return [:] }
+        // A payload whose keys do not address their own contents is a payload that has
+        // been edited by hand or corrupted in a way base64 did not catch. Drop those
+        // entries: restoring one under the wrong reference would put somebody else's
+        // painting into this mask, which is worse than the mask being empty.
+        return sets.filter { ref, set in (try? set.blobRef()) == ref }
+    }
+}

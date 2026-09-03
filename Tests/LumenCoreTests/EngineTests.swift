@@ -190,11 +190,106 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// Highlights must not reach a shadow and Shadows must not reach a highlight —
+    /// INCLUDING where the monotonicity limiter binds, which is the only place either
+    /// of them has ever been able to.
+    ///
+    /// What was here were two one-slider slices: `stops(at: -3) == 0` for
+    /// `Tone(highlights: 100)` and its mirror. Both are satisfied by the weight
+    /// functions alone. A lone slider is precisely the case a shared scale cannot
+    /// couple, because there is nothing to couple it TO — so the assertion could not
+    /// fail however badly the scale leaked, and it did not fail while the scale leaked
+    /// this far: at `Tone(contrast: -100, shadows: -100, whites: -100, blacks: -100)`,
+    /// dragging Highlights from −100 to +40 LIGHTENED −2 EV by 24.4 sRGB code values,
+    /// and the top 60 points of the slider rendered byte-identically there.
+    /// `highlightWeight(-2)` is exactly 0 at that tone. The leak was the scale.
+    ///
+    /// So the sweep now runs the whole neighbourhood and counts how much of it BINDS.
+    /// A sweep that never binds is a sweep that proves nothing here, which is why the
+    /// count is asserted rather than trusted.
     func testHighlightsAndShadowsStayOutOfEachOthersTerritory() {
-        let h = ToneEngine(tone: Tone(highlights: 100))
-        let s = ToneEngine(tone: Tone(shadows: 100))
-        XCTAssertEqual(h.stops(at: -3), 0, accuracy: 1e-9)
-        XCTAssertEqual(s.stops(at: 3), 0, accuracy: 1e-9)
+        // The original one-slider slices, kept and tightened.
+        XCTAssertEqual(ToneEngine(tone: Tone(highlights: 100)).stops(at: -3), 0,
+                       accuracy: 1e-12)
+        XCTAssertEqual(ToneEngine(tone: Tone(shadows: 100)).stops(at: 3), 0,
+                       accuracy: 1e-12)
+
+        let below = stride(from: -12.0, through: 0.0, by: 0.25).map { $0 }
+        let above = stride(from: 0.0, through: 7.0, by: 0.25).map { $0 }
+        var binding = 0
+        var settings = 0
+        var worstLeak = (amount: 0.0, label: "")
+
+        for contrast in [-100.0, -60, 0, 60] {
+            for pivot in [-3.0, 0, 3] {
+                for whites in [-100.0, 0, 20, 100] {
+                    for blacks in [-100.0, 0, 100] {
+                        for partner in [-100.0, -60, 0, 60, 100] {
+                            // Highlights against a fixed everything-else. Nothing at or
+                            // below mid-grey may move, at any setting of Highlights.
+                            var reference: [Double]?
+                            for highlights in stride(from: -100.0, through: 100,
+                                                     by: 10.0) {
+                                let e = ToneEngine(tone: Tone(
+                                    contrast: contrast, contrastPivot: pivot,
+                                    highlights: highlights, shadows: partner,
+                                    whites: whites, blacks: blacks))
+                                settings += 1
+                                if e.zonalScale < 1 - 1e-12 { binding += 1 }
+                                let probe = below.map { e.stops(at: $0) }
+                                if let base = reference {
+                                    for (i, v) in probe.enumerated()
+                                    where abs(v - base[i]) > worstLeak.amount {
+                                        worstLeak = (abs(v - base[i]),
+                                                     "Highlights \(highlights) moved "
+                                                        + "\(below[i]) EV by "
+                                                        + "\(v - base[i]) stops at "
+                                                        + "c\(contrast) p\(pivot) "
+                                                        + "s\(partner) w\(whites) "
+                                                        + "b\(blacks)")
+                                    }
+                                } else {
+                                    reference = probe
+                                }
+                            }
+                            // Shadows against a fixed everything-else, mirrored.
+                            reference = nil
+                            for shadows in stride(from: -100.0, through: 100, by: 10.0) {
+                                let e = ToneEngine(tone: Tone(
+                                    contrast: contrast, contrastPivot: pivot,
+                                    highlights: partner, shadows: shadows,
+                                    whites: whites, blacks: blacks))
+                                settings += 1
+                                if e.zonalScale < 1 - 1e-12 { binding += 1 }
+                                let probe = above.map { e.stops(at: $0) }
+                                if let base = reference {
+                                    for (i, v) in probe.enumerated()
+                                    where abs(v - base[i]) > worstLeak.amount {
+                                        worstLeak = (abs(v - base[i]),
+                                                     "Shadows \(shadows) moved "
+                                                        + "\(above[i]) EV by "
+                                                        + "\(v - base[i]) stops at "
+                                                        + "c\(contrast) p\(pivot) "
+                                                        + "h\(partner) w\(whites) "
+                                                        + "b\(blacks)")
+                                    }
+                                } else {
+                                    reference = probe
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // The sweep has to spend real time where the scale is doing something, or it is
+        // the old test with more loops around it. The old independence check skipped
+        // every binding case by construction and that is exactly what it missed.
+        XCTAssertGreaterThan(binding, settings / 10,
+                             "only \(binding) of \(settings) settings bound the zonal "
+                                 + "limiter — this sweep is not testing the coupling")
+        XCTAssertEqual(worstLeak.amount, 0, accuracy: 1e-12, worstLeak.label)
     }
 
     /// Whites and Blacks move the anchors AND carry a tonal shelf of their own.
@@ -408,6 +503,199 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    // MARK: - Display white, and which mechanism actually holds it
+
+    /// ToneEngine's header claimed for a long time that Highlights' window "tapers to
+    /// zero at the white anchor, so Highlights can never push a pixel past display
+    /// white — implemented as geometry". Since the shelf rework that is false twice
+    /// over: `highlightWeight` is `smoothstep(0, whiteAnchor, t)`, which is 1 AT the
+    /// anchor and 1 above it, so Highlights ±100 applies its full ±2 EV to pixels that
+    /// are already at and beyond white. That is deliberate — a bump left a blown sky
+    /// exactly where it was, which is what the rework existed to fix.
+    ///
+    /// The invariant survived the rework anyway, on a different mechanism: the display
+    /// transform's curve saturates at the anchor. This asserts both halves — that the
+    /// shelf really does reach past white, and that the render still cannot — so the
+    /// words in that file are now backed rather than believed.
+    func testHighlightsCannotRenderPastDisplayWhite() {
+        // The shelf, first: full weight at the anchor and above it.
+        let up = ToneEngine(tone: Tone(highlights: 100))
+        XCTAssertEqual(up.highlightWeight(up.whiteAnchorEV), 1, accuracy: 1e-12,
+                       "the highlight shelf does not reach the white anchor")
+        XCTAssertEqual(up.highlightWeight(up.whiteAnchorEV + 4), 1, accuracy: 1e-12,
+                       "the highlight shelf falls off above the white anchor")
+        XCTAssertGreaterThan(up.stops(at: up.whiteAnchorEV + 3), 1.0,
+                             "Highlights +100 does nothing above display white")
+
+        // And the render, which is where the promise is actually kept. The ramp runs
+        // eight stops past the anchor, so the claim is tested where it could fail.
+        let frame = ImageBuffer(width: 96, height: 4) { u, _ in
+            RGB(gray: 0.18 * exp2(-8 + 21 * u))
+        }
+        for highlights in [0.0, 50.0, 100.0] {
+            for whites in [0.0, 100.0] {
+                for contrast in [0.0, 100.0] {
+                    var recipe = Recipe()
+                    recipe.develop.tone.highlights = highlights
+                    recipe.develop.tone.whites = whites
+                    recipe.develop.tone.contrast = contrast
+                    let plan = RenderPlan(recipe: recipe)
+                    // Both paths: the baked table the shipping graph resamples, whose
+                    // output is normalized against display white, and the exact f64
+                    // twin, which is where the mechanism actually is. A table cannot
+                    // exceed the maximum of the values it interpolates, so the exact
+                    // path is the one that could fail first.
+                    let label = "Highlights \(highlights) / Whites \(whites) / "
+                        + "Contrast \(contrast)"
+                    let tabled = ReferenceRenderer.render(frame, plan: plan)
+                    let exact = ReferenceRenderer.renderExact(frame, plan: plan)
+                    var tabledPeak = 0.0
+                    var exactPeak = 0.0
+                    for y in 0..<tabled.height {
+                        for x in 0..<tabled.width {
+                            // Finiteness first. `Swift.max` returns the OTHER operand
+                            // when one is NaN, so a running maximum quietly steps over
+                            // every NaN in the frame — which is how the first draft of
+                            // this test passed against a transform whose curve was
+                            // producing NaN above the anchor rather than white.
+                            XCTAssertTrue(tabled[x, y].isFinite,
+                                          "\(label) rendered \(tabled[x, y]) at \(x)")
+                            XCTAssertTrue(exact[x, y].isFinite,
+                                          "\(label) formed \(exact[x, y]) at \(x)")
+                            tabledPeak = Swift.max(tabledPeak, tabled[x, y].maxComponent)
+                            exactPeak = Swift.max(exactPeak, exact[x, y].maxComponent)
+                        }
+                    }
+                    XCTAssertLessThanOrEqual(
+                        tabledPeak, 1.0 + 1e-6,
+                        "\(label) rendered \(tabledPeak) against display white 1.0")
+                    XCTAssertLessThanOrEqual(
+                        exactPeak, plan.displayWhite + 1e-9,
+                        "\(label) formed \(exactPeak) against display white "
+                            + "\(plan.displayWhite)")
+                }
+            }
+        }
+    }
+
+    // MARK: - Auto's statistics, taken through the curve the render applied
+
+    /// Inverting the display transform has to land back where it started, or every
+    /// number downstream of it is a different kind of wrong from the one it replaced.
+    func testSceneEVInvertsTheDisplayTransformBetweenItsAnchors() {
+        for whites in [0.0, 100.0, -100.0] {
+            var recipe = Recipe()
+            recipe.develop.tone.whites = whites
+            let transform = DisplayTransform.forRecipe(recipe)
+            let histogram = AutoTone.SceneHistogram(transform: transform)
+            let lo = transform.params.blackAnchorEV
+            let hi = transform.params.whiteAnchorEV
+
+            var ev = lo + 0.1
+            while ev < hi - 0.1 {
+                let display = transform.tone(DisplayTransform.midGrey * exp2(ev))
+                XCTAssertEqual(histogram.sceneEV(displayLuminance: display), ev,
+                               accuracy: 0.05, "round trip failed at \(ev) EV")
+                ev += 0.25
+            }
+            // Censored, not extrapolated, outside the anchors: the reading is "at least
+            // this bright", which is what makes the highlight branch reachable.
+            XCTAssertEqual(histogram.sceneEV(displayLuminance: transform.white * 4), hi,
+                           accuracy: 1e-9)
+            XCTAssertEqual(histogram.sceneEV(displayLuminance: 0), lo, accuracy: 1e-9)
+            XCTAssertEqual(histogram.sceneEV(displayLuminance: .nan), lo, accuracy: 1e-9)
+        }
+
+        // The plan the picture is actually rendered through must be the same transform,
+        // or the inversion is against a curve nothing applied.
+        var recipe = Recipe()
+        recipe.develop.tone.whites = 40
+        recipe.develop.tone.blacks = -30
+        recipe.look.render.preset = "Punchy"
+        XCTAssertEqual(DisplayTransform.forRecipe(recipe).params,
+                       RenderPlan(recipe: recipe).displayTransform.params)
+    }
+
+    /// Auto recovers a blown sky — the single most common thing an Auto button does,
+    /// and the one branch of `suggest` that could never fire on the frames that need it.
+    ///
+    /// `AppStateActions.histogramStatistics` binned `log2(displayLuminance / 0.18)` off
+    /// the rendered proxy and called the result a scene EV. A display-referred value
+    /// cannot exceed 1.0, so that expression cannot exceed +2.47 EV, and highlight
+    /// recovery fires on `percentileEV(0.995) + exposure > 3.0`. The threshold was
+    /// unreachable. Every engine test fed FABRICATED statistics, so all five branches
+    /// looked covered while the shipping measurement had no test at all.
+    ///
+    /// This runs the real measurement: a scene-referred frame, through the real render,
+    /// quantized to 8 bits the way the proxy is, and back through the inversion.
+    func testAutoRecoversABlownSkyThroughTheRealMeasurement() {
+        // A third of the frame is sky at +6 EV — past the white anchor, so it renders
+        // as flat display white and there is nothing left in the pixels to read. The
+        // rest is a normally-exposed subject just under mid-grey.
+        let frame = ImageBuffer(width: 96, height: 96) { u, v in
+            v < 0.35 ? RGB(gray: 0.18 * exp2(6)) : RGB(gray: 0.18 * exp2(-1 + u))
+        }
+        let recipe = Recipe()
+        let plan = RenderPlan(recipe: recipe, lutSize: LUT3D.exportSize)
+        let rendered = ReferenceRenderer.render(frame, plan: plan)
+
+        var histogram = AutoTone.SceneHistogram(
+            transform: DisplayTransform.forRecipe(recipe))
+        let sRGB = RGBColorSpace.srgb
+        var whitePixels = 0
+        for y in 0..<rendered.height {
+            for x in 0..<rendered.width {
+                // Through 8-bit sRGB and back, because that is what the app measures:
+                // the proxy is a CGImage, and the quantization is part of the path.
+                let c = rendered[x, y] * plan.displayWhite
+                let quantized = RGB(
+                    TransferFunction.srgb.decode(
+                        (TransferFunction.srgb.encode(Num.saturate(c.r)) * 255).rounded() / 255),
+                    TransferFunction.srgb.decode(
+                        (TransferFunction.srgb.encode(Num.saturate(c.g)) * 255).rounded() / 255),
+                    TransferFunction.srgb.decode(
+                        (TransferFunction.srgb.encode(Num.saturate(c.b)) * 255).rounded() / 255))
+                if quantized.maxComponent >= 1 { whitePixels += 1 }
+                histogram.add(displayLuminance: sRGB.luminance(quantized))
+            }
+        }
+        XCTAssertGreaterThan(Double(whitePixels) / Double(rendered.count), 0.2,
+                             "INVALID PROBE: the sky did not render as display white, "
+                                 + "so nothing here is clipped and there is nothing to "
+                                 + "recover")
+
+        let stats = histogram.statistics
+        XCTAssertGreaterThan(stats.percentileEV(0.995), 3.0,
+                             "the frame's brightest half-percent measured "
+                                 + "\(stats.percentileEV(0.995)) EV — a display-referred "
+                                 + "reading cannot exceed +2.47 and cannot reach the "
+                                 + "recovery threshold")
+
+        let auto = AutoTone.suggest(from: stats)
+        XCTAssertLessThan(auto.highlights, 0,
+                          "Auto wrote Highlights \(auto.highlights) on a blown sky")
+
+        // The mirror case, so the fix is not "always recover": a frame that fits
+        // comfortably inside the anchors gets no recovery and no shadow lift.
+        let easy = ImageBuffer(width: 96, height: 96) { u, _ in
+            RGB(gray: 0.18 * exp2(-2 + 3 * u))
+        }
+        let easyRender = ReferenceRenderer.render(easy, plan: plan)
+        var easyHistogram = AutoTone.SceneHistogram(
+            transform: DisplayTransform.forRecipe(recipe))
+        for y in 0..<easyRender.height {
+            for x in 0..<easyRender.width {
+                easyHistogram.add(displayLuminance:
+                    sRGB.luminance(easyRender[x, y] * plan.displayWhite))
+            }
+        }
+        let easyAuto = AutoTone.suggest(from: easyHistogram.statistics)
+        XCTAssertEqual(easyAuto.highlights, 0, accuracy: 1e-9,
+                       "Auto recovered highlights on a frame that has none")
+        XCTAssertEqual(easyAuto.shadows, 0, accuracy: 1e-9,
+                       "Auto lifted shadows on a frame that has none buried")
+    }
+
     // MARK: - Curves
 
     func testDefaultCurveIsIdentity() {
@@ -523,6 +811,60 @@ final class EngineTests: XCTestCase {
                                     targetKelvin: nil, targetTint: nil)
         XCTAssertTrue(wb.isIdentity)
         XCTAssertLessThan(wb.matrix.maxAbsDifference(.identity), 1e-12)
+    }
+
+    // MARK: - The Temp/Tint rows and the neutral the render adapts from
+
+    /// What the panel shows while `raw.temp` is nil, written back into the recipe, must
+    /// change no pixel. That is the entire contract, and it was broken for every file
+    /// that was not shot at 5500 K.
+    ///
+    /// The panel stood a literal 5500 in for the as-shot neutral it had no way to see,
+    /// so on a 3200 K tungsten frame the row read 5500 while the render adapted from
+    /// 3200 — and the first touch of the slider wrote the fabricated number, which the
+    /// adaptation then honoured. A multi-thousand-Kelvin jump cut on a drag the
+    /// photographer had not finished starting.
+    ///
+    /// The assertion is on the MATRIX rather than on the displayed number, because the
+    /// number is the thing that was wrong: a test comparing it against a constant would
+    /// have passed happily against 5500.
+    func testTheTempRowShowsTheNeutralTheRenderAdaptsFrom() {
+        let neutrals = [(3200.0, 12.0), (2850.0, 0.0), (5500.0, 0.0),
+                        (6500.0, 10.0), (7500.0, -20.0),
+                        // Past both clamps, so the row shows what the engine will use.
+                        (500.0, -900.0), (99000.0, 900.0)]
+        for (kelvin, tint) in neutrals {
+            let asShot = WhiteBalanceEngine.Neutral(kelvin: kelvin, tint: tint)
+            let shown = WhiteBalanceEngine.displayed(temp: nil, tint: nil, asShot: asShot)
+            XCTAssertTrue(shown.isAsShot,
+                          "a recipe with no override does not read as As Shot")
+
+            let firstTouch = WhiteBalanceEngine(asShotKelvin: kelvin, asShotTint: tint,
+                                                targetKelvin: shown.temperature,
+                                                targetTint: shown.tint)
+            XCTAssertTrue(firstTouch.isIdentity,
+                          "writing the displayed \(shown.temperature) K / \(shown.tint) "
+                              + "back onto a file shot at \(kelvin) K / \(tint) is not "
+                              + "the same white balance")
+            XCTAssertLessThan(firstTouch.matrix.maxAbsDifference(.identity), 1e-12,
+                              "the first drag moved the picture at \(kelvin) K")
+
+            // Nothing about "as shot" survives an override: an explicit value is shown
+            // as itself, and the section reads as modified.
+            let overridden = WhiteBalanceEngine.displayed(temp: 4100, tint: 7,
+                                                          asShot: asShot)
+            XCTAssertEqual(overridden.temperature, 4100, accuracy: 1e-12)
+            XCTAssertEqual(overridden.tint, 7, accuracy: 1e-12)
+            XCTAssertFalse(overridden.isAsShot)
+        }
+
+        // What the defect actually cost, as a number. A 5500 K stand-in on a tungsten
+        // frame is not a rounding error in the readout — it is a visible adaptation.
+        let fabricated = WhiteBalanceEngine(asShotKelvin: 3200, asShotTint: 0,
+                                            targetKelvin: 5500, targetTint: 0)
+        XCTAssertGreaterThan(fabricated.matrix.maxAbsDifference(.identity), 0.1,
+                             "INVALID PROBE: 3200 K to 5500 K is not a visible move, so "
+                                 + "this test is not measuring what it claims to")
     }
 
     func testLoweringTemperatureCoolsThePicture() {
@@ -890,6 +1232,24 @@ final class EngineTests: XCTestCase {
         XCTAssertGreaterThan(matteHigh.energy(), screen.energy())
         XCTAssertGreaterThan(OutputSharpen(medium: .matte, amount: .standard).baseRadius(),
                              OutputSharpen(medium: .glossy, amount: .standard).baseRadius())
+    }
+
+    /// The export sheet prints `appliedRadius` and the renderer runs it, so it must be
+    /// `baseRadius` through the renderer's own clamp — inside the bounds they are the
+    /// same number, past them the sheet must claim the clamp and not the formula
+    /// (matte at the Resolution field's typed ceiling of 2400 ppi derives 24 px; the
+    /// renderer runs 12), and Off must stay exactly zero because the renderer skips
+    /// the filter entirely rather than sharpening at the clamp's floor.
+    func testAppliedRadiusIsTheRadiusTheRendererRuns() {
+        let matte = OutputSharpen(medium: .matte, amount: .standard)
+        XCTAssertEqual(matte.appliedRadius(printPPI: 300), matte.baseRadius(printPPI: 300),
+                       accuracy: 1e-12, "inside the clamp nothing changes")
+        XCTAssertEqual(matte.appliedRadius(printPPI: 2_400),
+                       OutputSharpen.appliedRadiusBounds.upperBound,
+                       accuracy: 1e-12,
+                       "past the clamp the readout must claim the clamp")
+        XCTAssertEqual(OutputSharpen().appliedRadius(printPPI: 300), 0,
+                       "Off sharpens nothing, not 0.3 px")
     }
 
     func testSoftProofFlagsOutOfGamutColours() {

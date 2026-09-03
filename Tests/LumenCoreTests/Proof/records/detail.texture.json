@@ -1,0 +1,18 @@
+{
+  "authority" : 38.20022897947038,
+  "deadSteps" : 0,
+  "frame" : "fineTexture",
+  "frontLoading" : 0.5694705135036777,
+  "givenBack" : 0,
+  "hueRotation" : 0,
+  "id" : "detail.texture",
+  "isMonotone" : true,
+  "meanSeparation" : 15.93568140366577,
+  "overshoot" : 19.671410212788317,
+  "overshootAbove" : 18.564965145393728,
+  "overshootBelow" : 19.671410212788317,
+  "panel" : "Presence",
+  "smallestLiveStep" : 1.8139316687031624,
+  "travelHigh" : 100,
+  "travelLow" : -100
+}

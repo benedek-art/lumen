@@ -24,12 +24,14 @@
    "amount": 50,
    "classic": {
     "chroma": 25,
+    "chromaUserSet": false,
     "colorDetail": 50,
     "colorSmoothness": 50,
     "hotPixels": 0,
     "luma": 0,
     "lumaContrast": 0,
-    "lumaDetail": 50
+    "lumaDetail": 50,
+    "lumaUserSet": false
    },
    "mode": "classic"
   },
@@ -234,11 +236,11 @@
     ]
    },
    "pivots": [
-    0.08,
-    0.25,
+    0.35714285714285715,
     0.5,
-    0.75,
-    0.92
+    0.6428571428571429,
+    0.7857142857142857,
+    0.9285714285714286
    ],
    "shadow": {
     "ev": 0,
@@ -272,6 +274,7 @@
    "preset": "Neutral"
   },
   "vignette": 0,
+  "vignetteFeather": 50,
   "wheels": {
    "balance": 0,
    "blending": 50,
@@ -323,6 +326,7 @@
    }
   }
  },
+ "maskGroups": [],
  "masks": [],
- "pipelineVersion": 1
+ "pipelineVersion": 2
 }

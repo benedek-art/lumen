@@ -78,8 +78,16 @@ public enum CaptureMetadataReader {
             let offset = offsetText.flatMap(PhotoMetadata.parseEXIFOffset) ?? 0
             out.captureAt = PhotoMetadata.parseEXIFDate(stamp, offsetSeconds: offset)
         }
+        // SubsecTimeOriginal is a fraction with its decimal point left out, so `Int` is
+        // the wrong reading: it made "7" (0.7 s) sort below "070" (0.07 s). The rule
+        // lives in `PhotoMetadata` where it can be tested without a file or a Mac.
+        //
+        // Only the String form is read. If ImageIO ever hands this tag back as a number
+        // the leading zeros are already gone, so the digit width — which IS the value —
+        // cannot be recovered; no subsecond at all is better than a confidently wrong
+        // ordering, and that is what nil gives.
         if let subsec = exif[kCGImagePropertyExifSubsecTimeOriginal] as? String {
-            out.captureSubsec = Int(subsec)
+            out.captureSubsec = PhotoMetadata.parseEXIFSubsec(subsec)
         }
 
         // GPS is stored as a magnitude plus a hemisphere letter, so a photo taken in

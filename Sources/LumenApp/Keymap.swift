@@ -11,11 +11,17 @@
 //   · while a text field has focus, every bare key belongs to the text field;
 //   · a key this dispatcher does not claim is returned to the system unchanged, so
 //     menu equivalents and system shortcuts keep working.
+//
+// The reference the Help sheet prints is `LumenCore.KeyGrammar`, and it is checked
+// against these sources rather than trusted: `KeyGrammarTests` reads the switch below
+// for its bare keys and every `.keyboardShortcut` in this target for its chords, and
+// fails when either side names a key the other does not.
 
 #if os(macOS)
 
 import AppKit
 import Foundation
+import LumenCore
 import SwiftUI
 
 @MainActor
@@ -58,25 +64,63 @@ final class KeyDispatcher {
     private func handle(_ event: NSEvent) -> Bool {
         guard let state else { return false }
 
+        // A KEY-UP IS ANSWERED BEFORE ANY GUARD, and the ordering is the whole fix.
+        //
+        // It used to sit below the three guards, so a release could be discarded even
+        // though the press had been claimed. Hold `[` to check the shadows, reach for ⌘
+        // while it is down — any chord, or a thumb resting on it — and release: the
+        // key-up hit `flags.contains(.command)` and vanished. `holdActive` stayed `"["`,
+        // so the frame stayed lifted three stops with a badge over it and nothing holding
+        // it, AND `InspectionHolds.resolve` refuses to begin any new hold while
+        // `holdActive != nil` — so both brackets and the Space peek were dead for the
+        // rest of the session. The same trap caught Space in the grid.
+        //
+        // Hoisting is safe because `handleKeyUp` claims nothing it did not start: a
+        // release that matches no hold key and no active hold returns false and falls
+        // through to whoever else wants it.
+        if event.type == .keyUp {
+            return handleKeyUp(event, state: state)
+        }
+
         // A focused text field owns every key. Nothing below runs while the user is
         // typing a value into a slider or a filter box.
-        if let responder = NSApp.keyWindow?.firstResponder,
-           responder is NSTextView || responder is NSTextField {
-            return false
-        }
+        //
+        // THROUGH THE ONE PREDICATE NOW, in `LumenFocus.swift`. The first-responder test
+        // was written out here and nowhere else, which held for exactly as long as this
+        // monitor was the only thing standing in front of a text field. It was not: the
+        // MENU BAR stands further in front — `NSMenu` offers a key equivalent before the
+        // key window's responder chain sees the event — and the Edit menu had taken ⌘C,
+        // ⌘V and ⌘A for the develop settings in every context, so the app answered the
+        // four oldest chords on the platform while somebody was typing into a keyword
+        // field. Both places ask the same question now, out of the same function, because
+        // two hand-rolled copies of "is the photographer typing" is the exact shape every
+        // drift this codebase has closed began as.
+        if TextEditingFocus.isActive { return false }
 
         // A sheet owns every key too. This monitor sits in FRONT of the responder
         // chain, so without this an X pressed while reading the export sheet rejects
         // the photo behind it — silently, because the sheet is covering the badge.
         if state.isPresentingSheet { return false }
 
+        // A POPOVER OWNS THEM TOO, for exactly the reason a sheet does. The Filter
+        // popover and every `LumenMenu` dropdown are popovers, and until this line an `x`
+        // pressed while reading the filter list rejected the photograph behind it —
+        // silently, because the popover was covering the badge. A popover is a window of
+        // its own on this platform, so "the key window is not the main window" is the
+        // test, and it costs nothing when none is up.
+        if let window = NSApp.keyWindow, window !== NSApp.mainWindow, !window.isSheet {
+            return false
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Command-modified keys are menu territory; leave them alone.
         if flags.contains(.command) { return false }
-
-        if event.type == .keyUp {
-            return handleKeyUp(event, state: state)
-        }
+        // CONTROL TOO, and it was never checked. ⌃N, ⌃P, ⌃A, ⌃E and ⌃H are the standard
+        // macOS text-navigation bindings that work in every control on the system; here
+        // they fell straight through to the bare-key switch and toggled Survey, picked
+        // the photograph, flipped auto-advance, opened the loupe and toggled the
+        // histogram. Nothing in this app's grammar uses ⌃ at all.
+        if flags.contains(.control) { return false }
 
         // Arrows and the like arrive as special key codes rather than characters.
         if let special = specialKey(event, state: state, flags: flags) {
@@ -88,8 +132,16 @@ final class KeyDispatcher {
 
         // Ignore auto-repeat for the toggles where repeat would be nonsense, but keep
         // it for navigation, which is exactly where key repeat earns its keep.
+        //
+        // AND THE FLAG AND LABEL KEYS ARE ONLY NAVIGATION WHILE AUTO-ADVANCE IS ON. P, X,
+        // U and the ten digits all INVERT when the value already matches — `setFlag` and
+        // `setRating` and `setLabel` are toggles — so with auto-advance off, holding P
+        // flips pick/unpick at the key-repeat rate and what you end up with is the parity
+        // of however long you held it. With auto-advance on the same repeat is the thing
+        // it was allowed for: flag, move to the next frame, flag again. The comment above
+        // was describing the second case and the code was permitting both.
         if event.isARepeat && !"[]".contains(key) {
-            if !"pxu0123456789".contains(key) { return false }
+            guard "pxu0123456789".contains(key), state.autoAdvance else { return false }
         }
 
         switch key {
@@ -105,22 +157,36 @@ final class KeyDispatcher {
 
         // ---- Flags -------------------------------------------------------------
         case "p":
-            state.setFlag(.pick)
+            state.setFlag(.picked)
         case "x":
-            state.setFlag(.reject)
+            state.setFlag(.rejected)
         case "u":
-            state.setFlag(.unflagged)
+            state.setFlag(.none)
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
-            if let value = Int(String(key)) { state.setRating(value) }
+            // FLOW FIRST, and only under two conditions that cannot both be true by
+            // accident: masking is up AND the selected component is a brush. LR's digit
+            // grammar is 1–9 → 10–90%, 0 → 100%. Digits are ratings everywhere else in
+            // this application and a rating lost to a brush would be unrecoverable, so
+            // this is checked inside the rating case rather than in one before it — a
+            // separate case would have SHADOWED ratings for every digit, in every mode,
+            // which is how a keymap acquires a hole.
+            if let value = Int(String(key)) {
+                if Self.brushFlow(value, state: state) { return true }
+                state.setRating(value)
+            }
         case "6":
+            if Self.brushFlow(6, state: state) { return true }
             state.setLabel(.red)
         case "7":
+            if Self.brushFlow(7, state: state) { return true }
             state.setLabel(.yellow)
         case "8":
+            if Self.brushFlow(8, state: state) { return true }
             state.setLabel(.green)
         case "9":
+            if Self.brushFlow(9, state: state) { return true }
             state.setLabel(.blue)
         // Purple is offered by the label picker and the filter bar, so it needs a key
         // like the other five; `-` sits next to 9 and is otherwise only a zoom key in
@@ -161,12 +227,29 @@ final class KeyDispatcher {
             // overlay's rect is normalized to the straightened frame — a second inset
             // crop inside the first, compounding on every drag. The renderer now shows
             // the uncropped frame while this is on, which is what makes it correct.
-            state.activeSection = .effects       // crop lives with the effects group
-            state.showLoupe()
-            LoupeViewport.shared.showCrop.toggle()
+            // Crop is its own workspace now, and R is one of three doors into it — the
+            // menu item and the tab strip are the others. All three call the same verb,
+            // because fixing them one at a time is exactly how the tab came to be the
+            // one route that did not arm the tool. `AppState.toggleCropTool` holds the
+            // round trip: from outside it enters Crop with the section open and the
+            // rectangle live, and from inside it toggles the rectangle without leaving.
+            state.toggleCropTool()
         case "m":
-            state.activeSection = .masks
-            state.showLoupe()
+            // M IS A ROUND TRIP, and it has to be, because it is the only key that both
+            // enters and leaves. The column becomes the mask editor and the workspace
+            // underneath is remembered, so pressing M twice puts a photographer back
+            // exactly where they were — which is the property that lets a mask be a
+            // detour rather than a destination.
+            //
+            // One verb, shared with the rail's mask door. `toggleMasking` carries the
+            // whole entry contract — the loupe only on the way in (Cull's round trip
+            // broke when it ran on both edges), the crop tool disarmed so its rectangle
+            // is never stranded under `MaskCanvas` — and the history of both rules now
+            // lives on the verb in WorkspaceEntry.swift. This key held its own copy of
+            // that body for one commit; two copies of an entry contract is how the tab
+            // became the one route that did not arm the crop tool, so neither the key
+            // nor the door keeps one.
+            state.toggleMasking()
 
         // ---- Mask overlays (docs/08 §8.6) --------------------------------------
         //
@@ -182,19 +265,53 @@ final class KeyDispatcher {
             } else {
                 state.toggleMaskOverlay()
             }
-            state.activeSection = .masks
-            state.showLoupe()
+            // The overlay keys ENTER masking rather than toggling it: pressing O to
+            // look at a mask and having it close the editor you are looking at would be
+            // the key undoing its own reason for existing. Through the entry VERB, not
+            // through `setMasking` plus `showLoupe` — those are the first two lines of
+            // it, and the line this route was missing tears the crop tool down.
+            state.enterMasking()
         case "'":
             // Invert the selected COMPONENT, which is what this key means in LR and in
             // docs/08 §8.1. The whole-mask invert is a toggle in the panel, because a
             // second invert key would be two keys nobody could tell apart.
             state.invertActiveMaskComponent()
+
+        // The three panel keys now name a workspace AND a section, because a workspace
+        // alone would leave the photographer looking at whichever section was last open.
+        // Each opens the section that tab used to lead with.
+        //
+        // Through `state.jump` rather than `PanelLayout.reveal` directly, because a key
+        // that names a section is a key that names a PLACE: pressed from the grid,
+        // `reveal` opened Tone behind a contact sheet and left it there.
+        // `B` AND `L` GO BACK TO WHAT docs/12 NAMES THEM, now that both destinations
+        // exist. They had been spent on panel selection — Tone and Looks — which was
+        // defensible while the alternatives were unbuilt and stopped being so when
+        // Phase 4 made every panel reachable from the workspace rail without a key.
+        //
+        // `B` is a culling verb in the Lightroom-compatible grammar docs/35 promises,
+        // and `addSelectionToTargetCollection` has been sitting here built and unbound
+        // since the target album shipped.
         case "b":
-            state.activeSection = .basic
+            state.addSelectionToTargetCollection()
+        // `L` is a VIEWING-CONDITIONS control and Law 7 territory, which is the whole
+        // argument for taking it back from a panel: what the photograph is surrounded
+        // by changes the judgement, and which of eight panels is open does not.
         case "l":
-            state.activeSection = .look
+            state.cycleLightsOut()
         case "d":
-            state.activeSection = .detail
+            // Through `click` this key was silent from any other workspace — `jump`
+            // (reveal, plus everything arriving somewhere means) opens the section
+            // from anywhere.
+            state.jump(to: .detail)
+        // H is the develop histogram, which bins the RENDERED picture — the instrument
+        // docs/10 §10.5 calls the one that lies, because the render has been through
+        // the tone stage and the display transform before it is counted. ⇧H is the
+        // other one: statistics measured on the decoded scene-linear frame, before
+        // every Lumen stage, with per-channel clipped percentages. Not the sensor's
+        // mosaic — Lumen has no CFA reader — and the panel is named for what it is.
+        case "h" where flags.contains(.shift):
+            state.showRawTruth.toggle()
         case "h":
             state.showHistogram.toggle()
         // docs/09 gives soft proofing a bare `S`, which this grammar had already spent on
@@ -206,7 +323,26 @@ final class KeyDispatcher {
         case "s":
             state.showScopes.toggle()
         case "a":
+            // Automask while a brush is selected, auto-advance otherwise. LR's `A` and
+            // ours want the same key and never at the same moment: nobody culls with a
+            // brush in hand.
+            if PanelLayout.shared.layout.isMasking, state.activeComponentIsBrush {
+                MaskBrushStore.shared.automask.toggle()
+                return true
+            }
             state.autoAdvance.toggle()
+        // Focus peaking. ⇧F rather than a bare key because `F` is the filmstrip and has
+        // been since the grammar existed, and because `ViewerOverlays.swift` already
+        // prints "(⇧F)" in the peaking HUD's close-button help — the app was promising
+        // this chord to anyone who hovered the ✕ before anything answered it.
+        //
+        // The chord toggles the SWITCH only. Sensitivity and tint persist across it by
+        // design (`FocusPeakingSettings.toggle` argues that at length): a photographer
+        // who set fine detail for a landscape roll should not have to set it again every
+        // time they look away from one frame. Both are on the HUD and neither is only
+        // there.
+        case "f" where flags.contains(.shift):
+            state.focusPeaking.toggle()
         case "f":
             state.showFilmstrip.toggle()
 
@@ -221,20 +357,63 @@ final class KeyDispatcher {
         // snapping back to Fit, because `zoomOut`'s "below 0.35 means fit" rule lived
         // in the verb nobody called. Click-to-zoom already went through these, so the
         // mouse and the keyboard were following different ladders.
+        // THE LOUPE'S ZOOM IS THE LOUPE'S. `LoupeViewport` writes `state.zoomLevel`, which
+        // only `LoupeView` draws — Compare and Survey run their own `CompareSync.zoom`
+        // and the grid has no zoom at all. Unguarded, these three keys did nothing
+        // visible in the other three surfaces AND still returned true, so the press was
+        // swallowed; worse, pressing Z in the grid left `zoomLevel` at 1 with nothing on
+        // screen to say so, and the next E opened the loupe at 1:1 with the arrow keys
+        // panning the picture instead of paging the roll.
+        //
+        // Each guards its own surface rather than sharing one `where` clause, because a
+        // `where` on a multi-pattern case binds to the LAST pattern only — `case "z",
+        // "-", "=", "+" where cond:` guards `+` and nothing else, which compiles and is
+        // wrong. `-` outside the loupe is already the purple label, above.
         case "z":
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.toggleZoom(in: state)
         case "-":
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.zoomOut(in: state)
         case "=", "+":
+            guard state.viewMode == .loupe else { return false }
             LoupeViewport.shared.zoomIn(in: state)
 
-        // ---- Thumbnail size ----------------------------------------------------
-        case "[":
-            state.gridThumbnailSize = max(state.gridThumbnailSize - 24,
-                                          AppState.minThumbnailSize)
-        case "]":
-            state.gridThumbnailSize = min(state.gridThumbnailSize + 24,
-                                          AppState.maxThumbnailSize)
+        // ---- Thumbnail size, and the two momentary inspections ------------------
+        //
+        // `[` and `]` are wanted by two features. They already sized the contact sheet's
+        // cells, and docs/10 §10.5 gives them to Shadow Boost and Highlight Inspect —
+        // momentary holds that answer "is there anything in the shadows" and "does the
+        // highlight structure survive" without writing an edit. Neither feature can be
+        // dropped: the size step is a control that works, and the holds are half of the
+        // FastRawViewer pillar.
+        //
+        // The split is by surface, and it is `InspectionHolds` in LumenCore rather than
+        // three conditionals here, because the collision, the key-repeat policy and the
+        // key-up pairing are exactly the kind of rule that cannot be tested in this
+        // target. `gridThumbnailSize` is drawn by the contact sheet and by the filter
+        // bar's slider and by nothing else, so in the loupe, Compare and Survey these
+        // keys were already moving a number nobody could see — and those three are
+        // precisely where the picture is large enough to inspect.
+        case "[", "]":
+            // Brush size, and ⇧ for feather — but only with a brush selected. These are
+            // paging keys everywhere else, including inside masking, so the gate is the
+            // component and not the mode.
+            if PanelLayout.shared.layout.isMasking, state.activeComponentIsBrush {
+                let bigger = key == "]"
+                if flags.contains(.shift) {
+                    MaskBrushStore.shared.nudgeFeather(up: bigger)
+                } else {
+                    MaskBrushStore.shared.nudgeSize(up: bigger)
+                }
+                return true
+            }
+            return apply(InspectionHolds.resolve(key: String(key),
+                                                 surface: Self.surface(state.viewMode),
+                                                 isKeyDown: true,
+                                                 isRepeat: event.isARepeat,
+                                                 holdActive: holdActive.map { String($0) }),
+                         state: state)
 
         // ---- Hold-key overlays -------------------------------------------------
         case " ":
@@ -244,7 +423,13 @@ final class KeyDispatcher {
                 state.showLoupe()
                 return true
             }
-            state.zoomLevel = state.zoomLevel == 0 ? 1 : 0
+            // Through the viewport verb, like Z and − above it. This line used to read
+            // `state.zoomLevel = state.zoomLevel == 0 ? 1 : 0`: the same two ratios and
+            // none of the anchoring, so Space zoomed about the centre of the window
+            // while a click zoomed where you pointed — on the key whose own
+            // documentation says "centred on the cursor". Exactly the bug the comment
+            // above claims was fixed for Z, reintroduced one case later.
+            LoupeViewport.shared.toggleZoom(in: state)
 
         default:
             return false
@@ -253,13 +438,85 @@ final class KeyDispatcher {
     }
 
     private func handleKeyUp(_ event: NSEvent, state: AppState) -> Bool {
-        guard let key = event.charactersIgnoringModifiers?.first,
-              holdActive == key else { return false }
+        // SHIFT IS FOLDED OUT, because `charactersIgnoringModifiers` ignores every
+        // modifier EXCEPT shift. Press Shift at any point while `[` is held and the
+        // release arrives as `"{"`, which matches neither `InspectionHolds.keys` nor
+        // `holdActive` — so the hold sticks, exactly as it did when the whole key-up was
+        // being eaten by the ⌘ guard above. Only the two bracket keys need it; a letter
+        // is handled by `lowercased()`.
+        guard let raw = event.charactersIgnoringModifiers?.lowercased().first
+        else { return false }
+        //
+        // Written as a ternary rather than a `switch`, and that is not a style choice:
+        // `KeyGrammarTests` reads this file as TEXT and treats every `case "x":` in the
+        // dispatcher as a bare-key binding, so a `switch` here declared `{` and `}` as two
+        // new keys the grammar reference does not have — and the suite said so within the
+        // minute. The scanner is right; a normalisation is not a binding.
+        let key: Character = raw == "{" ? "[" : (raw == "}" ? "]" : raw)
+
+        // The inspection holds answer their own key-up, through the same rule that
+        // answered the key-down. Asking the rule rather than testing `holdActive` here
+        // is what makes "a `]` release does not cancel a held `[`" a fact a test can
+        // check instead of a line of this file nobody can run.
+        if InspectionHolds.keys.contains(String(key)) {
+            return apply(InspectionHolds.resolve(key: String(key),
+                                                 surface: Self.surface(state.viewMode),
+                                                 isKeyDown: false,
+                                                 holdActive: holdActive.map { String($0) }),
+                         state: state)
+        }
+
+        guard holdActive == key else { return false }
         holdActive = nil
         if key == " " {
             state.showGrid()
         }
         return true
+    }
+
+    /// Carry out what `InspectionHolds` decided. Every branch is claimed: these two
+    /// keys belong to this dispatcher in every view, so an ignored one is swallowed
+    /// rather than passed on to be interpreted by something else.
+    private func apply(_ action: BracketAction, state: AppState) -> Bool {
+        switch action {
+        case .ignore:
+            break
+        case .stepThumbnailSize(let delta):
+            state.gridThumbnailSize = min(max(state.gridThumbnailSize + delta,
+                                              AppState.minThumbnailSize),
+                                          AppState.maxThumbnailSize)
+        case .beginHold(let hold):
+            holdActive = hold.key.first
+            state.inspectionHold = hold
+        case .endHold:
+            holdActive = nil
+            state.inspectionHold = nil
+        }
+        return true
+    }
+
+    /// Which surface the rule is being asked about.
+    /// LR's digit grammar for brush Flow: 1–9 → 10–90%, 0 → 100%.
+    ///
+    /// Returns true when it CONSUMED the key, so each digit case can offer it the key
+    /// first and fall through to its rating or label otherwise. Both conditions have to
+    /// hold — masking up, and a brush actually selected — because a digit that silently
+    /// stopped being a rating would be the worst kind of keymap defect: invisible until
+    /// somebody notices a shoot has no stars in it.
+    private static func brushFlow(_ digit: Int, state: AppState) -> Bool {
+        guard PanelLayout.shared.layout.isMasking, state.activeComponentIsBrush,
+              (0...9).contains(digit) else { return false }
+        MaskBrushStore.shared.flow = digit == 0 ? 100 : Double(digit) * 10
+        return true
+    }
+
+    private static func surface(_ mode: ViewMode) -> InspectionSurface {
+        switch mode {
+        case .grid: return .grid
+        case .loupe: return .loupe
+        case .compare: return .compare
+        case .survey: return .survey
+        }
     }
 
     private func specialKey(_ event: NSEvent, state: AppState,
@@ -274,6 +531,16 @@ final class KeyDispatcher {
             // this monitor runs first, so claiming the key here made that pan handler
             // unreachable code.
             if state.viewMode == .loupe && state.zoomLevel > 0 { return nil }
+            // A focused slider owns the arrows, for exactly the same reason and by
+            // exactly the same mechanism (docs/28 Phase 7). Without this the nudge is
+            // unreachable code too: `LumenSlider`'s `onKeyPress` lives in the responder
+            // chain, behind this monitor, so the arrow would page to the next photograph
+            // while a control sat focused and apparently broken.
+            //
+            // `sliderHoldsFocus` is deliberately NOT `@Published` — nothing renders from
+            // it, and it is read here imperatively at key-down, so publishing it would
+            // re-body the window every time focus moved between two rows.
+            if state.sliderHoldsFocus { return nil }
             switch Int(first.value) {
             case NSRightArrowFunctionKey: state.selectNext()
             case NSLeftArrowFunctionKey: state.selectPrevious()
@@ -284,9 +551,54 @@ final class KeyDispatcher {
             }
             return true
         case NSDeleteFunctionKey, 0x7F:
-            state.setFlag(.reject)
+            // DELETE MEANS THE THING YOU ARE INSIDE, which is the rule Escape two cases
+            // down already follows. Without the guard, reaching for Delete to remove a
+            // mask flagged the PHOTOGRAPH rejected — and `setFlag` calls
+            // `advanceIfNeeded`, so the frame was marked and the selection moved off it
+            // while the photographer was mid-mask, with nothing on screen saying what
+            // had happened.
+            if PanelLayout.shared.layout.isMasking {
+                state.deleteActiveMask()
+                return true
+            }
+            state.setFlag(.rejected)
             return true
         case 0x1B:      // Escape
+            // A focused slider gets Escape first, to drop its focus. This monitor runs
+            // in front of the responder chain, so without the yield the slider's own
+            // `onKeyPress(.escape)` would be unreachable code and Escape would jump
+            // straight to the grid from under a control the photographer was using.
+            // Press it again with nothing focused and it means the grid, as before —
+            // the ordinary nested-Escape idiom.
+            if state.sliderHoldsFocus { return nil }
+            // Then masking, which is the next layer out: the column is showing the mask
+            // editor instead of the workspace, so Escape leaves it the way Escape leaves
+            // every other thing you are inside. Above the grid rather than below it, or
+            // Escape would jump past a whole surface to the light table.
+            if PanelLayout.shared.layout.isMasking {
+                PanelLayout.shared.setMasking(false)
+                return true
+            }
+            // Then the crop tool, the same layer of the same idiom: a rectangle on the
+            // photograph is a thing you are inside, and Escape leaves it.
+            //
+            // It has to be HERE rather than in the overlay, and that is the whole point.
+            // This monitor sits in front of the responder chain and spent 0x1B on the
+            // grid unconditionally, so a `.keyboardShortcut(.escape)` on the crop panel
+            // would have been dead code wearing a shortcut — the exact defect class this
+            // project has shipped twice and now tests for.
+            //
+            // Leaving reverts, because that is what Escape means everywhere else. The
+            // rectangle at arming time is `CropTool`'s to remember — and since the crop
+            // saves as you go (the Done/Revert row is gone, owner pass 4), this key is
+            // the ONLY way back that is not Reset, which is exactly why it lives at the
+            // dispatcher where it cannot go dead.
+            if LoupeViewport.shared.showCrop {
+                CropTool.shared.revert(in: state)
+                LoupeViewport.shared.showCrop = false
+                LoupeViewport.shared.showStraighten = false
+                return true
+            }
             if state.viewMode != .grid {
                 state.showGrid()
                 return true
@@ -323,7 +635,15 @@ extension View {
     func keyboardGrammar() -> some View { modifier(KeyboardGrammar()) }
 }
 
-/// The keymap, as data, so the Help sheet cannot drift from the dispatcher above.
+/// The keyboard reference the Help sheet draws, as SwiftUI needs it.
+///
+/// The text itself is `LumenCore.KeyGrammar`, and this is the adapter that gives each
+/// row the identity `ForEach` wants. The claim that used to sit here — that the
+/// reference is "data, so the Help sheet cannot drift from the dispatcher" — was false
+/// when it was written: nine of the app's nineteen ⌘-shortcuts were in neither this
+/// list nor the switch above, ⌘/ among them, which is the chord that opens this sheet.
+/// Being data is not a mechanism. The mechanism is `KeyGrammarTests`, which reads these
+/// sources and fails when a key is attached in one place and named in neither.
 enum KeyReference {
     struct Entry: Identifiable {
         let id = UUID()
@@ -337,60 +657,10 @@ enum KeyReference {
         let entries: [Entry]
     }
 
-    static let groups: [Group] = [
-        Group(title: "Views", entries: [
-            Entry(keys: "G", action: "Grid"),
-            Entry(keys: "E", action: "Loupe"),
-            Entry(keys: "C", action: "Compare two"),
-            Entry(keys: "N", action: "Survey selection"),
-            Entry(keys: "Space", action: "Hold for loupe from the grid; toggles zoom in the loupe"),
-            Entry(keys: "Esc", action: "Back to the grid"),
-        ]),
-        Group(title: "Culling", entries: [
-            Entry(keys: "P", action: "Pick"),
-            Entry(keys: "X", action: "Reject"),
-            Entry(keys: "U", action: "Unflag"),
-            Entry(keys: "1–5", action: "Rating"),
-            Entry(keys: "0", action: "Clear rating"),
-            Entry(keys: "6–9", action: "Red / yellow / green / blue label"),
-            Entry(keys: "-", action: "Purple label (outside the loupe)"),
-            Entry(keys: "A", action: "Toggle auto-advance"),
-            Entry(keys: "← →", action: "Previous / next photo"),
-            Entry(keys: "↑ ↓", action: "Previous / next row"),
-        ]),
-        Group(title: "Develop", entries: [
-            Entry(keys: "B", action: "Basic panel"),
-            Entry(keys: "D", action: "Detail panel"),
-            Entry(keys: "L", action: "Look panel"),
-            Entry(keys: "M", action: "Masks"),
-            Entry(keys: "O", action: "Show the selected mask's overlay"),
-            Entry(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
-            Entry(keys: "⌥O", action: "Cycle the six overlay modes"),
-            Entry(keys: "'", action: "Invert the selected mask component"),
-            Entry(keys: "R", action: "Crop tool on the image; again to leave it"),
-            Entry(keys: "⇧S", action: "Soft proof through the destination space"),
-            Entry(keys: "\\", action: "Before / after, full frame"),
-            Entry(keys: "Y", action: "Before / after, side by side"),
-            Entry(keys: "⇧Y", action: "Before / after, split with a divider"),
-            Entry(keys: "⌥Y", action: "Before / after, top and bottom"),
-            Entry(keys: "H", action: "Histogram"),
-            Entry(keys: "S", action: "Scopes"),
-        ]),
-        Group(title: "View controls", entries: [
-            Entry(keys: "Z", action: "Zoom 1:1 / fit"),
-            Entry(keys: "+ −", action: "Zoom in / out"),
-            Entry(keys: "[ ]", action: "Thumbnail size"),
-            Entry(keys: "F", action: "Filmstrip"),
-        ]),
-        Group(title: "Menu commands", entries: [
-            Entry(keys: "⌘O", action: "Open folder"),
-            Entry(keys: "⌘Z / ⇧⌘Z", action: "Undo / redo"),
-            Entry(keys: "⌘C / ⌘V", action: "Copy / paste settings"),
-            Entry(keys: "⌥⌘C / ⌥⌘V", action: "Copy / paste Look"),
-            Entry(keys: "⌘E", action: "Export"),
-            Entry(keys: "⌘A / ⌘D", action: "Select all / none"),
-        ]),
-    ]
+    static let groups: [Group] = KeyGrammar.groups.map { section in
+        Group(title: section.title,
+              entries: section.rows.map { Entry(keys: $0.keys, action: $0.action) })
+    }
 }
 
 #endif

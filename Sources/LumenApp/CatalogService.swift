@@ -26,7 +26,7 @@ final class CatalogService: @unchecked Sendable {
         var catalogID: Int64
         var flag: PhotoFlag
         var rating: Int
-        var label: ColorLabel?
+        var label: ColorLabel
         var recipe: Recipe?
         /// The capture ISO the backfill read, carried through so an unedited photo can
         /// start on the noise-reduction defaults its own gain calls for.
@@ -35,6 +35,21 @@ final class CatalogService: @unchecked Sendable {
 
     private let store: CatalogStore
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
+
+    /// Where a long enrichment pass DRIVES from, so that `queue` only ever holds the
+    /// database work.
+    ///
+    /// `queue` is the catalog's one serial lane and everything the user can feel goes
+    /// through it: the recipe write behind every slider event, the preview lookup in
+    /// front of every thumbnail, every grid query. A pass that occupies it for minutes
+    /// stops all three — and the backfill did exactly that, running its whole paged
+    /// loop, including a file open and a megabyte read per photograph, inside ONE
+    /// `queue.async` block. Eight decode workers then queued behind one EXIF parse,
+    /// which is the shape the preview cache's own author flagged as the thing to
+    /// measure first. Driving from here and hopping on per statement means the queue is
+    /// held for a transaction at a time instead of for a folder at a time.
+    private let maintenance = DispatchQueue(label: "dev.lumenapp.catalog.maintenance",
+                                            qos: .utility)
     private let directory: URL
 
     /// Called when a write fails. Every failure in here used to go to `NSLog` and
@@ -49,17 +64,96 @@ final class CatalogService: @unchecked Sendable {
 
     /// Sidecar writes coalesce over this window.
     private static let sidecarDebounce: TimeInterval = 2.0
-    private var pendingSidecars: [URL: SidecarContent] = [:]
+    /// A failed sidecar write retries after this long — deliberately much longer than
+    /// the debounce, so a full disk or an offline volume is probed a few times a
+    /// minute rather than hammered.
+    private static let sidecarRetryDelay: TimeInterval = 15.0
+    /// Queued sidecar state, with the photo row it belongs to. The id rides along
+    /// because the flush is what learns the sidecar's new mtime, and `photo.sidecar_mtime`
+    /// is the clock docs/15 §15.5's conflict rules are evaluated against — a stamp taken
+    /// only on reads would call every one of our own writes "the sidecar changed".
+    private var pendingSidecars:
+        [URL: (photoID: Int64?, content: SidecarContent,
+               stated: SidecarStatedFields)] = [:]
     private var sidecarFlushScheduled = false
     private let sidecarLock = NSLock()
+
+    /// Which backfill call is the CURRENT one. A folder switch starts a new pass and
+    /// the old one — thousands of file opens on the serial maintenance lane, ahead of
+    /// the folder actually on screen — must stop at its next chunk boundary rather
+    /// than run to completion (docs/23 audit queue item 11). Its own lock because the
+    /// running pass reads it from the maintenance queue while the superseding call
+    /// bumps it from wherever the folder switch happened.
+    private let backfillLock = NSLock()
+    private var backfillGeneration = 0
+
+    private func isCurrentBackfill(_ mine: Int) -> Bool {
+        backfillLock.lock()
+        defer { backfillLock.unlock() }
+        return backfillGeneration == mine
+    }
+
+    /// What the open-time integrity check found. Nil-notice means healthy; the caller
+    /// reads it once, after construction, and tells the user what already happened.
+    let recovery: CatalogRecovery
 
     init(directory: URL) throws {
         self.directory = directory
         self.blobs = try BlobStore(
             directory: directory.appendingPathComponent("blobs", isDirectory: true))
+
+        // docs/15 §15.8: `PRAGMA quick_check` on every open, and on failure a restore
+        // from the newest backup that passes, with a notice AFTER the fact.
+        //
+        // This ran nowhere. `quickCheck` and `integrityCheck` existed with a comment
+        // saying "run on every open per §15.8" and no caller outside the tests, so a
+        // damaged catalog was discovered when some query threw — and a thrown query
+        // degrades to showing everything, which is the shape of failure where the user
+        // sees a library that looks nearly right. Before the store, because a restore
+        // has to replace the file and cannot do that through a handle holding it open.
+        self.recovery = CatalogStore.recoverIfNeeded(
+            path: directory.appendingPathComponent("lumen.db").path,
+            backupDirectory: Self.backupDirectory(in: directory).path)
+
         self.store = try CatalogStore(
             path: directory.appendingPathComponent("lumen.db").path,
             cachePath: directory.appendingPathComponent("cache.db").path)
+
+        // AND THE STROKES COME BACK WITH IT (K-018). A restore that returns the catalog
+        // and not the blob store returns a library whose every brush mask rasterizes to
+        // nothing — the recipes are intact and each one references a payload that is not
+        // there. `restore(from:)` never overwrites a payload the live store already
+        // holds: content addressing means a file of the same name is the same bytes, and
+        // anything the live store has that the backup does not is newer work.
+        if case .restored(let backup, _) = recovery.outcome {
+            // `fromBackup` is a full path — `CatalogRecovery.notice` takes its
+            // `lastPathComponent` for display — so the payload directory is that path
+            // with its extension swapped, which is how `backUpCatalog` named it.
+            let blobBackup = URL(fileURLWithPath: backup)
+                .deletingPathExtension()
+                .appendingPathExtension("blobs")
+            if let restored = try? blobs.restore(from: blobBackup), restored > 0 {
+                NSLog("Lumen catalog: restored %d brush payload(s) alongside %@",
+                      restored, URL(fileURLWithPath: backup).lastPathComponent)
+            }
+        }
+
+        // The other half of J1-04. `close()` takes the snapshot when it is cheap; when
+        // it is not, the debt is still on the stamp and this is where it is paid — off
+        // every lane the user can feel, on a connection of its own, at a moment when
+        // nothing is waiting for the process to exit.
+        //
+        // A snapshot taken here is the one the last quit would have taken: nothing has
+        // edited the catalog between that quit and this launch. What it cannot cover is
+        // damage that happens while the app is not running, which is exactly the case
+        // the quit-path snapshot above exists for.
+        backupQueue.asyncAfter(deadline: .now() + Self.openBackupDelay) { [weak self] in
+            self?.backUp(force: false)
+        }
+    }
+
+    private static func backupDirectory(in directory: URL) -> URL {
+        directory.appendingPathComponent("backups", isDirectory: true)
     }
 
     // MARK: - Folders and photos
@@ -69,47 +163,158 @@ final class CatalogService: @unchecked Sendable {
     /// background scan task, never from the main actor.
     func registerAndLoad(folder: URL, files: [URL]) -> [URL: StoredState] {
         var result: [URL: StoredState] = [:]
+        // A scan is when a RAW can gain a same-name sibling; the sidecar naming memo
+        // must not outlive it.
+        Self.forgetSiblings()
         queue.sync {
             do {
                 let folderID = try store.registerFolder(path: folder.path)
-                let scanned: [ScannedFile] = files.map { file in
+                // The folder scan is recursive and `photo` is UNIQUE per
+                // (folder, filename), so the basename is not an identity: one card
+                // with day1/ and day2/ subfolders puts two different frames named
+                // DSC_0001.NEF on one row, and the second edit overwrites the
+                // first. The path relative to the registered folder is unique by
+                // construction, and equals the basename for files sitting directly
+                // in it — which is why this only ever bit multi-folder imports.
+                let names = files.map { ScannedFile.catalogName(for: $0, in: folder) }
+
+                // `scan`'s relocation branch needs the signature of the file it has
+                // just been HANDED — the catalog can only supply the other half, for
+                // the row that vanished. So a rename is only ever caught if the sig is
+                // computed here, before `scan`, and it was never computed anywhere:
+                // that is LIB-01, and it is why a renamed original became a fresh photo
+                // with its rating, edits and album membership stranded on the old row.
+                //
+                // Not every file, though. The probe says which of them could match
+                // anything, by size, and on the first open of a folder the answer is
+                // none — so the cold path that docs/10 §10.1 gates under a second pays
+                // nothing, and the rename path pays one megabyte per candidate.
+                let probe = (try? store.relocationProbe(folderID: folderID,
+                                                        listed: Set(names)))
+                    ?? RelocationProbe.none
+
+                let scanned: [ScannedFile] = zip(files, names).map { file, name in
                     let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
                     let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
                     let mtime = ((attributes?[.modificationDate] as? Date)?
                         .timeIntervalSince1970).map { Int64($0) } ?? 0
-                    // The folder scan is recursive and `photo` is UNIQUE per
-                    // (folder, filename), so the basename is not an identity: one card
-                    // with day1/ and day2/ subfolders puts two different frames named
-                    // DSC_0001.NEF on one row, and the second edit overwrites the
-                    // first. The path relative to the registered folder is unique by
-                    // construction, and equals the basename for files sitting directly
-                    // in it — which is why this only ever bit multi-folder imports.
-                    return ScannedFile(filename: ScannedFile.catalogName(for: file, in: folder),
+                    var signature: String? = nil
+                    if !probe.known.contains(name), probe.candidateSizes.contains(size) {
+                        signature = try? QuickSignature.compute(url: file)
+                    }
+                    return ScannedFile(filename: name,
                                        fileSize: size, fileMTime: mtime,
+                                       quickSig: signature,
                                        ext: file.pathExtension.lowercased())
                 }
                 _ = try store.scan(folderID: folderID, files: scanned,
                                    at: CatalogStore.now())
 
-                for file in files {
-                    guard let row = try store.photo(
-                        folderID: folderID,
-                        filename: ScannedFile.catalogName(for: file, in: folder))
-                    else { continue }
-                    let recipe = try store.currentRecipe(photoID: row.id)
-                    let state = Self.merge(row: row, recipe: recipe, file: file)
-                    // A sidecar fills in where the catalog is silent — and until now it
-                    // filled in ONLY the copy handed to the grid. Membership and
-                    // ordering are SQL-backed (the whole filter bar compiles to
-                    // `PhotoQuery`), so a five-star recovered from a sidecar showed five
-                    // stars in its cell and vanished under the five-star filter, and a
-                    // recovered recipe rendered while the Edited chip excluded it. The
-                    // view and the query disagreed about the same photograph.
-                    Self.persistRecovered(state, row: row, storedRecipe: recipe,
-                                          store: store)
-                    result[file] = state
+                // ONE PHOTO'S FAILURE COSTS ONE PHOTO. This loop used to sit bare
+                // inside the folder's `do`, so the first `try` that threw abandoned
+                // every photo after it AND every photo before it — `result` was
+                // discarded whole and the caller got an empty dictionary, which
+                // presents as a folder that did not open at all.
+                //
+                // That is how one undecodable recipe cost a photographer his entire
+                // catalog: no ratings, no flags, no labels, no edits, for a folder of
+                // RAWs where exactly one stored document was written by an older build.
+                // Two defects wearing one error message — the decode that should not
+                // have failed, and the blast radius when it did — and this is the
+                // second, which is the worse of the two. The recipe layer being
+                // tolerant now (see RecipeDecoding.swift) narrows what can throw here;
+                // it does not make the containment unnecessary, because a catalog can
+                // also hold a document written by a LATER build, and the next field
+                // added to the format must not be able to do this again.
+                var withoutTheirEdits: [String] = []
+                var withoutTheirRow: [String] = []
+                for (file, name) in zip(files, names) {
+                    do {
+                        guard let row = try store.photo(folderID: folderID,
+                                                        filename: name)
+                        else { continue }
+
+                        // A stored recipe that will not decode costs THIS photo's
+                        // edits and nothing else. The photo still reaches the grid
+                        // with its rating, flag and label, because those live in
+                        // `photo` columns and were never in question — and the merge
+                        // below still runs, so a readable `.xmp` beside the file
+                        // recovers the edit rather than merely reporting it lost.
+                        //
+                        // Nothing deletes the row that would not decode. `nil` here
+                        // means "the catalog is silent about this photo's recipe",
+                        // which is the same posture `SidecarMerge` already takes
+                        // toward a sidecar that will not parse, and it leaves the
+                        // stored document on disk for a later build to read.
+                        var recipe: Recipe?
+                        do {
+                            recipe = try store.currentRecipe(photoID: row.id)
+                        } catch {
+                            recipe = nil
+                            withoutTheirEdits.append(name)
+                            NSLog("Lumen catalog: the stored recipe for %@ would not "
+                                  + "decode — the photo opens without its edits — %@",
+                                  name, String(describing: error))
+                        }
+
+                        let fingerprint = try? store.currentRecipeFingerprint(
+                            photoID: row.id)
+                        sidecarLock.lock()
+                        let unflushed = pendingSidecars[file] != nil
+                        sidecarLock.unlock()
+                        let resolution = Self.merge(row: row, recipe: recipe,
+                                                    recipeFingerprint: fingerprint,
+                                                    hasUnflushedEdits: unflushed,
+                                                    file: file)
+                        // Before anything reads the recovered recipe: put the sidecar's
+                        // brush strokes back into the blob store, so a `strokesRef` in
+                        // it resolves to a painting rather than to nothing. Run for
+                        // EVERY decision, not only when the sidecar wins — a catalog
+                        // that kept its own recipe can still be missing the blob a
+                        // shared sidecar carries, which is the "copied the photos and
+                        // the .xmp files to a new machine" case.
+                        Self.restoreStrokes(from: file, blobs: blobs)
+                        // A sidecar fills in where the catalog is silent — and until
+                        // now it filled in ONLY the copy handed to the grid. Membership
+                        // and ordering are SQL-backed (the whole filter bar compiles to
+                        // `PhotoQuery`), so a five-star recovered from a sidecar showed
+                        // five stars in its cell and vanished under the five-star
+                        // filter, and a recovered recipe rendered while the Edited chip
+                        // excluded it. The view and the query disagreed about the same
+                        // photograph.
+                        Self.persistRecovered(resolution, row: row,
+                                              storedRecipe: recipe,
+                                              store: store, file: file)
+                        result[file] = Self.stored(resolution.state, row: row)
+                    } catch {
+                        withoutTheirRow.append(name)
+                        NSLog("Lumen catalog: %@ could not be read from the catalog "
+                              + "— %@", name, String(describing: error))
+                    }
+                }
+
+                // Said once per folder rather than once per photo: eight hundred
+                // frames off one bad build would otherwise be eight hundred banners.
+                if !withoutTheirEdits.isEmpty {
+                    let n = withoutTheirEdits.count
+                    self.onFailure?(
+                        "\(n) photo\(n == 1 ? "" : "s") in "
+                        + "\(folder.lastPathComponent) opened without "
+                        + "\(n == 1 ? "its" : "their") edits — the stored recipe could "
+                        + "not be read. Ratings, flags and labels are intact, and "
+                        + "nothing was overwritten.")
+                }
+                if !withoutTheirRow.isEmpty {
+                    let n = withoutTheirRow.count
+                    self.onFailure?(
+                        "\(n) photo\(n == 1 ? "" : "s") in "
+                        + "\(folder.lastPathComponent) could not be read from the "
+                        + "catalog and \(n == 1 ? "is" : "are") missing from the grid.")
                 }
             } catch {
+                // Only the folder-wide steps reach here now — registering the folder
+                // and reconciling its file list. There is no catalog to talk to if
+                // either of those fails, so this one really is the whole folder.
                 NSLog("Lumen catalog: folder registration failed — %@",
                       String(describing: error))
                 self.onFailure?("Could not register \(folder.lastPathComponent) "
@@ -131,82 +336,264 @@ final class CatalogService: @unchecked Sendable {
     /// Interruptible by construction: `capture_at IS NULL` is the resume marker, so
     /// quitting halfway costs nothing and the next launch continues. Batched into
     /// transactions of 200 because 5,000 individual commits is a minute of fsync.
-    func backfillMetadata(folder: URL, onProgress: ((Int, Int) -> Void)? = nil) {
-        queue.async { [store, weak self] in
-            do {
-                let folderID = try store.registerFolder(path: folder.path)
-                let pending = try store.photosMissingMetadata(folderID: folderID)
-                guard !pending.isEmpty else { return }
-                var done = 0
-                for chunk in stride(from: 0, to: pending.count, by: 200).map({
-                    Array(pending[$0..<Swift.min($0 + 200, pending.count)])
-                }) {
-                    let read: [(photoID: Int64, metadata: PhotoMetadata)] =
-                        chunk.compactMap { row in
-                            let url = folder.appendingPathComponent(row.filename)
-                            guard let metadata = CaptureMetadataReader.read(url: url)
-                            else { return nil }
-                            return (photoID: row.id, metadata: metadata)
-                        }
-                    try store.setMetadata(read)
-                    done += chunk.count
-                    onProgress?(done, pending.count)
-                }
-            } catch {
-                // Not surfaced to the user: metadata is an enrichment, and a folder
-                // whose EXIF could not be read still browses, culls and edits. Saying
-                // so would be noise on a path nobody asked for.
+    ///
+    /// This pass also computes `quick_sig`, and this is the right place for it rather
+    /// than the scan: the signature reads a megabyte per file, and five thousand of
+    /// those in front of the first grid is gigabytes of I/O on the one path docs/10
+    /// §10.1 gates under a second. Here it sits behind the grid, on the same
+    /// interruptible, resumable, batched footing as the EXIF.
+    ///
+    /// Both loops PAGE BY ID rather than re-asking for "everything still missing". The
+    /// old code asked once, with a 5,000 default limit, and never asked again (LIB-26a):
+    /// a 20,000-frame folder needed four launches before its sort order was right.
+    /// Re-asking naively would have been worse — a file whose EXIF will not parse keeps
+    /// `capture_at IS NULL` and comes back in every page forever — so the cursor is the
+    /// last id seen, which terminates whatever the files turn out to contain.
+    ///
+    /// `onProgress` reports how many rows have been walked and whether the pass is
+    /// finished. It used to report `(done, total)` against a total taken from the single
+    /// fetch; paging has no such number up front, and inventing one to keep the old
+    /// shape would have made the caller's "last batch" test a guess.
+    ///
+    /// The pass DRIVES from `maintenance` and only touches the store inside short
+    /// `queue.sync` hops, which is the difference between holding the catalog's serial
+    /// lane for a transaction and holding it for a folder.
+    ///
+    /// It used to run entirely inside one `queue.async`: the paging, the transactions,
+    /// AND the per-photograph file work — `CaptureMetadataReader.read` opens a file and
+    /// parses EXIF, `QuickSignature.compute` reads a megabyte and hashes it. Five
+    /// thousand of each, on the one queue that every recipe write, every preview lookup
+    /// and every grid query has to get through. For as long as that ran: a slider event
+    /// enqueued a recipe write that would not execute; a thumbnail's `previewState`
+    /// blocked its worker in `queue.sync`, and eight of those are eight cooperative
+    /// threads not running anybody's `await`. The reordering below changes what is
+    /// computed not at all — the file work simply happens on this thread rather than on
+    /// the catalog's.
+    func backfillMetadata(folder: URL,
+                          onProgress: ((_ done: Int, _ finished: Bool) -> Void)? = nil) {
+        // Claim the pass SYNCHRONOUSLY, so a pass already running on the maintenance
+        // queue sees itself superseded at its next chunk even though this call's own
+        // work is still queued behind it.
+        backfillLock.lock()
+        backfillGeneration += 1
+        let mine = backfillGeneration
+        backfillLock.unlock()
+        maintenance.async { [store, weak self] in
+            // The lane, captured once. A service that has gone away between the ask and
+            // this line has nothing to enrich.
+            guard let queue = self?.queue else { return }
+
+            // Errors are logged where they happen and end the pass. Not surfaced: a
+            // folder whose EXIF could not be read still browses, culls and edits, this
+            // is an enrichment, and a modal about it would be noise on a path nobody
+            // asked for.
+            func stopped(_ error: Error) {
                 NSLog("Lumen catalog: metadata backfill stopped — %@",
                       String(describing: error))
-                _ = self
+            }
+
+            var folderID: Int64 = 0
+            var broke = false
+            queue.sync {
+                do { folderID = try store.registerFolder(path: folder.path) }
+                catch {
+                    stopped(error)
+                    broke = true
+                }
+            }
+            guard !broke else { return }
+
+            var done = 0
+            var cursor: Int64 = 0
+            while true {
+                var chunk: [(id: Int64, filename: String)] = []
+                queue.sync {
+                    do {
+                        chunk = try store.photosMissingMetadata(
+                            folderID: folderID, afterID: cursor, limit: 200)
+                    } catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
+                guard self?.isCurrentBackfill(mine) != false else { return }
+                guard let last = chunk.last else { break }
+                cursor = last.id
+                // OFF the catalog queue: this is a file open and an EXIF parse per
+                // photograph, and it is what used to hold the lane.
+                let read: [(photoID: Int64, metadata: PhotoMetadata)] =
+                    chunk.compactMap { row in
+                        let url = folder.appendingPathComponent(row.filename)
+                        guard let metadata = CaptureMetadataReader.read(url: url)
+                        else { return nil }
+                        return (photoID: row.id, metadata: metadata)
+                    }
+                queue.sync {
+                    do { try store.setMetadata(read) }
+                    catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
+                done += chunk.count
+                onProgress?(done, false)
+            }
+            onProgress?(done, true)
+
+            var signatureCursor: Int64 = 0
+            while true {
+                var chunk: [(id: Int64, filename: String)] = []
+                queue.sync {
+                    do {
+                        chunk = try store.photosMissingQuickSig(
+                            folderID: folderID, afterID: signatureCursor, limit: 200)
+                    } catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
+                guard self?.isCurrentBackfill(mine) != false else { return }
+                guard let last = chunk.last else { break }
+                signatureCursor = last.id
+                // A megabyte read and a hash per photograph, likewise off the lane.
+                let signed: [(photoID: Int64, signature: String)] =
+                    chunk.compactMap { row in
+                        let url = folder.appendingPathComponent(row.filename)
+                        guard let signature = try? QuickSignature.compute(url: url)
+                        else { return nil }
+                        return (photoID: row.id, signature: signature)
+                    }
+                queue.sync {
+                    do { try store.setQuickSigs(signed) }
+                    catch {
+                        stopped(error)
+                        broke = true
+                    }
+                }
+                guard !broke else { return }
             }
         }
     }
 
-    /// Reconcile what the catalog knows with what the sidecar says. The sidecar wins
-    /// where the catalog is silent: a photo moved in from another machine, or restored
-    /// from a backup, should arrive with its work attached.
-    private static func merge(row: PhotoRow, recipe: Recipe?, file: URL) -> StoredState {
-        // The rule — "the sidecar fills in where the catalog is silent, and never
-        // overwrites it" — lives in `SidecarMerge`, in LumenCore, where it can be
-        // tested. This function owns only the file read and the enum mapping.
-        let merged = SidecarMerge.resolve(
-            catalog: SidecarMerge.State(rating: row.rating,
-                                        flag: sidecarFlag(row.flag),
-                                        label: row.label,
-                                        recipe: recipe),
-            sidecar: readSidecar(for: file))
-
-        return StoredState(catalogID: row.id,
-                           flag: photoFlag(merged.flag),
-                           rating: merged.rating,
-                           label: Self.label(named: merged.label),
-                           recipe: merged.recipe,
-                           iso: row.iso)
+    /// Reconcile what the catalog knows with what the sidecar says, under docs/15
+    /// §15.5's three rules. The rules themselves live in `SidecarMerge`, in LumenCore,
+    /// where they can be tested; this function owns only the file read, the mtime stat
+    /// and the enum mapping.
+    private static func merge(row: PhotoRow, recipe: Recipe?,
+                              recipeFingerprint: String?, hasUnflushedEdits: Bool,
+                              file: URL) -> SidecarMerge.Resolution {
+        SidecarMerge.resolve(
+            catalog: SidecarMerge.State(
+                rating: row.rating,
+                flag: sidecarFlag(appFlag(row.flag)),
+                label: row.label,
+                recipe: recipe,
+                // Empty string is `currentRecipeFingerprint`'s "as shot", which is not
+                // a fingerprint and must not be compared as one.
+                recipeFingerprint: (recipeFingerprint?.isEmpty == false)
+                    ? recipeFingerprint : nil,
+                sidecarMTime: row.sidecarMTime,
+                hasUnflushedEdits: hasUnflushedEdits),
+            sidecar: readSidecar(for: file),
+            sidecarMTime: modificationTime(of: sidecarURL(for: file)))
     }
 
-    /// Write back whatever the sidecar filled in, so the catalog agrees with the grid.
+    /// Put a sidecar's brush strokes back into the blob store.
     ///
-    /// Only fields the merge actually CHANGED are written: `SidecarMerge.resolve` never
-    /// overwrites a value the catalog holds, so a difference here means the catalog was
-    /// silent and the sidecar spoke. Writing unconditionally would be a no-op storm on
-    /// every folder open, and writing a recipe that came from the catalog back into the
-    /// catalog would make a new version row per launch.
-    private static func persistRecovered(_ state: StoredState, row: PhotoRow,
-                                         storedRecipe: Recipe?, store: CatalogStore) {
+    /// The other half of `BrushStrokeSidecar` (docs/35 §7.1). Without it the sidecar
+    /// round-trip restores a recipe whose brush components reference paintings that are
+    /// not on this machine, and those masks rasterize empty forever with nothing on
+    /// screen saying so.
+    ///
+    /// Idempotent by construction: the store is content-addressed and `decode` has
+    /// already dropped any entry whose key does not address its own bytes, so writing an
+    /// existing blob writes identical bytes. Failures are logged, never thrown — a blob
+    /// that will not write costs one mask, not the folder open.
+    private static func restoreStrokes(from file: URL, blobs: BlobStore) {
+        guard let payload = readSidecar(for: file)?.strokesPayload else { return }
+        for (ref, set) in BrushStrokeSidecar.decode(payload) {
+            guard blobs.strokeSet(for: ref) == nil else { continue }
+            do {
+                let written = try blobs.store(set)
+                if written != ref {
+                    NSLog("Lumen catalog: a sidecar stroke set addressed %@ but stored "
+                          + "as %@ — not restored", ref, written)
+                }
+            } catch {
+                NSLog("Lumen catalog: could not restore a sidecar stroke set — %@",
+                      String(describing: error))
+            }
+        }
+    }
+
+    private static func stored(_ state: SidecarMerge.State,
+                               row: PhotoRow) -> StoredState {
+        StoredState(catalogID: row.id,
+                    flag: appFlag(state.flag),
+                    rating: state.rating,
+                    label: appLabel(state.label),
+                    recipe: state.recipe,
+                    iso: row.iso)
+    }
+
+    /// Write back whatever the merge concluded, so the catalog agrees with the grid.
+    ///
+    /// Only fields the merge actually CHANGED are written. Under rule 1 that means the
+    /// catalog was silent and the sidecar spoke; under rule 2 it means the sidecar was
+    /// newer and won. Writing unconditionally would be a no-op storm on every folder
+    /// open, and writing a recipe that came from the catalog back into the catalog would
+    /// make a new version row per launch.
+    ///
+    /// The recipe comparison is `!=`, not `storedRecipe == nil`. That single condition
+    /// was the second half of LIB-08: even once the merge decided the sidecar had the
+    /// newer edit, nothing wrote it, so the grid showed one recipe and the catalog held
+    /// another — and the next flush pushed the catalog's stale one back over the sidecar.
+    private static func persistRecovered(_ resolution: SidecarMerge.Resolution,
+                                         row: PhotoRow, storedRecipe: Recipe?,
+                                         store: CatalogStore, file: URL) {
+        let state = stored(resolution.state, row: row)
         do {
             if state.rating != row.rating {
                 try store.setRating(state.rating, photoID: row.id)
             }
-            if state.flag != row.flag {
-                try store.setFlag(state.flag, photoID: row.id)
+            let mergedFlag = coreFlag(state.flag)
+            if mergedFlag != row.flag {
+                try store.setFlag(mergedFlag, photoID: row.id)
             }
-            let mergedLabel = state.label?.rawValue
+            let mergedLabel = state.label == .none ? nil : state.label.displayName.lowercased()
             if mergedLabel != row.label {
-                try store.setLabel(state.label, photoID: row.id)
+                try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
             }
-            if storedRecipe == nil, let recovered = state.recipe {
-                try store.saveRecipe(recovered, photoID: row.id, isCurrent: true)
+            if let recovered = state.recipe, recovered != storedRecipe {
+                // `isRenderedFile:` because `photo.edited` is measured against what a
+                // fresh import of THIS file would have left behind, and for a JPEG
+                // that is not a bare `Recipe()`. `PhotoFormats` is the app target's
+                // list on purpose — see the parameter's own note in `CatalogStore`.
+                try store.saveRecipe(recovered, photoID: row.id, isCurrent: true,
+                                     isRenderedFile: PhotoFormats.isRendered(file))
+            }
+
+            // Stamp what we have just READ. Without this half, a sidecar we have never
+            // written — one that arrived beside a photo copied in from another machine —
+            // has no baseline, so the next scan cannot tell "changed since" from "never
+            // seen", and rule 2 could never fire for it a second time.
+            if let stamp = modificationTime(of: sidecarURL(for: file)) {
+                try store.setSidecarMTime(stamp, photoID: row.id)
+            }
+
+            if resolution.decision == .conflictCatalogWins {
+                // docs/15 §15.5 rule 3 says the sidecar's state is preserved as a
+                // snapshot named "Imported from sidecar <date>". Snapshots do not exist
+                // (LIB-06: `saveRecipe` only ever writes `kind = .working`), so the
+                // catalog wins as specified and the sidecar's divergent recipe is NOT
+                // kept. Logged rather than dropped in silence, which is the most this
+                // can honestly promise until snapshots ship.
+                NSLog("Lumen catalog: %@ changed under an unflushed edit — the catalog "
+                      + "kept its version and the sidecar's could not be snapshotted",
+                      sidecarURL(for: file).lastPathComponent)
             }
         } catch {
             // A recovery that cannot be persisted is not worth failing the folder open
@@ -219,7 +606,11 @@ final class CatalogService: @unchecked Sendable {
 
     // MARK: - Culling state
 
-    func saveCullingState(_ photo: PhotoItem) {
+    /// - Parameter labelChanged: whether THIS edit moved the colour label. It decides
+    ///   whether the sidecar write is entitled to speak about `xmp:Label` at all — see
+    ///   `SidecarLabelPolicy`. Every caller previously spoke unconditionally, which
+    ///   deleted labels this build has no word for whenever a flag or rating was set.
+    func saveCullingState(_ photo: PhotoItem, labelChanged: Bool) {
         guard let id = photo.catalogID else { return }
         let flag = photo.flag
         let rating = photo.rating
@@ -227,16 +618,18 @@ final class CatalogService: @unchecked Sendable {
         let url = photo.id
         queue.async {
             do {
-                try self.store.setFlag(flag, photoID: id)
+                try self.store.setFlag(Self.coreFlag(flag), photoID: id)
                 try self.store.setRating(rating, photoID: id)
-                try self.store.setLabel(label, photoID: id)
+                try self.store.setLabel(Self.coreLabel(label), photoID: id)
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
                 self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
-                for: url, rating: rating, flag: Self.sidecarFlag(flag),
-                label: .some(label?.rawValue),
+                for: url, photoID: id, rating: rating, flag: Self.sidecarFlag(flag),
+                label: SidecarLabelPolicy.write(
+                    appLabel: label == .none ? nil : label.displayName.lowercased(),
+                    labelChanged: labelChanged),
                 recipe: nil)
         }
     }
@@ -278,15 +671,61 @@ final class CatalogService: @unchecked Sendable {
             }
             if let id = catalogID {
                 do {
-                    try self.store.saveRecipe(recipe, photoID: id, isCurrent: true)
+                    try self.store.saveRecipe(
+                        recipe, photoID: id, isCurrent: true,
+                        // The pencil badge and the "Edited: no" chip both read the
+                        // `edited` this sets, and both were lit on every untouched
+                        // rendered file in the library until this argument existed.
+                        isRenderedFile: PhotoFormats.isRendered(url))
                 } catch {
                     NSLog("Lumen catalog: recipe write failed — %@", String(describing: error))
                     self.onFailure?("Could not save the edit for "
                                     + "\(url.lastPathComponent) — \(error)")
                 }
             }
-            self.enqueueSidecar(for: url, rating: nil, label: nil,
-                                recipe: (json, fingerprint, recipe.pipelineVersion))
+            // The strokes ride WITH the recipe, resolved out of the blob store here
+            // and not in the view layer, because this is the one place that knows the
+            // sidecar is being written and the one place that holds the store. Without
+            // them the sidecar carries a `strokesRef` and nothing the reference points
+            // at, so a restored sidecar gives brush masks that rasterize empty forever
+            // (docs/35 §7.1).
+            // THREE ANSWERS, NOT TWO (F3-02). `payload` returns nil both for "this
+            // photograph has no brush masking" and for "its painting is past the
+            // sidecar's size cap", and this call then passed `.some(nil)` — "drop the
+            // key" — for either. So painting past about 22,300 points DELETED the
+            // payload a previous flush had written: the photographer kept working and
+            // the sidecar's copy of the whole painting went away, silently.
+            //
+            // Overflow now means "this call has nothing to say about the strokes",
+            // which is what `nil` means to `enqueueSidecar`, so whatever is already in
+            // the file stays there. The catalog and — since K-018 — the blob backup are
+            // the copies that actually carry a painting this size; the sidecar's job is
+            // to carry what it can and never to destroy what it cannot.
+            let strokes: String??
+            switch BrushStrokeSidecar.decision(for: recipe, blob: {
+                self.blobs.strokeSet(for: $0)
+            }) {
+            case .none:
+                strokes = .some(nil)
+            case .payload(let p):
+                strokes = .some(p)
+            case .tooLarge(let characters):
+                strokes = nil
+                NSLog("Lumen catalog: %@'s brush painting is %d characters, past the "
+                      + "%d the sidecar can carry — the sidecar keeps its previous copy "
+                      + "and the catalog holds the current one",
+                      url.lastPathComponent, characters,
+                      BrushStrokeSidecar.payloadLimit)
+                self.onFailure?(
+                    "\(url.lastPathComponent) has more brush strokes than a sidecar can "
+                    + "hold, so its .xmp keeps an earlier copy. The catalog and its "
+                    + "backups have the current painting.")
+            }
+            self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
+                                recipe: (json, fingerprint,
+                                         Swift.min(recipe.pipelineVersion,
+                                                   currentPipelineVersion)),
+                                strokes: strokes)
         }
     }
 
@@ -325,11 +764,70 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// The values a metadata chip offers, with live counts.
+    // MARK: - Raw-truth statistics
+
+    /// The cached scene-linear measurement for a photograph, or nil when there is none
+    /// this build can use.
+    ///
+    /// `cache.raw_stats` has been in the schema since the first migration with nothing
+    /// writing to it — the reason `RawStatistics` had two round-trip tests and no
+    /// product. These two calls are the writer and the reader, and the provenance
+    /// argument is not decoration: a row measured on something else is not an answer to
+    /// this question, and the store refuses to serve it as one.
+    func rawStatistics(photoID: Int64,
+                       provenance: RawStatistics.Provenance) async -> RawStatistics? {
+        await onQueue("raw statistics read", fallback: nil) {
+            (store: CatalogStore) -> RawStatistics? in
+            try store.rawStatistics(photoID: photoID, provenance: provenance)
+        }
+    }
+
+    /// Cache a measurement. Raw pixels never change, so this is written once per file
+    /// per analyzer revision and read forever.
+    func recordRawStatistics(_ stats: RawStatistics, photoID: Int64) {
+        queue.async { [store] in
+            do {
+                try store.recordRawStatistics(stats, photoID: photoID)
+            } catch {
+                // cache.db is disposable (D52). A failed write costs one recomputation
+                // and must never reach the user as an error.
+                NSLog("Lumen catalog: raw statistics write failed — %@",
+                      String(describing: error))
+            }
+        }
+    }
+
+    /// The values a metadata chip offers, with UNFILTERED counts — the sidebar's
+    /// vocabulary for a folder, not the filter bar's numbers.
+    ///
+    /// Anything that draws a number the photographer can click wants
+    /// `facetCounts(for:folderPath:)` below instead. This one answers "what is in this
+    /// folder", which is a different and much cheaper question, and the two are the
+    /// same code underneath so they cannot describe the folder two ways.
     func facets(_ facet: PhotoFacet, folderPath: String?) async -> [FacetValue] {
         await onQueue("metadata chip values", fallback: []) { store in
             let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
             return try store.facetCounts(facet, folderID: folderID)
+        }
+    }
+
+    /// Every number the filter bar shows, counted through the query the grid runs.
+    ///
+    /// ONE call rather than one per axis, and it takes the live `PhotoQuery` rather
+    /// than just a folder, because those two facts together are the whole fix. The
+    /// numbers all describe the SAME grid: assembled from separately scoped reads —
+    /// keywords from the whole catalog, cameras from the folder, stars from the roll in
+    /// memory — they were three different answers to three different questions, none of
+    /// which was the question the photographer asks by clicking.
+    ///
+    /// Off the main actor like every other catalog read here, and worth saying why it
+    /// matters more for this one: an honest count is a `COUNT(*)` per value offered
+    /// rather than one `GROUP BY`, so this is the most statements any single call in
+    /// this file issues. It is asked only while the filter popover is open.
+    func facetCounts(for query: PhotoQuery, folderPath: String?) async -> FacetCounts {
+        await onQueue("facet counts", fallback: FacetCounts()) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.facetCounts(for: query, folderID: folderID)
         }
     }
 
@@ -378,6 +876,38 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("album membership", fallback: ()) {
             try $0.removeFromCollection(albumID, photoIDs: photoIDs)
         }
+    }
+
+    // MARK: - Saved looks
+
+    /// Every look the photographer has saved. Off the main actor like every other
+    /// catalog read here: the browser is drawn from the returned value, never from a
+    /// `queue.sync` behind a view body.
+    func looks() async -> [LookRow] {
+        await onQueue("look list", fallback: []) { try $0.looks() }
+    }
+
+    /// Store a look. Returns nil when it could not be stored — an unusable name, a
+    /// catalog that is not there — so the panel can say so instead of appearing to
+    /// have saved something.
+    func saveLook(name: String, subset: LookSubset) async -> Int64? {
+        await onQueue("look save", fallback: nil) { (store: CatalogStore) -> Int64? in
+            let id = try store.saveLook(name: name, subset: subset)
+            return id
+        }
+    }
+
+    /// Returns false when the new name is already taken, which is the one failure the
+    /// photographer needs told back to them.
+    func renameLook(id: Int64, to name: String) async -> Bool {
+        await onQueue("look rename", fallback: false) { (store: CatalogStore) -> Bool in
+            try store.renameLook(id: id, to: name)
+            return true
+        }
+    }
+
+    func deleteLook(id: Int64) async {
+        await onQueue("look delete", fallback: ()) { try $0.deleteLook(id: id) }
     }
 
     // MARK: - Keywords
@@ -474,30 +1004,57 @@ final class CatalogService: @unchecked Sendable {
 
     static func sidecarFlag(_ flag: PhotoFlag) -> SidecarFlag {
         switch flag {
-        case .pick: return .pick
-        case .reject: return .reject
+        case .picked: return .pick
+        case .rejected: return .reject
+        case .none: return .none
+        }
+    }
+
+    static func appFlag(_ flag: SidecarFlag) -> PhotoFlag {
+        switch flag {
+        case .pick: return .picked
+        case .reject: return .rejected
+        case .none: return .none
+        }
+    }
+
+    // The app and the catalog each name these for their own audience. One conversion
+    // in one place beats qualifying every call site.
+
+    static func appFlag(_ flag: LumenCore.PhotoFlag) -> PhotoFlag {
+        switch flag {
+        case .pick: return .picked
+        case .reject: return .rejected
         case .unflagged: return .none
         }
     }
 
-    static func photoFlag(_ flag: SidecarFlag) -> PhotoFlag {
+    static func coreFlag(_ flag: PhotoFlag) -> LumenCore.PhotoFlag {
         switch flag {
-        case .pick: return .pick
-        case .reject: return .reject
+        case .picked: return .pick
+        case .rejected: return .reject
         case .none: return .unflagged
         }
     }
 
-    /// The catalog column and the XMP sidecar both store the lowercased key, which is
-    /// exactly `ColorLabel.rawValue` — so this one function is the whole of what
-    /// `appLabel` and `coreLabel` used to do between them, and the `PhotoFlag` pair
-    /// they sat beside is gone entirely: with one flag enum instead of two spellings
-    /// of one, `coreFlag` had nothing left to convert.
-    ///
-    /// Lowercasing survives because a sidecar written by another application may
-    /// capitalize; an unrecognised name is unlabelled, exactly as it was before.
-    static func label(named name: String?) -> ColorLabel? {
-        name.flatMap { ColorLabel(rawValue: $0.lowercased()) }
+    static func appLabel(_ name: String?) -> ColorLabel {
+        guard let name = name?.lowercased() else { return .none }
+        for candidate in ColorLabel.allCases
+        where candidate.displayName.lowercased() == name {
+            return candidate
+        }
+        return .none
+    }
+
+    static func coreLabel(_ label: ColorLabel) -> LumenCore.ColorLabel? {
+        switch label {
+        case .none: return nil
+        case .red: return .red
+        case .yellow: return .yellow
+        case .green: return .green
+        case .blue: return .blue
+        case .purple: return .purple
+        }
     }
 
     // MARK: - Sidecars
@@ -506,11 +1063,14 @@ final class CatalogService: @unchecked Sendable {
     /// say about the label"; `.some(nil)` means "the label was cleared". Collapsing
     /// the two meant clearing a red label wrote the catalog but left the sidecar
     /// saying red — and the next scan's merge read the sidecar and put red back.
-    private func enqueueSidecar(for url: URL, rating: Int?, flag: SidecarFlag? = nil,
+    private func enqueueSidecar(for url: URL, photoID: Int64? = nil, rating: Int?,
+                                flag: SidecarFlag? = nil,
                                 label: String??,
-                                recipe: (json: String, fingerprint: String, version: Int)?) {
+                                recipe: (json: String, fingerprint: String, version: Int)?,
+                                strokes: String?? = nil) {
         sidecarLock.lock()
-        var content = pendingSidecars[url] ?? Self.readSidecar(for: url) ?? SidecarContent()
+        let queued = pendingSidecars[url]
+        var content = queued?.content ?? Self.readSidecar(for: url) ?? SidecarContent()
         if let rating { content.rating = rating }
         if let flag { content.flag = flag }
         if let label { content.label = label }
@@ -519,8 +1079,27 @@ final class CatalogService: @unchecked Sendable {
             content.recipeFingerprint = recipe.fingerprint
             content.pipelineVersion = recipe.version
         }
+        // Double-optional for the same reason `label` is: nil means "this call has
+        // nothing to say about the strokes", `.some(nil)` means "this recipe has no
+        // brush masking, so drop the key". Collapsing them would leave a stale painting
+        // in the sidecar of a photograph whose brush masks had all been deleted.
+        if let strokes { content.strokesPayload = strokes }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
-        pendingSidecars[url] = content
+
+        // And the same nil-vs-`.some(nil)` distinction the parameters draw, carried
+        // through to the write instead of being collapsed here. Everything NOT in this
+        // set is a two-second-old copy of the file that the flush re-reads rather than
+        // writes back. Unioned with what was already queued, because a rating and a
+        // label enqueued 200 ms apart are one write and both were stated.
+        var stated = queued?.stated ?? []
+        if rating != nil { stated.insert(.rating) }
+        if flag != nil { stated.insert(.flag) }
+        if label != nil { stated.insert(.label) }
+        if recipe != nil { stated.insert(.recipe) }
+        if strokes != nil { stated.insert(.strokes) }
+
+        pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content,
+                                stated: stated)
         let shouldSchedule = !sidecarFlushScheduled
         sidecarFlushScheduled = true
         sidecarLock.unlock()
@@ -538,7 +1117,16 @@ final class CatalogService: @unchecked Sendable {
         sidecarFlushScheduled = false
         sidecarLock.unlock()
 
-        for (url, content) in batch {
+        // Entries whose WRITE failed, kept for a retry. The batch was already removed
+        // from the queue above, and it used to stay removed on failure — a full disk
+        // or a briefly-offline volume silently left the catalog ahead of the sidecar
+        // forever, which quietly falsifies "losing the catalog costs speed, never
+        // work" for exactly the frames edited during the outage.
+        var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent,
+                                        stated: SidecarStatedFields))] = []
+
+        for (url, entry) in batch {
+            var content = entry.content
             let path = Self.sidecarURL(for: url)
 
             // An existing sidecar is somebody else's document that Lumen is allowed to
@@ -549,12 +1137,81 @@ final class CatalogService: @unchecked Sendable {
             // happened on the first rating keystroke, to photos Lumen had never
             // rendered, with no backup and no undo.
             //
-            // So: splice into what is there. If the document cannot be edited safely,
-            // leave it completely alone. The rating is still in the catalog; the
-            // user's work in that file is not recoverable from anywhere.
+            // So: splice into what is there. If the document cannot be edited safely —
+            // a merge the splicer refuses, or bytes that are not UTF-8 text at all —
+            // leave it completely alone. `classify` is what keeps "unreadable" from
+            // masquerading as "absent": a UTF-16 sidecar used to fail the UTF-8 read,
+            // fall into the no-sidecar branch, and be replaced wholesale. The rating
+            // is still in the catalog; the user's work in that file is not
+            // recoverable from anywhere.
+            // A HALF-READ DOCUMENT IS NOT SAFE TO SPLICE INTO, and this is the third
+            // member of the same family as the two branches below.
+            //
+            // `content` was seeded from a read of this file, and `update` strips every
+            // Lumen-owned element before re-emitting the fields it was handed. So an
+            // element the parse never REACHED — because the document is truncated, or
+            // has an XML error part-way down — is deleted by the write. The reachable
+            // case is a sidecar damaged below its rating element: press `3` on that
+            // frame during a cull and the intact `<lumen:recipe>` further down goes.
+            // Nothing looks wrong, because the catalog still has the recipe; what was
+            // destroyed is the copy that exists for when the catalog does not.
+            //
+            // Refusing costs this frame's rating in the sidecar and nothing else. The
+            // catalog keeps it, and the next write after somebody repairs the file
+            // carries it across.
+            if !content.parsedCleanly {
+                NSLog("Lumen: left %@ untouched — it did not parse completely, and "
+                      + "rewriting it would delete whatever lies past the damage",
+                      path.lastPathComponent)
+                continue
+            }
+
             let text: String
-            if let existing = try? String(contentsOf: path, encoding: .utf8),
-               !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            switch XMPSidecar.classify(try? Data(contentsOf: path)) {
+            case .unreadable:
+                NSLog("Lumen: left %@ untouched — its bytes are not UTF-8 text, and "
+                      + "editing a document this version cannot decode would damage it",
+                      path.lastPathComponent)
+                continue
+            case .document(let existing):
+                // THE FILE AS IT IS NOW, not as it was when the keystroke landed.
+                //
+                // `content` was seeded from a read taken at enqueue and this write
+                // happens `sidecarDebounce` later, so every field the batch did not
+                // state is a two-second-old copy of this document — and `fieldLines`
+                // re-emits all of them. Lightroom, a sync client or exiftool writing
+                // between the keystroke and here had its work reverted by a rating.
+                //
+                // Re-seeding from the bytes about to be spliced closes the window to
+                // the width of this loop body. It cannot close it entirely — nothing
+                // short of a lock across another process's write can — but the two
+                // seconds the debounce buys are the part that was reachable by hand.
+                if let fresh = XMPSidecar.parse(existing) {
+                    // Same interlock as the stale read's, applied to the fresh one:
+                    // re-seeding from a HALF-READ document would delete whatever lies
+                    // past the damage just as surely, and this read is the one being
+                    // written back.
+                    guard fresh.parsedCleanly else {
+                        NSLog("Lumen: left %@ untouched — it did not parse completely "
+                              + "on re-read, and rewriting it would delete whatever "
+                              + "lies past the damage", path.lastPathComponent)
+                        continue
+                    }
+                    // And a document from a build newer than this one keeps its own
+                    // recipe: `writableFields` drops `.recipe` from what this write may
+                    // state, so the re-seed above carries the file's recipe trio back
+                    // out verbatim instead of the reduced copy this build decoded.
+                    let honoured = XMPSidecar.writableFields(
+                        entry.stated, documentVersion: fresh.pipelineVersion)
+                    if honoured != entry.stated {
+                        NSLog("Lumen: %@ was written by pipeline version %d and this "
+                              + "build implements %d — its recipe is left exactly as it "
+                              + "is; the rating, flag and label still go in",
+                              path.lastPathComponent, fresh.pipelineVersion,
+                              currentPipelineVersion)
+                    }
+                    content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
+                }
                 guard let merged = XMPSidecar.update(existing, with: content) else {
                     NSLog("Lumen: left %@ untouched — it is not a sidecar this "
                           + "version knows how to edit without losing its contents",
@@ -562,18 +1219,55 @@ final class CatalogService: @unchecked Sendable {
                     continue
                 }
                 text = merged
-            } else {
+            case .absent:
                 text = XMPSidecar.serialize(content)
             }
 
             do {
                 // Atomic: a sidecar half-written by a crash is worse than no sidecar.
                 try Data(text.utf8).write(to: path, options: .atomic)
+                // And record the mtime we just gave it. This is half of what makes
+                // §15.5 rule 1 answerable: without a stamp taken on OUR writes, the very
+                // next scan sees a file newer than nothing and has to guess. `photoID`
+                // is nil only for a queue entry that predates knowing the row — the
+                // stamp is then taken on the next read instead.
+                if let id = entry.photoID, let stamp = Self.modificationTime(of: path) {
+                    queue.async { [store] in
+                        try? store.setSidecarMTime(stamp, photoID: id)
+                    }
+                }
             } catch {
-                NSLog("Lumen: sidecar write failed for %@ — %@", path.lastPathComponent,
-                      String(describing: error))
+                NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
+                      path.lastPathComponent, String(describing: error))
+                failed.append((url, entry))
             }
         }
+
+        guard !failed.isEmpty else { return }
+        sidecarLock.lock()
+        // Re-queue only where no NEWER entry arrived during the flush: an entry
+        // enqueued meanwhile was built on a fresh read and its own edits, and
+        // clobbering it with the failed one would resurrect the older state.
+        for (url, entry) in failed where pendingSidecars[url] == nil {
+            pendingSidecars[url] = entry
+        }
+        let shouldSchedule = !sidecarFlushScheduled && !pendingSidecars.isEmpty
+        if shouldSchedule { sidecarFlushScheduled = true }
+        sidecarLock.unlock()
+        if shouldSchedule {
+            queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) {
+                self.flushSidecars()
+            }
+        }
+    }
+
+    /// Whole seconds since the epoch, the denomination `photo.sidecar_mtime` and
+    /// `photo.file_mtime` are both stored in. Nil when the file is not there.
+    static func modificationTime(of url: URL) -> Int64? {
+        guard let attributes = try? FileManager.default
+            .attributesOfItem(atPath: url.path),
+              let date = attributes[.modificationDate] as? Date else { return nil }
+        return Int64(date.timeIntervalSince1970)
     }
 
     /// Where a photo's sidecar lives.
@@ -585,11 +1279,49 @@ final class CatalogService: @unchecked Sendable {
     /// browsable, so on a card shot RAW+JPEG editing the JPEG overwrote the RAW's
     /// recipe and vice versa — half the frames on the card, with the promise that
     /// losing the catalog costs speed and never work quietly false for all of them.
+    ///
+    /// AND THEN THE OTHER HALF OF THE SAME DEFECT: two RAWs with one basename —
+    /// `DSC_0001.NEF` beside its `DSC_0001.DNG` after a conversion that kept the
+    /// original — both dropped their extension and met at one `DSC_0001.xmp`. The
+    /// later flush overwrote the earlier recipe, and the next open read the shared
+    /// file back as `.sidecarWins` for the frame whose mtime no longer matched and
+    /// wrote the wrong recipe into its catalog row. The rule that keeps them apart is
+    /// `SidecarNaming`, in LumenCore, where it is tested; this function owns only the
+    /// two facts it needs — is it a RAW, and which other RAWs share its name.
     static func sidecarURL(for photo: URL) -> URL {
-        guard PhotoFormats.isRaw(photo) else {
-            return photo.appendingPathExtension("xmp")
+        SidecarNaming.url(for: photo, isRaw: PhotoFormats.isRaw(photo),
+                          rawSiblingExtensions: rawSiblings(of: photo))
+    }
+
+    /// The other RAW files sharing `photo`'s basename, from one directory listing per
+    /// directory, memoized — this is asked once per sidecar read and per flush, and a
+    /// ten-thousand-frame folder must not stat ten thousand times to learn a fact that
+    /// is the same for all of them. `registerAndLoad` forgets the memo, because a
+    /// rescan is when a sibling can appear.
+    private static let siblingLock = NSLock()
+    private static var siblingNames: [String: [String]] = [:]
+
+    private static func rawSiblings(of photo: URL) -> Set<String> {
+        let directory = photo.deletingLastPathComponent()
+        siblingLock.lock()
+        var names = siblingNames[directory.path]
+        siblingLock.unlock()
+        if names == nil {
+            let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            siblingLock.lock()
+            siblingNames[directory.path] = listed
+            siblingLock.unlock()
+            names = listed
         }
-        return photo.deletingPathExtension().appendingPathExtension("xmp")
+        return SidecarNaming.rawSiblingExtensions(
+            of: photo, amongNames: names ?? [],
+            isRawName: { PhotoFormats.raw.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) })
+    }
+
+    static func forgetSiblings() {
+        siblingLock.lock()
+        siblingNames.removeAll()
+        siblingLock.unlock()
     }
 
     static func readSidecar(for photo: URL) -> SidecarContent? {
@@ -598,25 +1330,296 @@ final class CatalogService: @unchecked Sendable {
         return XMPSidecar.parse(data)
     }
 
-    // MARK: - Maintenance
+    // MARK: - Preview cache
 
-    /// `VACUUM INTO` gives a consistent snapshot without stopping the world.
-    func backup() {
-        queue.async {
-            let stamp = ISO8601DateFormatter().string(from: Date())
-                .replacingOccurrences(of: ":", with: "-")
-            let target = self.directory
-                .appendingPathComponent("backups", isDirectory: true)
-                .appendingPathComponent("lumen-\(stamp).db")
+    /// Everything the preview cache needs to know about one photo, fetched in one hop
+    /// onto the catalog queue: the fingerprint every cached preview is keyed against,
+    /// and the rows already stored for it.
+    ///
+    /// One call rather than two because this runs on a decode worker, once per
+    /// thumbnail, on the path README goal #1 is measured on. Two `queue.sync`s per grid
+    /// cell would put eight decode workers behind each other for no reason.
+    struct PreviewState: Sendable {
+        var fingerprint: String
+        var rows: [PreviewRow]
+    }
+
+    /// AWAIT, never `queue.sync`.
+    ///
+    /// This used to block. The caller is a `Task.detached` decode worker and there are
+    /// eight of them, so eight cooperative-pool threads could sit inside `queue.sync`
+    /// at once — and the pool is about as wide as the machine has cores. A blocked
+    /// cooperative thread is not a slow thread, it is a thread that cannot run anybody
+    /// else's continuation: with the pool full, the render actor gets no turn, the
+    /// sampler's detached task gets no turn, and every `await` in the viewer's refine
+    /// driver stops resuming. The main actor keeps running, so the interface still
+    /// moves while the picture does not — "everything is super unresponsive… the image
+    /// isn't really updating very well", which is a fair description of exactly that.
+    ///
+    /// The hop is the same hop; suspending across it instead of blocking is the whole
+    /// change. A worker that is waiting for the catalog now yields its thread.
+    func previewState(photoID: Int64) async -> PreviewState? {
+        await onQueue("preview lookup", fallback: nil) {
+            (store: CatalogStore) -> PreviewState? in
+            // A failed read is a cache MISS, not something the user needs to be told:
+            // `onQueue` logs it and returns the fallback, and the caller decodes the
+            // original instead — which is what it did on every launch before this cache
+            // was wired at all.
+            return PreviewState(
+                fingerprint: try store.currentRecipeFingerprint(photoID: photoID),
+                rows: try store.previews(photoID: photoID))
+        }
+    }
+
+    /// File a preview. Asynchronous: the pixels are already on screen by the time this
+    /// runs, and a bookkeeping row must never be in front of a photograph.
+    func recordPreview(_ row: PreviewRow) {
+        queue.async { [store] in
             do {
-                try FileManager.default.createDirectory(
-                    at: target.deletingLastPathComponent(),
-                    withIntermediateDirectories: true)
-                try self.store.backup(to: target.path)
+                try store.recordPreview(row)
             } catch {
-                NSLog("Lumen catalog: backup failed — %@", String(describing: error))
+                NSLog("Lumen catalog: preview bookkeeping failed — %@",
+                      String(describing: error))
             }
         }
+    }
+
+    /// LRU stamp on every serve. Silent on failure by design — a lost stamp costs
+    /// eviction accuracy and nothing else.
+    func touchPreview(photoID: Int64, level: PreviewLevel, recipeFP: String) {
+        queue.async { [store] in
+            _ = try? store.touchPreview(photoID: photoID, level: level,
+                                        recipeFP: recipeFP)
+        }
+    }
+
+    /// Evict to a byte budget and hand back the rows that went, so their payloads can be
+    /// unlinked. Synchronous, because the only caller is the quit path and the files
+    /// have to be gone before the process is.
+    func prunePreviews(maxBytes: Int64) -> [PreviewRow] {
+        var victims: [PreviewRow] = []
+        queue.sync {
+            do {
+                victims = try store.pruneCache(maxBytes: maxBytes)
+            } catch {
+                NSLog("Lumen catalog: preview eviction failed — %@",
+                      String(describing: error))
+            }
+        }
+        return victims
+    }
+
+    // MARK: - Maintenance
+
+    /// A lane of its own for snapshots, and both exclusions are deliberate.
+    ///
+    /// Not `queue`: that is the catalog's one serial lane, and a `VACUUM INTO` of a
+    /// multi-gigabyte catalog would hold it for tens of seconds — every grid query,
+    /// every preview lookup and every slider write behind it. That is why
+    /// `CatalogStore.snapshot(from:to:)` takes its own connection: WAL lets it read
+    /// beside the app instead of through it.
+    ///
+    /// Not `maintenance` either: that lane drives the metadata backfill, and a backup
+    /// queued behind a folder's worth of EXIF reads — or a backfill queued behind a
+    /// backup — is one of them arriving minutes late for no reason.
+    private let backupQueue = DispatchQueue(label: "dev.lumenapp.catalog.backup",
+                                            qos: .utility)
+
+    /// How big the catalog may be before the QUIT path stops trying to snapshot it.
+    ///
+    /// 32 MiB. The quit-path backup costs an `integrity_check` (reads every page and
+    /// every index) plus a `VACUUM INTO` (reads it again, writes it out compacted) —
+    /// call it three passes over the file. At 32 MiB that is ~100 MB of I/O: a fifth of
+    /// a second on an SSD, about a second on a slow external volume. Above it, the same
+    /// arithmetic says a gigabyte catalog would hold the quit for the better part of a
+    /// minute, and `applicationWillTerminate` is not a place to spend a minute — the
+    /// user is leaving, and the OS's patience is measured in seconds before the process
+    /// is killed anyway, which would leave a half-written snapshot behind.
+    ///
+    /// Deferring is not skipping. The stamp is untouched, so the snapshot is still owed
+    /// and the next launch takes it (see `init`) — and a snapshot taken at the next
+    /// launch is byte-for-byte the one this quit would have taken, because nothing
+    /// edits the catalog between the two.
+    private static let quitBackupBudgetBytes: Int64 = 32 * 1024 * 1024
+
+    /// How long after opening the deferred snapshot starts. Long enough for the first
+    /// folder's grid to be on screen; short enough that a photographer who launches,
+    /// looks at one frame and quits still gets one.
+    private static let openBackupDelay: TimeInterval = 20
+
+    /// One snapshot at a time, across every trigger.
+    ///
+    /// The three triggers — the menu item, the deferred one at open, and the quit path
+    /// — reach `backUp` from three different threads, and two of them overlapping would
+    /// read "due" before either had stamped it, take the same second's filename twice,
+    /// and vacuum a multi-gigabyte catalog twice at once. A flag rather than making the
+    /// quit path wait on `backupQueue`: at quit the right answer to "one is already
+    /// running" is to leave, not to block on a vacuum that has no deadline.
+    private let backupLock = NSLock()
+    private var backupInFlight = false
+
+    private func beginBackup() -> Bool {
+        backupLock.lock()
+        defer { backupLock.unlock() }
+        if backupInFlight { return false }
+        backupInFlight = true
+        return true
+    }
+
+    private func endBackup() {
+        backupLock.lock()
+        backupInFlight = false
+        backupLock.unlock()
+    }
+
+    private var catalogPath: String {
+        directory.appendingPathComponent("lumen.db").path
+    }
+
+    /// The menu item (`Back Up Catalog`). Explicit, so it ignores the stamp: a
+    /// photographer who asks for a backup is not to be told they already had one.
+    func backup() {
+        backupQueue.async { [weak self] in self?.backUp(force: true) }
+    }
+
+    /// One automatic snapshot, gated, written, stamped and pruned.
+    ///
+    /// **Must not be called from `queue`** — it takes `queue.sync` twice, for the stamp
+    /// read and the stamp write, which are two fast statements either side of work that
+    /// deliberately happens off that lane.
+    ///
+    /// The order is the whole point of the function:
+    ///
+    ///   · gate on the stamp, so quitting four times in an afternoon writes one copy;
+    ///   · vacuum into a `.partial` name, which `CatalogStore.recoverIfNeeded` does not
+    ///     look at (it takes `.db` only), so a snapshot the process does not live to
+    ///     finish is invisible to the restore rather than the newest thing in the
+    ///     directory;
+    ///   · move it into place — the rename is what publishes it;
+    ///   · copy the brush payloads next to it (K-018): a snapshot without them restores
+    ///     every recipe intact with every brush mask rasterizing to nothing;
+    ///   · stamp it, only now, because a backup that failed must be owed again at the
+    ///     next opportunity rather than buying a full disk twenty hours of silence;
+    ///   · prune, only after a successful write, so a failing backup can never be the
+    ///     thing that deletes the good copies.
+    private func backUp(force: Bool) {
+        guard beginBackup() else { return }
+        defer { endBackup() }
+
+        let now = CatalogStore.now()
+        let due = queue.sync {
+            force || ((try? self.store.isBackupDue(now: now)) ?? false)
+        }
+        guard due else { return }
+
+        let folder = Self.backupDirectory(in: directory)
+        // ISO 8601 with the colons swapped out: it sorts lexically and chronologically
+        // at once, which is the ordering `recoverIfNeeded` walks and the one
+        // `BackupRetention` dates.
+        let stamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let target = folder.appendingPathComponent("lumen-\(stamp).db")
+        let partial = URL(fileURLWithPath: target.path + ".partial")
+
+        do {
+            try FileManager.default.createDirectory(
+                at: folder, withIntermediateDirectories: true)
+            // Integrity-checked inside `snapshot`, on the connection it vacuums: a
+            // corrupt catalog that backs itself up rotates the last readable snapshot
+            // out of existence, and then the open-time restore has nothing to restore
+            // FROM (§15.8).
+            try CatalogStore.snapshot(from: catalogPath, to: partial.path)
+            if FileManager.default.fileExists(atPath: target.path) {
+                try FileManager.default.removeItem(at: target)
+            }
+            try FileManager.default.moveItem(at: partial, to: target)
+
+            let blobBackup = target.deletingPathExtension()
+                .appendingPathExtension("blobs")
+            let copied = try blobs.backUp(to: blobBackup)
+            queue.sync { try? self.store.noteBackupTaken(at: now) }
+            let pruned = Self.pruneBackups(in: folder)
+            NSLog("Lumen catalog: backed up %@ with %d brush payload(s); "
+                  + "pruned %d old snapshot(s)",
+                  target.lastPathComponent, copied, pruned)
+        } catch {
+            // Leave nothing half-written behind, even under a name the restore ignores.
+            try? FileManager.default.removeItem(at: partial)
+            NSLog("Lumen catalog: backup failed — %@", String(describing: error))
+            if let catalogError = error as? CatalogError,
+               case .corrupt = catalogError {
+                report("The catalog failed its integrity check, so it was not backed "
+                       + "up — the existing backups are the good copies and were left "
+                       + "alone.")
+            } else {
+                report("The catalog could not be backed up "
+                       + "(\(error.localizedDescription)).")
+            }
+        }
+    }
+
+    /// Apply `BackupRetention` to a real directory. Returns how many snapshots went.
+    ///
+    /// The policy itself is in `LumenCore` and is a pure function over filenames, which
+    /// is what makes it testable; this half is the two lines of `FileManager` that
+    /// cannot be.
+    @discardableResult
+    private static func pruneBackups(in folder: URL) -> Int {
+        let manager = FileManager.default
+        guard let names = try? manager.contentsOfDirectory(atPath: folder.path) else {
+            return 0
+        }
+        var removed = 0
+        let plan = BackupRetention.plan(names: names.filter { $0.hasSuffix(".db") })
+        for victim in plan.victims {
+            let file = folder.appendingPathComponent(victim)
+            do {
+                try manager.removeItem(at: file)
+                removed += 1
+            } catch {
+                NSLog("Lumen catalog: could not prune %@ — %@",
+                      victim, String(describing: error))
+                // The payloads stay if the snapshot did: a `.blobs` directory with no
+                // catalog beside it is what K-018 was about, in the other direction.
+                continue
+            }
+            try? manager.removeItem(
+                at: file.deletingPathExtension().appendingPathExtension("blobs"))
+        }
+        // Debris from a snapshot whose process did not live to finish it. Safe to
+        // remove because the rename that publishes a snapshot is the last step, so a
+        // `.partial` that is still here is one nobody is waiting for — with the one
+        // exception of a second Lumen running against the same catalog, which is
+        // already a hazard this file documents at length elsewhere.
+        for name in names where name.hasSuffix(".db.partial") {
+            try? manager.removeItem(at: folder.appendingPathComponent(name))
+        }
+        return removed
+    }
+
+    /// The quit-path snapshot — J1-04's actual fix, with the size gate its own evidence
+    /// argues for.
+    ///
+    /// `close()` runs inside `applicationWillTerminate`. A snapshot here is worth having
+    /// (it is the only one that exists if the catalog is damaged while the app is not
+    /// running, since the launch-time one comes too late to help) but it is not worth
+    /// the quit, so it is taken only when the arithmetic in `quitBackupBudgetBytes` says
+    /// it fits. The `-wal` counts: at quit it can hold a working session's worth of the
+    /// catalog that has not been checkpointed back yet.
+    private func backUpAtQuitIfAffordable() {
+        let size = Self.fileSize(catalogPath) + Self.fileSize(catalogPath + "-wal")
+        guard size > 0, size <= Self.quitBackupBudgetBytes else { return }
+        backUp(force: false)
+    }
+
+    private static func fileSize(_ path: String) -> Int64 {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    private func report(_ message: String) {
+        NSLog("Lumen catalog: %@", message)
+        onFailure?(message)
     }
 
     func close() {
@@ -630,6 +1633,17 @@ final class CatalogService: @unchecked Sendable {
         // last one made.
         queue.sync {}
         flushSidecars()
+        // J1-04: the restore path that exists and works used to have, on a typical
+        // install, zero inputs — `backup()`'s only caller was a menu item nobody is
+        // obliged to click. It has one here now, gated twice: on the once-per-N-hours
+        // stamp in `meta`, and on the catalog being small enough that a `VACUUM INTO`
+        // fits in a quit. Anything larger is left owed and taken at the next launch;
+        // see `backUpAtQuitIfAffordable` for why that loses nothing.
+        //
+        // After the drain and the flush, because the snapshot should contain the last
+        // rating pressed before ⌘Q, and before `store.close()` because the stamp it
+        // writes goes through the store.
+        backUpAtQuitIfAffordable()
         queue.sync { store.close() }
     }
 }

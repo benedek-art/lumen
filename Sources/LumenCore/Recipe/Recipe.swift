@@ -12,24 +12,105 @@
 import Foundation
 
 /// The current recipe pipeline version. Bump only with an explicit, badged migration (D52).
-public let currentPipelineVersion = 1
+///
+/// 2 — `look.bw.enabled` (docs/audit COLOR-20). Version 1 spelled "black and white is
+/// off" by deleting the whole `look.bw` slot, so the mix could not be stored while
+/// switched off and the panel kept it in view state instead. Version 2 keeps the mix in
+/// the recipe and switches it with a boolean.
+///
+/// No version-1 recipe renders differently under version 2, so this bump needs no
+/// badged per-photo migration: the absent key decodes as `true` (see `BlackAndWhite`),
+/// which is precisely what version 1 meant by the slot being there. What it buys is the
+/// reverse direction — a version-2 recipe can express "off, mix kept", which a version-1
+/// reader would render as black and white. The version is what tells the two apart.
+public let currentPipelineVersion = 2
 
 public struct Recipe: Codable, Equatable, Sendable {
     public var pipelineVersion: Int
     public var develop: Develop
     public var look: Look
     public var masks: [Mask]
+    /// The folders masks can sit in. Order is the panel's order; a mask names one by id.
+    public var maskGroups: [MaskGroup]
 
     public init(
         pipelineVersion: Int = currentPipelineVersion,
         develop: Develop = Develop(),
         look: Look = Look(),
-        masks: [Mask] = []
+        masks: [Mask] = [],
+        maskGroups: [MaskGroup] = []
     ) {
         self.pipelineVersion = pipelineVersion
         self.develop = develop
         self.look = look
         self.masks = masks
+        self.maskGroups = maskGroups
+    }
+
+    /// This recipe with `source`'s masks and folders APPENDED.
+    ///
+    /// "Paste Masks" across a sequence — put this sky mask on the rest of the shoot —
+    /// and appending rather than replacing is the whole difference between it and Paste
+    /// Settings. Those two mean "make this photograph like that one"; this one means
+    /// "also do this", and replacing would silently delete whatever local work each
+    /// target already had. It is also the gesture people use to build a stack up mask by
+    /// mask across a sequence, which replacing makes impossible.
+    ///
+    /// THE IDS. A mask's id is per-photograph, so a collision only happens when the same
+    /// mask has already been pasted here — and then a naive append produces two masks
+    /// with one id, which every `firstIndex(where:)` in the application resolves to the
+    /// first. Colliding ids are re-issued, and the whole batch is remapped TOGETHER, so
+    /// a `maskRef` between two pasted masks still points at its partner rather than at
+    /// the copy that was already here. A reference to a mask that is NOT in the batch is
+    /// left alone: it names something on the source photograph, and inventing a target
+    /// for it would be a selection nobody asked for.
+    public func appendingMasks(from source: Recipe) -> Recipe {
+        var copy = self
+        let takenMasks = Set(masks.map(\.id))
+        let takenGroups = Set(maskGroups.map(\.id))
+        var maskIDs: [String: String] = [:]
+        var groupIDs: [String: String] = [:]
+        for mask in source.masks where takenMasks.contains(mask.id) {
+            maskIDs[mask.id] = UUID().uuidString
+        }
+        for group in source.maskGroups where takenGroups.contains(group.id) {
+            groupIDs[group.id] = UUID().uuidString
+        }
+        for group in source.maskGroups {
+            var moved = group
+            moved.id = groupIDs[group.id] ?? group.id
+            copy.maskGroups.append(moved)
+        }
+        for mask in source.masks {
+            var moved = mask
+            moved.id = maskIDs[mask.id] ?? mask.id
+            if let g = moved.group { moved.group = groupIDs[g] ?? g }
+            moved.components = moved.components.map { component in
+                var c = component
+                if let ref = c.maskRef, let landed = maskIDs[ref] { c.maskRef = landed }
+                return c
+            }
+            copy.masks.append(moved)
+        }
+        return copy
+    }
+
+    /// What a group's settings do to one of its members, resolved in ONE place.
+    ///
+    /// Both renderers and the panel ask this rather than each folding the two levels
+    /// themselves, because a group is the first thing in this format where a mask's
+    /// effective state is not a property of the mask. Two implementations of that would
+    /// be two answers to "is this mask on".
+    ///
+    /// A mask naming a group that is not in the list is UNGROUPED, not hidden: a folder
+    /// deleted by hand out of a sidecar must not silently take its members' edits with
+    /// it.
+    public func effective(_ mask: Mask) -> (enabled: Bool, amount: Double) {
+        guard let id = mask.group,
+              let group = maskGroups.first(where: { $0.id == id })
+        else { return (mask.enabled, mask.amount) }
+        return (mask.enabled && group.enabled,
+                mask.amount * Num.clamp(group.amount, 0, 200) / 100)
     }
 
     /// Whether two recipes would render the same picture. Not every field in a recipe
@@ -42,24 +123,152 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// The recipe reduced to what actually reaches a pixel — what the fingerprint
     /// hashes, and what `rendersSameAs` compares.
     ///
-    /// Masks lose their name AND their id. The name is a label for the panel. The id
-    /// is a random UUID, and hashing it had two costs: renaming a mask changed
-    /// `recipe_fp`, which keys every preview and artifact in the cache, so one
-    /// keystroke in a text field threw away the 1:1 and fit renders of a 45-megapixel
-    /// frame — and two photos given genuinely identical mask edits got different
-    /// fingerprints, so they could never share a cached artifact. What the renderer
-    /// needs to tell masks apart is their position in the stack, which survives here.
+    /// Masks lose their name, and they lose the ARBITRARY BYTES of their id. The name is
+    /// a label for the panel. The id is a random UUID, and hashing it had two costs:
+    /// renaming a mask changed `recipe_fp`, which keys every preview and artifact in the
+    /// cache, so one keystroke in a text field threw away the 1:1 and fit renders of a
+    /// 45-megapixel frame — and two photos given genuinely identical mask edits got
+    /// different fingerprints, so they could never share a cached artifact. What the
+    /// renderer needs to tell masks apart is their position in the stack, which survives
+    /// here.
+    ///
+    /// BUT A MASK'S ID IS COSMETIC ONLY WHILE NOTHING NAMES IT, and blanking it outright
+    /// was the audited half of that. `MaskComponent.maskRef` names another mask BY ID and
+    /// `MaskRaster.referenced` resolves it against this same list, so for a recipe
+    /// carrying a reference the id is not a label — it is the edge of a graph, and
+    /// erasing one end of the edge while hashing the other broke the projection in BOTH
+    /// directions:
+    ///
+    ///   · two recipes that render DIFFERENT pictures hashed the same. Mask "Sky" with
+    ///     id A and mask "Sky ∩ Person" pointing at A renders the intersection; give Sky
+    ///     any other id and the reference dangles, which `MaskRaster.referenced` reports
+    ///     as ABSENT, so the second mask selects nothing. Both blanked to `id: ""` and
+    ///     both hashed to the same `recipe_fp` — a cache key that hands back the other
+    ///     picture, and a `rendersSameAs` that calls a real edit no edit.
+    ///
+    ///   · two recipes that render the SAME picture hashed differently — the very case
+    ///     the blanking exists to close. Build the same two-mask stack on two photos, or
+    ///     paste one batch of masks twice (`appendingMasks` re-issues the colliding ids
+    ///     and remaps the references with them), and the UUID leaks straight back into
+    ///     the hash through `maskRef`.
+    ///
+    /// So a reference-bearing recipe keeps the STRUCTURE and drops the arbitrary bytes,
+    /// which is the move the group comment below already reasons its way to, one level
+    /// over: each mask's id becomes its position in the stack — already part of this
+    /// projection — and every reference is rewritten to the canonical id of the mask it
+    /// actually resolves to. FIRST-WINS on a duplicate id, matching `masks.first(where:)`
+    /// in `MaskRaster.referenced` and `MaskDependency`'s `byID`, so a recipe with
+    /// colliding ids hashes as the picture it renders rather than the one it describes.
+    /// A reference that resolves to nothing canonicalizes to the empty string: deleted,
+    /// dangling and never-there are one rendered result — absent — so they are one key.
+    ///
+    /// A recipe with NO reference keeps the blanking, byte for byte, and therefore keeps
+    /// its existing `recipe_fp`. The id genuinely is cosmetic there, and re-keying every
+    /// cached preview in the catalog to close a case those recipes cannot reach would be
+    /// a cost with nothing behind it. `MaskReferenceIdentityTests` states both halves.
+    ///
+    /// A switched-off black-and-white mix goes the same way, for the same reason. It is
+    /// eight numbers no pixel reads, kept so the photographer gets them back; hashing
+    /// them would make "turn the treatment off" a different picture as far as every
+    /// cache is concerned — a full re-render of a frame that did not change — and would
+    /// make the library call a photo edited when it renders exactly as it was shot.
     ///
     /// The stored `edit.recipe` is still the full-fidelity recipe; this projection
-    /// exists only to be hashed and compared.
+    /// exists only to be hashed and compared — nothing here renders.
     public var renderIdentity: Recipe {
         var copy = self
-        copy.masks = masks.map { mask in
-            var stripped = mask.withoutCosmetics
-            stripped.id = ""
-            return stripped
+        let references = masks.contains { mask in
+            mask.components.contains { $0.kind == .maskRef }
         }
+        if references {
+            var canonical: [String: String] = [:]
+            for (index, mask) in masks.enumerated() where canonical[mask.id] == nil {
+                canonical[mask.id] = String(index)
+            }
+            copy.masks = masks.enumerated().map { index, mask in
+                var stripped = mask.withoutCosmetics
+                stripped.id = String(index)
+                stripped.components = stripped.components.map { component in
+                    guard component.kind == .maskRef, let ref = component.maskRef
+                    else { return component }
+                    var resolved = component
+                    resolved.maskRef = canonical[ref] ?? ""
+                    return resolved
+                }
+                return stripped
+            }
+        } else {
+            copy.masks = masks.map { mask in
+                var stripped = mask.withoutCosmetics
+                stripped.id = ""
+                return stripped
+            }
+        }
+        // Groups go through the same projection, and their ids CANNOT be blanked the
+        // way a mask's is: a mask names its group by id, so erasing the id would fold
+        // every folder into one and make "member of A" and "member of B" hash alike.
+        // What is cosmetic about a group is its name and whether it is open — opening a
+        // folder must not re-render 45 megapixels, which is the whole reason
+        // `withoutCosmetics` exists.
+        copy.maskGroups = maskGroups.map(\.withoutCosmetics)
+        if copy.look.bw?.enabled == false { copy.look.bw = nil }
+        // A creative grain at Amount 0 goes the same way, and for the same reason the
+        // line above exists: it is three numbers no pixel reads. `CreativeGrain
+        // .normalized` keeps every writer in the app from producing one, so this is here
+        // for the sidecars that were not written by this app — a hand-edited
+        // `{"grain":{"size":90}}` renders exactly like a recipe with no grain key and
+        // must not be handed a different `recipe_fp`, which would throw away every
+        // cached preview of that photograph to produce identical bytes.
+        if copy.look.grain?.isIdentity == true { copy.look.grain = nil }
+        // `look.lut` goes the same way, for a blunter reason: NO STAGE READS IT.
+        // `LUTReference` round-trips through the recipe, the sidecar and the catalog,
+        // and there is no reader on any path — not `RenderGraph`, not `export`, not the
+        // reference renderer. `LUT3D.fromCubeFile` exists and has only test callers.
+        //
+        // So two recipes differing only in a LUT render the same picture, and this
+        // projection is defined as "what actually reaches a pixel". Leaving it in meant
+        // a hand-edited sidecar carrying `look.lut` got a different `recipe_fp`, threw
+        // away every cached preview and artifact for that photo, re-rendered the frame,
+        // and produced identical bytes — and the library called it edited.
+        //
+        // WHEN A LUT STAGE IS BUILT, DELETE THIS LINE IN THE SAME COMMIT. A LUT that
+        // renders but is not hashed is the mirror defect: the user drags Amount and the
+        // cache hands back the previous picture.
+        // `testALookCarryingALUTRendersTheSamePictureAsOneWithout` fails the moment this
+        // line is wrong in either direction, and says which.
+        copy.look.lut = nil
+        // `develop.heal` is the SAME situation and is deliberately handled the other
+        // way: nothing writes it, nothing reads it, and it is left in this projection so
+        // that it busts the cache on the day a heal stage lands. Both choices are safe
+        // and the divergence is not an oversight, but it would read as one, so: the
+        // tripwire above is the better of the two patterns and heal should adopt it when
+        // somebody is next in that code. Leaving a dead field in costs a cache miss
+        // every time a sidecar happens to carry it, forever, to buy protection against a
+        // mistake on a day that may never come — where a test that fails the moment the
+        // stage lands buys the same protection and costs nothing until then.
         return copy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pipelineVersion, develop, look, masks, maskGroups
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed. `pipelineVersion`
+    /// is the one fallback here that is a claim rather than a value: an absent version
+    /// means a document nobody's writer produced — every writer this format has had
+    /// forces the key in, sparse or not — so it reads as the current vocabulary, which
+    /// is what `Recipe()` itself says. A version that IS present is never overwritten,
+    /// and `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` is what keeps a
+    /// stray `??` from stamping today's number onto every old recipe in the catalog.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.pipelineVersion = try c.decodeIfPresent(Int.self, forKey: .pipelineVersion)
+            ?? currentPipelineVersion
+        self.develop = try c.decodeIfPresent(Develop.self, forKey: .develop) ?? Develop()
+        self.look = try c.decodeIfPresent(Look.self, forKey: .look) ?? Look()
+        self.masks = try c.decodeIfPresent([Mask].self, forKey: .masks) ?? []
+        self.maskGroups = try c.decodeIfPresent([MaskGroup].self, forKey: .maskGroups)
+            ?? []
     }
 }
 
@@ -103,12 +312,44 @@ public struct Develop: Codable, Equatable, Sendable {
         self.geometry = geometry
         self.heal = heal
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case raw, tone, zones, curve, color, mixer, pointColors, detail, denoise,
+             geometry, heal
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.raw = try c.decodeIfPresent(RawParams.self, forKey: .raw) ?? RawParams()
+        self.tone = try c.decodeIfPresent(Tone.self, forKey: .tone) ?? Tone()
+        self.zones = try c.decodeIfPresent(Zones.self, forKey: .zones) ?? Zones()
+        self.curve = try c.decodeIfPresent(CurveSet.self, forKey: .curve) ?? CurveSet()
+        self.color = try c.decodeIfPresent(ColorAdjust.self, forKey: .color)
+            ?? ColorAdjust()
+        self.mixer = try c.decodeIfPresent(Mixer.self, forKey: .mixer) ?? Mixer()
+        self.pointColors = try c.decodeIfPresent([PointColor].self, forKey: .pointColors)
+            ?? []
+        self.detail = try c.decodeIfPresent(Detail.self, forKey: .detail) ?? Detail()
+        self.denoise = try c.decodeIfPresent(Denoise.self, forKey: .denoise) ?? Denoise()
+        self.geometry = try c.decodeIfPresent(Geometry.self, forKey: .geometry)
+            ?? Geometry()
+        self.heal = try c.decodeIfPresent(Heal.self, forKey: .heal) ?? Heal()
+    }
 }
 
 /// Vibrance and Saturation on the H-K-aware UCS model (D21), plus the two dials that
 /// make Saturation behave like stacked dye instead of like a channel spread.
-/// `density` blends additive ↔ subtractive behaviour; `protectSkin` attenuates BOTH
-/// sliders inside the skin-tone tolerance band.
+///
+/// `density` blends Saturation's additive push against its subtractive one, and only a
+/// push has anything to blend.
+///
+/// `protectSkin` attenuates Vibrance at both signs and Saturation's PUSH. It does not
+/// attenuate a negative Saturation: "−100 reaches true B&W" is a contract, and a guard
+/// that stops a pull short of its own endpoint is not a preference, it is a defect. It
+/// used to, and at the default of 70 that left skin at 30% chroma in a frame the
+/// photographer had taken all the way to black and white.
 public struct ColorAdjust: Codable, Equatable, Sendable {
     public var vibrance: Double     // −100…+100, low-chroma weighted
     public var saturation: Double   // −100…+100, −100 reaches true B&W
@@ -121,6 +362,54 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
         self.saturation = saturation
         self.density = density
         self.protectSkin = protectSkin
+    }
+
+    /// Whether moving `density` can change a single pixel at these settings.
+    ///
+    /// The subtractive branch is a per-channel gamma above 1: it densifies a colour as
+    /// it intensifies. There is no such thing to blend on the way DOWN — a negative
+    /// Saturation is a plain walk toward the neutral axis, and `ColorEngine` guards the
+    /// blend on `satAmount > 0` accordingly. That guard is right; what was wrong is that
+    /// nothing said so. The panel drew a live bipolar dial over half a slider's range
+    /// where it did exactly nothing, which is the same class of thing as a dead control
+    /// and is worse, because it looks like it is working.
+    ///
+    /// This is the predicate the panel disables the row on, and
+    /// `testDensityIsLiveExactlyWhereItChangesThePicture` is what stops it drifting from
+    /// the engine's own guard.
+    public var densityIsLive: Bool { saturation > 0 }
+
+    /// The colour stage a MASK's sub-recipe runs: the mask's own Sat/Vibrance, with
+    /// density and protectSkin INHERITED from the global colour panel.
+    ///
+    /// Those two used to come from this type's defaults — 50 and 70 — which no mask
+    /// control can see or move, so a masked Sat −100 on a face was 70%-skin-protected
+    /// by an invisible constant with no way to turn it off (COLOR-27). Inheriting the
+    /// global values turns the constant into the photographer's own setting: the mask
+    /// panel still offers no override (that is a wire-format change, recorded in the
+    /// dossier), but the global Protect Skin and Density sliders now govern masked
+    /// saturation the way they govern global saturation, which is what "a mask's
+    /// sub-recipe is a delta over the global parameters" has meant everywhere else.
+    /// On a recipe whose global colour panel is untouched, nothing renders
+    /// differently: the inherited values ARE 50 and 70.
+    public static func local(vibrance: Double, saturation: Double,
+                             inheriting global: ColorAdjust) -> ColorAdjust {
+        ColorAdjust(vibrance: vibrance, saturation: saturation,
+                    density: global.density, protectSkin: global.protectSkin)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case vibrance, saturation, density, protectSkin
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0
+        self.saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? 0
+        self.density = try c.decodeIfPresent(Double.self, forKey: .density) ?? 50
+        self.protectSkin = try c.decodeIfPresent(Double.self, forKey: .protectSkin) ?? 70
     }
 }
 
@@ -139,6 +428,20 @@ public struct RawParams: Codable, Equatable, Sendable {
         self.decoderVersion = decoderVersion
         self.temp = temp
         self.tint = tint
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case decoder, decoderVersion, temp, tint
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.decoder = try c.decodeIfPresent(String.self, forKey: .decoder) ?? "apple"
+        self.decoderVersion = try c.decodeIfPresent(Int.self, forKey: .decoderVersion)
+        self.temp = try c.decodeIfPresent(Double.self, forKey: .temp)
+        self.tint = try c.decodeIfPresent(Double.self, forKey: .tint)
     }
 }
 
@@ -165,6 +468,24 @@ public struct Tone: Codable, Equatable, Sendable {
         self.whites = whites
         self.blacks = blacks
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case exposure, contrast, contrastPivot, highlights, shadows, whites, blacks
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.exposure = try c.decodeIfPresent(Double.self, forKey: .exposure) ?? 0
+        self.contrast = try c.decodeIfPresent(Double.self, forKey: .contrast) ?? 0
+        self.contrastPivot = try c.decodeIfPresent(Double.self, forKey: .contrastPivot)
+            ?? 0
+        self.highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? 0
+        self.shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        self.whites = try c.decodeIfPresent(Double.self, forKey: .whites) ?? 0
+        self.blacks = try c.decodeIfPresent(Double.self, forKey: .blacks) ?? 0
+    }
 }
 
 /// The Zones panel (D7): five named zones + global over the normalized tonal axis,
@@ -179,7 +500,18 @@ public struct Zones: Codable, Equatable, Sendable {
     public var bright: ZoneAdjust
     public var global: ZoneAdjust
 
-    public static let defaultPivots: [Double] = [0.08, 0.25, 0.5, 0.75, 0.92]
+    /// The documented pivot EVs (docs/04: −4 / −2 / 0 / +2 / +4 around mid-grey),
+    /// expressed on the normalized axis THROUGH the engine's own default anchors —
+    /// so the constants and the documentation cannot drift apart again. The old
+    /// hand-written values [0.08, 0.25, 0.5, 0.75, 0.92] were plausible-looking
+    /// fractions that put "Mids" at scene −2 EV and "Darks" at −7.9 EV, where the
+    /// display toe has nothing to show: the slider dossier's #1 defect, caught by
+    /// reading the numbers back through the axis they are used in
+    /// (`AccuracyProbeTests.testTheDefaultZonePivotsSitAtTheirDocumentedEVs`).
+    public static let defaultPivots: [Double] = [-4.0, -2.0, 0.0, 2.0, 4.0].map {
+        ($0 - ToneEngine.defaultBlackAnchorEV)
+            / (ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV)
+    }
 
     public init(pivots: [Double] = Zones.defaultPivots,
                 dark: ZoneAdjust = ZoneAdjust(), shadow: ZoneAdjust = ZoneAdjust(),
@@ -192,6 +524,29 @@ public struct Zones: Codable, Equatable, Sendable {
         self.light = light
         self.bright = bright
         self.global = global
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pivots, dark, shadow, mid, light, bright, global
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.pivots = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .pivots),
+            default: Zones.defaultPivots)
+        self.dark = try c.decodeIfPresent(ZoneAdjust.self, forKey: .dark) ?? ZoneAdjust()
+        self.shadow = try c.decodeIfPresent(ZoneAdjust.self, forKey: .shadow)
+            ?? ZoneAdjust()
+        self.mid = try c.decodeIfPresent(ZoneAdjust.self, forKey: .mid) ?? ZoneAdjust()
+        self.light = try c.decodeIfPresent(ZoneAdjust.self, forKey: .light)
+            ?? ZoneAdjust()
+        self.bright = try c.decodeIfPresent(ZoneAdjust.self, forKey: .bright)
+            ?? ZoneAdjust()
+        self.global = try c.decodeIfPresent(ZoneAdjust.self, forKey: .global)
+            ?? ZoneAdjust()
     }
 }
 
@@ -210,6 +565,22 @@ public struct ZoneAdjust: Codable, Equatable, Sendable {
         self.wheel = wheel
         self.sat = sat
         self.falloff = falloff
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ev, wheel, sat, falloff
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.ev = try c.decodeIfPresent(Double.self, forKey: .ev) ?? 0
+        self.wheel = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .wheel),
+            default: [0, 0])
+        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
+        self.falloff = try c.decodeIfPresent(Double.self, forKey: .falloff) ?? 0.5
     }
 }
 
@@ -239,6 +610,25 @@ public struct CurveSet: Codable, Equatable, Sendable {
         self.luma = luma
         self.preserveLuminance = preserveLuminance
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case parametric, point, r, g, b, luma, preserveLuminance
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.parametric = try c.decodeIfPresent(ParametricCurve.self, forKey: .parametric)
+            ?? ParametricCurve()
+        self.point = try c.decodeIfPresent([[Double]].self, forKey: .point)
+        self.r = try c.decodeIfPresent([[Double]].self, forKey: .r)
+        self.g = try c.decodeIfPresent([[Double]].self, forKey: .g)
+        self.b = try c.decodeIfPresent([[Double]].self, forKey: .b)
+        self.luma = try c.decodeIfPresent([[Double]].self, forKey: .luma)
+        self.preserveLuminance = try c.decodeIfPresent(Bool.self, forKey: .preserveLuminance)
+            ?? true
+    }
 }
 
 /// Four-region parametric curve with movable region splits (docs/04).
@@ -257,6 +647,23 @@ public struct ParametricCurve: Codable, Equatable, Sendable {
         self.shadows = shadows
         self.splits = splits
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case highlights, lights, darks, shadows, splits
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.highlights = try c.decodeIfPresent(Double.self, forKey: .highlights) ?? 0
+        self.lights = try c.decodeIfPresent(Double.self, forKey: .lights) ?? 0
+        self.darks = try c.decodeIfPresent(Double.self, forKey: .darks) ?? 0
+        self.shadows = try c.decodeIfPresent(Double.self, forKey: .shadows) ?? 0
+        self.splits = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .splits),
+            default: [0.25, 0.5, 0.75])
+    }
 }
 
 /// The 8-band Color Mixer (D13). Band order is fixed:
@@ -269,6 +676,20 @@ public struct Mixer: Codable, Equatable, Sendable {
                 uniformity: Double = 0) {
         self.bands = bands
         self.uniformity = uniformity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bands, uniformity
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.bands = RecipeWire.fixedLength(
+            try c.decodeIfPresent([MixerBand].self, forKey: .bands),
+            default: Array(repeating: MixerBand(), count: 8))
+        self.uniformity = try c.decodeIfPresent(Double.self, forKey: .uniformity) ?? 0
     }
 }
 
@@ -309,6 +730,28 @@ public struct MixerBand: Codable, Equatable, Sendable {
         self.core = core
         self.feather = feather
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case hue, sat, lum, core, feather
+    }
+
+    /// Tolerant of a recipe written before `core` and `feather` existed — which is every
+    /// recipe written before the inner and outer ring handles shipped, and which is the
+    /// decode failure that took a whole folder's catalog registration down with it. The
+    /// two arc pairs fall back to the engine's own canonical geometry, so a band whose
+    /// handles were never stored reaches exactly as far as it always did.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.hue = try c.decodeIfPresent(Double.self, forKey: .hue) ?? 0
+        self.sat = try c.decodeIfPresent(Double.self, forKey: .sat) ?? 0
+        self.lum = try c.decodeIfPresent(Double.self, forKey: .lum) ?? 0
+        self.core = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .core),
+            default: MixerBand.defaultCore)
+        self.feather = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .feather),
+            default: MixerBand.defaultFeather)
+    }
 }
 
 /// A sampled Point Color swatch (D14).
@@ -324,6 +767,27 @@ public struct PointColor: Codable, Equatable, Sendable {
         self.range = range
         self.variance = variance
         self.shift = shift
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sample, range, variance, shift
+    }
+
+    /// Tolerant of an absent key, with one fallback that the memberwise initializer above
+    /// does not supply: `sample` has no default there because a swatch with no sampled
+    /// colour is not a swatch. A neutral triple is the safe reading of one that arrives
+    /// without it — `ColorEngine.compiledSwatches` skips a swatch whose shift is zero and
+    /// clamps what it selects, so a black reference costs at most one dead swatch, where
+    /// throwing costs the photograph's whole edit. The fixed length matters more than the
+    /// value: `ColorPanel` reads `sample[0…2]` with no guard at all.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.sample = RecipeWire.fixedLength(
+            try c.decodeIfPresent([Double].self, forKey: .sample),
+            default: [0, 0, 0])
+        self.range = try c.decodeIfPresent(Double.self, forKey: .range) ?? 50
+        self.variance = try c.decodeIfPresent(Double.self, forKey: .variance) ?? 0
+        self.shift = try c.decodeIfPresent(HSLShift.self, forKey: .shift) ?? HSLShift()
     }
 }
 
@@ -356,6 +820,19 @@ public struct HSLShift: Codable, Equatable, Sendable {
         self.s = s
         self.l = l
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case h, s, l
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 0
+        self.s = try c.decodeIfPresent(Double.self, forKey: .s) ?? 0
+        self.l = try c.decodeIfPresent(Double.self, forKey: .l) ?? 0
+    }
 }
 
 /// Presence + sharpening (docs/06).
@@ -374,6 +851,23 @@ public struct Detail: Codable, Equatable, Sendable {
         self.clarity = clarity
         self.dehaze = dehaze
         self.sharpen = sharpen
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case capture, texture, clarity, dehaze, sharpen
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.capture = try c.decodeIfPresent(CaptureSharpen.self, forKey: .capture)
+            ?? CaptureSharpen()
+        self.texture = try c.decodeIfPresent(Double.self, forKey: .texture) ?? 0
+        self.clarity = try c.decodeIfPresent(Double.self, forKey: .clarity) ?? 0
+        self.dehaze = try c.decodeIfPresent(Double.self, forKey: .dehaze) ?? 0
+        self.sharpen = try c.decodeIfPresent(ManualSharpen.self, forKey: .sharpen)
+            ?? ManualSharpen()
     }
 }
 
@@ -414,6 +908,19 @@ public struct CaptureSharpen: Codable, Equatable, Sendable {
         self.auto = auto
         self.radius = radius
         self.amount = amount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case auto, radius, amount
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.auto = try c.decodeIfPresent(Bool.self, forKey: .auto) ?? true
+        self.radius = try c.decodeIfPresent(Double.self, forKey: .radius)
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount)
     }
 }
 
@@ -461,6 +968,139 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
         // Toward half the base radius at Detail 100 — the finest band the reference
         // weights is about one octave below the nominal one.
         return Num.clamp(base * (1 - 0.5 * fine), 0.2, 5)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case amount, radius, detail, masking, haloSuppression
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0
+        self.radius = try c.decodeIfPresent(Double.self, forKey: .radius) ?? 1.0
+        self.detail = try c.decodeIfPresent(Double.self, forKey: .detail) ?? 25
+        self.masking = try c.decodeIfPresent(Double.self, forKey: .masking) ?? 0
+        self.haloSuppression = try c.decodeIfPresent(Double.self, forKey: .haloSuppression)
+            ?? 0
+    }
+}
+
+/// Creative grain: the grain stage's parameters for a photograph with no film stock on
+/// it (`look.grain`).
+///
+/// WHY THIS EXISTS AT ALL, since the app already has a grain: the model was reachable
+/// only through the Film Lab. `RenderPlan` builds a `FilmChain` under
+/// `if let film = look.filmLab, film.amount > 0, FilmStock.named(film.stock) != nil`,
+/// and every grain reader on both paths was gated on that chain — so grain on a
+/// photograph meant "load an emulsion, keep its colour rendering at some strength above
+/// zero, and take that stock's crystal size". The owner's words: *"there's no ability to
+/// make creative kinds of grain on the image, which is kind of sad."* Grain is a
+/// darkroom-and-print instinct, not a property of an emulsion you happen to be
+/// emulating, and a photographer who wants texture on a digital frame should not have to
+/// buy a colour rendering to get it.
+///
+/// NOTHING HERE IS A SECOND GRAIN. Every one of these three numbers lands on
+/// `FilmGrainProfile`, the density-domain model `docs/14 §5.7` specifies and the Film Lab
+/// already uses: amplitude ∝ √(p(1−p)) so it peaks at mid densities and vanishes at both
+/// Dmin and Dmax, the same deterministic value-noise generator and the same kernel on
+/// the GPU.
+///
+/// ONE LUMINANCE FIELD, though — not the stock path's three layers. This paragraph said
+/// "three decorrelated layers on a colour picture" for as long as the struct has
+/// existed, and it has been wrong since the owner tested that version:
+/// `FilmGrainProfile.init(creative:monochrome:)` sets `sizeScale = RGB(1, 1, 1)` and
+/// `monochrome = true` unconditionally, discarding the flag it is handed. The reason is
+/// written out at that initializer and is worth reading before "fixing" this back: a
+/// stock's pitch is a few microns and its three layers land sub-pixel, where Size here
+/// runs to 56 µm and the blue layer's 2× crystal doubles it again — "rainbow splotches
+/// is an exact description of that arithmetic". `CreativeGrainTests
+/// .testCreativeGrainIsOneLuminanceField` is what actually holds it; this sentence is
+/// what a reader believes. What is new is a way to state the profile without a stock, which is
+/// `FilmGrainProfile.init(creative:monochrome:)` and nothing else.
+///
+/// THE NAMES ARE LIGHTROOM'S — Amount, Size, Roughness — because that is the vocabulary
+/// a photographer already has for this control, and where a name would have been a lie
+/// it is not used. What each one really moves, stated here so the panel's help and the
+/// engine cannot drift apart:
+///
+///   · **Amount** is the film path's Amount, unchanged: 0…100 scaled to the profile's
+///     normalized `amount`, which the stage multiplies by
+///     `FilmGrainProfile.densityScale` (0.12 density units at peak). Identical
+///     denomination to `FilmGrain.amount`, so a stock at grain 45 and a creative grain
+///     at 45 lay down the same amplitude.
+///   · **Size** is the grain's PITCH AT THE GATE in micrometres, mapped geometrically —
+///     `7 · 2^(3·size/100)`, so 0 → 7 µm, 50 → 19.8 µm, 100 → 56 µm, and the pitch
+///     doubles every 33 points. It is denominated on a 35 mm gate
+///     (`FilmGrainProfile.creativeGateLongEdgeMM`), which is the only honest reading
+///     when there is no negative: the shipped stocks run 6 µm (Velvia) to 18 µm
+///     (Tri-X), so the slider's lower half sits among real emulsions and its top reaches
+///     past all of them, which is what a creative control is for. Like the film path's
+///     Size it is anchored at the gate, so the grain is the same fraction of the picture
+///     at every delivery size.
+///   · **Roughness** is the plate's octave PERSISTENCE — the amplitude ratio between
+///     successive octaves of the value noise `FilmGrainProfile.plate` sums — mapped
+///     `0.25 + 0.005·roughness`, so 0 → 0.25, **50 → 0.5, which is exactly the plate
+///     every film stock has always been given**, and 100 → 0.75. Low persistence puts
+///     the energy in the coarsest octave: an even, regular, almost dithered field. High
+///     persistence feeds the fine octaves: an irregular, clumpy, gritty one. The plate
+///     is renormalized to exact unit variance after the octaves are summed, so
+///     Roughness changes the CHARACTER and never secretly changes the Amount — which is
+///     the property that makes it a third control rather than a second strength.
+///
+/// Defaults are Amount 0 (off), Size 50, Roughness 50 — so an untouched recipe is
+/// byte-identical to one written before this struct existed, the sparse serializer
+/// prunes the whole subtree, and no fingerprint in any catalog moves.
+public struct CreativeGrain: Codable, Equatable, Sendable {
+    public var amount: Double      // 0…100, 0 = off
+    public var size: Double        // 0…100 → 7…56 µm pitch at a 35 mm gate
+    public var roughness: Double   // 0…100 → 0.25…0.75 octave persistence
+
+    public init(amount: Double = 0, size: Double = 50, roughness: Double = 50) {
+        self.amount = amount
+        self.size = size
+        self.roughness = roughness
+    }
+
+    /// True when this grain lays nothing down, so the plan can skip the stage and the
+    /// plate before either costs anything.
+    public var isIdentity: Bool { !(amount > 0) }
+
+    /// The slot after an edit: nil whenever the value is back at its defaults.
+    ///
+    /// "No creative grain" has to have ONE spelling on the wire. `Look.grain` is
+    /// optional, so nil and a present-but-default `CreativeGrain()` would render the
+    /// same picture and hash differently — and `recipe_fp` keys every preview and
+    /// artifact in the catalog, so the second spelling throws away a 45-megapixel
+    /// render to produce identical bytes and then reports the photograph as edited.
+    /// That is the `look.lut` defect exactly, and `Recipe.renderIdentity` carries the
+    /// argument at length. Every writer of this field goes through here, and
+    /// `renderIdentity` strips an amount-0 grain as a backstop for the sidecars that
+    /// did not.
+    public static func normalized(_ grain: CreativeGrain?) -> CreativeGrain? {
+        guard let grain, grain != CreativeGrain() else { return nil }
+        return grain
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case amount, size, roughness
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls back to
+    /// the default in the memberwise initializer above. See RecipeDecoding.swift.
+    ///
+    /// `size` and `roughness` fall back to 50 rather than to 0, for the reason
+    /// `Look.vignetteFeather` falls back to 50 rather than to 0: a middle is what the
+    /// control means by neutral, and an absent key must decode to the rendering an older
+    /// sidecar had — which, with `amount` at 0, is no grain at all whatever these two
+    /// say, and with `amount` set by hand in a foreign sidecar is the middle of both
+    /// axes rather than the finest possible grain with the smoothest possible plate.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0
+        self.size = try c.decodeIfPresent(Double.self, forKey: .size) ?? 50
+        self.roughness = try c.decodeIfPresent(Double.self, forKey: .roughness) ?? 50
     }
 }
 
@@ -522,6 +1162,21 @@ public struct Denoise: Codable, Equatable, Sendable {
             return (blend * 0.6, blend)
         }
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode, amount, model, classic
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.mode = try c.decodeIfPresent(Mode.self, forKey: .mode) ?? .classic
+        self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 50
+        self.model = try c.decodeIfPresent(String.self, forKey: .model)
+        self.classic = try c.decodeIfPresent(ClassicNR.self, forKey: .classic)
+            ?? ClassicNR()
+    }
 }
 
 /// Tier 1's seven controls (docs/07 §2.1), all of them on the wire.
@@ -549,9 +1204,29 @@ public struct ClassicNR: Codable, Equatable, Sendable {
     /// Extends chroma shrinkage into the coarsest bands, where blotches live.
     public var colorSmoothness: Double  // 0…100, default 50
 
+    /// Whether the photographer set `luma` / `chroma` by hand, as opposed to inheriting
+    /// the ISO-adaptive resolution at import.
+    ///
+    /// docs/07 §2.1 and docs/14 both specify that switching to AI Denoise drops the
+    /// Tier-1 masters to zero — the noise they were compensating for is gone —
+    /// **"unless the user has hand-set them, in which case their values are respected"**.
+    /// That sentence needs a bit per master and there was none, so `ISODefaults.classic`
+    /// took them as parameters defaulting to `false` and `RenderPlan` called it without
+    /// arguments. The exception could not fire: switching to AI zeroed a hand-set
+    /// Luminance every time, silently, and the only trace was a default argument at a
+    /// call site nobody reads.
+    ///
+    /// They are `false` by default and serialize sparsely, so no recipe already in a
+    /// catalog or a sidecar changes its canonical form or its fingerprint. A photo
+    /// edited before this existed is treated as never hand-set, which is what the
+    /// coupling assumed about every photo until now.
+    public var lumaUserSet: Bool        // default false
+    public var chromaUserSet: Bool      // default false
+
     public init(luma: Double = 0, chroma: Double = 25, hotPixels: Double = 0,
                 lumaDetail: Double = 50, lumaContrast: Double = 0,
-                colorDetail: Double = 50, colorSmoothness: Double = 50) {
+                colorDetail: Double = 50, colorSmoothness: Double = 50,
+                lumaUserSet: Bool = false, chromaUserSet: Bool = false) {
         self.luma = luma
         self.chroma = chroma
         self.hotPixels = hotPixels
@@ -559,11 +1234,13 @@ public struct ClassicNR: Codable, Equatable, Sendable {
         self.lumaContrast = lumaContrast
         self.colorDetail = colorDetail
         self.colorSmoothness = colorSmoothness
+        self.lumaUserSet = lumaUserSet
+        self.chromaUserSet = chromaUserSet
     }
 
     private enum CodingKeys: String, CodingKey {
         case luma, chroma, hotPixels, lumaDetail, lumaContrast
-        case colorDetail, colorSmoothness
+        case colorDetail, colorSmoothness, lumaUserSet, chromaUserSet
     }
 
     /// Tolerant of the three-field form this struct used to have. Every recipe already
@@ -581,6 +1258,9 @@ public struct ClassicNR: Codable, Equatable, Sendable {
         self.colorDetail = try c.decodeIfPresent(Double.self, forKey: .colorDetail) ?? 50
         self.colorSmoothness = try c.decodeIfPresent(Double.self,
                                                      forKey: .colorSmoothness) ?? 50
+        self.lumaUserSet = try c.decodeIfPresent(Bool.self, forKey: .lumaUserSet) ?? false
+        self.chromaUserSet = try c.decodeIfPresent(Bool.self,
+                                                   forKey: .chromaUserSet) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -592,11 +1272,21 @@ public struct ClassicNR: Codable, Equatable, Sendable {
         try c.encode(lumaContrast, forKey: .lumaContrast)
         try c.encode(colorDetail, forKey: .colorDetail)
         try c.encode(colorSmoothness, forKey: .colorSmoothness)
+        try c.encode(lumaUserSet, forKey: .lumaUserSet)
+        try c.encode(chromaUserSet, forKey: .chromaUserSet)
     }
 }
 
-/// Geometry (docs/09). Crop is normalized to the source frame; masks are stored in
-/// source coordinates and reproject through geometry changes (docs/09 invariant).
+/// Geometry (docs/09).
+///
+/// `crop` is normalized to the USABLE frame — the largest axis-aligned rectangle inside
+/// the source rotated by `angle`, centred on it (`CropGeometry.usableSize`) — and not to
+/// the source frame. The two are the same thing at angle 0, which is why this said
+/// "normalized to the source frame" for as long as it did: every uncropped, unstraightened
+/// photograph agrees with both readings, and only a straightened one tells them apart.
+///
+/// Masks are stored in source coordinates and reproject through geometry changes
+/// (docs/09 invariant).
 public struct Geometry: Codable, Equatable, Sendable {
     public var crop: Crop
     public var angle: Double        // degrees, straighten
@@ -612,6 +1302,22 @@ public struct Geometry: Codable, Equatable, Sendable {
         self.upright = upright
         self.lens = lens
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case crop, angle, flipH, upright, lens
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.crop = try c.decodeIfPresent(Crop.self, forKey: .crop) ?? Crop()
+        self.angle = try c.decodeIfPresent(Double.self, forKey: .angle) ?? 0
+        self.flipH = try c.decodeIfPresent(Bool.self, forKey: .flipH) ?? false
+        self.upright = try c.decodeIfPresent(Upright.self, forKey: .upright)
+        self.lens = try c.decodeIfPresent(LensCorrections.self, forKey: .lens)
+            ?? LensCorrections()
+    }
 }
 
 public struct Crop: Codable, Equatable, Sendable {
@@ -625,6 +1331,20 @@ public struct Crop: Codable, Equatable, Sendable {
         self.y = y
         self.w = w
         self.h = h
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case x, y, w, h
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.x = try c.decodeIfPresent(Double.self, forKey: .x) ?? 0
+        self.y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
+        self.w = try c.decodeIfPresent(Double.self, forKey: .w) ?? 1
+        self.h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 1
     }
 }
 
@@ -651,6 +1371,24 @@ public struct Upright: Codable, Equatable, Sendable {
         self.offsetY = offsetY
         self.strength = strength
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertical, horizontal, rotate, aspect, scale, offsetX, offsetY, strength
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.vertical = try c.decodeIfPresent(Double.self, forKey: .vertical) ?? 0
+        self.horizontal = try c.decodeIfPresent(Double.self, forKey: .horizontal) ?? 0
+        self.rotate = try c.decodeIfPresent(Double.self, forKey: .rotate) ?? 0
+        self.aspect = try c.decodeIfPresent(Double.self, forKey: .aspect) ?? 0
+        self.scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? 100
+        self.offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
+        self.offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0
+        self.strength = try c.decodeIfPresent(Double.self, forKey: .strength) ?? 100
+    }
 }
 
 public struct LensCorrections: Codable, Equatable, Sendable {
@@ -662,6 +1400,19 @@ public struct LensCorrections: Codable, Equatable, Sendable {
         self.profile = profile
         self.removeCA = removeCA
         self.defringe = defringe
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case profile, removeCA, defringe
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try c.decodeIfPresent(Bool.self, forKey: .profile) ?? true
+        self.removeCA = try c.decodeIfPresent(Bool.self, forKey: .removeCA) ?? true
+        self.defringe = try c.decodeIfPresent(Defringe.self, forKey: .defringe)
     }
 }
 
@@ -683,6 +1434,23 @@ public struct Defringe: Codable, Equatable, Sendable {
         self.greenHueLo = greenHueLo
         self.greenHueHi = greenHueHi
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case purpleAmount, purpleHueLo, purpleHueHi, greenAmount, greenHueLo,
+             greenHueHi
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.purpleAmount = try c.decodeIfPresent(Double.self, forKey: .purpleAmount) ?? 0
+        self.purpleHueLo = try c.decodeIfPresent(Double.self, forKey: .purpleHueLo) ?? 30
+        self.purpleHueHi = try c.decodeIfPresent(Double.self, forKey: .purpleHueHi) ?? 70
+        self.greenAmount = try c.decodeIfPresent(Double.self, forKey: .greenAmount) ?? 0
+        self.greenHueLo = try c.decodeIfPresent(Double.self, forKey: .greenHueLo) ?? 40
+        self.greenHueHi = try c.decodeIfPresent(Double.self, forKey: .greenHueHi) ?? 60
+    }
 }
 
 /// Heal/clone stroke vectors live in content-addressed blobs (docs/15 §15.4 rule 4).
@@ -693,5 +1461,17 @@ public struct Heal: Codable, Equatable, Sendable {
     public init(strokesRef: String? = nil, count: Int = 0) {
         self.strokesRef = strokesRef
         self.count = count
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case strokesRef, count
+    }
+
+    /// Tolerant of a recipe written before any of these keys existed: each falls
+    /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.strokesRef = try c.decodeIfPresent(String.self, forKey: .strokesRef)
+        self.count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
     }
 }

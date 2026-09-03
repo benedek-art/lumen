@@ -39,6 +39,57 @@ final class MaskingTests: XCTestCase {
         }
     }
 
+    /// A hard-edged ellipse anywhere, so two components can be made to overlap.
+    private func hardRadial(at centre: [Double], radius: Double, op: MaskOp) -> MaskComponent {
+        var c = MaskComponent(op: op, kind: .radial)
+        c.center = centre
+        c.radii = [radius, radius]
+        c.rotation = 0
+        c.feather = 0
+        return c
+    }
+
+    // MARK: - The fold is ordered
+
+    /// WHY THE PANEL HAS TO LET YOU MOVE A COMPONENT.
+    ///
+    /// `combine` folds the stack top-down into an accumulator that seeds EMPTY, so the
+    /// operations are not commutative and the first row is privileged: a stack that
+    /// opens with Subtract subtracts from nothing, which is a no-op, and the ellipse
+    /// that was meant to be cut out instead lands whole.
+    ///
+    /// The panel offered Add / Subtract / Intersect as three equal buttons and no way to
+    /// reorder the rows, so exactly half of what this fold can express was unreachable —
+    /// a photographer could build the wrong one of these two and had no move that turned
+    /// it into the right one short of deleting both components and re-drawing them in
+    /// the other order.
+    func testTheComponentFoldDependsOnTheOrderOfTheStack() {
+        let size = (width: 48, height: 32)
+        let whole = hardRadial(at: [0.5, 0.5], radius: 0.3, op: .add)
+        let bite = hardRadial(at: [0.6, 0.5], radius: 0.2, op: .subtract)
+
+        let cutOut = MaskRaster.combine(mask: Mask(components: [whole, bite]), size: size)
+        let theOtherWayRound = MaskRaster.combine(mask: Mask(components: [bite, whole]),
+                                                  size: size)
+        let wholeAlone = MaskRaster.combine(mask: Mask(components: [whole]), size: size)
+
+        var differences = 0
+        for i in 0..<cutOut.values.count where cutOut.values[i] != theOtherWayRound.values[i] {
+            differences += 1
+        }
+        XCTAssertGreaterThan(differences, 0,
+                             "the same two components in the other order must select "
+                                 + "something else, or the reorder control is decoration")
+
+        // And the exact answer, not merely "different": a leading Subtract has an empty
+        // accumulator to work on, so it does nothing at all and the stack collapses to
+        // its second row.
+        for i in 0..<theOtherWayRound.values.count {
+            XCTAssertEqual(theOtherWayRound.values[i], wholeAlone.values[i],
+                           "a stack that opens with Subtract must equal the Add alone")
+        }
+    }
+
     // MARK: - Whole-mask invert
 
     func testWholeMaskInvertIsTheComplementOfTheFoldedStack() {
@@ -93,9 +144,9 @@ final class MaskingTests: XCTestCase {
                 let remappedFirst = 1 - MaskRaster.levels(v, lo: remap.levelsLo,
                                                           hi: remap.levelsHi,
                                                           gamma: remap.levelsGamma)
-                worstCorrect = Swift.max(worstCorrect,
+                worstCorrect = runningMax(worstCorrect,
                                          abs(Double(out[x, y]) - invertedFirst))
-                worstAgainstTheOtherOrder = Swift.max(worstAgainstTheOtherOrder,
+                worstAgainstTheOtherOrder = runningMax(worstAgainstTheOtherOrder,
                                                       abs(invertedFirst - remappedFirst))
             }
         }
@@ -139,11 +190,294 @@ final class MaskingTests: XCTestCase {
                        "the inverted mask did not apply the same exposure outside")
     }
 
+    // MARK: - Local Whites and Blacks
+
+    /// A mask carrying nothing but Whites, or nothing but Blacks, moves the picture.
+    ///
+    /// The mask panel said the opposite in so many words — "Whites and Blacks reshape
+    /// where Highlights and Shadows act in this mask; on their own they do not move the
+    /// picture, because a mask has no white point of its own" — and that was true of an
+    /// engine two rewrites ago. `ToneEngine.zonalStops` gives each of them a SHELF,
+    /// added because an anchor-only Whites measured 26.7 code values across its whole
+    /// travel and Blacks 0.20, "a slider a photographer would call dead". A mask's
+    /// sub-recipe goes through that same engine on both render paths, so the shelves
+    /// come with it.
+    ///
+    /// Nothing covered local Whites or Blacks on either path, which is how a caption
+    /// could go on describing a previous engine.
+    ///
+    /// Measured in STOPS, against the model's own numbers rather than against "it
+    /// changed": `whiteToneEV` is 1.3 and `blackToneEV` is 2.2, so the bar is most of
+    /// the shelf rather than an epsilon. And the SHAPE is asserted as well as the
+    /// magnitude — mid-grey must not move, and neither slider may reach the other's end
+    /// of the range — because a global lift would satisfy a bare "something moved" and
+    /// would be a different, worse defect.
+    func testAMasksWhitesAndBlacksMoveThePictureOnTheirOwn() {
+        // A neutral ramp from −6 to +4 EV about mid-grey, one row: enough range to
+        // contain both shelves and mid-grey between them.
+        let width = 101
+        func ev(_ x: Int) -> Double { -6 + 10 * Double(x) / Double(width - 1) }
+        let ramp = ImageBuffer(width: width, height: 1) { u, _ in
+            RGB(gray: 0.18 * pow(2, -6 + 10 * u))
+        }
+        let plan = RenderPlan(recipe: Recipe())
+
+        /// The shift this mask applies at each step of the ramp, in stops. Straight
+        /// through `applyLocalAdjust`, which is the stage the caption is about: the
+        /// mask alpha and the display transform are not part of the claim, and putting
+        /// them in the way would only dilute what is being measured.
+        func shift(_ mutate: (inout LocalAdjust) -> Void) -> [Double] {
+            var adjust = LocalAdjust()
+            mutate(&adjust)
+            let mask = Mask(name: "whole frame", components: [hardRadial()],
+                            adjust: adjust)
+            let out = ReferenceRenderer.applyLocalAdjust(ramp, mask: mask, plan: plan,
+                                                         space: .rec2020)
+            return (0..<width).map { x in
+                let before = Swift.max(ramp[x, 0].g, 1e-12)
+                let after = Swift.max(out[x, 0].g, 1e-12)
+                return log2(after / before)
+            }
+        }
+
+        let midGrey = width * 6 / 10          // ev(60) = 0.0
+        XCTAssertEqual(ev(midGrey), 0, accuracy: 0.06, "the ramp's mid-grey moved")
+
+        let whites = shift { $0.whites = 100 }
+        let top = whites[width - 1]
+        XCTAssertGreaterThan(top, 1.0,
+                             "a mask with only Whites +100 lifted the top of its range "
+                                 + "by \(top) stops; `ToneEngine.whiteToneEV` is 1.3 "
+                                 + "and the panel used to say it moved nothing at all")
+        XCTAssertEqual(whites[midGrey], 0, accuracy: 0.02,
+                       "Whites moved mid-grey by \(whites[midGrey]) stops — it is a "
+                           + "shelf at the top of the range, not a global lift")
+        XCTAssertEqual(whites[0], 0, accuracy: 0.02,
+                       "Whites moved the bottom of the range by \(whites[0]) stops")
+
+        let blacks = shift { $0.blacks = -100 }
+        let bottom = blacks[0]
+        XCTAssertLessThan(bottom, -1.5,
+                          "a mask with only Blacks −100 dropped the bottom of its range "
+                              + "by \(bottom) stops; `ToneEngine.blackToneEV` is 2.2")
+        XCTAssertEqual(blacks[midGrey], 0, accuracy: 0.02,
+                       "Blacks moved mid-grey by \(blacks[midGrey]) stops")
+        XCTAssertEqual(blacks[width - 1], 0, accuracy: 0.02,
+                       "Blacks moved the top of the range by \(blacks[width - 1]) stops")
+
+        // And the mask's Amount scales them, like every other local control: half a
+        // mask is half the shelf, not half of somewhere else.
+        var halved = Mask(name: "half", components: [hardRadial()])
+        halved.amount = 50
+        halved.adjust.whites = 100
+        let half = ReferenceRenderer.applyLocalAdjust(ramp, mask: halved, plan: plan,
+                                                      space: .rec2020)
+        let halfTop = log2(Swift.max(half[width - 1, 0].g, 1e-12)
+                               / Swift.max(ramp[width - 1, 0].g, 1e-12))
+        XCTAssertLessThan(halfTop, top - 0.2,
+                          "Amount 50 applied \(halfTop) stops against \(top) at full — "
+                              + "the mask's Amount is not reaching the tone engine")
+        XCTAssertGreaterThan(halfTop, 0.2,
+                             "Amount 50 applied \(halfTop) stops, which is not half of "
+                                 + "anything")
+    }
+
+    // MARK: - Where a mask's samples are taken from
+
+    /// A colour mask has to select the pixel that was clicked.
+    ///
+    /// The eyedropper stored the WORKING image — the decode through the S6 matrix and
+    /// nothing else. `colorRangePlane` and `similarityPlane` compare those stored
+    /// samples against the LOCAL STAGE INPUT, which is S6 plus the tone stage plus the
+    /// colour and grade table. On a recipe with any real global tone or colour work the
+    /// two are different colours, the trapezoid gates are 0 outside their tolerance
+    /// rather than merely small, and the mask misses the pixel the photographer
+    /// pointed at — worse the more the picture has been worked on, which is the
+    /// opposite of how a tool should degrade.
+    ///
+    /// Measured end to end, through `ReferenceRenderer.render`, so the stage input the
+    /// mask is compared against is the renderer's own and not this test's idea of it:
+    /// both masks carry a strong local exposure lift, and what is asserted is how far
+    /// the clicked pixel moved. The value fed to each is the only difference.
+    ///
+    /// Measured on this frame at Refine 20 with Contrast 90 and Saturation 90: the
+    /// clicked pixel moves 0.339 from the stage tap, 0.000 from the working tap, and a
+    /// patch of a different colour moves 0.000 from either. Not "less selected" — the
+    /// trapezoid gates return exactly zero outside their tolerance, so the mask misses
+    /// completely.
+    func testAColourMaskSelectsTheColourThatWasClicked() {
+        let side = 32
+        // Four flat patches of clearly different hue at similar luminance, so a colour
+        // range has something to include and something to exclude.
+        let image = ImageBuffer(width: side, height: side) { u, v in
+            if v < 0.5 { return u < 0.5 ? RGB(0.34, 0.07, 0.05) : RGB(0.08, 0.30, 0.07) }
+            return u < 0.5 ? RGB(0.06, 0.09, 0.34) : RGB(0.18, 0.18, 0.18)
+        }
+        let clicked = (x: side / 4, y: side / 4)          // in the red patch
+        let elsewhere = (x: 3 * side / 4, y: 3 * side / 4) // in the neutral patch
+
+        // An ordinary edit: contrast and saturation, neither of which is in the linear
+        // stage. Exposure and white balance deliberately are not used here — they live
+        // in the S6 matrix, so BOTH taps carry them and neither would show anything.
+        var edited = Recipe()
+        edited.develop.tone.contrast = 90
+        edited.develop.color.saturation = 90
+        let plan = RenderPlan(recipe: edited)
+
+        // The two candidate samples.
+        //
+        // `working` is what `RenderCoordinator.sampleWorking` returns: the decoded
+        // pixel through the linear stage. `staged` is the local stage input, built
+        // here the way `ReferenceRenderer.render` builds it — S6, S7, then the
+        // colour+grade table. There is no S8 in that list because this recipe sets no
+        // presence, which is why three stages is the whole of it.
+        let working = plan.linear.matrix.apply(image[clicked.x, clicked.y])
+        var stagedImage = image.map { plan.linear.matrix.apply($0) }
+        stagedImage = ReferenceRenderer.applyTone(stagedImage, plan: plan,
+                                                  longEdge: side, space: .rec2020)
+        let lut = plan.colorGradeLUT
+        stagedImage = stagedImage.map { LumenLog.decode(lut.sample(LumenLog.encode($0))) }
+        let staged = stagedImage[clicked.x, clicked.y]
+
+        /// The picture with a colour-range mask built from `sample`, lifting two stops.
+        func render(sample: RGB) -> ImageBuffer {
+            var component = MaskComponent(op: .add, kind: .colorRange)
+            component.samples = [[sample.r, sample.g, sample.b]]
+            component.rangeAmount = 20
+            var adjust = LocalAdjust()
+            adjust.exposure = 2
+            var recipe = edited
+            recipe.masks = [Mask(name: "that colour", components: [component],
+                                 adjust: adjust)]
+            return ReferenceRenderer.render(image, plan: RenderPlan(recipe: recipe))
+        }
+
+        let plain = ReferenceRenderer.render(image, plan: plan)
+        let fromStage = render(sample: staged)
+        let fromWorking = render(sample: working)
+
+        func moved(_ out: ImageBuffer, _ at: (x: Int, y: Int)) -> Double {
+            out[at.x, at.y].maxAbsDifference(plain[at.x, at.y])
+        }
+
+        let stageHit = moved(fromStage, clicked)
+        let workingHit = moved(fromWorking, clicked)
+        let stageMiss = moved(fromStage, elsewhere)
+
+        // The tap the mask is compared against selects what was clicked.
+        XCTAssertGreaterThan(stageHit, 0.05,
+                             "a mask sampled from the local stage input moved the "
+                                 + "clicked pixel by only \(stageHit) — it is not "
+                                 + "selecting the colour it was given")
+        // And still discriminates: a mask that selects the whole frame would pass the
+        // assertion above and be useless.
+        XCTAssertLessThan(stageMiss, stageHit / 10,
+                          "the mask moved a different patch by \(stageMiss) against "
+                              + "\(stageHit) at the clicked one — it is selecting most "
+                              + "of the frame rather than a colour")
+        // The tap the eyedropper used does not.
+        XCTAssertLessThan(workingHit, stageHit / 3,
+                          "a sample taken one stage short of the comparison still "
+                              + "selected the clicked pixel: \(workingHit) against "
+                              + "\(stageHit). Either the global edit here is too small "
+                              + "to separate the two taps, or the two taps are the "
+                              + "same image and this test is measuring nothing")
+    }
+
     // MARK: - The local point curve
 
     private func lift() -> CurveSet {
         // A midtone lift, monotone and clearly not the identity.
         CurveSet(point: [[0, 0], [0.5, 0.72], [1, 1]])
+    }
+
+    // MARK: - The local stage inherits the global panels it has no controls for
+    //         (docs/23 dossier queue item 4: COLOR-16 + COLOR-27)
+
+    /// COLOR-16. docs/08 §8.4 and `ZoneWindows.init(wheels:)` both state that a mask
+    /// gets no tonal-zone definition of its own — a masked grade works inside the
+    /// GLOBAL wheels' windows. Both paths built the masked grade from the mask's own
+    /// wheels value, whose window fields no mask control can write, so dragging the
+    /// global pivots did nothing to any masked grade. The conviction is structural:
+    /// with the fix, moving ONLY the global pivots changes what a masked grade does
+    /// to a pixel near a zone boundary; without it, the two renders are identical.
+    func testAMaskedGradeWorksInsideTheGlobalWheelsWindows() {
+        var adjust = LocalAdjust()
+        var wheels = GradingWheels()
+        wheels.shadows = Wheel(hue: 210, sat: 60, lum: 0)
+        adjust.wheels = wheels
+        let mask = Mask(name: "grade", components: [hardRadial()], adjust: adjust)
+
+        // A pixel above the DEFAULT shadow pivot (0.33 of the −9…+5 EV axis ≈
+        // −4.4 EV) but below a RAISED one: at default windows the shadows wheel
+        // barely touches it; with the global shadow pivot dragged up it is fully
+        // inside the shadow zone.
+        let pixel = ImageBuffer(width: 4, height: 1) { _, _ in
+            RGB(gray: 0.18 * pow(2, -2.5))
+        }
+
+        let defaultWindows = RenderPlan(recipe: Recipe())
+        var recipe = Recipe()
+        recipe.look.wheels.pivots = [0.65, 0.85]
+        let raisedWindows = RenderPlan(recipe: recipe)
+
+        let atDefault = ReferenceRenderer.applyLocalAdjust(pixel, mask: mask,
+                                                           plan: defaultWindows,
+                                                           space: .rec2020)
+        let atRaised = ReferenceRenderer.applyLocalAdjust(pixel, mask: mask,
+                                                          plan: raisedWindows,
+                                                          space: .rec2020)
+        XCTAssertGreaterThan(atDefault[0, 0].maxAbsDifference(atRaised[0, 0]), 1e-4,
+                             "the global pivots moved and the masked grade did not — "
+                                 + "the mask is still zoned by factory defaults")
+
+        // Direction: under the raised pivot the pixel is deep in the shadow zone, so
+        // the blue shadow push should move it MORE than at default windows.
+        let context = OKLabTransform.working
+        let shiftDefault = context.toLCh(atDefault[0, 0]).C
+        let shiftRaised = context.toLCh(atRaised[0, 0]).C
+        XCTAssertGreaterThan(shiftRaised, shiftDefault,
+                             "raising the shadow pivot over the pixel should give the "
+                                 + "shadows wheel MORE of it, not less")
+    }
+
+    /// COLOR-27. A masked desaturation of a face was skin-protected by ColorAdjust's
+    /// invisible default-70, with no control anywhere that could turn it off. The
+    /// local colour stage now inherits density and protectSkin from the GLOBAL colour
+    /// panel, so the protection strength is the photographer's own slider.
+    ///
+    /// Measured on Vibrance, because that is where the protection is documented to
+    /// bite ("attenuates Vibrance at both signs" — and Sat −100 reaches true B&W at
+    /// EVERY protection setting by its own contract, which is why the first draft of
+    /// this test, written against Sat −100, measured nothing).
+    func testMaskedVibranceInheritsTheGlobalSkinProtection() {
+        var adjust = LocalAdjust()
+        adjust.vibrance = -80
+        let mask = Mask(name: "mute", components: [hardRadial()], adjust: adjust)
+        let skin = ProofFrames.chartPatchColour(2)
+        let frame = ImageBuffer(width: 4, height: 1) { _, _ in skin }
+
+        var unprotected = Recipe()
+        unprotected.develop.color.protectSkin = 0
+        let offPlan = RenderPlan(recipe: unprotected)
+        let defaultPlan = RenderPlan(recipe: Recipe())   // protectSkin 70
+
+        let context = OKLabTransform.working
+        let baseChroma = context.toLCh(skin).C
+        let withDefault = context.toLCh(
+            ReferenceRenderer.applyLocalAdjust(frame, mask: mask, plan: defaultPlan,
+                                               space: .rec2020)[0, 0]).C
+        let withOff = context.toLCh(
+            ReferenceRenderer.applyLocalAdjust(frame, mask: mask, plan: offPlan,
+                                               space: .rec2020)[0, 0]).C
+
+        XCTAssertLessThan(withOff, withDefault * 0.85,
+                          "global Protect Skin 0 muted the skin to \(withOff) chroma "
+                              + "against \(withDefault) at the default 70 — the global "
+                              + "setting is not reaching the masked stage")
+        XCTAssertLessThan(withDefault, baseChroma,
+                          "the protected push did not move the patch at all")
+        _ = baseChroma
     }
 
     func testLocalCurveIsIdentityUntilThereIsOneToApply() {
@@ -461,5 +795,95 @@ final class MaskingTests: XCTestCase {
                        "the rest of the mask decoded wrong")
         XCTAssertEqual(back.masks.first?.components.count, 1,
                        "the component stack was lost")
+    }
+
+    // MARK: - The blobs an export has to have (MASK-23)
+
+    /// A brush component pointing at `ref`, or at nothing when `ref` is nil.
+    private func brush(_ ref: String?, op: MaskOp = .add) -> MaskComponent {
+        var c = MaskComponent(op: op, kind: .brush)
+        c.strokesRef = ref
+        return c
+    }
+
+    /// One enabled mask with two blobs and a component that reads no blob at all, one
+    /// DISABLED mask with a blob of its own, and a second enabled mask that reuses the
+    /// first blob and adds an unpainted component.
+    private func brushRecipe() -> Recipe {
+        var recipe = Recipe()
+        recipe.masks = [
+            Mask(id: "m1", name: "Sky",
+                 components: [brush("blob:a"), hardRadial(), brush("blob:b")]),
+            Mask(id: "m2", name: "Off", enabled: false,
+                 components: [brush("blob:c")]),
+            Mask(id: "m3", name: "Foreground",
+                 components: [brush(nil), brush("blob:a"), brush("")]),
+        ]
+        return recipe
+    }
+
+    /// What the export has to have in hand is exactly what the rasterizer will ask for.
+    ///
+    /// Three things, and each of them is a way of refusing a delivery for no reason or
+    /// of delivering a wrong one: a switched-off mask paints nothing, so its blob is not
+    /// required; a blob used twice is one read, not two; and a brush component nobody
+    /// has painted into references no blob and must not be counted as a missing one.
+    func testTheBlobsAnExportNeedsAreTheOnesTheRasterizerWillAskFor() {
+        XCTAssertEqual(BrushStrokes.references(in: brushRecipe()), ["blob:a", "blob:b"],
+                       "the required blob set is not the set the render will fetch")
+        XCTAssertEqual(BrushStrokes.references(in: Recipe()), [],
+                       "a recipe with no masks asked for a blob")
+    }
+
+    /// The distinction `strokesAreResolved` was written for and nothing used: "this
+    /// component has no strokes" is not "the bytes could not be read". Only the second
+    /// may stop a delivery.
+    func testAnUnreadableBlobRefusesTheDeliveryAndAnUnpaintedComponentDoesNot() {
+        let recipe = brushRecipe()
+
+        var asked: [String] = []
+        func resolver(failing: Set<String>) -> (MaskComponent) -> Bool {
+            { component in
+                let ref = component.strokesRef ?? ""
+                asked.append(ref)
+                return !failing.contains(ref)
+            }
+        }
+
+        // Everything readable: nothing missing, nothing refused.
+        asked = []
+        XCTAssertEqual(
+            BrushStrokes.unresolvedReferences(in: recipe, isResolved: resolver(failing: [])),
+            [], "a readable blob was reported missing")
+        XCTAssertNil(BrushStrokes.refusal(unresolved: []),
+                     "a delivery was refused with nothing missing")
+        XCTAssertEqual(asked, ["blob:a", "blob:b"],
+                       "the unpainted components were put to the resolver")
+
+        // One blob unreadable: that reference, and a refusal that says what happened.
+        asked = []
+        let missing = BrushStrokes.unresolvedReferences(
+            in: recipe, isResolved: resolver(failing: ["blob:b"]))
+        XCTAssertEqual(missing, ["blob:b"], "the unreadable blob was not reported")
+        let refusal = BrushStrokes.refusal(unresolved: missing)
+        XCTAssertNotNil(refusal, "an unreadable blob did not refuse the delivery")
+        XCTAssertEqual(refusal?.contains("1 brush stroke set"), true,
+                       "the refusal does not say how much masking is at risk: "
+                           + (refusal ?? "nil"))
+
+        // A blob only a SWITCHED-OFF mask needs must not stop anything: that mask paints
+        // no pixels, so the delivered file is exactly what the photographer asked for.
+        XCTAssertEqual(
+            BrushStrokes.unresolvedReferences(in: recipe,
+                                              isResolved: resolver(failing: ["blob:c"])),
+            [], "a disabled mask's unreadable blob refused a correct delivery")
+
+        // Both live blobs unreadable: counted, and pluralized, because the count is the
+        // whole of what the photographer can act on.
+        let both = BrushStrokes.unresolvedReferences(
+            in: recipe, isResolved: resolver(failing: ["blob:a", "blob:b"]))
+        XCTAssertEqual(both, ["blob:a", "blob:b"])
+        XCTAssertEqual(BrushStrokes.refusal(unresolved: both)?.contains("2 brush stroke sets"),
+                       true, "the refusal miscounted or did not pluralize")
     }
 }

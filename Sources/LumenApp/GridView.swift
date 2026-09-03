@@ -28,6 +28,10 @@ import SwiftUI
 struct GridView: View {
     @EnvironmentObject var state: AppState
 
+    /// The photo the last CLICK selected, read by the auto-centering below. See the
+    /// `onChange` for why a click must not centre and a keystroke must.
+    @State private var lastClickedID: URL?
+
     private static let cellSpacing: CGFloat = 10
 
     var body: some View {
@@ -49,24 +53,35 @@ struct GridView: View {
                                       isSelected: state.selection.contains(photo.id),
                                       isPrimary: state.primarySelection?.id == photo.id,
                                       showsCaption: side >= 110,
+                                      // Stored on AppState, so this is the same
+                                      // closure value on every pass rather than a
+                                      // fresh identity per cell per body.
+                                      onRate: state.ratingSink,
                                       loader: state.thumbnails)
-                                .onTapGesture(count: 2) {
-                                    state.select(photo)
-                                    state.showLoupe()
+                                // ONE tap handler, not a count-2 gesture racing a
+                                // simultaneous count-1. See `handleCellClick` for the
+                                // trace of why the pair "sometimes" lost the second
+                                // click.
+                                .onTapGesture {
+                                    lastClickedID = photo.id
+                                    handleCellClick(photo, state: state)
                                 }
-                                .simultaneousGesture(TapGesture().onEnded {
-                                    selectFromClick(photo, state: state)
-                                })
                         }
                     }
                     .padding(spacing)
                 }
+                // docs/30: every scroll view in the app is silent. A legacy scroller insets
+                // its content, so an indicator appearing is a relayout of everything inside it.
+                .scrollIndicators(.never)
                 .background(Lumen.viewerBackground)
                 .onAppear {
                     // ↑/↓ are the keymap's, but only the grid knows how wide a row is.
                     state.gridColumns = columnCount(width: geometry.size.width, side: side)
+                    // The ROLL, not a fresh array of its URLs — see the `onChange`
+                    // below for the keystroke this projection used to be paid on.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos.map(\.id), size: pixels)
+                                              in: photos, size: pixels,
+                                              surface: .grid)
                 }
                 .onChange(of: geometry.size.width) { _, width in
                     state.gridColumns = columnCount(width: width, side: side)
@@ -76,8 +91,32 @@ struct GridView: View {
                 }
                 .onChange(of: state.primarySelection?.id) { _, id in
                     guard let id else { return }
-                    proxy.scrollTo(id, anchor: .center)
-                    state.thumbnails.prefetch(around: id, in: photos.map(\.id), size: pixels)
+                    // CENTRE ON KEYSTROKES, NEVER ON CLICKS — and this is half of the
+                    // double-click fix, not a taste call. A clicked cell is already
+                    // under the pointer, so centring it moves the whole sheet BETWEEN
+                    // the two clicks of a double-click: the second click lands on
+                    // whatever thumbnail slid under the cursor, selecting a photograph
+                    // nobody aimed at instead of opening the one they did. Arrow keys
+                    // are the case this scroll exists for — they walk selection off
+                    // screen and the sheet must follow.
+                    if id == lastClickedID {
+                        lastClickedID = nil
+                    } else {
+                        lastClickedID = nil
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    // THE ROLL IS HANDED OVER WHOLE, and this is the culling-at-scale
+                    // fix rather than a tidy-up. `photos.map(\.id)` built a new array
+                    // of every URL in the folder here, on every key repeat — 25 to 30 a
+                    // second with an arrow key held down — and the filmstrip below did
+                    // the same thing with the same roll on the same keystroke, to hand
+                    // the loader eleven of them. `AppState.photos` is already memoised;
+                    // this projection of it was not, so the one array the grid is
+                    // backed by was in effect being rebuilt twice per frame at 2,000
+                    // frames and would be rebuilt twice as often again at 4,000. The
+                    // loader reads only the window's own indices now.
+                    state.thumbnails.prefetch(around: id, in: photos,
+                                              size: pixels, surface: .grid)
                 }
             }
         }
@@ -94,18 +133,16 @@ struct GridView: View {
     @ViewBuilder
     private func emptyState(count: Int) -> some View {
         if count == 0 {
-            VStack(spacing: 8) {
-                Text(emptyMessage)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Lumen.secondaryText)
-                if state.filter.isActive {
-                    Button("Clear Filter") { state.filter = LibraryFilter() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Lumen.primaryText)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // NO MARK HERE, which is the one place the component is asked to draw
+            // without one: this overlay sits on a grid that may still be showing a
+            // filmstrip underneath, and a 40 pt symbol there would be a second subject
+            // on a surface that already has one.
+            LumenEmptyState(symbol: nil,
+                            headline: emptyMessage,
+                            detail: emptyDetail,
+                            actionTitle: state.filter.isActive ? "Clear Filter" : nil,
+                            action: state.filter.isActive
+                                    ? { state.filter = LibraryFilter() } : nil)
             .background(Lumen.viewerBackground)
         }
     }
@@ -115,9 +152,63 @@ struct GridView: View {
         if state.filter.isActive { return "No photos match this filter" }
         return "Open a folder of RAW files to begin"
     }
+
+    /// The second line, which this state never had room for while it was one `Text`.
+    /// A filter that matches nothing is the state a photographer is most likely to
+    /// read as "my photographs are gone", so it is the one that gets a sentence.
+    private var emptyDetail: String? {
+        if state.isScanning { return "Reading the folder. Photographs appear as they "
+                                     + "are found." }
+        if state.filter.isActive { return "The photographs are still there — the filter "
+                                          + "is hiding them." }
+        return nil
+    }
 }
 
 // MARK: - Click grammar
+
+/// EVERY CLICK ON A CELL LANDS HERE — single, double, modified — shared by the grid and
+/// the filmstrip so the two cannot drift apart.
+///
+/// It replaces an `.onTapGesture(count: 2)` stacked with a `.simultaneousGesture(`
+/// `TapGesture())`, which is the pair the owner reported as "sometimes doesn't work",
+/// and the failure was mechanical, not timing luck:
+///
+///   1. The single tap ran SIMULTANEOUSLY — deliberately, so selection is instant
+///      rather than waiting out a double-click interval — which means it fires on the
+///      FIRST click of every double-click.
+///   2. That first click's selection publish made the grid re-body AND, worse, ran
+///      `proxy.scrollTo(id, anchor: .center)` in the selection `onChange` — an
+///      unanimated jump that recentres the sheet on the clicked cell.
+///   3. So between the two clicks of a double-click on any not-already-centred cell,
+///      the content MOVED under a stationary pointer. The second click landed on a
+///      different thumbnail: SwiftUI's count-2 recogniser never completed, and the
+///      stray click selected a photograph nobody aimed at. Double-click on the
+///      already-primary cell worked every time — no selection change, no scroll, no
+///      re-body — which is exactly the "sometimes" in the report.
+///
+/// The fix has two halves. The grid/strip suppress the recentring for click-driven
+/// selection (see their `onChange`s), so nothing moves between the clicks. And the
+/// double-click stops being a second SwiftUI recogniser at all: this one handler reads
+/// `clickCount` off the `NSEvent`, the way `selectFromClick` already reads modifiers.
+/// AppKit counts clicks by time and pointer travel alone, so the count survives any
+/// re-body — the first click selects, the second click of the same physical
+/// double-click arrives with `clickCount == 2` and opens the loupe. Instant selection
+/// is kept; no recogniser holds state that an update can reset.
+///
+/// A modified click never opens: ⌘ toggles membership and ⇧ extends, and two fast
+/// ⌘-clicks are a selection gesture, not a request to leave the grid.
+@MainActor
+func handleCellClick(_ photo: PhotoItem, state: AppState) {
+    let flags = NSEvent.modifierFlags
+    let clicks = NSApp.currentEvent?.clickCount ?? 1
+    if clicks >= 2 && !flags.contains(.command) && !flags.contains(.shift) {
+        state.select(photo)
+        state.showLoupe()
+    } else {
+        selectFromClick(photo, state: state)
+    }
+}
 
 /// Click, ⇧-click, ⌘-click — shared by the grid and the filmstrip so the two cannot
 /// drift apart. Modifiers are read from the current event rather than from separate
@@ -145,9 +236,18 @@ struct PhotoCell: View {
     let isSelected: Bool
     let isPrimary: Bool
     let showsCaption: Bool
+    /// Non-nil turns the badge strip's stars into targets and reveals them on hover.
+    ///
+    /// The filmstrip passes nil: its cells are 96 points tall, and five click targets
+    /// eleven points wide inside one of them is a dexterity test, not an affordance.
+    let onRate: ((PhotoItem, Int) -> Void)?
     let loader: ThumbnailLoader
 
     @State private var image: CGImage? = nil
+    /// Cell-local, so a pointer crossing one thumbnail invalidates one thumbnail. It
+    /// never reaches AppState, which is what keeps this type's stated contract — value
+    /// inputs only, no observation — true.
+    @State private var hovering = false
 
     /// Spelled out rather than left to the memberwise initializer, which private
     /// state would otherwise make inaccessible from the filmstrip's file.
@@ -157,6 +257,7 @@ struct PhotoCell: View {
          isSelected: Bool,
          isPrimary: Bool,
          showsCaption: Bool = true,
+         onRate: ((PhotoItem, Int) -> Void)? = nil,
          loader: ThumbnailLoader) {
         self.photo = photo
         self.side = side
@@ -164,17 +265,27 @@ struct PhotoCell: View {
         self.isSelected = isSelected
         self.isPrimary = isPrimary
         self.showsCaption = showsCaption
+        self.onRate = onRate
         self.loader = loader
     }
 
     private var wellHeight: CGFloat { showsCaption ? side * 0.76 : side }
 
     private var hasBadges: Bool {
-        photo.flag != .unflagged || photo.rating > 0 || photo.label != nil
+        photo.flag != .none || photo.rating > 0 || photo.label != .none
     }
 
+    /// Hovering a rateable cell reveals the strip even on an untouched photo, so five
+    /// empty stars appear under the pointer and nowhere else. Drawing them on every
+    /// cell unconditionally would put three hundred grey stars on a contact sheet — the
+    /// reason `hasBadges` exists at all.
+    private var showsStars: Bool { photo.rating > 0 || (onRate != nil && hovering) }
+
     private var borderColor: Color {
-        if isPrimary { return Lumen.primaryText }
+        // Primary selection is the accent's textbook job (design audit §1.9): three
+        // grays meant "which one am I actually on?" took a second look. Accent =
+        // the photo you are on; light gray = also selected; quiet = the rest.
+        if isPrimary { return Lumen.accent }
         if isSelected { return Lumen.fillColor }
         return Lumen.separator
     }
@@ -184,7 +295,7 @@ struct PhotoCell: View {
             well
             if showsCaption {
                 Text(photo.filename)
-                    .font(.system(size: 10))
+                    .font(.lumenCaption)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundStyle(isPrimary ? Lumen.primaryText : Lumen.secondaryText)
@@ -207,34 +318,35 @@ struct PhotoCell: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     // A rejected frame reads as rejected without leaving the sheet.
-                    .opacity(photo.flag == .reject ? 0.4 : 1)
+                    .opacity(photo.flag == .rejected ? 0.4 : 1)
             }
         }
         // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
-        .animation(.easeOut(duration: 0.12), value: image == nil)
+        .animation(Lumen.motionState, value: image == nil)
         .frame(width: side, height: wellHeight)
         .overlay(alignment: .bottom) {
-            if hasBadges { badges }
+            if hasBadges || showsStars { badges }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .onHover { if onRate != nil { hovering = $0 } }
+        .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: isPrimary ? 2 : 1)
         )
     }
 
     private var badges: some View {
         HStack(spacing: 3) {
-            if photo.flag != .unflagged {
+            if photo.flag != .none {
                 Image(systemName: photo.flag.symbolName)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(photo.flag == .pick ? Color.white : Lumen.secondaryText)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(photo.flag == .picked ? Color.white : Lumen.secondaryText)
             }
-            if photo.rating > 0 { stars }
+            if showsStars { stars }
             Spacer(minLength: 0)
-            if let label = photo.label {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(label.color)
+            if photo.label != .none {
+                RoundedRectangle(cornerRadius: Lumen.swatchRadius(7))
+                    .fill(photo.label.color)
                     .frame(width: 12, height: 7)
             }
         }
@@ -247,11 +359,32 @@ struct PhotoCell: View {
     private var stars: some View {
         HStack(spacing: 1) {
             ForEach(1...5, id: \.self) { index in
-                Image(systemName: "star.fill")
-                    .font(.system(size: 7))
-                    .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
+                if let onRate {
+                    Button {
+                        onRate(photo, index)
+                    } label: {
+                        star(index)
+                            // The drawn star is 10 points; the target is the strip's
+                            // full height, because aiming at a ten-point glyph and
+                            // missing costs a rating on the wrong number.
+                            .frame(width: 12, height: 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(index == photo.rating ? "Clear the rating" : "Rate \(index)")
+                } else {
+                    star(index)
+                }
             }
         }
+    }
+
+    private func star(_ index: Int) -> some View {
+        Image(systemName: "star.fill")
+            // 7pt was below any Mac legibility floor (design audit §1.9);
+            // 10pt is the app-wide minimum now.
+            .font(.lumenCaption)
+            .foregroundStyle(index <= photo.rating ? Color.white : Lumen.trackColor)
     }
 
     private func loadThumbnail() async {

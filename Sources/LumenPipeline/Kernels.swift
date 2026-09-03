@@ -1,5 +1,7 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: thirty-two small kernels.
+// The complete custom-shader surface of Lumen's render path: thirty-three small kernels.
+// (A count that was "thirty-two" in three places while the registry held 33 — if you add
+// a kernel, grep for the number word and update all of them, or better, stop counting.)
 //
 // That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
 // function, so the engine evaluates it once in LumenCore's reference implementation
@@ -100,9 +102,17 @@ public enum KernelLibrary {
     /// difference is a band of detail and the gain is halo-free by construction —
     /// the guided filter has no gradient reversal, which is the whole reason it beats
     /// a bilateral base for this job.
+    ///
+    /// The exponent is CLAMPED at ±4 EV — the twin of the reference's
+    /// `DetailEngine.applyLumaRatio(limit: 4)`, which bounds every presence tool's
+    /// excursion "so a pathological coefficient cannot turn into an infinity
+    /// downstream" (docs/31 round two §15). This kernel had no limit at all: `k` at
+    /// Texture ±100 is 21.6 per encoded unit, so a pathological band drove
+    /// `exp2(unbounded)` while the reference stopped at 2^±4.
     static let detailGainSource = """
     kernel vec4 lumenDetailGain(__sample hi, __sample lo, float k) {
-        float g = exp2(k * (hi.r - lo.r));
+        float e = clamp(k * (hi.r - lo.r), -4.0, 4.0);
+        float g = exp2(e);
         return vec4(g, g, g, 1.0);
     }
     """
@@ -324,6 +334,8 @@ public enum KernelLibrary {
     /// instead would have flattened hair and fabric weave — measured at 0.19 coherence
     /// where a hard step measures 1.00 — which are the subjects the positive control
     /// exists for, so the gate only starts closing above them.
+    /// The exponent carries the same ±4 EV clamp as `detailGain` — the twin of the
+    /// reference's `applyLumaRatio(limit: 4)`; see that kernel's comment.
     static let detailGainGatedSource = """
     kernel vec4 lumenDetailGainGated(__sample hi, __sample lo, __sample gate,
                                      float k, float negative,
@@ -331,7 +343,8 @@ public enum KernelLibrary {
         float c = clamp(gate.r, 0.0, 1.0);
         float closed = mix(smoothstep(gateLo, gateHi, c), c, negative);
         float open = 1.0 - closed;
-        float g = exp2(k * open * (hi.r - lo.r));
+        float e = clamp(k * open * (hi.r - lo.r), -4.0, 4.0);
+        float g = exp2(e);
         return vec4(g, g, g, 1.0);
     }
     """
@@ -433,6 +446,155 @@ public enum KernelLibrary {
     }
     """
 
+    // MARK: Parametric mask alpha — the tail's fix (docs/35 §5.1)
+    //
+    // Linear and radial gradients are closed-form per-pixel functions: a smoothstep
+    // along an axis, and a signed distance to an ellipse. They were rasterized on the
+    // CPU into a `Plane` like everything else, so dragging one missed the raster cache
+    // on every mouse event, was served the PREVIOUS raster, and the picture arrived a
+    // gesture behind the handle — the tail. Evaluated here they cost a pass over the
+    // pixels the frame was going to touch anyway, and there is nothing to cache or miss.
+    //
+    // COORDINATES ARE LONG-EDGE UNITS, exactly as `MaskRaster.linearPlane` and
+    // `radialPlane` use them, because pixels are square and normalized coordinates are
+    // not: a rotation applied to (fraction of width, fraction of height) mixes two units
+    // and renders a 45° ellipse at 33.7°. `w`, `h` and the derived long edge are passed
+    // in rather than read from `destCoord`'s extent so the two implementations cannot
+    // disagree about which pixel centre they are asking about.
+    //
+    // Y RUNS DOWN. `destCoord()` is Core Image's coordinate — origin at the BOTTOM-LEFT
+    // of the extent — while `MaskRaster` indexes a plane from the top row, and
+    // `PipelineRenderer.image(from:)` hands Core Image that plane as a top-down bitmap
+    // unflipped. So the row the reference calls `y` is `h - (destCoord().y - oy)` here,
+    // pixel centres included: the reference samples `(y + 0.5) / edge` and Core Image
+    // reports centres, so `h - (r + 0.5)` for the r-th row from the bottom is exactly
+    // the (h - r - 1)-th row from the top, at its centre. Written the moment the
+    // parity tests ran for the first time and reported every vertical gradient upside
+    // down — `testTheGPUAlphaIsNotVerticallyMirrored` existed for precisely this and
+    // had never once executed.
+    //
+    // THE LONG EDGE IS SPELLED `edge`, NOT `long`, and the spelling is load-bearing.
+    // `long` is a reserved word in the Core Image Kernel Language — it inherits GLSL's
+    // keyword list — so `float long = max(w, h)` is a parse error, not a variable.
+    // Both kernels below shipped with it, both failed to compile on every macOS build
+    // ("4 errors generated" in the gpu-parity log), `parametricMasksAvailable` was
+    // therefore false, and `MaskGPU` fell back to `MaskRaster` on the CPU for every
+    // gradient mask ever drawn — which is why dragging a radial gradient trailed the
+    // hand no matter how the overlay was coalesced. Nothing said so, because the
+    // sentinel test's roster did not include these four kernels; see
+    // `unavailableMaskKernels`.
+    //
+    // Every constant below is `MaskRaster`'s. `MaskGPUParityTests` compares the two at
+    // three resolutions and fails on a worst-pixel difference past 1e-4.
+
+    /// A linear gradient's raw alpha.
+    ///
+    /// (And the fold kernel below carried the same defect in a different word: `float
+    /// out;` — `out` is a GLSL parameter qualifier. Two of the four mask kernels were
+    /// dead for two different reserved words, which is why the identifiers in these
+    /// sources are now checked against the language's keyword list mechanically rather
+    /// than by eye; see `scripts/check-swift-surface.py`'s kernel pass.)
+    static let maskLinearSource = """
+    kernel vec4 lumenMaskLinear(float x0, float y0, float x1, float y1,
+                                float w, float h, float ox, float oy) {
+        float edge = max(w, h);
+        vec2 p = vec2(destCoord().x - ox, h - (destCoord().y - oy)) / edge;
+        vec2 a = vec2(x0 * w / edge, y0 * h / edge);
+        vec2 b = vec2(x1 * w / edge, y1 * h / edge);
+        vec2 ab = b - a;
+        float dd = dot(ab, ab);
+        if (dd < 1e-12) { return vec4(0.0, 0.0, 0.0, 1.0); }
+        float t = clamp(dot(p - a, ab) / dd, 0.0, 1.0);
+        float v = t * t * (3.0 - 2.0 * t);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// A radial gradient's raw alpha. `rin` is the flat core, computed on the CPU side
+    /// with the same pixel guard the reference applies, so the shader carries no policy.
+    static let maskRadialSource = """
+    kernel vec4 lumenMaskRadial(float cx, float cy, float rx, float ry,
+                                float ct, float st, float rin,
+                                float w, float h, float ox, float oy) {
+        float edge = max(w, h);
+        vec2 p = vec2(destCoord().x - ox, h - (destCoord().y - oy)) / edge;
+        vec2 q = p - vec2(cx * w / edge, cy * h / edge);
+        float qx = q.x * ct - q.y * st;
+        float qy = q.x * st + q.y * ct;
+        float nx = qx / max(rx * w / edge, 1e-12);
+        float ny = qy / max(ry * h / edge, 1e-12);
+        float r = sqrt(nx * nx + ny * ny);
+        float v;
+        if (r <= rin) { v = 1.0; }
+        else if (r >= 1.0) { v = 0.0; }
+        else {
+            float t = clamp((r - rin) / max(1.0 - rin, 1e-12), 0.0, 1.0);
+            v = 1.0 - t * t * (3.0 - 2.0 * t);
+        }
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// One fold step. `op` is `MaskOp`'s ordinal — 0 add, 1 subtract, 2 intersect — and
+    /// `invert`/`amount` are the component's, applied in `MaskAlgebra.componentAlpha`'s
+    /// order: clamp, invert, scale. The accumulator seeds at zero, so a stack opening
+    /// with subtract or intersect stays empty, which is the property maskalgebra.json
+    /// pins for the CPU fold.
+    static let maskFoldSource = """
+    kernel vec4 lumenMaskFold(__sample acc, __sample raw,
+                              float op, float invert, float amount) {
+        float v = clamp(raw.r, 0.0, 1.0);
+        if (invert > 0.5) { v = 1.0 - v; }
+        v = v * clamp(amount, 0.0, 100.0) / 100.0;
+        float a = clamp(acc.r, 0.0, 1.0);
+        float folded;
+        if (op > 1.5) { folded = a * v; }
+        else if (op > 0.5) { folded = min(a, 1.0 - v); }
+        else { folded = max(a, v); }
+        return vec4(folded, folded, folded, 1.0);
+    }
+    """
+
+    /// The whole-mask invert, which runs after the fold and before the refinement chain.
+    static let maskInvertSource = """
+    kernel vec4 lumenMaskInvert(__sample a) {
+        float v = 1.0 - clamp(a.r, 0.0, 1.0);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// The same composite, through a mask's BLEND MODE (docs/36 §3, bet 1).
+    ///
+    /// `mode` is `MaskBlend`'s ordinal — 0 normal, 1 luminosity, 2 colour — and
+    /// `lr/lg/lb` are the working space's luminance coefficients, passed in rather than
+    /// hardcoded so this kernel cannot disagree with `RGBColorSpace.luminance`, which is
+    /// what `MaskAlgebra.blended` uses on the CPU side.
+    ///
+    /// Both non-normal modes are luminance-RATIO rescales, so they are exact on
+    /// scene-referred values and need no white point. The guards match the reference's
+    /// `luminanceFloor` and its fallbacks: a pixel with no luminance has no colour ratio
+    /// to preserve, so Luminosity falls through to the adjusted pixel and Colour to the
+    /// base, rather than to a division.
+    static let blendMaskModeSource = """
+    kernel vec4 lumenBlendMaskMode(__sample base, __sample over, __sample mask,
+                                   float mode, float lr, float lg, float lb) {
+        float m = clamp(mask.r, 0.0, 1.0);
+        vec3 result = over.rgb;
+        vec3 coef = vec3(lr, lg, lb);
+        float floorY = 1e-7;
+        if (mode > 1.5) {
+            float from = dot(over.rgb, coef);
+            float to = dot(base.rgb, coef);
+            result = (from > floorY) ? over.rgb * (to / from) : base.rgb;
+        } else if (mode > 0.5) {
+            float from = dot(base.rgb, coef);
+            float to = dot(over.rgb, coef);
+            result = (from > floorY) ? base.rgb * (to / from) : over.rgb;
+        }
+        return vec4(mix(base.rgb, result, m), base.a);
+    }
+    """
+
     /// Density-domain grain (docs/14 §5.7). Amplitude peaks at mid densities and
     /// vanishes at Dmin and Dmax, which is why film grain lives in the midtones and
     /// clean film blacks stay clean — the property a constant-sigma RGB overlay
@@ -441,13 +603,26 @@ public enum KernelLibrary {
     /// number `grainPlate` divides by. It used to be hardcoded as 2.0 against a store
     /// that divided by 4, so the GPU saw half the amplitude the reference defines.
     /// Interpolated rather than written out, so the pair cannot drift again.
+    /// `lumaW` and `ownW` are `GrainPlan.noiseLumaWeight` / `noiseOwnWeight` — how much
+    /// of the three dye layers' independence reaches the picture (C2-02). Three
+    /// unit-variance fields laid at full amplitude put 2.45x as much noise into colour
+    /// as into luminance, and at export the cells are big enough to see it; at preview
+    /// they are sub-display-pixel, so the app could never show what the file carries.
+    /// The weights are derived on `FilmGrainProfile.noiseMixWeights`, and they are
+    /// scaled so the luminance grain does not move — only its colour does. At the
+    /// shipped colour default they
+    /// are not (0, 1), so this line changes pixels — deliberately, and identically in
+    /// `ReferenceRenderer.applyGrain`, which is what gpu-parity checks.
     static let grainSource = """
-    kernel vec4 lumenGrain(__sample image, __sample noise, float amount, float dmax) {
+    kernel vec4 lumenGrain(__sample image, __sample noise, float amount, float dmax,
+                           float lumaW, float ownW) {
         vec3 c = max(image.rgb, vec3(1e-5));
         vec3 d = -log(c) / log(10.0);
         vec3 p = clamp(d / dmax, 0.0, 1.0);
         vec3 amp = sqrt(max(p * (vec3(1.0) - p), vec3(0.0)));
         vec3 n = (noise.rgb - vec3(0.5)) * \(Float(FilmGrainProfile.plateEncodeScale));
+        float nShared = (n.r + n.g + n.b) * lumaW;
+        n = vec3(nShared) + n * ownW;
         vec3 d2 = d + amp * n * amount;
         vec3 shifted = pow(vec3(10.0), -d2);
         return vec4(shifted, image.a);
@@ -681,16 +856,33 @@ public enum KernelLibrary {
     /// against the reference's −0.500, and at the slider's −3.0 floor that is a 2.8x
     /// difference in gain between the picture the user sees and the one the reference
     /// renders. The panel note quotes the protection as if it were applied.
+    /// `noise` is a tiled dither plate carrying (−0.5, +0.5) in its red channel and
+    /// `ditherEV` is one half-float quantum of the LOG-ENCODED plane, expressed in
+    /// EV — together they add ±half a quantum of ordered noise to the burn's
+    /// exponent wherever the vignette is active (docs/31 round two §7's
+    /// change-of-denomination arithmetic, applied as a dither). Why: the working
+    /// format is RGBAh, and the log-encoded plane the finish table samples parks
+    /// the picture where one fp16 step is 0.0117 EV. A strong burn is a slow,
+    /// noise-free synthetic ramp — exactly the signal that quantum turns into
+    /// visible rings at −3 EV, which the owner reported. Randomising the exponent
+    /// by half a quantum makes the encoded plane's rounding land on the code above
+    /// or below in the proportion the true value asks for, so the local MEAN of
+    /// the ramp survives fp16 the way the output dither preserves it through
+    /// 8-bit. Gated on `t > 0` so the untouched centre stays bit-identical, and
+    /// zero-mean so the reference — which quantises nowhere — is approached, not
+    /// left.
     static let vignetteSource = """
-    kernel vec4 lumenVignette(__sample image, vec2 centre, vec2 invRadius, float ev,
-                              float feather, vec3 lumaWeights, float threshold,
-                              float protection) {
+    kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
+                              vec2 invRadius, float ev, float feather,
+                              vec3 lumaWeights, float threshold,
+                              float protection, float ditherEV) {
         vec2 d = (destCoord() - centre) * invRadius;
         float r = length(d);
         float t = smoothstep(1.0 - feather, 1.0, r);
         float lum = dot(image.rgb, lumaWeights);
         float protect = protection * smoothstep(threshold, threshold * 2.0, lum);
-        float gain = exp2(ev * t * (1.0 - protect));
+        float dith = noise.r * ditherEV * step(1e-6, t);
+        float gain = exp2(ev * t * (1.0 - protect) + dith);
         return vec4(image.rgb * gain, image.a);
     }
     """
@@ -706,6 +898,14 @@ public enum KernelLibrary {
     public static let guidedCrossCoefficients = make(guidedCrossCoefficientsSource)
     public static let guidedApply = make(guidedApplySource)
     public static let blendMask = make(blendMaskSource)
+    public static let blendMaskMode = make(blendMaskModeSource)
+    // GENERAL kernels, not colour ones: they take no `__sample` at all, and a colour
+    // kernel is defined as a function of the pixel it is given. `applyGenerator` gives
+    // them an extent and nothing else.
+    public static let maskLinear = makeGeneral(maskLinearSource)
+    public static let maskRadial = makeGeneral(maskRadialSource)
+    public static let maskFold = make(maskFoldSource)
+    public static let maskInvert = make(maskInvertSource)
     public static let grain = make(grainSource)
     public static let vignette = make(vignetteSource)
     public static let detailGain = make(detailGainSource)
@@ -748,7 +948,16 @@ public enum KernelLibrary {
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),
             ("guidedApply", guidedApply),
-            ("blendMask", blendMask), ("grain", grain), ("vignette", vignette),
+            // `blendMaskMode` sits beside `blendMask` and not in `unavailableMaskKernels`
+            // because it is the OTHER BRANCH of the same call, and neither branch has a
+            // fallback: `RenderGraph`'s `guard let blended = composite else { continue }`
+            // drops the mask's whole local adjustment, silently. The mask-kernel roster
+            // is for the parametric fast path, which falls back to `MaskRaster` — this
+            // one has nothing to fall back to, so it belongs on the list that gates the
+            // GPU path. It was in NEITHER, which is the fifth instance of exactly the
+            // defect the comment on `unavailableMaskKernels` below describes.
+            ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
+            ("grain", grain), ("vignette", vignette),
             ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
@@ -771,6 +980,25 @@ public enum KernelLibrary {
         denoiseForward != nil && denoiseInverse != nil && bSpline5 != nil
             && box3 != nil && chromaMagnitude != nil && edgeMap != nil
             && denoiseRemoved != nil && subtract != nil
+    }
+
+    /// The parametric-mask fast path. Without all four the graph falls back to
+    /// `MaskRaster`, which is correct and slower — never to a wrong mask.
+    public static var parametricMasksAvailable: Bool { unavailableMaskKernels.isEmpty }
+
+    /// Names of the mask kernels that failed. Separate from `unavailableKernels` on
+    /// purpose: that list gates the whole GPU path (`KernelAvailability.coreAvailable`)
+    /// and a mask kernel has its own honest fallback, so it must not take the picture
+    /// down with it. But it MUST be loud somewhere — these four were absent from every
+    /// roster, so two of them failed to compile on every build without a single test
+    /// noticing, and the fast path this file exists to provide never ran.
+    /// `testEveryKernelCompiles` asserts this list is empty too.
+    public static var unavailableMaskKernels: [String] {
+        let all: [(String, CIKernel?)] = [
+            ("maskLinear", maskLinear), ("maskRadial", maskRadial),
+            ("maskFold", maskFold), ("maskInvert", maskInvert),
+        ]
+        return all.filter { $0.1 == nil }.map { $0.0 }
     }
 
     /// The kernels the core colour path cannot run without. Presence, film and mask
@@ -799,6 +1027,18 @@ public enum KernelLibrary {
         return kernel.apply(extent: extent, arguments: arguments)
     }
 
+    /// Apply a kernel that reads no input image at all — a generator.
+    ///
+    /// Separate from `applyNeighbourhood` because the region-of-interest question does
+    /// not arise: there is no input to ask about. Core Image is given the extent and the
+    /// scalars, and every pixel is a closed form of `destCoord()`.
+    public static func applyGenerator(_ kernel: CIKernel?, extent: CGRect,
+                                      _ arguments: [Any]) -> CIImage? {
+        guard let kernel else { return nil }
+        return kernel.apply(extent: extent, roiCallback: { _, rect in rect },
+                            arguments: arguments)
+    }
+
     /// Apply a neighbourhood kernel. `reach` is how far, in pixels, the kernel samples
     /// away from the pixel it is producing; it becomes the region-of-interest callback,
     /// which is what Core Image asks in order to render the frame in tiles without a
@@ -819,15 +1059,67 @@ public enum KernelLibrary {
 
 public enum ColorCube {
 
+    /// A table already converted to the bytes `CIColorCube` wants, so a cube whose
+    /// CONTENTS never change is copied once rather than once per frame.
+    ///
+    /// The memcpy in `filter(_ lut:image:)` below is nothing at the sizes most of this
+    /// graph uses and is not nothing at 64. `DitherStepCube` is 64 cubed in RGBA floats
+    /// — 4 MB — and the dither is not an export-only stage: `renderPreview` dithers
+    /// every frame it shows, draft and settle alike, so that the loupe does not band
+    /// where the delivered file will not. At the frame rate a slider drag produces that
+    /// was several hundred megabytes a second of transient allocation for a table that
+    /// is the same four bytes at a time as it was on the previous frame — and a freshly
+    /// allocated `Data` every frame also denies Core Image any chance of recognising an
+    /// upload it already holds and reusing the texture behind it.
+    ///
+    /// WHY THE BYTES AND NOT THE WHOLE FILTER, which would save the last allocation too.
+    /// A `CIColorCube` is a mutable Objective-C object, and the first thing any caller
+    /// does to one is `setValue(image, forKey: kCIInputImageKey)`. A cached filter is
+    /// therefore shared MUTABLE state, and `ColorCube.filter` is a public static that
+    /// any thread may call. `RenderCoordinator` being a serial actor does not settle it:
+    /// `PipelineRenderer` is a plain `final class` with no isolation of its own, the
+    /// export path does not go through the coordinator at all, and the app runs pipeline
+    /// work off `Task.detached` workers while `MaskRasterCache` bakes on its own
+    /// `DispatchQueue`. Two renders overlapping on one shared filter would race on
+    /// `inputImage`, and the failure that buys is a frame of the wrong photograph — a
+    /// picture bug, produced by a performance fix, which is a bad trade at any speed.
+    ///
+    /// Caching the bytes leaves nothing mutable to share. `Data` is a `Sendable` value
+    /// type and this struct holds nothing else, so a `static let` of one is safe to read
+    /// from anywhere with no lock and no `@unchecked`. What remains per call is an
+    /// object header and three `setValue`s; the 4 MB was the whole of the cost.
+    public struct Baked: Sendable {
+        public let size: Int
+        public let data: Data
+
+        public init(_ lut: LUT3D) {
+            self.size = lut.size
+            self.data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+        }
+    }
+
     /// Wrap a baked table in the stock colour-cube filter. The data layout LUT3D
     /// produces (red fastest, then green, then blue; RGBA floats) is exactly what
     /// Core Image wants, so this is a memcpy and a filter, not a conversion.
+    ///
+    /// This stays the right call for every table the PLAN owns — the finish and
+    /// colour-grade tables, the tone gain cube, a mask's local point curve, the fallback
+    /// tone cube. Every one of those is keyed to the recipe and is rebuilt the moment a
+    /// number moves, so caching one would freeze the photographer's edit on screen,
+    /// which is a far worse defect than the copy it would save. Only a table that is
+    /// invariant for the life of the process takes the overload below.
     public static func filter(_ lut: LUT3D, image: CIImage) -> CIImage? {
-        let data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+        filter(Baked(lut), image: image)
+    }
+
+    /// The same wrap, over bytes that were copied once. Same dimension, same bytes, same
+    /// filter, same place in the graph as `filter(_ lut:image:)` — the only difference is
+    /// that the table is not re-copied.
+    public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
         guard let filter = CIFilter(name: "CIColorCube") else { return nil }
         filter.setValue(image, forKey: kCIInputImageKey)
-        filter.setValue(lut.size, forKey: "inputCubeDimension")
-        filter.setValue(data, forKey: "inputCubeData")
+        filter.setValue(cube.size, forKey: "inputCubeDimension")
+        filter.setValue(cube.data, forKey: "inputCubeData")
         return filter.outputImage
     }
 }

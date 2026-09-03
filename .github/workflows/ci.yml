@@ -3,6 +3,18 @@ name: CI
 on:
   push:
     branches: ["**"]
+    # A push that touches only prose must not cancel the run that is compiling the
+    # code. The concurrency group below is per branch and cancels in progress, which
+    # is right for a burst of code pushes and wrong for a status note pushed while a
+    # kernel fix is halfway through test-fast — that note cancelled the fix's run and,
+    # with it, the app-bundle that would have replaced a build drawing masks upside
+    # down. Docs-only pushes now start no run at all; the dev release is unchanged by
+    # them anyway.
+    paths-ignore:
+      - "docs/**"
+  # Re-recording proof records moved to proof.yml's dispatch, with the control sweep
+  # itself; the GPU goldens moved to gpu-parity.yml, which triggers itself on the
+  # paths that can break parity instead of waiting for a human who never came.
   workflow_dispatch:
 
 # One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
@@ -13,23 +25,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The real thing: compile every target and RUN the suites on macOS. The engine's
-  # goldens run first so their signal survives churn in the app layer.
+  # Compile every target on macOS. This is the ONLY compiler that ever sees
+  # LumenPipeline and LumenApp — they are `#if os(macOS)` and need Core Image, AppKit
+  # and SwiftUI — so it runs on every push and nothing replaces it.
   #
-  # Each step writes its full output to a file and prints only the deduplicated
-  # diagnostics. A Swift build repeats the same error once per compilation unit, and a
-  # log where one warning appears forty times is a log nobody reads to the end.
-  test-macos:
+  # It used to also run the whole suite here, which cost six and a half minutes of macOS
+  # runner time per push to re-verify LumenCore, eighteen thousand lines that have no
+  # Apple framework in them and now run on Linux for free in `engine-linux` below. macOS
+  # minutes are the scarce resource on this project — a private repo ran out of them once
+  # and seventy commits went uncompiled behind the outage — so the split is: Linux proves
+  # the engine, macOS proves it compiles and that the GPU agrees with it.
+  build-macos:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: swift --version && xcodebuild -version
-
-      # Build FIRST. Running it after `swift test` compiled everything meant the
-      # compiler had nothing left to do and re-emitted no diagnostics, so the warnings
-      # section was empty whatever the code said — a green light wired to nothing.
       - name: Build — whole package including the app
         shell: bash
         run: |
@@ -42,44 +54,11 @@ jobs:
           grep -E "warning:" build.log | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -30
           exit $status
 
-      - name: Test — engine + GPU goldens
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          # `tee`, not `>`: redirecting the whole suite to a file means the CI log
-          # shows nothing at all until the step ends, so a hung test is a forty-minute
-          # timeout with no clue which test hung — the same shape of problem as an
-          # empty log, arriving at the exact moment you need the opposite. The stream
-          # is noisy; the deduplicated summary below still runs after it, and that is
-          # what anyone reads when the suite merely fails rather than hangs.
-          #
-          # `shell: bash` above makes GitHub run this with `-e -o pipefail`, so $?
-          # is swift test's status and not tee's.
-          swift test 2>&1 | tee test.log
-          status=$?
-          echo "=== compile errors ==="
-          grep -E "error:" test.log | grep -v ": error: -\[" \
-            | sed 's#/Users/runner/work/lumen/lumen/##' | sort -u | head -40
-          echo "=== summary ==="
-          grep -E "Executed [0-9]+ test" test.log | tail -1
-          # Which TESTS failed, before what they said. One test can fail a hundred
-          # assertions inside a loop, and a list deduplicated by message is then a
-          # hundred near-identical lines that hide every other failing test.
-          echo "=== failing tests ==="
-          grep -E ": error: -\[" test.log \
-            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
-          # Failures print LAST so a short tail of the CI log always reaches them.
-          # Two examples per test is enough to see the shape of the problem.
-          echo "=== first failures per test ==="
-          grep -E ": error: -\[" test.log | sed 's#/Users/runner/work/lumen/lumen/##' \
-            | sed 's/^.*error: //' \
-            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
-          exit $status
-
-  # The fast lane. Nine tests are 92% of the suite's wall clock — measured, from the
-  # streamed log: 232s, 196s, 125s, 90s, 74s, 57s, 53s, 46s, 44s out of 997s. The other
-  # 235 tests run in about seventy seconds put together.
+  # The fast lane. A handful of whole-pipeline tests are ~92% of the suite's wall clock
+  # — measured once from the streamed log: 232s, 196s, 125s, 90s, 74s, 57s, 53s, 46s,
+  # 44s out of 997s; the rest of the suite ran in about seventy seconds put together.
+  # (Those figures were taken at a point in time and the suite has grown since; the
+  # SHAPE — a few slow whole-pipeline tests dominating — is what this lane is built on.)
   #
   # Skipping those nine here turns "did I break something ordinary" from a
   # seventeen-minute answer into a two-minute one, which is the difference between a
@@ -91,9 +70,16 @@ jobs:
   # renders per stage. `testTheClarityPyramidTracksTheLongEdge` stays in this lane
   # because it is pure arithmetic and instant.
   #
-  # It is NOT a substitute: `test-macos` below still runs everything on the same push,
-  # and nothing merges on this lane's word alone. If a rename makes a skip stop
-  # matching, this lane gets slower and stays correct.
+  # This lane is now the macOS suite on a push, not a preview of one. Of the slow tests
+  # it skips, the LumenCore ones run on Linux in `engine-linux` every push anyway; the
+  # two whole-graph GPU parity goldens run in the `GPU parity` workflow, which triggers
+  # itself on any push touching the pipeline or the engine — the dispatch-only lane it
+  # replaces was never once dispatched.
+  #
+  # The engine half of what it covers is also checked on Linux every push, for free, in
+  # `engine-linux`. What only this lane sees is LumenPipeline: the real Core Image graph,
+  # compiled and run against the f32 reference. If a rename makes a skip stop matching,
+  # this lane gets slower and stays correct.
   test-fast:
     runs-on: macos-15
     timeout-minutes: 15
@@ -103,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          swift test 2>&1 \
+          swift test --skip ControlProofTests 2>&1 \
             --skip testGraphMatchesTheReferenceRendererWithTheSpatialStagesOn \
             --skip testEveryStageInTheFullRecipeChangesTheResult \
             --skip testRenderedLuminanceIsMonotoneAtExtremeSettings \
@@ -112,7 +98,6 @@ jobs:
             --skip testTheInteractiveTableAgreesWithTheExportOne \
             --skip testEachTableTracksItsOwnExactEvaluationSeparately \
             --skip testGraphMatchesTheReferenceRendererOnTheColourPath \
-            --skip testExportTableErrorStaysUnderOnePercent \
             --skip testThePerPixelStagesAreExactAcrossAFourfoldScaleChange \
             --skip testTheSpatialStagesTrackTheFrameRatherThanThePixelCount \
             --skip testAMaskSelectsTheSamePartOfThePictureAtEitherResolution \
@@ -139,6 +124,8 @@ jobs:
   app-bundle:
     runs-on: macos-15
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Build Lumen.app
@@ -153,6 +140,34 @@ jobs:
           name: Lumen-app
           path: Lumen.app.zip
           retention-days: 30
+      - name: Publish the rolling dev release the in-app updater reads
+        # One moving pre-release, `dev-latest`, holding the newest build of the
+        # working branch. The app's updater polls the PUBLIC releases API for it —
+        # release assets need no auth on a public repo, unlike Actions artifacts,
+        # which is the whole reason this exists. The body's `commit:` and `sha256:`
+        # lines are the updater's contract; change either and the updater goes blind —
+        # `sha256:` fails CLOSED, so a release published without it cannot install.
+        if: github.ref == 'refs/heads/claude/photo-editor-design-plan-8ahzmm'
+          || github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f dev-latest
+          git push -f origin dev-latest
+          gh release delete dev-latest -y || true
+          # THE DIGEST OF THE ASSET WE ARE ABOUT TO UPLOAD. The app verifies against
+          # this and refuses the install if it does not match, which is the only
+          # identity check available to an ad-hoc-signed bundle: `codesign --verify`
+          # answers "is this signature internally consistent", and an ad-hoc signature
+          # made by anybody passes it (L-03).
+          DIGEST=$(shasum -a 256 Lumen.app.zip | cut -d' ' -f1)
+          gh release create dev-latest Lumen.app.zip \
+            --prerelease \
+            --title "Dev build ${GITHUB_SHA}" \
+            --notes "commit: ${GITHUB_SHA}
+          sha256: ${DIGEST}
+          Rolling development build, replaced on every push. Installed copies of
+          Lumen update themselves from this release."
 
   # Linux lane: recompute every fixture with the Python reference and fail if the
   # committed fixtures no longer agree with it.
@@ -178,10 +193,121 @@ jobs:
 
       # Six mechanical passes over the Swift, on the lane that has no Swift. Not a
       # type checker and no substitute for the macOS build — it catches undeclared
-      # identifiers, call sites whose labels match no declared initializer, actor
+      # identifiers, call sites whose labels match no declared or MEMBERWISE
+      # initializer (the synthesized half arrived with docs/31's postscript: 170 app
+      # types declare no init, and every call to them went unchecked), actor
       # members called without await, TypeName.member references naming nothing, and
       # platform symbols used in a file that does not import their module, and members
       # read off a value whose declared type does not have them. It costs seconds and it
       # is the only feedback on the Swift at all when the macOS runner cannot start.
       - name: Swift surface — symbols, inits, await, members, imports, targets, values, scopes
         run: python3 scripts/check-swift-surface.py
+
+      # The guard on the guard (docs/31 postscript). Known-good and known-bad fixture
+      # trees run through the checker above, and the known-bad set includes the exact
+      # false negative it shipped — a memberwise call with its labels out of order and
+      # a multi-line ternary argument. The runner asserts each planted defect is
+      # reported BY NAME, so a fixture cannot fail for the wrong reason and read as
+      # caught; a reopened hole fails this step even while the step above stays green.
+      - name: Swift surface — the checker's own fixture suite
+        run: python3 scripts/test-check-swift-surface.py
+
+
+  # The engine suite, on the lane that costs nothing. LumenCore is pure Swift — colour
+  # science, tone, grade, film, detail, denoise, mask algebra, catalog and XMP — with no
+  # Apple framework anywhere in it, so its whole suite runs here in a few minutes on a
+  # runner that is not rationed. (No count in this comment on purpose: two previous
+  # counts here went stale within days. The test log is the count.)
+  #
+  # The catalog is included only because `Sources/CSQLite3` exists: Ubuntu ships a header
+  # and a shared object and no modulemap, so `canImport(SQLite3)` was FALSE here and
+  # `CatalogStore` and every one of its tests compiled out. A green run that had never
+  # built a third of LumenCore is the same shape as a check that cannot fail.
+  #
+  # What this lane does NOT cover, stated so nobody reads it as more than it is:
+  # LumenPipeline and LumenApp never compile here, and the macOS-side behaviour of
+  # LumenCore (the SDK's own SQLite3 module rather than the shim) is only re-checked in
+  # the `proof-macos` lane below.
+  engine-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache the Swift toolchain
+        id: swift-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/swift
+          key: swift-6.1.2-ubuntu24.04
+      - name: Install the Swift toolchain
+        if: steps.swift-cache.outputs.cache-hit != 'true'
+        run: sh scripts/install-linux-toolchain.sh
+      # Parse every source file, INCLUDING the macOS-only ones. Runs BEFORE the suite
+      # so a syntax break fails in seconds rather than after six minutes of tests.
+      #
+      # `swiftc -parse` reads inside `#if os(macOS)` on Linux, because parsing happens
+      # before the condition is evaluated. So this sees LumenApp and LumenPipeline — two
+      # thirds of the codebase that nothing else on a Linux runner can look at.
+      #
+      # It closes a hole `check-swift-surface.py` structurally cannot: that script is a
+      # text tool, and on a file carrying a bare `when capture sharpening` fragment where
+      # a declaration belonged it reported EXIT 0 while this rejects it at once. Two of
+      # the three CI breaks on this branch today were exactly that class, each costing a
+      # macOS round trip.
+      #
+      # What it does NOT do, so nobody reads it as more: no type checking, no protocol
+      # conformance, no overload resolution, no name resolution. The third break today
+      # was a conformance failure and this would have waved it through. `build-macos`
+      # remains the only compiler that answers those.
+      - name: Swift parse — every file, macOS-only ones included
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          swiftc -parse -swift-version 5 $(find Sources -name '*.swift')
+
+      - name: Test — the engine, without the control sweep
+        shell: bash
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          set +e
+          # `ControlProofTests` is skipped here and runs beside this lane in
+          # `proof-linux`. It sweeps 46 controls at 21 settings each, every one baking a
+          # 65-cubed colour cube, and it pushed this job past its own 25-minute timeout —
+          # a lane that is cancelled tells you nothing at all, which is worse than a slow
+          # one. Splitting keeps "did I break something ordinary" at about eight minutes
+          # while the drift check still runs on every push, in parallel rather than in
+          # series behind it.
+          #
+          # `--parallel` is NOT here for speed. Without it this lane dies before it runs
+          # a single test:
+          #
+          #   error: posix_spawn error: Argument list too long (7),
+          #   `["...LumenPackageTests.xctest", "LumenCoreTests.AccuracyProbeTests/test..."
+          #
+          # Any `--filter` or `--skip` makes SwiftPM resolve the selection itself and
+          # hand the xctest binary ONE comma-joined argument naming every matching test.
+          # Linux caps a single argument at MAX_ARG_STRLEN, 128 KiB, and at roughly
+          # eighteen hundred tests averaging seventy characters of suite-plus-method that
+          # argument crossed it. The suite had been sitting just under the ceiling for a
+          # while; a wave of new tests pushed it over, and the lane failed in fifty-one
+          # seconds having compiled everything and run nothing.
+          #
+          # In parallel mode SwiftPM spawns per test instead of building that argument,
+          # so the ceiling does not exist. That makes this the fix rather than a
+          # workaround: the serial path fails as a function of how many tests we have,
+          # which is a number that only goes up.
+          swift test --parallel --filter LumenCoreTests --skip ControlProofTests 2>&1 \
+            | tee engine.log
+          status=$?
+          echo "=== compile errors ==="
+          grep -E "error:" engine.log | grep -v ": error: -\[" \
+            | sed "s#$PWD/##" | sort -u | head -40
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" engine.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" engine.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" engine.log | sed "s#$PWD/##" \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status

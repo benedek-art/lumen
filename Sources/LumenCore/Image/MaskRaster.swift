@@ -30,8 +30,12 @@ public enum MaskRaster {
 
     /// Fixed EV axis for the luminance band. Never per-image auto-ranging — EV
     /// denomination exists so the same band means the same thing on every photo.
-    private static let evMin: Double = -10
-    private static let evMax: Double = 4
+    /// The fixed axis every channel-reading selection is denominated on. Internal
+    /// rather than private because the luminosity series' tests assert the rasterizer
+    /// against the closed form, and a test that had to re-derive these two numbers
+    /// would be asserting its own arithmetic rather than the renderer's.
+    static let evMin: Double = -10
+    static let evMax: Double = 4
     private static let evSpan: Double = 14
     /// Luminance-band shoulder half-width at Smoothness 100, in EV (so 50 → 1.0 EV).
     private static let lumaShoulderEV: Double = 2.0
@@ -67,11 +71,16 @@ public enum MaskRaster {
     ///   - aiMattes: precomputed mattes keyed by `MaskKind.rawValue`; `depthRange`
     ///     reads its depth map from the same dictionary (key `"depthRange"`, or
     ///     `"depth"`). A missing key ⇒ zero.
+    ///   - brushPlane: an already-painted plane for THIS component's stroke set, when
+    ///     the caller holds one (`accumulatedBrushPlane`). Used verbatim if it is the
+    ///     right size; ignored otherwise, so a stale or mis-sized cache degrades to a
+    ///     repaint rather than to a wrong mask.
     public static func rasterize(component: MaskComponent,
                                  size: (width: Int, height: Int),
                                  source: ImageBuffer? = nil,
                                  strokes: BrushStrokeSet? = nil,
-                                 aiMattes: [String: Plane] = [:]) -> Plane {
+                                 aiMattes: [String: Plane] = [:],
+                                 brushPlane held: Plane? = nil) -> Plane {
         let w = Swift.max(size.width, 1)
         let h = Swift.max(size.height, 1)
         if size.width < 1 || size.height < 1 { return Plane(width: w, height: h) }
@@ -83,9 +92,14 @@ public enum MaskRaster {
         case .radial:
             return radialPlane(component, w, h)
         case .brush:
+            if let held, held.width == w, held.height == h { return held }
             return brushPlane(component, w, h, source, strokes)
         case .lumaRange:
             return lumaRangePlane(component, w, h, source)
+        case .luminosity:
+            return luminosityPlane(component, w, h, source)
+        case .polygon:
+            return polygonPlane(component, w, h)
         case .colorRange:
             return colorRangePlane(component, w, h, source)
         case .similarity, .similarityLine:
@@ -94,6 +108,11 @@ public enum MaskRaster {
             return depthRangePlane(component, w, h, aiMattes)
         case .aiSubject, .aiSky, .aiBackground, .aiObject, .aiPerson, .aiLandscape:
             return mattePlane(component.kind, w, h, aiMattes)
+        case .maskRef:
+            // Resolved by `combine`, which is the only function that holds the list of
+            // masks a reference could name. Rasterizing ONE component cannot answer
+            // "what does mask X select", so this returns empty rather than pretending.
+            return Plane(width: w, height: h)
         }
     }
 
@@ -107,25 +126,151 @@ public enum MaskRaster {
     /// `mask.enabled` is likewise the caller's business — the S11 evaluator skips
     /// disabled masks; this stays a pure raster function.
     ///
+    /// THE ONE RESOLVER. The loupe, the export, the overlay and the CPU reference all
+    /// reach a mask's alpha through this function — `ReferenceRenderer` calls it, and
+    /// `PipelineRenderer` calls it for every mask `MaskGPU` declines — so a reference
+    /// cannot mean one thing on screen and another in the delivered file. `alpha` below
+    /// is its body; this signature is what the callers hold.
+    ///
     /// - Parameter strokeSets: brush blobs keyed by the component's `strokesRef` string.
+    /// - Parameter brushPlanes: already-painted brush planes, keyed by the same
+    ///   `strokesRef`. This is how an incremental painter reaches the fold: the caller
+    ///   accumulates with `accumulatedBrushPlane` and hands the result in, so appending
+    ///   a stroke costs one stroke instead of the whole set (docs/36 §1.2). A plane of
+    ///   the wrong size is ignored, not trusted.
+    /// - Parameter masks: every mask on this photograph, so a `maskRef` component can be
+    ///   resolved. Defaults to empty, which makes a reference select nothing — the same
+    ///   posture the rest of this file takes toward an input it was not given.
+    /// - Parameter resolving: the ids currently being evaluated, so a reference cycle
+    ///   terminates. Callers pass nothing; the recursion carries it.
     public static func combine(mask: Mask,
                                size: (width: Int, height: Int),
                                source: ImageBuffer? = nil,
                                strokeSets: [String: BrushStrokeSet] = [:],
-                               aiMattes: [String: Plane] = [:]) -> Plane {
+                               aiMattes: [String: Plane] = [:],
+                               brushPlanes: [String: Plane] = [:],
+                               masks: [Mask] = [],
+                               resolving: Set<String> = []) -> Plane {
+        // "Nothing to lend" reaches a caller as an empty selection, which is what this
+        // function has always returned and what every caller but `referenced` wants.
+        alpha(mask: mask, size: size, source: source, strokeSets: strokeSets,
+              aiMattes: aiMattes, brushPlanes: brushPlanes, masks: masks,
+              resolving: resolving)
+            ?? Plane(width: Swift.max(size.width, 1), height: Swift.max(size.height, 1))
+    }
+
+    /// `combine`'s answer, carrying the ONE distinction a reference has to be able to
+    /// make: nil is "this mask has no selection to lend", a plane is "this is what it
+    /// selects, and it may legitimately be nothing anywhere".
+    ///
+    /// Nobody outside this file needs that distinction — `combine` flattens it to an
+    /// empty plane — but `referenced` does, because it is the whole difference between a
+    /// dependency that is ABSENT and one that selects nothing, and the two fold into a
+    /// stack differently.
+    static func alpha(mask: Mask,
+                      size: (width: Int, height: Int),
+                      source: ImageBuffer?,
+                      strokeSets: [String: BrushStrokeSet],
+                      aiMattes: [String: Plane],
+                      brushPlanes: [String: Plane],
+                      masks: [Mask],
+                      resolving: Set<String>) -> Plane? {
         let w = Swift.max(size.width, 1)
         let h = Swift.max(size.height, 1)
         var acc = Plane(width: w, height: h)
-        if size.width < 1 || size.height < 1 { return acc }
+        if size.width < 1 || size.height < 1 { return nil }
+
+        // A MASK NOBODY HAS FINISHED MAKING SELECTS NOTHING, INVERT OR NOT.
+        //
+        // `invert` flips the folded alpha, so an empty stack inverted is the WHOLE
+        // FRAME — which is right for a stack whose components deliberately select
+        // nothing, and catastrophic for one that has not been drawn yet. The picker
+        // stopped seeding geometry this round (a radial arriving as a circle was the
+        // owner's complaint, and it also blocked the draw gesture), so there is now a
+        // window of seconds between choosing a kind and drawing it. Ticking Invert in
+        // that window used to hand a two-stop lift to the entire photograph.
+        //
+        // The distinction the fold needs is the same one the panel's badge already
+        // makes: a component that reads INCOMPLETE is not a selection of nothing, it is
+        // the absence of a selection, and there is nothing there to invert. A mask with
+        // no components at all is the same statement — which is what the stack summary
+        // has always said in words: "nothing selected yet".
+        //
+        // AND "FINISHED" MEANS ITS INPUT IS THERE, not merely that its fields parse.
+        // `validationError()` is a check on the RECIPE — a brush passes it the moment it
+        // has a `strokesRef` — and a reference is only a promise that bytes exist
+        // somewhere. When the promise is unkept (a catalog restored without its blob
+        // directory, a sidecar that dropped its payload, a matte not yet generated) the
+        // component rasterizes to a zero plane, which reads as "selects nothing", which
+        // an invert turns back into the whole photograph. That is the same catastrophe
+        // the paragraph above is about, arriving through the one door it did not close:
+        // structurally valid, semantically absent.
+        //
+        // So the question every guard here asks is whether the component CONTRIBUTED —
+        // `isEvaluable` for the kinds that read an input, and `referenced` returning a
+        // plane rather than nil for the one kind that reads another mask. The flag is
+        // read after the fold rather than before it, because the reference's answer is
+        // not knowable until it has been resolved, and resolving it twice would mean two
+        // answers to keep in step.
+        let n = w * h
+        var contributed = false
 
         // Accumulator seeds at 0, so a stack that opens with subtract/intersect stays
         // empty — same as LR, and the property maskalgebra.json pins.
-        let n = w * h
         for c in mask.components {
-            let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
-            let raw = rasterize(component: c, size: (width: w, height: h),
-                                source: source, strokes: set, aiMattes: aiMattes)
+            // AND THE SAME RULE PER COMPONENT, which is the half that was missing.
+            //
+            // A whole-mask guard only fires when EVERY component is incomplete. The loop
+            // then rasterized the unfinished ones anyway — `rasterize` hands back a zero
+            // plane — and folded them in. For `.add` that is invisible, because max(a, 0)
+            // is a; for `.subtract` it is also invisible, because min(a, 1) is a. For
+            // `.intersect` it is `a × 0`, and THE WHOLE MASK GOES TO ZERO.
+            //
+            // Reachable in two clicks: a mask with a working Radial, add a component —
+            // `makeComponent` seeds no geometry by design — and set its op to Intersect
+            // with the segmented control that is always on screen. Every pixel the mask
+            // selected disappears until the second component is drawn, and a recipe saved
+            // in that state renders empty forever, in the loupe and in the delivered
+            // file, with the panel flagging only the one component as INCOMPLETE.
+            //
+            // "The absence of a selection" is the argument the guard above already makes.
+            // A component that cannot be evaluated has nothing to contribute to the fold
+            // — not zero, nothing — and skipping it is what that sentence means applied
+            // one level down.
+            //
+            // AND THE SAME RULE THROUGH A REFERENCE (audit F5-01's neighbour). This is
+            // the door the two paragraphs above left open, because `isEvaluable` cannot
+            // answer for `.maskRef` — what it needs is another mask, and only `referenced`
+            // holds the list. So a reference to a mask that has been DELETED, or one that
+            // closes a cycle, or one whose target has no evaluable component of its own,
+            // used to arrive here as a zero plane and fold in as a selection of nothing:
+            // under `.intersect` it emptied the mask that pointed at it, and under a
+            // whole-mask `invert` it lifted the entire photograph. `referenced` now says
+            // ABSENT with nil, and absent is skipped like any other unfinished component:
+            // deleting the Sky mask leaves "Sky ∩ Person" selecting the Person, which is
+            // the only reading under which a delete is not also a silent edit to every
+            // mask that ever named it.
+            let raw: Plane
+            if c.kind == .maskRef {
+                guard let lent = referenced(c, size: (width: w, height: h), source: source,
+                                            strokeSets: strokeSets, aiMattes: aiMattes,
+                                            brushPlanes: brushPlanes, masks: masks,
+                                            resolving: resolving.union([mask.id]))
+                else { continue }
+                raw = lent
+            } else {
+                guard MaskRaster.isEvaluable(c, strokeSets: strokeSets, aiMattes: aiMattes,
+                                             brushPlanes: brushPlanes) else { continue }
+                let set: BrushStrokeSet? = c.kind == .brush ? strokeSets[c.strokesRef ?? ""] : nil
+                let held: Plane? = c.kind == .brush ? brushPlanes[c.strokesRef ?? ""] : nil
+                raw = rasterize(component: c, size: (width: w, height: h),
+                                source: source, strokes: set, aiMattes: aiMattes,
+                                brushPlane: held)
+            }
+            // A plane of the wrong size is not a contribution either — it is an input
+            // this fold cannot read, which is the absent case again rather than a zero.
             if raw.width != w || raw.height != h { continue }
+            contributed = true
             for i in 0..<n {
                 let v = MaskAlgebra.componentAlpha(raw: Double(raw.values[i]),
                                                    invert: c.invert, amount: c.amount)
@@ -138,8 +283,110 @@ public enum MaskRaster {
             }
         }
 
+        guard contributed else { return nil }
         return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
     }
+
+    /// Whether this component can actually be rasterized into a selection.
+    ///
+    /// Two questions, and the second is the one that was missing. Does the recipe
+    /// describe it fully (`validationError()`)? And is the DATA it reads present — a
+    /// brush's stroke set or its held plane, an AI kind's matte?
+    ///
+    /// A component that fails either is not a selection of nothing; it is the absence of
+    /// a selection, and there is nothing there to inflate, subtract or invert. The
+    /// distinction matters exactly once and then it matters enormously: `invert` turns
+    /// "selects nothing" into "selects everything", so a brush mask whose blob did not
+    /// come back from a restore stops being a dodge on one shoulder and becomes a
+    /// two-stop lift on the whole photograph — in the loupe, in the overlay, and in the
+    /// thumbnails, which read the memory cache rather than the export path's guard.
+    ///
+    /// `.maskRef` is not asked here, and the reason is not that a reference cannot be
+    /// absent — it can, and that was the hole this function's own argument left open.
+    /// It is that the answer is only knowable by evaluating another mask, which needs
+    /// the list and the cycle guard. `referenced` asks it, once, and returns nil for
+    /// exactly what `false` means here.
+    static func isEvaluable(_ c: MaskComponent,
+                            strokeSets: [String: BrushStrokeSet],
+                            aiMattes: [String: Plane],
+                            brushPlanes: [String: Plane]) -> Bool {
+        guard c.validationError() == nil else { return false }
+        switch c.kind {
+        case .brush:
+            // Either source is enough: `brushPlanes` is the painted plane held across
+            // frames, `strokeSets` the strokes themselves. A stroke set that exists but
+            // is EMPTY is a real answer — a stroke that was undone back to nothing —
+            // so presence is the test, not point count.
+            guard let ref = c.strokesRef else { return false }
+            return strokeSets[ref] != nil || brushPlanes[ref] != nil
+        default:
+            // Every kind whose selection comes from a model: no matte, no selection.
+            guard c.kind.needsMatte else { return true }
+            return aiMattes[c.kind.rawValue] != nil
+        }
+    }
+
+    /// One `maskRef` component's alpha: the FINISHED alpha of the mask it names.
+    ///
+    /// Finished, not raw — the referenced mask's own fold, its whole-mask invert and its
+    /// whole refinement chain — because "Sky ∩ Person" means the two selections a
+    /// photographer can see, not two half-built ones. It is a live reference: soften the
+    /// Sky mask's edge and every intersection with it softens too, which is the property
+    /// Capture One's Combine Masks does not have, since that merges sources into one
+    /// layer and forgets where they came from.
+    ///
+    /// What it does NOT take is the referenced mask's Amount, which scales that mask's
+    /// ADJUSTMENTS and never its raster (`MaskAlgebra`'s header). A reference is about
+    /// the selection; the strength of the other mask's edit is none of its business.
+    ///
+    /// NIL IS "ABSENT", NEVER "SELECTS NOTHING". Four ways a reference has nothing to
+    /// lend, and each of them used to arrive at the fold as a zero plane:
+    ///
+    ///   · the component names no mask at all (`validationError` already says so);
+    ///   · it names a mask that is NOT IN THE RECIPE — deleted, or arriving from another
+    ///     photograph through Paste Settings, which copies ids verbatim;
+    ///   · it closes a CYCLE, which `resolving` catches: `resolving` carries every id on
+    ///     the current chain, so a mask that names itself, or A → B → A, stops rather
+    ///     than recursing, because a cyclic definition has no fixed point to be right
+    ///     about. `referenceDepthLimit` is the belt to that brace — a chain longer than
+    ///     any photograph could justify stops rather than growing a stack;
+    ///   · the target resolves to nothing itself, which is `alpha` returning nil one
+    ///     level down: a Subject mask whose matte was never generated has no selection
+    ///     to lend, and saying it selects nothing would be a claim about the picture
+    ///     that nothing measured.
+    ///
+    /// A zero plane is a CLAIM — this mask selects no pixel — and under `.intersect` it
+    /// empties whatever pointed at it, while under a whole-mask `invert` it selects the
+    /// entire photograph. Neither is an answer a deleted mask is entitled to give.
+    static func referenced(_ c: MaskComponent,
+                           size: (width: Int, height: Int),
+                           source: ImageBuffer?,
+                           strokeSets: [String: BrushStrokeSet],
+                           aiMattes: [String: Plane],
+                           brushPlanes: [String: Plane],
+                           masks: [Mask],
+                           resolving: Set<String>) -> Plane? {
+        guard let id = c.maskRef, !id.isEmpty,
+              !resolving.contains(id),
+              resolving.count <= referenceDepthLimit,
+              let target = masks.first(where: { $0.id == id })
+        else { return nil }
+        // A disabled mask still SELECTS. `enabled` says whether its adjustments reach
+        // the picture, and a reference wants its selection — otherwise turning off the
+        // Sky mask to look at something would silently empty every mask built on it.
+        //
+        // Which is a promise about this function, and `MaskDependency.contributing` is
+        // what makes it keepable: the disabled mask's INPUTS — its Vision matte, its
+        // brush blob — have to be fetched too, and every roster that decides what to
+        // fetch used to stop at `where mask.enabled` (audit F5-01).
+        return alpha(mask: target, size: size, source: source,
+                     strokeSets: strokeSets, aiMattes: aiMattes,
+                     brushPlanes: brushPlanes, masks: masks, resolving: resolving)
+    }
+
+    /// How long a chain of references may be. Eight is past any composition a
+    /// photograph justifies and far short of a stack that matters.
+    static let referenceDepthLimit = 8
 
     /// docs/08 §8.5: "radius ≈ Refine × 2% long edge". At 61 MP (9504 px long edge),
     /// Refine 10 → 19 px, Refine 100 → 190 px.
@@ -251,8 +498,50 @@ public enum MaskRaster {
     /// Signed-distance dilate/erode. The α ≥ 0.5 set's exact Euclidean distance
     /// transform (Felzenszwalb–Huttenlocher, two separable O(n) passes) gives the
     /// signed distance φ; the boundary moves by `shift` and the measured ramp width
-    /// is preserved. Level-set advection cannot do this — for a near-binary AI matte
-    /// ‖∇α‖ saturates and a 20 px shift would move the edge by one pixel.
+    /// is preserved. Level-set advection along ‖∇α‖ cannot do this — for a near-binary
+    /// AI matte that gradient saturates and a 20 px shift would move the edge by one
+    /// pixel. Advection along ∇φ can, and does, below: a distance field's gradient is
+    /// a unit normal everywhere, however hard or soft the alpha it was built from.
+    ///
+    /// ONE GLOBAL RAMP WIDTH IS A CLAIM ABOUT THE WHOLE PLANE, and on a stack it is
+    /// routinely false. `rampWidth` is the mean gradient over the transition band, and
+    /// a HARD edge contributes NO samples to that mean — no pixel of it lands strictly
+    /// inside 0.02…0.98 — so on a mask holding one hard component and one soft one the
+    /// soft component's ramp wins outright and the hard boundary is rebuilt as a ramp
+    /// tens of pixels wide. Measured on `MaskEdgeShiftTests`' own fixture — two `.add`
+    /// radials at feather 0 and feather 100, 320² raster — the width is 1.00 px for the
+    /// hard radial alone (nothing in the band at all), 54.6 px for the soft one alone,
+    /// and 54.6 px for the two of them together.
+    ///
+    /// What that costs is not a softer edge, it is THE WRONG DIRECTION. The rebuild
+    /// puts a ramp of width W symmetrically about φ = shift, and for a convex region
+    /// the area it adds outside exceeds the area it removes inside by πW²/12 — so an
+    /// EROSION GREW the mask: on that fixture at 320², Edge −12 came back 3.9% LARGER
+    /// than Edge 0, and the whole erode half from −30 to −1 sat above where it started,
+    /// so the slider rose to a hump at −12 and came back down instead of shrinking
+    /// anything. It is worse at higher resolution, because W scales with the frame:
+    /// the same Edge −12 is +1.2% at 96², +1.8% at 160², +3.9% at 320² — which means
+    /// worse in the delivered file than in the loupe, on the same recipe.
+    ///
+    /// So the reconstruction is now bounded by how well one width actually describes
+    /// this plane (`rampWidthSpread`), and where it does not, the boundary is moved by
+    /// ADVECTING the alpha the mask already has instead of rebuilding a new one:
+    ///
+    ///   · coherent (one width) → `rebuilt`, bit-for-bit what this function always did;
+    ///   · incoherent (two or more) → `advected`, each edge shifted by `shift` along
+    ///     the distance field's own normal, which preserves whatever profile that edge
+    ///     has — hard stays hard, soft stays soft — and therefore cannot invert the
+    ///     sign of the control;
+    ///   · in between → a blend, so nothing about the slider steps.
+    ///
+    /// WHY NOT SIMPLY FADE THE RECONSTRUCTION OUT on a mixed mask, which is the smaller
+    /// change: because it cannot work, and the arithmetic says so rather than a taste.
+    /// The output is `mix(a, rebuilt, e)`, so coverage is `(1−e)·cov(a) + e·cov(rebuilt)`
+    /// — LINEAR in the engagement. Wherever the defect is (Edge −30…−1 on the fixture
+    /// above) `cov(rebuilt) > cov(a)`, so EVERY `e > 0` grows the mask and `e = 0`
+    /// leaves it exactly where it was. Fading can reach "Edge does nothing"; it cannot
+    /// reach "Edge −12 erodes", which is the only answer the label permits. A fallback
+    /// that still moves the boundary is not a nicety here, it is the requirement.
     static func edgeShifted(_ a: Plane, edge: Double, longEdge: Int) -> Plane {
         guard edge.isFinite else { return a }
         let e = Num.clamp(edge, -50, 50)
@@ -308,17 +597,213 @@ public enum MaskRaster {
         let dToInside = edt2D(fInside, w, h)
         let dToOutside = edt2D(fOutside, w, h)
 
-        var out = a
+        // How much of the reconstruction this plane has earned. Exactly 1 — and so
+        // exactly the arithmetic that shipped — for every mask whose edges share one
+        // width, which is what keeps this change bounded to the masks that were broken.
+        // Measured after the boundary guard above, because a plane with no boundary has
+        // already returned and there is nothing there to measure.
+        let coherence = rampCoherence(a)
+
+        // φ, held rather than recomputed inline, because the advection below needs its
+        // GRADIENT and a gradient needs the neighbours. The two indicator planes are
+        // released first: they have been consumed, and holding them while φ is allocated
+        // would raise this function's peak by a full plane of doubles on an export-sized
+        // mask for no reason.
+        fInside = []
+        fOutside = []
+        var phi = [Double](repeating: 0, count: n)
         for i in 0..<n {
             let inside = Double(a.values[i]) >= 0.5
-            let phi = inside
+            phi[i] = inside
                 ? -(dToOutside[i].squareRoot() - 0.5)
                 : (dToInside[i].squareRoot() - 0.5)
-            let rebuilt = Num.saturate(0.5 + (shift - phi) / rampWidth)
-            out.values[i] = Float(Num.mix(Double(a.values[i]), rebuilt, engagement))
+        }
+
+        var out = a
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = y * w + x
+                let rebuilt = Num.saturate(0.5 + (shift - phi[i]) / rampWidth)
+                // `coherence < 1` is a guard on the ARITHMETIC, not only on the cost:
+                // `Num.mix(v, rebuilt, 1)` is `v + (rebuilt − v)`, which is not
+                // guaranteed to be `rebuilt` to the last bit, and the one property this
+                // change is required to keep is that a single-width mask renders
+                // exactly as it did before.
+                var target = rebuilt
+                if coherence < 1 {
+                    let moved = advected(a, phi, x, y, w, h, shift)
+                    target = Num.mix(moved, rebuilt, coherence)
+                }
+                out.values[i] = Float(Num.mix(Double(a.values[i]), target, engagement))
+            }
         }
         return out
     }
+
+    /// The alpha this pixel would be holding if the boundary had already moved by
+    /// `shift`, read off the mask itself rather than rebuilt from a model of it.
+    ///
+    /// φ is a signed distance, so ∇φ is a UNIT normal — pointing away from the boundary
+    /// — everywhere except on the medial axis, where the alpha is saturated anyway and
+    /// nothing observable depends on the direction. Stepping `−shift` along it lands on
+    /// the point whose current distance is `φ − shift`; sampling the alpha there moves
+    /// every level set by exactly `shift` and moves NO level set relative to any other.
+    /// That is the whole difference from the reconstruction: this transports the
+    /// profile the mask has, and cannot invent one it does not.
+    ///
+    /// Bilinear, because `shift` is a real number of pixels — Edge ±1 on a 2560 frame
+    /// is half a pixel, and a nearest-neighbour read there would quantize the slider
+    /// into steps the reconstruction never had.
+    static func advected(_ a: Plane, _ phi: [Double],
+                         _ x: Int, _ y: Int, _ w: Int, _ h: Int,
+                         _ shift: Double) -> Double {
+        let row = y * w
+        let rowAbove = (y > 0 ? y - 1 : 0) * w
+        let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
+        let gx = (phi[row + (x < w - 1 ? x + 1 : w - 1)]
+                  - phi[row + (x > 0 ? x - 1 : 0)]) * 0.5
+        let gy = (phi[rowBelow + x] - phi[rowAbove + x]) * 0.5
+        let m = (gx * gx + gy * gy).squareRoot()
+        // A vanishing gradient is the medial axis (or a one-pixel island): there is no
+        // normal to travel along, and the honest answer is the alpha already here.
+        guard m.isFinite, m > 1e-6 else { return Double(a.values[row + x]) }
+        let sample = a.bilinear(Double(x) + 0.5 - shift * gx / m,
+                                Double(y) + 0.5 - shift * gy / m)
+        return Num.saturate(sample.isFinite ? sample : Double(a.values[row + x]))
+    }
+
+    /// How well ONE ramp width describes this plane: 1 when every edge shares a width,
+    /// falling to 0 when the mask holds edges of wildly different widths.
+    ///
+    /// MEASURED ON THE BOUNDARY, NOT ON THE TRANSITION BAND, and that is the whole
+    /// design. The obvious statistic — the variance of |∇α| over the same 0.02…0.98
+    /// band `rampWidth` averages — is BLIND TO EXACTLY THE CASE THAT BREAKS, because a
+    /// hard edge puts no pixel in that band: measured on the two-radial mask above at
+    /// 320², the band's coefficient of variation is 0.269 for the soft radial alone and
+    /// 0.268 for the soft and hard radials together. The same number to two digits,
+    /// while the mask it is describing went from one ramp width to two.
+    /// `testTheTransitionBandCannotSeeAHardEdge` holds that refutation in place.
+    ///
+    /// Every edge has a boundary, hard or soft, so that is where the question is asked:
+    /// the pixels straddling α = 0.5, each carrying a local width from its own gradient,
+    /// and the spread of the logarithm of those widths as the answer. A log spread is
+    /// the right shape because what matters is the RATIO of the widths present — 1 px
+    /// against 55 px is the same defect at any resolution — and because it is scale-free
+    /// the same two constants hold from a 96 px loupe tile to a 61 MP export.
+    static func rampCoherence(_ a: Plane) -> Double {
+        let measured = rampWidthSpread(a)
+        // Too little boundary to say anything: keep the shipped behaviour rather than
+        // let a four-pixel mask's arithmetic noise disengage the control.
+        guard measured.samples >= minimumBoundarySamples else { return 1 }
+        let s = measured.spread
+        guard s.isFinite else { return 1 }
+        return Num.saturate((rampSpreadLimit - s) / (rampSpreadLimit - rampSpreadKnee))
+    }
+
+    /// Mean absolute deviation of the log local width over the boundary, and how many
+    /// boundary pixels it was measured on.
+    ///
+    /// MEAN ABSOLUTE deviation rather than standard deviation, because one pixel must
+    /// not be able to disengage the control: a plateau grazing α = 0.5 produces a
+    /// boundary pixel whose gradient is 1e-4 and whose width clamps to the frame, and
+    /// squaring that deviation would let a single such pixel outvote a thousand honest
+    /// ones. Under MAD it contributes its share and no more.
+    ///
+    /// TWO PASSES, NOT ONE ARRAY. A deviation about the mean needs the mean first, and
+    /// the alternative — collecting the boundary's widths and reducing them afterwards —
+    /// is a per-pixel allocation on a plane whose boundary is normally O(perimeter) and
+    /// pathologically O(pixels). Two sweeps of arithmetic beat one sweep that can ask
+    /// for half a gigabyte on a 61 MP mask whose alpha happens to hover around 0.5.
+    static func rampWidthSpread(_ a: Plane) -> (spread: Double, samples: Int) {
+        let cap = Double(Swift.max(Swift.max(a.width, a.height), 2))
+        var sum = 0.0
+        var count = 0
+        forEachBoundaryLogWidth(a, cap) { l in
+            sum += l
+            count += 1
+        }
+        guard count > 0 else { return (0, 0) }
+        let mean = sum / Double(count)
+        var deviation = 0.0
+        forEachBoundaryLogWidth(a, cap) { deviation += abs($0 - mean) }
+        return (deviation / Double(count), count)
+    }
+
+    /// Every boundary pixel's local ramp width, logged.
+    ///
+    /// A pixel is on the boundary when one of its four neighbours is on the other side
+    /// of α = 0.5 — the frame's edge repeats rather than reflecting, the same convention
+    /// `clampedSample` gives the rest of this file, so a mask running off the frame does
+    /// not acquire a boundary there that the picture does not have.
+    ///
+    /// THE GRADIENT IS THE LARGER OF TWO ESTIMATES, and it has to be. A central
+    /// difference is rotation-invariant on a smooth ramp — which is why the soft cases
+    /// measure a spread near zero — but on a hard step it reads 0.5 across a face and
+    /// 0.707 across a corner, so a plain hard mask would look 1.4× self-inconsistent
+    /// for no better reason than the pixel grid. A one-sided difference reads exactly 1
+    /// on every hard boundary pixel and understates a smooth ramp by up to √2. Taking
+    /// the maximum takes the estimate each is good at: 1 px for a hard edge, ≈W/1.5 for
+    /// a smooth one, and a spread inside a single edge that stays near zero for both.
+    ///
+    /// Indexed directly rather than through `clampedSample`, and the body is called only
+    /// for the boundary: this runs twice over every pixel of every mask that reaches the
+    /// Edge slider, including the ones it will decide to leave alone.
+    private static func forEachBoundaryLogWidth(_ a: Plane, _ cap: Double,
+                                                _ body: (Double) -> Void) {
+        let w = a.width, h = a.height
+        guard w > 0, h > 0 else { return }
+        a.values.withUnsafeBufferPointer { v in
+            for y in 0..<h {
+                let row = y * w
+                let rowAbove = (y > 0 ? y - 1 : 0) * w
+                let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
+                for x in 0..<w {
+                    let centre = Double(v[row + x])
+                    let inside = centre >= 0.5
+                    let left = Double(v[row + (x > 0 ? x - 1 : 0)])
+                    let right = Double(v[row + (x < w - 1 ? x + 1 : w - 1)])
+                    let above = Double(v[rowAbove + x])
+                    let below = Double(v[rowBelow + x])
+                    guard (left >= 0.5) != inside || (right >= 0.5) != inside
+                        || (above >= 0.5) != inside || (below >= 0.5) != inside
+                    else { continue }
+                    let gx = (right - left) * 0.5
+                    let gy = (below - above) * 0.5
+                    var g = (gx * gx + gy * gy).squareRoot()
+                    g = Swift.max(g, Swift.max(abs(right - centre), abs(left - centre)))
+                    g = Swift.max(g, Swift.max(abs(below - centre), abs(above - centre)))
+                    guard g.isFinite, g > 0 else { continue }
+                    body(log(Num.clamp(1 / g, 1, cap)))
+                }
+            }
+        }
+    }
+
+    /// Where the reconstruction starts being withdrawn, and where it is gone, in mean
+    /// absolute deviation of log width. [D]
+    ///
+    /// The knee is a DEAD BAND and that is what makes the identity property hold: below
+    /// it `rampCoherence` saturates at exactly 1 and this file's arithmetic is the
+    /// arithmetic that shipped.
+    ///
+    /// It sits at 0.45 because 0.32 is the widest spread any single-edge mask produced
+    /// across a 150-configuration survey — radial, ellipse to 8:1 at every rotation,
+    /// polygon with a spike, linear, feather 0…100, rasters 64…512, both aspects — and
+    /// the widest of those is a strongly eccentric feathered ellipse, whose ramp really
+    /// is wider across the ends than the sides. A knee under that would disengage the
+    /// reconstruction on a shape that has been rendering the same way for a year, which
+    /// is the regression this bound exists to avoid.
+    ///
+    /// The limit at 0.75 is where the reconstruction is gone and the boundary is moved
+    /// by advection alone. It is set by the hardest case rather than the loudest one: a
+    /// SMALL hard component beside a large soft one contributes little to the spread and
+    /// still grew the mask under erosion at 0.386 engagement, so the limit is pulled
+    /// down to the 0.75 that case measures. The two-radial mask that named this defect
+    /// is past it at every raster from 64 px up.
+    static let rampSpreadKnee: Double = 0.45
+    static let rampSpreadLimit: Double = 0.75
+    /// Below this many boundary pixels the spread is noise, not a measurement.
+    static let minimumBoundarySamples: Int = 16
 
     // MARK: - Component rasterizers
 
@@ -355,6 +840,63 @@ public enum MaskRaster {
     /// center/axes/rotation. The falloff runs INWARD from the ellipse edge (LR's
     /// convention, which the Feather 50 default matches). Center and radii are
     /// source-normalized against width and height respectively, per docs/15's example.
+    /// Where a point on a rotated ellipse actually lands, in source-normalized
+    /// coordinates — the on-image handles' half of `radialPlane`'s geometry.
+    ///
+    /// **This exists because the two drifted, and the drift shipped.** `radialPlane`
+    /// used to rotate in per-axis normalized space; that was fixed to rotate in
+    /// long-edge units, for the reason the comment below gives — pixels are square and
+    /// normalized coordinates are not, so on a 3:2 frame a 45° ellipse rendered at 33.7°
+    /// with the wrong eccentricity. `MaskCanvas` kept the old convention, and its own
+    /// comment went on asserting "the rotation convention is the rasterizer's" for
+    /// months after it had stopped being true.
+    ///
+    /// What that cost: on a 6000×4000 frame with a radial turned to 45°, the drawn rim,
+    /// all four resize dots, the feather ring and the rotate stalk sat 0.07 of the frame
+    /// height away from the mask that was actually rendering — about 283 source pixels,
+    /// roughly 85 screen points, against an 11 pt grab radius. The outline did not match
+    /// the effect, pressing the drawn rim could miss the real one and be read as "draw a
+    /// new ellipse here", and resize dragged by the wrong amount.
+    ///
+    /// `offset` is in the wire format's own units: a displacement in per-axis normalized
+    /// coordinates, so `(radii[0], 0)` is the major-axis end. The return is the same.
+    /// At rotation 0, and on a square frame, this is the identity on `offset` — which is
+    /// why the drift was invisible until someone turned an ellipse on a 3:2 photograph.
+    public static func radialOffset(_ offset: (x: Double, y: Double),
+                                    rotation: Double,
+                                    width: Int, height: Int) -> (x: Double, y: Double) {
+        let long = Double(Swift.max(width, height))
+        guard long > 0 else { return offset }
+        let sx = Double(width) / long, sy = Double(height) / long
+        guard sx > 0, sy > 0 else { return offset }
+        // Into long-edge units, where a rotation is a rotation.
+        let ox = offset.x * sx, oy = offset.y * sy
+        let a = rotation * Double.pi / 180
+        let c = cos(a), s = sin(a)
+        // `radialPlane` rotates a sample by −rotation to reach the ellipse's own frame,
+        // so travelling the other way — from the ellipse's frame out to the picture —
+        // is a rotation by +rotation. Inverting the wrong direction is the other way to
+        // get this wrong, and it looks identical at 0° and at 180°.
+        let rx = ox * c - oy * s
+        let ry = ox * s + oy * c
+        return (rx / sx, ry / sy)
+    }
+
+    /// The inverse of `radialOffset`: a source-normalized displacement from the centre,
+    /// expressed in the ellipse's own frame. What a resize or feather drag needs.
+    public static func radialLocal(_ delta: (x: Double, y: Double),
+                                   rotation: Double,
+                                   width: Int, height: Int) -> (x: Double, y: Double) {
+        let long = Double(Swift.max(width, height))
+        guard long > 0 else { return delta }
+        let sx = Double(width) / long, sy = Double(height) / long
+        guard sx > 0, sy > 0 else { return delta }
+        let dx = delta.x * sx, dy = delta.y * sy
+        let a = -rotation * Double.pi / 180
+        let c = cos(a), s = sin(a)
+        return ((dx * c - dy * s) / sx, (dx * s + dy * c) / sy)
+    }
+
     static func radialPlane(_ c: MaskComponent, _ w: Int, _ h: Int) -> Plane {
         var p = Plane(width: w, height: h)
         guard let center = c.center, center.count == 2,
@@ -416,11 +958,67 @@ public enum MaskRaster {
     /// form as the radial gradient — one shader serves both.
     static func brushPlane(_ c: MaskComponent, _ w: Int, _ h: Int,
                            _ source: ImageBuffer?, _ set: BrushStrokeSet?) -> Plane {
-        var p = Plane(width: w, height: h)
-        guard let set = set, !set.strokes.isEmpty else { return p }
+        guard let set = set else { return Plane(width: w, height: h) }
+        return accumulatedBrushPlane(strokes: set, size: (width: w, height: h),
+                                     source: source, resuming: nil)
+    }
+
+    /// A brush component's plane, optionally **resumed** from a previously computed one.
+    ///
+    /// This is the shape docs/08 §8.2 specifies and the shape the shipping path did not
+    /// have: *"brush strokes render into the cached component buffer incrementally
+    /// rather than re-folding the whole stack per stamp."* What stood here painted
+    /// every stroke of the set on every rasterization, so a sixty-stroke mask paid
+    /// sixty strokes on every settle, every export and every draft cache miss — and the
+    /// sixty-first stroke made all sixty-one more expensive. The cost of painting grew
+    /// with how much you had already painted, which is the worst possible shape for the
+    /// one tool a photographer uses continuously (docs/36 §1.2).
+    ///
+    /// `resuming` is `(plane, strokes)`: a plane that already holds the first `strokes`
+    /// strokes of this same set, at this same size, against this same stage input. When
+    /// it is supplied and usable, only `strokes...` are painted. It is REFUSED — and the
+    /// whole set repainted — whenever it cannot be shown to be a prefix of this one:
+    ///
+    ///   · a size mismatch (a different raster resolution is a different plane),
+    ///   · a count past the end of the set (strokes were removed or undone),
+    ///   · a count that is negative.
+    ///
+    /// Correctness rests on one property of the fold: strokes composite in draw order
+    /// and each one reads only the accumulator, never the strokes before it. Paint
+    /// deposits `a + flow·s·max(density − a, 0)` and an eraser multiplies toward zero;
+    /// both are functions of the accumulator alone. So painting `[0..<k)` then `[k...]`
+    /// is exactly painting `[0...]`, which is what
+    /// `testResumingAStrokeSetIsTheSameAsPaintingItWhole` pins.
+    ///
+    /// The caller owns the cache and therefore owns the key. `PipelineRenderer` keys on
+    /// the stroke reference, the raster size and the stage-input fingerprint — the last
+    /// because Automask samples the picture, so the same strokes over a different
+    /// exposure are a different plane.
+    public static func accumulatedBrushPlane(strokes set: BrushStrokeSet,
+                                             size: (width: Int, height: Int),
+                                             source: ImageBuffer? = nil,
+                                             resuming: (plane: Plane, strokes: Int)?
+                                                 = nil) -> Plane {
+        let w = Swift.max(size.width, 1)
+        let h = Swift.max(size.height, 1)
+        if size.width < 1 || size.height < 1 { return Plane(width: w, height: h) }
+
+        var p: Plane
+        var first: Int
+        if let resuming, resuming.plane.width == w, resuming.plane.height == h,
+           resuming.strokes >= 0, resuming.strokes <= set.strokes.count {
+            p = resuming.plane
+            first = resuming.strokes
+        } else {
+            p = Plane(width: w, height: h)
+            first = 0
+        }
+        guard first < set.strokes.count else { return p }
+
         let long = Double(Swift.max(w, h))
-        for stroke in set.strokes {
-            paint(stroke: stroke, into: &p, width: w, height: h, longEdge: long, source: source)
+        for index in first..<set.strokes.count {
+            paint(stroke: set.strokes[index], into: &p,
+                  width: w, height: h, longEdge: long, source: source)
         }
         return p
     }
@@ -439,12 +1037,14 @@ public enum MaskRaster {
         // a zero-width smoothstep.
         let shoulder = Swift.max(s * lumaShoulderEV / evSpan, 1e-4)
         let weights = RGBColorSpace.rec2020.luminanceWeights
+        // Absent means luma, which is what every band written before the field means.
+        let channel = c.channel ?? .luma
 
         for y in 0..<h {
             for x in 0..<w {
                 let rgb = srcColor(src, x, y, w, h)
-                let luminance = weights.r * rgb.r + weights.g * rgb.g + weights.b * rgb.b
-                let ev = Num.safeLog2(luminance.isFinite ? luminance : 0, floorEV: -16)
+                let measured = channel.value(rgb, weights: weights)
+                let ev = Num.safeLog2(measured.isFinite ? measured : 0, floorEV: -16)
                 let nEV = Num.saturate((ev - evMin) / (evMax - evMin))
                 let rise = smoothstep(lo01 - shoulder, lo01, nEV)
                 let fall = 1 - smoothstep(hi01, hi01 + shoulder, nEV)
@@ -453,6 +1053,198 @@ public enum MaskRaster {
         }
         return p
     }
+
+    /// A closed outline, filled — the polygon and the lasso, which are one thing.
+    ///
+    /// ONE MECHANISM DOES BOTH JOBS. The value at a pixel is a smoothstep over the
+    /// SIGNED DISTANCE to the outline, so the same arithmetic that feathers the edge
+    /// also antialiases it: at Feather 0 the ramp is exactly one pixel wide, which is a
+    /// clean edge rather than a staircase, and every higher setting simply widens it.
+    /// A fill that computed coverage and then blurred would need two passes, would
+    /// round the corners at Feather 0, and would put the boundary in a different place
+    /// than the handles the photographer is dragging.
+    ///
+    /// Distances are in LONG-EDGE units, for the reason `linearPlane` states: pixels are
+    /// square and normalized coordinates are not, so a feather measured in normalized
+    /// space would be wider across a 3:2 frame than down it.
+    ///
+    /// Winding is EVEN-ODD. A lasso that crosses itself — which is most of them, drawn
+    /// quickly — produces a hole under the nonzero rule and does not under even-odd, and
+    /// a hole where the photographer's hand wobbled is never what they meant.
+    static func polygonPlane(_ c: MaskComponent, _ w: Int, _ h: Int) -> Plane {
+        var p = Plane(width: w, height: h)
+        guard let raw = c.path, raw.count >= 3 else { return p }
+        let long = Double(Swift.max(w, h))
+        let sx = Double(w) / long, sy = Double(h) / long
+        var xs = [Double](), ys = [Double]()
+        xs.reserveCapacity(raw.count)
+        ys.reserveCapacity(raw.count)
+        for point in raw {
+            guard point.count == 2, point[0].isFinite, point[1].isFinite else { return p }
+            xs.append(point[0] * sx)
+            ys.append(point[1] * sy)
+        }
+        let n = xs.count
+
+        // Feather 0 is ONE PIXEL, not zero: a zero-width ramp is a staircase, and the
+        // one place a mask must never look cheap is the edge the photographer drew by
+        // hand. Above that it is a fraction of the long edge, matching the radial's
+        // travel closely enough that the two controls feel like one control.
+        let pixel = 1.0 / long
+        let f = Num.clamp(c.feather ?? 0, 0, 100) / 100
+        let band = Swift.max(f * polygonFeatherSpan, pixel)
+
+        // The outline's own bounding box, grown by the feather: outside it the answer
+        // is zero, and a lasso around one window in a 45 MP frame would otherwise pay
+        // for a per-edge distance at every pixel in the photograph.
+        let minX = (xs.min() ?? 0) - band, maxX = (xs.max() ?? 0) + band
+        let minY = (ys.min() ?? 0) - band, maxY = (ys.max() ?? 0) + band
+
+        for y in 0..<h {
+            let py = (Double(y) + 0.5) / long
+            if py < minY || py > maxY { continue }
+            for x in 0..<w {
+                let px = (Double(x) + 0.5) / long
+                if px < minX || px > maxX { continue }
+                let d = signedDistanceToOutline(px, py, xs, ys, n)
+                // `d` is positive inside. The ramp is centred ON the outline, so the
+                // boundary the photographer placed is the half-selected line rather
+                // than the outer or inner limit of the falloff — which is what makes a
+                // feathered shape stay the size it was drawn.
+                p[x, y] = Num.saturate(smoothstep(-band / 2, band / 2, d))
+            }
+        }
+        return p
+    }
+
+    /// Distance from a point to the outline, positive inside.
+    ///
+    /// The unsigned distance is the minimum over every edge, treated as a segment; the
+    /// sign comes from an even-odd crossing count, computed in the same loop because
+    /// both walk the same edge list and a second pass would double the cost of the
+    /// hottest arithmetic in the rasterizer.
+    static func signedDistanceToOutline(_ px: Double, _ py: Double,
+                                        _ xs: [Double], _ ys: [Double],
+                                        _ n: Int) -> Double {
+        var best = Double.greatestFiniteMagnitude
+        var inside = false
+        var j = n - 1
+        for i in 0..<n {
+            let ax = xs[j], ay = ys[j], bx = xs[i], by = ys[i]
+            let ex = bx - ax, ey = by - ay
+            let wx = px - ax, wy = py - ay
+            let ee = ex * ex + ey * ey
+            let t = ee > 1e-24 ? Num.saturate((wx * ex + wy * ey) / ee) : 0
+            let dx = wx - ex * t, dy = wy - ey * t
+            best = Swift.min(best, dx * dx + dy * dy)
+            // The standard crossing test, with the half-open rule on y so a vertex
+            // exactly level with the scanline is counted once rather than twice.
+            if (ay > py) != (by > py) {
+                let cross = ax + (py - ay) / (by - ay) * ex
+                if px < cross { inside.toggle() }
+            }
+            j = i
+        }
+        let distance = best.squareRoot()
+        return inside ? distance : -distance
+    }
+
+    /// What Feather 100 means for an outline, as a fraction of the long edge. The
+    /// radial's falloff at Feather 100 runs the whole way from centre to rim, which has
+    /// no analogue on an arbitrary shape; 6% is close to what that looks like on a
+    /// typical drawn region and is the widest a hand-drawn edge stays placeable at.
+    static let polygonFeatherSpan: Double = 0.06
+
+    /// Kuyper's luminosity series, evaluated as a continuous function of the channel.
+    ///
+    /// THE FAMILY, written out because this is where it is defined and nowhere else:
+    ///
+    ///     L         = the channel on the same fixed −10…+4 EV axis Brightness Range
+    ///                 uses, saturated to 0…1
+    ///     Lights n  = L^n
+    ///     Darks n   = (1 − L)^n
+    ///     Midtones n = 1 − L^(n+1) − (1 − L)^(n+1),  renormalized to peak at 1
+    ///
+    /// Every one of them is smooth in L with no boundary anywhere, at any level, which
+    /// is the property the tradition calls SELF-FEATHERING and the reason the family is
+    /// worth having rather than a band with soft shoulders. A band has a plateau and two
+    /// edges; feathering it moves the edges. There is nothing here to move.
+    ///
+    /// TWO DELIBERATE DEPARTURES from the Photoshop original, both of which make it a
+    /// better control rather than a different one:
+    ///
+    ///   `n` is CONTINUOUS. Photoshop's series is five pre-baked channels because
+    ///   channel arithmetic can only intersect a mask with itself a whole number of
+    ///   times. `pow` has no such limit, and a level of 2.4 is exactly as self-feathering
+    ///   as a level of 2. So the "series generator" that Lumenzia exists to be is one
+    ///   slider here, and the mask list stays the length the photographer made it.
+    ///
+    ///   Midtones are RENORMALIZED. The raw formula peaks at `1 − 2^-n` — 0.5 at level
+    ///   1 — so a Photoshop midtone mask at full opacity performs half an edit, and
+    ///   everyone who uses them knows to compensate. Lumen already has one control that
+    ///   means "less of this", and it is called Amount. A second, invisible, level-
+    ///   dependent one hiding inside the selection would make Amount a lie. The shape is
+    ///   unchanged; only the scale is, and `testMidtonesPeakAtOneSoAmountMeansWhatItSays`
+    ///   is the reason it may not drift back.
+    static func luminosityPlane(_ c: MaskComponent, _ w: Int, _ h: Int,
+                                _ source: ImageBuffer?) -> Plane {
+        var p = Plane(width: w, height: h)
+        guard let src = source else { return p }
+        let series = c.series ?? .lights
+        let raw = c.level ?? 1
+        let n = raw.isFinite
+            ? Num.clamp(raw, luminosityMinLevel, luminosityMaxLevel)
+            : luminosityMinLevel
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        let channel = c.channel ?? .luma
+        // Level 1 midtones peak at 0.5; level 5 at 0.969. Computed once rather than per
+        // pixel, and guarded because `n` can be small enough that the peak is tiny.
+        let midtonePeak = Swift.max(1 - pow(2, -n), 1e-6)
+
+        for y in 0..<h {
+            for x in 0..<w {
+                let rgb = srcColor(src, x, y, w, h)
+                let measured = channel.value(rgb, weights: weights)
+                let ev = Num.safeLog2(measured.isFinite ? measured : 0, floorEV: -16)
+                let l = Num.saturate((ev - evMin) / (evMax - evMin))
+                p[x, y] = Num.saturate(luminosityValue(l, series: series, level: n,
+                                                       midtonePeak: midtonePeak))
+            }
+        }
+        return p
+    }
+
+    /// The family's arithmetic, on one already-normalized luminance. Separated from the
+    /// loop above so a test can state the curve directly rather than through a fixture
+    /// picture, and so the panel's own preview curve cannot drift from what renders.
+    public static func luminosityValue(_ l: Double, series: LuminositySeries,
+                                       level: Double, midtonePeak: Double? = nil)
+        -> Double {
+        // `Num.clamp` compares, and every comparison against NaN is false, so a
+        // poisoned level would pass straight through into `pow` and poison the plane.
+        // Level 1 is the plain channel — the honest answer to "this number is not a
+        // number" is the one that still selects something sensible.
+        let n = level.isFinite
+            ? Num.clamp(level, luminosityMinLevel, luminosityMaxLevel)
+            : luminosityMinLevel
+        let x = l.isFinite ? Num.saturate(l) : 0
+        switch series {
+        case .lights:
+            return pow(x, n)
+        case .darks:
+            return pow(1 - x, n)
+        case .midtones:
+            let peak = midtonePeak ?? Swift.max(1 - pow(2, -n), 1e-6)
+            let raw = 1 - pow(x, n + 1) - pow(1 - x, n + 1)
+            return Num.saturate(raw / peak)
+        }
+    }
+
+    /// Level 1 is the plain channel; below it the family stops being a series. Five is
+    /// where Photoshop's stops and where `L^n` has narrowed to the top ~1.5 EV, past
+    /// which the selection is too small to place by eye.
+    public static let luminosityMinLevel: Double = 1
+    public static let luminosityMaxLevel: Double = 5
 
     /// docs/08 §8.2: similarity in OKLab hue/chroma/lightness with a trapezoid falloff
     /// per axis; multiple samples union before falloff. Per-axis tolerance fields are
@@ -502,13 +1294,22 @@ public enum MaskRaster {
     /// lightness, widths set by the two selectivity sliders (log-scale so the slider is
     /// perceptually even).
     ///
-    /// DEGRADED: `MaskComponent` stores sampled colours but no point geometry, radius,
-    /// or ± sign for `.similarity` (brief §1.5 #8), and no detachable eyedropper
-    /// position for `.similarityLine` (#9). So the spatial falloff term is omitted —
-    /// `.similarity` evaluates the gate over the whole frame, `.similarityLine`
-    /// multiplies it by its stored ramp, and all samples count as positive. Adding the
-    /// geometry fields restores the spec's form without changing anything here but the
-    /// falloff multiplier.
+    /// THE SPATIAL HALF, which used to be missing. `MaskComponent.points` pairs one
+    /// `[x, y, radius, sign]` with each sample by index, so a Colour Pick is "pixels
+    /// like this one, NEAR HERE" — the U-Point mechanic it is named after — rather than
+    /// "pixels like this one, anywhere", which is a colour range wearing another tool's
+    /// name (docs/35 §2.4).
+    ///
+    /// With no points the gate evaluates over the whole frame, exactly as before, so
+    /// every recipe written before the field renders identically after it.
+    ///
+    /// With points, positive ones union and negative ones subtract:
+    ///
+    ///     alpha = saturate( max(positive: spatial·g) − max(negative: spatial·g) )
+    ///
+    /// A negative point at 40 removes 40% of what it covers rather than all of it,
+    /// because `spatial` is a falloff and not a mask — which is what makes a negative
+    /// point a *dodge* of the selection rather than a hole in it.
     static func similarityPlane(_ c: MaskComponent, _ w: Int, _ h: Int,
                                 _ source: ImageBuffer?) -> Plane {
         var p = Plane(width: w, height: h)
@@ -538,19 +1339,47 @@ public enum MaskRaster {
             ? linearPlane(c, w, h)
             : Plane(width: w, height: h, fill: 1)
 
+        // The points, paired with `refs` by index. Parsed once, out of the loop, and
+        // measured in the same units the brush uses so a point keeps its reach through
+        // a crop: radius is a fraction of the LONG edge.
+        let long = Double(Swift.max(w, h))
+        let spatial = points(c, refs.count, w: w, h: h, longEdge: long)
+
         for y in 0..<h {
+            let py = Double(y) + 0.5
             for x in 0..<w {
                 let lab = context.toLab(srcColor(src, x, y, w, h))
-                var best = 0.0
-                for ref in refs {
+                let px = Double(x) + 0.5
+                var positive = 0.0
+                var negative = 0.0
+                for (index, ref) in refs.enumerated() {
                     let da = lab.a - ref.a
                     let db = lab.b - ref.b
                     let dC2 = da * da + db * db
                     let dL = lab.L - ref.L
-                    let g = exp(-dC2 / twoSigmaC2) * exp(-(dL * dL) / twoSigmaL2)
-                    if g.isFinite && g > best { best = g }
+                    var g = exp(-dC2 / twoSigmaC2) * exp(-(dL * dL) / twoSigmaL2)
+                    guard g.isFinite else { continue }
+                    guard let spatial else {
+                        // No geometry at all: the gate covers the whole frame, which is
+                        // what this component meant before points existed.
+                        if g > positive { positive = g }
+                        continue
+                    }
+                    // A malformed entry selects nothing rather than everything — an
+                    // unparseable point must not silently become a global gate.
+                    guard let point = spatial[index] else { continue }
+                    let dx = px - point.cx
+                    let dy = py - point.cy
+                    let d = (dx * dx + dy * dy).squareRoot()
+                    g *= stampProfile(d / point.radius, hardness: similarityPointCore)
+                    if g <= 0 { continue }
+                    if point.negative {
+                        if g > negative { negative = g }
+                    } else if g > positive {
+                        positive = g
+                    }
                 }
-                p[x, y] = Num.saturate(best * ramp[x, y])
+                p[x, y] = Num.saturate((positive - negative) * ramp[x, y])
             }
         }
         return p
@@ -685,6 +1514,43 @@ public enum MaskRaster {
                 }
             }
         }
+    }
+
+    /// A similarity point's parsed geometry, in PIXELS at the requested extent.
+    struct SimilarityPoint {
+        var cx: Double
+        var cy: Double
+        var radius: Double
+        var negative: Bool
+    }
+
+    /// Fraction of a similarity point's radius that deposits at full strength before
+    /// the shoulder starts. 0.35 is a soft point — closer to DxO's control point, whose
+    /// influence is felt well before its drawn circle — and it is the one number here
+    /// that is taste rather than derivation, so it is named.
+    static let similarityPointCore: Double = 0.35
+
+    /// The points of a similarity component, aligned with its samples by index.
+    ///
+    /// Returns nil when the component carries no points at all, which is the signal to
+    /// the caller that the gate is global — distinct from an array of nils, which means
+    /// "there are points, and this one is malformed".
+    static func points(_ c: MaskComponent, _ count: Int, w: Int, h: Int,
+                       longEdge long: Double) -> [SimilarityPoint?]? {
+        guard let raw = c.points, !raw.isEmpty else { return nil }
+        var out: [SimilarityPoint?] = Array(repeating: nil, count: count)
+        for (index, entry) in raw.prefix(count).enumerated() {
+            guard entry.count >= 3,
+                  entry[0].isFinite, entry[1].isFinite, entry[2].isFinite else { continue }
+            let radius = entry[2] * long
+            guard radius >= 0.5 else { continue }
+            let sign = entry.count >= 4 && entry[3].isFinite ? entry[3] : 1
+            out[index] = SimilarityPoint(cx: entry[0] * Double(w),
+                                         cy: entry[1] * Double(h),
+                                         radius: radius,
+                                         negative: sign < 0)
+        }
+        return out
     }
 
     /// Stamp profile, shared with the radial gradient: flat core out to the hardness
@@ -888,6 +1754,37 @@ public enum MaskRaster {
 /// cannot be tested. The view's whole job is to run `composite` over the sampled
 /// picture and the mask's alpha.
 public enum MaskOverlay {
+
+    /// How big to composite the overlay layer, given the alpha it will be built from.
+    ///
+    /// The overlay is drawn by resampling a mask alpha over the picture, one output
+    /// pixel at a time in Swift, so this number squared is the cost of every frame the
+    /// photographer sees while dragging a gradient around. Two bounds decide it and
+    /// both are ceilings, never floors:
+    ///
+    ///   · `cap` is the pane bound. Above it the extra pixels are thrown away by the
+    ///     downscale on the way to the screen.
+    ///   · The ALPHA's own size is the information bound, and it is the one that makes
+    ///     dragging feel live. `AppState.refreshMaskOverlay` rasterizes a half-size
+    ///     alpha while a gesture is running; compositing that into a full-size layer
+    ///     spends four times the pixels to interpolate detail the input does not have.
+    ///
+    /// Twice the alpha rather than exactly it, because five of the six modes read the
+    /// PICTURE too and the picture is sharp at any size — so the layer stays a little
+    /// ahead of the mask it carries, and the mask edge is the only thing that softens.
+    ///
+    /// The 512 floor keeps a degenerate alpha — a 96-px thumbnail plane arriving here
+    /// by accident, or an 8-px raster from a collapsed crop — from compositing the
+    /// overlay at a size that reads as broken rather than as soft.
+    ///
+    /// Pure arithmetic, in Core rather than in the view, so the rule can be tested on
+    /// the platform CI runs tests on. It decides how the app performs during the one
+    /// interaction masking is judged by; a rule that lived only in a macOS-gated view
+    /// could only ever be checked by looking at it.
+    public static func compositeLongEdge(alphaLongEdge: Int, cap: Int) -> Int {
+        let wanted = Swift.max(512, alphaLongEdge * 2)
+        return Swift.max(1, Swift.min(cap, wanted))
+    }
 
     /// The six modes, in the order `⌥O` cycles them — LR's order, because fifteen
     /// years of tutorials describe it.

@@ -14,7 +14,9 @@
 // They are a wire format that no stage reads — `zonePanelStops` takes `.ev` and nothing
 // else, and `zonePanelIsIdentity` inspects `.ev` alone, so a non-neutral zone wheel does
 // not even force a re-render. Shipping them as live sliders would cost the user the time
-// to find out. The note at the foot of the panel says so rather than leaving a gap.
+// to find out. The panel used to say so in a note at its foot; it says so here instead,
+// because which fields have a wire format and no reader is a fact about this repository
+// and the photographer is not the one who needs it.
 //
 // The pivots are zone CENTRES, not boundaries: `ZoneWeights.weights` finds the interval
 // containing x and crossfades between the two pivots bounding it with a raised cosine,
@@ -29,6 +31,18 @@ import SwiftUI
 
 struct ZonesPanel: View {
     @EnvironmentObject var state: AppState
+    /// This surface shows the edit, so it observes the edit signal —
+    /// `AppState.recipes` is deliberately not published (see `EditRevision`).
+    @EnvironmentObject var edits: EditRevision
+
+    /// Whether the register draws its own "Zones" section header.
+    ///
+    /// False when the caller has already titled it. docs/28 §5.1 folds Zones into Tone as
+    /// a disclosure instead of giving it a section, and BasicPanel supplies that
+    /// disclosure's header — a header reading "Zones" opening onto a section reading
+    /// "Zones" announces two levels where there is one. The default is what every
+    /// standalone rendering keeps, unchanged.
+    var showsSectionHeader: Bool = true
 
     private var binder: RecipeBinder { RecipeBinder(state: state) }
     private var recipe: Recipe { state.currentRecipe }
@@ -45,6 +59,35 @@ struct ZonesPanel: View {
         var id: String { name }
     }
 
+    /// THE ZONE ROWS' QUANTUM, IN STOPS — 0.05, up from 0.01.
+    ///
+    /// 0.01 was a number the readout advertised and no gesture could land on. The
+    /// arithmetic, which is the whole argument: the register sits in a
+    /// `DevelopDisclosure` inside a develop-column card, so its track is the column
+    /// less 8 pt of scroll inset, 20 pt of card gutter, 16 pt of fold inset and 150 pt
+    /// of row chrome (an 86 pt label, two 6 pt gaps, a 52 pt readout) — 126 pt at the
+    /// 320 pt minimum column, 186 pt at the 380 pt default. Six stops at 0.01 is 600
+    /// addressable values across that, which is **0.21 pt of travel per step** at the
+    /// minimum and 0.31 at the default: a one-pixel tremor of the hand moves the value
+    /// three to five steps, and roughly five in six of the values the two decimals
+    /// promise cannot be landed on by dragging at all.
+    ///
+    /// At 0.05 the same track carries 120 steps — 1.05 pt/step at the minimum column and
+    /// 1.55 at the default — which clears the floor `LumenControls.swift` states in its
+    /// own words ("~1.0, under which a one-pixel tremor costs a whole unit") at every
+    /// width the column can be dragged to. The step is coarsened rather than the panel
+    /// widened because the panel's width is not this row's to spend.
+    ///
+    /// Two decimals STAY: 0.05 needs the hundredths place, so the readout is not
+    /// promising precision the track does not have — it is spelling the quantum. The
+    /// hard range still accepts a typed 1.37 for anyone who wants one.
+    ///
+    /// Coarser than Exposure's 0.01 EV on purpose. That is the master control a frame is
+    /// set by, and the app's answer for it is the readout's own scrub; these are per-zone
+    /// trims, and a twentieth of a stop is already finer than the difference two adjacent
+    /// zones make at any pivot spacing the strip allows.
+    private static let stopStep: Double = 0.05
+
     private static let register: [ZoneRow] = [
         ZoneRow(name: "Darks", path: \Zones.dark),
         ZoneRow(name: "Shadows", path: \Zones.shadow),
@@ -54,41 +97,77 @@ struct ZonesPanel: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            DevelopSection("Zones", isModified: isModified, onReset: { reset() }) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ZonePivotStrip(pivots: normalizedPivots,
-                                   levels: Self.register.map { zones[keyPath: $0.path].ev },
-                                   onPivotChanged: { index, position in
-                                       movePivot(index, to: position)
-                                   })
-
-                    DevelopNote("Each zone is an exposure in stops, applied through the "
-                                + "same edge-aware mask the six sliders use — so a zone "
-                                + "lift follows edges instead of haloing across them. "
-                                + "Drag a pivot to say where a zone sits.")
-
-                    ForEach(Self.register) { zone in
-                        LumenSlider(title: zone.name,
-                                    value: evBinding(zone.path, key: "zones.\(zone.name)"),
-                                    range: -3...3, hardRange: -5...5,
-                                    defaultValue: 0, step: 0.01, decimals: 2)
-                    }
-
-                    Divider().overlay(Lumen.separator).padding(.vertical, 2)
-
-                    LumenSlider(title: "Global",
-                                value: evBinding(\Zones.global, key: "zones.Global"),
-                                range: -3...3, hardRange: -5...5,
-                                defaultValue: 0, step: 0.01, decimals: 2)
-
-                    DevelopNote("Global is a flat trim across the whole axis — the same "
-                                + "as Exposure, but recorded here so a zone set reads as "
-                                + "one decision. Per-zone colour, saturation and falloff "
-                                + "have a wire format and no stage reads them, so they "
-                                + "are not shown.")
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            if showsSectionHeader {
+                DevelopSection("Zones", isModified: isModified, onReset: { reset() }) {
+                    rows
                 }
+            } else {
+                // The Reset affordance goes with the header, and under the accordion
+                // that is not a loss: the column's Tone header resets the six sliders and
+                // this register together, because folded in under Tone they are one
+                // section to a photographer. `DevelopDisclosure` carries no reset of its
+                // own and does not need one — a second reset button here would be a
+                // second place for the same decision to be recorded differently.
+                rows
             }
+        }
+    }
+
+    /// The register's rows with no header of their own: exactly what the section always
+    /// wrapped, and the whole of what a caller supplying its own header wants.
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            ZonePivotStrip(pivots: normalizedPivots,
+                           levels: Self.register.map { zones[keyPath: $0.path].ev },
+                           onPivotChanged: { index, position in
+                               movePivot(index, to: position)
+                           })
+
+            // No note between the strip and the rows. Its last clause — "drag a pivot
+            // to say where a zone sits" — is already on the handle you would drag, and
+            // the strip is a picture of the crossfade, which is a better account of
+            // what a zone is than a sentence about it.
+            ForEach(Self.register) { zone in
+                // One help for all five rows: the mechanics are shared, the tooltip's
+                // composed title names the zone, and the strip above draws where each
+                // one sits.
+                LumenSlider(title: zone.name,
+                            value: evBinding(zone.path, key: "zones.\(zone.name)"),
+                            range: -3...3, hardRange: -5...5,
+                            defaultValue: 0, step: Self.stopStep, decimals: 2,
+                            help: "Exposure for this zone alone, in stops. Its pull "
+                                + "is strongest at the zone's own pivot and fades to "
+                                + "nothing at its neighbours', so zones blend instead "
+                                + "of stepping.")
+            }
+
+            // AND THEN IT DID NOT SURVIVE (U2). It was kept through the hairline cull
+            // because it marks a change of SCOPE inside a section — five per-zone rows
+            // above, one flat trim across the whole axis below — rather than fencing
+            // two sections. The distinction was real and the line was still a line, and
+            // it was the last one left in the owned panels while the direction says
+            // there are none.
+            //
+            // What it was actually saying is "what follows is a different KIND of
+            // thing", and space says that at least as well once nothing else in the
+            // column is drawing rules: eight points where the rows run at two is a
+            // clear break, and it does not put a stroke across a panel sitting inches
+            // from a photograph.
+            Color.clear.frame(height: 8)
+
+            // The divider above is what said "this one is different"; the note that
+            // used to say it again in words is gone, and so is its closing clause about
+            // fields with a wire format and no reader — which was a line addressed to
+            // whoever maintains this file, printed in a photographer's panel. It is at
+            // the top of this one now.
+            LumenSlider(title: "Global",
+                        value: evBinding(\Zones.global, key: "zones.Global"),
+                        range: -3...3, hardRange: -5...5,
+                        defaultValue: 0, step: Self.stopStep, decimals: 2,
+                        help: "A flat exposure trim across the whole axis, in stops — "
+                            + "the same at every tone, so a finished zone set can be "
+                            + "brightened or darkened as one.")
         }
     }
 
@@ -176,6 +255,8 @@ struct ZonePivotStrip: View {
     /// absolute location keeps the handle under the pointer without needing a shared
     /// coordinate space — the same reason `ZoneWeightStrip` does it this way.
     @State private var dragOrigin: Double? = nil
+    /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5).
+    @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     var body: some View {
         let solved = pivots
@@ -211,7 +292,7 @@ struct ZonePivotStrip: View {
                 }
             }
             .background(Lumen.controlBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
 
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
@@ -246,12 +327,16 @@ struct ZonePivotStrip: View {
             DragGesture(minimumDistance: 0)
                 .onChanged { drag in
                     guard width > 0 else { return }
+                    sliderGestureChanged(true)
                     let start = dragOrigin ?? position
                     if dragOrigin == nil { dragOrigin = start }
                     let moved = start + Double(drag.translation.width / width)
                     onPivotChanged(index, Num.saturate(moved))
                 }
-                .onEnded { _ in dragOrigin = nil }
+                .onEnded { _ in
+                    dragOrigin = nil
+                    sliderGestureChanged(false)
+                }
         )
         .help("Zone centre — drag to move where this zone sits on the tonal axis")
     }

@@ -26,8 +26,18 @@ public struct RenderGraph {
     public struct Options: Sendable {
         /// Long edge of the image being rendered, used to scale spatial radii.
         public var longEdge: Int
-        /// Skip the expensive spatial stages for the first interactive frame.
-        public var draft: Bool
+        /// This render IS the image a mask samples: skip S3 denoise and S8 presence,
+        /// because a luma or colour band is denominated in the corrected scene's
+        /// levels and neither stage moves those meaningfully at raster resolution —
+        /// and the raster caller pays for this render on top of every frame.
+        ///
+        /// This used to be `draft`, which ALSO gated S11 local, S12 sharpening,
+        /// halation, S15b local curves and grain out of every interactive frame — so
+        /// the picture during a drag omitted seven stages and every mask, and jumped
+        /// on release. That was the owner's first complaint in both Mac sessions
+        /// (docs/19, DETAIL-20). A draft now runs the whole graph at draft RESOLUTION;
+        /// the only render that skips stages is the mask source, under its real name.
+        public var maskSource: Bool
         /// Table size — interactive during a drag, export size when it settles.
         public var lutSize: Int
         /// `(rendered long edge ÷ the file's own long edge)²` — the factor by which the
@@ -40,11 +50,11 @@ public struct RenderGraph {
         /// much lighter export of the same photograph.
         public var noiseScale: Double
 
-        public init(longEdge: Int, draft: Bool = false,
+        public init(longEdge: Int, maskSource: Bool = false,
                     lutSize: Int = LUT3D.interactiveSize,
                     noiseScale: Double = 1) {
             self.longEdge = longEdge
-            self.draft = draft
+            self.maskSource = maskSource
             self.lutSize = lutSize
             self.noiseScale = noiseScale
         }
@@ -55,6 +65,20 @@ public struct RenderGraph {
     public var maskImages: [String: CIImage] = [:]
     /// The film grain plate, tiled, supplied by the film stage's cache.
     public var grainPlate: CIImage?
+    /// THE EXPORT PATH IS GRAINING THIS FRAME ITSELF, after the resize — so this graph
+    /// must not.
+    ///
+    /// Withholding `grainPlate` used to be the whole of the signal, and for a stock it
+    /// was enough: no plate, no grain. A CREATIVE grain has a fallback three lines
+    /// below that builds its own plate when none was supplied, so it grained anyway —
+    /// at the decode's long edge, before `applyGeometry` and before the resize. The
+    /// footprint survives a resample unchanged (`plateScale` is linear in the long
+    /// edge), so this is not the "grain gets finer" story it looks like; what it
+    /// bypasses is the HALF-PIXEL FLOOR. Creative Size 0 on a 6000 px decode delivered
+    /// at 1200 px lands at 1.167 px, resamples to 0.233, and the delivered file carries
+    /// aliased speckle where the model says 0.5 px is the finest thing that may exist
+    /// (C2-03 / K-065).
+    public var defersGrain: Bool = false
 
     public init() {}
 
@@ -64,10 +88,39 @@ public struct RenderGraph {
     ///
     /// Factored out because the mask rasterizer needs exactly this image: a luma-range
     /// or colour-range component samples the LOCAL STAGE INPUT, which is what makes its
-    /// handles EV-denominated and stable (docs/08 §8.2), and the CPU reference passes
-    /// precisely this (`ReferenceRenderer.applyMasks(source: image)`). Calling it rather
-    /// than repeating the sequence keeps the two from drifting apart.
+    /// handles EV-denominated and stable (docs/08 §8.2).
+    ///
+    /// The CPU reference does NOT pass precisely this — this comment used to claim it
+    /// did, and the audit measured the gap. `ReferenceRenderer.applyMasks` rasterizes
+    /// from an image that has been through S3 (applied upstream of its render) and S8
+    /// (`DetailEngine.apply` runs before the masks), while this path skips both under
+    /// `options.maskSource`. For local contrast the difference is placement-invisible
+    /// by design, but Dehaze moves LEVELS, so on a hazy frame a band sits at
+    /// different values on the two paths and a golden comparing masked renders
+    /// measures that gap. The eyedropper tap (`sampleMaskStageInput`) sides with this
+    /// GPU convention. Reconciling the reference is queued in docs/23; until then the
+    /// divergence is stated rather than papered over.
     public func localStageInput(_ input: CIImage, plan: RenderPlan,
+                                options: Options) -> CIImage {
+        var image = colorStageInput(input, plan: plan, options: options)
+
+        // S9 + S10 — colour and grade, as one table on the log axis.
+        if !plan.colorGradeIsIdentity {
+            image = Self.throughShaper(image) { encoded in
+                ColorCube.filter(plan.colorGradeLUT, image: encoded)
+            } ?? image
+        }
+        return image
+    }
+
+    /// S3 through S8 — the image the COLOUR stage receives, which is therefore the
+    /// value `ColorEngine.apply` compares a global Point Colour swatch against.
+    /// Factored out of `localStageInput` (never copied from it) so the Point Colour
+    /// eyedropper's tap and the render cannot drift: the eyedropper used to store the
+    /// post-S6 value while the engine compared here, so a swatch picked with any tone
+    /// move on the photograph selected the wrong colour, and the failure grew with
+    /// the edit (docs/23 dossier queue item 5).
+    public func colorStageInput(_ input: CIImage, plan: RenderPlan,
                                 options: Options) -> CIImage {
         var image = input
 
@@ -75,10 +128,11 @@ public struct RenderGraph {
         // noise model is a statement about the sensor's own linear signal and stops
         // being true the moment a curve or a matrix has touched it.
         //
-        // Draft frames skip it, which also takes it off the mask rasterizer's path:
-        // that caller asks for `draft: true` at a 1024 px proxy, where the noise it
-        // would remove is already averaged away by the downsample.
-        if !options.draft {
+        // The mask source skips it: at a 1024 px proxy the noise it would remove is
+        // already averaged away by the downsample, and a band's placement does not
+        // move with it. Interactive drafts run it — at draft resolution, where
+        // `noiseScale` has already shrunk the work to match.
+        if !options.maskSource {
             image = applyDenoise(image, plan: plan, options: options)
         }
 
@@ -90,16 +144,10 @@ public struct RenderGraph {
             image = applyTone(image, plan: plan, options: options)
         }
 
-        // S8 — presence, off one base–detail decomposition.
-        if !options.draft {
+        // S8 — presence, off one base–detail decomposition. The mask source skips it
+        // for the same reason as S3: local contrast does not move a band's levels.
+        if !options.maskSource {
             image = applyPresence(image, plan: plan, options: options)
-        }
-
-        // S9 + S10 — colour and grade, as one table on the log axis.
-        if !plan.colorGradeIsIdentity {
-            image = Self.throughShaper(image) { encoded in
-                ColorCube.filter(plan.colorGradeLUT, image: encoded)
-            } ?? image
         }
         return image
     }
@@ -108,13 +156,13 @@ public struct RenderGraph {
         var image = localStageInput(input, plan: plan, options: options)
 
         // S11 — local adjustments, blended through each mask's alpha.
-        if !plan.masks.isEmpty && !options.draft {
+        if !plan.masks.isEmpty {
             image = applyLocal(image, plan: plan, options: options)
         }
 
         // S12 — creative sharpening, after local so masked clarity is not
         // double-sharpened.
-        if !options.draft, plan.detail.sharpen.amount > 0 {
+        if plan.detail.sharpen.amount > 0 {
             image = Self.applySharpen(image, plan.detail.sharpen, longEdge: options.longEdge)
         }
 
@@ -122,9 +170,10 @@ public struct RenderGraph {
         // strikes the film, and the film base reflects what arrives.
         if plan.vignetteEV != 0 {
             image = applyVignette(image, ev: plan.vignetteEV,
+                                  feather: plan.vignetteFeather,
                                   crop: plan.recipe.develop.geometry.crop)
         }
-        if let film = plan.filmChain, film.halationAmount > 0, !options.draft {
+        if let film = plan.filmChain, film.halationAmount > 0 {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
         }
 
@@ -155,26 +204,67 @@ public struct RenderGraph {
             beforeProof = nil
         }
 
-        // S15b — the local point curve, the second tap (docs/08 §8.4, docs/14). The
-        // rest of a mask's sub-recipe is a scene-referred delta at S11; a curve is a
-        // picture-domain instinct and has to see the formed picture, so it composites
-        // here, through the same alpha S11 used.
-        if !plan.masks.isEmpty && !options.draft {
-            image = applyLocalCurves(image, plan: plan, options: options)
-        }
-
-        // Grain lives inside picture formation, in the density domain.
-        if let film = plan.filmChain, film.grainAmount > 0, let plate = grainPlate,
-           !options.draft {
-            image = applyGrain(image, plate: plate, film: film)
-        }
-
-        // The gamut flag, last, so nothing paints over it — a warning that grain or a
-        // later stage could modulate would read as a colour rather than as a flag.
+        // The gamut flag, HERE — inside picture formation, before the local curves
+        // and the grain — because that is where the reference computes it (docs/31
+        // round two §15). `ReferenceRenderer.render` paints the flag through
+        // `plan.finishedColor` at S14/S15 and then runs S15b and grain over it, so
+        // a flagged pixel is grained like any other; this graph used to paint it
+        // LAST instead, and the two renderers disagreed about every flagged pixel
+        // under grain or a local curve. The reference is the contract — the old
+        // comment's argument ("a warning grain could modulate reads as a colour")
+        // was a reasonable design the reference does not implement, and parity
+        // beats it.
         if let proof = plan.softProof, proof.settings.showGamutWarning,
            let beforeProof {
             image = Self.applyGamutWarning(image, beforeProof: beforeProof, proof: proof,
                                            finishScale: plan.finishScale)
+        }
+
+        // S15b — the local point curve, the second tap (docs/08 §8.4, docs/14). The
+        // rest of a mask's sub-recipe is a scene-referred delta at S11; a curve is a
+        // picture-domain instinct and has to see the formed picture, so it composites
+        // here, through the same alpha S11 used.
+        if !plan.masks.isEmpty {
+            image = applyLocalCurves(image, plan: plan, options: options)
+        }
+
+        // Grain lives inside picture formation, in the density domain.
+        //
+        // Off `plan.grain` now, not off `plan.filmChain` — the plan answers "what grain
+        // is on this photograph" once (`GrainPlan`), so a creative grain reaches the GPU
+        // through the same kernel, the same plate generator and the same stage position
+        // as a stock's.
+        //
+        // THE PLATE COMES FROM THE CALLER WHEN THE CALLER HAS ONE, and that ordering is
+        // load-bearing rather than a preference. `PipelineRenderer` supplies the plate
+        // for the film path, and on the EXPORT path it deliberately withholds it
+        // (`deferGrain: true`) so that it can apply grain itself after the resize, on
+        // the grid that is actually delivered. If this stage built its own plate
+        // whenever none was handed to it, an export of a film recipe would be grained
+        // here AND again there — two independent noise fields at √2 the amplitude, on
+        // the delivered file only. So the fallback is gated on `isCreative`, which is
+        // false for exactly the case that defers.
+        //
+        // The cost of that gate, stated rather than hidden: a creative grain on an
+        // EXPORT is laid down here, at the decode's resolution, and then resampled by
+        // the export's resize. `plateScale` already anchors the footprint to the render's
+        // own long edge so the pattern lands at the same relative size either way, and
+        // `testFilmGrainHasTheSameAmplitudeAtEveryRenderSize` measures the amplitude cost
+        // of a 3x downsample at about 4% of σ — but the half-pixel floor
+        // `plateScale` enforces is divided straight past by a resample, so a heavily
+        // downsized delivery carries a pattern finer than the model allows. The fix is
+        // one line in `PipelineRenderer.exportedImage` — the same deferral the film path
+        // already has, reading `plan.grain` instead of `plan.filmChain` — and it belongs
+        // in that file, which is not this change's to edit. Until then this is where a
+        // creative grain lands, and it is right for every preview and every 1:1 view.
+        if let grain = plan.grain, grain.amount > 0, !defersGrain {
+            if let plate = grainPlate {
+                image = applyGrain(image, plate: plate, grain: grain)
+            } else if grain.isCreative,
+                      let plate = Self.grainPlate(grain, extent: image.extent,
+                                                    longEdge: options.longEdge) {
+                image = applyGrain(image, plate: plate, grain: grain)
+            }
         }
 
         return image
@@ -480,10 +570,16 @@ public struct RenderGraph {
         // The mask is edge-aware and computed in log space, so it stays valid when
         // Exposure moves — the exposure-independent property the tone equalizer needs.
         let radius = Swift.max(Int(Double(options.longEdge) * 0.02), 2)
-        let mask = Self.guidedSelfFilter(lum, radius: radius, epsilon: 0.004) ?? lum
+        // ε from the reference, in lockstep — the fifth units bug lived HERE as a bare
+        // 0.004 on the encoded plane (a 1.52 EV threshold; Shadows +100 haloed a 4 EV
+        // edge by half a stop). The number and its measurement live on
+        // `ReferenceRenderer.toneMaskContrastThresholdEV`.
+        let mask = Self.guidedSelfFilter(
+            lum, radius: radius,
+            epsilon: ReferenceRenderer.toneMaskEpsilon) ?? lum
         // The plan's stored cube, baked once per plan. Calling `toneGainCube()`
         // rebuilt 32 768 samples on every frame of every slider drag.
-        let cube = plan.toneGainCube32 ?? plan.toneGainCube()
+        let cube = plan.toneGainCubeBaked ?? plan.toneGainCube()
         guard let normalized = ColorCube.filter(cube, image: mask) else {
             return image
         }
@@ -808,11 +904,26 @@ public struct RenderGraph {
         for mask in plan.masks {
             guard let alpha = maskImages[mask.id] else { continue }
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
-                                                 longEdge: options.longEdge)
-            guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                    extent: out.extent,
-                                                    [out, adjusted, alpha])
-            else { continue }
+                                                 longEdge: options.longEdge,
+                                                 lutSize: options.lutSize)
+            // Normal keeps the two-argument kernel it always used, so the common case
+            // is bit-identical and pays nothing for a feature it is not using. The
+            // coefficients come off the working space rather than being written into
+            // the shader, so this cannot drift from `MaskAlgebra.blended`.
+            let composite: CIImage?
+            if mask.blend == .normal {
+                composite = KernelLibrary.apply(KernelLibrary.blendMask,
+                                                extent: out.extent,
+                                                [out, adjusted, alpha])
+            } else {
+                let w = RGBColorSpace.rec2020.luminanceWeights
+                let mode: Float = mask.blend == .luminosity ? 1 : 2
+                composite = KernelLibrary.apply(KernelLibrary.blendMaskMode,
+                                                extent: out.extent,
+                                                [out, adjusted, alpha, mode,
+                                                 Float(w.r), Float(w.g), Float(w.b)])
+            }
+            guard let blended = composite else { continue }
             out = blended
         }
         return out
@@ -822,7 +933,7 @@ public struct RenderGraph {
     /// over the global ones, so this is the same maths as the global path with a
     /// different parameter set — never a parallel implementation.
     static func applyLocalAdjust(_ image: CIImage, mask: Mask, plan: RenderPlan,
-                                 longEdge: Int) -> CIImage {
+                                 longEdge: Int, lutSize: Int) -> CIImage {
         let scale = Num.clamp(mask.amount, 0, 200) / 100.0
         let a = mask.adjust
         var out = image
@@ -833,10 +944,25 @@ public struct RenderGraph {
         }
 
         // The rest of the local set is per-pixel colour work, so it bakes into a table
-        // exactly like the global path does.
+        // exactly like the global path does — AT THE SIZE THIS RENDER ASKED FOR.
+        //
+        // `LocalPlan` used to hardcode `LUT3D.interactiveSize`, so a delivered file's
+        // masked contrast, temp, tint, hue, saturation, vibrance, point colours and
+        // grading wheels came out of a 33-cube while everything beside them — the
+        // global colour/grade table, the finish table, and the local point curve two
+        // stages down, which has taken `options.lutSize` since it was written — came
+        // out of a 65. Measured over 30 000 in-gamut colours (docs/18), size 33 has a
+        // worst-channel error of 0.197 stops with 10.6% of samples past 0.02 EV
+        // against 0.074 and 4.1% at 65, so every masked colour edit in an export
+        // carried preview-grade error that the preview it was judged on also carried
+        // and the file did not have to.
         let localPlan = LocalPlan(adjust: a, scale: scale,
                                   whiteAnchorEV: plan.tone.whiteAnchorEV,
-                                  blackAnchorEV: plan.tone.blackAnchorEV)
+                                  blackAnchorEV: plan.tone.blackAnchorEV,
+                                  size: lutSize,
+                                  globalColor: plan.recipe.develop.color,
+                                  globalWheels: plan.recipe.look.wheels,
+                                  balanced: plan.balancedNeutral)
         if !localPlan.isIdentity {
             out = throughShaper(out) { encoded in
                 ColorCube.filter(localPlan.lut, image: encoded)
@@ -884,8 +1010,15 @@ public struct RenderGraph {
     func applyLocalCurves(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
         var out = image
         for mask in plan.masks {
+            // `finishScale`, not `displayWhite`: the white of the PIXELS ARRIVING, which
+            // is what the comment above already says and what the two names meant
+            // interchangeably until a draft frame could be served a stale finish table
+            // (`PlanTableCache.pairedTableAllowingStale`). `displayWhite` is this
+            // recipe's white; `finishScale` is the white of the picture in hand. Taking
+            // the former here would denominate a local curve in a white the pixels do
+            // not have — the same defect that pairing exists to end, one stage over.
             let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
-                                   white: plan.displayWhite)
+                                   white: plan.finishScale)
             guard !curve.isIdentity, let alpha = maskImages[mask.id] else { continue }
             let table = LocalCurvePlan(curve: curve, size: options.lutSize).lut
             guard let curved = Self.throughShaper(out, { encoded in
@@ -923,8 +1056,17 @@ public struct RenderGraph {
         let masking = Num.clamp(sharpen.masking, 0, 100) / 100
         let halo = Num.clamp(sharpen.haloSuppression, 0, 100) / 100
 
-        // The fine band is the reference's, exactly: the two finest a-trous bands,
-        // `details[0] + 0.5 * details[1]`.
+        // The fine band is the reference's, exactly — now including WHICH two a-trous
+        // bands it is. Both halves are frame-denominated (E2-04): the unsharp sigma
+        // through `SpatialOps.frameDenominatedSigma` and the band through
+        // `Self.fineDetailBand`, which is the twin of `SpatialOps.fineDetailBand` and
+        // reads the same `fineBandLevel`. Fixed at `details[0] + 0.5 * details[1]` and
+        // at a pixel radius, one Sharpening setting meant a different fraction of the
+        // photograph at every render size, and a 7008 px export received 7% of what the
+        // fit preview showed. A 2560 px render is unchanged.
+        //
+        // The algebra of one band, kept here because the kernel chain below is written
+        // out of it:
         //
         // It used to be `lum - gaussianBlur(lum, sigma: radius * 0.4)`, and that made
         // the Detail slider run BACKWARDS. A narrower blur is closer to the identity, so
@@ -942,21 +1084,19 @@ public struct RenderGraph {
         // that Detail 0 and Detail 100 differ by more than 1e-4, which a sign inversion
         // satisfies perfectly.
         //
-        // Algebra, with s1 and s2 the a-trous smooths at steps 1 and 2:
-        //     d0 = lum - s1,  d1 = s1 - s2
-        //     d0 + 0.5*d1 = lum - 0.5*(s1 + s2)
+        // Algebra, with s_i the a-trous smooths (`s0 = lum`, `s_{i+1}` a b-spline pass
+        // at step 2^i, which is the chain `SpatialOps.atrousWavelet` builds):
+        //     d_i = s_i - s_{i+1}
+        //     d_i + 0.5*d_{i+1} = s_i - 0.5*(s_{i+1} + s_{i+2})
         // `bSplinePass` is the same operator as `SpatialOps.atrousSmooth` — pinned by
         // `testAtrousStepMatchesTheReference` — and `blendMask(a, b, 0.5)` is the mean,
         // so the reference's band is reproducible here without a new kernel.
         guard let lum = Self.logLuminance(image),
-              let blurred = Self.gaussianBlur(lum, sigma: radius),
-              let smooth1 = Self.bSplinePass(lum, step: 1),
-              let smooth2 = Self.bSplinePass(smooth1, step: 2),
-              let half = Self.constant(RGB(gray: 0.5), extent: image.extent),
-              let meanSmooth = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                   extent: image.extent,
-                                                   [smooth1, smooth2, half]),
-              let fine = Self.subtract(lum, meanSmooth),
+              let blurred = Self.gaussianBlur(
+                lum, sigma: SpatialOps.frameDenominatedSigma(radius: radius,
+                                                             longEdge: longEdge)),
+              let fine = Self.fineDetailBand(lum, extent: image.extent,
+                                             longEdge: longEdge),
               let structure = Self.localStructure(
                 lum, radius: Self.structureRadius(longEdge: longEdge)),
               let delta = KernelLibrary.apply(
@@ -976,15 +1116,74 @@ public struct RenderGraph {
         return out
     }
 
-    /// Gaussian blur that keeps the extent it was given.
+    /// The GPU twin of `SpatialOps.fineDetailBand`: the two-scale band a
+    /// deconvolution-weighted sharpener puts its energy in, placed on the FRAME rather
+    /// than on the pixel grid.
     ///
-    /// `CIGaussianBlur.radius` is a SUPPORT radius, not a standard deviation — the
-    /// halation stage in this same file says exactly that and multiplies by three. This
-    /// passed sigma straight through, so every blur here was about a third of the width
-    /// it was asked for, and across the sharpen radius range (0.5…3.0) that put the
-    /// support at 0.17…1.0 px, at or below where the filter stops doing anything. The
-    /// stage rendered no change, and the `guard let … else { unsharp mask }` fallback
-    /// could not catch it because every kernel compiled fine.
+    /// `band(i) = details[i] + 0.5·details[i+1] = s_i − ½(s_{i+1} + s_{i+2})`, at the
+    /// continuous level `SpatialOps.fineBandLevel` returns, linearly blended between the
+    /// two adjacent integer bands. Continuous rather than rounded for the reason that
+    /// function gives: a rounded band steps a whole octave at 2560·√2, and the picture
+    /// would change by 21.6% because the preview ladder moved by two pixels.
+    ///
+    /// Both renderers read the SAME level from the same function, which is the only
+    /// thing that keeps them on one band. Two paths agreeing on a number they each then
+    /// use differently is how the Detail slider ran backwards here for a whole release.
+    ///
+    /// At the 2560 px reference the level is 0, `fraction` is 0, and this is exactly the
+    /// two passes and one mean that stood in `applySharpen` before — same operators,
+    /// same steps, byte for byte. The chain only lengthens above the reference, where a
+    /// coarser band is what the frame is asking for: at most five passes, at 10240 px
+    /// and beyond, which is where `fineBandLevel`'s own ceiling stops it.
+    static func fineDetailBand(_ lum: CIImage, extent: CGRect,
+                               longEdge: Int) -> CIImage? {
+        let levels = DetailEngine.waveletLevels
+        let level = SpatialOps.fineBandLevel(longEdge: longEdge, levels: levels)
+        let lower = Swift.min(Swift.max(Int(level.rounded(.down)), 0), levels - 2)
+        let fraction = level - Double(lower)
+
+        // `s0 = lum`, `s_{i+1} = bSplinePass(s_i, step: 2^i)` — the à-trous dilation
+        // schedule, spelled the way `SpatialOps.atrousWavelet` spells it. Only the
+        // smooths the band actually reads are built.
+        var smooths: [CIImage] = [lum]
+        let needed = fraction > 0 ? lower + 3 : lower + 2
+        for i in 0..<needed {
+            guard let next = Self.bSplinePass(smooths[i], step: 1 << i) else { return nil }
+            smooths.append(next)
+        }
+
+        guard let half = Self.constant(RGB(gray: 0.5), extent: extent) else { return nil }
+        func band(_ i: Int) -> CIImage? {
+            guard i + 2 < smooths.count,
+                  let mean = KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                                 [smooths[i + 1], smooths[i + 2], half])
+            else { return nil }
+            return Self.subtract(smooths[i], mean)
+        }
+
+        guard let low = band(lower) else { return nil }
+        guard fraction > 0, let high = band(lower + 1),
+              let mix = Self.constant(RGB(gray: fraction), extent: extent)
+        else { return low }
+        return KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                   [low, high, mix])
+    }
+
+    /// Gaussian blur that keeps the extent it was given — THE one Gaussian in this
+    /// file. Every stage that needs one calls this rather than building its own
+    /// `CIFilter`, and that rule is not stylistic: the correction below landed here and
+    /// missed `applyHalation`, which had kept a private copy of the filter, so for a
+    /// whole round the sharpen stage blurred at sigma and the halation stage at three
+    /// times it out of one profile in one file.
+    ///
+    /// `CIGaussianBlur.radius` was believed to be a SUPPORT radius rather than a
+    /// standard deviation — the halation stage in this same file said exactly that and
+    /// multiplied by three. Under that belief passing sigma straight through made every
+    /// blur here about a third of the width it was asked for, and across the sharpen
+    /// radius range (0.5…3.0) that put the support at 0.17…1.0 px, at or below where
+    /// the filter stops doing anything. The stage rendered no change, and the
+    /// `guard let … else { unsharp mask }` fallback could not catch it because every
+    /// kernel compiled fine.
     static func gaussianBlur(_ image: CIImage, sigma: Double) -> CIImage? {
         guard sigma > 0 else { return image }
         let filter = CIFilter.gaussianBlur()
@@ -1099,9 +1298,27 @@ public struct RenderGraph {
     /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
     /// slightly off. That is a much smaller error than the one being fixed, and it is
     /// listed in BUILDING.md rather than approximated with maths I cannot check here.
-    func applyVignette(_ image: CIImage, ev: Double, crop: Crop) -> CIImage {
+    /// `dithered: false` exists for ONE caller: the banding golden renders an
+    /// undithered control in the same run and asserts the dither's improvement as a
+    /// RATIO, because an absolute bar calibrated by simulating fp16 died on the real
+    /// driver's materialization (both macOS lanes, same 0.0072 EV, deterministic).
+    /// The shipping path never passes it.
+    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+                       crop: Crop, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
+        // The reference's clamp, and now literally the reference's OWN clamp rather
+        // than a transcription of it: this kernel took the raw value once, so a
+        // foreign or hand-edited recipe carrying, say, −5 rendered a 2^-2 deeper
+        // corner here than on the reference path (docs/31 round two §15 adjacency).
+        // The transcription was fixed then; the second copy of the two bounds stayed,
+        // and the bounds have since MOVED (−3…+1 → −4…+2, the measurement is on
+        // `DetailEngine.vignetteAmountRange`). A widened range on one path and not the
+        // other is the same defect wearing a new number, so the range is read from the
+        // one place that defines it and there is nothing left here to keep in step.
+        let ev = Num.clamp(ev, DetailEngine.vignetteAmountRange.lowerBound,
+                           DetailEngine.vignetteAmountRange.upperBound)
+        guard ev != 0 else { return image }
 
         var e = full
         if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
@@ -1114,9 +1331,12 @@ public struct RenderGraph {
         }
         guard e.width > 0, e.height > 0 else { return image }
         let centre = CIVector(x: e.midX, y: e.midY)
-        // PER AXIS, then scaled so the corner lands at r = 1 — the ellipse inscribed in
-        // the crop rectangle, which is what docs/06's Roundness 0 means and what
-        // `DetailEngine.vignette` draws.
+        // PER AXIS, then scaled so the corner lands at r = 1 — level sets elliptical on
+        // the crop's own proportions, which is what docs/06's Roundness 0 means and what
+        // `DetailEngine.vignette` draws. (r = 1 is the ellipse through the CORNERS, not
+        // the one inscribed in the rectangle; both this comment and the reference's said
+        // "inscribed", and the inscribed ellipse is at r = 0.7071 where the default
+        // feather delivers 0.547 of the Amount — see `DetailEngine.vignetteFalloff`.)
         //
         // Normalizing both axes by the half-DIAGONAL, as this did, draws a CIRCLE. On a
         // 3:2 frame that put the long-edge midpoint at r = 0.832 where the reference
@@ -1124,8 +1344,13 @@ public struct RenderGraph {
         // vignette from the same slider, and a 24% gain difference at the edge.
         let norm = 1.0 / (2.0 as CGFloat).squareRoot()
         let inv = CIVector(x: norm / (e.width / 2), y: norm / (e.height / 2))
-        // The kernel's `feather` is `1 − inner`, so it starts where the reference does.
-        let feather = 1 - DetailEngine.vignetteInnerRadius
+        // The kernel's `feather` is `1 − inner`, so it starts where the reference
+        // does. The inner radius comes from the recipe's feather through the SAME
+        // function the reference calls (`DetailEngine.vignetteInnerRadius(feather:)`,
+        // never re-derived here), and the outer edge is pinned at the corner (r = 1)
+        // at every feather by construction — which is why this single scalar still
+        // fully describes the geometry and the kernel needs no new parameter.
+        let feather = 1 - DetailEngine.vignetteInnerRadius(feather: recipeFeather)
         // Rendered over the FULL extent — the crop only defines the ellipse. Cropping
         // the output here would throw away the pixels applyGeometry is about to select.
         // Highlight protection, at the same disclosure default the reference uses.
@@ -1135,13 +1360,34 @@ public struct RenderGraph {
         // different numbers.
         let weights = RGBColorSpace.rec2020.luminanceWeights
         let threshold = 0.18 * pow(2.0, 5.0) / 2.0
+        // The burn's exponent is dithered by half an fp16 quantum of the encoded
+        // plane (see the kernel's comment — this is the banding-at-−3 fix, docs/31
+        // round two §7). The plate is the export dither's own Bayer cell, tiled.
+        // If it cannot be built the vignette still renders, UNDITHERED: the image
+        // itself stands in as the noise argument with a zero amplitude, so no
+        // failure of the plate can silently drop the whole stage — a burn without
+        // its dither is the previous behaviour; no burn at all is a different
+        // picture.
+        let plate = PipelineRenderer.ditherPlate(extent: full)
+        let noise = plate ?? image
+        let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, centre, inv, Float(ev), Float(feather),
+                                   [image, noise, centre, inv, Float(ev), Float(feather),
                                     CIVector(x: weights.r, y: weights.g, z: weights.b),
                                     Float(threshold),
-                                    Float(DetailEngine.vignetteHighlightProtection)])
+                                    Float(DetailEngine.vignetteHighlightProtection),
+                                    Float(ditherEV)])
             ?? image
     }
+
+    /// One half-float ULP of the LOG-ENCODED plane, converted to EV — the units
+    /// rule (BUILDING.md): write the conversion, not the number. The encoded plane
+    /// parks real pictures in [0.29, 0.71]; for values in [0.5, 1) an fp16 mantissa
+    /// step is 2⁻¹¹ of the encoded unit, and one encoded unit spans
+    /// `LumenLog.range` EV, so one quantum is 2⁻¹¹ · 24 ≈ 0.0117 EV — docs/31
+    /// round two §7's measured number. The vignette kernel dithers its exponent by
+    /// ±half of this.
+    static let encodedFP16QuantumEV: Double = pow(2.0, -11.0) * LumenLog.range
 
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
         let profile = film.halation(longEdgePixels: longEdge)
@@ -1155,13 +1401,19 @@ public struct RenderGraph {
         // the film base is not a single-scale scatterer.
         var glow: CIImage?
         var weight = 1.0
-        for sigma in profile.sigmasInPixels {
-            let blur = CIFilter.gaussianBlur()
-            blur.inputImage = energy.clampedToExtent()
-            // The profile carries standard deviations; CIGaussianBlur wants a support
-            // radius. Three sigmas covers ~99.7% of the kernel.
-            blur.radius = Float(Swift.max(sigma * 3, 0.5))
-            guard let blurred = blur.outputImage?.cropped(to: image.extent) else { continue }
+        for sigma in profile.sigmasInPixels where sigma > 0 {
+            // Through the shared helper, which is the whole point of the fix recorded
+            // in `gaussianBlur`'s own header: `CIGaussianBlur.radius` IS the standard
+            // deviation, measured on the runner. This stage kept its own copy of the
+            // filter with the old `sigma * 3` in it, so the correction landed
+            // everywhere the helper is called and nowhere here — the glow rendered
+            // three times wider than the 65 µm the profile derives, on every preview
+            // and every export, while `ReferenceRenderer.applyHalation` rendered it at
+            // one. The comment claiming halation had been fixed named this stage.
+            //
+            // The `where sigma > 0` matches the reference's loop: a profile with a
+            // degenerate radius contributes nothing rather than a delta.
+            guard let blurred = Self.gaussianBlur(energy, sigma: sigma) else { continue }
             let scaled = Self.applyMatrix(blurred, Mat3.diagonal(RGB(gray: weight)))
             if let existing = glow {
                 glow = KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
@@ -1179,10 +1431,176 @@ public struct RenderGraph {
             ?? image
     }
 
-    func applyGrain(_ image: CIImage, plate: CIImage, film: FilmChain) -> CIImage {
+    /// The grain kernel, from the plan both renderers hold: the peak amplitude in
+    /// density units, the Dmax that normalizes the density into `p`, and the two
+    /// weights that decide how much of the three layers' independence reaches the
+    /// picture. Whether they came from an emulsion or from three sliders is settled
+    /// before this line.
+    ///
+    /// It takes the PLAN rather than loose scalars because the weights have to be the
+    /// same two numbers `ReferenceRenderer.applyGrain` computes, and the way for two
+    /// renderers to disagree about a number is for each to be handed it separately.
+    func applyGrain(_ image: CIImage, plate: CIImage, grain: GrainPlan) -> CIImage {
         KernelLibrary.apply(KernelLibrary.grain, extent: image.extent,
-                            [image, plate, Float(film.grainAmount), Float(film.grainDMax)])
+                            [image, plate, Float(grain.amount), Float(grain.dMax),
+                             Float(grain.noiseLumaWeight), Float(grain.noiseOwnWeight)])
             ?? image
+    }
+
+    /// A tiled plate for ANY grain — a stock's or the Effects panel's — packed the way
+    /// `lumenGrain` reads it.
+    ///
+    /// THERE WAS A SECOND COPY OF THIS, in `PipelineRenderer`, for the film path. Same
+    /// generator, same seeds, same packing, same tiling, same 128 — a duplicate that
+    /// this comment used to describe as producing identical bytes "by construction".
+    /// It stopped being true the moment the plate learned to band-limit itself
+    /// (C2-01b): the reference renderer and this builder skipped the octaves a render
+    /// cannot resolve, and the film path's copy did not, so a stock's GPU grain went
+    /// back to carrying the aliasing the fix had just removed — on the export path as
+    /// well as the preview. Nothing failed, because the test that pinned the two
+    /// builders together compares the UNLIMITED plates and both are still unlimited
+    /// when you ask them that way.
+    ///
+    /// So there is one builder now. `GrainPlan.film` makes a plan out of a `FilmChain`
+    /// and the film path comes through here.
+    ///
+    /// This is the same construction `PipelineRenderer.grainPlate` used to perform for a film
+    /// stock, and the duplication is deliberate and bounded rather than accidental: the
+    /// film builder lives in a file this change does not own, and the alternative was
+    /// either to ship a creative grain that renders on the CPU reference and silently
+    /// does nothing on the shipping path — the exact "built but unwired" defect this
+    /// codebase keeps convicting itself of — or to leave the GPU without a plate at all.
+    /// What is NOT duplicated is anything that could disagree about the grain itself:
+    /// the noise comes from `GrainPlan.plate`, which is `FilmGrainProfile.plate` with the
+    /// profile's own seed and persistence; the packing constant is
+    /// `FilmGrainProfile.plateEncodeScale`, the one the kernel divides back out; the cell
+    /// size is `GrainPlan.plateScale`. Those four are the whole of what a plate IS, and
+    /// each of them has a paragraph in `FilmLab.swift` about the day it was written twice
+    /// with two values.
+    ///
+    /// WHEN `PipelineRenderer` IS NEXT OPEN, this should become the one builder and its
+    /// twin should call it with `GrainPlan.film(chain)`. The two produce identical bytes
+    /// for a film profile by construction — same generator, same seeds, same encode
+    /// scale, same 128 — and `GrainPlateTests` in LumenCore pins the pixel packing so
+    /// that a merge of the two cannot quietly change one.
+    ///
+    /// No `saturate` on the stored value, for the reason the film builder gives: the
+    /// texture is RGBAf and a clamp to 0…1 would flatten the 3.4% of the plate beyond
+    /// ±2σ, which is precisely the strongest grains.
+    static func grainPlate(_ grain: GrainPlan, extent: CGRect,
+                           longEdge: Int) -> CIImage? {
+        let size = GrainPlan.plateSize
+        guard extent.width > 0, extent.height > 0 else { return nil }
+
+        /// Scale one plate to its cell size, tile it over the plane, and ANCHOR the
+        /// lattice to the TOP of the frame.
+        ///
+        /// The anchoring is the one line here that is not obvious, and it is a fix.
+        /// `ImageBuffer` is top-down while Core Image's extent is bottom-up, so image
+        /// row `y` renders at `y_CI = maxY − 1 − y`; the plate is built from a top-down
+        /// array through the same `CIImage(bitmapData:)`, so its row 0 lands at the TOP
+        /// of the plate's own extent; and `affineTile` repeats that extent from the CI
+        /// ORIGIN. Compose those three and the GPU read plate row `(128 − h + y) mod 128`
+        /// where `ReferenceRenderer.applyGrain` reads row `y` — the same row only when
+        /// the frame's height happened to be a multiple of 128, which is why nothing
+        /// noticed. Measured on a 160×96 frame at exactly one plate texel per render
+        /// pixel, the two renderers differed by 0.16699 at (16, 0) against a parity
+        /// bound of 1e-3, while the 128-row frame agreed to 1e-6.
+        ///
+        /// A TRANSLATION and not a mirror: the image and the plate cross the
+        /// top-down/bottom-up boundary in the same direction, so `y`'s coefficient
+        /// survives with its sign and only the offset moves. That is what makes this
+        /// one number rather than a flip of the stored array.
+        ///
+        /// Anchoring the lattice to `extent.maxY` puts a tile's top edge on the frame's
+        /// top edge, which is where the plate's own row 0 lives — so top-down row `y`
+        /// reads plate row `y`, which is what the reference reads. Taken modulo one tile
+        /// period because the tiling is periodic and a small offset keeps the sampler's
+        /// coordinates near the frame: `maxY − period ≡ maxY (mod period)`.
+        ///
+        /// It moves rows only. x carries no flip and the lattice already starts where
+        /// the frame does, which is why the 160-wide fixture — chosen so the tile WRAPS
+        /// in x — was exact before this and stays exact after it.
+        func tiled(_ plate: CIImage, scale: Double) -> CIImage {
+            let scaled = plate.transformed(
+                by: CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
+            let tiler = CIFilter.affineTile()
+            tiler.inputImage = scaled
+            tiler.transform = .identity
+            let repeated = tiler.outputImage ?? scaled
+            let period = Double(size) * scale
+            guard period.isFinite, period > 0 else { return repeated }
+            let offset = Double(extent.maxY).truncatingRemainder(dividingBy: period)
+            // An infinite extent — which `CIImage.extent` is entitled to be — makes the
+            // remainder NaN, and a NaN translation would take the whole plate with it.
+            guard offset.isFinite, offset != 0 else { return repeated }
+            return repeated.transformed(
+                by: CGAffineTransform(translationX: 0, y: CGFloat(offset)))
+        }
+
+        /// One layer's tile: its noise in `channel`, zero elsewhere, so the three sum to
+        /// a packed RGB plate. Alpha rides on the red tile alone — addition compositing
+        /// adds alpha too, and three opaque tiles would sum to 3.
+        func tile(channel: Int) -> CIImage? {
+            // BAND-LIMITED to the resolution this plate is about to be sampled at, and
+            // through the SAME `plateScale` call `ReferenceRenderer` makes, because the
+            // two plates have to be identical bytes or gpu-parity fails (C2-01b).
+            let values = grain.plate(
+                channel: channel,
+                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
+                                                      channel: channel))
+            var pixels = [Float](repeating: 0, count: size * size * 4)
+            for i in 0..<(size * size) {
+                pixels[i * 4 + channel] =
+                    Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
+                pixels[i * 4 + 3] = channel == 0 ? 1 : 0
+            }
+            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
+                                size: CGSize(width: size, height: size),
+                                format: .RGBAf, colorSpace: nil)
+            return tiled(image,
+                         scale: grain.plateScale(longEdgePixels: longEdge,
+                                                 channel: channel))
+        }
+
+        if grain.profile.monochrome {
+            // One field written to all three channels. A black-and-white photograph has
+            // no dye layers to grain independently, and three decorrelated fields on one
+            // would be coloured speckle on a picture with no colour in it.
+            let values = grain.plate(
+                channel: 0,
+                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
+                                                      channel: 0))
+            var pixels = [Float](repeating: 1, count: size * size * 4)
+            for i in 0..<(size * size) {
+                let v = Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
+                pixels[i * 4] = v
+                pixels[i * 4 + 1] = v
+                pixels[i * 4 + 2] = v
+            }
+            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
+                                size: CGSize(width: size, height: size),
+                                format: .RGBAf, colorSpace: nil)
+            return tiled(image,
+                         scale: grain.plateScale(longEdgePixels: longEdge, channel: 0))
+                .cropped(to: extent)
+        }
+
+        guard let red = tile(channel: 0), let green = tile(channel: 1),
+              let blue = tile(channel: 2) else { return nil }
+        // Addition compositing is exact rather than approximate here: it works on
+        // premultiplied colour, and premultiplying by an alpha of 1 or 0 leaves the one
+        // contributing channel of each tile untouched.
+        func add(_ a: CIImage, _ b: CIImage) -> CIImage? {
+            let filter = CIFilter.additionCompositing()
+            filter.inputImage = a
+            filter.backgroundImage = b
+            return filter.outputImage
+        }
+        guard let rg = add(red, green), let packed = add(rg, blue) else { return nil }
+        return packed.cropped(to: extent)
     }
 
     // MARK: - Shaper helpers
@@ -1212,12 +1630,28 @@ public struct RenderGraph {
 
     /// Log luminance broadcast to all channels, in the shaper's bounded domain — the
     /// coordinate every edge-aware stage works in.
+    ///
+    /// FLOORED AT ZERO before the encode, matching the reference exactly
+    /// (`ReferenceRenderer.applyTone` guides on `LumenLog.encode(max(lum, 0))`;
+    /// docs/31 round two §5). Scene-linear luminance goes negative routinely after
+    /// white balance — a saturated blue's red channel comes out below zero and the
+    /// weighted sum follows it — and the shaper's toe is linear and UNBOUNDED
+    /// below: −0.01 encoded to −4.83 where the reference gives +0.0024. One such
+    /// pixel is enough to blow up the guided filter this plane guides — measured,
+    /// it drove the filter's `a` from 0.087 to 0.917 across a 103×103 patch, the
+    /// edge-aware tone mask degenerating into the raw luminance. The floor is a
+    /// `highlightEnergy` at threshold 0, boost 1, which is `max(v, 0)` per channel
+    /// and no new kernel.
     static func logLuminance(_ image: CIImage) -> CIImage? {
         let w = RGBColorSpace.rec2020.luminanceWeights
         guard let lum = KernelLibrary.apply(KernelLibrary.luminance, extent: image.extent,
-                                            [image, CIVector(x: w.r, y: w.g, z: w.b)])
+                                            [image, CIVector(x: w.r, y: w.g, z: w.b)]),
+              let floored = KernelLibrary.apply(KernelLibrary.highlightEnergy,
+                                                extent: image.extent,
+                                                [lum, Float(0.0), Float(1.0)])
         else { return nil }
-        return KernelLibrary.apply(KernelLibrary.logEncode, extent: image.extent, [lum])
+        return KernelLibrary.apply(KernelLibrary.logEncode, extent: image.extent,
+                                   [floored])
     }
 
     /// `CIBoxBlur` with the parameter passed straight through, for the one test whose
@@ -1448,14 +1882,29 @@ struct LocalPlan {
     let lut: LUT3D
     let isIdentity: Bool
 
-    init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double, blackAnchorEV: Double) {
+    /// `size` is the render's table size, not a default: an export bakes at
+    /// `LUT3D.exportSize` and a preview at `LUT3D.interactiveSize`, and there is
+    /// deliberately no default value here so that a new call site has to say which
+    /// render it is baking for. Nothing caches this table — `PlanTableCache` refuses
+    /// anything above the interactive size on purpose — so the size is not part of any
+    /// cache key; it is baked once per mask per render, which at export is 274 625
+    /// samples per mask instead of 35 937.
+    /// `globalColor` and `globalWheels` are the GLOBAL panels' values, and they have
+    /// no defaults for the same reason `size` has none: a call site that forgets them
+    /// silently reverts COLOR-16/COLOR-27 — the masked grade re-zoned by factory
+    /// pivots, the masked Sat re-protected by an invisible 70.
+    init(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double,
+         blackAnchorEV: Double, size: Int,
+         globalColor: ColorAdjust, globalWheels: GradingWheels,
+         balanced: WhiteBalanceEngine.Neutral) {
         // `pointColors` belongs in this list. Leaving it out meant a mask whose ONLY
         // edit was a sampled swatch declared itself identity, got a 2-point identity
         // table, and returned its input — the Point Colour control did nothing at all
         // inside a mask on the GPU path, which is every preview and every export.
         let identity = adjust.contrast == 0 && adjust.highlights == 0
             && adjust.shadows == 0 && adjust.whites == 0 && adjust.blacks == 0
-            && adjust.temp == 0 && adjust.tint == 0 && adjust.hue == 0
+            && adjust.temp == 0 && adjust.tint == 0 && adjust.kelvin == nil
+            && adjust.hue == 0
             && adjust.sat == 0 && adjust.vibrance == 0 && adjust.colorTint == nil
             && adjust.pointColors.isEmpty
             // `wheels` belongs here for the same reason `pointColors` does: a mask
@@ -1473,8 +1922,12 @@ struct LocalPlan {
                                          shadows: adjust.shadows * scale,
                                          whites: adjust.whites * scale,
                                          blacks: adjust.blacks * scale))
-        let color = ColorAdjust(vibrance: adjust.vibrance * scale,
-                                saturation: adjust.sat * scale)
+        // Density and protectSkin inherited from the global colour panel — see
+        // `ColorAdjust.local` (COLOR-27). Kept in lockstep with
+        // `ReferenceRenderer.applyLocalAdjust`.
+        let color = ColorAdjust.local(vibrance: adjust.vibrance * scale,
+                                      saturation: adjust.sat * scale,
+                                      inheriting: globalColor)
         let colorEngine = ColorEngine(
             mixer: Mixer(),
             pointColors: adjust.pointColors.map { $0.scalingShift(by: scale) },
@@ -1485,9 +1938,13 @@ struct LocalPlan {
         // Temp and Tint were in the identity test above and then never applied, so a
         // local white-balance nudge marked the stage live, rebuilt the table, and
         // produced the same picture.
-        let balance = ReferenceRenderer.LocalWhiteBalance(temp: adjust.temp * scale,
-                                                          tint: adjust.tint * scale,
-                                                          space: .rec2020)
+        //
+        // `resolve` rather than the relative initializer directly, because a mask now
+        // has two spellings of white balance and exactly one place is allowed to decide
+        // which one it is using. Two call sites choosing for themselves is how the
+        // reference and the GPU start rendering different pictures from one recipe.
+        let balance = ReferenceRenderer.LocalWhiteBalance.resolve(
+            adjust, amount: scale, balanced: balanced, space: .rec2020)
         // Local grading wheels (D29). The panel has offered four draggable wheels
         // since it was written and no stage read them, so a masked grade moved
         // nothing. The anchors this needs were already parameters of this initializer
@@ -1499,11 +1956,14 @@ struct LocalPlan {
         // are the parts that make a grade look like a grade rather than a tint.
         let localGrade = (adjust.wheels?.isNeutral ?? true)
             ? nil
-            : GradeEngine(wheels: adjust.wheels!.scalingShift(by: scale),
+            // `adoptingWindows`: the mask's colour moves inside the GLOBAL wheels'
+            // tonal windows — the docs/08 §8.4 contract (COLOR-16).
+            : GradeEngine(wheels: adjust.wheels!.scalingShift(by: scale)
+                              .adoptingWindows(from: globalWheels),
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
-        self.lut = LUT3D(size: LUT3D.interactiveSize) { encoded in
+        self.lut = LUT3D(size: size) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))

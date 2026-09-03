@@ -43,7 +43,7 @@ export it (⌘E).
 | Target | Contents | Platforms |
 |---|---|---|
 | `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
-| `LumenPipeline` | The Core Image render path: thirty-two small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenPipeline` | The Core Image render path: thirty-three small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
 | `LumenApp` | The SwiftUI application. | macOS |
 
 ## How this code was verified
@@ -236,7 +236,7 @@ S15 curve    ┘        one 3-D table, log domain in, display-linear out
 S16 geometry          crop ∘ rotate, one resample
 ```
 
-The custom-shader surface is therefore thirty-two small kernels
+The custom-shader surface is therefore thirty-three small kernels
 (`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
 the guided filter, mask compositing, grain, vignette, dehaze, halation, and the nine
 that make up S3's variance-stabilizing transform and à-trous shrinkage. Everything else
@@ -249,11 +249,14 @@ and the renderer says so in the viewer rather than rendering something wrong.
 
 These are tracked, not hidden.
 
-- **No one has run this app on a real Mac yet.** CI compiles it and runs the suites;
-  the first launch on real camera files is still ahead. Expect layout surprises and
-  `CIRAWFilter` behaviour on specific bodies to need attention. That is the honest
-  state, and it is why the first session on a Mac should be `swift run LumenApp` with a
-  folder of your own frames.
+- **The owner has run it on a real Mac four times** (twice 2026-08-23, sessions A and
+  B on 2026-08-26, recorded in docs/19, docs/audit and docs/sessions/): it launches,
+  decodes, culls, edits and exports his own RAW folders, and each session's findings
+  became fix batches with their own records. This bullet claimed "no one has run this
+  app on a real Mac yet" for four sessions after it stopped being true — in the file
+  that calls itself the honest ledger, which is exactly the failure mode its own
+  stale-bullet confession at the bottom predicted. Specific bodies' `CIRAWFilter`
+  behaviour still gets attention as new cameras appear.
 - **The loupe is a SwiftUI image view, not the Metal/EDR layer.** The render plumbing —
   draft decode, coordinator actor, one graph for preview and export — is the real
   architecture; only the view swaps when the EDR viewport lands. HDR *export* maths is
@@ -284,6 +287,23 @@ These are tracked, not hidden.
   artifact key and the tile plan all exist and are tested; `denoise.mode = .ai` drives
   the decoder's own noise reduction from its Amount slider as a stand-in.
 
+  That stand-in reaches RAW files only. `RenderedImageSource.decode` takes the recipe
+  and reads nothing but the scale factor, so on a JPEG, HEIC or TIFF `.ai` means every
+  denoise stage off — Tier 1 zeroed by the mode coupling, Tier 2 absent, and Amount
+  driving a decoder stage that path does not have. The panel now distinguishes the two;
+  the code does not, and closing it needs a change in `LumenPipeline`.
+
+  The mode coupling itself used to zero Tier 1 unconditionally. docs/07 §2.1 says the
+  masters drop to zero "unless the user has hand-set them, in which case their values
+  are respected", which needs a bit per master, and the recipe had none — so
+  `ISODefaults.classic(for:)` took them as parameters **defaulting to false** and
+  `RenderPlan` passed neither. The exception could not fire on any photograph, and the
+  only trace was a default argument at a call site nobody reads. `ClassicNR` carries
+  `lumaUserSet` / `chromaUserSet` now, the panel sets them, and the parameters are gone
+  rather than defaulted — a default argument is a silent answer to a question the caller
+  was never asked. Both are false by default and serialize sparsely, so no recipe
+  already written changes its canonical form or its fingerprint.
+
   Until recently that gap was much wider than it looked: the renderer rasterized every
   mask with no source image, so **Luma Range, Colour Range and both Similarity kinds
   also selected nothing** — on every preview and every export, with no badge, because a
@@ -300,10 +320,56 @@ These are tracked, not hidden.
   `PipelineRenderer.renderReference` rather than inside the reference's own stage list;
   and Tier 2 remains a cached-artifact design with no model, so `.ai` still drives the
   decoder's own denoise from its Amount. Capture sharpening (S4) is unchanged: Apple's
-  at-demosaic sharpener scaled by the slider, with `richardsonLucy` still uncalled.
-- **Halation now runs on both paths** and the golden suite compares them. It used to be
-  GPU-only, which meant the slider did nothing on every headless render and any golden
-  that set it diverged.
+  at-demosaic sharpener scaled by the slider, with `richardsonLucy` uncalled AND
+  untested — it appears in no file under `Tests/`, so "written" is the whole claim.
+
+  **What the golden suite could not say is whether any of it is GOOD.** Every denoise
+  assertion in the suite measured noise σ falling, which stays true while the picture is
+  being destroyed — a stage returning flat grey removes 100% of the noise. Scored
+  against ground truth instead (`ProofFrames.cleanISO6400`, `chromaEdge`,
+  `noisyChromaEdge`; `DenoiseQualityTests`), both master sliders were spending their top
+  halves buying negative quality: at Colour 100 a saturated colour edge survived at
+  0.709 of its step, at the ISO 25600 default 0.738, and on a noisy colour edge every
+  Colour setting from about 40 up scored WORSE than not denoising at all. Both travels
+  are now bounded at 2.5σ — measured, not chosen: past that a soft threshold keeps under
+  5% of a band — with each curve anchored so the mid travel keeps the authority the
+  flat-field goldens require. The luminance-guided blotch pass came down from a 0.5 mix
+  to 0.10, which is where most of the colour edge was going: its guide is luminance, so
+  across a boundary that is pure chroma there is nothing to stop it.
+
+  Residual error against the clean frame, both masters together, in sRGB code values:
+  undenoised 3.623, best point 2.030 → 2.018, full deflection **3.552 → 2.869**.
+
+  The ISO-adaptive Colour defaults resolved INTO that harmful region — 40 at ISO 6400,
+  55 at 25600, both worse than no denoise at all on a noisy colour edge. The anchors are
+  10 / 20 / 25 / 30 now, and the reason the old curve climbed is worth keeping: every
+  threshold in this stage is denominated in the profile's σ, **and σ already rises with
+  ISO**, so a slider that also rises with ISO applies the gain adaptation twice. Swept
+  on the corrected curve the optimum does not move with ISO at all. `luminanceAnchors`
+  has the same structure and has not been measured; the double count is structurally
+  identical there and should be checked before it is defended.
+
+  What this does NOT fix: luminance still gives error back over its travel on a frame
+  whose texture sits near the noise floor, because the edge map that would tell them
+  apart is stabilized by a σ 1.5 pre-blur and cannot see 6 px detail. Changing that
+  operator changes a kernel too, so it is not a Linux-side fix.
+- **Halation runs on both paths, and the golden suite now compares them.** It used to
+  be GPU-only, which meant the slider did nothing on every headless render and any
+  golden that set it diverged. The second half of that sentence was untrue when it was
+  written: a grep of `Tests/LumenPipelineTests` for "halation" returned nothing, so
+  every halation assertion in the repository was on the reference path, and deleting
+  the call to the stage from `RenderGraph.build` left the whole suite green while every
+  preview and every export lost the glow. In that gap the GPU stage was blurring at
+  three times the model's radius — it had kept a private `CIFilter.gaussianBlur()` with
+  the old `sigma * 3` in it, so the correction that landed in `RenderGraph.gaussianBlur`
+  (`CIGaussianBlur.radius` IS the standard deviation, measured on the runner) reached
+  the sharpen stage and mask feather and missed this one. Two goldens now hold it: one
+  drives a clipped highlight through both paths and compares the second moment of the
+  glow against the profile's own `2·Σwσ²/Σw`, where a support-radius conversion is a
+  factor of nine; the other renders the same frame through `RenderGraph.build` at
+  Halation 0 and 100 and requires the difference to appear beside the highlight and not
+  at the far corner. Both are macOS-lane tests. Grain is still in the state halation was
+  in: nothing renders it through the graph, so its call site can be deleted green.
 - **Local noise, moiré, defringe and grain are not wired.** They have wire formats and
   no stage reads them, so the mask panel does not show them: a slider that moves a
   stored value and changes no pixel costs the user the time to find out. The local
@@ -323,19 +389,33 @@ These are tracked, not hidden.
   they move the tone engine's anchors, and a mask has no display transform for those
   anchors to feed, so they only reshape where Highlights and Shadows act. The panel
   says so.
-- **A lot of the catalog schema has no app behind it yet.** The tables, indices and
-  `CatalogStore` API exist and are tested, and nothing in the app calls them: the
-  preview/artifact cache (so thumbnails re-decode from the embedded JPEG on every
-  launch rather than being served warm), stacks, keywords, collections, jobs, the
-  export log, per-source view state, and virtual copies — `saveRecipe` only ever
-  writes `kind = .working`, so `.version` and `.snapshot` rows are never created and
-  the queries that filter on them can never match. The SQL filter and sort engine is
-  in the same position: `PhotoQuery`, the FTS index and the fourteen chip indices are
-  built and unused, because `FilterBar` filters in memory. None of this is broken, and
-  all of it is unfinished — the schema went in ahead of the features, which is the
-  right order, but it means a schema tour overstates what the app does.
-- **`quickCheck()` and `integrityCheck()` are documented as running on every open.**
-  They have no callers, so a corrupt catalog is discovered when a query throws.
+- **Part of the catalog schema still has no app behind it.** The tables, indices and
+  `CatalogStore` API exist and are tested; what the app actually calls has grown
+  since this bullet was written and the list is shorter than it was. Wired now:
+  `PhotoQuery` (AppState builds one per sort/filter change and
+  `CatalogService.photos(matching:)` runs it — the old "FilterBar filters in
+  memory" sentence is dead), keywords (vocabulary, per-photo reads, the keyword
+  chips), stacks (create, membership, the stack filter), and `.version` rows,
+  which `saveRecipe` creates when preserving a working row written by a newer
+  build. Still unwired: the preview/artifact cache (thumbnails re-decode from the
+  embedded JPEG on every launch rather than being served warm — the M4
+  rendered-preview item), collections, jobs, the export log, per-source view
+  state, virtual copies, and `.snapshot` rows (snapshots live in `HistoryStack`,
+  in memory). None of this is
+  broken, and the unwired part is unfinished — the schema went in ahead of the
+  features, which is the right order, but it means a schema tour overstates what
+  the app does.
+- **The catalog's integrity check runs now, and restores.** `quickCheck()` and
+  `integrityCheck()` used to be documented as running on every open and had no callers,
+  so a corrupt catalog was discovered when a query threw — and a thrown query degrades
+  to showing everything, which is the shape of failure where the library looks nearly
+  right. `CatalogStore.recoverIfNeeded` runs before the store opens, and on a failed
+  `PRAGMA quick_check` restores the newest backup that passes its own check, setting the
+  damaged file aside rather than deleting it; `CatalogService` calls it and `AppState`
+  shows the after-the-fact notice §15.8 asks for. `integrityCheck()` gates `backup()`,
+  because a corrupt catalog that backs itself up rotates the last readable snapshot out
+  of existence. Still missing from §15.8: the 7-daily/4-weekly/6-monthly retention
+  policy — backups accumulate one per quit and one per menu command, forever.
 - **HDR export writes no gain map.** `renderHDRPair` and the whole `GainMap` relation
   are implemented and tested, and nothing calls them — `export` renders once and emits a
   single rendition. The missing piece is an auxiliary gain-map image attached through
@@ -357,11 +437,31 @@ These are tracked, not hidden.
   render plan, put display white at 4.0, and the 8-bit encode then clipped everything
   above diffuse white — so ticking the box threw away exactly the highlight roll-off it
   was meant to preserve.
-- **Export metadata is subtract-only.** Strip GPS, EXIF, Camera serial and Keywords now
-  remove what they name, which is reliable whichever way the encoder treats the property
-  dictionary. Nothing *adds* a field: Copyright and Contact are stored with the recipe
-  and never written, for the same `CGImageDestination` reason as the gain map. The panel
-  says so. Before this the entire section had no reader at all.
+- **Export metadata: the subtractive half is proven by construction, the additive half
+  is not.** Strip GPS, EXIF, Camera serial and Keywords remove what they name, and that
+  is reliable whichever way the encoder treats the property dictionary — either it
+  honours it and the keys are gone, or it ignores it and they were never going to be
+  written. Before this the entire section had no reader at all.
+
+  Copyright, Contact and the DPI pair *are* now written, into the TIFF and IPTC
+  dictionaries, correctly ordered after the drops so that switching EXIF off cannot
+  carry a copyright away with the dictionary it lives in. **What is not established is
+  whether they arrive.** All of it rides `image.settingProperties` into
+  `CIContext.write*Representation`, and nobody has verified on a Mac that the encoder
+  serialises properties that were ADDED rather than merely preserved. An earlier version
+  of this file said the additive half was impossible because that API "takes no metadata
+  argument"; that is the pessimistic reading of an API whose whole purpose is to carry a
+  dictionary to an encoder, and it is no better evidenced than the optimistic one. The
+  panel says the fields are written and unconfirmed, which is the only caption that is
+  true today.
+
+  **One afternoon at a Mac settles it**: export a JPEG and a TIFF with a copyright set,
+  read them back with `CGImageSourceCopyPropertiesAtIndex`, and check
+  `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`. If they are
+  absent, the file has to be authored through `CGImageDestination`, which takes an
+  explicit properties dictionary and removes the question — the same route the gain map
+  needs. Zero tests touch `applyMetadataPolicy` on either platform, so nothing would
+  notice either outcome today.
 - **The crop tool is reachable now, and correct.** `showCrop` had no writer, so a
   complete interactive `CropOverlayView` was dead code. A first attempt at wiring it
   drew the wrong rectangle and was reverted the same hour: `renderPreview` applies
@@ -472,6 +572,32 @@ changed the picture.
 
 ### Still open, from those audits
 
+- **The cull-time clipping panel is scene-linear, not sensor-raw, and cannot be made
+  sensor-raw here.** `⇧H` measures the decoded frame: `AppleRawSource.decode` is
+  `CIRAWFilter` with Apple's tone curve, shadow boost, local tone mapping, gamut mapping
+  and contrast all off and extended range kept, and
+  `PipelineRenderer.clippingStatistics` bins that output before any Lumen stage and
+  before the display transform. That is scene-referred and carries the headroom above
+  display white — the property the develop histogram lacks and the reason this instrument
+  is worth having — and it is **post-demosaic**. docs/10 §10.5 specifies undemosaiced CFA
+  sites against the per-channel saturation level from metadata; Apple's RAW API does not
+  expose the mosaic and there is no LibRaw in the tree, so where Apple's highlight
+  reconstruction has rebuilt a saturated channel these numbers read the reconstruction.
+  Which direction that moves a percentage has not been measured, and nothing in the app
+  claims it has.
+
+  The gap is held open by a mechanism rather than by this paragraph:
+  `RawStatistics.Provenance` has **no default** at the binning call
+  (`Scopes.swift`, `RawStatistics.compute`), rides in bits 1–3 of the persisted blob's
+  flags word, gates the cache read in `CatalogStore.rawStatistics`, and is what the
+  panel header prints. `RawTruthProvenanceTests
+  .testNothingInTheRepositoryClaimsSensorRawStatistics` scans `Sources/` and fails if any
+  call site writes `provenance: .sensorCFA` or `sourceIsCFA: true`. Two further limits,
+  both stated on the panel: the measurement runs on a 2048 px proxy of the decode, so an
+  isolated clipped pixel is averaged down while a large blown region reads true; and
+  nothing measures until `⇧H` asks — `CatalogStore.photosMissingRawStatistics` is the
+  background sweep's queue and has no driver. The `O` raw-clipping overlay is not built.
+
 - **Dehaze's sky guard is still reference-only.** The recombination now matches — one
   luminance ratio rather than a per-channel divide, so a recovered sky keeps its colour
   (measured: the old form rotated a veiled blue by 13.4°, the new one by 0.00°). What is
@@ -538,11 +664,32 @@ changed the picture.
   place — `renderReference` and `KernelLibrary.unavailableKernels` — but a file is not a
   preview, and silently substituting the reference renderer mid-export is a decision
   that wants a Mac to test on first.
-- Creative sharpening is not resolution-scaled, so an export is less sharpened than the
-  frame the user judged; a mask's COLOUR table still runs at 33³ even on export
+- Creative sharpening IS resolution-scaled now, and this bullet used to say the
+  opposite. `applySharpen` took its radius in raw pixels and its à-trous band at fixed
+  pixel steps while every other spatial stage sized itself off the long edge, so an
+  export was less sharpened than the frame the user judged — and no surface in the
+  application showed the difference, since previews cap at 4096 px and "1:1" on a 45 MP
+  file is already a half-resolution render. That is E2-04, and it is closed: the sigma
+  is frame-denominated and the fine band follows the decomposition's grid, on the CPU
+  and the GPU alike. It is now a number rather than a construction — `ScaleHonestyTests`
+  covers sharpen alongside texture and clarity, and the measurement is **0.11 → 0.92**
+  of its strength arriving in a 6400 px delivery from a 1600 px preview. At 2560 px,
+  the reference width, both halves are the identity, so that render is byte-for-byte
+  what it always was.
+
+  Also: a mask's COLOUR table still runs at 33³ even on export
   (`RenderGraph.Options.lutSize` has one reader now — the local curve's table, which
   does take the export size); and the waveform grows blank columns on crops narrower
   than 256 proxy pixels.
+- **Texture is still well under the strength it specifies**, and the fix above is not
+  that fix. The units bug was real and is closed; what remains is the band SHAPE.
+  Shipping Texture is one guided band scaled by a constant, where the reference sums the
+  full à-trous stack normalized to `referenceBandWeight(halfWidth: 1.6)`. Measured at
+  1.8×–17× weak across seven frames. The port reached 1.00× parity twice and was
+  reverted twice (`4a58716`, `8324f37`) — not because it was wrong but because it was
+  finally strong enough to expose a coherence gate that cannot tell a steep gradient
+  from an edge. The third attempt starts from `8324f37`'s message, which lists what each
+  of the four pieces has to do and in what order.
 
 ### What the fourth audit found
 
@@ -573,18 +720,38 @@ all absent, crop ratios were computed against an assumed 3:2 on every camera, th
 watermark panel said it composited nothing while the encoder composited it at twice the
 requested size, brush masks were missing from the first render of every photo, and
 nothing ran at quit so the last two seconds of culling never reached disk.
-- **Hot Pixels reaches no path at all.** It used to be listed here as
-  "reference-only", and the panel said so too — both were wrong in the same way:
-  `ClassicalDenoise` has no caller anywhere in `Sources/`, reference included, so the
-  slider has never had a consumer. An honesty note that is itself false is worse than
-  none, and this one survived two audits by sounding like a disclosure.
+- **Hot Pixels and the rest of Tier 1 reach the shipping path.** This entry said the
+  opposite for two revisions after it stopped being true — "Hot Pixels reaches no path
+  at all", "`ClassicalDenoise` has no caller anywhere in `Sources/`" — while
+  `RenderGraph.applyDenoise` was calling `gpuPlan` on every preview and every export,
+  and while THIS FILE said so, in a bullet two hundred and eighty lines earlier.
+  Twice, then, this bullet has been the thing it warns against: it was first written to
+  correct a stale "reference-only" note, and then went stale in exactly the same way.
 
-  Sharpening's Masking and Halo Suppression are no longer on this list: both reach the
-  GPU as arguments to `KernelLibrary.sharpenDelta`, and Detail reaches it as its own
-  argument rather than folded into a radius.
-- **Remove chromatic aberration and the whole Defringe group are not wired.** Seven
-  controls in the Effects panel with a wire format and no reader; `lens.profile` is the
-  one thing in that section that is genuinely consumed, at decode. The panel says so.
+  What is true today: S3 runs in the graph, all seven controls reach it, and the
+  hot-pixel pass is a separate kernel dispatched from the same stage. The lesson the
+  original entry drew still stands and is the reason this one names its evidence — an
+  honesty note is a claim like any other, and the fact that it is confessing something
+  does not exempt it from being checked. **A disclosure with no `file:line` in it is a
+  disclosure nobody can re-verify**, which is how both versions of this bullet survived
+  an audit apiece.
+
+  Sharpening's Masking and Halo Suppression are also not unwired: both reach the GPU as
+  arguments to `KernelLibrary.sharpenDelta`, and Detail reaches it as its own argument
+  rather than folded into a radius. Halo Suppression has no test on any path, which is a
+  different problem and an open one.
+- **Remove chromatic aberration and the whole Defringe group are not wired**, and the
+  Effects panel no longer shows them. The CA toggle, the Defringe switch and its six
+  sliders: eight controls with a wire format and no reader — grep `removeCA` and
+  `Defringe` across `Sources/` and only `Recipe.swift` answers.
+  `lens.profile` is the one thing in that section that is genuinely consumed, at decode.
+
+  A footnote conceding it was not enough. The CA toggle DEFAULTED TO ON, so every photo
+  in the library carried a ticked box that moved nothing, and the toggle's own tooltip
+  described the mechanism — "R and B are re-registered to G by a radial polynomial fit,
+  folded into the geometry warp" — two rows above the note admitting none of it exists.
+  The controls are gone and the sentence stays, which is the form `MaskPanel` already
+  used for the local noise/moiré/defringe/grain group.
 - **xxh64, not xxh3**, for `recipe_fp` and blob refs (docs/15 says xxh3). The `xxh64:`
   prefix makes the algorithm self-describing, so upgrading later is a migration rather
   than a breakage.
