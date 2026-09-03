@@ -129,9 +129,10 @@ final class HuePreservationTests: XCTestCase {
     /// What "the same hue" means here, in degrees of OKLab arc.
     ///
     /// 0.25° is well under the ~1° hue difference a trained observer can see on a large
-    /// flat patch, and about ten orders of magnitude above the round-trip noise of the
-    /// RGB↔OKLab pair (`testAHueRotationAndItsInverseReturnTheColourAcrossTheWheel`
-    /// measures that at 3e-16 of a channel). A tool that claims to hold hue and lands
+    /// flat patch, and far above the round-trip noise of the RGB↔OKLab pair every
+    /// measurement here goes through —
+    /// `testAHueRotationAndItsInverseReturnTheColourAcrossTheWheel` holds that pair to
+    /// 1e-12 of a channel over the same grid. A tool that claims to hold hue and lands
     /// inside this is holding it; one that lands outside is rotating it.
     private static let hueTolerance: Double = 0.25
 

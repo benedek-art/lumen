@@ -151,7 +151,26 @@ final class FieldBaselineProbeTests: XCTestCase {
     /// so "how much of the blur does each sharpener undo" has a ground truth.
     private func blurredEdge(dark: Double = 0.06, bright: Double = 0.35,
                              sigma: Double = 1.5) -> ImageBuffer {
-        let w = 128, h = 64
+        // 2560, spelled as the constant rather than as a number, because this probe's
+        // ground truth is a sigma of 1.5 PIXELS and `spatialReferenceLongEdge` is the one
+        // width at which a picture-denominated Radius of 1.5 is also 1.5 pixels. At
+        // exactly this width `frameDenominatedSigma(1.5, 2560) == 1.5` and
+        // `fineBandLevel(2560, 5) == 0`, so both halves of E2-04 are the identity and
+        // `applySharpen` computes byte for byte what it computed before that landing.
+        //
+        // At 128 the scaled sigma never cleared `gaussianBlur`'s own support floor, so
+        // the sharpener was inert and this probe read "manual 100 recovered no edge
+        // rise" — the finding, not a regression. 2048 does not fix it either: the halo
+        // probe's `worstShift` reads 0.00786 against its 0.01 floor and stays red.
+        //
+        // The width is not "bigger", it is the identity, and the evidence is committed:
+        // every Lumen figure in docs/26 §6's cross-check table against RawTherapee comes
+        // back exactly here and at no other width — rise 1.54, recovery ×1.36, overshoot
+        // 6.0%, undershoot 1.7%, capture ×1.53 — and the halo docstring's own "measured
+        // 0.048 linear at full deflection" is 0.048356. Too small and the stage is
+        // inert; too large and the pinned halo equality flips and the test would report
+        // the defect as fixed.
+        let w = Int(SpatialOps.spatialReferenceLongEdge), h = 64
         let step = ImageBuffer(width: w, height: h) { u, _ in
             RGB(gray: u < 0.5 ? dark : bright)
         }
