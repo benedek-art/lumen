@@ -71,14 +71,27 @@ two surface-checker false-finding classes
   under a non-zero exit. Then, once fixed, it named the TEST and still not the control,
   because the assertion message is multi-line and grep prints matching lines: `-A 12`
   carries the block. A ceremony that cannot say what moved is not a ceremony.
-- **The proof lane is red on something that predates tonight's colour work.** Its last
-  completed sweep failed at 05:27, an hour BEFORE the magenta bound landed at 06:25,
-  and was unreadable for the reason above. The `sharpen.*` records are the likely cause
-  — E2-04's frame migration was approved as pixel-moving and its re-pin was recorded as
-  open and never done. Deliberately NOT re-pinned here: re-pinning a number nobody has
-  explained is the one thing this ceremony exists to prevent. The next sweep will name
-  it, which is what the two fixes above buy.
-- **Two grade limiters each spend 95% of the SAME slope budget.** `solveLumScale`
+- **The proof lane WAS red on something that predates the colour work, and it is now
+  green.** Its last completed sweep before the ceremony failed at 05:27, an hour BEFORE
+  the magenta bound landed, and was unreadable for the reason above. The guess was
+  right: with the summary fixed the sweep named `sharpen.amount`, and a comparison of
+  the printed evidence for 112 other records against their committed JSON found NONE
+  moved. All five sharpening records were re-pinned and `proof.yml` is green.
+  **The movement was frame PLUS behaviour, and the registry said otherwise.** A comment
+  above the sharpen specs claimed "the movement is the frame and not a behaviour
+  change". Not supportable: `8880982` wired `frameDenominatedSigma` into
+  `DetailEngine.applySharpen` 33 minutes before `c11772d` swapped the frames, the sweep
+  renders through that code, and the sigma change is the identity only at 2560 px —
+  none of the four frames is 2560. On the old 128 px frame the new sigma is
+  0.025...0.15 px, under `gaussianBlur`'s 0.05 support floor, so the stage falls silent:
+  `radius` and `haloSuppression` measured 0.0000 authority with 20 dead steps there,
+  frame held constant. That is the behaviour half. The comment now says both.
+### The four that were measured and deferred — ALL NOW FIXED
+
+Each was landed with a ceremony, and each is bounded by an identity property so the
+ceremony stayed small. `proof.yml` is green.
+
+- **FIXED. Two grade limiters each spent 95% of the SAME slope budget.** `solveLumScale`
   (the wheels' Luminance rings) and `solveBrillianceScale` (Colour Balance) each solve
   `1 + 3*slope >= 0.05` — each permitted to hand away 0.95 of a base slope of 1. They
   run on the same pixel, in one `apply`, and nothing anywhere sets both. Measured
@@ -94,7 +107,7 @@ two surface-checker false-finding classes
   than twice, which is a design call with pixel consequences across the grade panel.
   It has the property a ceremony wants — `k = 1` exactly whenever either side is
   untouched, so every single-tool recipe stays byte-identical.
-- **Edge Shift runs BACKWARDS on any mask mixing a hard and a soft component.**
+- **FIXED. Edge Shift ran BACKWARDS on any mask mixing a hard and a soft component.**
   `edgeShifted` derives ONE global `rampWidth` from the mean gradient over the whole
   transition band, then rebuilds alpha from the signed distance and that single width.
   A hard edge contributes zero samples to the mean (no pixel lands in 0.02..0.98), so a
@@ -107,7 +120,7 @@ two surface-checker false-finding classes
   outside the mask went alpha 0.0000 -> 0.3611 under an EROSION. It gets worse with
   resolution, so worse in the delivered file than in the loupe. NOT FIXED: any fix moves
   rendered pixels for every mask with a non-zero Edge.
-- **The Highlights slider darkens the shadows, and its top 60% does nothing there.**
+- **FIXED. The Highlights slider darkened the shadows, and its top 60% did nothing there.**
   The shared `zonalScale` multiplies Shadows/Whites/Blacks as well as Highlights, so
   moving Highlights re-scales the other three. At `contrast -100, shadows -100,
   whites -100, blacks -100`, measured at t = -2 EV where `highlightWeight` is exactly 0:
@@ -117,7 +130,7 @@ two surface-checker false-finding classes
   6-D grid have a Highlights step that darkens a tone inside the anchors.
   `testHighlightsAndShadowsStayOutOfEachOthersTerritory` asserts the opposite on a
   one-slider slice, and skips every case where the scale actually binds.
-- **`effectiveHighlights` — the number the panel shows — runs backwards.** At
+- **FIXED. `effectiveHighlights` — the number the panel shows — ran backwards.** At
   `contrast -100, whites +20`, ten consecutive settings from -91 to -100 each apply LESS
   than the one before. Picture impact ~0.01 cv; readout impact 0.44 points of a slider
   documented as existing precisely so that a slider whose top half does nothing is
