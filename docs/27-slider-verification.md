@@ -62,10 +62,32 @@ variance-monotone above it.
 | `detail.capture.radius` | Stored and NOT applied (Richardson–Lucy has no caller); the panel says so in prose. Dossier item 9's wire-or-remove decision stands — a record would measure a control that is documented as not running. |
 | `denoise.amount` (AI mode) | Drives the decoder's denoise blend, macOS-only, same reason as capture amount. Mode/amount plumbing is contract-tested in LumenCore (`appleStandIn`). |
 | Masked adjustment sliders (`mask.*`) | Deferred with a plan: the runner needs mask-raster support to sweep a masked Exposure against an actual mask. The GLOBAL engines they scale are all recorded; what a mask record adds is the Amount scaling path and the raster, which is its own harness. |
-| Effects grain Amount/Size | Same recipe fields as `film.grain.*` (both panels bind `look.filmLab.grain`) — already recorded there; a second record would measure the same numbers twice. |
+| Effects grain Amount/Size (**stock branch only**) | Same recipe fields as `film.grain.*` — `EffectsPanel:263/:287` and `LookPanel:1394/:1401` bind the identical coalescing keys — already recorded there; a second record would measure the same numbers twice. |
+| ~~Effects grain, creative branch~~ | **THIS DISPOSITION WAS WRONG AND IS WITHDRAWN.** It read "both panels bind `look.filmLab.grain`". They do not. `EffectsPanel.swift:252` says so in a comment written to fix an earlier version of the same confusion: the stock rows bind `film.grain.*` and "the creative row twenty lines down used the identical string for a different field". `look.grain` is `CreativeGrain` — **amount, size AND roughness**, and `FilmGrain` has no roughness at all, so "measured twice" could never have covered it. Three image-affecting sliders were dispositioned out of this audit on a premise the source contradicts. They are now listed as OWED in `SliderEvidenceTests`. |
 | `geometry.angle`, crop, flips | Geometric transforms: authority-in-code-values is the wrong metric (a 1° rotation moves every pixel and changes no tone). Verified by `CropGeometry` tests instead. |
 | Export sheet sliders (quality, megapixels, resolution) | Output options, not image controls; verified by export tests. |
 | Curve point EDITOR drags | Not a slider; the pass-through contract covers the mapping, and the editor's gestures are UI-lane. |
+
+## 3b. What this table missed, found by asserting it (2026-09-04)
+
+`SliderEvidenceTests` (LumenCoreTests) reconciles the four enumerations of this surface
+that never agreed: `ControlIndex` (34 navigation topics), `ProofRegistry` (135 specs),
+`SliderInventory` (97 layout call sites), and this document. It reads the control keys the
+develop panels actually bind and fails when one has neither a record, a contract, nor a
+disposition.
+
+Its first run: **82 bound control keys — 64 with a proof record, 1 with a contract only,
+and 9 owed a record.** The nine:
+
+| control | why it has no record |
+|---|---|
+| `look.grain.amount`, `look.grain.size`, `look.grain.roughness` | dispositioned above on a false premise, now withdrawn |
+| `film.halationSize`, `film.halationRedness` | live sliders on the halation kernel's radius and bounce colour; `film.halation` is recorded, its two shape controls never were |
+| `render.contrast`, `render.skew`, `render.hue`, `render.black` | the four Display Transform overrides (`LookPanel:1173-1200`) |
+
+A slider added from here on cannot join them silently: the assertion fails until somebody
+says what is known about it. That is the mechanism this document lacked — it was prose,
+and prose does not fail.
 
 ## 4. What "accurate" still owes, ranked
 
