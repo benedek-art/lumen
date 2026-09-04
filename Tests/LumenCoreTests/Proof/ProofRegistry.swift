@@ -1408,9 +1408,171 @@ enum ProofRegistry {
             apply: { r, v in r.look.vignette = v }),
     ]
 
+    /// THE NINE THIS REGISTRY DID NOT HAVE, found by `SliderEvidenceTests` — the join
+    /// between the control keys the develop panels bind and the ids this file declares.
+    ///
+    /// Three of them were not merely missed. `docs/27` §3 dispositioned the Effects grain
+    /// rows with "Same recipe fields as `film.grain.*` (both panels bind
+    /// `look.filmLab.grain`)". They do not: `EffectsPanel.swift:252` says the stock rows
+    /// bind `film.grain.*` and "the creative row twenty lines down used the identical
+    /// string for a different field". `look.grain` is `CreativeGrain`, and it carries a
+    /// Roughness that `FilmGrain` has no counterpart for at all, so "measured twice"
+    /// could never have covered it.
+    ///
+    /// EVERY ONE OF THESE SWEEPS A SHAPE CONTROL, and docs/20 P2's frame rule is the
+    /// whole difficulty: "a control must be swept on a frame containing what it acts on."
+    /// A halation RADIUS measures nothing without halation to resize; a grain SIZE
+    /// measures nothing without grain. So each shape control's `apply` pushes its own
+    /// master to full before writing the swept field, and the master's own record
+    /// (`film.halation`, `look.grain.amount`) is what proves the master.
+    static let halationShape: [ControlSpec] = {
+        func glowing(_ v: Double, _ set: (inout FilmLab) -> Void) -> FilmLab {
+            var film = FilmLab(stock: "lumen/portra400", amount: 100)
+            // Halation at full, because these two shape a glow rather than make one.
+            film.halation = 100
+            set(&film)
+            return film
+        }
+        return [
+            ControlSpec(
+                // The kernel's radius, as a multiple of the emulsion's measured 65 µm.
+                // `wideStepEdge` for the reason `film.halation` gives at its own site:
+                // the bounce is a fixed fraction of the long edge, so at the narrow
+                // edge's 128 px the σ is 0.23 px and the reading is of the frame's
+                // resolution rather than of the slider.
+                id: "film.halationSize", panel: "Film Lab", displayName: "Halo size",
+                low: 0.5, high: 2.0, neutral: 1.0,
+                frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
+                // Measured 16.20 with halation at full.
+                authorityFloor: 11,
+                apply: { r, v in r.look.filmLab = glowing(v) { $0.halationSize = v } }),
+            ControlSpec(
+                // The bounce's colour. Same frame and the same reason.
+                id: "film.halationRedness", panel: "Film Lab",
+                displayName: "Halo redness",
+                low: 0, high: 100, neutral: 50,
+                frameName: "wideStepEdge", frame: { ProofFrames.wideStepEdge() },
+                // Measured 7.96 — the weakest of the nine, and it is a COLOUR move on
+                // a bounce that is already only a few code values wide, so a small
+                // number here is the control being what it is rather than being faint.
+                // Recorded rather than argued about; if it ever wants raising, the
+                // record is the thing that would show it moving.
+                authorityFloor: 5,
+                apply: { r, v in r.look.filmLab = glowing(v) { $0.halationRedness = v } }),
+        ]
+    }()
+
+    /// Creative grain — `look.grain`, NOT `look.filmLab.grain`. No film stock is set on
+    /// these recipes, because `GrainPlan.filmOwnsTheGrain` is what decides which of the
+    /// two grain paths runs and a stock would route the sweep through the other one.
+    static let creativeGrain: [ControlSpec] = [
+        ControlSpec(
+            // `grainField` is the 4096-px ramp both stock grain controls sit on, so
+            // these four numbers are all of the same grain at the same plate scale.
+            // Grain's amplitude envelope is √(p(1−p)) in density: a frame at one
+            // density measures one point of a curve.
+            id: "look.grain.amount", panel: "Effects", displayName: "Grain",
+            low: 0, high: 100, neutral: 0,
+            frameName: "grainField", frame: { ProofFrames.grainField() },
+            // Measured 14.77, monotone, nothing given back.
+            authorityFloor: 10,
+            apply: { r, v in r.look.grain = CreativeGrain(amount: v) }),
+        ControlSpec(
+            id: "look.grain.size", panel: "Effects", displayName: "Grain size",
+            low: 0, high: 100, neutral: 50,
+            frameName: "grainField", frame: { ProofFrames.grainField() },
+            // Measured 28.26.
+            authorityFloor: 19,
+            // A BOUNDARY CONTROL ON A RANDOM FIELD, and it declares the reversal for
+            // exactly the reason `film.grain.size` does forty lines up — that spec
+            // declares 21.183, which is 81% of its own authority, and its comment is
+            // the argument: past the size where one grain cell spans more than the
+            // measured field's own detail, the pattern coarsens back toward flat
+            // rather than continuing to add structure. Changing SIZE regenerates the
+            // field, so consecutive settings differ by decorrelation as much as by
+            // trend, and `smallestLiveStep` of 18.18 against Amount's 0.72 on the same
+            // frame is that effect measured.
+            //
+            // 14.62 is 52% of authority against the film control's 81% — lower
+            // because this is one luminance field where that one is a stock's dye
+            // layers. Declared, not asserted away: if it ever climbs, the record moves
+            // and the reversal test says so at 1.05x.
+            declaredReversal: 14.623,
+            // Amount at full: a size control on a field with no grain in it is the
+            // INVALID PROBE docs/20 §P2 names, not a dead control.
+            apply: { r, v in r.look.grain = CreativeGrain(amount: 100, size: v) }),
+        ControlSpec(
+            // Octave persistence, 0.25…0.75 with 50 mapping to 0.5 exactly. The control
+            // `FilmGrain` does not have, and the one docs/27's "measured twice"
+            // disposition could not have been describing.
+            id: "look.grain.roughness", panel: "Effects", displayName: "Grain roughness",
+            low: 0, high: 100, neutral: 50,
+            frameName: "grainField", frame: { ProofFrames.grainField() },
+            // Measured 12.37, monotone, nothing given back — and that it IS monotone
+            // where Size is not is the evidence that Size's reversal is the boundary
+            // rather than the harness: same frame, same field, same sweep length.
+            authorityFloor: 8,
+            apply: { r, v in
+                r.look.grain = CreativeGrain(amount: 100, roughness: v)
+            }),
+    ]
+
+    /// The four Display Transform overrides. Each is `Double?` on the wire, nil meaning
+    /// "follow the preset", so `neutral` is the PRESET's own value rather than a
+    /// constant — a sweep whose neutral is not where the control rests measures its
+    /// travel from the wrong place.
+    static let displayTransform: [ControlSpec] = {
+        let base = DisplayTransformParams.preset(named: "Neutral")
+        return [
+            ControlSpec(
+                id: "render.contrast", panel: "Display Transform",
+                displayName: "Contrast",
+                low: 0.1, high: 10, neutral: base.contrast,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                // Measured 129.68 — the strongest of the nine by a wide margin, which
+                // is what an override on the display transform's own contrast should
+                // be. `frontLoading` records 0.964: almost the whole move is spent in
+                // the first half of a 0.1…10 travel, which is what a LOG-scaled
+                // parameter swept LINEARLY looks like from the outside, and is the
+                // same shape K-039 files against the Basic panel's Contrast.
+                authorityFloor: 90,
+                apply: { r, v in r.look.render.contrast = v }),
+            ControlSpec(
+                id: "render.skew", panel: "Display Transform", displayName: "Skew",
+                low: -1, high: 1, neutral: base.skew,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                // Measured 18.46.
+                authorityFloor: 12,
+                apply: { r, v in r.look.render.skew = v }),
+            ControlSpec(
+                // CHROMA, not a ramp. Hue preservation is a statement about coloured
+                // pixels; swept on `neutralRamp` it would render identically at every
+                // setting and record a dead control that is not dead — docs/20 §P2's
+                // INVALID PROBE, and the exact trap `film.halation` fell into on the
+                // narrow edge.
+                id: "render.hue", panel: "Display Transform", displayName: "Hue keep",
+                low: 0, high: 100, neutral: base.huePreservation,
+                frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
+                // Measured 28.73 on the wedge. The frame choice is load-bearing and
+                // the number is the proof: this control is a statement about coloured
+                // pixels, and on `neutralRamp` it would have recorded a dead control.
+                authorityFloor: 20,
+                apply: { r, v in r.look.render.huePreservation = v }),
+            ControlSpec(
+                id: "render.black", panel: "Display Transform",
+                displayName: "Black target",
+                low: 0, high: 9, neutral: base.blackTarget,
+                frameName: "neutralRamp", frame: { ProofFrames.neutralRamp() },
+                // Measured 84.61.
+                authorityFloor: 59,
+                apply: { r, v in r.look.render.blackTarget = v }),
+        ]
+    }()
+
     static var all: [ControlSpec] {
         tone + colour + curve + presence + sharpen + mixer
             + grade + gradeGeometry + printerLights + primaries + pointColour
             + zones + blackAndWhite + film + denoise + colourBalance + effects
+            + halationShape + creativeGrain + displayTransform
     }
 }
