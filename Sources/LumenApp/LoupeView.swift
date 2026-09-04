@@ -218,8 +218,27 @@ final class LoupeViewport: ObservableObject {
 
     // MARK: Pan verbs
 
-    func panBy(_ delta: CGSize) {
-        pan = CGSize(width: pan.width + delta.width, height: pan.height + delta.height)
+    // `panBy` is gone. It was the delta-shaped verb, it wrote `pan` UNCLAMPED, and both
+    // of its callers immediately wrote `pan` again to clamp it — so the shape of the API
+    // was the reason every pan cost two publishes. Deleting it is what stops the pattern
+    // coming back: with only `panTo`, clamping is not something a caller can forget.
+
+    /// Move to an absolute offset, clamped, in ONE published write.
+    ///
+    /// Every scroll and arrow pan used to be two: `panBy` assigned `pan`, then the caller
+    /// assigned it again with the clamp applied. Two writes to a `@Published` in one
+    /// synchronous block is two invalidations, and the first one shows an unclamped value
+    /// — briefly, but it is drawn. The clamp belongs on the same side of the publish as
+    /// the arithmetic.
+    ///
+    /// It takes `x`/`y` rather than a `CGSize` so a caller cannot accidentally pass a
+    /// delta where an absolute offset is meant, which is the mistake `panBy` sitting
+    /// beside it would otherwise invite.
+    func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
+        let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
+                                             container: container, drawn: drawn)
+        guard clamped != pan else { return }
+        pan = clamped
     }
 
     func resetPan() { pan = .zero }
@@ -2226,12 +2245,15 @@ struct LoupeView: View {
             // tracks it for exactly this.
             viewport.setZoom(target, at: viewport.lastCursor)
         case .pan(let dx, let dy):
-            viewport.panBy(CGSize(width: dx, height: dy))
+            // ONE WRITE, NOT TWO. `panBy` assigned `pan` and the clamp assigned it again,
+            // so every event of a trackpad flick published twice and re-bodied the view
+            // twice — the second time to correct a value the first had already shown.
+            // `panTo` does the arithmetic and the clamp before it publishes anything.
             let drawn: CGSize = model.image.map {
                 drawnFull(forZoom: viewport.zoom, image: $0, container: container)
             } ?? container
-            viewport.pan = LoupeGeometry.clampPan(viewport.pan,
-                                                  container: container, drawn: drawn)
+            viewport.panTo(x: viewport.pan.width + dx, y: viewport.pan.height + dy,
+                           container: container, drawn: drawn)
         case .ignore:
             break
         }
@@ -2245,18 +2267,20 @@ struct LoupeView: View {
         // page the roll whatever `zoomLevel` happens to hold — panning a pan nothing
         // draws would make the keys read as dead.
         if viewport.zoom > 0 && !cropArmed {
+            var dx: CGFloat = 0
+            var dy: CGFloat = 0
             switch direction {
-            case .left: viewport.panBy(CGSize(width: step, height: 0))
-            case .right: viewport.panBy(CGSize(width: -step, height: 0))
-            case .up: viewport.panBy(CGSize(width: 0, height: step))
-            case .down: viewport.panBy(CGSize(width: 0, height: -step))
-            @unknown default: break
+            case .left: dx = step
+            case .right: dx = -step
+            case .up: dy = step
+            case .down: dy = -step
+            @unknown default: return
             }
             let drawn: CGSize = model.image.map {
                 drawnFull(forZoom: viewport.zoom, image: $0, container: containerSize)
             } ?? containerSize
-            viewport.pan = LoupeGeometry.clampPan(viewport.pan,
-                                                  container: containerSize, drawn: drawn)
+            viewport.panTo(x: viewport.pan.width + dx, y: viewport.pan.height + dy,
+                           container: containerSize, drawn: drawn)
             return
         }
         switch direction {

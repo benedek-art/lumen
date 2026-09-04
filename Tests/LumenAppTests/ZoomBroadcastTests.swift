@@ -95,6 +95,45 @@ final class ZoomBroadcastTests: XCTestCase {
         XCTAssertEqual(atFloor, 0, "24 events below fit, and fit is where it already was")
     }
 
+    /// A PAN IS ONE PUBLISH PER EVENT, NOT TWO.
+    ///
+    /// `panBy` wrote `pan` unclamped and every caller wrote it again to clamp — so a
+    /// trackpad flick or a held arrow key cost two invalidations per event, the first of
+    /// them showing a value the second immediately corrected. `panTo` clamps before it
+    /// publishes, and `panBy` is deleted so the shape cannot come back.
+    func testAPanEventPublishesOnceAndNotTwice() {
+        let v = viewport()
+        let container = CGSize(width: 1600, height: 1000)
+        let drawn = CGSize(width: 4800, height: 3000)
+        var publishes = 0
+        v.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
+
+        for step in 1...30 {
+            v.panTo(x: CGFloat(step) * 7, y: CGFloat(step) * 5,
+                    container: container, drawn: drawn)
+        }
+
+        XCTAssertEqual(publishes, 30, "thirty pan events, thirty invalidations")
+    }
+
+    /// A pan already against the bound publishes nothing, for the same reason a zoom at
+    /// the ceiling does: that is exactly when a hand keeps pushing.
+    func testPanningIntoTheBoundPublishesNothingAfterTheFirst() {
+        let v = viewport()
+        let container = CGSize(width: 1600, height: 1000)
+        let drawn = CGSize(width: 4800, height: 3000)
+        v.panTo(x: 99_999, y: 99_999, container: container, drawn: drawn)
+        var publishes = 0
+        v.objectWillChange.sink { _ in publishes += 1 }.store(in: &cancellables)
+
+        for _ in 0..<20 {
+            v.panTo(x: 99_999, y: 99_999, container: container, drawn: drawn)
+        }
+
+        XCTAssertEqual(publishes, 0, "already at the bound is not a change")
+        XCTAssertEqual(v.pan.width, drawn.width / 2, accuracy: 1e-9)
+    }
+
     /// A 60-EVENT PINCH COSTS SIXTY PUBLISHES AND NOT ONE MORE — and, critically, costs
     /// them on this object rather than on `AppState`. The count is the cheap half of the
     /// claim; the object it lands on is the expensive half.
