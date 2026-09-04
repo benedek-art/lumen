@@ -1101,12 +1101,25 @@ struct LoupeView: View {
     /// multiplies one start value instead of compounding per event. Nil between
     /// gestures.
     @State private var pinchStartZoom: Double?
-    /// The region ask captured at the pinch's first event and held for the whole
-    /// gesture — nil is a REAL value here (a pinch begun at fit holds whole-frame),
-    /// which is why this is read only while `pinchStartZoom` is non-nil. Without the
-    /// hold, a continuous zoom re-quantizes the region per event and mints a render
-    /// key per grid line — the request storm `ZoomRegion.grid` exists to prevent.
-    @State private var pinchRegion: CGRect?
+    /// The zoom the canvas's LAYOUT and the render ask are pinned to while a
+    /// continuous zoom is in flight; nil means the layout is at the live zoom.
+    ///
+    /// While it holds, a zoom event moves `viewport.zoom` and NOTHING else: the plate
+    /// keeps the frame it already has, every overlay keeps its layout, the render key
+    /// does not move, and the difference between the held frame and the one the live
+    /// zoom asks for is a `scaleEffect` — one matrix, on the GPU. `ZoomLayoutHold`
+    /// (LumenCore, tested) has the reasoning and the scale arithmetic.
+    ///
+    /// Without it the first event of a pinch out of fit re-keys the render from the
+    /// container's bucket to the sensor's own long edge and starts a full demosaic of
+    /// a 33 MP file while the fingers are still moving.
+    @State private var zoomHoldBase: Double?
+    /// The region ask captured when the hold began, and held with it — nil is a REAL
+    /// value here (a hold begun at fit holds whole-frame), which is why it is read
+    /// only while `zoomHoldBase` is non-nil. Without the hold a continuous zoom
+    /// re-quantizes the region per event and mints a render key per grid line — the
+    /// request storm `ZoomRegion.grid` exists to prevent.
+    @State private var zoomHoldRegion: CGRect?
     @State private var sampler: PixelSampler?
 
     @Environment(\.displayScale) private var displayScale: CGFloat
@@ -1186,16 +1199,16 @@ struct LoupeView: View {
     var body: some View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
-            // The zoomed region ask — held STILL through a pinch, which reads the
-            // rectangle captured at its first event. Panning is deliberately NOT held:
-            // a pan past the margin is exactly the moment a new region must be
-            // rendered, and `ZoomRegion.grid` keeps that from being every pan point.
+            // The zoomed region ask — held STILL through a continuous zoom, which
+            // reads the rectangle captured when the hold began. Panning is
+            // deliberately NOT held: a pan past the margin is exactly the moment a new
+            // region must be rendered, and `ZoomRegion.grid` keeps that from being
+            // every pan point.
             //
             // (The scrub clause that was here went with the scrub. A drag pans now.)
-            let region: CGRect? = {
-                if pinchStartZoom != nil { return pinchRegion }
-                return requestedRegion(container: container)
-            }()
+            let region: CGRect? = zoomHoldBase != nil
+                ? zoomHoldRegion
+                : requestedRegion(container: container)
             // WHAT THE PANEL ACTUALLY DRAWS, in device pixels, computed ONCE and given
             // to both passes. It used to be computed here for the draft and not at all
             // for the settle, and the two consequences were both expensive:
@@ -1216,7 +1229,7 @@ struct LoupeView: View {
             // pixel count does, so this cannot chase its own tail through the render.
             let drawnDevice: Double? = region == nil
                 ? model.image.map { cg in
-                    let d = drawnFull(forZoom: viewport.zoom, image: cg,
+                    let d = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
                     return Double(Swift.max(d.width, d.height))
                         * Double(Swift.max(displayScale, 1))
@@ -1349,6 +1362,24 @@ struct LoupeView: View {
                     return
                 }
                 applyZoomChange(from: oldValue, to: newValue, container: container)
+            }
+            // THE HOLD'S RELEASE, and the reason the hold can never stick. `.task(id:)`
+            // cancels and restarts whenever the zoom moves, so the sleep only ever
+            // COMPLETES after the zoom has been still for the quiet window — which is
+            // longer than any gap inside a gesture and shorter than a pause. A pinch
+            // does not wait for it (`magnifyGesture`'s `onEnded`); the wheel, which has
+            // no end, does.
+            //
+            // `try?` would be wrong here: a cancelled sleep throws, and swallowing that
+            // would end the hold on the very event that extended it.
+            .task(id: viewport.zoom) {
+                guard zoomHoldBase != nil else { return }
+                do {
+                    try await Task.sleep(nanoseconds: ZoomLayoutHold.quietNanoseconds)
+                } catch {
+                    return
+                }
+                endZoomHold()
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
@@ -1664,10 +1695,27 @@ struct LoupeView: View {
         // rendered, so they need no region arithmetic at all.
         let region: CGRect? = model.regionUnit
         let ratio: Double = effectiveRatio(image: cg, container: container)
-        let drawn: CGSize = drawnFull(forZoom: viewport.zoom, image: cg,
+        // `drawn` is the extent the canvas is LAID OUT at — the held zoom's, which is
+        // the live zoom's whenever nothing is held. `live` is where the photograph
+        // actually is; `stretch` is the difference, worn as a `scaleEffect`.
+        //
+        // A `scaleEffect` about the centre of a centred frame is geometrically
+        // IDENTICAL to laying the frame out at the scaled size: both put the plate's
+        // centre at the container's centre plus `offset`, and both scale about it. So
+        // this is the same picture in the same place — drawn by transforming a layer
+        // instead of by re-laying-out and re-rasterizing a 33 MP plate per event.
+        let drawn: CGSize = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
+        let live: CGSize = zoomHoldBase == nil
+            ? drawn
+            : drawnFull(forZoom: viewport.zoom, image: cg, container: container)
+        // The pan is clamped against where the photograph IS, never against the held
+        // frame: holding must not shrink how far you may pan.
         let offset: CGSize = LoupeGeometry.clampPan(viewport.pan,
-                                                    container: container, drawn: drawn)
+                                                    container: container, drawn: live)
+        let stretch = CGFloat(ZoomLayoutHold.stretch(
+            base: Double(Swift.max(drawn.width, drawn.height)),
+            live: Double(Swift.max(live.width, live.height))))
 
         ZStack {
             imageLayer(cg: cg, ratio: ratio, drawn: drawn, region: region)
@@ -1766,6 +1814,7 @@ struct LoupeView: View {
             }
         }
         .frame(width: drawn.width, height: drawn.height)
+        .scaleEffect(stretch)
         .offset(offset)
         .frame(width: container.width, height: container.height)
         .clipped()
@@ -1963,7 +2012,7 @@ struct LoupeView: View {
                        zoomRatio: Double? = nil,
                        resamplingLongEdge: Int? = nil) -> some View {
         let resampling = ProxyResampling.mode(
-            zoomRatio: zoomRatio ?? viewport.zoom,
+            zoomRatio: zoomRatio ?? layoutZoom,
             drawnRatio: ratio,
             renderedLongEdge: resamplingLongEdge ?? Swift.max(cg.width, cg.height),
             fullLongEdge: model.displayFullLongEdge)
@@ -2105,7 +2154,35 @@ struct LoupeView: View {
     }
 
     private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
-        ratio(forZoom: viewport.zoom, image: image, container: container)
+        ratio(forZoom: layoutZoom, image: image, container: container)
+    }
+
+    // MARK: The zoom hold
+
+    /// The zoom every LAYOUT and every RENDER ASK is denominated in: the held value
+    /// while a continuous zoom is in flight, the live one otherwise. Read by the
+    /// canvas's frame, the drawn-extent ask, the region ask and the resampling rule,
+    /// so all five agree on which frame is on screen.
+    ///
+    /// Pans, clamps and the anchor arithmetic read `viewport.zoom` directly instead:
+    /// they describe where the photograph actually IS, which the hold does not change.
+    private var layoutZoom: Double { zoomHoldBase ?? viewport.zoom }
+
+    /// Whether the canvas may hold its layout right now. Not while an overlay takes
+    /// gestures in the canvas's own coordinates — the mask handles, a neutral pick —
+    /// because a held layout is scaled and a scaled layout receives a drag at the
+    /// wrong place. The crop canvas honours neither zoom nor pan, so it is out too.
+    private var zoomHoldAllowed: Bool {
+        !cropArmed && !panel.layout.isMasking && state.pickTarget == nil
+    }
+
+    /// Ends the hold: the canvas re-states itself at the live zoom and one render is
+    /// asked for at the size now on screen. Called the instant a pinch ends, and
+    /// `ZoomLayoutHold.quietNanoseconds` after the last change of any other zoom.
+    @MainActor
+    private func endZoomHold() {
+        zoomHoldBase = nil
+        zoomHoldRegion = nil
     }
 
     /// Keeps the anchor point pinned across a zoom change, then re-clamps the pan.
@@ -2130,9 +2207,22 @@ struct LoupeView: View {
     /// zoom is one event where a second pass costs nothing.
     private func zoomAnchored(to ratio: Double, at point: CGPoint?, container: CGSize) {
         let before = viewport.zoom
+        // Captured BEFORE the write, so a hold beginning here pins the ask that is
+        // already on screen and the gesture's first event re-renders nothing at all.
+        let beforeRegion: CGRect? = zoomHoldBase == nil
+            ? requestedRegion(container: container)
+            : nil
         viewport.setZoom(ratio, at: point)
         let after = viewport.zoom
+        // Nothing moved — pinching past the 16× cap, or a wheel notch inside the
+        // ladder's dead band. The hold is deliberately NOT begun on this path: it is
+        // released by the zoom changing again (see `body`'s quiet task), so one begun
+        // without a change would never be released.
         guard after != before else { return }
+        if zoomHoldBase == nil, zoomHoldAllowed {
+            zoomHoldBase = before
+            zoomHoldRegion = beforeRegion
+        }
         applyZoomChange(from: before, to: after, container: container)
         anchoredZoom = after
     }
@@ -2263,13 +2353,7 @@ struct LoupeView: View {
                 guard !cropArmed else { return }
                 guard let cg = model.image else { return }
                 let start = pinchStartZoom ?? viewport.zoom
-                if pinchStartZoom == nil {
-                    // Capture the region ask BEFORE this event moves the zoom, so
-                    // it matches the key already rendered and the gesture's first
-                    // frame re-renders nothing. Held until `onEnded` — see `body`.
-                    pinchRegion = requestedRegion(container: container)
-                    pinchStartZoom = start
-                }
+                if pinchStartZoom == nil { pinchStartZoom = start }
                 let target = ContinuousZoom.pinched(
                     startZoom: start,
                     fitRatio: trueFitZoom(image: cg, container: container),
@@ -2278,7 +2362,10 @@ struct LoupeView: View {
             }
             .onEnded { _ in
                 pinchStartZoom = nil
-                pinchRegion = nil
+                // A pinch has a real end, so it does not wait out the quiet window the
+                // wheel has to: lift your fingers and the sharp render is already on
+                // its way.
+                endZoomHold()
             }
     }
 
@@ -2362,7 +2449,7 @@ struct LoupeView: View {
     /// only the settle pays the native price, at rest.
     private func requestedLongEdge(container: CGSize,
                                    drawnDeviceLongEdge: Double? = nil) -> Int {
-        if viewport.zoom > 0 {
+        if layoutZoom > 0 {
             // THE ASK IS THE DENOMINATION BASIS, one value — `zoomedFullBasis` also
             // feeds the pinch math and the fit-snap, so asking for anything else
             // would draw at one size and gesture at another.
@@ -2405,7 +2492,7 @@ struct LoupeView: View {
     /// must match, the mask canvas is gated conservatively with them, and the crop
     /// tool lays the canvas out its own way entirely.
     private var regionActive: Bool {
-        viewport.zoom > 0
+        layoutZoom > 0
             && !cropArmed
             && state.clippingOverlay == nil
             && state.soloMaskOverlay == nil
@@ -2420,7 +2507,7 @@ struct LoupeView: View {
         guard regionActive, let cg = model.image, model.imageURL == photo.id else {
             return nil
         }
-        let drawn = drawnFull(forZoom: viewport.zoom, image: cg, container: container)
+        let drawn = drawnFull(forZoom: layoutZoom, image: cg, container: container)
         let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
         return ZoomRegion.requestUnit(container: container, drawnFull: drawn, pan: pan)
     }

@@ -95,12 +95,19 @@ jobs:
   # Raising it rather than skipping more: a timed-out job spends the full fifteen
   # minutes of macOS runner time and returns nothing, so the ceiling was buying no
   # minutes, only silence. The skip list above is the lever for cost, and it is still
-  # the lever — this number is only the point past which a run is presumed hung. If
-  # this lane ever approaches 25 for real, the answer is another skip, not another
-  # raise: the whole argument for this lane is that it answers in minutes.
+  # the lever — this number is only the point past which a run is presumed hung.
+  #
+  # 25 was that number, and then this lane went and approached it: 85c1645 passed in
+  # 24 m 21 s having passed in 16 m 48 s two commits earlier, on the same skip list and
+  # the same test count. That spread is the RUNNER, not the suite — and at 25 it means
+  # a slow runner is reported as `cancelled`, which reads as infrastructure rather than
+  # as a failure and is exactly how two real defects stayed hidden through four pushes.
+  # So the ceiling goes to 35: far enough above the slow end that only a genuine hang
+  # reaches it. The rule stands unchanged — if the FAST end of the spread ever climbs,
+  # the answer is another skip, not another raise.
   test-fast:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Everything except the slow whole-pipeline tests
