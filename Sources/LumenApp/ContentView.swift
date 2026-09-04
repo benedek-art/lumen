@@ -6,6 +6,10 @@
 
 #if os(macOS)
 
+import AppKit
+import LumenCore
+import SwiftUI
+
 /// TEMPORARY. The two candidate selection treatments for the sources list, switchable at
 /// runtime from the Debug menu so the choice is made against a real photograph in a real
 /// surround rather than from a description of one.
@@ -48,10 +52,6 @@ enum SidebarSelectionStyle: String, CaseIterable {
         }
     }
 }
-
-import AppKit
-import LumenCore
-import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
@@ -494,13 +494,10 @@ private struct Sidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             LumenSectionHeader(title: "Library", isExpanded: $libraryExpanded)
             if libraryExpanded {
-                Button {
+                SidebarVerb(title: "Open Folder…", systemImage: "folder",
+                            help: "Choose a folder of photographs to browse") {
                     state.chooseFolder()
-                } label: {
-                    Label("Open Folder…", systemImage: "folder")
-                        .font(.lumenBody)
                 }
-                .buttonStyle(.borderless)
 
                 if let folder = state.folderURL {
                     VStack(alignment: .leading, spacing: 1) {
@@ -582,15 +579,11 @@ private struct Sidebar: View {
             // before the window's view hierarchy sees the event — so this button's ⌘B
             // was a dead shortcut, and its `.help` advertised it anyway. The tooltip
             // now names the bare key it actually has.
-            Button {
+            SidebarVerb(title: addToTargetTitle, systemImage: "tray.and.arrow.down",
+                        help: "Add the selection to the target album (B)") {
                 state.addSelectionToTargetCollection()
-            } label: {
-                Label(addToTargetTitle, systemImage: "tray.and.arrow.down")
-                    .font(.lumenBody)
             }
-            .buttonStyle(.borderless)
             .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
-            .help("Add the selection to the target album (B)")
 
             if albumsExpanded { albums }
         }
@@ -723,14 +716,16 @@ private struct Sidebar: View {
             // with the sidebar already open, so a modifier costs it nothing; the palette
             // is the opposite, and its whole value is that ⌘K is the key your hands
             // already know from every other tool.
-            Button("Keyword the selection") {
-                keywordsExpanded = true
-                keywordFieldFocused = true
-            }
-            .buttonStyle(.borderless)
-            .font(.lumenBody)
-            .disabled(state.editTargets.isEmpty)
-            .help("Type a keyword for the selection (⌘⇧K)")
+            // "KEYWORD THE SELECTION" IS GONE, because it did not. Its whole body was
+            // `keywordsExpanded = true; keywordFieldFocused = true` — it opened the
+            // section it already sat in and moved the caret into the field beside it.
+            // A verb-shaped control whose label names an action it does not perform is
+            // worse than no control: it is a row a photographer clicks and then has to
+            // work out what happened.
+            //
+            // Nothing is lost. The field IS the affordance, ⇧⌘K in the Photo menu still
+            // shows this column and focuses it (`LumenApp.swift`), and the section is
+            // one triangle away rather than behind a button that only opened it.
         }
     }
 
@@ -778,11 +773,11 @@ private struct Sidebar: View {
             LumenSectionHeader(title: "Stack", isExpanded: $stackExpanded,
                                isModified: state.primaryStack != nil)
             // Above the fold: the verb that makes a stack, and the holder of ⌘G.
-            Button("Stack Selection") { state.stackSelection() }
-                .buttonStyle(.borderless)
-                .font(.lumenBody)
-                .disabled(state.selection.count < 2)
-                .help("Group the selection into one stack (⌘G)")
+            SidebarVerb(title: "Stack Selection", systemImage: "square.stack",
+                        help: "Group the selection into one stack (⌘G)") {
+                state.stackSelection()
+            }
+            .disabled(state.selection.count < 2)
 
             // ⇧⌘G used to be held here by a zero-size invisible button, because a
             // `.keyboardShortcut` on a view that is not in the hierarchy is never
@@ -806,25 +801,37 @@ private struct Sidebar: View {
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button {
+                // These two have NO bare key and this column is their only home —
+                // `docs/29-keymap-reconciliation.md:40` settled that when `S` and `⇧S`
+                // went to Scopes and Soft-proof, and recorded it as "a real if small
+                // loss, not a redundancy". So they are not candidates for moving to a
+                // menu and quietly dropping.
+                SidebarVerb(title: stack.collapsed ? "Expand Stack" : "Collapse Stack",
+                            // Both names already ship in this app. `Image(systemName:)`
+                            // handed a name the system does not know draws NOTHING — no
+                            // placeholder, no log — so a symbol chosen from memory is a
+                            // 14 pt hole nobody notices until a screenshot.
+                            systemImage: stack.collapsed
+                                ? "square.grid.2x2"
+                                : "square.stack.3d.down.forward",
+                            help: stack.collapsed
+                                ? "Show every frame in this stack"
+                                : "Show this stack as one frame") {
                     state.toggleStackCollapsed()
-                } label: {
-                    Text(stack.collapsed ? "Expand Stack" : "Collapse Stack")
                 }
-                .buttonStyle(.borderless)
-                .font(.lumenBody)
 
-                Button("Promote to Pick") { state.promoteStackPick() }
-                    .buttonStyle(.borderless)
-                    .font(.lumenBody)
-                    .disabled(stack.isPick)
+                SidebarVerb(title: "Promote to Pick", systemImage: "arrow.up.square",
+                            help: "Make this frame the one the collapsed stack shows") {
+                    state.promoteStackPick()
+                }
+                .disabled(stack.isPick)
 
                 // Unstack's BUTTON stays here beside the other stack verbs, where it
                 // reads; ⇧⌘G moved above the fold. See the note there.
-                Button("Unstack") { state.unstackSelection() }
-                    .buttonStyle(.borderless)
-                    .font(.lumenBody)
-                    .help("Unstack (⇧⌘G)")
+                SidebarVerb(title: "Unstack", systemImage: "square.on.square.dashed",
+                            help: "Unstack (⇧⌘G)") {
+                    state.unstackSelection()
+                }
             } else {
                 // Three lines of teaching in front of one button, on a fresh folder,
                 // for a feature nobody has used yet — the same complaint the develop
@@ -948,6 +955,81 @@ private struct Sidebar: View {
 
     // `row` is gone too: the culling counts were the only caller and they are
     // `sourceRow`s now, because a count sitting in a source list is a thing people click.
+}
+
+// MARK: - Sidebar verb
+
+/// A command in the sources column: borderless at rest, surface on hover, pointing hand.
+///
+/// IT REPLACES `.buttonStyle(.borderless)`, which this column held SEVEN of — out of eight
+/// in the whole application. Everything else in Lumen is `.buttonStyle(.plain)`, sixty-nine
+/// times. That is not a stylistic quibble: `.borderless` renders its label in the **macOS
+/// system accent**, and this app sets no `.tint` anywhere except one control in the filter
+/// bar, so the sidebar's verbs were the one place whose colour was chosen by System
+/// Settings rather than by the app. On a Graphite Mac they read grey and nobody noticed; on
+/// a default Mac they are blue, in a chrome that `docs/00` Law 7 requires to be zero-chroma
+/// everywhere the photograph is not.
+///
+/// The idiom is `DevelopFooterButton`'s, deliberately — "borderless at rest, surface on
+/// hover … a rest fill is how you draw a MODE, something that can be on; every one of these
+/// fires once and returns." That type is file-private to `DevelopPanel.swift`, is laid out
+/// `maxWidth: .infinity` for a four-across footer, and has its quarter-of-the-row arithmetic
+/// pinned by `LayoutMetricTests`. Reaching into it to serve a left-aligned column would put
+/// the develop footer's layout at risk to save a screenful of code, so this is the same
+/// argument stated again rather than the same type stretched.
+///
+/// DISABLED IS READ FROM THE ENVIRONMENT, not passed in, so `.disabled(…)` at the call site
+/// is the single source of truth and cannot disagree with the appearance. It matters here:
+/// four of these are disabled most of the time — no target album, no selection, no stack —
+/// and a control that lights up and points the hand while refusing the click is the
+/// affordance lie in its loudest form.
+private struct SidebarVerb: View {
+    let title: String
+    var systemImage: String? = nil
+    let help: String
+    let action: () -> Void
+
+    /// Row-local. Hover must never reach an `ObservableObject` — a pointer crossing this
+    /// column would publish once per row, which `CommandState` has already paid for once.
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var lit: Bool { hovering && isEnabled }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        // A fixed box, because SF Symbols are not a fixed-width family and
+                        // a ragged left edge reads as sloppiness before it reads as icons.
+                        // 14 is the menu item's column, which is what this row is.
+                        .font(.lumenGlyphCaption)
+                        .frame(width: 14)
+                }
+                Text(title)
+                    .font(.lumenBody)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+            .background(lit ? Lumen.hovered(on: Lumen.panelValue) : Color.clear)
+            // Three states, not two. `secondaryText` at rest and `primaryText` lit is the
+            // footer button's pair; `tertiaryText` for disabled is the third, because
+            // without it "not available" and "available, not hovered" were the same grey
+            // and half this column is disabled until something is selected.
+            .foregroundStyle(isEnabled ? (lit ? Lumen.primaryText : Lumen.secondaryText)
+                                       : Lumen.tertiaryText)
+            .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Lumen.motionState, value: hovering)
+        .lumenClickCursor(isEnabled)
+        .help(help)
+    }
 }
 
 // MARK: - Status bar
