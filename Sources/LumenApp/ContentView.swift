@@ -6,6 +6,49 @@
 
 #if os(macOS)
 
+/// TEMPORARY. The two candidate selection treatments for the sources list, switchable at
+/// runtime from the Debug menu so the choice is made against a real photograph in a real
+/// surround rather than from a description of one.
+///
+/// `docs/25-design-audit.md:69` is unambiguous that the shipped treatment is wrong: every
+/// selected state in the app is "a ~30% white wash", and "a faint lighter wash on flat gray
+/// reads as HOVER or DISABLED, not selected". It recommends `Lumen.accent`, documented at
+/// `LumenControls.swift:171` as the colour for "state that must be noticed" and appearing in
+/// the whole app as a 4 pt dot.
+///
+/// The counter-argument is Law 7 — zero chroma everywhere the photograph is not — and it is
+/// not a weak one in a chrome that surrounds a colour judgement. So both are built and
+/// neither is argued for from the armchair.
+///
+/// WHEN THE OWNER HAS LOOKED, DELETE THE LOSER AND THIS TYPE WITH IT. Four things name each
+/// other so none can be left behind: this enum, `Sidebar.selectionStyle`,
+/// `Sidebar.selectionFill`, and the Debug menu's item in `LumenApp.swift`. It is at file
+/// scope only because the menu lives in another file; it is not a preference the app means
+/// to keep, and it is deliberately not in the keyboard grammar.
+enum SidebarSelectionStyle: String, CaseIterable {
+    /// Accent fill. What the design audit asks for.
+    case accent
+    /// A brighter achromatic step plus a leading bar. Law 7 held strictly, with the
+    /// separation coming from value and from a mark rather than from hue.
+    case bar
+
+    /// The menu item's title, which names what you will get rather than what you have —
+    /// a toggle that reads as its current state is the oldest ambiguity in menu design.
+    var switchToTitle: String {
+        switch self {
+        case .accent: return "Sidebar Selection: Achromatic Bar"
+        case .bar: return "Sidebar Selection: Accent Fill"
+        }
+    }
+
+    var other: SidebarSelectionStyle {
+        switch self {
+        case .accent: return .bar
+        case .bar: return .accent
+        }
+    }
+}
+
 import AppKit
 import LumenCore
 import SwiftUI
@@ -392,6 +435,17 @@ private struct Sidebar: View {
     @AppStorage("sidebar.albums") private var albumsExpanded = true
     @AppStorage("sidebar.keywords") private var keywordsExpanded = false
     @AppStorage("sidebar.stack") private var stackExpanded = false
+
+    /// TEMPORARY, and it says so here so it cannot quietly become a preference.
+    ///
+    /// Two selection treatments, switchable from the View menu, so the choice is made
+    /// against a real photograph in a real surround instead of from a description. The
+    /// loser is deleted with this property, `SidebarSelectionStyle`, `selectionFill` and
+    /// the menu item, all of which name each other so none can be left behind.
+    ///
+    /// It defaults to `.bar` because that is the one that holds Law 7, and a default that
+    /// obeys the law is the right thing to ship if nobody ever comes back to this.
+    @AppStorage("sidebar.selectionStyle") private var selectionStyle = SidebarSelectionStyle.bar
 
     var body: some View {
         ScrollView {
@@ -790,28 +844,63 @@ private struct Sidebar: View {
     // hand-rolled caps-label styles the audit counted (§1.2), and at 9 pt it was under
     // the type floor the same audit set. One idiom, one size, one place to change it.
 
+    /// A row in the source list: a place you can be, with how many frames are there.
+    ///
+    /// THE POINTER TREATMENT IS THE POINT. `LumenSectionHeader` states the rule this row
+    /// was breaking — "the pointer treatment is the row's claim to be a control, and this
+    /// row is not one" — and every comparable row in the app makes that claim through
+    /// `lumenInteractive`: the history list, the mask list, the menu items, the develop
+    /// footer buttons. This one made it nowhere. No hover fill, no pointing hand, no
+    /// `contentShape`; the hit region was whatever `Color.clear` happened to cover. The
+    /// owner's report was "most of the buttons don't look like buttons", and for the four
+    /// rows that ARE buttons that was not an impression, it was the literal state of the
+    /// modifier stack.
+    ///
+    /// It is the mirror of the affordance lie this app already fixed once. The header's
+    /// hover fill is gated on `isInteractive` because "a label that lights up while doing
+    /// nothing" is a promise broken. A control that never lights up at all is the same
+    /// promise, unmade.
+    ///
+    /// UNSELECTED IS NOT DISABLED. The row used to render its title in `secondaryText`
+    /// until it was chosen, which is this app's disabled idiom — so a list of four
+    /// scopes read as four unavailable ones and a chosen one. Selection is carried by the
+    /// fill, which is what a fill is for; the title stays legible throughout and only the
+    /// COUNT is secondary, because the count is a fact about the row rather than the row.
+    ///
+    /// 24 pt is not a taste. `docs/audit-2026-09/PLAN.md:93` records it as an owner
+    /// decision — "Row pitch: 24 pt, one pitch everywhere" — and this row was the
+    /// divergence, at 11 pt of text plus 2 of padding.
     private func sourceRow(title: String, count: Int, isSelected: Bool,
                            isTarget: Bool, help: String? = nil,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
+                // The selected row's marker, in the achromatic treatment. Zero width when
+                // it is not wanted rather than absent, so the titles down the column keep
+                // one left edge — a list whose text shifts sideways on selection reads as
+                // a layout bug before it reads as a selection.
+                Capsule()
+                    .fill(isSelected ? Lumen.primaryText : Color.clear)
+                    .frame(width: selectionStyle == .bar && isSelected ? 2 : 0)
                 if isTarget {
                     Image(systemName: "target")
                         .font(.lumenGlyphCaption)
-                        .foregroundStyle(Lumen.secondaryText)
+                        .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
                 }
                 Text(title)
                     .font(.lumenBody)
                     .lineLimit(1)
                 Spacer()
                 Text("\(count)")
-                    .font(.lumenCaption.monospacedDigit())
-                    .foregroundStyle(Lumen.secondaryText)
+                    // `.lumenCaptionNumeric` IS `.lumenCaption.monospacedDigit()`, which
+                    // is what this said for as long as the token existed beside it.
+                    .font(.lumenCaptionNumeric)
+                    .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
-            .background(isSelected ? Lumen.fillColor.opacity(0.28) : Color.clear)
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+            .foregroundStyle(Lumen.primaryText)
+            .background(selectionFill(isSelected))
             // `radiusChip`, not a hardcoded 3. A sidebar row is a chip by every other
             // measure in this app and it was the last place still drawing the pre-token
             // radius, so the selected album sat in a squarer rectangle than anything
@@ -819,7 +908,42 @@ private struct Sidebar: View {
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         }
         .buttonStyle(.plain)
+        // On the PANEL value, not the control surface: this row sits directly on the
+        // sidebar's own 0.20 ground, and `hovered(on:)` is additive, so passing the
+        // default 0.24 would light it to a value 0.03 above a surface that is not there.
+        .lumenInteractive(radius: Lumen.radiusChip, on: Lumen.panelValue)
         .help(help ?? "")
+        // The app's second accessibility label. The count is the row's other half and a
+        // screen reader that reads only the title cannot tell an empty scope from a full
+        // one — which is most of what these rows are for.
+        .accessibilityLabel(Text("\(title), \(count) photograph\(count == 1 ? "" : "s")"))
+    }
+
+    /// The two selection treatments, live, so the choice is made against a photograph
+    /// rather than against a description of one.
+    ///
+    /// `docs/25-design-audit.md:69` is unambiguous that the shipped one is wrong: every
+    /// selected state in the app is "a ~30% white wash", and "a faint lighter wash on flat
+    /// gray reads as HOVER or DISABLED, not selected". It recommends `Lumen.accent`, which
+    /// is documented at `LumenControls.swift:171` as the colour for "state that must be
+    /// noticed" and appears in the whole app as a 4 pt dot.
+    ///
+    /// The counter-argument is Law 7 — zero chroma everywhere the photograph is not — and
+    /// it is not a weak one in a chrome that surrounds a colour judgement. So both are
+    /// built and neither is argued for from the armchair. The loser is deleted once the
+    /// owner has looked at them; this enum is not a preference the app is meant to keep.
+    private func selectionFill(_ isSelected: Bool) -> Color {
+        guard isSelected else { return .clear }
+        switch selectionStyle {
+        // Well under a solid accent: this is a row-sized area and the token's own note
+        // says marker scale, never area. At 0.30 over the 0.20 panel it reads as
+        // deliberate colour without becoming a colour field beside the photograph.
+        case .accent: return Lumen.accent.opacity(0.30)
+        // `controlActive` is the app's existing "selected or pressed" rung, 0.31 against
+        // the hover step's 0.27 — a real four-point gap where the shipped 0.28 wash sat
+        // one point off hover and lost.
+        case .bar: return Lumen.controlActive
+        }
     }
 
     // `row` is gone too: the culling counts were the only caller and they are
