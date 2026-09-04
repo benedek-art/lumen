@@ -43,8 +43,8 @@ final class PanClampTests: XCTestCase {
         for zoom in [1.5, 3.0, 8.0, 16.0] {
             let drawn = CGSize(width: container.width * zoom, height: container.height * zoom)
             let old = (drawn.width - container.width) / 2
-            let now = LoupeGeometry.clampPan(CGSize(width: .greatestFiniteMagnitude, height: 0),
-                                             container: container, drawn: drawn).width
+            let far = CGSize(width: CGFloat.greatestFiniteMagnitude, height: 0)
+            let now = LoupeGeometry.clampPan(far, container: container, drawn: drawn).width
 
             XCTAssertEqual(now - old, container.width / 2, accuracy: 1e-9,
                            "the gain over the old bound must be exactly half a viewport, "
@@ -80,7 +80,7 @@ final class PanClampTests: XCTestCase {
     /// takes the photograph off screen with no way back.
     func testNonFiniteInputsCollapseToCentred() {
         let drawn = CGSize(width: 4800, height: 3000)
-        for bad in [Double.nan, .infinity, -.infinity] {
+        for bad in [CGFloat.nan, .infinity, -.infinity] {
             let got = LoupeGeometry.clampPan(CGSize(width: bad, height: bad),
                                              container: container, drawn: drawn)
             XCTAssertEqual(got.width, 0, "a \(bad) pan must not reach the offset")
