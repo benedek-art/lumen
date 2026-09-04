@@ -2644,19 +2644,13 @@ final class AppState: ObservableObject {
         }
         guard !urls.isEmpty else { return }
         guard let root = Self.commonParent(of: urls) else { return }
-
-        // Directories chosen alongside files contribute their contents, so "this folder
-        // and these three from next door" is one roll rather than a refusal.
-        let extensions = Self.browsableExtensions
-        var explicit = Set(files.filter { extensions.contains($0.pathExtension.lowercased()) })
-        for directory in directories {
-            explicit.formUnion(Self.scan(url: directory, extensions: extensions))
-        }
-        guard !explicit.isEmpty else {
-            statusMessage = "Nothing there Lumen can open"
-            return
-        }
-        openFolder(root, restrictedTo: explicit)
+        // The chosen list is handed on WHOLE — directories included — and expanded off
+        // the main actor. Expanding here would have been a synchronous recursive
+        // enumeration on the main thread, which is the freeze `scan`'s own header exists
+        // to prevent: "a card with 5,000 frames must not freeze the window while it is
+        // enumerated". Choosing a folder alongside a few loose frames is exactly the
+        // case that would have hit it.
+        openFolder(root, restrictedTo: Set(urls))
     }
 
     nonisolated static func isDirectory(_ url: URL) -> Bool {
@@ -2787,8 +2781,21 @@ final class AppState: ObservableObject {
             // A restricted roll does not enumerate: the list IS the answer, sorted the
             // same way a scan sorts so the grid's initial order does not depend on which
             // door the photographs came through.
+            // A restricted roll is the chosen list rather than an enumeration of the
+            // root — except for any DIRECTORY in it, which contributes its contents, so
+            // "this folder and those three from next door" is one roll. Sorted the way a
+            // scan sorts, so the grid's initial order does not depend on which door the
+            // photographs came through.
             let found: [URL] = restriction.map { chosen in
-                chosen.sorted {
+                var explicit: Set<URL> = []
+                for source in chosen {
+                    if Self.isDirectory(source) {
+                        explicit.formUnion(Self.scan(url: source, extensions: extensions))
+                    } else if extensions.contains(source.pathExtension.lowercased()) {
+                        explicit.insert(source)
+                    }
+                }
+                return explicit.sorted {
                     $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
                         == .orderedAscending
                 }
