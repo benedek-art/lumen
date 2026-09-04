@@ -161,6 +161,20 @@ final class LoupeViewport: ObservableObject {
         // AND `pan = .zero` — with nothing on screen moving either time. A gesture that
         // has run out of room is exactly when the hand keeps going.
         guard clamped != zoom else { return }
+        // THE HUD COULD NOT SEE A ZOOM, which is why "the zoom is slow" has been an
+        // adjective for three rounds. `noteInput` was called from exactly one place —
+        // the recipe-edit path's `touchedPixels` — so the instrument built to answer
+        // "is the app receiving my events or failing to draw them" was blind to the two
+        // gestures the owner reports as worst.
+        //
+        // With this, the HUD's `in/out` line finally means something during a pinch, and
+        // its own comment says how to read it: "the two being close and low is dropped
+        // input; `in` high and `out` low is the render." Those are different defects with
+        // different fixes, and no amount of reading this file distinguishes them.
+        //
+        // Free when the HUD is off — `noteInput` returns on `enabled` before it touches
+        // a clock.
+        LatencyHUD.shared.noteInput()
         if ZoomLadder.isFit(clamped) { pan = .zero }
         zoom = clamped
     }
@@ -234,10 +248,15 @@ final class LoupeViewport: ObservableObject {
     /// It takes `x`/`y` rather than a `CGSize` so a caller cannot accidentally pass a
     /// delta where an absolute offset is meant, which is the mistake `panBy` sitting
     /// beside it would otherwise invite.
+    /// `@MainActor` because it stamps `LatencyHUD`, which is main-actor isolated. Every
+    /// caller is a gesture handler on the main actor already, so this costs nothing and
+    /// makes an isolation the type had been getting away with implicitly explicit.
+    @MainActor
     func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
         let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
                                              container: container, drawn: drawn)
         guard clamped != pan else { return }
+        LatencyHUD.shared.noteInput()
         pan = clamped
     }
 
@@ -1073,6 +1092,11 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
+    /// The zoom value whose anchor `zoomAnchored` has already applied, so the `.onChange`
+    /// fallback does not apply it a second time. `panKeeping` is not idempotent — it
+    /// moves the pan by the difference between two drawn sizes — so running it twice for
+    /// one zoom change would double the correction and pull the picture off the anchor.
+    @State private var anchoredZoom: Double?
     /// The zoom the current pinch began at, so the gesture's total magnification
     /// multiplies one start value instead of compounding per event. Nil between
     /// gestures.
@@ -1318,6 +1342,12 @@ struct LoupeView: View {
                 containerSize = newValue
             }
             .onChange(of: viewport.zoom) { oldValue, newValue in
+                // Already anchored inside the gesture's own event, in the same block as
+                // the zoom write. Applying it again would double the correction.
+                if anchoredZoom == newValue {
+                    anchoredZoom = nil
+                    return
+                }
                 applyZoomChange(from: oldValue, to: newValue, container: container)
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
@@ -2079,6 +2109,34 @@ struct LoupeView: View {
     }
 
     /// Keeps the anchor point pinned across a zoom change, then re-clamps the pan.
+    /// Zoom AND re-anchor in one synchronous block, so one gesture event costs one
+    /// body pass instead of two.
+    ///
+    /// `setZoom` publishes `zoom`; `applyZoomChange` publishes `pan`. Routed through
+    /// `.onChange`, those land in two different turns: SwiftUI runs the body with the new
+    /// zoom and the OLD pan, THEN fires `onChange`, which corrects the pan and runs the
+    /// body again. Every pinch event therefore drew one visibly unanchored frame and paid
+    /// for two full layouts of the canvas and its five overlays — at trackpad event
+    /// rates, on a high-refresh display, that is the difference between tracking the hand
+    /// and lagging it.
+    ///
+    /// Two `@Published` writes on the SAME object inside one synchronous block coalesce
+    /// into a single invalidation, which is why this works and why zoom and pan being on
+    /// one object was the precondition for it.
+    ///
+    /// `anchoredZoom` tells the surviving `.onChange` that this value has already been
+    /// handled. The `.onChange` stays because the KEYMAP's zoom verbs (Z, Space, +, −)
+    /// come through `LoupeViewport` with no container to anchor against, and a keyboard
+    /// zoom is one event where a second pass costs nothing.
+    private func zoomAnchored(to ratio: Double, at point: CGPoint?, container: CGSize) {
+        let before = viewport.zoom
+        viewport.setZoom(ratio, at: point)
+        let after = viewport.zoom
+        guard after != before else { return }
+        applyZoomChange(from: before, to: after, container: container)
+        anchoredZoom = after
+    }
+
     private func applyZoomChange(from oldValue: Double, to newValue: Double,
                                  container: CGSize) {
         guard let cg = model.image else {
@@ -2216,7 +2274,7 @@ struct LoupeView: View {
                     startZoom: start,
                     fitRatio: trueFitZoom(image: cg, container: container),
                     magnification: Double(value.magnification))
-                viewport.setZoom(target, at: value.startLocation)
+                zoomAnchored(to: target, at: value.startLocation, container: container)
             }
             .onEnded { _ in
                 pinchStartZoom = nil
@@ -2243,7 +2301,7 @@ struct LoupeView: View {
             // Under the pointer, like every other zoom this app has: the cursor is
             // where the photographer is looking, and `onContinuousHover` already
             // tracks it for exactly this.
-            viewport.setZoom(target, at: viewport.lastCursor)
+            zoomAnchored(to: target, at: viewport.lastCursor, container: container)
         case .pan(let dx, let dy):
             // ONE WRITE, NOT TWO. `panBy` assigned `pan` and the clamp assigned it again,
             // so every event of a trackpad flick published twice and re-bodied the view
