@@ -16,9 +16,30 @@ BIN=".build/release/LumenApp"
 APP="dist/Lumen.app"
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/Lumen"
+
+# THE ICON, compiled from the geometry in scripts/make-appicon.py.
+#
+# Until this existed the app shipped with no icon at all, so macOS drew the blank white
+# document placeholder — which is what the owner was looking at in the Dock. The artwork
+# is a slanted white field with an upright cross cut out of it, rendered to a full
+# .iconset by that script and compiled here by `iconutil`, which is macOS's own tool and
+# the only thing that produces a well-formed .icns.
+#
+# NOT ALLOWED TO FAIL QUIETLY, for the same reason the signature below is not: an app
+# that builds "successfully" and comes out looking like an unsaved TextEdit document is a
+# failure nobody reads a log to diagnose. If the iconset is missing, the build says so.
+ICONSET="resources/Lumen.iconset"
+if [ ! -d "$ICONSET" ]; then
+    echo "$ICONSET is missing — run: python3 scripts/make-appicon.py" >&2
+    exit 1
+fi
+if ! iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"; then
+    echo "iconutil failed on $ICONSET — the app would ship with no icon." >&2
+    exit 1
+fi
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -36,6 +57,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>LSMinimumSystemVersion</key>  <string>15.0</string>
     <key>NSHighResolutionCapable</key> <true/>
     <key>LSApplicationCategoryType</key> <string>public.app-category.photography</string>
+
+    <!-- The half of the icon that lives in the plist. `AppIcon.icns` is written into
+         Contents/Resources above; without this key the file is present and ignored, and
+         the Dock still draws the blank placeholder. Declaration and file are one change:
+         either alone is inert, which is why `IconTests` asserts both. -->
+    <key>CFBundleIconFile</key>        <string>AppIcon</string>
 
     <!-- WHAT THE SYSTEM MAY HAND US. Without this the bundle declared no document
          types at all, so "Open With ▸ Lumen" never appeared in Finder, a drop on the
