@@ -1426,6 +1426,34 @@ struct LumenSectionHeader: View {
     /// frame back; a photographer deciding which to press is exactly who is hovering.
     /// Nil for the sections where Reset's scope is the obvious one.
     var resetHelp: String? = nil
+
+    /// THE SECTION'S OWN VERB, in the header, so the fold governs everything under it.
+    ///
+    /// The sources sidebar is why this exists. Each of its sections kept its one-click
+    /// verb OUTSIDE the `if …Expanded` — originally because a `.keyboardShortcut` on a
+    /// view that is not in the hierarchy is never registered, so a chord-bearing button
+    /// inside a section that ships closed is a dead chord. That reason is gone (the three
+    /// chords moved to the Scene's commands), but the shape stayed, and the shape is a
+    /// lie: a section drawn with a closed triangle that still shows a row underneath is
+    /// telling the photographer the fold means something it does not.
+    ///
+    /// Putting the verb in the header row settles it without giving the verb up. The
+    /// triangle then governs exactly what sits beneath it, and docs/12 §12.12's rule —
+    /// "every panel leads with its one-click entry point" — is honoured more literally
+    /// than before, because the entry point is now IN the lead row rather than under it.
+    ///
+    /// Unlike Reset this is always visible rather than fading in on hover. Reset can hide
+    /// because the accent dot already answers "did I touch this?" from across the panel;
+    /// an ADD affordance has no such second signal, and one that appears only under the
+    /// pointer is one a photographer has to already know about to find.
+    var onAction: (() -> Void)?
+    /// The glyph. Must be a symbol this app already draws — `Image(systemName:)` handed
+    /// an unknown name renders nothing at all, with no placeholder and no log.
+    var actionSymbol: String = "plus"
+    var actionHelp: String? = nil
+    /// Greyed and unclickable rather than absent, so the header does not reflow as a
+    /// selection changes under it.
+    var actionEnabled: Bool = true
     /// The space that says "a new section begins here" — and it is what replaced the
     /// hairline that used to say it.
     ///
@@ -1583,6 +1611,21 @@ struct LumenSectionHeader: View {
                     .frame(width: 5, height: 5)
             }
             Spacer()
+            if let onAction {
+                Button(action: onAction) {
+                    Image(systemName: actionSymbol)
+                        .font(.lumenGlyphCaption)
+                        // A real target on a 10 pt glyph, and the same 16 pt box the
+                        // other glyph-only buttons in this app use.
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(actionEnabled ? Lumen.secondaryText : Lumen.tertiaryText)
+                .disabled(!actionEnabled)
+                .lumenClickCursor(actionEnabled)
+                .help(actionHelp ?? "")
+            }
             if let onReset, isModified {
                 // Reset appears on hover (design audit step 3, and Lightroom's own
                 // behaviour). A develop panel can hold a dozen modified sections and a

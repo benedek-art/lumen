@@ -455,8 +455,17 @@ private struct Sidebar: View {
             // structures and a help button — stacked with hairlines between them and no
             // grouping, in a column whose own idiom appeared nowhere else in the app.
             // One idiom, four groups, and the rules are gone the way they went in the
-            // panels (Phase 1): the header carries its own 16 pt boundary.
+            // panels (Phase 1): the header carries its own 20 pt boundary.
+            //
+            // (It said 16 for as long as `topRhythm` has been 20 — raised after "everything
+            // is super back to back to back … I get a fatigue when I scroll down".)
+            //
+            // The FOLDER now sits above all four rather than inside the first. It is what
+            // the whole column is about, so it reads as the column's title; and it took
+            // the third of "Library"'s three jobs out of a section that is now just the
+            // flag axis.
             VStack(alignment: .leading, spacing: 2) {
+                folderHeader
                 librarySection
                 if state.isCatalogAvailable {
                     albumsSection
@@ -492,30 +501,91 @@ private struct Sidebar: View {
 
     private var librarySection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LumenSectionHeader(title: "Library", isExpanded: $libraryExpanded)
-            if libraryExpanded {
-                SidebarVerb(title: "Open Folder…", systemImage: "folder",
-                            help: "Choose a folder of photographs to browse") {
-                    state.chooseFolder()
-                }
-
-                if let folder = state.folderURL {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(folder.lastPathComponent)
-                            .font(.lumenBodyStrong)
-                            .lineLimit(1)
-                        Text(folder.deletingLastPathComponent().path)
-                            .font(.lumenCaption)
-                            .foregroundStyle(Lumen.tertiaryText)
-                            .lineLimit(2)
-                            .truncationMode(.head)
-                    }
-                    .padding(.bottom, 2)
-                }
-
-                counts
-            }
+            LumenSectionHeader(title: "Library", symbol: "flag.fill",
+                               isExpanded: $libraryExpanded)
+            if libraryExpanded { counts }
         }
+    }
+
+    /// WHAT YOU ARE LOOKING AT, as the column's title rather than a row inside it.
+    ///
+    /// It was the loudest element in the sidebar — `lumenBodyStrong`, the only medium
+    /// weight in the column — and the only one you could not click, hover, right-click or
+    /// read to the end. A two-line volume path at 10 pt, truncated from the head, with no
+    /// tooltip carrying the whole of it. So the thing the eye landed on first was the one
+    /// thing that answered nothing, sitting in a list of things that answer clicks.
+    ///
+    /// Moving it out of "Library" also settles what that section is FOR. It held three
+    /// jobs — an action, a status readout and three filters — and now holds one: the flag
+    /// axis. The folder is not a filter and never was; it is the subject the whole column
+    /// is about.
+    ///
+    /// The path finally does something. Click reveals the folder in Finder, the tooltip
+    /// carries it in full, and the context menu offers both plus the folder change — three
+    /// affordances on a block that had none, none of them a keyboard-only secret because
+    /// the button beside it does the one that matters.
+    private var folderHeader: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(state.folderURL?.lastPathComponent ?? "No folder open")
+                    .font(.lumenBodyStrong)
+                    .foregroundStyle(state.folderURL == nil
+                                     ? Lumen.tertiaryText : Lumen.primaryText)
+                    .lineLimit(1)
+                if let folder = state.folderURL {
+                    // One line, not two. At 230 pt a second line of head-truncated path
+                    // buys about twenty more characters of a string whose informative end
+                    // is already visible, and costs the header its shape.
+                    Text(folder.deletingLastPathComponent().path)
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.tertiaryText)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+            Spacer(minLength: 0)
+            Button {
+                state.chooseFolder()
+            } label: {
+                Image(systemName: "folder")
+                    .font(.lumenGlyphCaption)
+                    // A real target. The glyph's own bounds are 10 pt and this app's own
+                    // convention for a glyph-only button is a 16 pt box with an explicit
+                    // content shape.
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.secondaryText)
+            .lumenClickCursor()
+            .help("Choose a different folder")
+        }
+        .padding(.horizontal, 6)
+        .frame(height: Lumen.rowHeight)
+        .contentShape(Rectangle())
+        .help(state.folderURL?.path ?? "No folder open")
+        .onTapGesture { revealFolderInFinder() }
+        .lumenClickCursor(state.folderURL != nil)
+        .contextMenu {
+            Button("Reveal in Finder") { revealFolderInFinder() }
+                .disabled(state.folderURL == nil)
+            Button("Copy Path") {
+                guard let path = state.folderURL?.path else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(path, forType: .string)
+            }
+            .disabled(state.folderURL == nil)
+            Divider()
+            Button("Open Folder…") { state.chooseFolder() }
+        }
+        .accessibilityLabel(Text(state.folderURL
+                                 .map { "Folder \($0.lastPathComponent), \($0.path)" }
+                                 ?? "No folder open"))
+    }
+
+    private func revealFolderInFinder() {
+        guard let folder = state.folderURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([folder])
     }
 
     /// The culling counts, and they are CONTROLS now rather than readouts.
@@ -537,10 +607,14 @@ private struct Sidebar: View {
         // sites: `LumenApp` compiles only on macOS and the surface checker misses
         // everything type-level, so an inference that needs help is an inference this
         // machine cannot find out about.
+        let unflagged = state.cullCounts.flags[.none] ?? 0
         let picks: Set<PhotoFlag> = [.picked]
         let rejects: Set<PhotoFlag> = [.rejected]
+        let unflaggeds: Set<PhotoFlag> = [.none]
         let noFlag: Set<PhotoFlag> = []
-        return VStack(alignment: .leading, spacing: 1) {
+        // `Lumen.rowGap`, not a bare 1. The rows are 24 pt now and a one-point gutter
+        // between them read as a single block of text rather than as a list.
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             // These three set the FLAG criterion and nothing else, which the help text
             // says out loud: a rating or a label filter set elsewhere still applies, so
             // "All photos" means "no flag restriction", not "clear everything". ⌘\ is
@@ -556,6 +630,18 @@ private struct Sidebar: View {
                       help: "Show only picks") {
                 state.filter.flags = state.filter.flags == picks ? noFlag : picks
             }
+            // UNFLAGGED, which the Filter bar has had all along and this list did not.
+            //
+            // `FilterBar` offers all three chips against the same `state.filter.flags`,
+            // so the sidebar was the poorer copy of a control three inches above it —
+            // and "the ones I have not looked at yet" is the single most useful scope in
+            // a first cull pass. docs/10 §10.4 names it among the counts the cull HUD is
+            // specified to show.
+            sourceRow(title: "Unflagged", count: unflagged,
+                      isSelected: state.filter.flags == unflaggeds, isTarget: false,
+                      help: "Show only frames you have not flagged either way") {
+                state.filter.flags = state.filter.flags == unflaggeds ? noFlag : unflaggeds
+            }
             sourceRow(title: "Rejected", count: rejected,
                       isSelected: state.filter.flags == rejects, isTarget: false,
                       help: "Show only rejects") {
@@ -568,22 +654,31 @@ private struct Sidebar: View {
 
     private var albumsSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LumenSectionHeader(title: "Albums", isExpanded: $albumsExpanded,
-                               isModified: state.selectedCollectionID != nil)
-            // Above the fold: the section's one-click verb. It holds NO chord.
+            // THE VERB IS IN THE HEADER NOW, and that is what makes the triangle honest.
             //
-            // It held ⌘B until K-104 settled the keymap the other way round: bare `B`
-            // is add-to-album (`Keymap.swift`, `case "b"`) and ⌘B is the assessment
-            // surround (`LumenApp.swift`, the View menu). Both were attached and only
-            // one can win — a menu item's key equivalent is offered by the main menu
-            // before the window's view hierarchy sees the event — so this button's ⌘B
-            // was a dead shortcut, and its `.help` advertised it anyway. The tooltip
-            // now names the bare key it actually has.
-            SidebarVerb(title: addToTargetTitle, systemImage: "tray.and.arrow.down",
-                        help: "Add the selection to the target album (B)") {
-                state.addSelectionToTargetCollection()
-            }
-            .disabled(state.targetCollection == nil || state.editTargets.isEmpty)
+            // It sat outside the `if albumsExpanded` — so a section drawn CLOSED still
+            // showed a row underneath it. The original reason was real: a
+            // `.keyboardShortcut` on a view outside the hierarchy is never registered, so
+            // a chord-bearing button inside a section that ships closed is a dead chord.
+            // That reason went when the three chords moved to the Scene's commands; the
+            // shape stayed, and the shape tells the photographer the fold means something
+            // it does not.
+            //
+            // It holds NO chord. It held ⌘B until K-104 settled the keymap the other way
+            // round: bare `B` is add-to-album (`Keymap.swift`, `case "b"`) and ⌘B is the
+            // assessment surround. Both were attached and only one can win — the main menu
+            // offers its key equivalent before the window's hierarchy sees the event — so
+            // this button's ⌘B was a dead shortcut whose `.help` advertised it anyway. The
+            // tooltip names the bare key it actually has, and names the ALBUM too, which
+            // the title used to carry and a glyph cannot.
+            LumenSectionHeader(title: "Albums", symbol: "photo.stack",
+                               isExpanded: $albumsExpanded,
+                               isModified: state.selectedCollectionID != nil,
+                               onAction: { state.addSelectionToTargetCollection() },
+                               actionSymbol: "tray.and.arrow.down",
+                               actionHelp: "\(addToTargetTitle) (B)",
+                               actionEnabled: state.targetCollection != nil
+                                   && !state.editTargets.isEmpty)
 
             if albumsExpanded { albums }
         }
@@ -591,16 +686,31 @@ private struct Sidebar: View {
 
     private var albums: some View {
         VStack(alignment: .leading, spacing: 4) {
-            sourceRow(title: "This folder", count: state.allPhotos.count,
+            // "WHOLE FOLDER", not "This folder", and the rename is the fix.
+            //
+            // It read identically to "All photos" one section above — same shape, same
+            // 239, same treatment — and did something entirely different: "All photos"
+            // clears the FLAG criterion, this clears the ALBUM. Two rows that look the
+            // same and act on different axes is a trap, and it is the visible half of
+            // J2-03, whose other half (the counts describe the folder and ignore the
+            // album selection) is its own landing.
+            //
+            // It also gains a tooltip. Every album row passed no `help:` at all, so
+            // `sourceRow`'s `.help(help ?? "")` rendered an empty one.
+            sourceRow(title: "Whole folder", count: state.allPhotos.count,
                       isSelected: state.selectedCollectionID == nil,
-                      isTarget: false) {
+                      isTarget: false,
+                      help: "Every photograph in the folder — no album restriction") {
                 state.selectedCollectionID = nil
             }
 
             ForEach(state.collections) { album in
                 sourceRow(title: album.name, count: album.count,
                           isSelected: state.selectedCollectionID == album.id,
-                          isTarget: album.isTarget) {
+                          isTarget: album.isTarget,
+                          help: album.isTarget
+                              ? "Show \(album.name) — the target album, where B adds"
+                              : "Show \(album.name)") {
                     state.selectedCollectionID = album.id
                 }
                 .contextMenu {
@@ -621,9 +731,15 @@ private struct Sidebar: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.lumenGlyphCaption)
+                        // The glyph's own bounds are no hit target — 10 points square was
+                        // the whole of it. 16 with an explicit content shape is what every
+                        // other glyph-only button in this app gets.
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
+                .lumenClickCursor()
                 .disabled(newAlbumName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 7)
@@ -659,9 +775,16 @@ private struct Sidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             LumenSectionHeader(title: "Keywords", isExpanded: $keywordsExpanded,
                                isModified: !state.primaryKeywords.isEmpty)
-            // Above the fold: the field you type into, and the button that names ⌘K.
-            keywordEntry
-            if keywordsExpanded { keywords }
+            // INSIDE THE FOLD, both of them. The field used to sit above it, so a
+            // section drawn CLOSED still showed a text field — and the `.onChange` below
+            // already says why that was never wanted: "a collapsed section is a strange
+            // place to land a caret". ⇧⌘K is unaffected; it opens the section first and
+            // then asks for the cursor, which is the order `PasteboardCarveOutTests`
+            // pins in `LumenApp.swift`.
+            if keywordsExpanded {
+                keywordEntry
+                keywords
+            }
         }
         // ⇧⌘K asked for the cursor. The Scene has already shown this column; opening
         // the section is this view's half of the job, because `keywordEntry` is drawn
@@ -686,9 +809,15 @@ private struct Sidebar: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.lumenGlyphCaption)
+                        // The glyph's own bounds are no hit target — 10 points square was
+                        // the whole of it. 16 with an explicit content shape is what every
+                        // other glyph-only button in this app gets.
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
+                .lumenClickCursor()
                 .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 7)
@@ -770,14 +899,16 @@ private struct Sidebar: View {
 
     private var stackSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LumenSectionHeader(title: "Stack", isExpanded: $stackExpanded,
-                               isModified: state.primaryStack != nil)
-            // Above the fold: the verb that makes a stack, and the holder of ⌘G.
-            SidebarVerb(title: "Stack Selection", systemImage: "square.stack",
-                        help: "Group the selection into one stack (⌘G)") {
-                state.stackSelection()
-            }
-            .disabled(state.selection.count < 2)
+            // The verb is in the header, for the same reason Albums' is: it sat outside
+            // the `if stackExpanded` and this section SHIPS CLOSED, so the fold's triangle
+            // was drawn shut over a visible row on every fresh folder.
+            LumenSectionHeader(title: "Stack", symbol: "square.stack",
+                               isExpanded: $stackExpanded,
+                               isModified: state.primaryStack != nil,
+                               onAction: { state.stackSelection() },
+                               actionSymbol: "square.stack",
+                               actionHelp: "Group the selection into one stack (⌘G)",
+                               actionEnabled: state.selection.count >= 2)
 
             // ⇧⌘G used to be held here by a zero-size invisible button, because a
             // `.keyboardShortcut` on a view that is not in the hierarchy is never
@@ -833,13 +964,26 @@ private struct Sidebar: View {
                     state.unstackSelection()
                 }
             } else {
-                // Three lines of teaching in front of one button, on a fresh folder,
-                // for a feature nobody has used yet — the same complaint the develop
-                // panels answered in Phase 1, and the same answer: the ⓘ row, with the
-                // words a hover away. `DevelopNote` is the app's one form for this.
-                DevelopNote("Collapsed stacks show one frame each — the pick. Filter "
-                            + "the grid to them from the Filter popover's Metadata "
-                            + "menu.")
+                // THIS DREW NOTHING AT ALL, and that is not what it looked like.
+                //
+                // It was a `DevelopNote`, whose `prominent` defaults to false, and
+                // `prominent == false` means the body is empty — deliberately, because in
+                // a develop panel the sentence belongs on the `.help()` of the control it
+                // describes and every `LumenSlider` already carries one. That reasoning
+                // is right and it does not reach here: an expanded Stack section with no
+                // stack has NO control in it, so there was nothing to hover, and opening
+                // the section gave you a blank box.
+                //
+                // One caption line, no mark, which is the shape `MaskPanel` settled on
+                // for exactly this case and the shape the Keywords section above already
+                // uses. `LumenEmptyState` is the house form, but it centres its stack and
+                // fills its container, which is wrong in a 230 pt column that has three
+                // other sections in it.
+                Text("No stacks yet. Select two or more frames and stack them.")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.tertiaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 6)
             }
         }
     }
