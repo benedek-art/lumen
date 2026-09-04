@@ -198,7 +198,13 @@ public struct ZoneWindows: Sendable {
 
 /// One wheel compiled to what the pixel loop actually needs: an OKLab (a, b) translation
 /// and a lightness gain in stops. Computed once per engine, never per pixel.
-private struct WheelTint: Sendable {
+/// Internal rather than private so `WheelHueAgreementTests` can pin the one fact the
+/// grading wheel's PAINT now depends on: that `wheel.hue` is an OKLab hue angle, read
+/// here as `cos`/`sin` of degrees. The ring is drawn through `Lumen.hueColor` (OKLCh) so
+/// the colour under the cursor is the colour this produces (B2-02, which was 29.6° of
+/// mean error while the ring was painted in SwiftUI HSB). A convention with a test on one
+/// side and none on the other is how those two drifted apart in the first place.
+struct WheelTint: Sendable {
     let a: Double
     let b: Double
     let stops: Double

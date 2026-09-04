@@ -476,27 +476,63 @@ public struct ToneEngine: Sendable {
         return Num.smoothstep(-lo * Self.blackShelfStart, -lo * Self.blackShelfEnd, -t)
     }
 
-    /// Where the slope starts and finishes relaxing back to 1, in stops from the
-    /// pivot. The window has to be this wide: relaxing a slope over a narrow band
-    /// makes the mapping itself non-monotone, because the falling gain beats the
-    /// rising distance. Over 4→8 stops the derivative goes negative at contrast ≈ 85,
-    /// which would render a brighter input darker — an inversion, never a look. Over
-    /// 4→12 the derivative stays positive past contrast 128, with margin.
-    public static let contrastRelaxStartEV: Double = 4
-    public static let contrastRelaxEndEV: Double = 12
+    /// No room between the pivot and an anchor means that side of the picture is
+    /// already past the end of the scale, and contrast leaves it alone rather than
+    /// dividing by a reach of zero. Reachable in the shipped ranges: the pivot clamps
+    /// to ±4 and Whites +100 pulls the white anchor down to +3.5.
+    public static let minContrastReachEV: Double = 1e-6
 
-    /// Contrast: slope around an explicit pivot in log-exposure space, with the slope
-    /// relaxing back to 1 far from the pivot so extremes compress rather than explode
-    /// (the toe and shoulder of S14 finish the job).
+    /// Contrast: slope around an explicit pivot in log-exposure space, relaxing back to
+    /// 1 as it approaches the anchor so the ends of the scale are FIXED POINTS.
+    ///
+    /// A1-01, and the fix is a change of denomination. The relax window used to be two
+    /// constants — 4 stops to 12 stops from the pivot — while the thing that decides
+    /// where a highlight actually clips is the DISPLAY ANCHOR, +5 EV by default and as
+    /// low as +3.5 under Whites +100. Those two numbers had nothing to do with each
+    /// other, so at contrast +100 the white anchor mapped to +7.87 EV and everything
+    /// from +3.125 EV upward landed at or beyond white: measured on the proof ramp, 34
+    /// of 256 columns rendered at exactly 255.0 against 0 of 256 at contrast 0, and 40
+    /// tied at the darkest value. 1.875 stops of highlight and 3.037 stops of shadow,
+    /// flattened to one value each.
+    ///
+    /// Three things in the tree said that could not happen: this control's own tooltip
+    /// ("the ends of the scale stay pinned, so it cannot clip a highlight"), docs/04,
+    /// and a green test. The test probed ±`LumenLog.maxEV` — ±12 EV, the extreme of the
+    /// log scale, four stops past the anchor and seven past where a photograph lives —
+    /// where the old window had relaxed to 1 by construction. It asserted a true thing
+    /// about a place nothing renders.
+    ///
+    /// So the reach is the distance to the anchor on the side being mapped, and the
+    /// slope relaxes to exactly 1 there. `d * 1 == d` makes the anchor map to itself, so
+    /// the promise is now geometry rather than a wide-enough window: contrast cannot
+    /// move a pixel across the end of the scale because the end of the scale is a fixed
+    /// point of the mapping.
+    ///
+    /// STILL MONOTONE, which is what the old window was wide for. With
+    /// `f(d) = d·mix(slope, 1, s(u))` and `u = d/reach`, the derivative in u is
+    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, and `s(u) + u·s'(u) = 9u² − 8u³` peaks at
+    /// u = 0.75 with the value 1.6875. At contrast +100 (slope 1.6) the minimum
+    /// derivative is 1.6 − 0.6·1.6875 = 0.5875; at contrast −100 (slope 0.4) the
+    /// derivative is smallest at the pivot at 0.4. Positive across the whole range, so
+    /// the inversion the old comment feared ("a brighter input darker, an inversion,
+    /// never a look") cannot occur here either. `ToneMonotoneTests` measures it rather
+    /// than trusting this paragraph.
+    ///
+    /// Above the anchor `u` saturates and the mapping is the identity, which is correct
+    /// and is the same answer the old window gave: a pixel already past the end of the
+    /// scale is not somewhere contrast should be pushing further.
     public func contrastMapped(_ t: Double) -> Double {
         let c = Num.clamp(tone.contrast, -100, 100)
         guard c != 0 else { return t }
         let pivot = Num.clamp(tone.contrastPivot, -4, 4)
         let slope = 1 + 0.6 * (c / 100)
         let d = t - pivot
-        let relax = Num.smoothstep(Self.contrastRelaxStartEV, Self.contrastRelaxEndEV,
-                                   abs(d))
-        let effective = Num.mix(slope, 1, relax)
+        // The LIVE anchors, not the defaults: Whites and Blacks move them, and a reach
+        // measured against a default anchor would put the fixed point somewhere the
+        // display transform no longer clips.
+        let reach = d >= 0 ? whiteAnchorEV - pivot : pivot - blackAnchorEV
+        guard reach > Self.minContrastReachEV else { return t }
+        let effective = Num.mix(slope, 1, Num.smoothstep(0, 1, abs(d) / reach))
         return pivot + d * effective
     }
 

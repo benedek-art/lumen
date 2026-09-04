@@ -2020,9 +2020,93 @@ struct LumenColorWheel: View {
     /// instrument to neon. The mixer's hue ring took the matching step in its own
     /// colour system (`ColorPanel.hueColor`), so the two colour instruments read as
     /// siblings rather than one rich and one washed.
-    static let wheelColors: [Color] = (0..<13).map {
-        Color(hue: Double($0) / 12, saturation: 0.72, brightness: 0.8)
+    /// THE RING IS PAINTED IN THE COLOUR SYSTEM THE ENGINE READS IT IN, which is B2-02
+    /// and was not true until now.
+    ///
+    /// This was `Color(hue: i/12, saturation: 0.72, brightness: 0.8)` — SwiftUI HSB —
+    /// while `ZoneOffset.init` (GradeEngine) takes the SAME angle and uses it as an
+    /// OKLab **ab** angle: `a = amplitude·cos(θ)`, `b = amplitude·sin(θ)`. Two different
+    /// hue circles wearing one number. Measured across 24 angles: mean 29.6°, worst
+    /// 50.3° of error between the colour under the cursor and the colour the render
+    /// applies. Drag the puck to the orange the ring shows and the picture goes yellow.
+    ///
+    /// `Lumen.hueColor` is the mixer's ring conversion, which had it right all along —
+    /// OKLCh through the working space to sRGB, where OKLCh's `h` IS the engine's
+    /// `atan2(b, a)`. The comment two paragraphs up has always said these two
+    /// instruments should "read as siblings"; they are the same instrument now.
+    ///
+    /// Position is untouched. The puck's drag reads `atan2(dy, dx)` in screen space,
+    /// clockwise from three o'clock, which is exactly where `AngularGradient` starts and
+    /// which way it runs — so only the paint moves and every stored `wheel.hue` still
+    /// means the pixel it always meant.
+    static let wheelColors: [Color] = (0...12).map {
+        Lumen.hueColor(Double($0) / 12 * 360)
     }
+}
+
+extension Lumen {
+    /// THE SIX BASIC TONE ROWS' GEOMETRY, in one place, because two surfaces write these
+    /// fields and they were not agreeing about how.
+    ///
+    /// `BasicPanel` builds a `LumenSlider` per row, which clamps to `range`, snaps to
+    /// `step`, and accepts a wider `hardRange` from typing. `HistogramView`'s five
+    /// draggable zone handles write the SAME five fields through their own
+    /// `updateRecipe`, and re-implemented the clamp as `slider == .exposure ? 5 : 100`
+    /// with NO step at all — so a histogram drag could leave Exposure at 0.374296…,
+    /// a value the slider that displays it can neither produce nor return to, and which
+    /// its readout then rounds to a number the recipe does not hold.
+    ///
+    /// Stated once here and consumed by the histogram through `SliderTrack.resolve`,
+    /// which is the same clamp-then-snap `LumenSlider` performs. `ToneRowGeometryTests`
+    /// pins these against the panel's own literals, since the panel still spells them at
+    /// its call sites where a reader expects to find them.
+    enum ToneRow: String, CaseIterable {
+        case blacks, shadows, exposure, highlights, whites
+
+        /// Where dragging pins.
+        var range: ClosedRange<Double> {
+            self == .exposure ? -5...5 : -100...100
+        }
+
+        /// Where typing is still accepted — wider than `range` on Exposure only.
+        var hardRange: ClosedRange<Double> {
+            self == .exposure ? -10...10 : -100...100
+        }
+
+        var step: Double { self == .exposure ? 0.01 : 1 }
+
+        /// The clamp AND the snap, so a value written from anywhere is a value the row
+        /// can display and return to.
+        func resolve(_ value: Double) -> Double {
+            guard value.isFinite else { return 0 }
+            return SliderTrack(width: 1, lowerBound: range.lowerBound,
+                               upperBound: range.upperBound, step: step,
+                               scale: .linear).resolve(value)
+        }
+    }
+
+    /// The sRGB a hue ANGLE means in the colour system the engines actually work in.
+    ///
+    /// Both of this app's colour instruments name a hue by an angle and hand that angle
+    /// to an engine that reads it as OKLCh `h` — the mixer's band ring and the grading
+    /// wheel. Painting either of them from SwiftUI's HSB puts a different colour under
+    /// the cursor than the render produces, which is B2-02: 29.6° of mean error on the
+    /// grading wheel until it started calling this.
+    ///
+    /// Lives here, in the kit, because two callers in two files is exactly how a
+    /// conversion comes to exist twice and drift.
+    static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.16) -> Color {
+        let working = OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: degrees))
+        let display = Lumen.workingToSRGB.apply(working)
+        let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(display.r),
+                                                       Num.saturate(display.g),
+                                                       Num.saturate(display.b)))
+        return Color(red: Num.saturate(encoded.r),
+                     green: Num.saturate(encoded.g),
+                     blue: Num.saturate(encoded.b))
+    }
+
+    static let workingToSRGB: Mat3 = ColorEngine.workingSpace.matrix(to: .srgb)
 }
 
 // MARK: - Small helpers

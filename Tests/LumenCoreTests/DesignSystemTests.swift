@@ -424,4 +424,35 @@ final class DesignSystemTests: XCTestCase {
                       "the token, never a literal — that is the drift this closes")
     }
 
+    /// B2-02: the grading wheel is painted in the colour system the engine reads it in.
+    ///
+    /// `Color(hue:saturation:brightness:)` is SwiftUI HSB, and the engine takes the same
+    /// angle as an OKLab ab angle — 29.6° of mean error between the colour under the
+    /// cursor and the colour the render applies. The ring goes through `Lumen.hueColor`
+    /// now, and this is what stops a future edit reaching for the convenient initializer
+    /// again. `WheelHueAgreementTests` pins the engine's half of the same contract.
+    func testTheColourInstrumentsAreNotPaintedInHSB() {
+        let kit = source("LumenControls.swift")
+        XCTAssertEqual(count("Color(hue:", in: kit), 0,
+                       "a colour instrument is painted in SwiftUI HSB while the engines "
+                           + "read hue as an OKLCh angle — go through Lumen.hueColor")
+        XCTAssertGreaterThan(count("Lumen.hueColor(", in: kit), 0,
+                             "the wheel no longer paints through the shared conversion")
+    }
+
+    /// The histogram does not re-implement the tone rows' clamp.
+    ///
+    /// It used to: `let limit: Double = slider == .exposure ? 5 : 100`, with the bounds
+    /// copied from `BasicPanel` and the step simply absent, on a second write path into
+    /// the same five recipe fields. `Lumen.ToneRow` is the shared statement now, and this
+    /// is what stops the convenient inline ternary coming back.
+    func testTheHistogramDoesNotHandRollTheToneRowsClamp() {
+        let histogram = source("HistogramView.swift")
+        XCTAssertEqual(count("? 5 : 100", in: histogram), 0,
+                       "the histogram is clamping tone fields with its own copy of the "
+                           + "panel's bounds — go through Lumen.ToneRow.resolve")
+        XCTAssertGreaterThan(count("Lumen.ToneRow", in: histogram), 0,
+                             "the histogram no longer writes through the shared geometry")
+    }
+
 }

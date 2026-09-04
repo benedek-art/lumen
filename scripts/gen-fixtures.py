@@ -1413,15 +1413,36 @@ def lum_sat_rolloff(brightness):
     return smoothstep(SAT_ROLLOFF_LO0, SAT_ROLLOFF_LO1, brightness) * taper
 
 
-CONTRAST_RELAX_START, CONTRAST_RELAX_END = 4.0, 12.0
+# A1-01. The relax window used to be two constants — 4 stops to 12 stops from the pivot
+# — while the thing that decides where a highlight clips is the DISPLAY ANCHOR, +5 EV by
+# default and as low as +3.5 under Whites +100. At contrast +100 the white anchor mapped
+# to +7.87 EV, so 1.875 stops of highlight and 3.037 stops of shadow flattened to one
+# value each, while the control's tooltip, docs/04 and a green test all said it could not.
+#
+# The reach is now the distance to the anchor on the side being mapped, and the slope
+# relaxes to exactly 1 there, so the anchor is a fixed point: d * 1 == d.
+#
+# Kept in step with `ToneEngine.contrastMapped` deliberately. This file is the
+# independent reference the `fixtures-linux` lane checks the Swift against, so the two
+# implementations agreeing is the evidence — which is exactly why a behaviour change has
+# to be made twice, by hand, in two languages.
+MIN_CONTRAST_REACH_EV = 1e-6
 
 
-def contrast_mapped(t, contrast, pivot=0.0):
+def contrast_mapped(t, contrast, pivot=0.0,
+                    white_anchor_ev=None, black_anchor_ev=None):
     if contrast == 0:
         return t
+    # Resolved at call time rather than as default arguments: these constants are
+    # defined further down this file than this function is.
+    hi = DEFAULT_WHITE_ANCHOR_EV if white_anchor_ev is None else white_anchor_ev
+    lo = DEFAULT_BLACK_ANCHOR_EV if black_anchor_ev is None else black_anchor_ev
     slope = 1 + 0.6 * (contrast / 100.0)
     d = t - pivot
-    relax = smoothstep(CONTRAST_RELAX_START, CONTRAST_RELAX_END, abs(d))
+    reach = (hi - pivot) if d >= 0 else (pivot - lo)
+    if reach <= MIN_CONTRAST_REACH_EV:
+        return t
+    relax = smoothstep(0.0, 1.0, abs(d) / reach)
     return pivot + d * (slope + (1 - slope) * relax)
 
 
@@ -2846,12 +2867,14 @@ class ToneEngine:
 
         t = t0
         p_fall, p_rise = parts(t)
-        p_fixed = contrast_mapped(t, self.contrast, self.pivot)
+        p_fixed = contrast_mapped(t, self.contrast, self.pivot,
+                                  self.white_anchor_ev, self.black_anchor_ev)
         limit = SEARCH_CEILING
         while t < t1:
             t = min(t + MONOTONE_STEP_EV, t1)
             fall, rise = parts(t)
-            fixed = contrast_mapped(t, self.contrast, self.pivot)
+            fixed = contrast_mapped(t, self.contrast, self.pivot,
+                                    self.white_anchor_ev, self.black_anchor_ev)
             d_fall = fall - p_fall
             if d_fall < 0:
                 slack = (fixed - p_fixed) + (rise - p_rise)
@@ -2899,7 +2922,8 @@ class ToneEngine:
 
     def stops(self, t):
         s = self._zonal_stops(t)   # already carries the solved amounts
-        s += contrast_mapped(t, self.contrast, self.pivot) - t
+        s += contrast_mapped(t, self.contrast, self.pivot,
+                         self.white_anchor_ev, self.black_anchor_ev) - t
         return s
 
     def gain(self, t):
@@ -3135,8 +3159,19 @@ def gen_tone_checks():
     check(bound > 0, "the independence sweep never bound the limiter, so it is back to "
                      "proving nothing")
 
-    # Positive contrast steepens the base slope, so nothing the four windows can ask for
-    # inverts it and the scale never binds at all.
+    # Positive contrast steepens the base slope NEAR THE PIVOT and relaxes it back to 1
+    # at the anchors (A1-01), so unlike the old fixed 4→12 stop window it does not prop
+    # the slope up across the whole scale. Out near an anchor the four windows can
+    # therefore still ask for more than the slope has, and the limiter binds — which is
+    # the limiter doing its job rather than a regression.
+    #
+    # What must hold is that it binds a LITTLE and not a lot: the previous invariant was
+    # "never binds", and stating the new one as a floor keeps a real number in the way of
+    # a future change that quietly halves these controls. Measured across this sweep the
+    # worst case is 0.7565, at contrast 100 with Highlights and Shadows both at −100 and
+    # Whites −100 — every one of the four windows pulling the same way at once, which is
+    # not a setting so much as a corner.
+    worst_scale = 1.0
     for contrast in (80.0, 100.0):
         for h in (-100.0, 0.0, 100.0):
             for sh in (-100.0, 0.0, 100.0):
@@ -3144,9 +3179,14 @@ def gen_tone_checks():
                     for b in (-100.0, 100.0):
                         e = ToneEngine(contrast=contrast, highlights=h, shadows=sh,
                                        whites=w, blacks=b)
-                        check(e.zonal_scale >= 1 - 1e-12,
+                        worst_scale = min(worst_scale, e.zonal_scale)
+                        check(e.zonal_scale >= 0.70,
                               f"contrast {contrast} h{h} s{sh} w{w} b{b} scaled to "
-                              f"{e.zonal_scale:.4f} with slope to spare")
+                              f"{e.zonal_scale:.4f}, past the floor the limiter is "
+                              f"allowed to take from these four controls")
+    check(worst_scale < 1 - 1e-12,
+          "the positive-contrast sweep never bound the limiter, so this floor is "
+          "proving nothing — if contrast stopped relaxing at the anchors, say so here")
 
     # Daily-use range: five sliders inside ±60 (±40 for the end points) is a strong edit,
     # and it is applied EXACTLY. Where it does bind, it is because contrast has been

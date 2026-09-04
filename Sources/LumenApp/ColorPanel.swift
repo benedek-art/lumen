@@ -1052,18 +1052,12 @@ struct ColorPanel: View {
     /// so that span was clipping even at 0.13 and now clips to the most saturated cyan
     /// the display has — which is the richest true answer available, and the per-channel
     /// saturate below is what keeps the clip from leaving the gamut rather than the hue.
+    /// Moved to `Lumen.hueColor` (LumenControls) so the grading wheel can paint from the
+    /// same colour system this ring does — see B2-02 there. Kept as a forwarder because
+    /// this type is where the ring's own call site reads best.
     static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.16) -> Color {
-        let working = OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: degrees))
-        let display = ColorPanel.workingToSRGB.apply(working)
-        let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(display.r),
-                                                       Num.saturate(display.g),
-                                                       Num.saturate(display.b)))
-        return Color(red: Num.saturate(encoded.r),
-                     green: Num.saturate(encoded.g),
-                     blue: Num.saturate(encoded.b))
+        Lumen.hueColor(degrees, L: L, C: C)
     }
-
-    static let workingToSRGB: Mat3 = ColorEngine.workingSpace.matrix(to: .srgb)
 
     /// The ring's wedge colours, computed once.
     ///
