@@ -91,15 +91,6 @@ private struct LumenCommands: Commands {
     let state: AppState
     @ObservedObject var commands: CommandState
 
-    /// TEMPORARY — the Debug menu's sidebar-selection switch. Bound to the same defaults
-    /// key the sidebar reads (`sidebar.selectionStyle`), which is how a menu in this file
-    /// drives a row in `ContentView.swift` without either of them holding the other.
-    ///
-    /// `@AppStorage` rather than a field on `AppState` for the reason the sidebar's four
-    /// expansion flags are: a published field re-bodies the whole window and all seven
-    /// menus, and this changes the fill of one list.
-    @AppStorage("sidebar.selectionStyle") private var sidebarSelectionStyle = SidebarSelectionStyle.bar
-
     var body: some Commands {
         Group {
             CommandGroup(after: .appInfo) {
@@ -264,20 +255,6 @@ private struct LumenCommands: Commands {
                     state.showLatencyHUD.toggle()
                 }
                 .keyboardShortcut("l", modifiers: [.command, .option])
-
-                // TEMPORARY, and it lives in Debug precisely so it cannot be mistaken for
-                // a shipped preference. Two candidate selection treatments for the sources
-                // list, switched live so the owner judges them against a photograph rather
-                // than a description. Delete this item, `SidebarSelectionStyle`,
-                // `Sidebar.selectionStyle` and `Sidebar.selectionFill` together.
-                //
-                // NO CHORD, deliberately. A key equivalent would owe a `KeyGrammar` row and
-                // a place in the keyboard reference (docs/12 §12.3's second law), and this
-                // control is going to be deleted — a chord in the grammar for a week is a
-                // chord somebody has to remember to take out.
-                Button(sidebarSelectionStyle.other.switchToTitle) {
-                    sidebarSelectionStyle = sidebarSelectionStyle.other
-                }
             }
 
             CommandGroup(replacing: .undoRedo) {

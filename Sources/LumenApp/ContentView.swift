@@ -10,49 +10,6 @@ import AppKit
 import LumenCore
 import SwiftUI
 
-/// TEMPORARY. The two candidate selection treatments for the sources list, switchable at
-/// runtime from the Debug menu so the choice is made against a real photograph in a real
-/// surround rather than from a description of one.
-///
-/// `docs/25-design-audit.md:69` is unambiguous that the shipped treatment is wrong: every
-/// selected state in the app is "a ~30% white wash", and "a faint lighter wash on flat gray
-/// reads as HOVER or DISABLED, not selected". It recommends `Lumen.accent`, documented at
-/// `LumenControls.swift:171` as the colour for "state that must be noticed" and appearing in
-/// the whole app as a 4 pt dot.
-///
-/// The counter-argument is Law 7 — zero chroma everywhere the photograph is not — and it is
-/// not a weak one in a chrome that surrounds a colour judgement. So both are built and
-/// neither is argued for from the armchair.
-///
-/// WHEN THE OWNER HAS LOOKED, DELETE THE LOSER AND THIS TYPE WITH IT. Four things name each
-/// other so none can be left behind: this enum, `Sidebar.selectionStyle`,
-/// `Sidebar.selectionFill`, and the Debug menu's item in `LumenApp.swift`. It is at file
-/// scope only because the menu lives in another file; it is not a preference the app means
-/// to keep, and it is deliberately not in the keyboard grammar.
-enum SidebarSelectionStyle: String, CaseIterable {
-    /// Accent fill. What the design audit asks for.
-    case accent
-    /// A brighter achromatic step plus a leading bar. Law 7 held strictly, with the
-    /// separation coming from value and from a mark rather than from hue.
-    case bar
-
-    /// The menu item's title, which names what you will get rather than what you have —
-    /// a toggle that reads as its current state is the oldest ambiguity in menu design.
-    var switchToTitle: String {
-        switch self {
-        case .accent: return "Sidebar Selection: Achromatic Bar"
-        case .bar: return "Sidebar Selection: Accent Fill"
-        }
-    }
-
-    var other: SidebarSelectionStyle {
-        switch self {
-        case .accent: return .bar
-        case .bar: return .accent
-        }
-    }
-}
-
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     /// `showsMaskPanel` reads `state.currentRecipe.masks`, and `AppState.recipes` is not
@@ -436,16 +393,6 @@ private struct Sidebar: View {
     @AppStorage("sidebar.keywords") private var keywordsExpanded = false
     @AppStorage("sidebar.stack") private var stackExpanded = false
 
-    /// TEMPORARY, and it says so here so it cannot quietly become a preference.
-    ///
-    /// Two selection treatments, switchable from the View menu, so the choice is made
-    /// against a real photograph in a real surround instead of from a description. The
-    /// loser is deleted with this property, `SidebarSelectionStyle`, `selectionFill` and
-    /// the menu item, all of which name each other so none can be left behind.
-    ///
-    /// It defaults to `.bar` because that is the one that holds Law 7, and a default that
-    /// obeys the law is the right thing to ship if nobody ever comes back to this.
-    @AppStorage("sidebar.selectionStyle") private var selectionStyle = SidebarSelectionStyle.bar
 
     var body: some View {
         ScrollView {
@@ -1026,13 +973,6 @@ private struct Sidebar: View {
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                // The selected row's marker, in the achromatic treatment. Zero width when
-                // it is not wanted rather than absent, so the titles down the column keep
-                // one left edge — a list whose text shifts sideways on selection reads as
-                // a layout bug before it reads as a selection.
-                Capsule()
-                    .fill(isSelected ? Lumen.primaryText : Color.clear)
-                    .frame(width: selectionStyle == .bar && isSelected ? 2 : 0)
                 if isTarget {
                     Image(systemName: "target")
                         .font(.lumenGlyphCaption)
@@ -1051,7 +991,21 @@ private struct Sidebar: View {
             .padding(.horizontal, 6)
             .frame(height: Lumen.rowHeight)
             .foregroundStyle(Lumen.primaryText)
-            .background(selectionFill(isSelected))
+            // ACCENT, AND NO LEADING BAR. Chosen by the owner against a real photograph after
+            // seeing both — the bar "reads as a stray tick", which it does, because the fill
+            // behind it was too weak to contain it.
+            //
+            // `docs/25-design-audit.md:69` asked for exactly this: every selected state in
+            // the app is "a ~30% white wash", and "a faint lighter wash on flat gray reads as
+            // HOVER or DISABLED, not selected". `Lumen.accent` is documented at
+            // `LumenControls.swift:171` as the colour for "state that must be noticed".
+            //
+            // 0.30 rather than solid: this is a row-sized area and the token's own note says
+            // marker scale, never area. Over the 0.20 panel it reads as deliberate colour
+            // without becoming a colour field beside the photograph — and it clears the 0.27
+            // hover step by far more than the 0.28 grey wash it replaces, which sat one point
+            // off hover and lost.
+            .background(isSelected ? Lumen.accent.opacity(0.30) : Color.clear)
             // `radiusChip`, not a hardcoded 3. A sidebar row is a chip by every other
             // measure in this app and it was the last place still drawing the pre-token
             // radius, so the selected album sat in a squarer rectangle than anything
@@ -1070,32 +1024,6 @@ private struct Sidebar: View {
         .accessibilityLabel(Text("\(title), \(count) photograph\(count == 1 ? "" : "s")"))
     }
 
-    /// The two selection treatments, live, so the choice is made against a photograph
-    /// rather than against a description of one.
-    ///
-    /// `docs/25-design-audit.md:69` is unambiguous that the shipped one is wrong: every
-    /// selected state in the app is "a ~30% white wash", and "a faint lighter wash on flat
-    /// gray reads as HOVER or DISABLED, not selected". It recommends `Lumen.accent`, which
-    /// is documented at `LumenControls.swift:171` as the colour for "state that must be
-    /// noticed" and appears in the whole app as a 4 pt dot.
-    ///
-    /// The counter-argument is Law 7 — zero chroma everywhere the photograph is not — and
-    /// it is not a weak one in a chrome that surrounds a colour judgement. So both are
-    /// built and neither is argued for from the armchair. The loser is deleted once the
-    /// owner has looked at them; this enum is not a preference the app is meant to keep.
-    private func selectionFill(_ isSelected: Bool) -> Color {
-        guard isSelected else { return .clear }
-        switch selectionStyle {
-        // Well under a solid accent: this is a row-sized area and the token's own note
-        // says marker scale, never area. At 0.30 over the 0.20 panel it reads as
-        // deliberate colour without becoming a colour field beside the photograph.
-        case .accent: return Lumen.accent.opacity(0.30)
-        // `controlActive` is the app's existing "selected or pressed" rung, 0.31 against
-        // the hover step's 0.27 — a real four-point gap where the shipped 0.28 wash sat
-        // one point off hover and lost.
-        case .bar: return Lumen.controlActive
-        }
-    }
 
     // `row` is gone too: the culling counts were the only caller and they are
     // `sourceRow`s now, because a count sitting in a source list is a thing people click.
