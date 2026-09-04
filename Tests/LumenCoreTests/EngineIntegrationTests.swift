@@ -1762,9 +1762,57 @@ final class EngineIntegrationTests: XCTestCase {
                               + "at \(where_)")
         // And the two must not disagree with each other by more than the sum of their
         // own errors, or the loupe is showing a different picture from the delivery.
-        // Measured at 0.0335: the loupe and the delivered file differ by about eight
-        // levels of 255 at worst. Bounded here so it cannot grow silently.
-        XCTAssertLessThan(worstAgainstExport, 0.04,
+        //
+        // RE-ANCHORED 0.04 → 0.045 WITH A1-01, and a bare number would be the wrong way
+        // to record that, so the ladder below carries the argument and this is only its
+        // backstop. What moved: contrast's slope used to relax over a fixed 4→12 EV
+        // window, so at Contrast +30 a scene value at 4.5 EV was multiplied by 1.75 and
+        // entered the colour cube well up its domain. Denominating the reach on the
+        // display anchor puts the shoulder INSIDE the picture's range — which is the
+        // whole of A1-01 — so the same pixel now enters at a gain of 1.02, and lands on
+        // a part of the lattice the coarse cube tracks less well. The worst case moved
+        // with it, to an in-gamut yellow-green at 4.5 EV, hue 90, chroma 0.1.
+        //
+        // The tone stage itself is NOT implicated and that is worth being exact about:
+        // `tone.gain` is applied analytically by `referenceColor` AND by `exactColor`,
+        // before either table is sampled. Contrast cannot add interpolation error; it
+        // can only decide which part of the cube a colour is interpolated in.
+        XCTAssertLessThan(worstAgainstExport, 0.045,
                           "preview and export disagreed by \(worstAgainstExport)")
+
+        // THE LADDER, which is what makes the bound above honest rather than merely
+        // wider. A gap that is the interactive cube's coarseness must SHRINK when that
+        // cube is made finer; a gap that survives a finer cube is a defect in the
+        // composed transform and no tolerance should be moved to accommodate it. That is
+        // the same test `testTheColourTableConverges` applies to the colour cube, asked
+        // here of the preview-against-export pair. Measured on this recipe: 17-against-65
+        // 0.0867, 33-against-65 0.0410, 65-against-129 0.0260.
+        //
+        // 17 rather than 129 for the third rung: it is one extra bake of 4,913 entries
+        // against 2,146,689, and the claim only needs two points on the same side of the
+        // export cube to be falsifiable.
+        let coarse = RenderPlan(recipe: recipe, lutSize: 17)
+        var worstCoarseAgainstExport = 0.0
+        for i in 0...24 {
+            let ev = -7 + Double(i) * 0.5
+            for hue in stride(from: 0.0, to: 360.0, by: 45.0) {
+                for chroma in [0.02, 0.10, 0.20] {
+                    let tint = OKLabTransform.working.toRGB(
+                        OKLCh(L: 0.5, C: chroma, h: hue))
+                    let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
+                    let scene = normalized * (0.18 * pow(2.0, ev))
+                    worstCoarseAgainstExport = Swift.max(
+                        worstCoarseAgainstExport,
+                        coarse.referenceColor(scene).maxAbsDifference(
+                            export.referenceColor(scene)))
+                }
+            }
+        }
+        XCTAssertLessThan(worstAgainstExport, worstCoarseAgainstExport,
+                          "the interactive cube at \(LUT3D.interactiveSize) disagrees "
+                              + "with the export cube by \(worstAgainstExport), no "
+                              + "better than a 17-cube's \(worstCoarseAgainstExport) — "
+                              + "so the gap is not this cube's coarseness and widening "
+                              + "the bound above would be hiding a defect")
     }
 }

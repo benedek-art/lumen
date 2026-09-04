@@ -12,6 +12,10 @@ survives that costs real engineering time, so a false positive is expensive.
 
 **Result: 49 claims survived. 2 were refuted.** 24 of the survivors are S2, 24 are S3.
 
+**Landed since this run: A1-01 and B2-02**, each marked at its own entry with what shipped.
+The evidence sections are left as they were measured — they are the record of what was true
+when the run was made, and rewriting them would destroy the thing this document is for.
+
 The adversarial half earned its place beyond the two refusals: it CORRECTED several survivors
 whose substance held but whose headline did not. A1-02 is the clearest — the ledger says "the
 entire positive half of the Brights zone renders one identical picture", and the measurement
@@ -22,7 +26,16 @@ Every entry below carries the family's measured evidence. Nothing here is a read
 
 ## Tone and Zones
 
-### A1-01 — S2
+### A1-01 — S2 — **LANDED**
+
+> **Fixed.** The reach is the distance to the anchor on the side being mapped and the slope
+> eases to exactly 1 there, so `d · 1 == d` makes the anchor a fixed point of the mapping and
+> the promise is geometry rather than a wide-enough window. Shipped in two steps, and the
+> second is the honest part: easing from the pivot outward pinned the anchor but cost
+> `tone.contrast` a third of its authority (81.42 → 54.83, below its own declared floor of
+> 55), so the slope now holds undiluted across the inner 20% of the reach and eases over the
+> rest — a film curve's straight section, shoulder and toe. Authority 68.38, and the trade
+> against the zonal limiter is tabulated at `ToneEngine.contrastShoulderStart`.
 
 Contrast's slope-relax window is still denominated on two constants (4→12 EV) while the
 display transform saturates at the +5/−9 EV anchors, so Contrast +100 flattens the top 1.875
@@ -493,7 +506,13 @@ it reports foliage as Yellow, i.e. it names the same wrong band, it does not cor
 
 ## Grading and Colour Balance
 
-### B2-02 — S2
+### B2-02 — S2 — **LANDED**
+
+> **Fixed.** Both instruments call `Lumen.hueColor` — the OKLCh→working→sRGB conversion the
+> mixer's band ring already had right — so the ring paints the colour the engine applies.
+> Position is untouched: the puck still reads `atan2(dy, dx)` clockwise from three o'clock,
+> so every stored `wheel.hue` means the pixel it always meant. `WheelHueAgreementTests` pins
+> the convention on the side that had no test.
 
 The grading wheel is still painted with SwiftUI HSB while the engine reads the same angle as
 an OKLab ab angle: measured mean 29.6 deg, max 50.3 deg of hue error over 24 angles.

@@ -482,6 +482,58 @@ public struct ToneEngine: Sendable {
     /// to ±4 and Whites +100 pulls the white anchor down to +3.5.
     public static let minContrastReachEV: Double = 1e-6
 
+    /// How far toward the anchor the full slope holds before the shoulder starts, as a
+    /// fraction of the reach. This is the number that decides whether Contrast still
+    /// FEELS like contrast, so it is set from measurements and not from taste.
+    ///
+    /// WHY IT IS NOT ZERO. The first version of the A1-01 fix started the shoulder at
+    /// the pivot (`smoothstep(0, 1, u)`). That pins the anchor correctly, but it dilutes
+    /// the slope everywhere — including the midtones, where the subject of a photograph
+    /// lives — and the proof priced it: `tone.contrast` authority 81.42 → 54.83, mean
+    /// separation 45.25 → 24.63. 54.83 is BELOW this control's own declared
+    /// `authorityFloor` of 55. The registry rejected the fix, which is what a floor is
+    /// for: a control may not be quietly weakened to make a different bug go away.
+    ///
+    /// So the slope holds undiluted across the inner fraction of the reach and eases
+    /// only over the outer part — the straight section, shoulder and toe a film curve
+    /// has always had. At 0.2 the straight section runs to +1.0 EV of a default +5 EV
+    /// white anchor and to −1.8 EV of a −9 EV black one.
+    ///
+    /// WHY IT IS NOT MORE, and this is the real cost, stated in full because the first
+    /// version of this comment understated a regression and that is how it got shipped.
+    /// A steeper middle with the ends nailed down means a flatter shoulder, and a
+    /// flatter shoulder is slope the four zonal windows can no longer borrow, so
+    /// `solveZonalLimits` scales Highlights, Shadows, Whites and Blacks down further:
+    ///
+    ///     hold   authority   Highlights −100    Shadows +100    four-way
+    ///                        at contrast +100   at contrast −100  corner
+    ///     0.00      54.83         0.9894            0.8439        0.7565
+    ///     0.15      64.88         0.9067            0.6833        0.6841
+    ///     0.20      68.38         0.8460            0.6192        0.6468
+    ///     0.30      74.96         0.6347            0.5937        0.5272
+    ///
+    /// The paired case falls through 0.60 at a hold of about 0.225, so 0.2 is the last
+    /// setting where a single tone control pushed to its end against contrast pushed to
+    /// its end still applies more than 60% of what it asks. Inside the daily-use band
+    /// (five sliders within ±60, the end points within ±40) the limiter takes 0.6% at
+    /// its worst — which is to say, nothing. The generator asserts all three numbers.
+    ///
+    /// That the limiter binds at all is not slack being given away. It solves for the
+    /// LARGEST scale that keeps the composed tone map monotone and `RobustnessTests`
+    /// checks the response stops rising 2% above the solved limit, so a bigger number
+    /// there would be an inverting picture, not a stronger slider.
+    ///
+    /// Monotonicity is what bounds the hold from above. With
+    /// `f(d) = d·mix(slope, 1, S(u))` and `S = smoothstep(hold, 1, u)`, the derivative
+    /// in u is `slope + (1−slope)·[S + u·S′]`, and the bracket's maximum grows with the
+    /// hold: 1.687 at 0.0, 1.983 at 0.2, 2.519 at 0.4. At contrast +100 (slope 1.6) the
+    /// derivative is `1.6 − 0.6·max`, so it reaches zero just past a hold of 0.44 and a
+    /// hold of 0.5 INVERTS the picture. At 0.2 the minimum derivative is 0.41, which is
+    /// the same order as the 0.4 contrast −100 has always had at the pivot.
+    /// `testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting` measures it rather than
+    /// trusting this paragraph.
+    public static let contrastShoulderStart: Double = 0.2
+
     /// Contrast: slope around an explicit pivot in log-exposure space, relaxing back to
     /// 1 as it approaches the anchor so the ends of the scale are FIXED POINTS.
     ///
@@ -508,15 +560,21 @@ public struct ToneEngine: Sendable {
     /// move a pixel across the end of the scale because the end of the scale is a fixed
     /// point of the mapping.
     ///
+    /// AND IT STILL HAS TO FEEL LIKE CONTRAST. Relaxing from the pivot outward pins the
+    /// anchor but dilutes the midtones, and the proof said so: authority 81.42 → 54.83
+    /// against a declared floor of 55. So the slope holds undiluted across the inner
+    /// `contrastShoulderStart` of the reach and eases only over the outer part — the
+    /// straight section, shoulder and toe a film curve has always had. See that
+    /// constant for why the hold is 0.3 and not more.
+    ///
     /// STILL MONOTONE, which is what the old window was wide for. With
     /// `f(d) = d·mix(slope, 1, s(u))` and `u = d/reach`, the derivative in u is
-    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, and `s(u) + u·s'(u) = 9u² − 8u³` peaks at
-    /// u = 0.75 with the value 1.6875. At contrast +100 (slope 1.6) the minimum
-    /// derivative is 1.6 − 0.6·1.6875 = 0.5875; at contrast −100 (slope 0.4) the
-    /// derivative is smallest at the pivot at 0.4. Positive across the whole range, so
-    /// the inversion the old comment feared ("a brighter input darker, an inversion,
-    /// never a look") cannot occur here either. `ToneMonotoneTests` measures it rather
-    /// than trusting this paragraph.
+    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, whose bracket peaks at 2.2069. At contrast
+    /// +100 (slope 1.6) the minimum derivative is 1.6 − 0.6·2.2069 = 0.276; at contrast
+    /// −100 (slope 0.4) the derivative is smallest at the pivot at 0.4. Positive across
+    /// the whole range, so the inversion the old comment feared ("a brighter input
+    /// darker, an inversion, never a look") cannot occur here either. `ToneMonotoneTests`
+    /// measures it rather than trusting this paragraph.
     ///
     /// Above the anchor `u` saturates and the mapping is the identity, which is correct
     /// and is the same answer the old window gave: a pixel already past the end of the
@@ -532,7 +590,8 @@ public struct ToneEngine: Sendable {
         // display transform no longer clips.
         let reach = d >= 0 ? whiteAnchorEV - pivot : pivot - blackAnchorEV
         guard reach > Self.minContrastReachEV else { return t }
-        let effective = Num.mix(slope, 1, Num.smoothstep(0, 1, abs(d) / reach))
+        let shoulder = Num.smoothstep(Self.contrastShoulderStart, 1, abs(d) / reach)
+        let effective = Num.mix(slope, 1, shoulder)
         return pivot + d * effective
     }
 

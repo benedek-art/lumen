@@ -384,7 +384,7 @@ running).
 | **J3-02** | S1 | a filename template that renders empty makes `folder.appendingPathComponent("")` yield `.../Deliveries.jpg` — the whole batch is written BESIDE the folder the open panel granted |
 | **KG-01** | S2 | with >1 photo selected every crop/angle/ratio write is computed from the PRIMARY's frame dimensions and stamped on all targets — K-023's exact defect, in the one place its fix does not reach |
 | **KG-02** | S2 | `O` calls `setMasking(true)` instead of the `toggleMasking` entry verb, so the crop tool stays armed inside the mask editor |
-| **A1-01** | S2 | Contrast clips 1.875 stops of highlight and 3.037 of shadow where the tooltip, docs/04 and the test all promise it cannot |
+| ~~**A1-01**~~ | S2 | **LANDED** — the relax window is denominated on the display anchors, so each anchor is a fixed point of the mapping. See `slider-ground-truth.md` for what shipped and what it cost. |
 | **A1-03** | S2 | Whites/Blacks silently drag every Zones pivot; Whites +100 alone moves "Midtones" to −0.96 EV while the strip's handles do not move |
 | **I3-01** | S2 | `recordDeveloped` files a viewer-sized settle at the fixed 2560 rung, so the loupe's first frame after an edit comes back SOFTER — against the "never upward" rule `PreviewCache` states in its own header |
 | **I3-02** | S2 | `trimDecodeResidency`'s 768 MB is not a bound: the two passes spare `sourceOrder.last` and `suffix(4)`, an inspection plane is budget-exempt, so the enforceable floor is 1792 MB |

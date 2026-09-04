@@ -1027,6 +1027,16 @@ final class RobustnessTests: XCTestCase {
     /// points, anchor geometry and monotonicity in x — all of which a slider that
     /// returns zero also satisfies — and because the two that could have caught the
     /// second and third were written to sweep only where the scale does nothing.
+    /// The four zonal tone controls, as setters, so a sweep can name the one it is
+    /// pushing in the failure message. `Tone` has no keypath-writable subscript and a
+    /// literal init per control would put the same five arguments in four places.
+    static let singleToneControls: [(String, (inout Tone, Double) -> Void)] = [
+        ("highlights", { $0.highlights = $1 }),
+        ("shadows", { $0.shadows = $1 }),
+        ("whites", { $0.whites = $1 }),
+        ("blacks", { $0.blacks = $1 }),
+    ]
+
     func testHighlightsAndShadowsKeepDoingMoreAndLeaveEachOtherAlone() {
         // A slider must keep doing more OVER ITS WHOLE TRAVEL, with its neighbours
         // wherever they happen to be.
@@ -1136,9 +1146,45 @@ final class RobustnessTests: XCTestCase {
         XCTAssertGreaterThan(bound, 0, "the independence sweep never bound the limiter, "
                                  + "so it is back to proving nothing")
 
-        // Positive contrast steepens the base slope past anything the four windows can
-        // ask for, so nothing binds and every slider is exact — the state a photograph
-        // is normally edited in.
+        // HOW MUCH the limiter binds under contrast, which is a different question from
+        // whether it binds and is the one a photographer can feel.
+        //
+        // This block used to assert that positive contrast NEVER binds — "steepens the
+        // base slope past anything the four windows can ask for, so every slider is
+        // exact". That was true of the old 4→12 stop relax window, which propped the
+        // slope up across the whole scale including out at the anchors. A1-01 is
+        // precisely the fact that it had no business doing so: the window ran four stops
+        // past where a photograph clips, which is how contrast came to burn 1.875 stops
+        // of highlight. Contrast now eases to slope 1 AT the anchor, so out there the
+        // four windows can ask for more than it has and the limiter takes the difference.
+        //
+        // Mirrored in scripts/gen-fixtures.py, which the fixtures-linux lane checks this
+        // against. Two floors rather than one, because the two cases read differently:
+        for contrast in [100.0, -100.0] {
+            for (name, apply) in Self.singleToneControls {
+                for v in [-100.0, 100.0] {
+                    var tone = Tone(contrast: contrast)
+                    apply(&tone, v)
+                    let e = ToneEngine(tone: tone)
+                    // One tone control at its end against contrast at its end is an
+                    // ordinary look — hard contrast with the highlights pulled back —
+                    // and it has to keep most of its travel. The binding pairs are
+                    // Highlights −100 against contrast +100 (0.846) and Shadows +100
+                    // against contrast −100 (0.619); the second crosses this floor at a
+                    // `contrastShoulderStart` of about 0.225, so THIS is the assertion
+                    // that stops the hold being raised for more contrast authority.
+                    XCTAssertGreaterThanOrEqual(
+                        e.zonalScale, 0.60,
+                        "\(name) \(v) against contrast \(contrast) scaled to "
+                            + "\(e.zonalScale): one tone control paired with contrast "
+                            + "has to keep most of its travel")
+                }
+            }
+        }
+        // All four windows pulling the same way at once with contrast pinned: not a
+        // setting so much as a corner, so the floor is lower — but it is a floor, in the
+        // way of a change that quietly halves these four controls.
+        var boundUnderContrast = 0
         for contrast in [80.0, 100] {
             for highlights in [-100.0, 0, 100] {
                 for shadows in [-100.0, 0, 100] {
@@ -1148,16 +1194,22 @@ final class RobustnessTests: XCTestCase {
                                                           highlights: highlights,
                                                           shadows: shadows,
                                                           whites: whites, blacks: blacks))
+                            if e.zonalScale < 1 - 1e-12 { boundUnderContrast += 1 }
                             XCTAssertGreaterThanOrEqual(
-                                e.zonalScale, 1 - 1e-12,
+                                e.zonalScale, 0.62,
                                 "contrast \(contrast) h\(highlights) s\(shadows) "
                                     + "w\(whites) b\(blacks) was scaled to "
-                                    + "\(e.zonalScale) with slope to spare")
+                                    + "\(e.zonalScale), past the floor the limiter is "
+                                    + "allowed to take from these four controls")
                         }
                     }
                 }
             }
         }
+        XCTAssertGreaterThan(boundUnderContrast, 0,
+                             "the positive-contrast sweep never bound the limiter, so "
+                                 + "these floors are proving nothing — if contrast "
+                                 + "stopped easing at the anchors, say so here")
 
         // Where it DOES bind, it takes as little as it can. The response still rises at
         // the solved limit and stops rising 2% above it — without this, every other
