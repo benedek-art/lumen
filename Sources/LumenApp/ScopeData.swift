@@ -198,7 +198,7 @@ extension AppState {
         // unusual in the frame, and the alternative is a silent corner. The exact answer
         // is `model.regionUnit != nil`, which only `LoupeView` can pass.
         let coverage: ScopeReadout.Provenance.Coverage =
-            zoomLevel > 0 ? .visibleRegion : .wholeFrame
+            LoupeViewport.shared.zoom > 0 ? .visibleRegion : .wholeFrame
         Task { [weak self] in
             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
                 guard let buffer = AppState.buffer(

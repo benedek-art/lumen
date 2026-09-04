@@ -1660,7 +1660,11 @@ final class AppState: ObservableObject {
     /// Which folder scan is the current one. Opening B while A is still enumerating
     /// must not let A's results land on top of B's.
     var scanGeneration: UInt64 = 0
-    @Published var zoomLevel: Double = 0        // 0 = fit; otherwise a ratio like 1.0
+    // `zoomLevel` moved to `LoupeViewport.zoom`. It was `@Published` here and written
+    // once per gesture event, and this object is an `@EnvironmentObject` in twenty-two
+    // view files — so every pinch rebuilt the whole window and all seven menus. That is
+    // K-030, and it is the same defect `CommandState` and `PanelLayout` were each pulled
+    // off this object to cure. The viewport is observed by the loupe alone.
 
     // MARK: Services
 

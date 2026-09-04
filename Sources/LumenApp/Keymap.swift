@@ -357,8 +357,9 @@ final class KeyDispatcher {
         // snapping back to Fit, because `zoomOut`'s "below 0.35 means fit" rule lived
         // in the verb nobody called. Click-to-zoom already went through these, so the
         // mouse and the keyboard were following different ladders.
-        // THE LOUPE'S ZOOM IS THE LOUPE'S. `LoupeViewport` writes `state.zoomLevel`, which
-        // only `LoupeView` draws — Compare and Survey run their own `CompareSync.zoom`
+        // THE LOUPE'S ZOOM IS THE LOUPE'S — and it is now the viewport's too.
+        // `LoupeViewport` owns `zoom`, which only `LoupeView` draws — Compare and
+        // Survey run their own `CompareSync.zoom`
         // and the grid has no zoom at all. Unguarded, these three keys did nothing
         // visible in the other three surfaces AND still returned true, so the press was
         // swallowed; worse, pressing Z in the grid left `zoomLevel` at 1 with nothing on
@@ -371,13 +372,13 @@ final class KeyDispatcher {
         // wrong. `-` outside the loupe is already the purple label, above.
         case "z":
             guard state.viewMode == .loupe else { return false }
-            LoupeViewport.shared.toggleZoom(in: state)
+            LoupeViewport.shared.toggleZoom()
         case "-":
             guard state.viewMode == .loupe else { return false }
-            LoupeViewport.shared.zoomOut(in: state)
+            LoupeViewport.shared.zoomOut()
         case "=", "+":
             guard state.viewMode == .loupe else { return false }
-            LoupeViewport.shared.zoomIn(in: state)
+            LoupeViewport.shared.zoomIn()
 
         // ---- Thumbnail size, and the two momentary inspections ------------------
         //
@@ -424,12 +425,13 @@ final class KeyDispatcher {
                 return true
             }
             // Through the viewport verb, like Z and − above it. This line used to read
-            // `state.zoomLevel = state.zoomLevel == 0 ? 1 : 0`: the same two ratios and
+            // `state.zoomLevel = state.zoomLevel == 0 ? 1 : 0` — that field is
+            // `LoupeViewport.zoom` now — : the same two ratios and
             // none of the anchoring, so Space zoomed about the centre of the window
             // while a click zoomed where you pointed — on the key whose own
             // documentation says "centred on the cursor". Exactly the bug the comment
             // above claims was fixed for Z, reintroduced one case later.
-            LoupeViewport.shared.toggleZoom(in: state)
+            LoupeViewport.shared.toggleZoom()
 
         default:
             return false
@@ -530,7 +532,7 @@ final class KeyDispatcher {
             // the responder chain, where the loupe's own `onMoveCommand` is waiting —
             // this monitor runs first, so claiming the key here made that pan handler
             // unreachable code.
-            if state.viewMode == .loupe && state.zoomLevel > 0 { return nil }
+            if state.viewMode == .loupe && LoupeViewport.shared.zoom > 0 { return nil }
             // A focused slider owns the arrows, for exactly the same reason and by
             // exactly the same mechanism (docs/28 Phase 7). Without this the nudge is
             // unreachable code too: `LumenSlider`'s `onKeyPress` lives in the responder
