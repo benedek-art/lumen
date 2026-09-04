@@ -80,9 +80,27 @@ jobs:
   # `engine-linux`. What only this lane sees is LumenPipeline: the real Core Image graph,
   # compiled and run against the f32 reference. If a rename makes a skip stop matching,
   # this lane gets slower and stays correct.
+  # THE CEILING IS 25 BECAUSE THE SUITE OUTGREW 15, and the failure mode hid that for
+  # three commits. A job that exceeds `timeout-minutes` is reported by GitHub with
+  # conclusion `cancelled`, not `failure` — so this lane read as "someone cancelled it"
+  # while it was actually being killed mid-run, and three landings went out with their
+  # macOS tests unverified.
+  #
+  # The measurement: the last completion was 02d9fdf at 14 m 49 s — eleven seconds of
+  # headroom. The tone half-split and the grade joint limiter then added their sweeps
+  # (30,240 settings and a 5x5x5 composed grid), and 69a4cbd, 4903db2 and 99c3727 each
+  # died at the wall, the last of them 15 m 09 s in, mid-`PinDockTests`, with zero
+  # failures in everything that had run.
+  #
+  # Raising it rather than skipping more: a timed-out job spends the full fifteen
+  # minutes of macOS runner time and returns nothing, so the ceiling was buying no
+  # minutes, only silence. The skip list above is the lever for cost, and it is still
+  # the lever — this number is only the point past which a run is presumed hung. If
+  # this lane ever approaches 25 for real, the answer is another skip, not another
+  # raise: the whole argument for this lane is that it answers in minutes.
   test-fast:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Everything except the slow whole-pipeline tests
