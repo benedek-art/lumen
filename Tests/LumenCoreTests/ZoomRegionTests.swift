@@ -66,7 +66,11 @@ final class ZoomRegionTests: XCTestCase {
     /// not reach the far side of the frame.
     func testEdgePanClampsWithoutCrossing() throws {
         let drawn = CGSize(width: 10_000, height: 8_000)
-        // The clamp the viewer applies: the image's left edge at the container's.
+        // The image's left edge flush with the container's. This USED to be the
+        // viewer's clamp; it is now an ordinary interior pan, because `clampPan` allows
+        // any point of the picture to reach the viewport's centre (`LoupeGeometry`).
+        // The region arithmetic asserted here is the same either way — this is a fact
+        // about `requestUnit` at a given pan, not about how far a pan may go.
         let pan = CGSize(width: (drawn.width - container.width) / 2, height: 0)
         let region = try XCTUnwrap(ZoomRegion.requestUnit(container: container,
                                                           drawnFull: drawn, pan: pan))

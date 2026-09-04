@@ -61,6 +61,20 @@ public enum ContinuousZoom {
 
     /// The scrubby drag: horizontal travel in points, exponential so equal travel
     /// means equal zoom steps anywhere on the range.
+    ///
+    /// **NO CALLER IN THE APP AS OF THIS WRITING**, and that is said out loud because
+    /// this repository has already been bitten by engines written with no caller — a
+    /// focus-peaking pass, a colour-range isolation, a LUT import row, all complete and
+    /// all unreachable. This one is the reverse case: it HAD a caller and lost it. A
+    /// press-drag from fit used to scrub the zoom, which meant the same drag did two
+    /// unrelated things depending on whether the picture was at fit, with no cursor to
+    /// say which — so the owner chose "wheel zooms, drag pans" and the drag became one
+    /// verb.
+    ///
+    /// Kept rather than deleted because the arithmetic is right, tested, and exactly
+    /// what a modifier-gated scrub would want if one is ever wanted. If that has not
+    /// happened by the time somebody reads this, delete it and its tests: an idea kept
+    /// warm indefinitely is just a thing nobody dares remove.
     public static func scrubbed(startZoom: Double, fitRatio: Double,
                                 horizontalTravel: Double) -> Double {
         guard horizontalTravel.isFinite else { return ZoomLadder.clamp(startZoom) }

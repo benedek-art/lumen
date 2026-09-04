@@ -314,11 +314,46 @@ enum LoupeGeometry {
         return r.isFinite && r > 0 ? r : zoomLevel
     }
 
-    /// Pan clamped so the image edge can never be dragged past the viewport centre:
-    /// an axis that already fits is pinned to 0.
+    /// Pan clamped so ANY POINT OF THE PICTURE CAN BE BROUGHT TO THE CENTRE OF THE
+    /// VIEWPORT, and no further. An axis with nothing hidden stays centred.
+    ///
+    /// IT USED TO STOP EXACTLY HALF A VIEWPORT SHORT OF THAT, and the owner found it:
+    /// "I can only pan to the side of the image … sometimes I want to get really close to
+    /// the corners and I want to see things really up close to the corners."
+    ///
+    /// The old bound was `(drawn − container) / 2`, which is precisely the set of offsets
+    /// where the photograph still covers the whole viewport — at the limit its edge is
+    /// flush with the viewport's edge and one more point would show surround. Putting a
+    /// CORNER at the centre needs `drawn / 2`, because
+    ///
+    ///     screen(u) = container/2 + pan + (u − 0.5)·drawn
+    ///
+    /// and solving `screen(0) = container/2` gives `pan = drawn/2`. So the shortfall was
+    ///
+    ///     drawn/2 − (drawn/2 − container/2)  =  container/2
+    ///
+    /// — half a viewport per axis, a CONSTANT, independent of the zoom ratio and of the
+    /// image's size. Zooming further never helped, which is exactly what the report says:
+    /// the furthest a corner could travel was to the corner of the viewport, never inward.
+    ///
+    /// Nothing specified the old rule. `docs/12` says what gestures must exist and how
+    /// fast they must answer, and says nothing about how far the picture may be moved, in
+    /// either direction. It was an implementation choice, documented as an invariant, with
+    /// no test — `clampPan` had none at all until this change — and inherited by the
+    /// compare panes on the way through.
+    ///
+    /// "Any point to the centre" is the rule rather than "unbounded" because it is the
+    /// weakest rule that grants the ask: at the limit the corner pixel is under the
+    /// crosshair, which is what inspecting a corner means. Past it the photograph would
+    /// only be leaving the window.
+    ///
+    /// An axis that FITS still pins to 0. Nothing is hidden along it, so there is no
+    /// corner to reach, and letting it drift would let a slightly-zoomed panorama be
+    /// dragged vertically out of the frame — the drag gate is an OR across the two axes,
+    /// so one overflowing axis would otherwise unlock both.
     static func clampPan(_ pan: CGSize, container: CGSize, drawn: CGSize) -> CGSize {
-        let mx = Swift.max(0, (drawn.width - container.width) / 2)
-        let my = Swift.max(0, (drawn.height - container.height) / 2)
+        let mx = drawn.width > container.width ? drawn.width / 2 : 0
+        let my = drawn.height > container.height ? drawn.height / 2 : 0
         let x = pan.width.isFinite ? Swift.min(Swift.max(pan.width, -mx), mx) : 0
         let y = pan.height.isFinite ? Swift.min(Swift.max(pan.height, -my), my) : 0
         return CGSize(width: x, height: y)
@@ -1019,10 +1054,6 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
-    /// Whether the current drag began at fit — decided once at the first event and
-    /// held for the whole gesture, so a scrub that has already zoomed keeps scrubbing
-    /// instead of turning into a pan mid-hold. Nil between gestures.
-    @State private var scrubFromFit: Bool?
     /// The zoom the current pinch began at, so the gesture's total magnification
     /// multiplies one start value instead of compounding per event. Nil between
     /// gestures.
@@ -1112,15 +1143,14 @@ struct LoupeView: View {
     var body: some View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
-            // The zoomed region ask — held STILL through both continuous zoom
-            // gestures. A pinch reads the rectangle captured at its first event; the
-            // scrub always began at fit, so its whole gesture is whole-frame. Panning
-            // is deliberately NOT held: a pan past the margin is exactly the moment a
-            // new region must be rendered, and `ZoomRegion.grid` keeps that from
-            // being every pan point.
+            // The zoomed region ask — held STILL through a pinch, which reads the
+            // rectangle captured at its first event. Panning is deliberately NOT held:
+            // a pan past the margin is exactly the moment a new region must be
+            // rendered, and `ZoomRegion.grid` keeps that from being every pan point.
+            //
+            // (The scrub clause that was here went with the scrub. A drag pans now.)
             let region: CGRect? = {
                 if pinchStartZoom != nil { return pinchRegion }
-                if scrubFromFit == true { return nil }
                 return requestedRegion(container: container)
             }()
             // WHAT THE PANEL ACTUALLY DRAWS, in device pixels, computed ONCE and given
@@ -1233,15 +1263,23 @@ struct LoupeView: View {
             }
             .gesture(dragGesture(container: container))
             .simultaneousGesture(magnifyGesture(container: container))
-            // The way BACK. The scrub only zooms while the press is held and only
-            // from fit, so once a gesture ends zoomed there was no pointer verb that
-            // returned — "when I zoom in, I can't zoom out". Double-click is the
-            // inherited grammar for exactly that and costs nothing at fit, where it
-            // is deliberately inert (a stray double-click on a fitted frame must not
-            // become the click-to-zoom that was just removed).
-            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                guard !ZoomLadder.isFit(viewport.zoom) else { return }
-                viewport.fit()
+            // FIT ↔ 1:1, BOTH WAYS, WHERE YOU CLICKED — the owner's choice, and the
+            // inherited grammar from every viewer that has one.
+            //
+            // It only went one way before: `guard !isFit else { return }`, deliberately
+            // inert at fit so a stray double-click could not become the click-to-zoom
+            // that had been removed. That reasoning held while a press-drag zoomed from
+            // fit — there was already a pointer way IN, and this was only the way back.
+            // The drag pans now, so the way in went with it, and a half-toggle is the
+            // wrong half: the useful direction is "show me this at 1:1".
+            //
+            // `SpatialTapGesture` rather than `TapGesture` because `TapGesture` carries
+            // no location, and zooming to 1:1 about the middle of the window when the
+            // photographer double-clicked an eye is the same defect `Space` was fixed
+            // for. `toggleZoom(at:)` is the verb every other zoom source already uses,
+            // so the anchoring rule stays in one place.
+            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { value in
+                viewport.toggleZoom(at: value.location)
             })
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
@@ -2103,19 +2141,24 @@ struct LoupeView: View {
                 // there, unseen, until the tool was put away and the picture jumped.
                 guard !cropArmed else { return }
                 guard let cg = model.image else { return }
-                if scrubFromFit == nil {
-                    scrubFromFit = ZoomLadder.isFit(viewport.zoom)
-                }
-                if scrubFromFit == true {
-                    // Anchored at the PRESS point, not the moving cursor: the place
-                    // the owner aimed at is the place the zoom grows around.
-                    let target = ContinuousZoom.scrubbed(
-                        startZoom: ZoomLadder.fit,
-                        fitRatio: trueFitZoom(image: cg, container: container),
-                        horizontalTravel: Double(value.translation.width))
-                    viewport.setZoom(target, at: value.startLocation)
-                    return
-                }
+                // A DRAG PANS. Always, at every zoom, with no mode to be in.
+                //
+                // It used to decide once, on the first event, from whether the picture
+                // was at fit: a drag begun at fit was a scrubby ZOOM and could never
+                // become a pan, and a drag begun zoomed was a pan and could never zoom.
+                // Nothing on screen said which you would get — this viewer sets no
+                // cursor at all (`LumenHover.swift`: "zero NSCursor changes anywhere in
+                // the application") — so the same press did two unrelated things
+                // depending on state the photographer had to remember.
+                //
+                // The owner chose "wheel zooms, drag pans" against the alternatives, and
+                // that is also the Lightroom and Capture One reflex. The scrub is not
+                // replaced by anything: the wheel and the pinch both zoom continuously
+                // and both are discoverable, so it was a third way to do a thing that
+                // already had two, and the only one with no affordance.
+                //
+                // At fit the guard below stops the drag, because a picture with nothing
+                // hidden has nowhere to go — `clampPan` pins an axis that fits.
                 let drawn = drawnFull(forZoom: viewport.zoom, image: cg,
                                       container: container)
                 guard drawn.width > container.width || drawn.height > container.height else {
@@ -2128,7 +2171,6 @@ struct LoupeView: View {
                 viewport.pan = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
             }
             .onEnded { _ in
-                scrubFromFit = nil
                 panStart = nil
             }
     }
