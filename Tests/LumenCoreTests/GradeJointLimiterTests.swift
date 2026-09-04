@@ -32,8 +32,22 @@
 // the fold and moved everything else would not be landable: the fix is bounded by the
 // property that `jointScale` is EXACTLY 1 whenever either side is untouched, so every
 // single-tool recipe renders bit-identically and only recipes using both can move.
-// `testEitherSideUntouchedRendersBitIdentically` pins that against a hash of 71,136
-// renders measured on the PRE-FIX engine.
+// `testEitherSideUntouchedRendersBitIdentically` pins that by rendering all 71,136
+// single-tool renders through BOTH engines — the shipping one and, via
+// `forcingJointScale: 1`, the tree before the correction existed — and comparing the two.
+//
+// IT USED TO COMPARE AGAINST A RECORDED CONSTANT, AND THAT WAS A BUG IN THIS FILE.
+// `identityHash` FNV-1a's the raw bit patterns of `Double`s, and a hash of bit patterns is
+// not portable: the constant was measured on Linux, and on Apple Silicon the same source
+// hashes differently because FMA contraction and libm differ. So this test passed
+// `engine-linux` and failed `test-fast` on the same commit — the engine was never wrong,
+// the yardstick was. It went unseen for three commits because `test-fast` was being killed
+// at its 15-minute ceiling and a timed-out job is reported as `cancelled`, not `failure`.
+//
+// Rendering both engines in one process removes the portability problem and makes the
+// claim stronger at the same time: it measures the property rather than a number somebody
+// transcribed. The commit that introduced the constant said this property was "verified" —
+// it was verified on Linux only, and that is the whole of what went wrong.
 
 import XCTest
 @testable import LumenCore
@@ -236,9 +250,14 @@ final class GradeJointLimiterTests: XCTestCase {
     /// scales, in a fixed order. A hash rather than a table because the claim is about
     /// 71,136 renders and no table of that size is readable; the per-recipe assertions
     /// beside it are what localise a failure when the hash moves.
+    /// - Parameter forcingJointScale: `nil` renders through the shipping engine; `1`
+    ///   reconstructs the pre-fix one, because the solved joint factor is the only thing
+    ///   that parameter displaces.
     private static func identityHash(_ recipes: [(String, GradingWheels)],
                                      probes: [RGB],
-                                     each: (String, GradeEngine) -> Void) -> UInt64 {
+                                     forcingJointScale: Double? = nil,
+                                     each: (String, GradeEngine) -> Void = { _, _ in })
+        -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         func feed(_ d: Double) {
             var bits: UInt64 = d.bitPattern
@@ -248,7 +267,8 @@ final class GradeJointLimiterTests: XCTestCase {
             }
         }
         for (name, wheels) in recipes {
-            let engine = GradeEngine(wheels: wheels, printerLights: PrinterLights())
+            let engine = GradeEngine(wheels: wheels, printerLights: PrinterLights(),
+                                     forcingJointScale: forcingJointScale)
             each(name, engine)
             feed(engine.lumScale)
             feed(engine.colorBalance.brillianceScale)
@@ -261,11 +281,6 @@ final class GradeJointLimiterTests: XCTestCase {
         }
         return hash
     }
-
-    /// Measured on the PRE-FIX engine — the tree with no `solveJointScale` in it at all
-    /// — over the 312 single-tool recipes above at 228 colours each: 71,136 renders,
-    /// 213,408 channels, plus the two solved scales per recipe.
-    private static let preFixIdentityHash: UInt64 = 12_301_920_802_024_793_674
 
     /// THE LOAD-BEARING CLAIM. Every recipe that uses ONE of the two tools renders
     /// bit-identically to what it rendered before the joint correction existed.
@@ -288,12 +303,16 @@ final class GradeJointLimiterTests: XCTestCase {
                            "\(name) applied a Brilliance scale other than the grid's "
                                + "own solve")
         }
-        XCTAssertEqual(hash, Self.preFixIdentityHash,
+        // The PRE-FIX engine, rebuilt in this process on this machine rather than
+        // recalled from a constant. `forcingJointScale: 1` displaces exactly one value —
+        // `solveJointScale`'s result — so this IS the tree before the correction existed.
+        let preFix = Self.identityHash(recipes, probes: Self.probes(),
+                                       forcingJointScale: 1)
+        XCTAssertEqual(hash, preFix,
                        "71,136 single-tool renders no longer hash to what the PRE-FIX "
-                           + "engine rendered. The joint correction is only landable "
+                           + "engine renders. The joint correction is only landable "
                            + "while every recipe that uses one of the two tools is "
-                           + "byte-identical: got \(hash), pre-fix "
-                           + "\(Self.preFixIdentityHash).")
+                           + "byte-identical: got \(hash), pre-fix \(preFix).")
     }
 
     // MARK: - The model is the engine
