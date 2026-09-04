@@ -505,7 +505,7 @@ private struct Sidebar: View {
             .buttonStyle(.plain)
             .foregroundStyle(Lumen.secondaryText)
             .lumenClickCursor()
-            .help("Choose a different folder")
+            .help("Open photographs, or a different folder")
         }
         .padding(.horizontal, 6)
         .frame(height: Lumen.rowHeight)
@@ -523,7 +523,7 @@ private struct Sidebar: View {
             }
             .disabled(state.folderURL == nil)
             Divider()
-            Button("Open Folder…") { state.chooseFolder() }
+            Button("Open…") { state.chooseFolder() }
         }
         .accessibilityLabel(Text(state.folderURL
                                  .map { "Folder \($0.lastPathComponent), \($0.path)" }
@@ -1211,9 +1211,10 @@ private struct EmptyState: View {
     var body: some View {
         LumenEmptyState(
             symbol: "photo.on.rectangle.angled",
-            headline: "Open a folder of photographs",
-            detail: "Folders are the library. Nothing is copied, moved, or modified.",
-            actionTitle: "Open Folder…") { state.chooseFolder() }
+            headline: "Open photographs, or a folder of them",
+            detail: "Folders are the library. Nothing is copied, moved, or modified. "
+                + "Copying from a card is ⇧⌘I.",
+            actionTitle: "Open…") { state.chooseFolder() }
     }
 }
 

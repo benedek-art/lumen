@@ -17,6 +17,7 @@ import Foundation
 import LumenCore
 import LumenPipeline
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Formats
 
@@ -51,6 +52,21 @@ enum PhotoFormats {
         "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff",
     ]
     static let browsable: Set<String> = raw.union(rendered)
+
+    /// The same list as content types, for `NSOpenPanel.allowedContentTypes`.
+    ///
+    /// Derived from `browsable` rather than written out a second time: two lists of the
+    /// same photographs is how one of them comes to be missing a Phase One file, and this
+    /// enum's own header records that a short list once made "a Hasselblad, Phase One,
+    /// Leica or Minolta file invisible in the grid".
+    ///
+    /// `UTType(filenameExtension:)` answers nil for an extension the system does not know,
+    /// which is fine and is why this compacts: an unrecognised RAW simply is not offered
+    /// as a filter, and the scan still opens it if the photographer reaches it through a
+    /// folder. A filter is a convenience; `browsable` remains the authority.
+    static var browsableContentTypes: [UTType] {
+        browsable.sorted().compactMap { UTType(filenameExtension: $0) }
+    }
 
     static func isRaw(_ url: URL) -> Bool {
         raw.contains(url.pathExtension.lowercased())
@@ -2570,15 +2586,98 @@ final class AppState: ObservableObject {
 
     // MARK: Folder scanning
 
+    /// FILES OR FOLDERS, AND AS MANY AS YOU LIKE.
+    ///
+    /// The owner: "When I press a button, I want to open up either a file or specific
+    /// photos. It doesn't have to be only a file. It can be inside of a folder or it can
+    /// be specific pictures as well."
+    ///
+    /// It was `canChooseFiles = false`, `allowsMultipleSelection = false`, and no
+    /// `allowedContentTypes` — so every RAW file in the panel was greyed out and
+    /// unselectable, and this one function is the front door for all four affordances
+    /// that reach it (File ▸ Open, the empty state, the sidebar's folder button and its
+    /// context menu). There was no path anywhere in the application by which an
+    /// individual photograph became a roll.
+    ///
+    /// `allowedContentTypes` is set from `PhotoFormats.browsable` rather than left open:
+    /// a picker that lets you choose a `.txt` and then silently opens nothing is worse
+    /// than one that greys it out. `directoryURL` seeds the panel at the folder already
+    /// open, because the common case for "open" is "open something near what I have".
     func chooseFolder() {
         let panel = NSOpenPanel()
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open Folder"
-        if panel.runModal() == .OK, let url = panel.url {
-            openFolder(url)
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = PhotoFormats.browsableContentTypes
+        panel.directoryURL = folderURL
+        panel.message = "Choose a folder, or the photographs you want to work on"
+        panel.prompt = "Open"
+        guard panel.runModal() == .OK else { return }
+        openSources(panel.urls)
+    }
+
+    /// What the picker chose, resolved into a roll.
+    ///
+    /// One directory is the folder it has always been. Anything else — a handful of
+    /// frames, several folders, or a mix — becomes an EXPLICIT roll: exactly the
+    /// photographs named, plus everything under any directory named, rooted at their
+    /// deepest common parent so the sidebar's header, the catalog's `folder` row and the
+    /// relative filenames it keys on all still mean something.
+    ///
+    /// The common parent rather than a synthetic root because `CatalogService` keys photo
+    /// rows on the path RELATIVE to the registered folder, precisely so that two frames
+    /// called `DSC_0001.NEF` in `day1/` and `day2/` do not collide on one row. A fake
+    /// root would make every relative path an absolute one and quietly defeat that.
+    ///
+    /// Named `openSources` rather than `open` because `SQLiteError.open(code:message:path:)`
+    /// exists two modules away, and a bare `open` on the app's central object shadows a
+    /// very common word — the surface checker caught the collision immediately, which is
+    /// the cheapest possible moment to learn it.
+    func openSources(_ urls: [URL]) {
+        let directories = urls.filter { Self.isDirectory($0) }
+        let files = urls.filter { !Self.isDirectory($0) }
+
+        // The overwhelmingly common case, and the one that behaves exactly as before.
+        if directories.count == 1, files.isEmpty {
+            openFolder(directories[0])
+            return
         }
+        guard !urls.isEmpty else { return }
+        guard let root = Self.commonParent(of: urls) else { return }
+
+        // Directories chosen alongside files contribute their contents, so "this folder
+        // and these three from next door" is one roll rather than a refusal.
+        let extensions = Self.browsableExtensions
+        var explicit = Set(files.filter { extensions.contains($0.pathExtension.lowercased()) })
+        for directory in directories {
+            explicit.formUnion(Self.scan(url: directory, extensions: extensions))
+        }
+        guard !explicit.isEmpty else {
+            statusMessage = "Nothing there Lumen can open"
+            return
+        }
+        openFolder(root, restrictedTo: explicit)
+    }
+
+    nonisolated static func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+    }
+
+    /// The deepest directory that contains every one of them. Nil only for an empty
+    /// list — two paths on different volumes still share `/`.
+    nonisolated static func commonParent(of urls: [URL]) -> URL? {
+        guard let first = urls.first else { return nil }
+        var common = (isDirectory(first) ? first : first.deletingLastPathComponent())
+            .standardizedFileURL.pathComponents
+        for url in urls.dropFirst() {
+            let parts = (isDirectory(url) ? url : url.deletingLastPathComponent())
+                .standardizedFileURL.pathComponents
+            var shared: [String] = []
+            for (a, b) in zip(common, parts) where a == b { shared.append(a) }
+            common = shared
+        }
+        guard !common.isEmpty else { return nil }
+        return URL(fileURLWithPath: NSString.path(withComponents: common), isDirectory: true)
     }
 
     // MARK: Reopening the last folder
@@ -2612,11 +2711,38 @@ final class AppState: ObservableObject {
         guard let url else { return }
         _ = url.startAccessingSecurityScopedResource()
         guard FileManager.default.fileExists(atPath: url.path) else { return }
-        if stale { rememberFolder(url) }
-        openFolder(url)
+        if stale { rememberFolderBookmark(url) }
+        // A remembered file selection reopens as that selection, not as its parent
+        // folder — otherwise choosing six frames and relaunching would present the
+        // three thousand they were chosen out of.
+        let remembered = UserDefaults.standard.stringArray(forKey: Self.lastFolderFilesKey) ?? []
+        let files = Set(remembered.map { URL(fileURLWithPath: $0) })
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        openFolder(url, restrictedTo: files.isEmpty ? nil : Set(files))
     }
 
-    private func rememberFolder(_ url: URL) {
+    /// The chosen files, when the last roll was an explicit set rather than a folder.
+    ///
+    /// Stored beside the bookmark and as plain paths: a bookmark per file would be the
+    /// correct thing under a sandbox, and this application ships with no entitlements
+    /// file at all, so the parent's grant is what actually carries access today. When it
+    /// moves into the sandbox this becomes an array of bookmarks and nothing else changes.
+    private static let lastFolderFilesKey = "lumen.lastFolder.files"
+
+    private func rememberFolder(_ url: URL, restrictedTo restriction: Set<URL>? = nil) {
+        let defaults = UserDefaults.standard
+        if let restriction {
+            defaults.set(restriction.map(\.path).sorted(), forKey: Self.lastFolderFilesKey)
+        } else {
+            // A plain folder open CLEARS it. Without this, opening a folder after a file
+            // selection would reopen next launch as the old file selection inside the new
+            // folder — which is nothing at all, since none of those paths are under it.
+            defaults.removeObject(forKey: Self.lastFolderFilesKey)
+        }
+        rememberFolderBookmark(url)
+    }
+
+    private func rememberFolderBookmark(_ url: URL) {
         let data = (try? url.bookmarkData(options: [.withSecurityScope],
                                           includingResourceValuesForKeys: nil,
                                           relativeTo: nil))
@@ -2627,8 +2753,12 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(data, forKey: Self.lastFolderBookmarkKey)
     }
 
-    func openFolder(_ url: URL) {
-        rememberFolder(url)
+    /// - Parameter restrictedTo: when non-nil, the roll is exactly these files instead
+    ///   of everything under `url`. That is how a picked set of individual photographs
+    ///   becomes a roll: the folder is still a real folder — the catalog registers it and
+    ///   keys relative filenames on it — but the scan is replaced by the chosen list.
+    func openFolder(_ url: URL, restrictedTo restriction: Set<URL>? = nil) {
+        rememberFolder(url, restrictedTo: restriction)
         folderURL = url
         selection = []
         primarySelection = nil
@@ -2654,7 +2784,15 @@ final class AppState: ObservableObject {
         let generation = scanGeneration
         let catalog = self.catalog
         Task.detached(priority: .userInitiated) { [weak self] in
-            let found = Self.scan(url: url, extensions: extensions)
+            // A restricted roll does not enumerate: the list IS the answer, sorted the
+            // same way a scan sorts so the grid's initial order does not depend on which
+            // door the photographs came through.
+            let found: [URL] = restriction.map { chosen in
+                chosen.sorted {
+                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                        == .orderedAscending
+                }
+            } ?? Self.scan(url: url, extensions: extensions)
             // Registration is thousands of SQL round-trips and a sidecar read per
             // file. It stays out here, on this thread: it used to run inside the
             // main-actor hop, which stopped the run loop for the whole of a 5,000
