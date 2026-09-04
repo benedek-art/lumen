@@ -355,6 +355,11 @@ private struct Sidebar: View {
     @State private var newAlbumName: String = ""
     @State private var newKeyword: String = ""
     @FocusState private var keywordFieldFocused: Bool
+    /// The album field's own focus. Nothing asks for it today — ⇧⌘K is the keyword
+    /// field's chord and there is no album equivalent — but `SidebarEntryField` takes
+    /// the binding rather than an optional one, because a field that can be focused
+    /// only sometimes is two components wearing one name.
+    @FocusState private var albumFieldFocused: Bool
 
     /// ⇧⌘K now fires from the Scene, which cannot reach a view-local `@FocusState`.
     /// `KeywordEntry.shared` is a counter it bumps and this column watches; only the
@@ -668,41 +673,10 @@ private struct Sidebar: View {
                 }
             }
 
-            HStack(spacing: 4) {
-                TextField("New album", text: $newAlbumName)
-                    .textFieldStyle(.plain)
-                    .font(.lumenBody)
-                    .onSubmit { createAlbum() }
-                Button {
-                    createAlbum()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.lumenGlyphCaption)
-                        // The glyph's own bounds are no hit target — 10 points square was
-                        // the whole of it. 16 with an explicit content shape is what every
-                        // other glyph-only button in this app gets.
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .lumenClickCursor()
-                .disabled(newAlbumName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(Lumen.controlBackground)
-            // A WELL, not a clipped rectangle. `LumenSurface.swift` names text fields as
-            // the case `lumenWell` exists for — the light lands on the far lip, so the
-            // highlight sits along the BOTTOM and a dark inner edge sits along the top,
-            // which is what makes a field read as somewhere you type into rather than as
-            // a grey rectangle that happens to hold a cursor. The modifier had two call
-            // sites in the app and neither was a field.
-            //
-            // And the radius is the token now: this was a hardcoded 4, from before there
-            // were three radii, so it stayed at the Aqua proportion while every surface
-            // around it moved to 9 and 14.
-            .lumenWell(radius: Lumen.radiusControl)
+            SidebarEntryField(placeholder: "New album",
+                              actionHelp: "Create the album (Return)",
+                              text: $newAlbumName,
+                              focus: $albumFieldFocused, submit: createAlbum)
         }
     }
 
@@ -745,42 +719,10 @@ private struct Sidebar: View {
 
     private var keywordEntry: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                TextField("Add keyword", text: $newKeyword)
-                    .textFieldStyle(.plain)
-                    .font(.lumenBody)
-                    .focused($keywordFieldFocused)
-                    .onSubmit { addKeyword() }
-                Button {
-                    addKeyword()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.lumenGlyphCaption)
-                        // The glyph's own bounds are no hit target — 10 points square was
-                        // the whole of it. 16 with an explicit content shape is what every
-                        // other glyph-only button in this app gets.
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Lumen.secondaryText)
-                .lumenClickCursor()
-                .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(Lumen.controlBackground)
-            // A WELL, not a clipped rectangle. `LumenSurface.swift` names text fields as
-            // the case `lumenWell` exists for — the light lands on the far lip, so the
-            // highlight sits along the BOTTOM and a dark inner edge sits along the top,
-            // which is what makes a field read as somewhere you type into rather than as
-            // a grey rectangle that happens to hold a cursor. The modifier had two call
-            // sites in the app and neither was a field.
-            //
-            // And the radius is the token now: this was a hardcoded 4, from before there
-            // were three radii, so it stayed at the Aqua proportion while every surface
-            // around it moved to 9 and 14.
-            .lumenWell(radius: Lumen.radiusControl)
+            SidebarEntryField(placeholder: "Add keyword",
+                              actionHelp: "Add the keyword to the selection (Return)",
+                              text: $newKeyword,
+                              focus: $keywordFieldFocused, submit: addKeyword)
 
             // ⌘⇧K puts the cursor in the field rather than applying anything: the verb
             // a photographer wants from a keyword shortcut is "let me type one". It also
@@ -1212,8 +1154,13 @@ private struct EmptyState: View {
         LumenEmptyState(
             symbol: "photo.on.rectangle.angled",
             headline: "Open photographs, or a folder of them",
-            detail: "Folders are the library. Nothing is copied, moved, or modified. "
-                + "Copying from a card is ⇧⌘I.",
+            // AND IT NAMES THE DROP, because a drop target with nothing saying it is
+            // there is the same as no drop target. The window takes files and folders
+            // anywhere in it (`LumenApp.swift`), Finder's "Open With" reaches the same
+            // verb, and none of that is discoverable from a button labelled "Open…".
+            detail: "Drag photographs or a folder anywhere onto this window, or open "
+                + "them below. Folders are the library — nothing is copied, moved, or "
+                + "modified. Copying from a card is ⇧⌘I.",
             actionTitle: "Open…") { state.chooseFolder() }
     }
 }

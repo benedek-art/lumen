@@ -390,4 +390,38 @@ final class DesignSystemTests: XCTestCase {
                                  "\(n) hand-rolled black overlays, up from 19 — use "
                                  + "lumenHUD() or Lumen.hudFill")
     }
+    /// THE SIDEBAR'S ENTRY FIELD IS ONE COMPONENT, not two copies of one.
+    ///
+    /// The album field and the keyword field were byte-identical for thirty-two lines
+    /// apart from the placeholder, the binding and the verb — two copies of the plus
+    /// glyph's hit-target argument and two copies of the `lumenWell` argument included.
+    /// Two copies of a rule is how one comes to be missing when the rule moves, and it
+    /// had already happened: both were built with a hardcoded radius of 4 from before
+    /// there were three radii, and only one of them was found first.
+    ///
+    /// A bare `TextField` in the sidebar is what this forbids. Add a third field and it
+    /// goes through `SidebarEntryField` or this fails, which is the point.
+    func testTheSidebarHasNoHandRolledEntryField() {
+        let sidebar = source("ContentView.swift")
+        XCTAssertEqual(count("TextField(", in: sidebar), 0,
+                       "every sidebar entry field goes through SidebarEntryField")
+        XCTAssertGreaterThanOrEqual(count("SidebarEntryField(", in: sidebar), 2,
+                                    "the component exists because there is more than "
+                                    + "one of them")
+    }
+
+    /// And the component itself keeps the two rules the copies each carried: the plus
+    /// glyph gets a real hit target, and the field reads as a well.
+    func testTheEntryFieldKeepsBothRulesTheCopiesCarried() {
+        let controls = source("LumenControls.swift")
+        guard let field = controls.range(of: "struct SidebarEntryField: View") else {
+            return XCTFail("SidebarEntryField not found in LumenControls.swift")
+        }
+        let body = String(controls[field.lowerBound...])
+        XCTAssertTrue(body.contains(".contentShape(Rectangle())"),
+                      "a 10 pt glyph is no hit target")
+        XCTAssertTrue(body.contains(".lumenWell(radius: Lumen.radiusControl)"),
+                      "the token, never a literal — that is the drift this closes")
+    }
+
 }

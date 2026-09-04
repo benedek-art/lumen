@@ -26,6 +26,23 @@ final class LumenAppDelegate: NSObject, NSApplicationDelegate {
             state?.prepareToQuit()
         }
     }
+
+    /// FINDER'S HALF OF THE FRONT DOOR: "Open With ▸ Lumen", a double-click once Lumen
+    /// is the handler, and a drop on the dock icon all arrive here and nowhere else.
+    ///
+    /// Without it those three did nothing at all — the bundle declared no document
+    /// types (`scripts/build-app.sh`), so the system never offered Lumen, and had it
+    /// been offered there was no method to receive the open. The declaration and this
+    /// method are one change: either alone is inert.
+    ///
+    /// `openSources` is the same verb the Open panel and the window drop go through, so
+    /// a folder, a handful of frames, or a mix of both behaves identically however it
+    /// arrives.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated {
+            state?.openSources(urls)
+        }
+    }
 }
 
 @main
@@ -36,6 +53,22 @@ struct LumenApp: App {
     var body: some Scene {
         WindowGroup("Lumen") {
             ContentView()
+                // DRAG A FOLDER OR A HANDFUL OF FRAMES ONTO THE WINDOW, anywhere in it.
+                //
+                // The owner asked for onboarding that is "simple, easy"; the panel now
+                // takes files as well as folders, and this is the half that needs no
+                // panel at all. On the whole window rather than on the empty state,
+                // because dropping a second card in while the first is open is the same
+                // gesture and should not require finding a particular rectangle.
+                //
+                // `URL.self`, not `String.self`: the mask panel's own drop destination
+                // carries component ids as strings, and two destinations that disagree
+                // about the payload type cannot be confused for one another.
+                .dropDestination(for: URL.self) { urls, _ in
+                    guard !urls.isEmpty else { return false }
+                    state.openSources(urls)
+                    return true
+                }
                 .environmentObject(state)
                 // The develop footer's undo/redo pair reads the same four facts the
                 // Edit menu does, and for the same reason must observe something that

@@ -36,6 +36,44 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>LSMinimumSystemVersion</key>  <string>15.0</string>
     <key>NSHighResolutionCapable</key> <true/>
     <key>LSApplicationCategoryType</key> <string>public.app-category.photography</string>
+
+    <!-- WHAT THE SYSTEM MAY HAND US. Without this the bundle declared no document
+         types at all, so "Open With ▸ Lumen" never appeared in Finder, a drop on the
+         dock icon did nothing, and double-clicking a RAW could never reach Lumen —
+         three doors that looked like they should work and silently did not.
+
+         `public.camera-raw-image` is the parent every vendor RAW conforms to, so one
+         line covers the Hasselblad and Phase One files `PhotoFormats.raw` was widened
+         for; `public.image` covers the rendered half.
+
+         RANK ALTERNATE, DELIBERATELY. A development build must not become the system
+         handler for every JPEG on the machine the first time it is launched — this
+         offers Lumen in the Open With list and leaves the default where the
+         photographer put it. `LumenAppDelegate.application(_:open:)` is what receives
+         the open; the declaration and that method are one change, and either alone is
+         inert. -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>    <string>Photograph</string>
+            <key>CFBundleTypeRole</key>    <string>Editor</string>
+            <key>LSHandlerRank</key>       <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.camera-raw-image</string>
+                <string>public.image</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>    <string>Folder</string>
+            <key>CFBundleTypeRole</key>    <string>Viewer</string>
+            <key>LSHandlerRank</key>       <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.folder</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

@@ -2120,4 +2120,62 @@ struct LumenBadge: View {
     }
 }
 
+/// THE ONE FIELD THE SIDEBAR ADDS THINGS WITH — an album, a keyword.
+///
+/// It was written twice, byte for byte apart from the placeholder, the binding and the
+/// verb: thirty-two lines each, carrying two copies of the argument for why the plus
+/// glyph needs a 16 pt content shape (its own bounds are ten points square, which is no
+/// hit target) and two copies of the argument for `lumenWell` (a field must read as
+/// somewhere you type into, so the highlight sits along the BOTTOM lip).
+///
+/// Two copies of a rule is how one of them comes to be missing when the rule moves —
+/// and that had already happened here once: both fields were built with a hardcoded
+/// radius of 4, from before there were three radii, so they sat at the Aqua proportion
+/// while every surface around them went to 9 and 14. One of the two was fixed first.
+///
+/// The focus binding is required rather than optional. A field that can be focused only
+/// sometimes is two components wearing one name, and the caller that has no chord for
+/// it simply declares a `@FocusState` nothing reads.
+struct SidebarEntryField: View {
+    let placeholder: String
+    /// What the plus button's tooltip says it will do. Its own parameter rather than
+    /// something derived from the placeholder: "Add keyword" lowercased and prefixed
+    /// reads "Add add keyword", which is how a generated string ends up in front of a
+    /// photographer.
+    let actionHelp: String
+    @Binding var text: String
+    var focus: FocusState<Bool>.Binding
+    let submit: () -> Void
+
+    /// Blank, or nothing but spaces: there is nothing to add and the button says so.
+    private var isEmpty: Bool {
+        text.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.lumenBody)
+                .focused(focus)
+                .onSubmit(submit)
+            Button(action: submit) {
+                Image(systemName: "plus")
+                    .font(.lumenGlyphCaption)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.secondaryText)
+            .lumenClickCursor()
+            .disabled(isEmpty)
+            .help(actionHelp)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Lumen.controlBackground)
+        .lumenWell(radius: Lumen.radiusControl)
+    }
+}
+
 #endif
