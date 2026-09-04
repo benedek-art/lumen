@@ -12,18 +12,21 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
-    /// `showsMaskPanel` reads `state.currentRecipe.masks`, and `AppState.recipes` is not
-    /// `@Published` — so without this declaration that expression has NO invalidation
-    /// source (I1-06). It happened to re-body because `addMask` also writes selection
-    /// and overlay state, which is coincidence rather than mechanism: the empty →
-    /// non-empty transition this line gates is exactly the one the coincidence covers
-    /// least reliably, so the floating Masks box could fail to appear when the first
-    /// mask was created, or fail to leave when the last was deleted, depending on which
-    /// unrelated published property the surrounding action happened to touch.
-    ///
-    /// The rule is stated in `EditRevision`'s own header and was, until now, enforced by
-    /// nothing. `EditRevisionRuleTests` is the mechanism.
-    @EnvironmentObject private var edits: EditRevision
+    // NO `EditRevision` HERE, AND THAT IS THE POINT. This view is the window's root: its
+    // body builds the split view, the sidebar, the centre pane, the develop column and
+    // the filmstrip. An `@EnvironmentObject` declaration subscribes a view to that
+    // object whether or not it ever reads it, and `EditRevision` is bumped once per
+    // MOUSE EVENT for the whole length of a slider drag (`AppState.updateRecipe` →
+    // `recipes.didSet`). Declared here, it re-bodied the entire window per event — the
+    // exact defect `EditRevision` was created to remove, reinstated at the one view
+    // where it costs the most, and the owner's "it isn't a smooth update while I drag
+    // but more so an incremental flash updating".
+    //
+    // It arrived honestly: `showsMaskPanel` read `state.currentRecipe.masks`, and the
+    // rule in `EditRevision`'s header says a view that reads a recipe must observe the
+    // signal. The rule is right and had no altitude clause. The read moved down to
+    // `MaskFloatingPanelHost`, where satisfying the rule costs one small overlay instead
+    // of the window. `EditRevisionRuleTests` now enforces both directions.
 
     /// THE SIDEBAR CAN BE HIDDEN, AND THAT IS THE LARGEST SINGLE THING THIS WINDOW CAN
     /// DO FOR THE PHOTOGRAPH.
@@ -90,18 +93,6 @@ struct ContentView: View {
 
     /// Whether the floating Masks box is on screen.
     ///
-    /// Masking has to be the current tool, there has to be a mask to list, and the
-    /// photographer must not have dismissed it. The middle condition is the owner's
-    /// rule verbatim — the box "comes out when there is a mask" rather than sitting
-    /// there empty waiting for one.
-    private var showsMaskPanel: Bool {
-        // `PanelLayout.shared` read directly rather than observed, matching
-        // `showsDevelopColumn` two properties down — this view deliberately does not
-        // observe `PanelLayout`, and the workspace change that flips `isMasking` already
-        // republishes through `state`.
-        PanelLayout.shared.layout.isMasking && state.maskPanelVisible
-            && !state.currentRecipe.masks.isEmpty
-    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(
@@ -146,35 +137,11 @@ struct ContentView: View {
                         // picture. `GeometryReader` supplies the pane's size so the drag
                         // can be clamped to it — a panel dragged off the window is a
                         // panel you cannot get back.
-                        .overlay(alignment: .topTrailing) {
-                            if showsMaskPanel {
-                                // The reader fills the pane so the drag can be clamped
-                                // against it; it draws nothing itself, so only the card
-                                // inside it ever takes a click.
-                                //
-                                // THE INNER `.frame(alignment:)` IS LOAD-BEARING and its
-                                // absence is why the panel opened on the LEFT, which was
-                                // the owner's first complaint on first use. A
-                                // `GeometryReader` is greedy: it takes every point it is
-                                // offered, so `.overlay(alignment: .topTrailing)` was
-                                // top-trailing-aligning a view that already filled the
-                                // whole pane — a no-op — and the reader then placed its
-                                // own child at its own top-LEADING corner, which is what
-                                // a `GeometryReader` does. The alignment has to be
-                                // restated INSIDE the reader, against the reader's own
-                                // filled frame, or it does not happen at all.
-                                GeometryReader { proxy in
-                                    MaskFloatingPanel(bounds: proxy.size)
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity,
-                                               alignment: .topTrailing)
-                                        // Out from under the clipping panel, which owns
-                                        // this corner when it is showing. Both are
-                                        // top-trailing and a silent overlap reads as a
-                                        // broken window rather than as two panels.
-                                        .padding(.top, state.showRawTruth ? 118 : 0)
-                                }
-                            }
-                        }
+                        // A VIEW OF ITS OWN, and that is load-bearing rather than
+                        // tidiness — see `MaskFloatingPanelHost`. The condition used to
+                        // live on THIS view, and the recipe read inside it subscribed the
+                        // window's root to every edit.
+                        .overlay(alignment: .topTrailing) { MaskFloatingPanelHost() }
                         .overlay(alignment: .bottom) { inspectionBadge }
                     if showsDevelopColumn, !state.chromeHidden {
                         columnResizer
@@ -1142,6 +1109,66 @@ private struct StatusBar: View {
             return "\(total) photos"
         }
         return "\(state.photos.count) of \(total)"
+    }
+}
+
+/// THE FLOATING MASKS BOX AND THE CONDITION FOR ITS BEING THERE.
+///
+/// A view of its own, and the reason is the whole of I1-06/I1-07 rather than tidiness.
+///
+/// The condition reads `state.currentRecipe.masks`, and `EditRevision`'s header states
+/// the rule: a view that reads a recipe must observe the edit signal or it renders once
+/// and never notices an edit again. That rule is right. What it lacked was an altitude
+/// clause — satisfied on `ContentView`, which is the window's ROOT, it subscribed the
+/// whole shell to a signal bumped once per mouse event of every slider drag, and the
+/// window was rebuilt between mouse events. Past that threshold AppKit coalesces the
+/// motion events it could not deliver, so the app stops SEEING positions rather than
+/// merely drawing fewer of them, and the picture arrives in flashes instead of following
+/// the hand.
+///
+/// So the read lives here. An edit invalidates this overlay and nothing else, and the
+/// root declares no `EditRevision` at all.
+///
+/// Masking has to be the current tool, there has to be a mask to list, and the
+/// photographer must not have dismissed it. The middle condition is the owner's rule
+/// verbatim — the box "comes out when there is a mask" rather than sitting there empty
+/// waiting for one.
+private struct MaskFloatingPanelHost: View {
+    @EnvironmentObject private var state: AppState
+    /// Free at this altitude, and required: this view IS the recipe read.
+    @EnvironmentObject private var edits: EditRevision
+
+    /// `PanelLayout.shared` read directly rather than observed, matching
+    /// `ContentView.showsDevelopColumn` — neither view observes `PanelLayout`, and the
+    /// workspace change that flips `isMasking` already republishes through `state`.
+    private var showsMaskPanel: Bool {
+        PanelLayout.shared.layout.isMasking && state.maskPanelVisible
+            && !state.currentRecipe.masks.isEmpty
+    }
+
+    var body: some View {
+        if showsMaskPanel {
+            // The reader fills the pane so the drag can be clamped against it; it draws
+            // nothing itself, so only the card inside it ever takes a click.
+            //
+            // THE INNER `.frame(alignment:)` IS LOAD-BEARING and its absence is why the
+            // panel opened on the LEFT, which was the owner's first complaint on first
+            // use. A `GeometryReader` is greedy: it takes every point it is offered, so
+            // `.overlay(alignment: .topTrailing)` was top-trailing-aligning a view that
+            // already filled the whole pane — a no-op — and the reader then placed its
+            // own child at its own top-LEADING corner, which is what a `GeometryReader`
+            // does. The alignment has to be restated INSIDE the reader, against the
+            // reader's own filled frame, or it does not happen at all.
+            GeometryReader { proxy in
+                MaskFloatingPanel(bounds: proxy.size)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .topTrailing)
+                    // Out from under the clipping panel, which owns this corner when it
+                    // is showing. Both are top-trailing and a silent overlap reads as a
+                    // broken window rather than as two panels.
+                    .padding(.top, state.showRawTruth ? 118 : 0)
+            }
+        }
     }
 }
 

@@ -747,9 +747,14 @@ private struct WorkspaceSectionBody: View {
 /// a row below is the duplication that was here before this was a takeover.
 struct MaskEditor: View {
     @ObservedObject var panel: PanelLayout
-    /// This surface shows the edit, so it observes the edit signal — `AppState.recipes`
-    /// is deliberately not published (see `EditRevision`).
-    @EnvironmentObject private var edits: EditRevision
+    // NO `EditRevision`, because this view reads no recipe: its body is `MaskPanel` and
+    // four paddings. It declared the object under the comment "this surface shows the
+    // edit" — true of `MaskPanel`, which observes for itself, and not of this wrapper.
+    // An `@EnvironmentObject` declaration subscribes whether or not it is read, and the
+    // signal is bumped once per mouse event of every drag, so the declaration bought a
+    // re-body of the takeover card per event and nothing else. Same mistake as the one
+    // `ContentView` was carrying, three orders of magnitude cheaper, and left in place
+    // it is precedent.
 
     var body: some View {
         MaskPanel(showsOwnHeader: false)

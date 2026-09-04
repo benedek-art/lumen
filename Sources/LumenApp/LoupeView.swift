@@ -1470,8 +1470,23 @@ struct LoupeView: View {
         .onChange(of: photo.id) { _, _ in
             viewport.resetForNewPhoto()
             sampler = nil
+            // A hold describes ONE photograph's frame — `zoomHoldRegion` is a rectangle
+            // of it — so it cannot survive the photograph changing. `resetForNewPhoto`
+            // usually moves the zoom and the quiet task would collect it anyway; this is
+            // for the case where the new photograph opens at the same zoom and the task
+            // is therefore never restarted.
+            endZoomHold()
             warmNeighbours()
         }
+        // THE HOLD CANNOT OUTLIVE THE VIEW, and without this it could. The release is a
+        // `.task` sleep, and a task is cancelled when its view goes away — so leaving the
+        // loupe for the grid or the compare panes mid-gesture threw the sleep, caught the
+        // cancellation, and returned WITHOUT clearing the hold. Coming back to a
+        // still-standing hold would freeze `layoutZoom` at a stale value: the canvas laid
+        // out at one zoom and permanently scaled to another, the render ask frozen, and
+        // the region ask stuck on a rectangle of a frame no longer on screen. Nothing
+        // would release it, because releasing it is what did not happen.
+        .onDisappear { endZoomHold() }
     }
 
     /// Decode the photograph the owner is most likely to open next, while he is still
