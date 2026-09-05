@@ -175,6 +175,105 @@ final class LayoutMetricSelfTests: XCTestCase {
         }
     }
 
+    /// EVERY CITATION IN THE INVENTORY LANDS ON THE ROW IT NAMES.
+    ///
+    /// `SliderSpec.site` says why it exists in its own doc-comment — "`File.swift:line` of
+    /// the call site, so a failure names the row to fix" — and until this test nothing
+    /// checked one. A `site` is not read by any arithmetic: it is printed in a failure
+    /// message, so a citation that has drifted still measures a real geometry and every
+    /// lane stays green while the message sends a reader to the wrong line.
+    ///
+    /// They had drifted, and not by a little. When this was first run, **87 of the 143
+    /// rows** pointed at something that is not a slider — the panels had grown by four
+    /// hundred lines in places, and the table's line numbers stayed where they were.
+    /// `MaskPanel`'s Exposure row named line 1724, which is the middle of a help string
+    /// about the brush; `CurveEditorView`'s four parametric rows named a `resetButton` and
+    /// three doc-comment lines; the two colour-wheel bars named `LumenControls.swift:1943`,
+    /// which had moved to 1988.
+    ///
+    /// What it checks, and the reason it is not stricter: the cited line, or one either
+    /// side of it, must CONSTRUCT a slider — `LumenSlider(`, one of the panels' own
+    /// `…Slider(` builders, or `LumenColorWheel(` for the two bars. One line of slack,
+    /// because a call and its title argument are commonly split across two lines and a
+    /// zero-slack rule would fail on formatting. Then, where the call spells a LITERAL
+    /// title, it must be this row's title — which is what turns "lands on a slider" into
+    /// "lands on THIS slider", and is what would have caught the one bad repair made
+    /// while fixing the 87 (a brush row and a mask-refine row swapped citations, because
+    /// the first repair keyed its lookup by the old string and two rows shared one).
+    ///
+    /// Rows whose title is computed — the mixer band names, the zone register, the
+    /// helper-built mask rows — spell no literal at the call, so only the first half
+    /// applies to them. That is a real gap and it is a small one: a computed-title row
+    /// still has to land on a slider construction.
+    func testEveryCitationInTheInventoryLandsOnTheRowItNames() throws {
+        var wrong: [String] = []
+        var cache: [String: [String]] = [:]
+        func lines(_ file: String) throws -> [String] {
+            if let hit = cache[file] { return hit }
+            let text = try LayoutSource.read("Sources/LumenApp/\(file)")
+            let split = text.components(separatedBy: "\n")
+            cache[file] = split
+            return split
+        }
+        /// `File.swift:123`, of which a `site` may carry more than one — the wheel bars
+        /// name the control-kit line AND the panel that mounts it.
+        func citations(in site: String) -> [(file: String, line: Int)] {
+            var found: [(String, Int)] = []
+            for token in site.components(separatedBy: CharacterSet(charactersIn: " ()")) {
+                let parts = token.components(separatedBy: ":")
+                guard parts.count == 2, parts[0].hasSuffix(".swift"),
+                      let line = Int(parts[1]) else { continue }
+                found.append((parts[0], line))
+            }
+            return found
+        }
+
+        for row in SliderInventory.all {
+            let sites = citations(in: row.site)
+            XCTAssertFalse(sites.isEmpty,
+                           "\(row.title.isEmpty ? "(untitled)" : row.title) has a site "
+                               + "string no reader can follow: \"\(row.site)\"")
+            for (file, line) in sites {
+                let text = try lines(file)
+                let landed = [line, line - 1, line + 1].first { candidate in
+                    guard candidate >= 1, candidate <= text.count else { return false }
+                    let source = text[candidate - 1]
+                    return source.contains("Slider(") || source.contains("LumenColorWheel(")
+                }
+                guard let landed else {
+                    let at = (line >= 1 && line <= text.count)
+                        ? text[line - 1].trimmingCharacters(in: .whitespaces) : "past EOF"
+                    wrong.append("\(row.title.isEmpty ? "(untitled)" : row.title) — "
+                                 + "\(file):\(line) is not a slider call: \(at.prefix(60))")
+                    continue
+                }
+                // The literal title, when the call spells one.
+                let window = text[(landed - 1)..<min(landed + 1, text.count)]
+                    .joined(separator: " ")
+                guard let call = window.range(of: "Slider(")
+                        ?? window.range(of: "LumenColorWheel(") else { continue }
+                var rest = window[call.upperBound...]
+                    .trimmingCharacters(in: .whitespaces)
+                if rest.hasPrefix("title:") {
+                    rest = String(rest.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                }
+                guard rest.hasPrefix("\""), !row.title.isEmpty else { continue }
+                let body = rest.dropFirst()
+                guard let end = body.firstIndex(of: "\"") else { continue }
+                let spelled = String(body[..<end])
+                if spelled != row.title {
+                    wrong.append("\(row.title) — \(file):\(line) is the call site of "
+                                 + "\"\(spelled)\", which is a different row")
+                }
+            }
+        }
+        XCTAssertTrue(wrong.isEmpty,
+                      "\(wrong.count) of \(SliderInventory.all.count) rows cite a line "
+                          + "that is not their call site. Every number this suite prints "
+                          + "about them is still right; the address it prints them with "
+                          + "is not:\n  " + wrong.joined(separator: "\n  "))
+    }
+
     /// The face these widths are taken in is the one the app draws, and not a fallback.
     ///
     /// Everything in the metric suite is a width in points of the system face. If the
