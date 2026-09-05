@@ -10,10 +10,17 @@ family each, then seven more whose only job was to REFUTE what the first seven c
 defaulting to refuted when a claim could not be independently reproduced. A defect that
 survives that costs real engineering time, so a false positive is expensive.
 
-**Result: 49 claims survived. 2 were refuted.** 24 of the survivors are S2, 24 are S3.
+**Result: 49 claims survived. 2 were refuted.**
 
-**Landed since this run: A1-01, B2-02 and K-039**, each marked at its own entry with what
-shipped.
+**Count the survivors carefully — 49 headings are 47 defects.** `K-075` and `TONE-30` are each
+written up twice, once per family, because each belongs to two. Anyone cutting a work list
+straight from the headings will schedule those two jobs twice.
+
+**Landed since this run: A1-01, B2-02, K-039, B1-08 and the histogram's second write path**,
+each marked at its own entry with what shipped. That leaves **43 still open — 20 S2, 22 S3, and
+`NEW-typing-bypasses-step`, which carries no severity because the refute pass concluded it
+carries no engineering cost either.**
+
 The evidence sections are left as they were measured — they are the record of what was true
 when the run was made, and rewriting them would destroy the thing this document is for.
 
@@ -475,7 +482,23 @@ uniform mix is a level no-op; `testAUniformBWMixIsALevelNoOp` does not exist in 
 
 </details>
 
-### B1-08 / COLOR-01 — S2
+### B1-08 / COLOR-01 — S2 — **LANDED (renamed, not re-anchored)**
+
+> **Fixed by renaming the bands, on the owner's explicit choice between the two available
+> fixes.** Two names sat more than half a band (22.5°) from their own centre and now do not:
+> Green → **Mint** (43.3° → 1.4°) and Blue → **Azure** (31.8° → 1.9°). The other six are all
+> inside half a band and are untouched; for Magenta at 15.5° no candidate is materially better
+> (Pink 8.5°, Rose 14.6°), so changing it would be a swap rather than a fix.
+>
+> **The centres did not move**, which is why this cost no `pipelineVersion` bump, no migration,
+> and no re-render of saved work — the recipe stores bands positionally and the names reach only
+> the panel and one status message. `MixerBandNameTests` now asserts the half-band rule, so a
+> name can no longer drift from its centre silently, and `testTheBandCentresAreWhereTheGoldenLockSaysTheyAre`
+> fails if someone tries to move a centre under cover of a rename.
+>
+> **What renaming does NOT fix, and the entry stays open-in-spirit for it:** there is still no
+> band centred on ordinary green. The centres either side are 68.2° and 163.3°, and green sits in
+> the 95° gap. Only re-anchoring closes that, and re-anchoring is the migration described below.
 
 The band anchor and spacing are untouched, so the eight names still sit off the colours they
 name and ordinary foliage is still majority-"Yellow".
@@ -1144,7 +1167,12 @@ a parity break.
 
 ## UI write paths (new findings)
 
-### NEW-histogram-second-write-path — S2
+### NEW-histogram-second-write-path — S2 — **LANDED**
+
+> **Fixed in `9bcac9f`.** `Lumen.ToneRow` states the five rows' bounds and step once, and the
+> histogram resolves its drags through it — which is `LumenSlider`'s own clamp-then-snap, so the
+> handle can no longer leave Exposure on a value the slider that displays it cannot produce or
+> return to. A `DesignSystemTests` ratchet stops the inline copy coming back.
 
 HistogramView.setTone is a second, hand-rolled write path into
 develop.tone.{blacks,shadows,exposure,highlights,whites} that re-implements LumenSlider's

@@ -700,7 +700,7 @@ struct ColorPanel: View {
                                     + ColorPanel.bandName(i).lowercased()
                                     + " prints in the black-and-white mix — up "
                                     + "lightens it, down darkens it, greys stay put. "
-                                    + "The classic moves: drop Blue for a dramatic "
+                                    + "The classic moves: drop Azure for a dramatic "
                                     + "sky, lift Red and Orange to open up skin.")
                 }
             }
@@ -903,7 +903,7 @@ struct ColorPanel: View {
     /// The stops for one band's row, or nil for a neutral track.
     ///
     /// Nil in All-bands mode on purpose: the row then acts on every band at once, and a
-    /// track wearing Blue's colours while the drag also moves skin would be the panel
+    /// track wearing Azure's colours while the drag also moves skin would be the panel
     /// lying about scope. The bounds check is not defensive noise either — the tables
     /// are sized from the swatch list and the index comes from `ColorEngine.bandCount`,
     /// two constants that agree today and are declared in different modules.

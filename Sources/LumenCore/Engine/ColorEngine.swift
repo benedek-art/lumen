@@ -91,9 +91,49 @@ public struct ColorEngine: Sendable {
 
     public static let bandCount: Int = 8
 
-    /// LrC-compatible names, in the wire format's fixed structural order.
+    /// What each band is CALLED, in the wire format's fixed structural order.
+    ///
+    /// B1-08. These were LrC's eight names, and two of them named a colour their band is
+    /// nowhere near. The bands sit 45° apart in OKLCh anchored on sRGB red; the names were
+    /// inherited from a different product with a different geometry, and nothing had ever
+    /// checked one against the other. Measured — HSV hue of `ProofFrames.bandCentreSRGB`,
+    /// the sRGB that sits on each centre, against the conventional sRGB of the name it
+    /// carried:
+    ///
+    ///     band  centre       was       off by    is now    off by
+    ///     0     #FF0000      Red         0.0°    Red         0.0°
+    ///     1     #FFAC00      Orange     10.4°    Orange     10.4°
+    ///     2     #DCFF00      Yellow      8.2°    Yellow      8.2°
+    ///     3     #00FFB8      Green      43.3°    Mint        1.4°
+    ///     4     #00E5FF      Aqua        6.1°    Aqua        6.1°
+    ///     5     #0087FF      Blue       31.8°    Azure       1.9°
+    ///     6     #9000FF      Purple      3.8°    Purple      3.8°
+    ///     7     #FF00BD      Magenta    15.5°    Magenta    15.5°
+    ///
+    /// TWO RENAMES AND NOT EIGHT, on a rule rather than on taste: a band is renamed when
+    /// its name sits more than HALF A BAND (22.5°) from the centre, because past that the
+    /// name is describing the neighbouring band's territory. "Green" was almost a whole
+    /// band out. The five left alone are all inside half a band, and for Magenta no
+    /// candidate is materially better — Pink is 8.5° and Rose 14.6°, so it is a swap, not
+    /// a fix, and Magenta is the established vocabulary for a mixer.
+    ///
+    /// THE CENTRES DO NOT MOVE, and that is the whole point of doing it this way. Moving
+    /// them is the fix docs/audit-2026-09/w2/B1.md:297 describes, and it costs a
+    /// `pipelineVersion` bump with a badged per-photo migration, because every recipe that
+    /// ever touched the mixer would render differently. Renaming costs nothing: these
+    /// strings reach `ColorPanel` and one status message and are not in the wire format —
+    /// the recipe stores bands POSITIONALLY. The owner chose this trade explicitly.
+    ///
+    /// WHAT IT DOES NOT FIX, said here because a truthful label is not the same as a
+    /// complete instrument: there is now no band called Green, and that is honest rather
+    /// than sloppy — the centres are 68.2° and 163.3° in HSV terms, and ordinary green
+    /// sits in the 95° gap between them, belonging to neither. Only re-anchoring closes
+    /// that, and re-anchoring is the migration above. The way to find the band for a
+    /// colour meanwhile is the picker — click the colour in the photograph and the band
+    /// selects itself (`dominantBand(for:)`), which is exactly the affordance that exists
+    /// because these names were never reliable.
     public static let bandNames: [String] = [
-        "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"
+        "Red", "Orange", "Yellow", "Mint", "Aqua", "Azure", "Purple", "Magenta"
     ]
 
     /// Anchor: the OKLCh hue of sRGB pure red. Golden-locked — changing this or the 45°

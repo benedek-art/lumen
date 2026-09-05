@@ -234,8 +234,16 @@ https://claude.ai/code/artifact/8f442d3f-960c-4167-b115-a288480dfb2b
   authority floors on the old ones (`radius` and `haloSuppression` at 0.0000 with 20
   dead steps; `amount` 16.19 against 29; `masking` 4.04 against 10). Only `detail`
   passed, and it passed by reading HIGHER than it should — a dead unsharp term made its
-  cross-fade look authoritative. **The records are not re-pinned: `ControlProofTests`
-  is skipped on both push lanes and the ceremony must run on the final tree.**
+  cross-fade look authoritative. ~~**The records are not re-pinned: `ControlProofTests`
+  is skipped on both push lanes and the ceremony must run on the final tree.**~~ **NO LONGER
+  TRUE, and the correction matters more than the claim did.** `ControlProofTests` is skipped on
+  `engine-linux` only; `proof.yml` runs `swift test --filter ControlProofTests` and has now gone
+  green over all 144 controls on `89a43d1` and again on `fe3d38a`. The sentence predates the
+  trigger fix in `86a8f97`, which is what made that lane fire on changes to the pipeline and the
+  panels rather than to one directory. Left standing it tells a reader the records are unverified
+  when they are re-measured on every push. What IS still outstanding is narrower: `E2-04`'s five
+  `sharpen.*` records are expected to move on wide frames, so a record-moving tranche lands on top
+  of that rather than on a clean tree.
 - **`I3-02`** — CLOSED in the final run, and the claim was corrected UPWARD rather than
   the number gamed. 768 MiB was never achievable: one source may legally hold a 320 MiB
   interactive working set plus a budget-exempt inspection plane of up to 512 MiB, and the
