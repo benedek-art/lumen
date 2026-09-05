@@ -63,11 +63,22 @@ matter what the color math does internally (D9).
 
 | Control | Range | Default | Notes |
 |---|---|---|---|
-| Temp | 2000–50000 K, log-scaled slider | As Shot | Blue→yellow track gradient; typed entry in K |
+| Temp | 2000–50000 K on the MIRED axis (`SliderScale.reciprocal`) | As Shot | Blue→yellow track gradient; typed entry in K |
 | Tint | −150…+150 soft, −300…+300 hard | As Shot | Green→magenta; hard range via typed entry/scrub past end |
 | Preset | As Shot, Auto, Daylight, Cloudy, Shade, Tungsten, Fluorescent, Flash, Custom | As Shot | Any manual move flips to Custom |
 | Eyedropper | loupe 5×5 → 17×17 px | 5×5 | `W`; RGB % readouts under loupe; Esc dismisses |
 | Advanced (disclosure) | illuminant hue/chroma; blue-LED gamut compression on/off | auto | Only shown when the solve leaves the Planckian/daylight locus |
+
+> **Which non-linear axis, and why it is named rather than called "log-scaled".** This row
+> said "log-scaled" and the code ships mireds, 1e6/K — the axis every camera UI steps in
+> underneath and the one this package's own eyedropper search already used. They are not the
+> same curve, and the difference is the point: on the mired axis 2000–50000 K spends its
+> fifths 21.4 / 33.6 / 18.8 / 15.6 / 10.5, so the worst fifth is within 3.2x of the best
+> instead of 233x. The Display Transform's Contrast row, further down, is genuinely
+> logarithmic, because a slope is a ratio. Naming the case lets a reader check the claim against
+> `SliderScale`, which is how K-039 was found: that row said "log-scaled" here and passed no
+> scale at all at the call site.
+
 
 **How it works.** WB is a CAT16 chromatic adaptation in a dedicated adaptation space, applied at the
 head of the linear pipeline on scene-linear data (stage S6 in docs/14-pipeline.md; the decode itself
@@ -270,9 +281,19 @@ adjustable pivot instead of a hidden one (Resolve's Contrast+Pivot primitive).
 | Pivot auto | — | — | Sets pivot to face-weighted mean luminance (falls back to frame mean) |
 
 **How it works.** In log2 exposure space: `t′ = pivot + (t − pivot) × slope`, with
-`slope = 1 + 0.6 × (contrast/100)`, applied at constant hue and chroma, with soft saturation of the
-slope's effect beyond ±4 EV from the pivot so extremes compress instead of exploding (the Render
-transform's toe and shoulder finish the job). Scene-referred slope-around-a-pivot is the CDL/
+`slope = 1 + 0.6 × (contrast/100)`, applied at constant hue and chroma, and with the slope eased
+back to exactly 1 **at the display anchor** so that each end of the scale is a FIXED POINT of the
+mapping — `d × 1 == d`, so contrast cannot push a pixel across the end of the scale because the end
+of the scale does not move. The ease runs over the outer 80% of the distance to the anchor; the
+inner fifth keeps the full slope, which is what stops the pinning from costing the midtones. (The
+Render transform's toe and shoulder still finish the job below and above.)
+
+This sentence used to promise "soft saturation of the slope's effect beyond ±4 EV from the pivot",
+and that was A1-01: ±4 EV was denominated on nothing, while the value that decides where a
+highlight actually clips is the display anchor — +5 EV by default and as low as +3.5 under Whites
++100. The window finished seven stops past where it needed to, so at Contrast +100 everything from
++3.125 EV up rendered as one flat white. `ToneEngine.contrastMapped` carries the full account,
+including what the pinning costs the zonal limiter. Scene-referred slope-around-a-pivot is the CDL/
 colorist primitive; LrC's Contrast is a fixed S-curve whose anchor sits near Lab L≈50 by community
 measurement — Adobe has never documented it. An explicit pivot means contrast for a low-key stage
 shot pivots on the performer's face, not on a gray the image doesn't contain.
@@ -299,7 +320,7 @@ which is why it sits at the top of the panel, where LrC puts Profile.
 | Control | Range | Default | Notes |
 |---|---|---|---|
 | Preset | Neutral, Soft, Punchy, Film Base, Linear | Neutral | Named parameter sets of the one transform; Linear = the escape hatch |
-| Contrast | 0.1–10.0, log-scaled | 1.5 | Slope at mid-gray |
+| Contrast | 0.1–10.0 on the LOG axis (`SliderScale.log`) | 1.5 | Slope at mid-gray; 1.0 is the identity and sits mid-track |
 | Skew | −1…+1 | 0 | Shifts curve emphasis toe↔shoulder; slope at pivot unchanged |
 | — disclosure: color — | | | |
 | Hue preservation | 0–100% | 100 | 0 = full per-channel skew ("hotter" sunsets/fire), 100 = hue-stable |

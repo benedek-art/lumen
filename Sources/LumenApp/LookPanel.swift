@@ -1175,7 +1175,16 @@ struct LookPanel: View {
                                              get: { $0.contrast },
                                              fallback: base.contrast,
                                              set: { $0.contrast = $1 }),
-                        range: 0.1...10, defaultValue: base.contrast,
+                        range: 0.1...10,
+                        // K-039. A slope is a RATIO — 2.0 is as far from 1.0 as 0.5 is
+                        // — and on the linear track this row shipped with, the default
+                        // of 1.5 sat at 14.1% and everything anyone sets lived in the
+                        // first ninth of the travel. docs/04-spec-tone.md:302 has said
+                        // "0.1–10.0, log-scaled" since it was written; the axis existed
+                        // for Temp and this row simply never asked for one. On it the
+                        // default sits at 58.8% and 1.0, the identity, is dead centre.
+                        scale: .log,
+                        defaultValue: base.contrast,
                         step: 0.05, decimals: 2, bipolar: false,
                         help: LookPanel.overrideHelp,
                         onReset: { clearTransformOverride(\.contrast) })

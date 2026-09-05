@@ -1533,8 +1533,15 @@ enum ProofRegistry {
                 // is what an override on the display transform's own contrast should
                 // be. `frontLoading` records 0.964: almost the whole move is spent in
                 // the first half of a 0.1…10 travel, which is what a LOG-scaled
-                // parameter swept LINEARLY looks like from the outside, and is the
-                // same shape K-039 files against the Basic panel's Contrast.
+                // parameter swept LINEARLY looks like from the outside.
+                //
+                // That number is about THIS SWEEP and not about the row any more, and
+                // the distinction matters now that K-039 has landed. A proof sweeps the
+                // recipe field across its declared range at even steps, which is the
+                // right way to ask what the control is worth; the slider presents the
+                // same range on `SliderScale.log`, so a hand moving evenly along the
+                // track does NOT produce this distribution. Reading 0.964 as "the row
+                // is front-loaded" would be reading the probe.
                 authorityFloor: 90,
                 apply: { r, v in r.look.render.contrast = v }),
             ControlSpec(

@@ -12,7 +12,8 @@ survives that costs real engineering time, so a false positive is expensive.
 
 **Result: 49 claims survived. 2 were refuted.** 24 of the survivors are S2, 24 are S3.
 
-**Landed since this run: A1-01 and B2-02**, each marked at its own entry with what shipped.
+**Landed since this run: A1-01, B2-02 and K-039**, each marked at its own entry with what
+shipped.
 The evidence sections are left as they were measured — they are the record of what was true
 when the run was made, and rewriting them would destroy the thing this document is for.
 
@@ -110,7 +111,16 @@ AccuracyProbeTests.testTheDefaultZonePivotsSitAtTheirDocumentedEVs builds defaul
 
 </details>
 
-### K-039 — S2
+### K-039 — S2 — **LANDED**
+
+> **Fixed.** `SliderScale` gets its third case, `.log`, and the row asks for it. The
+> default moves from 14.1% of the track to 58.8%; 1.0 — the identity of a slope — lands
+> dead centre, because 0.1 is a tenth and 10 is ten times; and the 1.0…1.9 working band
+> goes from 9.1% of the travel to 13.9%. The step stays in value units, which is this
+> file's rule for every scale and which the first version of the ratio test got wrong
+> before the test was corrected rather than the axis bent. `RenderContrastScaleTests`
+> guards the call site by text, because `LookPanel` is macOS-only and no compiler on the
+> Linux lane sees a missing argument there.
 
 The Render Contrast row still ships on a linear 0.1…10 track where docs/04 specifies log-
 scaled — the default sits at 14.14 % of the track and the 1.0–1.9 working band is 9.09 % of it
