@@ -410,7 +410,7 @@ enum SliderInventory {
     /// distinct (title, host, range, step) rows those builders produce.
     ///
     /// Two entries carry a note rather than a literal title: `ColorPanel:696` takes
-    /// `ColorEngine.bandNames[i]` and `ZonesPanel:106` takes the zone register's name, so
+    /// `ColorEngine.bandNames[i]` and `ZonesPanel:135` takes the zone register's name, so
     /// the WIDEST member of each list stands for the row.
     static let all: [SliderSpec] = [
         // Basic — white balance and tone.
@@ -639,10 +639,25 @@ enum SliderInventory {
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.
         // "Midtones" is the widest of the six names.
-        SliderSpec("Midtones", "ZonesPanel.swift:106", .developDisclosure, -3...3,
-                   hard: -5...5, step: 0.01, decimals: 2),
-        SliderSpec("Global", "ZonesPanel.swift:135", .developDisclosure, -3...3,
-                   hard: -5...5, step: 0.01, decimals: 2),
+        //
+        // THE STEP IS 0.05, NOT 0.01, AND BOTH SITES HAD MOVED. Every other number on
+        // these two rows was right; the quantum was a twentieth of a stop in the panel
+        // and a hundredth here, so this table advertised 600 addressable values for a
+        // control that offers 120 and priced its precision at a fifth of the truth. The
+        // call site says why it is coarse in as many words — "coarser than Exposure's
+        // 0.01 EV on purpose … a twentieth of a stop is already finer than the
+        // difference two adjacent zones make" (`ZonesPanel.swift:85-89`) — so the
+        // divergence was this file's, not the panel's.
+        //
+        // It survived because nothing checks a `site` string. `:106` had become a
+        // comment inside the section-header branch, and `:135` — which was Global's
+        // citation — is the register row itself, so the two sites named a sentence and
+        // each other. A row whose citation has drifted still measures a real geometry,
+        // so the suite stayed green while naming the wrong line to whoever went looking.
+        SliderSpec("Midtones", "ZonesPanel.swift:135", .developDisclosure, -3...3,
+                   hard: -5...5, step: 0.05, decimals: 2),
+        SliderSpec("Global", "ZonesPanel.swift:164", .developDisclosure, -3...3,
+                   hard: -5...5, step: 0.05, decimals: 2),
     ]
 }
 

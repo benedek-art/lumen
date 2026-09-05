@@ -230,29 +230,29 @@ final class SliderEvidenceTests: XCTestCase {
         // Each of these is a control the develop UI offers and the proof sweep has never
         // measured. They are listed as dispositions because that is what they are today,
         // and the reason field says "owed", not "exempt".
-        "film.halationSize": .disposition(
-            "OWED: no record. A live slider (LookPanel:1354, 0.5…2.0) on the halation "
-                + "kernel's radius. film.halation is recorded; its size is not."),
-        "film.halationRedness": .disposition(
-            "OWED: no record. A live slider (LookPanel:1370, 0…100) on the halation "
-                + "bounce's colour."),
+        // THE NINE THAT WERE OWED ARE PAID. Each carried an `OWED: no record`
+        // disposition; each has a `ControlSpec` and a committed record now, with an
+        // authority floor at about 70% of its measurement (docs/27's convention).
+        //
+        // These rows were stale for a while and the suite could not say so, because
+        // `testEveryClaimedRecordExists` only checks that a claimed record EXISTS — it
+        // never asked whether a disposition was still true. A manifest that can go out of
+        // date in one direction only is the same shape as a check that cannot fail, which
+        // is the thing this file was written to remove.
+        // `testEveryRecordedControlIsClaimedByARecordRow` below walks the other way and
+        // closes it.
+        "film.halationSize": .record(["film.halationSize"]),
+        "film.halationRedness": .record(["film.halationRedness"]),
         "look.vignetteFeather": .contract(
             "VignetteResponseTests.testFeatherMovesTheDeliveredStrengthTwelvefold — a "
                 + "contract, not a sweep: no authority floor and no monotonicity check."),
-        "look.grain.amount": .disposition(
-            "OWED: no record, and dispositioned in docs/27 §3 on a premise the source "
-                + "contradicts. That table says Effects grain is 'the same recipe fields "
-                + "as film.grain.*'; EffectsPanel:252 says the creative row binds "
-                + "look.grain — CreativeGrain, a different type from FilmGrain."),
-        "look.grain.size": .disposition("OWED: no record — see look.grain.amount."),
-        "look.grain.roughness": .disposition(
-            "OWED: no record. CreativeGrain.roughness has no counterpart in FilmGrain at "
-                + "all, so docs/27's 'measured twice' reasoning cannot cover it."),
-        "render.contrast": .disposition(
-            "OWED: no record. A Display Transform override (LookPanel:1173, 0.1…10)."),
-        "render.skew": .disposition("OWED: no record — Display Transform (LookPanel:1182)."),
-        "render.hue": .disposition("OWED: no record — Display Transform (LookPanel:1191)."),
-        "render.black": .disposition("OWED: no record — Display Transform (LookPanel:1200)."),
+        "look.grain.amount": .record(["look.grain.amount"]),
+        "look.grain.size": .record(["look.grain.size"]),
+        "look.grain.roughness": .record(["look.grain.roughness"]),
+        "render.contrast": .record(["render.contrast"]),
+        "render.skew": .record(["render.skew"]),
+        "render.hue": .record(["render.hue"]),
+        "render.black": .record(["render.black"]),
     ]
 
     // MARK: - The scan
@@ -348,6 +348,66 @@ final class SliderEvidenceTests: XCTestCase {
                       "the manifest claims proof records that ProofRegistry does not "
                           + "have, so a control is documented as covered and is not:\n  "
                           + missing.sorted().joined(separator: "\n  "))
+    }
+
+    /// THE OTHER DIRECTION, and the reason nine rows sat stale with every lane green.
+    ///
+    /// `testEveryClaimedRecordExists` walks manifest → registry: a row that claims a
+    /// record names a spec that exists. Nothing walked registry → manifest, so when
+    /// `film.halationSize`, `film.halationRedness`, the three `look.grain.*` and the four
+    /// `render.*` controls got specs and committed records, their rows went on saying
+    /// `OWED: no record` and nothing anywhere could notice. A table that can only go
+    /// stale in the safe direction understates what is known, which reads as modesty and
+    /// behaves as a lie: `testReportsTheCoverage` printed nine debts that were paid.
+    ///
+    /// So: every spec in `ProofRegistry.all` is claimed by some `.record` row. A control
+    /// that is swept cannot also be sitting under a disposition saying it is owed a
+    /// sweep, because a disposition claims no ids and the spec would land here unclaimed.
+    ///
+    /// This is a stronger check than matching a manifest key against a spec id would be,
+    /// and it is stronger in the direction that matters: the two enumerations do not
+    /// share a naming convention — `wb.temp` is recorded as `raw.temp`, `parametric.darks`
+    /// as `curve.darks`, `wheel.*.hue` as four `grade.*.hue` ids — so key-to-id matching
+    /// would have missed a renamed spec entirely. Claiming is explicit, so nothing is
+    /// missed and nothing is guessed.
+    func testEveryRecordedControlIsClaimedByARecordRow() {
+        // The on-strip drags. Each is on the not-a-slider list, because a pivot handle
+        // is not a slider — and each is nonetheless SWEPT, so its spec has to be
+        // accounted for here or this assertion would demand a slider row for a drag.
+        // Named one by one rather than pattern-matched: `zones.pivot.*` as a glob would
+        // absorb a future `zones.pivot.5` that nobody had looked at.
+        let recordedDrags: Set<String> = [
+            "zones.pivot.0", "zones.pivot.1", "zones.pivot.2", "zones.pivot.3",
+            "zones.pivot.4", "grade.pivot.shadow", "grade.pivot.highlight",
+        ]
+
+        var claimed: Set<String> = []
+        for evidence in Self.manifest.values {
+            guard case .record(let ids) = evidence else { continue }
+            claimed.formUnion(ids)
+        }
+        let recorded = Set(ProofRegistry.all.map(\.id))
+
+        // The exception list keeps itself honest in both directions: a drag whose spec
+        // has gone, or one a slider row has since claimed, fails here rather than
+        // sitting on as a permanent hole in the check.
+        for id in recordedDrags.sorted() {
+            XCTAssertTrue(recorded.contains(id),
+                          "\(id) is listed here as a recorded on-strip drag and "
+                              + "ProofRegistry has no such spec any more")
+            XCTAssertFalse(claimed.contains(id),
+                           "\(id) is claimed by a manifest row now — take it off the "
+                               + "drag list, the exception is not needed")
+        }
+
+        let unclaimed = recorded.subtracting(claimed).subtracting(recordedDrags).sorted()
+        XCTAssertTrue(unclaimed.isEmpty,
+                      "these controls are SWEPT — ProofRegistry drives them and a record "
+                          + "is committed — and no row in the evidence manifest claims "
+                          + "them, so this table is understating what is known about "
+                          + "each. Add the id to the row that binds it, or to the drag "
+                          + "list above if no slider does:\n  "
+                          + unclaimed.joined(separator: "\n  "))
     }
 
     /// Every control the panels bind is accounted for — with a record, a contract, or a
