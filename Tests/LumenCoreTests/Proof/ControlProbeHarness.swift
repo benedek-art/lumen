@@ -61,6 +61,51 @@ final class ControlProbeHarness: XCTestCase {
         return ["0", "false", "no", "off"].contains(v.lowercased()) ? nil : v
     }
 
+    /// THE WHOLE REGISTRY AS DATA, so nothing outside this target has to parse Swift to
+    /// learn what a control declares.
+    ///
+    /// `ProofRegistry.all` is 144 specs built from 68 `ControlSpec` literals — twelve of
+    /// them inside loops that interpolate a band or a zone name into the id — so a script
+    /// that read the source would have to re-implement the loops to see the other 76.
+    /// The atlas work list needs every declared low, high, neutral, frame and floor, and
+    /// getting them by transcription is how a work list ends up describing controls that
+    /// do not exist. This prints them from the array itself.
+    ///
+    /// Same guard shape as the probe below: nothing happens without the variable, so
+    /// every lane skips it.
+    func testDumpTheRegistry() throws {
+        guard Self.flag("LUMEN_PROBE_DUMP_REGISTRY") != nil else {
+            throw XCTSkip("set LUMEN_PROBE_DUMP_REGISTRY=1 to print ProofRegistry as JSON")
+        }
+        let specs: [[String: Any]] = ProofRegistry.all.map { spec in
+            [
+                "id": spec.id,
+                "panel": spec.panel,
+                "displayName": spec.displayName,
+                "low": spec.low,
+                "high": spec.high,
+                "neutral": spec.neutral,
+                "authorityEnd": spec.authorityEnd,
+                "frame": spec.frameName,
+                "authorityFloor": spec.authorityFloor,
+                "mayLeaveRange": spec.mayLeaveRange,
+                "overshootCeiling": spec.overshootCeiling as Any? ?? NSNull(),
+                "isCircular": spec.isCircular,
+                "captureISO": spec.captureISO as Any? ?? NSNull(),
+                "denoisedFirst": spec.denoisedFirst,
+                "declaredPlateauSteps": spec.declaredPlateauSteps,
+                "declaredReversal": spec.declaredReversal as Any? ?? NSNull(),
+                "hasCommittedRecord": ProofRecordStore.read(spec.id) != nil,
+            ]
+        }
+        let data = try JSONSerialization.data(
+            withJSONObject: ["count": specs.count, "specs": specs],
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        print("REGISTRY_BEGIN")
+        print(String(data: data, encoding: .utf8) ?? "{}")
+        print("REGISTRY_END")
+    }
+
     func testProbeOneControl() throws {
         guard let wanted = Self.flag("LUMEN_PROBE_CONTROL") else {
             throw XCTSkip("set LUMEN_PROBE_CONTROL=<control id> to probe one control")
