@@ -565,16 +565,27 @@ public struct ToneEngine: Sendable {
     /// against a declared floor of 55. So the slope holds undiluted across the inner
     /// `contrastShoulderStart` of the reach and eases only over the outer part — the
     /// straight section, shoulder and toe a film curve has always had. See that
-    /// constant for why the hold is 0.3 and not more.
+    /// constant for why the hold is 0.2 and not more.
     ///
     /// STILL MONOTONE, which is what the old window was wide for. With
     /// `f(d) = d·mix(slope, 1, s(u))` and `u = d/reach`, the derivative in u is
-    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, whose bracket peaks at 2.2069. At contrast
-    /// +100 (slope 1.6) the minimum derivative is 1.6 − 0.6·2.2069 = 0.276; at contrast
-    /// −100 (slope 0.4) the derivative is smallest at the pivot at 0.4. Positive across
-    /// the whole range, so the inversion the old comment feared ("a brighter input
-    /// darker, an inversion, never a look") cannot occur here either. `ToneMonotoneTests`
-    /// measures it rather than trusting this paragraph.
+    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, whose bracket peaks at 1.9825 at the
+    /// shipped hold of 0.2. At contrast +100 (slope 1.6) the minimum derivative is
+    /// 1.6 − 0.6·1.9825 = 0.4105, reached at |d|/reach = 0.770 — on the default anchors,
+    /// +3.85 EV. At contrast −100 (slope 0.4) the derivative is smallest at the pivot at
+    /// 0.4. Positive across the whole range, so the inversion the old comment feared
+    /// ("a brighter input darker, an inversion, never a look") cannot occur here either.
+    /// `EngineTests.testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting` measures it
+    /// rather than trusting this paragraph — there is no `ToneMonotoneTests`, which is
+    /// what this line named until the atlas run went looking for it.
+    ///
+    /// BOTH NUMBERS IN THIS PARAGRAPH USED TO BE THE ONES FOR A HOLD OF 0.3 — bracket
+    /// 2.2069, minimum derivative 0.276 — left behind when the hold was settled at 0.2
+    /// and the trade table above was written. Two independent measurements agree on
+    /// 0.410481 at +3.8508 EV (140,001 central differences at h = 1e-6 over the default
+    /// [−9, +5] EV), which back-solves the bracket to 1.982532 and matches the constant's
+    /// own paragraph. A comment that explains a control is part of the control, and this
+    /// one was explaining a curve the engine does not run.
     ///
     /// Above the anchor `u` saturates and the mapping is the identity, which is correct
     /// and is the same answer the old window gave: a pixel already past the end of the
