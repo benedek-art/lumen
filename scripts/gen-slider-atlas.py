@@ -38,15 +38,32 @@ OVERALL_MARK = {"clean": "clean", "smallProblems": "small", "bigProblems": "**BI
 
 
 def load(directory):
-    out = []
+    """Every VERDICT in the directory, and nothing else that happens to be in it.
+
+    The agents write their scratch beside their results — a probe's `.swift`, a sweep
+    log, a `bw.aqua.compact.json` written alongside `bw.aqua.json` — so "every `.json`
+    here is a verdict" is not true and a document generated on that assumption would
+    carry whatever else landed. A verdict is recognised by its shape, and the first
+    verdict for a control wins so a second file for the same id cannot double-count it.
+    """
+    out, seen = [], set()
     for name in sorted(os.listdir(directory)):
         if not name.endswith(".json"):
             continue
         with open(os.path.join(directory, name)) as handle:
             try:
-                out.append(json.load(handle))
+                record = json.load(handle)
             except json.JSONDecodeError as bad:
                 print(f"skipping {name}: {bad}", file=sys.stderr)
+                continue
+        if not isinstance(record, dict) or "id" not in record or "entry" not in record:
+            print(f"skipping {name}: not a VERDICT", file=sys.stderr)
+            continue
+        if record["id"] in seen:
+            print(f"skipping {name}: {record['id']} already read", file=sys.stderr)
+            continue
+        seen.add(record["id"])
+        out.append(record)
     return out
 
 
