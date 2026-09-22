@@ -1,0 +1,25 @@
+{"control":"sharpen.Amount","cpuGpuHiRMS":0.001606941916263418,"cpuLoHiRMS":0.025574583986672676,"gpuLoHiRMS":0.026311955333567578}
+{"control":"sharpen.Radius","cpuGpuHiRMS":0.001032781002108832,"cpuLoHiRMS":0.011531302542502101,"gpuLoHiRMS":0.0075930682664606701}
+{"control":"sharpen.Detail","cpuGpuHiRMS":1.6342353996496944e-07,"cpuLoHiRMS":0.0031597060240243996,"gpuLoHiRMS":0.0029915135777665758}
+{"control":"sharpen.Masking","cpuGpuHiRMS":0.00073922412167663223,"cpuLoHiRMS":0.0060278428866774297,"gpuLoHiRMS":0.0064443516916826947}
+{"control":"sharpen.Halo Damping","cpuGpuHiRMS":0.00098353742062578034,"cpuLoHiRMS":0.011977501204066944,"gpuLoHiRMS":0.012284041970905912}
+{"control":"presence.Texture","cpuGpuHiRMS":0.0053352424608230148,"cpuLoHiRMS":0.01780299442362988,"gpuLoHiRMS":0.0092335500044018835}
+{"control":"presence.Clarity","cpuGpuHiRMS":0.032878177548817396,"cpuLoHiRMS":0.01002758594846756,"gpuLoHiRMS":0.038574608116385134}
+{"control":"presence.Dehaze","cpuGpuHiRMS":0.0026955124393381151,"cpuLoHiRMS":0.060108069544919075,"gpuLoHiRMS":0.060907724398810842}
+{"control":"denoise.Luminance","cpuGpuHiRMS":3.2471945896783289e-08,"cpuLoHiRMS":0.0067467245218806472,"gpuLoHiRMS":0.0067467277321724391}
+{"control":"denoise.Luminance Detail","cpuGpuHiRMS":3.0175381390047002e-08,"cpuLoHiRMS":0.003822825090921586,"gpuLoHiRMS":0.0038228296296034859}
+{"control":"denoise.Luminance Contrast","cpuGpuHiRMS":2.9769511989902521e-08,"cpuLoHiRMS":0.00065673902814042254,"gpuLoHiRMS":0.00065675415904625865}
+{"control":"denoise.Colour","cpuGpuHiRMS":2.8622127335380724e-08,"cpuLoHiRMS":0.0084006810312902483,"gpuLoHiRMS":0.0084006804743547644}
+{"control":"denoise.Colour Detail","cpuGpuHiRMS":2.9701653198048468e-08,"cpuLoHiRMS":6.2344089420969244e-05,"gpuLoHiRMS":6.2344124506685884e-05}
+{"control":"denoise.Colour Smoothness","cpuGpuHiRMS":2.9778994824346453e-08,"cpuLoHiRMS":0.003083038463104773,"gpuLoHiRMS":0.003083039528847354}
+{"control":"denoise.Hot Pixels","cpuGpuHiRMS":2.9658324871951062e-08,"cpuLoHiRMS":0.0018818282967584411,"gpuLoHiRMS":0.0018818280498807854}
+{"control":"brush.256","flow10Ceiling80LinePeak":0.081768997013568878,"minimumDotMax":0}
+{"control":"brush.512","flow10Ceiling80LinePeak":0.25836071372032166,"minimumDotMax":0}
+{"control":"brush.1024","flow10Ceiling80LinePeak":0.43965572118759155,"minimumDotMax":0.23761826753616333}
+{"control":"brush.4096","flow10Ceiling80LinePeak":0.6339714527130127,"minimumDotMax":1}
+{"control":"brush.automask","otherColorMasked":0,"otherColorUnmasked":1}
+{"control":"brush.ceiling.0.0","fourMax":0,"oneMax":0}
+{"control":"brush.ceiling.1.0","fourMax":0.0068359375,"oneMax":0.0024999999441206455}
+{"control":"brush.ceiling.25.0","fourMax":0.1708984375,"oneMax":0.0625}
+{"control":"brush.ceiling.50.0","fourMax":0.341796875,"oneMax":0.125}
+{"control":"brush.ceiling.100.0","fourMax":0.68359375,"oneMax":0.25}

@@ -1,0 +1,1104 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Colour control inventory</title><style>:root{color-scheme:dark;--bg:#141619;--panel:#1d2025;--line:#343a43;--ink:#eaeef4;--muted:#a7b0bd;--accent:#91d5bf;--bad:#ff9696;--warn:#efd18d}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--accent);text-underline-offset:3px}button,input,select{font:inherit;color:inherit}button,select,input{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 12px}button{cursor:pointer}button:hover,button[aria-pressed=true]{border-color:var(--accent)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}header,main,footer{max-width:1200px;margin:auto;padding:32px}header{padding-top:48px}h1{font-size:clamp(30px,4vw,50px);line-height:1.14;max-width:850px;margin:12px 0 20px;letter-spacing:-1.4px}h2{font-size:28px;line-height:1.25;margin:0 0 18px}h3{font-size:19px;margin:0 0 10px}p{max-width:900px}section{margin:0 0 56px;scroll-margin-top:24px}.eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:12px;font-weight:650;color:var(--accent)}.muted,small{color:var(--muted)}nav,.controls,.stats{display:flex;gap:12px;flex-wrap:wrap;align-items:center}nav{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin-top:28px}nav a{text-decoration:none;padding-right:10px}.stats{gap:32px;padding:24px 0}.stat strong{display:block;font-size:28px;line-height:1.2}.stat span{font-size:13px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}.panel{background:var(--panel);border:1px solid var(--line);padding:22px;border-radius:12px}.panel p{margin-bottom:0}.tag{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-size:12px;margin-right:7px;color:var(--muted)}.P1{color:var(--bad)}.P2{color:var(--warn)}.P3{color:var(--accent)}.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}figure{margin:0}figure img{display:block;width:100%;height:auto;background:#090a0c;border-radius:8px}figcaption{padding-top:9px;color:var(--muted);font-size:14px}.raw img{max-height:560px;object-fit:contain}.controls{margin-bottom:18px}.controls label{display:flex;gap:8px;align-items:center}.controls input{min-width:230px}.finding{border-top:1px solid var(--line);padding:18px 0}.finding summary{cursor:pointer;font-weight:600;list-style:none}.finding summary::before{content:'＋';color:var(--muted);margin-right:10px}.finding[open] summary::before{content:'−'}.finding p{margin:12px 0}.finding .body{padding-left:28px}.finding code,code{overflow-wrap:anywhere;color:#d6dcf1;font-size:.9em}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel);padding:16px;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{vertical-align:top;text-align:left;border-bottom:1px solid var(--line);padding:12px 10px;overflow-wrap:anywhere}th{color:var(--muted);font-weight:500}td:first-child{min-width:120px}.tablewrap{overflow-x:auto}li{margin-bottom:8px}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.flow button{text-align:left;min-height:112px}.flow strong,.flow small{display:block}.flow .count{font-size:13px;color:var(--muted)}.report-links{display:flex;gap:15px;flex-wrap:wrap}.reader{max-width:1050px}.reader h2{margin-top:45px}.reader h3{margin-top:32px}.reader table{display:block;overflow-x:auto}.reader img{max-width:100%;height:auto}.reader p{max-width:none}.reader a{overflow-wrap:anywhere}.footnote{font-size:13px}.empty{padding:24px;color:var(--muted)}[hidden]{display:none!important}@media(max-width:720px){header,main,footer{padding:22px}.compare{grid-template-columns:1fr 1fr;gap:8px}.flow{grid-template-columns:repeat(2,1fr)}.stats{gap:18px}.stat strong{font-size:23px}.finding .body{padding-left:0}.controls label{width:100%;flex-wrap:wrap}.controls input{min-width:0;width:100%}h1{letter-spacing:-.7px}}@media print{body{background:white;color:black}nav,.controls{display:none}details .body{display:block!important}a{color:#145343}.panel{background:white}.finding{break-inside:avoid}}</style></head><body><aside style="padding:16px 32px;border-bottom:1px solid #666">Public text-only edition. Photo evidence and all app screenshots remain local. <a href="../README.md">Publication notes</a>.</aside><header><div class="eyebrow">Lumen / Independent audit</div><nav><a href="../Lumen-Audit.html">← Visual overview</a><a href="colour-controls.md">Markdown</a></nav></header><main class="reader"><h1>Tone and color control inventory</h1>
+<p>Audited main: <code>99c37272b42c211a04262ceb98cfb39355d1ab99</code>. This is a 154-row, source-traced census of the tone/color area. Rows include non-slider handles and flags; dynamic Point Color swatches share one row per control role, not eight duplicate sets. It is not the same count as the repository&#39;s 135 proof-registry entries. A source-audited status is not a promise that every image and combination was tested. Per-control model paths and full evidence are also in <code>control-inventory.json</code>.</p>
+<p>Scope excludes film/effects, spatial detail/presence, mask-only controls, geometry and export controls, which other audit areas own. Newer branch renames mixer Green/Blue to Mint/Azure, fixes main Basic Contrast and grading-wheel paint, and makes display Contrast logarithmic; see the report for branch distinctions.</p>
+<h2>White balance (2)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-001: Temp</td>
+<td>2000...50000K, reciprocal track<br><code>develop.raw.temp</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:222<br>→ Sources/LumenCore/Engine/WhiteBalanceEngine.swift:33</td>
+<td>CAT16 adaptation from selected target illuminant to camera reference; reset restores per-image as-shot.<br>Source audited; direction/inverse math covered by existing tests; actual default RAW decoder failure precedes this stage.<br>Findings: AI-01, AI-06</td>
+</tr>
+<tr>
+<td>IC-002: Tint</td>
+<td>track ±150; numeric ±300<br><code>develop.raw.tint</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:275<br>→ Sources/LumenCore/Engine/WhiteBalanceEngine.swift:33</td>
+<td>Opponent green/magenta illuminant axis, with safety-limited magenta endpoint.<br>Full-range pipette repro; manual negative hard range works.<br>Findings: AI-06</td>
+</tr>
+</tbody></table>
+<h2>Basic tone (7)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-003: Exposure</td>
+<td>track±5; hard±10EV<br><code>develop.tone.exposure</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:467<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Exact linear multiplier2^EV, before tone/colour.<br>Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-004: Contrast</td>
+<td>±100<br><code>develop.tone.contrast</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:476<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Scene-EV slope0.4...1.6; relaxes to unity over|EV−pivot|4...12.<br>Reproduced clipping despite UI claim.<br>Findings: AI-12</td>
+</tr>
+<tr>
+<td>IC-005: Pivot</td>
+<td>±4EV<br><code>develop.tone.contrastPivot</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:490<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Contrast&#39;s fixed scene-EV pivot; inert when contrast0.<br>Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-006: Highlights</td>
+<td>±100<br><code>develop.tone.highlights</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:522<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Upper shelf up to±2EV; negative moves may be eased.<br>Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-007: Shadows</td>
+<td>±100<br><code>develop.tone.shadows</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:529<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Lower shelf up to±2EV; positive moves may be eased.<br>Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-008: Whites</td>
+<td>±100<br><code>develop.tone.whites</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:536<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Moves white anchor±1.5EV and adds±1.3EV white shelf.<br>Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-009: Blacks</td>
+<td>±100<br><code>develop.tone.blacks</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:544<br>→ Sources/LumenCore/Engine/ToneEngine.swift:428-606</td>
+<td>Moves black anchor±1.5EV and adds±2.2EV black shelf.<br>Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.</td>
+</tr>
+</tbody></table>
+<h2>Global color (4)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-010: Vibrance</td>
+<td>±100<br><code>develop.color.vibrance</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:662<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1237-1388</td>
+<td>Chroma weighted toward muted colors, with lightness rolloff and skin protection.<br>Source audited; existing reach/skin/density tests reviewed; no new isolated defect identified.</td>
+</tr>
+<tr>
+<td>IC-011: Saturation</td>
+<td>±100<br><code>develop.color.saturation</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:669<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1237-1388</td>
+<td>Brightness-corrected chroma scaling; negative endpoint reaches grey; positive blends additive and subtractive pushes.<br>Exact vs GPU/table errors reproduced.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-012: Density</td>
+<td>0...100<br><code>develop.color.density</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:682<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1237-1388</td>
+<td>Blends the positive saturation move toward a subtractive per-channel gamma, then restores hue. Inert/disabled at saturation≤0.<br>Source audited; existing reach/skin/density tests reviewed; no new isolated defect identified.</td>
+</tr>
+<tr>
+<td>IC-013: Protect Skin</td>
+<td>0...100<br><code>develop.color.protectSkin</code></td>
+<td>Sources/LumenApp/BasicPanel.swift:693<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1237-1388</td>
+<td>Attenuates skin-color boosts using hue/lightness/chroma plausibility, not a face detector.<br>Source audited; existing reach/skin/density tests reviewed; no new isolated defect identified.</td>
+</tr>
+</tbody></table>
+<h2>Zones (11)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-014: Darks</td>
+<td>track±3; hard±5EV<br><code>develop.zones.dark.ev</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:135<br>→ Sources/LumenCore/Engine/ToneEngine.swift:512-568</td>
+<td>Raised-cosine blend of zone stop values on anchored scene axis.<br>Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-015: Shadows</td>
+<td>track±3; hard±5EV<br><code>develop.zones.shadow.ev</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:135<br>→ Sources/LumenCore/Engine/ToneEngine.swift:512-568</td>
+<td>Raised-cosine blend of zone stop values on anchored scene axis.<br>Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-016: Midtones</td>
+<td>track±3; hard±5EV<br><code>develop.zones.mid.ev</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:135<br>→ Sources/LumenCore/Engine/ToneEngine.swift:512-568</td>
+<td>Raised-cosine blend of zone stop values on anchored scene axis.<br>Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-017: Lights</td>
+<td>track±3; hard±5EV<br><code>develop.zones.light.ev</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:135<br>→ Sources/LumenCore/Engine/ToneEngine.swift:512-568</td>
+<td>Raised-cosine blend of zone stop values on anchored scene axis.<br>Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-018: Brights</td>
+<td>track±3; hard±5EV<br><code>develop.zones.bright.ev</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:135<br>→ Sources/LumenCore/Engine/ToneEngine.swift:512-568</td>
+<td>Raised-cosine blend of zone stop values on anchored scene axis.<br>Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-019: Global</td>
+<td>track±3; hard±5EV<br><code>develop.zones.global.ev</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:164<br>→ Sources/LumenCore/Engine/ToneEngine.swift:512-568</td>
+<td>Flat stop offset across zone axis.<br>Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.</td>
+</tr>
+<tr>
+<td>IC-020: Pivot 1</td>
+<td>0...1; UI min gap.02<br><code>develop.zones.pivots[0]</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:207<br>→ Sources/LumenCore/Engine/ToneEngine.swift:505-517</td>
+<td>Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.<br>Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-021: Pivot 2</td>
+<td>0...1; UI min gap.02<br><code>develop.zones.pivots[1]</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:207<br>→ Sources/LumenCore/Engine/ToneEngine.swift:505-517</td>
+<td>Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.<br>Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-022: Pivot 3</td>
+<td>0...1; UI min gap.02<br><code>develop.zones.pivots[2]</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:207<br>→ Sources/LumenCore/Engine/ToneEngine.swift:505-517</td>
+<td>Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.<br>Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-023: Pivot 4</td>
+<td>0...1; UI min gap.02<br><code>develop.zones.pivots[3]</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:207<br>→ Sources/LumenCore/Engine/ToneEngine.swift:505-517</td>
+<td>Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.<br>Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.<br>Findings: AI-07</td>
+</tr>
+<tr>
+<td>IC-024: Pivot 5</td>
+<td>0...1; UI min gap.02<br><code>develop.zones.pivots[4]</code></td>
+<td>Sources/LumenApp/ZonesPanel.swift:207<br>→ Sources/LumenCore/Engine/ToneEngine.swift:505-517</td>
+<td>Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.<br>Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.<br>Findings: AI-07</td>
+</tr>
+</tbody></table>
+<h2>Parametric curve (7)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-025: Highlights</td>
+<td>±100<br><code>develop.curve.parametric.highlights</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:526<br>→ Sources/LumenCore/Engine/CurveStack.swift:150-229</td>
+<td>Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.<br>Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.<br>Findings: AI-05</td>
+</tr>
+<tr>
+<td>IC-026: Lights</td>
+<td>±100<br><code>develop.curve.parametric.lights</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:531<br>→ Sources/LumenCore/Engine/CurveStack.swift:150-229</td>
+<td>Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.<br>Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.<br>Findings: AI-05</td>
+</tr>
+<tr>
+<td>IC-027: Darks</td>
+<td>±100<br><code>develop.curve.parametric.darks</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:535<br>→ Sources/LumenCore/Engine/CurveStack.swift:150-229</td>
+<td>Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.<br>Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.<br>Findings: AI-05</td>
+</tr>
+<tr>
+<td>IC-028: Shadows</td>
+<td>±100<br><code>develop.curve.parametric.shadows</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:539<br>→ Sources/LumenCore/Engine/CurveStack.swift:150-229</td>
+<td>Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.<br>Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.<br>Findings: AI-05</td>
+</tr>
+<tr>
+<td>IC-029: Split 1</td>
+<td>0...1 ordered<br><code>develop.curve.parametric.splits[0]</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:682<br>→ Sources/LumenCore/Engine/CurveStack.swift:58-66</td>
+<td>Moves region boundaries and therefore region centers and solved amplitude.<br>Source audited; UI uses CurveEditing.sanitizedSplits; no new isolated defect.</td>
+</tr>
+<tr>
+<td>IC-030: Split 2</td>
+<td>0...1 ordered<br><code>develop.curve.parametric.splits[1]</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:682<br>→ Sources/LumenCore/Engine/CurveStack.swift:58-66</td>
+<td>Moves region boundaries and therefore region centers and solved amplitude.<br>Source audited; UI uses CurveEditing.sanitizedSplits; no new isolated defect.</td>
+</tr>
+<tr>
+<td>IC-031: Split 3</td>
+<td>0...1 ordered<br><code>develop.curve.parametric.splits[2]</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:682<br>→ Sources/LumenCore/Engine/CurveStack.swift:58-66</td>
+<td>Moves region boundaries and therefore region centers and solved amplitude.<br>Source audited; UI uses CurveEditing.sanitizedSplits; no new isolated defect.</td>
+</tr>
+</tbody></table>
+<h2>Point curves (6)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-032: Master point</td>
+<td>0...1 point coordinates<br><code>develop.curve.point</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:630-657<br>→ Sources/LumenCore/Engine/CurveStack.swift:231-302</td>
+<td>Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.<br>Parametric composition handle mismatch reproduced.<br>Findings: AI-05</td>
+</tr>
+<tr>
+<td>IC-033: Luma</td>
+<td>0...1 point coordinates<br><code>develop.curve.luma</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:630-657<br>→ Sources/LumenCore/Engine/CurveStack.swift:231-302</td>
+<td>Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.<br>Lifted-black exact/GPU failure reproduced.<br>Findings: AI-04</td>
+</tr>
+<tr>
+<td>IC-034: Red</td>
+<td>0...1 point coordinates<br><code>develop.curve.r</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:630-657<br>→ Sources/LumenCore/Engine/CurveStack.swift:231-302</td>
+<td>Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.<br>Source audited; channel curves intentionally alter color; final per-channel clamp clips extremes.</td>
+</tr>
+<tr>
+<td>IC-035: Green</td>
+<td>0...1 point coordinates<br><code>develop.curve.g</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:630-657<br>→ Sources/LumenCore/Engine/CurveStack.swift:231-302</td>
+<td>Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.<br>Source audited; channel curves intentionally alter color; final per-channel clamp clips extremes.</td>
+</tr>
+<tr>
+<td>IC-036: Blue</td>
+<td>0...1 point coordinates<br><code>develop.curve.b</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:630-657<br>→ Sources/LumenCore/Engine/CurveStack.swift:231-302</td>
+<td>Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.<br>Source audited; channel curves intentionally alter color; final per-channel clamp clips extremes.</td>
+</tr>
+<tr>
+<td>IC-037: Preserve Luminance</td>
+<td>boolean<br><code>develop.curve.preserveLuminance</code></td>
+<td>Sources/LumenApp/CurveEditorView.swift:582<br>→ Sources/LumenCore/Engine/CurveStack.swift:276-284</td>
+<td>Master curve scales gamma-encoded RGB by weighted luminance ratio; preserves color ratios approximately until channel clamp.<br>Source audited; test pins a specific unclipped midtone, not all highlights; name does not imply unchanged luminance.</td>
+</tr>
+</tbody></table>
+<h2>Mixer (25)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-038: Red Hue</td>
+<td>±100<br><code>develop.mixer.bands[0].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-039: Red Saturation</td>
+<td>±100<br><code>develop.mixer.bands[0].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-040: Red Luminance</td>
+<td>±100<br><code>develop.mixer.bands[0].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-045: Orange Hue</td>
+<td>±100<br><code>develop.mixer.bands[1].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-046: Orange Saturation</td>
+<td>±100<br><code>develop.mixer.bands[1].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-047: Orange Luminance</td>
+<td>±100<br><code>develop.mixer.bands[1].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-052: Yellow Hue</td>
+<td>±100<br><code>develop.mixer.bands[2].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-053: Yellow Saturation</td>
+<td>±100<br><code>develop.mixer.bands[2].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-054: Yellow Luminance</td>
+<td>±100<br><code>develop.mixer.bands[2].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-059: Green Hue</td>
+<td>±100<br><code>develop.mixer.bands[3].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-060: Green Saturation</td>
+<td>±100<br><code>develop.mixer.bands[3].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-061: Green Luminance</td>
+<td>±100<br><code>develop.mixer.bands[3].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-066: Aqua Hue</td>
+<td>±100<br><code>develop.mixer.bands[4].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-067: Aqua Saturation</td>
+<td>±100<br><code>develop.mixer.bands[4].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-068: Aqua Luminance</td>
+<td>±100<br><code>develop.mixer.bands[4].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-073: Blue Hue</td>
+<td>±100<br><code>develop.mixer.bands[5].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-074: Blue Saturation</td>
+<td>±100<br><code>develop.mixer.bands[5].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-075: Blue Luminance</td>
+<td>±100<br><code>develop.mixer.bands[5].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-080: Purple Hue</td>
+<td>±100<br><code>develop.mixer.bands[6].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-081: Purple Saturation</td>
+<td>±100<br><code>develop.mixer.bands[6].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-082: Purple Luminance</td>
+<td>±100<br><code>develop.mixer.bands[6].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-087: Magenta Hue</td>
+<td>±100<br><code>develop.mixer.bands[7].hue</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:162<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted hue rotation±45°.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-088: Magenta Saturation</td>
+<td>±100<br><code>develop.mixer.bands[7].sat</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:168<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>Weighted chroma gain0...2, reduced near neutral.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-089: Magenta Luminance</td>
+<td>±100<br><code>develop.mixer.bands[7].lum</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:173<br>→ Sources/LumenCore/Engine/ColorEngine.swift:975-1041</td>
+<td>OKLab lightness offset at fixed chroma; darkening can leave gamut.<br>Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.<br>Findings: AI-03, AI-10</td>
+</tr>
+<tr>
+<td>IC-094: Even out hues</td>
+<td>0...100<br><code>develop.mixer.uniformity</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:206<br>→ Sources/LumenCore/Engine/ColorEngine.swift:981-1032</td>
+<td>Converges each pixel toward circularly blended per-band target hues; measured neutral-decode targets supplied in shipping plan.<br>Targets now wired; no local mean in shipping path; target measured before user&#39;s WB/primaries and custom band edits.<br>Findings: AI-08</td>
+</tr>
+</tbody></table>
+<h2>Mixer range (32)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-041: Red Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[0].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-042: Red Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[0].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-043: Red Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[0].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-044: Red Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[0].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-048: Orange Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[1].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-049: Orange Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[1].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-050: Orange Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[1].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-051: Orange Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[1].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-055: Yellow Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[2].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-056: Yellow Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[2].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-057: Yellow Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[2].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-058: Yellow Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[2].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-062: Green Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[3].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-063: Green Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[3].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-064: Green Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[3].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-065: Green Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[3].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-069: Aqua Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[4].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-070: Aqua Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[4].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-071: Aqua Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[4].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-072: Aqua Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[4].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-076: Blue Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[5].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-077: Blue Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[5].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-078: Blue Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[5].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-079: Blue Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[5].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-083: Purple Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[6].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-084: Purple Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[6].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-085: Purple Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[6].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-086: Purple Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[6].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-090: Magenta Core start</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[7].core[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-091: Magenta Core end</td>
+<td>5...44° half extent<br><code>develop.mixer.bands[7].core[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-092: Magenta Feather start</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[7].feather[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-093: Magenta Feather end</td>
+<td>2...60°, effective reach floor27.5°<br><code>develop.mixer.bands[7].feather[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:228-253<br>→ Sources/LumenCore/Engine/ColorEngine.swift:518-548</td>
+<td>Shapes a side of the band&#39;s core/feather; normalized overlapping weights sum1.<br>Source audited; effective feather may exceed requested because minimum reach prevents gaps.<br>Findings: AI-10</td>
+</tr>
+</tbody></table>
+<h2>Point Color (5)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-095: Hue</td>
+<td>±60°<br><code>develop.pointColors[index].shift.h</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:430<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1058-1183</td>
+<td>Gate-weighted hue rotation.<br>Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.<br>Findings: AI-02, AI-03</td>
+</tr>
+<tr>
+<td>IC-096: Saturation</td>
+<td>±100<br><code>develop.pointColors[index].shift.s</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:435<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1058-1183</td>
+<td>Selection-weighted chroma scaling.<br>Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.<br>Findings: AI-02, AI-03</td>
+</tr>
+<tr>
+<td>IC-097: Luminance</td>
+<td>±100<br><code>develop.pointColors[index].shift.l</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:439<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1058-1183</td>
+<td>Selection-weighted OKLab lightness offset at fixed chroma.<br>Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.<br>Findings: AI-02, AI-03</td>
+</tr>
+<tr>
+<td>IC-098: Range</td>
+<td>0...100<br><code>develop.pointColors[index].range</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:443<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1058-1183</td>
+<td>Scales shared L/C/h selection ellipsoid from55% to100% baseline width; zero is still finite support.<br>Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.<br>Findings: AI-02, AI-03</td>
+</tr>
+<tr>
+<td>IC-099: Variance</td>
+<td>±100<br><code>develop.pointColors[index].variance</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:449<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1058-1183</td>
+<td>Negative converges L/C/h to target; positive expands.<br>Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.<br>Findings: AI-02, AI-08</td>
+</tr>
+</tbody></table>
+<h2>B&amp;W mix (9)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-100: Red</td>
+<td>±100<br><code>look.bw.bands[0]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-101: Orange</td>
+<td>±100<br><code>look.bw.bands[1]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-102: Yellow</td>
+<td>±100<br><code>look.bw.bands[2]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-103: Green</td>
+<td>±100<br><code>look.bw.bands[3]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-104: Aqua</td>
+<td>±100<br><code>look.bw.bands[4]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-105: Blue</td>
+<td>±100<br><code>look.bw.bands[5]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-106: Purple</td>
+<td>±100<br><code>look.bw.bands[6]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-107: Magenta</td>
+<td>±100<br><code>look.bw.bands[7]</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:696<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1392-1420</td>
+<td>Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.<br>Source audited; existing B&amp;W sat/mix tests reviewed. Canonical band label limitation applies.<br>Findings: AI-10</td>
+</tr>
+<tr>
+<td>IC-108: Treatment enabled</td>
+<td>boolean<br><code>look.bw.enabled</code></td>
+<td>Sources/LumenApp/ColorPanel.swift:663-719<br>→ Sources/LumenCore/Engine/ColorEngine.swift:1393</td>
+<td>Activates grayscale conversion while preserving stored mix when off.<br>Source audited; existing off-with-stored-mix tests reviewed.</td>
+</tr>
+</tbody></table>
+<h2>Grading wheels (12)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-109: Global Hue</td>
+<td>0...360°<br><code>look.wheels.global.hue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-110: Global Saturation</td>
+<td>0...1 wheel radius<br><code>look.wheels.global.sat</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Tint magnitude up to.15OKLab chroma.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-111: Global Luminance</td>
+<td>−1...1<br><code>look.wheels.global.lum</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-13</td>
+</tr>
+<tr>
+<td>IC-112: Shadows Hue</td>
+<td>0...360°<br><code>look.wheels.shadows.hue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-113: Shadows Saturation</td>
+<td>0...1 wheel radius<br><code>look.wheels.shadows.sat</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Tint magnitude up to.15OKLab chroma.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-114: Shadows Luminance</td>
+<td>−1...1<br><code>look.wheels.shadows.lum</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-13</td>
+</tr>
+<tr>
+<td>IC-115: Midtones Hue</td>
+<td>0...360°<br><code>look.wheels.mid.hue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-116: Midtones Saturation</td>
+<td>0...1 wheel radius<br><code>look.wheels.mid.sat</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Tint magnitude up to.15OKLab chroma.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-117: Midtones Luminance</td>
+<td>−1...1<br><code>look.wheels.mid.lum</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-13</td>
+</tr>
+<tr>
+<td>IC-118: Highlights Hue</td>
+<td>0...360°<br><code>look.wheels.high.hue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-119: Highlights Saturation</td>
+<td>0...1 wheel radius<br><code>look.wheels.high.sat</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Tint magnitude up to.15OKLab chroma.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-120: Highlights Luminance</td>
+<td>−1...1<br><code>look.wheels.high.lum</code></td>
+<td>Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947<br>→ Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738</td>
+<td>Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.<br>Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.<br>Findings: AI-13</td>
+</tr>
+</tbody></table>
+<h2>Grading zones (4)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-121: Blending</td>
+<td>0...100<br><code>look.wheels.blending</code></td>
+<td>Sources/LumenApp/LookPanel.swift:679<br>→ Sources/LumenCore/Engine/GradeEngine.swift:89-155</td>
+<td>Widens crossfades up to an eased ceiling set by pivot distance; never mathematically hard zero.<br>Source audited; partition-of-unity and blended limiter tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-122: Balance</td>
+<td>±100<br><code>look.wheels.balance</code></td>
+<td>Sources/LumenApp/LookPanel.swift:685<br>→ Sources/LumenCore/Engine/GradeEngine.swift:89-155</td>
+<td>Shifts grading pivots by±2sceneEV.<br>Source audited; partition-of-unity and blended limiter tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-123: Pivot 1</td>
+<td>0...1 ordered; gap.02<br><code>look.wheels.pivots[0]</code></td>
+<td>Sources/LumenApp/LookPanel.swift:906<br>→ Sources/LumenCore/Engine/GradeEngine.swift:89-155</td>
+<td>Moves the shadow/mid or mid/high transition center.<br>Source audited; defaults correspond to−4.38/.38EV under default−9/+5anchors.</td>
+</tr>
+<tr>
+<td>IC-124: Pivot 2</td>
+<td>0...1 ordered; gap.02<br><code>look.wheels.pivots[1]</code></td>
+<td>Sources/LumenApp/LookPanel.swift:906<br>→ Sources/LumenCore/Engine/GradeEngine.swift:89-155</td>
+<td>Moves the shadow/mid or mid/high transition center.<br>Source audited; defaults correspond to−4.38/.38EV under default−9/+5anchors.</td>
+</tr>
+</tbody></table>
+<h2>Color balance (14)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-125: Hue shift</td>
+<td>±180°<br><code>look.wheels.colorBalance.hueShift</code></td>
+<td>Sources/LumenApp/LookPanel.swift:741<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1133-1140</td>
+<td>Global OKLCh hue rotation at fixed L/C.<br>Source audited; representative180° exact/table error probed.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-126: Vibrance</td>
+<td>±100<br><code>look.wheels.colorBalance.vibrance</code></td>
+<td>Sources/LumenApp/LookPanel.swift:748<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1146-1152</td>
+<td>Chroma multiply weighted toward low chroma; distinct from Basic vibrance (no skin protection, brightness rolloff).<br>Source audited; inherited same grade cube limitations.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-127: Chroma Global</td>
+<td>±100<br><code>look.wheels.colorBalance.chroma.global</code></td>
+<td>Sources/LumenApp/LookPanel.swift:836<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C at fixed L/h; global and weighted zone contributions add.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-128: Chroma Shadows</td>
+<td>±100<br><code>look.wheels.colorBalance.chroma.shadows</code></td>
+<td>Sources/LumenApp/LookPanel.swift:840<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C at fixed L/h; global and weighted zone contributions add.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-129: Chroma Midtones</td>
+<td>±100<br><code>look.wheels.colorBalance.chroma.mid</code></td>
+<td>Sources/LumenApp/LookPanel.swift:844<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C at fixed L/h; global and weighted zone contributions add.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-130: Chroma Highlights</td>
+<td>±100<br><code>look.wheels.colorBalance.chroma.high</code></td>
+<td>Sources/LumenApp/LookPanel.swift:848<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C at fixed L/h; global and weighted zone contributions add.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-131: Saturation Global</td>
+<td>±100<br><code>look.wheels.colorBalance.saturation.global</code></td>
+<td>Sources/LumenApp/LookPanel.swift:836<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C/L at fixed modeled H-K brightness via quadratic solve.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-132: Saturation Shadows</td>
+<td>±100<br><code>look.wheels.colorBalance.saturation.shadows</code></td>
+<td>Sources/LumenApp/LookPanel.swift:840<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C/L at fixed modeled H-K brightness via quadratic solve.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-133: Saturation Midtones</td>
+<td>±100<br><code>look.wheels.colorBalance.saturation.mid</code></td>
+<td>Sources/LumenApp/LookPanel.swift:844<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C/L at fixed modeled H-K brightness via quadratic solve.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-134: Saturation Highlights</td>
+<td>±100<br><code>look.wheels.colorBalance.saturation.high</code></td>
+<td>Sources/LumenApp/LookPanel.swift:848<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales C/L at fixed modeled H-K brightness via quadratic solve.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-135: Brilliance Global</td>
+<td>±100<br><code>look.wheels.colorBalance.brilliance.global</code></td>
+<td>Sources/LumenApp/LookPanel.swift:836<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-136: Brilliance Shadows</td>
+<td>±100<br><code>look.wheels.colorBalance.brilliance.shadows</code></td>
+<td>Sources/LumenApp/LookPanel.swift:840<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-137: Brilliance Midtones</td>
+<td>±100<br><code>look.wheels.colorBalance.brilliance.mid</code></td>
+<td>Sources/LumenApp/LookPanel.swift:844<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+<tr>
+<td>IC-138: Brilliance Highlights</td>
+<td>±100<br><code>look.wheels.colorBalance.brilliance.high</code></td>
+<td>Sources/LumenApp/LookPanel.swift:848<br>→ Sources/LumenCore/Engine/GradeEngine.swift:1120-1218</td>
+<td>Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.<br>Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.</td>
+</tr>
+</tbody></table>
+<h2>Printer lights (4)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-139: Master</td>
+<td>±48points<br><code>look.printerLights.master</code></td>
+<td>Sources/LumenApp/LookPanel.swift:937-1019<br>→ Sources/LumenCore/Engine/GradeEngine.swift:637-660</td>
+<td>12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.<br>Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-140: Red</td>
+<td>±24points<br><code>look.printerLights.r</code></td>
+<td>Sources/LumenApp/LookPanel.swift:937-1019<br>→ Sources/LumenCore/Engine/GradeEngine.swift:637-660</td>
+<td>12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.<br>Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-141: Green</td>
+<td>±24points<br><code>look.printerLights.g</code></td>
+<td>Sources/LumenApp/LookPanel.swift:937-1019<br>→ Sources/LumenCore/Engine/GradeEngine.swift:637-660</td>
+<td>12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.<br>Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.</td>
+</tr>
+<tr>
+<td>IC-142: Blue</td>
+<td>±24points<br><code>look.printerLights.b</code></td>
+<td>Sources/LumenApp/LookPanel.swift:937-1019<br>→ Sources/LumenCore/Engine/GradeEngine.swift:637-660</td>
+<td>12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.<br>Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.</td>
+</tr>
+</tbody></table>
+<h2>Primaries (8)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-143: Red Hue</td>
+<td>±100<br><code>look.primaries.rHue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1040<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Rotates primary chromaticity around white by±20°; matrix construction preserves neutral.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-144: Red Purity</td>
+<td>±100<br><code>look.primaries.rPurity</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1042<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Scales primary distance from white by0.5...1.5 with chromaticity safety guard.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-145: Green Hue</td>
+<td>±100<br><code>look.primaries.gHue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1044<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Rotates primary chromaticity around white by±20°; matrix construction preserves neutral.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-146: Green Purity</td>
+<td>±100<br><code>look.primaries.gPurity</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1046<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Scales primary distance from white by0.5...1.5 with chromaticity safety guard.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-147: Blue Hue</td>
+<td>±100<br><code>look.primaries.bHue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1048<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Rotates primary chromaticity around white by±20°; matrix construction preserves neutral.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-148: Blue Purity</td>
+<td>±100<br><code>look.primaries.bPurity</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1050<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Scales primary distance from white by0.5...1.5 with chromaticity safety guard.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-149: Shadow Tint</td>
+<td>±100<br><code>look.primaries.tintHue</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1052<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Shadow-windowed opponent offset, deliberately colors neutrals.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+<tr>
+<td>IC-150: Tint Purity</td>
+<td>±100<br><code>look.primaries.tintPurity</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1054<br>→ Sources/LumenCore/Engine/ColorEngine.swift:863-957</td>
+<td>Shadow-windowed opponent offset, deliberately colors neutrals.<br>Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.<br>Findings: AI-03</td>
+</tr>
+</tbody></table>
+<h2>Display transform (4)</h2>
+<table>
+<thead>
+<tr>
+<th>ID / control</th>
+<th>Range and model</th>
+<th>UI → engine</th>
+<th>Semantics and verification</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IC-151: Contrast</td>
+<td>0.1...10<br><code>look.render.contrast</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1173<br>→ Sources/LumenCore/Engine/DisplayTransform.swift:158-350</td>
+<td>Display-forming toe/shoulder slope around fixed18%grey.<br>Source audited; existing transform monotonicity/gamut tests reviewed; no new isolated defect.</td>
+</tr>
+<tr>
+<td>IC-152: Skew</td>
+<td>±1<br><code>look.render.skew</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1182<br>→ Sources/LumenCore/Engine/DisplayTransform.swift:158-350</td>
+<td>Redistributes toe/shoulder shape under monotonic bounds.<br>Source audited; existing transform monotonicity/gamut tests reviewed; no new isolated defect.</td>
+</tr>
+<tr>
+<td>IC-153: Hue keep</td>
+<td>0...100<br><code>look.render.huePreservation</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1191<br>→ Sources/LumenCore/Engine/DisplayTransform.swift:158-350</td>
+<td>Mixes channel curve with RGB-ratio preservation; fades to per-channel in highlight shoulder.<br>Source audited; existing transform monotonicity/gamut tests reviewed; no new isolated defect.</td>
+</tr>
+<tr>
+<td>IC-154: Black target</td>
+<td>track0...9; hard0...15<br><code>look.render.blackTarget</code></td>
+<td>Sources/LumenApp/LookPanel.swift:1200<br>→ Sources/LumenCore/Engine/DisplayTransform.swift:158-350</td>
+<td>Requested display-linear percent SDR white, actually capped9%.<br>Accepted hard-range dead zone reproduced.<br>Findings: AI-09, AI-04</td>
+</tr>
+</tbody></table>
+</main></body></html>

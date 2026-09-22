@@ -1,0 +1,341 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Colour &amp; RAW</title><style>:root{color-scheme:dark;--bg:#141619;--panel:#1d2025;--line:#343a43;--ink:#eaeef4;--muted:#a7b0bd;--accent:#91d5bf;--bad:#ff9696;--warn:#efd18d}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--accent);text-underline-offset:3px}button,input,select{font:inherit;color:inherit}button,select,input{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 12px}button{cursor:pointer}button:hover,button[aria-pressed=true]{border-color:var(--accent)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}header,main,footer{max-width:1200px;margin:auto;padding:32px}header{padding-top:48px}h1{font-size:clamp(30px,4vw,50px);line-height:1.14;max-width:850px;margin:12px 0 20px;letter-spacing:-1.4px}h2{font-size:28px;line-height:1.25;margin:0 0 18px}h3{font-size:19px;margin:0 0 10px}p{max-width:900px}section{margin:0 0 56px;scroll-margin-top:24px}.eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:12px;font-weight:650;color:var(--accent)}.muted,small{color:var(--muted)}nav,.controls,.stats{display:flex;gap:12px;flex-wrap:wrap;align-items:center}nav{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin-top:28px}nav a{text-decoration:none;padding-right:10px}.stats{gap:32px;padding:24px 0}.stat strong{display:block;font-size:28px;line-height:1.2}.stat span{font-size:13px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}.panel{background:var(--panel);border:1px solid var(--line);padding:22px;border-radius:12px}.panel p{margin-bottom:0}.tag{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-size:12px;margin-right:7px;color:var(--muted)}.P1{color:var(--bad)}.P2{color:var(--warn)}.P3{color:var(--accent)}.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}figure{margin:0}figure img{display:block;width:100%;height:auto;background:#090a0c;border-radius:8px}figcaption{padding-top:9px;color:var(--muted);font-size:14px}.raw img{max-height:560px;object-fit:contain}.controls{margin-bottom:18px}.controls label{display:flex;gap:8px;align-items:center}.controls input{min-width:230px}.finding{border-top:1px solid var(--line);padding:18px 0}.finding summary{cursor:pointer;font-weight:600;list-style:none}.finding summary::before{content:'＋';color:var(--muted);margin-right:10px}.finding[open] summary::before{content:'−'}.finding p{margin:12px 0}.finding .body{padding-left:28px}.finding code,code{overflow-wrap:anywhere;color:#d6dcf1;font-size:.9em}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel);padding:16px;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{vertical-align:top;text-align:left;border-bottom:1px solid var(--line);padding:12px 10px;overflow-wrap:anywhere}th{color:var(--muted);font-weight:500}td:first-child{min-width:120px}.tablewrap{overflow-x:auto}li{margin-bottom:8px}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.flow button{text-align:left;min-height:112px}.flow strong,.flow small{display:block}.flow .count{font-size:13px;color:var(--muted)}.report-links{display:flex;gap:15px;flex-wrap:wrap}.reader{max-width:1050px}.reader h2{margin-top:45px}.reader h3{margin-top:32px}.reader table{display:block;overflow-x:auto}.reader img{max-width:100%;height:auto}.reader p{max-width:none}.reader a{overflow-wrap:anywhere}.footnote{font-size:13px}.empty{padding:24px;color:var(--muted)}[hidden]{display:none!important}@media(max-width:720px){header,main,footer{padding:22px}.compare{grid-template-columns:1fr 1fr;gap:8px}.flow{grid-template-columns:repeat(2,1fr)}.stats{gap:18px}.stat strong{font-size:23px}.finding .body{padding-left:0}.controls label{width:100%;flex-wrap:wrap}.controls input{min-width:0;width:100%}h1{letter-spacing:-.7px}}@media print{body{background:white;color:black}nav,.controls{display:none}details .body{display:block!important}a{color:#145343}.panel{background:white}.finding{break-inside:avoid}}</style></head><body><aside style="padding:16px 32px;border-bottom:1px solid #666">Public text-only edition. Photo evidence and all app screenshots remain local. <a href="../README.md">Publication notes</a>.</aside><header><div class="eyebrow">Lumen / Independent audit</div><nav><a href="../Lumen-Audit.html">← Visual overview</a><a href="colour-raw.md">Markdown</a></nav></header><main class="reader"><h1>Independent tone, colour and RAW accuracy audit</h1>
+<p>Audited main: <code>99c37272b42c211a04262ceb98cfb39355d1ab99</code>. Newer development branch checked by source comparison: <code>origin/claude/photo-editor-design-plan-8ahzmm</code>, <code>a6e694103a3676e059847ac48b82c0031281ea53</code>. Environment: macOS 27, Apple Silicon, Swift 6.4. Audit date: 22 September 2026. No product source was changed.</p>
+<h2>Bottom line</h2>
+<p>The application has considerably more serious colour engineering than its small size suggests: scene-referred exposure, CAT16 white balance, perceptual colour operations, bounded tone/grade solves, explicit transforms, and a substantial control-authority suite. But a passing control-authority test does not mean the image is correct.</p>
+<p>Two problems deserve priority before trusting this build for a Lightroom-replacement workflow:</p>
+<ol>
+<li>On all three supplied Sony RAWs, automatically opting into Apple RAW decoder 9 produces a severely cyan rendition in Lumen&#39;s Rec.2020 working context. The problem is already present in the decoded pixels. It is not a bad As Shot temperature, a denoise cast, or an exposure-slider error. Decoder 9 in its default/linear-sRGB working context does not exhibit the severe cast on the isolated test file.</li>
+<li>The colour-table approximation can substantially change legal, intended colour edits even at the export-size 65-cube. Actual GPU probes confirm errors, not merely a disagreement between two CPU helpers. Some positive-input, positive-output corrections differ by tens of encoded-code equivalents.</li>
+</ol>
+<p>Additional reproducible issues involve Point Color picking after earlier edits, lifted-black luma curves, curve handles, the WB picker&#39;s tint reach, silently flattened Zone response, and control labels/units. Several other issues are already known in the repository. The newer branch fixes main&#39;s Basic Contrast clipping, grading-wheel colour paint, and architecture-sensitive grade hash test; those should not be described as outstanding defects of that newer branch.</p>
+<p>The 154-row <code>control-inventory.md</code> / <code>control-inventory.json</code> provides every exposed control in this audit area, its recipe field, UI and engine location, semantics, verification status, and finding links. <code>findings.json</code> is the structured finding ledger with triggers, exact source lines, confidence, history and branch status.</p>
+<h2>What was actually checked</h2>
+<ul>
+<li>Read the relevant SwiftUI wiring, model fields, algorithms, lookup-table construction, CPU reference route, Core Image graph and tests. Historical documents were used to distinguish existing debts from discoveries, not as proof that old defects remain.</li>
+<li>Compiled standalone probes against the audited core/pipeline object files. These did not modify the repository or its tests.</li>
+<li>Used deterministic scalar, hue/chroma, grey-ramp, scene-stop and colour-cube probes, including non-default combinations and hard-entry ranges.</li>
+<li>Compared intended <code>RenderPlan.exactColor</code>, table-based <code>referenceColor</code>, and the actual GPU <code>RenderGraph</code> on selected failures.</li>
+<li>Rendered the user&#39;s three copied ARWs without sidecars. Compared Apple defaults, flat decoder 7/8/9 configurations, Lumen&#39;s decoded materialization, and full Lumen rendering with/without denoise.</li>
+<li>Isolated RAW 9 across default, linear-sRGB, linear-P3 and linear-Rec.2020 working contexts with all measurements converted to the same output space.</li>
+<li>Cross-checked every finding against the newer development branch. That branch was source-compared, not separately built or executed.</li>
+<li>Root independently ran main&#39;s optimized <code>ControlProofTests</code>: six tests, zero failures, 111.605 seconds execution. The authority log contains exactly <strong>135 registered control entries</strong>, not 154. These are different censuses; the appendix includes handles and flags and excludes other audit areas.</li>
+</ul>
+<p>Measurements called “encoded-code equivalents” apply the sRGB transfer curve to working Rec.2020 RGB and multiply max-channel error by 255. They are a useful nonlinear error scale, <strong>not CIE Delta-E, perceptual JND, or literal final sRGB-primary output pixels</strong>. Random Rec.2020 cube samples are a stress corpus, not a distribution of typical photos. A second corpus limited inputs to linear-sRGB gamut. Single-pixel GPU probes use neutral/default spatial operations.</p>
+<h2>Control coverage and practical semantics</h2>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th align="right">Rows</th>
+<th>Coverage and important limitations</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>White balance</td>
+<td align="right">2</td>
+<td>Temp/Tint traced to CAT16; neutral/inverse tests reviewed; full negative tint picker failure reproduced; real As Shot matrix verified identity.</td>
+</tr>
+<tr>
+<td>Basic tone</td>
+<td align="right">7</td>
+<td>Exposure, Contrast/Pivot and four tonal controls. Exact exposure units, same-half/sign limiter and baked tone path inspected. Main contrast clipping reproduced; newer branch&#39;s live-anchor fix verified in source.</td>
+</tr>
+<tr>
+<td>Global colour</td>
+<td align="right">4</td>
+<td>Vibrance, Saturation, Density, Protect Skin. Perceptual chroma/skin gates inspected; positive-input saturation cube failure reproduced.</td>
+</tr>
+<tr>
+<td>Zones</td>
+<td align="right">11</td>
+<td>Six exposure controls and five pivots. Curve response swept densely in scene EV; broad flattened intervals reproduced.</td>
+</tr>
+<tr>
+<td>Parametric curves</td>
+<td align="right">7</td>
+<td>Four tonal adjustments and three splits. Stage ordering and endpoint contracts inspected; composition/point-handle mismatch measured.</td>
+</tr>
+<tr>
+<td>Point curves</td>
+<td align="right">6</td>
+<td>Master, Luma, R/G/B and Preserve Luminance. Luma zero endpoint and GPU neutral failure reproduced; RGB/master curves are creative operations, not inherently hue-neutral.</td>
+</tr>
+<tr>
+<td>Mixer and range handles</td>
+<td align="right">57</td>
+<td>Eight H/S/L triplets, Uniformity and four arc handles per band. Partition/range geometry traced; named-colour weights measured; narrow-gate LUT error reproduced.</td>
+</tr>
+<tr>
+<td>Point Color</td>
+<td align="right">5</td>
+<td>Per-swatch H/S/L, Range, Variance. Picker domain/ordering and texture behaviour reproduced. Dynamic swatches share these control-role rows.</td>
+</tr>
+<tr>
+<td>B&amp;W</td>
+<td align="right">9</td>
+<td>Eight colour-mix controls and treatment flag. Shared canonical hue partition, scene-Y conversion, neutrality and pipeline order inspected; band-label caveat applies.</td>
+</tr>
+<tr>
+<td>Grading wheels/zones</td>
+<td align="right">16</td>
+<td>Four H/S/L wheels, Balance, Blending and two pivots. J-based brightness units measured; main&#39;s HSB paint mismatch source-confirmed; hue/grade LUT sweeps run.</td>
+</tr>
+<tr>
+<td>Colour balance</td>
+<td align="right">14</td>
+<td>Hue shift, Vibrance, Chroma/Saturation/Brilliance in four zones. Existing joint limiter tests reviewed; exact/table sweeps include moderate and extreme saturation.</td>
+</tr>
+<tr>
+<td>Printer lights</td>
+<td align="right">4</td>
+<td>Master and RGB printer points traced to log-light gains. Existing authority proof passed; no new isolated arithmetic defect established.</td>
+</tr>
+<tr>
+<td>Primaries</td>
+<td align="right">8</td>
+<td>Three hue/purity pairs, shadow tint/purity. Safe-chromaticity bounds, declared plateaus and interaction with Point Color inspected; combined-extreme cube sweep run.</td>
+</tr>
+<tr>
+<td>Display transform</td>
+<td align="right">4</td>
+<td>Contrast, Skew, Hue keep, Black target. Anchors, zero behaviour and hard-entry limits inspected. Black target dead numeric range reproduced; new branch changes Contrast track mapping only.</td>
+</tr>
+</tbody></table>
+<p>“Source inspected / existing proof passed” is deliberately weaker than “no defect exists.” This is comprehensive enumeration and targeted behavioural testing, not an exhaustive Cartesian sweep of every possible recipe.</p>
+<h2>Priority evidence</h2>
+<h3>AI-01 · P1 · Reproduced: RAW 9 plus custom wide-gamut working context corrupts these RAW colours</h3>
+<p>Source: <code>Sources/LumenPipeline/AppleRawSource.swift:75–80</code> automatically selects <code>supportedDecoderVersions.last</code> and falls back only if <code>outputImage</code> is nil. A non-nil lazy image says nothing about pixel correctness. All three files default to decoder 8 and advertise versions 7, 8 and 9. Lumen chooses 9.</p>
+<p>The flat comparison disables Apple picture-forming stages and uses the same as-shot WB. Measurements are mean linear Rec.2020 RGB and fraction of pixels with <strong>any</strong> nonpositive component:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Decoder 8 mean RGB</th>
+<th>Decoder 9 mean RGB</th>
+<th align="right">Nonpositive: 8 → 9</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A7401502</td>
+<td>.13383, .13308, .12248</td>
+<td>.03374, .15026, .11354</td>
+<td align="right">0.0685% → 43.56%</td>
+</tr>
+<tr>
+<td>A7401654</td>
+<td>.04709, .05536, .03064</td>
+<td>−.00815, .06674, .02395</td>
+<td align="right">2.73% → 74.27%</td>
+</tr>
+<tr>
+<td>A7401693</td>
+<td>.06031, .06658, .04785</td>
+<td>−.00732, .07997, .03952</td>
+<td align="right">0.261% → 79.86%</td>
+</tr>
+</tbody></table>
+<p>This metric does not mean all those pixels render black; it quantifies the large negative-channel population accompanying visible red loss. The saved PNGs and root&#39;s native-app observation confirm the cyan effect. Rewriting identical as-shot WB changes means only around 1e−7. Lumen&#39;s default WB matrix is exactly identity. Disabling denoise leaves the cast.</p>
+<p>The working-space isolation is decisive. On A7401502 with RAW 9, default/linear-sRGB gives healthy mean RGB [.133965, .138112, .124154] and 0.331% nonpositive pixels; linear-P3 gives [.097522, .142875, .117251] and 5.271%; linear-Rec.2020 gives [.033745, .150265, .113542] and 43.556%. Decoder 8 stays essentially invariant across all four contexts. This is a <strong>RAW 9/custom-working-space integration failure on the tested OS/cameras</strong>, not evidence that RAW 9 is universally broken.</p>
+<p>Root independently verified related Apple context: <a href="https://developer.apple.com/videos/play/wwdc2026/305/">WWDC 2026 RAW processing session</a> describes RAW 9 as opt-in, not the default; <a href="https://developer.apple.com/forums/thread/843445">Apple DTS&#39;s related RAW 9 working-space tint report</a> concerns a different iPhone/DNG case. That related report must not be presented as proof of the identical Sony bug.</p>
+<p>Direction: respect and pin Apple&#39;s per-file default for new images, and explicitly validate any RAW 9 opt-in path. A separately validated decoder working context followed by conversion may be viable; it requires real rendered-pixel tests. Existing explicit recipe decoder choices must remain reproducible. Source unchanged on newer branch.</p>
+<p>Evidence: <code>RawProbe.swift</code>, <code>RawSpaceProbe.swift</code>, <code>raw-all-results.txt</code>, <code>raw-space-results.jsonl</code>; particularly <code>raw-v9-working-default.png</code> versus <code>raw-v9-working-linear-rec2020.png</code>.</p>
+<h3>AI-03 · P1 · Reproduced: colour-table approximation changes the intended correction substantially</h3>
+<p>Source: <code>Sources/LumenCore/Engine/RenderPlan.swift:214–221</code>; <code>Color/LUT.swift:27–49,161–162</code>; <code>Sources/LumenPipeline/Kernels.swift:1118–1123</code>.</p>
+<p>Set Aqua Mixer Luminance −100 with all other controls neutral. For scene Rec.2020 [.384134, .595917, .648289], exact colour-stage output is [.106532, .205737, .232635], but the 65-cube returns [.202614, .348038, .384925]. Both input and exact output are positive: this case is <strong>not explained by clamping negative working channels</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Final linear working RGB</th>
+<th align="right">Max encoded-code equivalent error</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Intended exact operations</td>
+<td>.127833, .220671, .249249</td>
+<td align="right">—</td>
+</tr>
+<tr>
+<td>Actual GPU, preview 33</td>
+<td>.300511, .459364, .499690</td>
+<td align="right">51.21</td>
+</tr>
+<tr>
+<td>Actual GPU, export 65</td>
+<td>.242881, .383300, .422760</td>
+<td align="right">37.13</td>
+</tr>
+</tbody></table>
+<p>Global Saturation +100 yields another positive-input/positive-colour-output case with GPU errors 14.22 at cube 33 and 31.33 at cube 65. More samples do not guarantee a smaller error at a particular location when narrow nonlinear features move relative to the grid.</p>
+<p>A 1,500-sample stress corpus has mean/max encoded errors at cube 65 of .84/12.46 for Red Mixer Hue +100, 1.82/35.84 for Aqua Luminance −100, 2.40/37.42 for Basic Saturation +100, and 6.19/46.10 for Colour Balance Global Saturation +100. Some stress-corpus errors also include known negative-output/domain limitations; the isolated positive example above is the cleaner proof.</p>
+<p>A 700-sample <em>sRGB-gamut input</em> corpus at Colour Balance Saturation +25 gives mean .31/max 5.35; +50 gives .91/7.66; +100 gives 2.99/29.90. Respectively 5, 77 and 249 samples exceed 3 code equivalents. This is not a claim that every moderate edit visibly fails, but it rules out “only fantastical RGBs” as a complete explanation.</p>
+<p>The intended smooth perceptual operation is sampled into a coarse fixed log-grid over 24 stops. Narrow hue windows, chroma gates and skin protection can be smaller than a cell. CPU tetrahedral and GPU trilinear interpolation introduce an additional distinction. Comparing the GPU only with a CPU route that already uses the same baked table cannot prove fidelity to the intended mathematics.</p>
+<p>Known negative finish-domain clipping is a separate, still relevant limitation. Do not merge it with this positive-case reproduction. Core colour math and bake/graph files are unchanged on the newer branch.</p>
+<h3>AI-02 · P2 · Reproduced: Point Color picker targets the wrong stage after preceding colour edits</h3>
+<p><code>ColorEngine.swift:417–422</code> applies primaries, then mixer, then Point Color. The picker (<code>PipelineRenderer.swift:1991–2010</code>, <code>RenderGraph.swift:123–153</code>) samples before primaries/mixer.</p>
+<p>With Red Mixer Hue +100, pick that same red and request Point Saturation −100. At Range 0, actual chroma remains .1198007 of an original .12. At default Range 50 it remains .0426767. A correctly post-mixer sampled target reaches approximately zero chroma. This was reproduced directly using the actual stage order. The sampler&#39;s <code>maskSource</code> path also skips denoise/presence; that additional consequence is source-confirmed, not separately photograph-probed.</p>
+<p>Earlier pre-tone picker fixes do not address this intra-colour ordering issue. Existing membership tests use a matching sample with preceding controls neutral. Newer branch unchanged.</p>
+<h3>AI-04 · P2 · Reproduced: a raised Luma black endpoint is discontinuous and can tint grey purple</h3>
+<p><code>CurveStack.swift:290–294</code> skips the luma correction when luma is at or below its epsilon. Set Luma curve [[0,.2],[1,1]]. Exact black stays black despite the plotted raised endpoint; a small positive value jumps to approximately .0331 linear.</p>
+<p>Through the GPU, neutral scene 1e−8 should become neutral [.033596, .033596, .033596]. It instead becomes [.027359, .006368, .067010] at 33 and [.048389, .011588, .117056] at 65. The missing zero limit, display-transform zero singularity (<code>DisplayTransform.swift:324–338</code>), and sharply varying baked field create an especially bad interpolation boundary. GPU trilinear interpolation samples coloured off-diagonal corners whereas the CPU&#39;s tetrahedral diagonal behaves differently.</p>
+<p>This is not ordinary floating-point noise. A raised-black neutral ramp should be an actual GPU regression test. Newer branch unchanged.</p>
+<h2>Other findings and creative limits</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Severity / evidence</th>
+<th>Trigger and effect</th>
+<th>Main / newer branch</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AI-05</td>
+<td>P2, source + numerical reproduction</td>
+<td>Parametric Lights 50 plus master points [[0,0],[.6,.7],[1,1]]: raw handle is at (.6,.7), displayed composite trace at x=.6 is .756543—16.96 px away in a 300 px plot. Lights 100 makes it 32.03 px. Trace and editable handles use different domains. <code>CurveEditorView.swift:312,603–617,644–647</code>.</td>
+<td>New finding; persists.</td>
+</tr>
+<tr>
+<td>AI-06</td>
+<td>P2, reproduced</td>
+<td>Manual Tint accepts ±300, but WB picker searches/clamps ±150. A sample exactly neutralizable at 5500 K / −250 is solved to 8474.6 K / −150 and retains OKLCh C=.034829. <code>WhiteBalanceEngine.swift:167–194</code>, <code>BasicPanel.swift:278–279</code>.</td>
+<td>New finding; persists.</td>
+</tr>
+<tr>
+<td>AI-07</td>
+<td>P2, reproduced known gap</td>
+<td>Zones Darks +2 makes approximately 1.813 scene EV nearly flat; +4 makes 3.894 EV flat, with up to 2.204 EV difference from requested direct response. The prefix-max bake preserves monotonicity by erasing separation, without applied-value feedback. <code>ToneEngine.swift:512–517,566–567</code>.</td>
+<td>Known K-040 / tone queue item 3; persists.</td>
+</tr>
+<tr>
+<td>AI-08</td>
+<td>P2, reproduced known limit</td>
+<td>Point Variance −100 sends input hue texture 24.23°, 29.23°, 34.23° all to 29.23°. The existing local-mean overload would preserve the ±5° texture, but the shipping single-pixel colour LUT cannot use it. Analogous Uniformity limit. <code>ColorEngine.swift:373–376,672–684</code>, <code>RenderPlan.swift:218</code>.</td>
+<td>Known COLOR-07; persists. Measured band-mean targets <strong>are</strong> wired now; old claims that they are absent are stale.</td>
+</tr>
+<tr>
+<td>AI-09</td>
+<td>P3, reproduced</td>
+<td>Black target numeric hard range accepts 12 and 15, but 9, 12 and 15 all resolve to .09. Ordinary track correctly ends at 9. <code>LookPanel.swift:1200–1207</code>, <code>DisplayTransform.swift:164–165</code>.</td>
+<td>New finding; persists.</td>
+</tr>
+<tr>
+<td>AI-10</td>
+<td>P3, measured known semantics</td>
+<td>Equal-angle OKLCh bands put common sRGB orange 49.70% Red / 50.30% Orange, pure green 49.84% Yellow / 50.16% Green. B&amp;W shares this partition. Weights are smooth and sum to one; labels do not imply photographic colour ownership. <code>ColorEngine.swift:95–115,560–597</code>.</td>
+<td>Known COLOR-01; newer branch renames Green/Blue to Mint/Azure, geometry unchanged.</td>
+</tr>
+<tr>
+<td>AI-11</td>
+<td>P2, test-infrastructure, source-confirmed</td>
+<td>Main native test hash 5029306187037463546 differs from Linux-pinned 12301920802024793674. Semantic jointScale/appliedBrilliance checks pass. Raw Double hash is architecture-sensitive. <code>GradeJointLimiterTests.swift:242–295</code>.</td>
+<td>Known, fixed by same-process comparison in newer branch (1590e1f); not evidence of image regression.</td>
+</tr>
+<tr>
+<td>AI-12</td>
+<td>P2, reproduced known main defect</td>
+<td>Basic Contrast +100 maps scene +3.5 EV to +5.6 EV and clips to 1, versus .902351 at Contrast 0. +50 clips scene +4.5 EV. Tooltip promises pinned endpoints, but relaxation uses ±12 rather than live display anchors. <code>ToneEngine.swift:491–502</code>, <code>BasicPanel.swift:483–488</code>.</td>
+<td>Known A1-01; <strong>fixed</strong> in newer branch (9bcac9f).</td>
+</tr>
+<tr>
+<td>AI-13</td>
+<td>P3, reproduced units mismatch</td>
+<td>Wheel Luminance tooltip promises half a stop; global ±1 actually changes neutral scene light by ±1.5 EV because it scales cube-root J by half a stop before cubing. <code>LumenControls.swift:1933–1935</code>, <code>GradeEngine.swift:233–246</code>.</td>
+<td>New mismatch; persists.</td>
+</tr>
+<tr>
+<td>AI-14</td>
+<td>P2, source-confirmed known main defect</td>
+<td>Wheel paint uses HSV angle, engine uses OKLab a/b angle. Colour beneath puck is not the tint selected. <code>LumenControls.swift:1982–1984</code>, <code>GradeEngine.swift:213–216</code>.</td>
+<td>Known B2-02; <strong>fixed</strong> by OKLCh paint in newer branch. Historical angular measurements not rerun here.</td>
+</tr>
+</tbody></table>
+<p>Further practical limits deserve explicit UI language even when not called fresh defects:</p>
+<ul>
+<li><strong>Primary purity does not have uniform authority.</strong> The registry itself declares Red Purity&#39;s plateau because Rec.2020 red is already on x+y=1; the safe-chromaticity clamp cannot push it farther. Green and blue also front-load against their bounds. This is a deliberate physical/safety constraint, not proof that the positive half has useful fine control. See <code>ProofRegistry.swift:739–747</code>.</li>
+<li><strong>Many saturation controls are intentionally different.</strong> Basic Saturation/Vibrance, mixer saturation, wheel tint radius, Colour Balance Chroma/Saturation, and primary purity are not interchangeable or expected to preserve the same brightness measure. The inventory records their distinct engine paths. It would be misleading to call every brightness change a bug.</li>
+<li><strong>Tonal/grade limiting changes requested amounts.</strong> Avoiding folds and clipping requires coupling in some combinations. Existing basic-tone and joint-grade limiters are thoughtful. Zones&#39; silent prefix-max replacement is a weaker contract; the exact scalar helper is not its baked shipped response.</li>
+<li><strong>No universal Lightroom numerical match was established.</strong> The app&#39;s custom perceptual coordinate systems and scene/display ordering differ. Tests demonstrate internal identities, authority and selected failures, not Adobe rendering equivalence.</li>
+<li><strong>Scene-referred does not mean every downstream LUT accepts signed HDR colours.</strong> Current nonnegative log-domain approximation can alter negatives produced by valid wide-gamut operations. This is separate from the more surprising positive-case errors above.</li>
+</ul>
+<h3>AI-15 · P2 · Reproduced follow-up: RAW 9 makes native dimensions state-dependent</h3>
+<p>Sources: <code>AppleRawSource.swift:93–101,241</code>; <code>PipelineRenderer.swift:519–524,1918</code>. Lumen reads native dimensions directly from its mutable <code>CIRAWFilter</code>. Under RAW 9, that property is no longer invariant after a downscaled decode.</p>
+<p>All three originals have ImageIO/EXIF dimensions 7008 × 4672. Fresh filters at scale 1 report that size and deliver portrait 4672 × 7008 with decoder 7, 8 or 9, lens correction on or off. Decoder 7/8 continue reporting the original size after small-scale/draft operations. RAW 9 reports 3504 × 2336 after scaled output is requested.</p>
+<p>The actual <code>AppleRawSource</code> (not just a standalone platform filter) reproduces this sequence using the renderer&#39;s <code>target/nativeLongEdge</code> calculation:</p>
+<table>
+<thead>
+<tr>
+<th align="right">Requested long edge</th>
+<th align="right">Advertised native before</th>
+<th align="right">Actual decoded long edge</th>
+<th align="right">Advertised native after</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">512</td>
+<td align="right">7008</td>
+<td align="right">512</td>
+<td align="right">3504</td>
+</tr>
+<tr>
+<td align="right">2560</td>
+<td align="right">3504</td>
+<td align="right">5120</td>
+<td align="right">7008</td>
+</tr>
+<tr>
+<td align="right">2560</td>
+<td align="right">7008</td>
+<td align="right">2560</td>
+<td align="right">3504</td>
+</tr>
+<tr>
+<td align="right">2560</td>
+<td align="right">3504</td>
+<td align="right">5120 (cache hit)</td>
+<td align="right">3504</td>
+</tr>
+<tr>
+<td align="right">2560</td>
+<td align="right">3504</td>
+<td align="right">5120 (cache hit)</td>
+<td align="right">3504</td>
+</tr>
+</tbody></table>
+<p>The direct platform filter oscillates; Lumen&#39;s cache can lock in the oversized decode while metadata remains half size. A 5120-long-edge buffer has four times the area of the intended 2560 buffer. This is a decoded-size/metadata defect, <strong>not a measured performance multiplier</strong>: concurrent audit work prevents clean timing claims. Consumers such as preview planning and native-coordinate calculations should not depend on this changing value.</p>
+<p>Importantly, <strong>this did not cause demonstrated native-export resolution loss</strong>. Scale 1 restores full native dimensions, and root independently exported all three actual JPEGs at 4672 × 7008 after previews. The finding is deliberately limited to reproduced preview/source-state behaviour and downstream metadata risk. Capture immutable original dimensions, test them after every decode/cache state, and retain actual delivered extents separately. The relevant source is unchanged on the newer branch.</p>
+<p>Evidence: <code>RawSizeProbe.swift</code>, <code>RawStateProbe.swift</code>, <code>RawScaleOscillationProbe.swift</code>, <code>RawSourceStateProbe.swift</code> and their saved result files.</p>
+<h2>Test-suite strengths and blind spots</h2>
+<p>The existing suite is worth retaining. It tests neutral identities, zero semantics, inverse WB behaviour, direction, hue/chroma properties, partition smoothness, tone monotonicity/limits, grade joint limiting, and whether controls visibly move selected frames. The optimized proof run passed all six tests and all 135 golden authority records.</p>
+<p>But the suite&#39;s contracts are narrower than user expectations:</p>
+<ul>
+<li>An “alive” slider can move the wrong colour or have the wrong selection domain.</li>
+<li>A broad authority floor cannot detect a huge error on one boundary colour.</li>
+<li>A golden generated from the table-based reference can pin a flawed approximation.</li>
+<li>A synthetic source cannot exercise camera decoder selection or working-space negotiation.</li>
+<li>Individually neutral controls do not test combinations such as mixer then Point Color or parametric then point editing.</li>
+<li>A same-platform or cross-platform raw floating-point bit hash is not an appropriate universal semantic oracle.</li>
+<li>The UI&#39;s hard numeric range, help units and control paint require tests beyond engine arithmetic.</li>
+</ul>
+<p>The next accuracy tests should compare intended exact operations against actual GPU pixels on narrow hue/chroma boundaries, neutral ramps with lifted black endpoints, signed/highlight inputs, and pairwise non-default combinations. Keep real camera files in the decoder qualification loop and test both the platform default and every version the app actively chooses.</p>
+<h2>Reproduction and artefacts</h2>
+<p>All probe sources and results are under <code>work/audit/image</code>. No products or originals were edited; supplied RAW copies were read only. PNGs are diagnostic sRGB renderings, not colour-reference target photographs.</p>
+<ul>
+<li><code>Probe.swift</code>: full-range WB picker, Point Color stage ordering, Zone dense response, luma endpoint, deterministic 1,500-colour approximation stress sweep, named-band weights.</li>
+<li><code>FocusedProbe.swift</code>: separate exact/baked colour-stage comparison, moderate sRGB-gamut-input sweeps, Black target hard limit.</li>
+<li><code>GPUColorProbe.swift</code>: actual Core Image graph pixels for Aqua luminance, saturation, and raised-luma-black examples.</li>
+<li><code>SmallProbe.swift</code>: parametric/point handle coordinate mismatch, main Contrast clipping, grading wheel EV, and Point Variance texture limit.</li>
+<li><code>RawProbe.swift</code>: per-version RAW comparisons and full Lumen decode/render.</li>
+<li><code>RawSpaceProbe.swift</code>: same RAW 8/9 inputs across four working contexts.</li>
+<li><code>RawSizeProbe.swift</code>, <code>RawStateProbe.swift</code>, <code>RawScaleOscillationProbe.swift</code>, <code>RawSourceStateProbe.swift</code>: decoder and actual source/cache size-contract follow-up.</li>
+</ul>
+<p>For scalar probes, link the audited <code>LumenCore.build/*.swift.o</code> with the matching built <code>Modules</code> directory. GPU probes additionally link <code>LumenPipeline.build/*.swift.o</code>. The build used here lives under <code>/private/tmp/lumen-astra-audit-build-20260922/arm64-apple-macosx/debug</code>. Example from the workspace:</p>
+<pre><code class="language-sh">xcrun swiftc -module-cache-path work/audit/image/module-cache \
+  -I /private/tmp/lumen-astra-audit-build-20260922/arm64-apple-macosx/debug/Modules \
+  work/audit/image/Probe.swift \
+  /private/tmp/lumen-astra-audit-build-20260922/arm64-apple-macosx/debug/LumenCore.build/*.swift.o \
+  -o work/audit/image/probe
+work/audit/image/probe
+</code></pre>
+<p>Use a normal native process with GPU access for Core Image probes: the restricted sandbox can return zero pixels, which is an environment failure, not an app image. The probes used for the reported GPU/RAW numbers ran outside that restricted sandbox. They are isolated tests, not an app performance benchmark; other audit tests were running concurrently.</p>
+</main></body></html>
