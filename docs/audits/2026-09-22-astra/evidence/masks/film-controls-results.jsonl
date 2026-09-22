@@ -1,0 +1,15 @@
+{"cpuPredictedFlatRedGlow":0.0017654233772335447,"gpuMeasuredFlatRedGlow":0,"gpuToCPU":0,"probe":"halation.gate.0.125"}
+{"cpuPredictedFlatRedGlow":0.012135916100742055,"gpuMeasuredFlatRedGlow":0,"gpuToCPU":0,"probe":"halation.gate.0.25"}
+{"cpuPredictedFlatRedGlow":0.043993656632742295,"gpuMeasuredFlatRedGlow":0.026931285858154297,"gpuToCPU":0.61216293255584209,"probe":"halation.gate.0.5"}
+{"cpuPredictedFlatRedGlow":0.10772513616768017,"gpuMeasuredFlatRedGlow":0.080793857574462891,"gpuToCPU":0.75000005057967856,"probe":"halation.gate.1.0"}
+{"cpuPredictedFlatRedGlow":0.21545027233536035,"gpuMeasuredFlatRedGlow":0.18851900100708008,"gpuToCPU":0.87500005900962496,"probe":"halation.gate.2.0"}
+{"cpuPredictedFlatRedGlow":0.4309005446707207,"gpuMeasuredFlatRedGlow":0.40396928787231445,"gpuToCPU":0.93750006322459822,"probe":"halation.gate.4.0"}
+{"amount":1,"probe":"halation.stock.lumen\/portra400","redStrength":0.050000000000000003}
+{"amount":1,"probe":"halation.stock.lumen\/gold200","redStrength":0.059999999999999998}
+{"amount":1,"probe":"halation.stock.lumen\/ektar100","redStrength":0.029999999999999999}
+{"amount":1,"probe":"halation.stock.lumen\/trix400","redStrength":0.040000000000000001}
+{"amount":0,"probe":"halation.stock.lumen\/velvia50","redStrength":0}
+{"amount":1,"probe":"halation.stock.lumen\/cine250d","redStrength":0.050000000000000003}
+{"highClip":1,"highThreshold":0.25,"lowClip":1,"lowThreshold":0.25,"probe":"filmExposure.halationParameters"}
+{"largeSigma":3.6977777777777781,"probe":"halation.size","smallSigma":0.92444444444444451}
+{"probe":"halation.redness","redGreenStrength":0,"yellowGreenStrength":0.014999999999999999}

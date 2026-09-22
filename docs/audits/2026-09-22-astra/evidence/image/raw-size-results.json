@@ -1,0 +1,33 @@
+{
+  "files": [
+    "A7401502.ARW",
+    "A7401654.ARW",
+    "A7401693.ARW"
+  ],
+  "imageIO": {
+    "pixelWidth": 7008,
+    "pixelHeight": 4672,
+    "exifPixelXDimension": 7008,
+    "exifPixelYDimension": 4672,
+    "imageCount": 1
+  },
+  "defaultDecoder": "8",
+  "testedDecoders": [
+    "7",
+    "8",
+    "9"
+  ],
+  "testedLensCorrection": [
+    false,
+    true
+  ],
+  "draft": false,
+  "scale": 1,
+  "allCases": {
+    "nativeWidth": 7008,
+    "nativeHeight": 4672,
+    "outputWidth": 4672,
+    "outputHeight": 7008
+  },
+  "scope": "Metadata and lazy output extents; root separately confirmed real native JPEG exports at4672x7008 for all3."
+}
