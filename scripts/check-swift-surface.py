@@ -207,7 +207,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "ObjCBool", "Duration", "ContinuousClock", "SuspendingClock",
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
-    "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
+    "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject",
@@ -227,7 +227,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
     # `XCTWaiter` for a test that must bound how long it waits rather than
     # assert on a value — a hang produces no failing test to assert on.
-    "XCTWaiter", "XCTExpectFailure",
+    "XCTWaiter", "XCTExpectFailure", "XCTExpectedFailure",
     "XCTUnwrap", "XCTFail", "XCTAssertEqual", "XCTAssertNotEqual", "XCTAssertTrue",
     "XCTAssertFalse", "XCTAssertNil", "XCTAssertNotNil", "XCTAssertGreaterThan",
     "XCTAssertLessThan", "XCTAssertGreaterThanOrEqual", "XCTAssertLessThanOrEqual",
@@ -238,7 +238,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGDataProvider", "CGPath", "CGMutablePath", "CGBitmapInfo", "CGImageAlphaInfo",
     "CGColorRenderingIntent", "CGImageSource", "CGImageDestination",
     "CGImagePropertyOrientation", "CGDirectDisplayID",
-    "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex",
+    "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex", "CGImageSourceCreateImageAtIndex",
     "CGImageDestinationCreateWithURL", "CGImageDestinationAddImage",
     "CGImageDestinationFinalize",
     "ImageIO", "CFString", "CFDictionary", "CFData", "CFURL",
