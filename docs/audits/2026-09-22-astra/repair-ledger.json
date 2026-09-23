@@ -4,6 +4,7 @@
   "baseline": "a6e694103a3676e059847ac48b82c0031281ea53",
   "note": "Historical audit remains immutable. Verified means tested within recorded scope, not exhaustive certification.",
   "latestSafetyCheckpoint": "EXECUTION-02.md: focused 168 passed; full optimized suite 2424 tests, 14 skipped, zero failures. Timing-probe variability and native/interruption matrices remain open.",
+  "latestCombinedCheckpoint": "6c9c026: 2538 tests, 14 skips, zero unexpected failures; 36 expected assertions across six suites remain. See EXECUTION-03.md and SUPPLEMENTAL-BACKLOG.md. Counts are not exhaustive product certification.",
   "findings": [
     {
       "id": "AI-01",
@@ -355,7 +356,7 @@
       "phase": 4,
       "status": "verifying",
       "evidence": ["EXECUTION-03.md: native red 2 tests / 4 assertions; 120-test qualification passed for local strength, global defaults and group cap"],
-      "commit": null,
+      "commit": "6c9c026",
       "limitations": ["Existing CPU/GPU spatial algorithms and resulting magnitudes still differ; this fixes strength composition, not full pixel parity. Absolute Kelvin and aggregate 200% cap remain explicitly disclosed."]
     },
     {

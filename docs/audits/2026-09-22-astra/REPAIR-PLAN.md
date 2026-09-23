@@ -15,6 +15,10 @@ Started 22 September 2026, following the owner's authorization to plan and imple
 
 Owner decision, 22 September 2026: **preserve the intended current creative look; fix inconsistencies** in film response, halation and colour uniformity. Do not redesign these looks as part of a correctness fix. Flag any unavoidable material change in appearance for approval before implementation.
 
+Later owner clarification for **M10 only**, after being told that exposure-coupled halation could change saved film looks: “whatever makes it look the best.” Evaluate an exposure-coherent, controlled highlight glow with numerical tests and private-photo comparisons; document the chosen contract and compatibility effects before qualification. This is not approval to redesign Uniformity or every creative control.
+
+The original 47-item denominator is retained for historical comparison, not treated as the entire backlog. [Supplemental tracking](SUPPLEMENTAL-BACKLOG.md) explicitly carries inherited expected failures already listed in the audit's test results, plus newly established boundaries. Safety follow-ups take priority over appearance tuning.
+
 1. Read the production path, audit trigger, existing tests and intended user contract.
 2. Add a regression that fails for the right reason on the selected baseline. If the audit is no longer reproducible, investigate and document why; do not force a fix.
 3. Make the smallest coherent change that satisfies the contract and preserves supported behaviour.
