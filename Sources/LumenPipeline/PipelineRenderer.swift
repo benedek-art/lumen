@@ -669,6 +669,7 @@ public final class PipelineRenderer {
                        strokeSets: [String: BrushStrokeSet] = [:],
                        softProof: SoftProof? = nil,
                        allowOverwrite: Bool = false) throws -> [String] {
+        try exportRecipe.metadata.validateContact()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
                                       softProof: softProof)
@@ -983,33 +984,12 @@ public final class PipelineRenderer {
     /// never need to be remembered — stripped nothing, because whatever the decode's
     /// property dictionary carried went to the encoder untouched.
     ///
-    /// **The two halves of this function rest on different amounts of evidence, and the
-    /// difference is the most important thing on this page.**
-    ///
-    /// The SUBTRACTIVE half — the `drop` calls below — is sound under either reading of
-    /// what `CIContext.write*Representation` does with the dictionary
-    /// `settingProperties` attaches. If it honours it, the removed keys are gone. If it
-    /// ignores it, nothing was going to be written anyway. Either way the coordinates do
-    /// not reach the file, and Strip GPS means what it says.
-    ///
-    /// The ADDITIVE half — Copyright, Contact and the DPI pair below — is sound under
-    /// only ONE of those readings. It is written here, correctly ordered after the
-    /// drops, and whether the encoder serialises properties that were ADDED rather than
-    /// merely preserved **has not been verified on a Mac by anyone**. The older comment
-    /// in this spot asserted that `CIContext.write*Representation` "takes no metadata
-    /// argument" and concluded the additive half was impossible; that is the pessimistic
-    /// reading, and it is not obviously right — `settingProperties` exists precisely to
-    /// carry a dictionary forward to an encoder. It is also not obviously wrong. Nobody
-    /// has opened a written file and looked.
-    ///
-    /// So: this code writes a copyright line, and the export sheet says it writes one
-    /// and says it is unconfirmed. That is the honest position while the fact is
-    /// unknown. It is one afternoon at a Mac to settle — export a JPEG and a TIFF with a
-    /// copyright set, read them back with `CGImageSourceCopyPropertiesAtIndex`, and
-    /// check `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`
-    /// — after which either this comment loses its hedge or the file has to be authored
-    /// through `CGImageDestination`, which takes an explicit properties dictionary and
-    /// removes the question. Zero tests touch this function on either platform.
+    /// Additions follow removals, so an explicitly supplied copyright/contact still
+    /// reaches an export with source metadata disabled. AuditExportMetadataTests opens
+    /// actual JPEG, HEIC, TIFF and PNG deliveries through ImageIO to verify standard
+    /// privacy controls, copyright, structured creator contact, print density and
+    /// geometry. That is readback evidence for those fields, not a guarantee about
+    /// every camera's proprietary metadata or every third-party reader.
     ///
     /// One thing the additive half is NOT: a way to guarantee EXIF is present when the
     /// switch is on. Nothing here fabricates camera fields the decode did not carry, and
@@ -1074,8 +1054,6 @@ public final class PipelineRenderer {
         // an export with EXIF off drops the whole TIFF dictionary, so a copyright placed
         // in it first would go out with the bathwater.
         //
-        // This is the additive half the header hedges. It is written; whether the
-        // encoder serialises it is unconfirmed, and the sheet says as much.
         func put(_ value: String?, _ key: CFString, in container: CFString) {
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return }
@@ -1087,8 +1065,20 @@ public final class PipelineRenderer {
             in: kCGImagePropertyTIFFDictionary)
         put(policy.copyright, kCGImagePropertyIPTCCopyrightNotice,
             in: kCGImagePropertyIPTCDictionary)
-        put(policy.contact, kCGImagePropertyIPTCContact,
-            in: kCGImagePropertyIPTCDictionary)
+        if let kind = policy.contactKind, let contact = policy.contact {
+            // ImageIO drops the legacy IPTC Contact key (String or Array). Its
+            // structured IPTC Core creator email/URL fields survive JPEG, HEIC,
+            // TIFF and PNG. A supplied contact replaces the source's contact block;
+            // it never inherits somebody else's address alongside the new value.
+            let field = kind == .email ? kCGImagePropertyIPTCContactInfoEmails
+                                      : kCGImagePropertyIPTCContactInfoWebURLs
+            let key = kCGImagePropertyIPTCDictionary as String
+            var iptc = properties[key] as? [String: Any] ?? [:]
+            iptc.removeValue(forKey: kCGImagePropertyIPTCContact as String)
+            iptc[kCGImagePropertyIPTCCreatorContactInfo as String] = [
+                field as String: contact.trimmingCharacters(in: .whitespacesAndNewlines)]
+            properties[key] = iptc
+        }
 
         // Resolution never reached the written file at all: `resolutionPPI` drove the
         // output-sharpening radius and nothing else, so the print TIFF a user asked for
@@ -1096,6 +1086,31 @@ public final class PipelineRenderer {
         if resolutionPPI.isFinite, resolutionPPI > 0 {
             properties[kCGImagePropertyDPIWidth as String] = resolutionPPI
             properties[kCGImagePropertyDPIHeight as String] = resolutionPPI
+            // JPEG's encoder prefers nested density to the generic DPI pair. The
+            // source's 72 ppi (or a synthesized default) must not override the export
+            // recipe. TIFF stores rational values, retaining fractional PPI; JFIF's
+            // integer density is only its compatibility copy.
+            let tiffKey = kCGImagePropertyTIFFDictionary as String
+            var tiff = properties[tiffKey] as? [String: Any] ?? [:]
+            tiff[kCGImagePropertyTIFFXResolution as String] = resolutionPPI
+            tiff[kCGImagePropertyTIFFYResolution as String] = resolutionPPI
+            tiff[kCGImagePropertyTIFFResolutionUnit as String] = 2 // inches
+            properties[tiffKey] = tiff
+            let jfifKey = kCGImagePropertyJFIFDictionary as String
+            var jfif = properties[jfifKey] as? [String: Any] ?? [:]
+            let density = Int(Num.clamp(resolutionPPI.rounded(), 1, 65_535))
+            jfif[kCGImagePropertyJFIFXDensity as String] = density
+            jfif[kCGImagePropertyJFIFYDensity as String] = density
+            jfif[kCGImagePropertyJFIFDensityUnit as String] = 1 // inches
+            properties[jfifKey] = jfif
+            // A PNG source may also carry its old physical-size chunk. Let the
+            // encoder derive a new one from the requested DPI rather than copying it.
+            let pngKey = kCGImagePropertyPNGDictionary as String
+            if var png = properties[pngKey] as? [String: Any] {
+                png.removeValue(forKey: kCGImagePropertyPNGXPixelsPerMeter as String)
+                png.removeValue(forKey: kCGImagePropertyPNGYPixelsPerMeter as String)
+                properties[pngKey] = png
+            }
         }
 
         // RECONCILE the geometry fields with the pixels being written. The source

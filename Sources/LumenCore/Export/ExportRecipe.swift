@@ -244,6 +244,41 @@ public struct MetadataPolicy: Codable, Equatable, Sendable {
     public var copyright: String?
     public var contact: String?
 
+    /// The export sheet asks for one email address or website, not arbitrary prose.
+    /// Keep that distinction explicit so an encoder never guesses which IPTC field
+    /// may truthfully carry the photographer's text.
+    public enum ContactKind: Equatable, Sendable { case email, website }
+
+    public var contactKind: ContactKind? {
+        guard let value = contact?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty, !value.contains(where: { $0.isWhitespace }) else { return nil }
+        if !value.contains(where: { ":/?#;,<>\\\"()".contains($0) }) {
+            let parts = value.split(separator: "@", omittingEmptySubsequences: false)
+            if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty { return .email }
+        }
+        let hasScheme = value.contains("://")
+        guard let url = URLComponents(string: hasScheme ? value : "https://" + value),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+              hasScheme || host.contains(".") else { return nil }
+        return .website
+    }
+
+    public var contactValidationMessage: String? {
+        guard let contact, !contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              contactKind == nil else { return nil }
+        return "Contact must be one email address or an HTTP(S) website (for example, studio@example.com or example.com)."
+    }
+
+    public struct InvalidContact: Error, LocalizedError, Sendable {
+        public let message: String
+        public var errorDescription: String? { message }
+    }
+
+    public func validateContact() throws {
+        if let message = contactValidationMessage { throw InvalidContact(message: message) }
+    }
+
     public init(includeEXIF: Bool = true, includeCameraSerial: Bool = false,
                 includeGPS: Bool = false, includeKeywords: Bool = true,
                 copyright: String? = nil, contact: String? = nil) {
