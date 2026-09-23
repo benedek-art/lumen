@@ -504,9 +504,7 @@ struct DetailPanel: View {
     private var noiseSection: some View {
         DevelopDisclosure("Noise Reduction", isExpanded: $noiseExpanded) {
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                LumenSegmented(options: [(value: Denoise.Mode.off, label: "Off"),
-                                         (value: Denoise.Mode.classic, label: "Classic"),
-                                         (value: Denoise.Mode.ai, label: "AI (stand-in)")],
+                LumenSegmented(options: denoiseAvailability.modeOptions,
                                selection: binder.choice(\.develop.denoise.mode,
                                                         "denoise.mode"))
                     .help("Which engine cleans the noise: Off is off, Classic is the "
@@ -516,6 +514,10 @@ struct DetailPanel: View {
                 noiseControls
             }
         }
+    }
+
+    private var denoiseAvailability: DenoiseControlAvailability {
+        DenoiseControlAvailability(isRendered: isRenderedFile)
     }
 
     @ViewBuilder
@@ -653,6 +655,15 @@ struct DetailPanel: View {
             }
         case .ai:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
+                // A pasted or older recipe can retain AI on rendered input. Do not
+                // rewrite its recipe on view construction; disclose it and let the
+                // photographer explicitly select Classic or Off above.
+                if !denoiseAvailability.supportsAmount {
+                    Text("Saved AI settings are retained, but the stand-in is RAW-only. Choose Classic to denoise this rendered file.")
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 // Tier 2 does not exist: no model ships, `AIDenoiseSplice` has no
                 // caller, and Amount reaches the decoder's own denoise instead — which
                 // is why dragging it is slow, the stand-in being part of the decode key,
@@ -673,6 +684,7 @@ struct DetailPanel: View {
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: false,
                             help: aiAmountHelp)
+                    .disabled(!denoiseAvailability.supportsAmount)
                 // Switching to AI zeroes the Tier-1 masters unless they were hand-set
                 // — `ISODefaults.coupled` owns that rule and its tests — on the
                 // reasoning that the noise they compensate for is gone by then. It is

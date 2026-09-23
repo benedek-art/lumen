@@ -82,6 +82,16 @@ Red: **5 native tests / 10 intended failed assertions** (eight missing contacts,
 
 The existing UI asks for one email or site. Unsupported nonempty prose is now rejected explicitly before rendering, not silently dropped or mislabeled; nil/blank remains allowed. UI validation/caption integration is in progress. This is one OS/encoder's readback qualification, not every external metadata reader or camera-private field.
 
+The UI follow-up was integrated as `3d8e25b` (agent `e49c15e`). Contact errors appear inline and identify/select the first offending enabled recipe in the footer; disabled-invalid presets do not block export, and both the button and action guard the batch. The old unverified-delivery note now states measured format coverage and reader limits. A separate malformed-host/email probe reproduced **14 failed assertions across five tests** before its narrow validator correction. Qualification: **49 tests, zero failures/skips**. Root's subsequent denoise/layout/export selection below also exercises the integrated validation. No preset string is rewritten by validation. The warning selects the recipe but does not auto-scroll to Contact; full native sheet layout is not yet verified.
+
+## M15 — rendered-input denoise availability
+
+The original mode choices were first extracted without changing behaviour. **Three new tests produced four failed assertions**: rendered inputs could select the decoder-only mode, its Amount was available, and a persisted unsupported recipe had no disabled-row/explanation contract. RAW mode availability was a passing negative control.
+
+Rendered files now offer Off/Classic instead of a RAW-only AI stand-in. Older or pasted AI recipes are retained rather than rewritten during view construction: their Amount control is disabled and a visible explanation directs the photographer to Classic. RAW choices, amount behaviour, manually overridden Classic coupling and pixel mathematics are unchanged.
+
+Integrated qualification: **108 tests, zero unexpected failures or skips**, covering availability contracts, capture/denoise/ISO behaviour, layout inventory/self-checks, export validation and actual-file metadata. Existing expected layout precision failures remain unchanged. These are pure capability/source-wiring checks plus adjacent engine/encoder tests, not a pointer-driven JPEG denoise demonstration. Slider source citations were updated to the new control locations, without altering metric limits.
+
 ## Combined integration status
 
 The first combined optimized run executed **2,470 tests, 14 skipped, six failed assertions**. Four were stale structural expectations: a fixed-width source scan no longer reached the decoder fork, five slider source addresses had shifted, and a precision test still expected the replaced Black target upper bound. Those expectations are corrected without deleting their checks. Two failures came from the existing draft-versus-settle timing ratio under concurrent work; no timing threshold was relaxed.

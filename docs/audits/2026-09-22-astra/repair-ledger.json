@@ -363,10 +363,10 @@
       "title": "AI Amount enabled on rendered inputs without any denoise consumer",
       "priority": "P2",
       "phase": 5,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: three new availability tests/four red assertions; integrated 108 tests passed"],
       "commit": null,
-      "limitations": []
+      "limitations": ["Native pointer-driven rendered-file workflow pending. Saved unsupported AI recipe retained and explained, not silently rewritten."]
     },
     {
       "id": "REL-06",
@@ -436,7 +436,7 @@
       "status": "verifying",
       "evidence": ["EXECUTION-03.md: actual JPEG/HEIC/TIFF/PNG contact readback including 10-bit HEIC; 52 metadata tests passed"],
       "commit": "d9713fb",
-      "limitations": ["Contact supports a single email or website; unsupported nonempty prose fails explicitly. UI integration pending."]
+      "limitations": ["Contact supports a single email or website; unsupported nonempty prose fails explicitly. UI validation integrated as 3d8e25b; full native sheet layout pending."]
     },
     {
       "id": "UX-02",
