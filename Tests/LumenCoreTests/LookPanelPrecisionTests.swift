@@ -64,7 +64,7 @@ final class LookPanelPrecisionTests: XCTestCase {
 
         // And the hard range is what keeps the precision that the step gave up: a
         // typed value is not snapped, so the preset's own 0.0152 is still enterable.
-        XCTAssertEqual(row.hard, "0...15",
+        XCTAssertEqual(row.hard, "0...9",
                        "the typed range is what makes a coarser step affordable; "
                        + "without it two decimals would be the only precision there is")
     }

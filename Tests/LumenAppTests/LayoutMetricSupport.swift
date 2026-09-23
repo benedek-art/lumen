@@ -545,13 +545,13 @@ enum SliderInventory {
                    step: 0.25, decimals: 2),
         SliderSpec("Push / Pull", "LookPanel.swift:1343", .developTop, -1...2,
                    step: 0.25, decimals: 2),
-        SliderSpec("Halation", "LookPanel.swift:1348", .developTop, 0...100, step: 1),
-        SliderSpec("Halo Size", "LookPanel.swift:1363", .developTop, 0.5...2.0,
+        SliderSpec("Halation", "LookPanel.swift:1354", .developTop, 0...100, step: 1),
+        SliderSpec("Halo Size", "LookPanel.swift:1370", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2, indented: true),
-        SliderSpec("Halo Redness", "LookPanel.swift:1379", .developTop, 0...100,
+        SliderSpec("Halo Redness", "LookPanel.swift:1387", .developTop, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Grain", "LookPanel.swift:1403", .developTop, 0...100, step: 1),
-        SliderSpec("Grain size", "LookPanel.swift:1410", .developTop, 0.5...2.0,
+        SliderSpec("Grain", "LookPanel.swift:1412", .developTop, 0...100, step: 1),
+        SliderSpec("Grain size", "LookPanel.swift:1419", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2),
 
         // Masks — the develop column half: what the mask DOES.

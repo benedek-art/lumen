@@ -210,7 +210,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
-    "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
+    "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
@@ -268,7 +268,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # "Apple's XCTest, not swift-corelibs-xctest" — `XCTExpectFailure` exists in one and
     # not the other, and `swiftc -parse` accepts it either way. The condition names a
     # platform module rather than an in-tree type, so the symbols pass has to be told.
-    "Darwin",
+    "Darwin", "Glibc",
     "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",

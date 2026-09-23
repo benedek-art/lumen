@@ -13,17 +13,17 @@
       "status": "verifying",
       "evidence": ["EXECUTION-03.md: independent RAW oracle red/green on 3 private fixtures; 129 qualification tests passed"],
       "commit": "1965507",
-      "limitations": ["RAW9 native boundary costs about 250 MiB at 33 MP; allocation caps can reject very large RAW9 native output. One camera corpus/host, not universal qualification. Cache revision integration pending."]
+      "limitations": ["RAW9 native boundary costs about 250 MiB at 33 MP; allocation caps can reject very large RAW9 native output. One camera corpus/host, not universal qualification. Cache revision integrated; combined qualification in progress."]
     },
     {
       "id": "AI-03",
       "title": "Legal color edits lose substantial accuracy in both preview and export color tables",
       "priority": "P1",
       "phase": 3,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "red confirmed",
+      "evidence": ["EXECUTION-04-colour-lut.md: independent actual-GPU accuracy regressions; adaptive alternatives rejected on accuracy/performance"],
+      "commit": "5e1cfb2",
+      "limitations": ["Tests/report only, no repair yet. Four strict expected accuracy assertions remain unresolved. Exact Mixer-only stage in progress."]
     },
     {
       "id": "BR-01",
@@ -133,10 +133,10 @@
       "title": "Sidecar sibling resolution makes folder registration quadratic",
       "priority": "P1",
       "phase": 6,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: deterministic N(N-1) to N classification; 161 tests passed"],
+      "commit": "cf508cf",
+      "limitations": ["Slow/network-directory contention and native large-library performance remain unqualified."]
     },
     {
       "id": "REL-12",
@@ -293,10 +293,10 @@
       "title": "Negative local Sharpness uses fixed 2.5-pixel blur",
       "priority": "P2",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: frame-denominated CPU/GPU blur; 149 adjacent tests passed; unchanged 2560px reference"],
+      "commit": "d597019",
+      "limitations": ["Combined qualification pending; brush coverage M04 is a separate unresolved repair."]
     },
     {
       "id": "M06",
@@ -373,20 +373,20 @@
       "title": "Replacing an original at its URL retains stale source pixels, preview and quick signature",
       "priority": "P2",
       "phase": 2,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: source generation red/green; preview lane 140 tests and companion mask-cache lane 541 tests passed"],
+      "commit": "fb2a990",
+      "limitations": ["Stat token not content hash or filesystem watcher; network-volume, RSS and crash-orphan sweeps remain open."]
     },
     {
       "id": "REL-07",
       "title": "Old developed preview receives a newer recipe fingerprint",
       "priority": "P2",
       "phase": 2,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: exact rendered recipe/source provenance and controlled publication races; 140 preview lane tests passed"],
+      "commit": "fb2a990",
+      "limitations": ["Combined and native qualification pending; publication is not an atomic snapshot of externally edited source bytes."]
     },
     {
       "id": "REL-08",
@@ -423,20 +423,20 @@
       "title": "JPEG encoder writes 72 PPI despite requested 240 PPI",
       "priority": "P2",
       "phase": 5,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: actual-file density red/green, independent sips readback; 52 metadata tests passed"],
+      "commit": "d9713fb",
+      "limitations": ["One OS/encoder qualification, not every third-party metadata reader."]
     },
     {
       "id": "REL-11",
       "title": "Supplied Contact metadata is absent in JPEG, HEIC, TIFF and PNG output",
       "priority": "P2",
       "phase": 5,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: actual JPEG/HEIC/TIFF/PNG contact readback including 10-bit HEIC; 52 metadata tests passed"],
+      "commit": "d9713fb",
+      "limitations": ["Contact supports a single email or website; unsupported nonempty prose fails explicitly. UI integration pending."]
     },
     {
       "id": "UX-02",
