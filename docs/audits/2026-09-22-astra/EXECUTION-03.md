@@ -27,3 +27,17 @@ The regression builds grey-card samples by inverting legal manual corrections, a
 The coarse search and returned value now use the engine's full ±300 tint range. Forward evaluation retains the existing temperature-dependent physical tint guard. Simply expanding that range left one positive-tint case outside the unchanged 0.003 relative-channel residual limit. A bounded, strictly improving pattern-search refinement now follows the narrow Kelvin/tint minimum instead of being trapped inside the coarse seed's rectangular refinement window.
 
 Final adjacent verification: **120 tests, zero failures**, including the new cases, existing WB/colour-preservation tests, tint guard tests and the existing picker bisection-cost bound. No tolerance changed. This improves sampled neutralization; it is not a universal claim about illuminant calibration or non-neutral objects selected with the picker.
+
+## M01 / M02 — integrated referenced-mask changes
+
+Agent commit `9b5d738` was reviewed and integrated as `9b14267`. Image preparation now follows reference dependencies, including disabled and inverted/transitive donors and explicitly requested disabled thumbnails. Alpha identity includes the selection-only dependency closure, referenced brush availability and matte generation. Local adjustments and cosmetic fields do not cause an alpha rebake.
+
+The original **5 tests / 10 failed assertions** pass after repair. Expanded qualification passed **60 tests, zero failures**, including current-root/duplicate-target semantics, finite cycles, group-disabled donors, ordinary selection reuse, and regenerated same-kind mattes. An inherited adversarial test that intentionally documented the stale-root answer now rejects it. Cache memory/retention budgets are unchanged; larger retained raster caches remain a separate performance task.
+
+Cross-review with the preview lane reproduced a further same-path Automask invalidation issue (**one test / one failure**, max linear channel difference 0.175399 versus a fresh renderer). Cache-clear races are being tested with semaphore-controlled work before repair. These follow-on changes and combined full-suite verification are not yet included in the counts above.
+
+## UX-02 — panel resize gesture
+
+The production arithmetic was extracted without changing its behaviour, then exercised with repeated cumulative translations, overshoot/reversal, return to origin and a new gesture. Before repair: **2 tests / 5 failed assertions**. The calculation now holds one starting width through a gesture instead of repeatedly subtracting the full translation from the current width. Gesture completion and cancellation clear the starting value; persistence remains on completion.
+
+Focused arithmetic and adjacent layout/state checks: **23 tests, zero failures** (the inherited layout expected failures remain unchanged). Native pointer-event and cancellation delivery are not established by these pure calculation checks.

@@ -12,6 +12,8 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
+    @State private var panelResizeDrag = PanelResizeDrag()
+    @GestureState private var panelResizeActive = false
     // NO `EditRevision` HERE, AND THAT IS THE POINT. This view is the window's root: its
     // body builds the split view, the sidebar, the centre pane, the develop column and
     // the filmstrip. An `@EnvironmentObject` declaration subscribes a view to that
@@ -79,15 +81,24 @@ struct ContentView: View {
                     .lumenScrubCursor()
                     .gesture(
                         DragGesture(minimumDistance: 0)
+                            .updating($panelResizeActive) { _, active, _ in active = true }
                             .onChanged { drag in
                                 // Leftward drag widens the column, so the delta is
                                 // negated: the pointer and the edge move together.
-                                let next = state.developPanelWidth - drag.translation.width
-                                state.developPanelWidth = Swift.min(
-                                    Swift.max(next, Lumen.minimumPanelWidth),
-                                    Lumen.maximumPanelWidth)
+                                state.developPanelWidth = panelResizeDrag.width(
+                                    current: state.developPanelWidth,
+                                    translation: drag.translation.width,
+                                    minimum: Lumen.minimumPanelWidth,
+                                    maximum: Lumen.maximumPanelWidth)
                             }
-                            .onEnded { _ in state.persistDevelopPanelWidth() })
+                            .onEnded { _ in
+                                panelResizeDrag.end()
+                                state.persistDevelopPanelWidth()
+                            })
+                    .onChange(of: panelResizeActive) { _, active in
+                        // GestureState also resets when a gesture is cancelled.
+                        if !active { panelResizeDrag.end() }
+                    }
             }
     }
 

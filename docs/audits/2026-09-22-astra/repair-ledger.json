@@ -60,9 +60,9 @@
       "title": "Disabled image-dependent donor fails to supply source to referenced mask",
       "priority": "P1",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: actual pipeline red 5 tests / 10 assertions; expanded green 60 tests"],
+      "commit": "9b14267",
       "limitations": []
     },
     {
@@ -70,9 +70,9 @@
       "title": "Referenced donor edits do not invalidate borrower alpha cache",
       "priority": "P1",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: reference closure, brush arrival and matte generation tested; expanded green 60 tests"],
+      "commit": "9b14267",
       "limitations": []
     },
     {
@@ -443,8 +443,8 @@
       "title": "Panel resizing accumulates the full gesture translation repeatedly",
       "priority": "P2",
       "phase": 6,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: resize red 2 tests / 5 assertions; green 23 tests; native pointer delivery pending"],
       "commit": null,
       "limitations": []
     },
