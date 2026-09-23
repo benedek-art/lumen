@@ -254,7 +254,11 @@ public enum ReferenceRenderer {
                 for x in 0..<out.width {
                     let a = Num.saturate(alpha[x, y])
                     if a > 0 {
-                        out[x, y] = out[x, y].mix(curve.apply(out[x, y]), a)
+                        let base = out[x, y]
+                        let curved = curve.apply(base)
+                        let blended = MaskAlgebra.blended(base: base, adjusted: curved,
+                                                          blend: mask.blend, space: space)
+                        out[x, y] = base.mix(blended, a)
                     }
                 }
             }

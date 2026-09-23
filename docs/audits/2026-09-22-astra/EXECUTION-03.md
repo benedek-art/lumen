@@ -80,7 +80,7 @@ Agent commit `a2ad737` was integrated as `d9713fb`. JPEG now writes nested TIFF/
 
 Red: **5 native tests / 10 intended failed assertions** (eight missing contacts, two JPEG density failures). Green: **52 tests, zero failures or skips**, including 13 new tests, actual JPEG/HEIC/TIFF/PNG files and 10-bit HEIC. Independent property/XMP enumeration and `sips` readback confirm contact/density and unchanged dimensions; source immutability, privacy opt-outs, no-clobber and temporary cleanup controls pass. A preliminary HEIC copyright assertion was corrected to accept its existing standard TIFF alias before counting the red run.
 
-The existing UI asks for one email or site. Unsupported nonempty prose is now rejected explicitly before rendering, not silently dropped or mislabeled; nil/blank remains allowed. UI validation/caption integration is in progress. This is one OS/encoder's readback qualification, not every external metadata reader or camera-private field.
+The existing UI asks for one email or site. Unsupported nonempty prose is now rejected explicitly before rendering, not silently dropped or mislabeled; nil/blank remains allowed. UI validation/caption integration is described below. This is one OS/encoder's readback qualification, not every external metadata reader or camera-private field.
 
 The UI follow-up was integrated as `3d8e25b` (agent `e49c15e`). Contact errors appear inline and identify/select the first offending enabled recipe in the footer; disabled-invalid presets do not block export, and both the button and action guard the batch. The old unverified-delivery note now states measured format coverage and reader limits. A separate malformed-host/email probe reproduced **14 failed assertions across five tests** before its narrow validator correction. Qualification: **49 tests, zero failures/skips**. Root's subsequent denoise/layout/export selection below also exercises the integrated validation. No preset string is rewritten by validation. The warning selects the recipe but does not auto-scroll to Contact; full native sheet layout is not yet verified.
 
@@ -91,6 +91,14 @@ The original mode choices were first extracted without changing behaviour. **Thr
 Rendered files now offer Off/Classic instead of a RAW-only AI stand-in. Older or pasted AI recipes are retained rather than rewritten during view construction: their Amount control is disabled and a visible explanation directs the photographer to Classic. RAW choices, amount behaviour, manually overridden Classic coupling and pixel mathematics are unchanged.
 
 Integrated qualification: **108 tests, zero unexpected failures or skips**, covering availability contracts, capture/denoise/ISO behaviour, layout inventory/self-checks, export validation and actual-file metadata. Existing expected layout precision failures remain unchanged. These are pure capability/source-wiring checks plus adjacent engine/encoder tests, not a pointer-driven JPEG denoise demonstration. Slider source citations were updated to the new control locations, without altering metric limits.
+
+## M03 — local-curve mask blend contract
+
+Both the CPU reference and GPU S15b local-curve pass now apply the mask's Normal, Brightness-only or Colour-only blend before alpha interpolation. GPU local adjustments and local curves share the same compositor; Normal retains its existing kernel. Persistent preview rendering revision is raised to 4 so old local-curve results are not reused.
+
+The corrected independent compositor regression first produced **4 tests / 43 failed assertions**, with Normal and neutral controls passing. An earlier oracle compared exact CPU curves directly with the existing GPU curve LUT and also caught unrelated approximation error; before the product fix, it was corrected to measure the Normal/unmasked GPU curve and independently apply blend algebra. This isolates the blend contract rather than loosening a curve-fidelity tolerance or claiming the LUT is exact.
+
+Qualification: **115 tests, zero failures or skips**, including red-channel, luma and parametric curves, 50/100/200 strength, partial alpha, stacked curves, brightness chromaticity/colour luminance invariants, neutral controls, kernels, referenced masks, softening and preview invalidation. CPU and GPU compositor gates remain 1e-6. Signed/zero-luminance behaviour is covered by the adjacent existing blend tests; these new local-curve fixtures use positive colour. Native dropdown interaction and local-curve LUT fidelity remain separate qualifications.
 
 ## Combined integration status
 

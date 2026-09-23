@@ -273,10 +273,10 @@
       "title": "Local curves ignore mask Brightness-only and Colour-only blend mode",
       "priority": "P2",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: corrected independent compositor red 4 tests / 43 assertions; integrated 115 tests passed"],
       "commit": null,
-      "limitations": []
+      "limitations": ["Native dropdown interaction and existing local-curve LUT fidelity are separate qualifications; regression isolates blend semantics."]
     },
     {
       "id": "M04",
@@ -365,7 +365,7 @@
       "phase": 5,
       "status": "verifying",
       "evidence": ["EXECUTION-03.md: three new availability tests/four red assertions; integrated 108 tests passed"],
-      "commit": null,
+      "commit": "4ba50e1",
       "limitations": ["Native pointer-driven rendered-file workflow pending. Saved unsupported AI recipe retained and explained, not silently rewritten."]
     },
     {

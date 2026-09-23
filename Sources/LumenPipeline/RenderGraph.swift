@@ -906,27 +906,27 @@ public struct RenderGraph {
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
                                                  longEdge: options.longEdge,
                                                  lutSize: options.lutSize)
-            // Normal keeps the two-argument kernel it always used, so the common case
-            // is bit-identical and pays nothing for a feature it is not using. The
-            // coefficients come off the working space rather than being written into
-            // the shader, so this cannot drift from `MaskAlgebra.blended`.
-            let composite: CIImage?
-            if mask.blend == .normal {
-                composite = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                extent: out.extent,
-                                                [out, adjusted, alpha])
-            } else {
-                let w = RGBColorSpace.rec2020.luminanceWeights
-                let mode: Float = mask.blend == .luminosity ? 1 : 2
-                composite = KernelLibrary.apply(KernelLibrary.blendMaskMode,
-                                                extent: out.extent,
-                                                [out, adjusted, alpha, mode,
-                                                 Float(w.r), Float(w.g), Float(w.b)])
-            }
-            guard let blended = composite else { continue }
+            guard let blended = Self.compositeLocal(base: out, adjusted: adjusted,
+                alpha: alpha, blend: mask.blend) else { continue }
             out = blended
         }
         return out
+    }
+
+    /// Both local taps obey one mask blend contract, before alpha interpolation.
+    /// S15b pixels remain display-linear Rec2020, so the same luminance coefficients
+    /// apply there as in S11. Normal retains the existing kernel unchanged.
+    private static func compositeLocal(base: CIImage, adjusted: CIImage,
+                                       alpha: CIImage, blend: MaskBlend) -> CIImage? {
+        if blend == .normal {
+            return KernelLibrary.apply(KernelLibrary.blendMask, extent: base.extent,
+                                       [base, adjusted, alpha])
+        }
+        let w = RGBColorSpace.rec2020.luminanceWeights
+        let mode: Float = blend == .luminosity ? 1 : 2
+        return KernelLibrary.apply(KernelLibrary.blendMaskMode, extent: base.extent,
+                                   [base, adjusted, alpha, mode,
+                                    Float(w.r), Float(w.g), Float(w.b)])
     }
 
     /// A mask's sub-recipe evaluated on the stage input. Local parameters are deltas
@@ -1053,9 +1053,8 @@ public struct RenderGraph {
             guard let curved = Self.throughShaper(out, { encoded in
                 ColorCube.filter(table, image: encoded)
             }) else { continue }
-            guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                    extent: out.extent,
-                                                    [out, curved, alpha])
+            guard let blended = Self.compositeLocal(base: out, adjusted: curved,
+                                                    alpha: alpha, blend: mask.blend)
             else { continue }
             out = blended
         }
