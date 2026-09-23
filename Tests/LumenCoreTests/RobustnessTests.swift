@@ -306,6 +306,13 @@ final class RobustnessTests: XCTestCase {
         mask.components = [component]
         base.masks = [mask]
         let unedited = ReferenceRenderer.render(source, plan: RenderPlan(recipe: base))
+        // Frame-denominated softening is below the discrete Gaussian's no-op floor
+        // on a 24 px toy image. Use resolved scene detail for that field's liveness
+        // check; keep the same pixel-change threshold as every other control.
+        let softeningSource = ImageBuffer(width: 1024, height: 16) { u, _ in
+            RGB(gray: 0.18 + 0.03 * sin(2 * .pi * 64 * u))
+        }
+        let unsoftened = ReferenceRenderer.render(softeningSource, plan: RenderPlan(recipe: base))
 
         let fields: [(String, (inout LocalAdjust) -> Void)] = [
             ("temp", { $0.temp = 80 }),
@@ -350,11 +357,14 @@ final class RobustnessTests: XCTestCase {
         for (name, mutate) in fields {
             var recipe = base
             mutate(&recipe.masks[0].adjust)
-            let out = ReferenceRenderer.render(source, plan: RenderPlan(recipe: recipe))
+            let isSoftening = recipe.masks[0].adjust.sharpness < 0
+            let input = isSoftening ? softeningSource : source
+            let baseline = isSoftening ? unsoftened : unedited
+            let out = ReferenceRenderer.render(input, plan: RenderPlan(recipe: recipe))
             var worst = 0.0
             for y in 0..<out.height {
                 for x in 0..<out.width {
-                    worst = runningMax(worst, out[x, y].maxAbsDifference(unedited[x, y]))
+                    worst = runningMax(worst, out[x, y].maxAbsDifference(baseline[x, y]))
                 }
             }
             XCTAssertGreaterThan(worst, 1e-4,
