@@ -59,6 +59,36 @@ private let mapScaleOptions: [(value: Double, label: String)] =
 
 // MARK: - Sheet
 
+/// Contact validation is a batch decision: disabled presets do not participate,
+/// and validating the focused editor alone misses another checked recipe.
+struct ExportContactEligibility: Equatable {
+    struct Issue: Equatable {
+        let recipeID: String
+        let recipeName: String
+        let message: String
+    }
+
+    let issue: Issue?
+    var canExport: Bool { issue == nil }
+
+    init(recipes: [ExportRecipe]) {
+        var first: Issue?
+        for recipe in recipes where recipe.enabled {
+            if let message = recipe.metadata.contactValidationMessage {
+                let name = recipe.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Untitled recipe" : recipe.name
+                first = Issue(recipeID: recipe.id, recipeName: name, message: message)
+                break
+            }
+        }
+        issue = first
+    }
+
+    static let metadataReadbackNote = "Native readback tests cover standard privacy controls, "
+        + "copyright, email/site contact and print density in JPEG, HEIC, TIFF and PNG. "
+        + "Proprietary fields and other readers may vary. Size and orientation match delivered pixels."
+}
+
 @MainActor
 struct ExportSheet: View {
     @EnvironmentObject var state: AppState
@@ -249,6 +279,7 @@ struct ExportSheet: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
             exportProgressSection
+            contactValidationSection
             footerActions
         }
         .padding(14)
@@ -307,15 +338,44 @@ struct ExportSheet: View {
 
     private var footerActions: some View {
         let summaryColor: Color = fileCount == 0 ? Lumen.secondaryText : Lumen.primaryText
-        let exportDisabled: Bool = fileCount == 0 || state.isExporting
+        let exportDisabled: Bool = fileCount == 0 || state.isExporting || !contactEligibility.canExport
         return HStack(spacing: 10) {
             Text(fileCountSummary)
                 .font(.lumenBody)
                 .foregroundStyle(summaryColor)
             Spacer()
-            Button("Export…") { state.chooseExportDestination() }
+            Button("Export…") {
+                guard contactEligibility.canExport else { return }
+                state.chooseExportDestination()
+            }
                 .keyboardShortcut(.defaultAction)
                 .disabled(exportDisabled)
+        }
+    }
+
+    private var contactEligibility: ExportContactEligibility {
+        ExportContactEligibility(recipes: state.exportRecipes)
+    }
+
+    @ViewBuilder
+    private var contactValidationSection: some View {
+        if let issue = contactEligibility.issue {
+            Button {
+                selectedRecipeID = issue.recipeID
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Fix Contact in “\(issue.recipeName)”")
+                        .font(.lumenBody)
+                        .lineLimit(1)
+                    Text(issue.message + " Edit Contact or uncheck this recipe before exporting.")
+                        .font(.lumenCaption)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.accent)
+            .help("Select “\(issue.recipeName)” to edit Contact, or uncheck it in Recipes.")
         }
     }
 
@@ -806,31 +866,17 @@ private struct ExportRecipeEditor: View {
             ExportFieldRow("Contact") {
                 ExportTextEntry(text: optionalText(\.metadata.contact),
                                 placeholder: "email or site")
+                    .help("One email address or HTTP(S) website; a bare domain is also accepted. "
+                          + "Stored preset text is not rewritten by validation.")
             }
-            // Said plainly rather than left to be discovered in a delivered file, and
-            // the two halves are said separately because they rest on different amounts
-            // of evidence.
-            //
-            // The switches above REMOVE metadata, and that is reliable whichever way
-            // Core Image treats the property dictionary: either the encoder honours it
-            // and the keys are gone, or it ignores it and they were never going to be
-            // written. Since the source-dictionary fix (docs/31 round one §13), the
-            // policy's base is the ORIGINAL file's properties read through ImageIO —
-            // so "EXIF: on" now has real camera data to keep, and the delivery's
-            // orientation and pixel dimensions are rewritten to match the rendered
-            // pixels. But everything the file is meant to CARRY — the kept EXIF, the
-            // added Copyright, Contact and DPI — rides the same `settingProperties`
-            // seam, and nobody has opened a delivered file on a Mac and read it back.
-            // Telling the user it is written and unconfirmed is the only caption that
-            // is true today; promising it outright would be a guess wearing a fact's
-            // clothes, and saying nothing at all would hand a photographer a client
-            // delivery they believe is protected.
-            ExportNote("The switches that remove metadata are reliable. What the file "
-                       + "keeps and gains — camera data with EXIF on, Copyright, "
-                       + "Contact, the DPI — is written but not yet verified by "
-                       + "reading a delivered file back, so check one before you rely "
-                       + "on it. Size and orientation are corrected to the delivered "
-                       + "pixels either way.")
+            if let message = recipe.metadata.contactValidationMessage {
+                Text(message)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Contact error: " + message)
+            }
+            ExportNote(ExportContactEligibility.metadataReadbackNote)
         }
     }
 

@@ -37,4 +37,22 @@ final class ExportContactTests: XCTestCase {
             XCTAssertNoThrow(try policy.validateContact())
         }
     }
+
+    func testMalformedAddressCannotBecomeAnEmailOrFallThroughAsAWebsite() {
+        for text in ["name%40example.invalid", "name@.", "name@..", "name@example..invalid",
+                     ".name@example.invalid", "https://.invalid", "https://example..invalid"] {
+            let policy = MetadataPolicy(contact: text)
+            XCTAssertNil(policy.contactKind, text)
+            XCTAssertThrowsError(try policy.validateContact(), text)
+        }
+    }
+
+    func testAddressValidationRetainsLocalEmailIPv6FQDNAndAtInURLPath() throws {
+        XCTAssertEqual(MetadataPolicy(contact: "user@local").contactKind, .email)
+        for text in ["https://[::1]", "https://example.invalid.", "example.invalid/@name"] {
+            let policy = MetadataPolicy(contact: text)
+            XCTAssertEqual(policy.contactKind, .website, text)
+            XCTAssertNoThrow(try policy.validateContact())
+        }
+    }
 }

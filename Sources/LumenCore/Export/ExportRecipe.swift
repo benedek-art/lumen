@@ -254,14 +254,29 @@ public struct MetadataPolicy: Codable, Equatable, Sendable {
               !value.isEmpty, !value.contains(where: { $0.isWhitespace }) else { return nil }
         if !value.contains(where: { ":/?#;,<>\\\"()".contains($0) }) {
             let parts = value.split(separator: "@", omittingEmptySubsequences: false)
-            if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty { return .email }
+            if parts.count == 2, !parts[0].isEmpty,
+               !parts[0].hasPrefix("."), !parts[0].hasSuffix("."), !parts[0].contains(".."),
+               Self.isContactHost(String(parts[1])) { return .email }
         }
         let hasScheme = value.contains("://")
         guard let url = URLComponents(string: hasScheme ? value : "https://" + value),
               let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
+              let host = url.host, Self.isContactHost(host, allowIPv6: true),
+              url.user == nil, url.password == nil,
               hasScheme || host.contains(".") else { return nil }
         return .website
+    }
+
+    private static func isContactHost(_ host: String, allowIPv6: Bool = false) -> Bool {
+        // URLComponents has already parsed an IPv6 literal. DNS labels below must
+        // not reject that valid URL, but an encoded @ must not become a website host.
+        if allowIPv6, host.hasPrefix("["), host.hasSuffix("]"), host.contains(":") { return true }
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        guard !name.isEmpty else { return false }
+        return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
+            !label.isEmpty && !label.hasPrefix("-") && !label.hasSuffix("-")
+                && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+        }
     }
 
     public var contactValidationMessage: String? {
