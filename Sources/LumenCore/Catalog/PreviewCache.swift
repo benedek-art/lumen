@@ -27,7 +27,7 @@ import Foundation
 public enum PreviewCache {
     /// Invalidate legacy rendered pixels after RAW decoder/color-basis corrections.
     /// Separate from recipe schema: the document did not change, its renderer did.
-    public static let renderingRevision = 4
+    public static let renderingRevision = 5
 
     /// Where payloads sit, relative to the cache directory (docs/15 §15.2).
     public static let directoryName = "previews"

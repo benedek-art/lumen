@@ -303,10 +303,10 @@
       "title": "Vignette positioned incorrectly after off-centre crop and horizontal flip",
       "priority": "P2",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: native geometry red 3 tests / 20 assertions; 146-test qualification passed after exact coordinate field and integral delivered crop alignment"],
       "commit": null,
-      "limitations": []
+      "limitations": ["Production GPU geometry verified; native pointer workflow and full geometry-aware software reference rendering are separate qualifications."]
     },
     {
       "id": "M07",

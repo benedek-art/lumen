@@ -171,7 +171,7 @@ public struct RenderGraph {
         if plan.vignetteEV != 0 {
             image = applyVignette(image, ev: plan.vignetteEV,
                                   feather: plan.vignetteFeather,
-                                  crop: plan.recipe.develop.geometry.crop)
+                                  geometry: plan.recipe.develop.geometry)
         }
         if let film = plan.filmChain, film.halationAmount > 0 {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
@@ -1311,28 +1311,23 @@ public struct RenderGraph {
 
     // MARK: - S13 vignette and halation
 
-    /// `crop` is the recipe's crop, so the burn is centred on the rectangle the user
-    /// will actually see.
-    ///
-    /// This stage runs on the full decoded frame and `applyGeometry` crops afterwards,
-    /// so computing the ellipse from `image.extent` centred it on the SENSOR. On a
-    /// cropped photo the burn was off-centre with the wrong radius, and on an
-    /// off-centre crop it could sit almost entirely outside the visible frame — while
-    /// the panel note asserts the vignette "is masked to the crop rectangle, so it
-    /// stays post-crop by construction".
-    ///
-    /// Straighten is not accounted for: the crop rectangle is expressed on the
-    /// straightened frame while this stage still sees the source orientation, and the
-    /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
-    /// slightly off. That is a much smaller error than the one being fixed, and it is
-    /// listed in BUILDING.md rather than approximated with maths I cannot check here.
-    /// `dithered: false` exists for ONE caller: the banding golden renders an
+    /// Evaluate the crop's ellipse in the exact oriented coordinates used by delivery.
+    /// Pixels stay in source space here: vignette still precedes halation and picture
+    /// formation. Only its coordinate field is transformed, with no image resampling.
+    /// The full rectangle/rotation/flip comes from applyGeometry's shared definition.
+    /// `dithered: false` is test-only: the banding golden renders an
     /// undithered control in the same run and asserts the dither's improvement as a
     /// RATIO, because an absolute bar calibrated by simulating fp16 died on the real
     /// driver's materialization (both macOS lanes, same 0.0072 EV, deterministic).
     /// The shipping path never passes it.
-    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+    func applyVignette(_ image: CIImage, ev: Double, feather: Double,
                        crop: Crop, dithered: Bool = true) -> CIImage {
+        applyVignette(image, ev: ev, feather: feather, geometry: Geometry(crop: crop),
+                      dithered: dithered)
+    }
+
+    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+                       geometry: Geometry, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
         // The reference's clamp, and now literally the reference's OWN clamp rather
@@ -1348,16 +1343,19 @@ public struct RenderGraph {
                            DetailEngine.vignetteAmountRange.upperBound)
         guard ev != 0 else { return image }
 
-        var e = full
-        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
-           crop.w > 0, crop.h > 0 {
-            // Recipe crop is top-left-origin; Core Image extents are bottom-up.
-            e = CGRect(x: full.minX + CGFloat(crop.x) * full.width,
-                       y: full.minY + CGFloat(1 - crop.y - crop.h) * full.height,
-                       width: CGFloat(crop.w) * full.width,
-                       height: CGFloat(crop.h) * full.height)
-        }
+        let rects = PipelineRenderer.geometryRects(geometry, sourceSize: full.size)
+        // Core Image's final cropped image has integral pixel bounds. Align the
+        // ellipse with that delivered rectangle, not its fractional requested edge;
+        // otherwise a small/rotated crop shifts the brightening ramp by a pixel.
+        let e = rects.target.integral
         guard e.width > 0, e.height > 0 else { return image }
+        // Delivery first translates a nonzero source origin to zero, then applies
+        // this orientation. Rows act on the SOURCE coordinate, not a resampled image.
+        let t = rects.orientation
+        let axisX = CIVector(x: t.a, y: t.c,
+            z: t.tx - t.a * full.minX - t.c * full.minY)
+        let axisY = CIVector(x: t.b, y: t.d,
+            z: t.ty - t.b * full.minX - t.d * full.minY)
         let centre = CIVector(x: e.midX, y: e.midY)
         // PER AXIS, then scaled so the corner lands at r = 1 — level sets elliptical on
         // the crop's own proportions, which is what docs/06's Roundness 0 means and what
@@ -1400,7 +1398,8 @@ public struct RenderGraph {
         let noise = plate ?? image
         let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, noise, centre, inv, Float(ev), Float(feather),
+                                   [image, noise, centre, inv, axisX, axisY,
+                                    Float(ev), Float(feather),
                                     CIVector(x: weights.r, y: weights.g, z: weights.b),
                                     Float(threshold),
                                     Float(DetailEngine.vignetteHighlightProtection),
