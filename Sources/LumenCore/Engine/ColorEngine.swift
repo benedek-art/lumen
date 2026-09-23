@@ -509,6 +509,30 @@ public struct ColorEngine: Sendable {
             && !bwEnabled
     }
 
+    /// Resolved parameters for a non-enabled analytic S9 prerequisite. Only the
+    /// Mixer's H/S/L bands may be active within this engine; this says nothing about
+    /// S10 or whole-pipeline eligibility. Do not use it as a recipe-family dispatch
+    /// switch: mixing exact and sampled routes creates a discontinuity when another
+    /// control becomes active. See EXECUTION-05-exact-mixer.md.
+    /// Eligibility is resolved from the same sanitized state `apply` reads.
+    public var exactMixer: ExactMixer? {
+        guard !mixerIsIdentity, uniformity == 0,
+              remapIsIdentity, tintIsIdentity, swatches.isEmpty, !bwEnabled,
+              Num.clamp(color.vibrance, -100, 100) == 0,
+              Num.clamp(color.saturation, -100, 100) == 0 else { return nil }
+        // Corrupt/nonfinite controls retain their existing defensive CPU/table path;
+        // never upload NaN uniforms to an otherwise valid photograph.
+        guard bands.allSatisfy({ $0.hue.isFinite && $0.sat.isFinite && $0.lum.isFinite })
+        else { return nil }
+        let resolved = zip(bands, arcs).map { band, arc in
+            ExactMixer.Band(arc: arc,
+                            hue: Num.clamp(band.hue, -100, 100) / 100 * Self.hueRangeDegrees,
+                            saturation: Num.clamp(band.sat, -100, 100) / 100,
+                            luminance: Num.clamp(band.lum, -100, 100) / 100)
+        }
+        return ExactMixer(engine: self, bands: resolved)
+    }
+
     // MARK: - Band geometry (the four ring handles, D13)
 
     /// One band's four ring handles, resolved to degrees and already sanitized.
