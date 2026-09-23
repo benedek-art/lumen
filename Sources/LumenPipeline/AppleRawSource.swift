@@ -29,6 +29,10 @@ public enum RawSourceError: Error {
 public final class AppleRawSource: ImageSource {
 
     private let filter: CIRAWFilter
+    /// RAW9 changes `filter.nativeSize` after a reduced-scale decode; it can remain
+    /// stale on cache hits. Native metadata and scale planning describe the original,
+    /// not the decoder's most recent working plane.
+    private let originalNativeSize: CGSize
     public let url: URL
 
     /// The decoder version actually pinned — persist into recipe.develop.raw.decoderVersion.
@@ -68,17 +72,12 @@ public final class AppleRawSource: ImageSource {
         }
         self.url = url
         self.filter = filter
+        self.originalNativeSize = filter.nativeSize
 
-        // Pin the decoder version (D50): an implicit "latest" could shift under a
-        // macOS update and silently change three years of renders. If pinning breaks
-        // this particular file, a working implicit decoder beats a dead pinned one.
-        let originalVersion = filter.decoderVersion
-        if let newest = filter.supportedDecoderVersions.last {
-            filter.decoderVersion = newest
-            if filter.outputImage == nil {
-                filter.decoderVersion = originalVersion
-            }
-        }
+        // Pin Apple's per-file selection, not the last advertised version. RAW9 is
+        // opt-in on macOS27: "supported" does not mean selected or validated in our
+        // working context, and a non-nil lazy outputImage is not a pixel check.
+        // Explicit recipe pins remain honoured in decode(), including RAW9.
         self.pinnedDecoderVersion = Int(filter.decoderVersion.rawValue.filter(\.isNumber))
         self.pinnedVersion = filter.decoderVersion
 
@@ -91,12 +90,12 @@ public final class AppleRawSource: ImageSource {
     }
 
     public var nativeLongEdge: Double {
-        let size = filter.nativeSize
+        let size = originalNativeSize
         return Double(max(size.width, size.height))
     }
 
     public var nativePixelSize: (width: Int, height: Int) {
-        let size = filter.nativeSize
+        let size = originalNativeSize
         return (Int(size.width), Int(size.height))
     }
 
@@ -134,7 +133,8 @@ public final class AppleRawSource: ImageSource {
     /// descriptions, not pixels" — which was true, and was the whole defect: a
     /// description is not a decode, so every hit re-ran the demosaic. Entries are pixels
     /// now — from the first ask below the interactive ceiling and from the first HIT
-    /// above it, which is where the promotion in `decode` lives and where its argument
+    /// above it (RAW9 needs its colour boundary on the first ask at every size).
+    /// The promotion in `decode` is where that policy lives and where its argument
     /// is written down. That is why `evictDecodes` bounds them by bytes as well as by
     /// count, and why `heldDecodeBytes` is readable from outside.
     private static let decodeCacheCapacity = 8
@@ -206,8 +206,8 @@ public final class AppleRawSource: ImageSource {
         // and a system update silently shifted three years of renders, which is the
         // exact drift the pin exists to prevent. A recorded version that this OS
         // still supports is honoured; one it no longer supports falls back to the
-        // pin, because a working newer decoder beats a dead recorded one — the same
-        // trade the pinning probe in `init` already makes.
+        // per-file default when the recorded decoder is unavailable. A supported
+        // explicit choice is never replaced merely because a newer one exists.
         let resolvedVersion: CIRAWDecoderVersion
         if let requested = dev.raw.decoderVersion,
            requested != pinnedDecoderVersion,
@@ -234,7 +234,7 @@ public final class AppleRawSource: ImageSource {
         //
         // Guarded rather than converted, because `Int(_:)` on a non-finite `Double`
         // TRAPS — the same trap `PipelineRenderer.byte` guards for the same reason a few
-        // files away. `nativeLongEdge` comes from `CIRAWFilter.nativeSize`, and a source
+        // files away. `nativeLongEdge` was captured before any scaled decode, and a source
         // that cannot say how big it is answers zero here, which classifies as
         // interactive: the safe side, since the only thing the inspection class buys is
         // an exemption from the memory budget.
@@ -338,18 +338,25 @@ public final class AppleRawSource: ImageSource {
         var image = filter.outputImage
         if image == nil, resolvedVersion.rawValue != pinnedVersion.rawValue {
             // The recorded decoder claims support and still cannot form an image on
-            // this file. Fall back to the pin rather than failing the render — the
-            // same posture as the probe in `init`.
+            // this file. Retain the existing fallback to Apple's per-file default.
             filter.decoderVersion = pinnedVersion
             image = filter.outputImage
         }
         guard let image else { return nil }
-        // Pixels, not the promise of pixels — see `materialized`. Falling back to the
-        // lazy image keeps every failure path working exactly as before: a decode that
-        // cannot be materialized is still a correct decode, just an expensive one.
+        // RAW9 needs a REAL colour boundary before any downstream evaluation. On
+        // macOS27, the same Sony RAW is correct in extended-linear sRGB but severely
+        // cyan when its lazy decode is evaluated by a Rec2020 working context.
+        // Retagging the lazy image cannot establish an evaluation context.
         //
-        // …EXCEPT ON FIRST SIGHT OF AN INSPECTION-CLASS ASK, WHICH IS NOT FREE TO GUESS
-        // ABOUT. Materializing costs a whole-frame demosaic AND a whole-frame buffer —
+        // This applies on the FIRST native/inspection ask too, not only previews or
+        // cache promotion: exports and eyedroppers otherwise still evaluate the bad
+        // lazy path. It costs a full demosaic and an RGBAh plane (about 250 MiB at 33 MP)
+        // even for a one-shot native pick. Keep the existing allocation ceiling;
+        // failure to make this REQUIRED boundary returns nil, never corrupt pixels.
+        // Decoders other than 9 retain the existing lazy/promotion policy below.
+        //
+        // FOR OTHER DECODERS, FIRST-SIGHT INSPECTION REMAINS LAZY. Materializing
+        // costs a whole-frame demosaic AND a whole-frame buffer —
         // 260 MB for a 7008 px ARW, half a gigabyte at 60 MP — and it is worth paying
         // exactly when the same key comes back. Below the interactive ceiling that is a
         // safe bet: those sizes are the viewer's settle, the rungs under a moving hand,
@@ -386,7 +393,11 @@ public final class AppleRawSource: ImageSource {
         // would have been delivered at 512 px in draft demosaic. That is the falsifier,
         // it is loud, and nobody has ever seen it.
         let stored: (image: CIImage, bytes: Int)
-        if DraftLadder.isInspectionAsk(longEdge: askedLongEdge) {
+        if filter.decoderVersion.rawValue == "9" {
+            guard let corrected = DecodeMaterializer.materialize(
+                image, evaluatingIn: .raw9LinearSRGB) else { return nil }
+            stored = corrected
+        } else if DraftLadder.isInspectionAsk(longEdge: askedLongEdge) {
             stored = (image: image, bytes: 0)
         } else {
             stored = materialized(image) ?? (image: image, bytes: 0)
