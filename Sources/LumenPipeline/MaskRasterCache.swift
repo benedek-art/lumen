@@ -85,6 +85,9 @@ public final class MaskRasterCache {
     }
 
     private let lock = NSLock()
+    /// Work already outside the lock cannot be cancelled, but it cannot publish into
+    /// a replacement source's cache or alter the new generation's queue bookkeeping.
+    private var generation: UInt64 = 0
     private var entries: [(maskID: String, entry: Entry)] = []
     private var inFlight: Set<String> = []
     private var pending: [String: (key: String, identity: String,
@@ -104,6 +107,7 @@ public final class MaskRasterCache {
     func plane(maskID: String, key: String, identity: String, allowStale: Bool,
                bakeExact: @escaping () -> Plane) -> Plane {
         lock.lock()
+        let generation = self.generation
         if let index = entries.firstIndex(where: { $0.maskID == maskID }),
            entries[index].entry.key == key {
             entries[index].entry.identity = identity
@@ -134,7 +138,8 @@ public final class MaskRasterCache {
             lock.unlock()
             Self.count { $0.bakes += 1 }
             let built = bakeExact()
-            store(maskID: maskID, key: key, identity: identity, plane: built)
+            store(maskID: maskID, key: key, identity: identity, plane: built,
+                  generation: generation)
             return built
         }
         Self.count { $0.staleServes += 1 }
@@ -144,7 +149,11 @@ public final class MaskRasterCache {
         if mustStart { inFlight.insert(maskID) }
         lock.unlock()
 
-        if mustStart { bakeQueue.async { [weak self] in self?.drainPending(maskID) } }
+        if mustStart {
+            bakeQueue.async { [weak self] in
+                self?.drainPending(maskID, generation: generation)
+            }
+        }
         return previous.plane
     }
 
@@ -157,14 +166,20 @@ public final class MaskRasterCache {
 
     func clear() {
         lock.lock()
+        generation &+= 1
         entries.removeAll()
         pending.removeAll()
+        inFlight.removeAll()
         lock.unlock()
     }
 
-    private func drainPending(_ maskID: String) {
+    private func drainPending(_ maskID: String, generation: UInt64) {
         while true {
             lock.lock()
+            guard generation == self.generation else {
+                lock.unlock()
+                return
+            }
             guard let next = pending.removeValue(forKey: maskID) else {
                 inFlight.remove(maskID)
                 lock.unlock()
@@ -173,11 +188,13 @@ public final class MaskRasterCache {
             lock.unlock()
 
             let built = next.bakeExact()
-            store(maskID: maskID, key: next.key, identity: next.identity, plane: built)
+            store(maskID: maskID, key: next.key, identity: next.identity, plane: built,
+                  generation: generation)
         }
     }
 
-    private func store(maskID: String, key: String, identity: String, plane: Plane) {
+    private func store(maskID: String, key: String, identity: String, plane: Plane,
+                       generation: UInt64) {
         // Rasters above the draft proxy are not held, the same rule
         // `PlanTableCache` applies to export-size bakes: settle and export rasters
         // now come at the RENDER's resolution (docs/31 round two §3), and a single
@@ -190,6 +207,10 @@ public final class MaskRasterCache {
         guard Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge
         else { return }
         lock.lock()
+        guard generation == self.generation else {
+            lock.unlock()
+            return
+        }
         entries.removeAll { $0.maskID == maskID }
         entries.insert((maskID: maskID,
                         entry: Entry(key: key, plane: plane, identity: identity)),

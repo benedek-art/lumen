@@ -21,14 +21,14 @@ final class MaskReferencePipelineTests: XCTestCase {
         let statisticsProvenance = RawTruth.provenance(isRenderedFile: true)
         private let image: CIImage
 
-        init(longEdge: Int) {
+        init(longEdge: Int, pixelGenerator: ((Double, Double) -> RGB)? = nil) {
             nativeLongEdge = Double(longEdge)
             nativePixelSize = (longEdge, longEdge / 2)
             captureMetadata = CaptureMetadata(asShotTemperature: 5500, asShotTint: 0,
                                                decoderVersion: nil,
                                                pixelSize: nativePixelSize)
-            let pixels = ImageBuffer(width: longEdge, height: longEdge / 2) { u, _ in
-                RGB(gray: pow(2, -8 + u * 10))
+            let pixels = ImageBuffer(width: longEdge, height: longEdge / 2) { u, v in
+                pixelGenerator?(u, v) ?? RGB(gray: pow(2, -8 + u * 10))
             }
             image = pixels.pixels.withUnsafeBytes {
                 CIImage(bitmapData: Data($0), bytesPerRow: longEdge * 16,
@@ -296,6 +296,37 @@ final class MaskReferencePipelineTests: XCTestCase {
         XCTAssertGreaterThan(worst(before, changed), 0.01)
         XCTAssertEqual(MaskRasterCache.currentStats.bakes, bakes,
                        "adjusting a mask does not change its selection")
+    }
+
+    func testForgettingSameURLSourceAlsoForgetsAutomaskedBrushPixels() throws {
+        let original = Source(longEdge: 128) { _, _ in RGB(gray: 0.18) }
+        let replacement = Source(longEdge: 128) { u, _ in RGB(gray: u < 0.5 ? 0.18 : 1.2) }
+        XCTAssertEqual(original.url, replacement.url)
+        var brush = MaskComponent(op: .add, kind: .brush)
+        brush.strokesRef = "blob:replacement-automask"
+        var mask = Mask(id: "painted", components: [brush])
+        mask.adjust.exposure = 1
+        var r = Recipe()
+        r.develop.denoise.mode = .off
+        r.masks = [mask]
+        let strokes = ["blob:replacement-automask": BrushStrokeSet(strokes: [
+            BrushStroke(points: [BrushPoint(x: 0.4, y: 0.5)], size: 0.8,
+                        feather: 0, flow: 100, density: 100, automask: true)
+        ])]
+        let held = PipelineRenderer()
+        _ = try pixels(held, original, r, strokes: strokes)
+        // The coordinator calls this when bytes change under the same path. Merely
+        // clearing the finished alpha is insufficient if its brush prefix survives.
+        held.forgetMattes(for: replacement.url)
+        let actual = try pixels(held, replacement, r, strokes: strokes)
+        let expected = try pixels(PipelineRenderer(), replacement, r, strokes: strokes)
+        XCTAssertLessThan(worst(actual, expected), 1e-6,
+                          "Automask retained a selection sampled from the old file")
+        var ungated = strokes
+        ungated["blob:replacement-automask"]!.strokes[0].automask = false
+        let withoutGate = try pixels(PipelineRenderer(), replacement, r, strokes: ungated)
+        XCTAssertGreaterThan(worst(expected, withoutGate), 0.05,
+                             "the replacement fixture must exercise the Automask gate")
     }
 }
 #endif

@@ -132,6 +132,9 @@ public final class PipelineRenderer {
     /// refinement chain, which is the only part of a mask that grows without bound as
     /// the photographer works. See the type's header (docs/36 §1.2).
     private let brushPlanes = BrushPlaneCache()
+    /// A deferred mask bake captures its picture key. If a source is replaced while
+    /// that bake is pending, its nested brush work must never share the new key.
+    private var maskSourceGeneration: UInt64 = 0
 
     /// One file's mattes, and which kinds have been LOOKED for.
     ///
@@ -223,7 +226,12 @@ public final class PipelineRenderer {
         // alone cannot see a content change under an unchanged path. Coarse
         // (clears every photo's rasters), and correct: an invalidate is rare and
         // a raster rebake is a background stale-while-bake, not a stall.
+        maskSourceGeneration &+= 1
         maskRasters.clear()
+        // Automask brush prefixes sampled the same old pixels. Clearing the finished
+        // alpha alone would rebuild it from that obsolete prefix. The generation in
+        // pictureKey also isolates a deferred old bake that paints after this clear.
+        brushPlanes.clear()
         // The band-hue measurement is a statement about the same pixels.
         bandHues.removeValue(forKey: url)
         bandHueOrder.removeAll { $0 == url }
@@ -1424,7 +1432,7 @@ public final class PipelineRenderer {
                 // the staged ImageBuffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
                 pictureKey = Self.maskSourceFingerprint(recipe: plan.recipe)
-                    .map { photograph + "|" + $0 }
+                    .map { photograph + "|source-generation:\(maskSourceGeneration)|" + $0 }
             } else {
                 // No stage input was built, so nothing in this plan is reading one and
                 // no mask has a fingerprint to state. WHICH photograph is the key
