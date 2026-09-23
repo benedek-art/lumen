@@ -203,8 +203,8 @@
       "title": "WB neutral picker cannot reach the full tint range accepted by the slider",
       "priority": "P2",
       "phase": 3,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: full-range picker red 3 tests / 15 assertions; bounded refinement and adjacent green 120 tests"],
       "commit": null,
       "limitations": []
     },
