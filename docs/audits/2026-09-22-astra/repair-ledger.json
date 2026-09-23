@@ -21,7 +21,7 @@
       "priority": "P1",
       "phase": 3,
       "status": "red confirmed",
-      "evidence": ["EXECUTION-04-colour-lut.md: independent actual-GPU accuracy regressions; adaptive alternatives rejected on accuracy/performance"],
+      "evidence": ["EXECUTION-04-colour-lut.md: independent actual-GPU accuracy regressions; adaptive alternatives rejected on accuracy/performance", "EXECUTION-05-exact-mixer.md: non-enabled prerequisite integrated as 0ae6776; 81 native tests, four unchanged expected accuracy failures. Partial production dispatch rejected for zero-crossing discontinuities."],
       "commit": "5e1cfb2",
       "limitations": ["Tests/report only, no repair yet. Four strict expected accuracy assertions remain unresolved. Exact Mixer-only stage in progress."]
     },
@@ -275,7 +275,7 @@
       "phase": 4,
       "status": "verifying",
       "evidence": ["EXECUTION-03.md: corrected independent compositor red 4 tests / 43 assertions; integrated 115 tests passed"],
-      "commit": null,
+      "commit": "b00df8d",
       "limitations": ["Native dropdown interaction and existing local-curve LUT fidelity are separate qualifications; regression isolates blend semantics."]
     },
     {

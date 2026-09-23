@@ -186,7 +186,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
-    "UInt64", "Double", "Float", "Float32", "Float64", "Bool", "String", "Substring",
+    "UInt64", "Double", "Float", "Float16", "Float32", "Float64", "Bool", "String", "Substring",
     "Character", "Array", "Dictionary", "Set", "Optional", "Result", "Range",
     # `#filePath` and `#line` defaults on a test helper, so a failure reports the
     # CALL site rather than the helper's own line.
