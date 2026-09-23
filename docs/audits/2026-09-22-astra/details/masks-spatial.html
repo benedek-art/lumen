@@ -1,0 +1,521 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Masks &amp; spatial tools</title><style>:root{color-scheme:dark;--bg:#141619;--panel:#1d2025;--line:#343a43;--ink:#eaeef4;--muted:#a7b0bd;--accent:#91d5bf;--bad:#ff9696;--warn:#efd18d}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--accent);text-underline-offset:3px}button,input,select{font:inherit;color:inherit}button,select,input{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 12px}button{cursor:pointer}button:hover,button[aria-pressed=true]{border-color:var(--accent)}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}header,main,footer{max-width:1200px;margin:auto;padding:32px}header{padding-top:48px}h1{font-size:clamp(30px,4vw,50px);line-height:1.14;max-width:850px;margin:12px 0 20px;letter-spacing:-1.4px}h2{font-size:28px;line-height:1.25;margin:0 0 18px}h3{font-size:19px;margin:0 0 10px}p{max-width:900px}section{margin:0 0 56px;scroll-margin-top:24px}.eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:12px;font-weight:650;color:var(--accent)}.muted,small{color:var(--muted)}nav,.controls,.stats{display:flex;gap:12px;flex-wrap:wrap;align-items:center}nav{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin-top:28px}nav a{text-decoration:none;padding-right:10px}.stats{gap:32px;padding:24px 0}.stat strong{display:block;font-size:28px;line-height:1.2}.stat span{font-size:13px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}.panel{background:var(--panel);border:1px solid var(--line);padding:22px;border-radius:12px}.panel p{margin-bottom:0}.tag{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:1px 7px;font-size:12px;margin-right:7px;color:var(--muted)}.P1{color:var(--bad)}.P2{color:var(--warn)}.P3{color:var(--accent)}.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}figure{margin:0}figure img{display:block;width:100%;height:auto;background:#090a0c;border-radius:8px}figcaption{padding-top:9px;color:var(--muted);font-size:14px}.raw img{max-height:560px;object-fit:contain}.controls{margin-bottom:18px}.controls label{display:flex;gap:8px;align-items:center}.controls input{min-width:230px}.finding{border-top:1px solid var(--line);padding:18px 0}.finding summary{cursor:pointer;font-weight:600;list-style:none}.finding summary::before{content:'＋';color:var(--muted);margin-right:10px}.finding[open] summary::before{content:'−'}.finding p{margin:12px 0}.finding .body{padding-left:28px}.finding code,code{overflow-wrap:anywhere;color:#d6dcf1;font-size:.9em}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel);padding:16px;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{vertical-align:top;text-align:left;border-bottom:1px solid var(--line);padding:12px 10px;overflow-wrap:anywhere}th{color:var(--muted);font-weight:500}td:first-child{min-width:120px}.tablewrap{overflow-x:auto}li{margin-bottom:8px}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.flow button{text-align:left;min-height:112px}.flow strong,.flow small{display:block}.flow .count{font-size:13px;color:var(--muted)}.report-links{display:flex;gap:15px;flex-wrap:wrap}.reader{max-width:1050px}.reader h2{margin-top:45px}.reader h3{margin-top:32px}.reader table{display:block;overflow-x:auto}.reader img{max-width:100%;height:auto}.reader p{max-width:none}.reader a{overflow-wrap:anywhere}.footnote{font-size:13px}.empty{padding:24px;color:var(--muted)}[hidden]{display:none!important}@media(max-width:720px){header,main,footer{padding:22px}.compare{grid-template-columns:1fr 1fr;gap:8px}.flow{grid-template-columns:repeat(2,1fr)}.stats{gap:18px}.stat strong{font-size:23px}.finding .body{padding-left:0}.controls label{width:100%;flex-wrap:wrap}.controls input{min-width:0;width:100%}h1{letter-spacing:-.7px}}@media print{body{background:white;color:black}nav,.controls{display:none}details .body{display:block!important}a{color:#145343}.panel{background:white}.finding{break-inside:avoid}}</style></head><body><aside style="padding:16px 32px;border-bottom:1px solid #666">Public text-only edition. Photo evidence and all app screenshots remain local. <a href="../README.md">Publication notes</a>.</aside><header><div class="eyebrow">Lumen / Independent audit</div><nav><a href="../Lumen-Audit.html">← Visual overview</a><a href="masks-spatial.md">Markdown</a></nav></header><main class="reader"><h1>Independent audit: masking, detail, spatial effects, geometry and creative tools</h1>
+<p>Audit date: 2026-09-22. Primary checkout: <code>main</code>, <code>99c37272b42c211a04262ceb98cfb39355d1ab99</code>. Also source-compared every confirmed finding against <code>origin/claude/photo-editor-design-plan-8ahzmm</code> (<code>a6e6941</code>). No product files were changed.</p>
+<h2>Bottom line</h2>
+<p>This is a substantial, genuinely working local-adjustment system, not a collection of inert sliders. The seven Classic denoise controls and five manual sharpening controls all moved pixels in independent endpoint probes; Classic CPU/GPU results were exceptionally close on the tested fixture. RAW capture sharpening, the Apple denoise stand-in, and built-in lens correction moved all three supplied ARWs. Mask geometry, algebra, range selectors, brush accumulation, edge-aware painting, local colour and curves, and film/creative grain have real implementations.</p>
+<p>It is nevertheless not yet safe to assume that every mask edit is faithfully represented in final output. The most important faults are dependency handling for referenced masks, resolution-dependent brush strength and negative local sharpening, local curves escaping the selected blend mode, and a vignette being positioned on the wrong side of a flipped crop. Film Strength correctly blends tone but still behaves like an on/off switch for full-strength grain/halation. Several impressive-sounding features exist only as recipe fields, not tools: healing/cloning, perspective correction, defringe/moiré, local denoise, and most semantic AI masks.</p>
+<p>There are 15 confirmed findings below (two P1, ten P2, three P3), plus one strongly suspected UI gesture issue kept separate. Severity here measures user-facing consequence, not repair cost. P1 = wrong final output or whole-frame unintended adjustment in a normal composition workflow; P2 = materially incorrect control/output contract; P3 = boundary/help/dead-state issue. The P1 conditions are specific and stated, not claims that all rendering is broken.</p>
+<h2>Evidence and limits</h2>
+<p>Four standalone Swift probes imported the actual built <code>LumenCore</code> and <code>LumenPipeline</code> modules with <code>@testable</code>. They are independent of the repository test assertions. GPU checks use a linear float Core Image context. GPU runs required unsandboxed graphics access: the sandbox produced all-zero buffers, which were discarded as an environment failure, not an application finding.</p>
+<p>Artifacts in this directory:</p>
+<ul>
+<li><code>probe.swift</code> / <code>probe-results.jsonl</code>: mask blends, negative sharpness, mask references and final export cache, crop/vignette, film strength, local strength.</li>
+<li><code>control-sweep.swift</code> / <code>control-sweep-results.jsonl</code>: five sharpening and seven Classic NR controls, Texture/Clarity/Dehaze, brush resolution/flow/density/Automask.</li>
+<li><code>film-controls.swift</code> / <code>film-controls-results.jsonl</code>: actual GPU halation energy, stock gating, size, redness, exposure dependence.</li>
+<li><code>real-photo.swift</code> / <code>real-photo-results.jsonl</code>: three copied ARWs decoded at 512 px long edge, capture/AI/lens endpoint comparisons. Originals untouched.</li>
+<li><code>vision-photos.swift</code> / <code>vision-photos-results.jsonl</code>: actual on-device Subject/Background/People inference on all three photos, neutral image and matte/overlay PNGs. These images remain local.</li>
+<li><code>control-inventory.json</code>: distinct control-role census with paths, range, verification status and finding links; shared colour roles and non-shipped placeholders explicitly flagged.</li>
+<li><code>findings.json</code>: machine-readable findings with exact source locations, triggers, consequences, historical/branch status and missing tests.</li>
+</ul>
+<p>Runtime measurements are of <code>main</code>. Branch persistence is established by source diff: among the relevant renderer, raster, recipe, geometry and panel files, the branch only changes display-transform Contrast to logarithmic travel and adds foreign-pin hit-area handling in <code>MaskCanvas</code>. Neither changes any confirmed finding. The branch itself was not rebuilt by this sub-audit. Whole-app interaction, save/reopen, export-file encoding and catalogue durability belong to the parent audit. Tablet-pressure hardware, photometric equivalence to Lightroom, camera/lens calibration quality, and semantic matte accuracy on a labelled portrait dataset were not established here. Three real-photo semantic-mask outputs were visually inspected, as recorded below.</p>
+<h2>Confirmed findings</h2>
+<h3>M01 — Disabled image-dependent donor masks do not supply the picture their borrowers need [P1, high]</h3>
+<p><strong>Trigger:</strong> create an image-dependent mask (Brightness Range is sufficient), reference its selection from a second mask, and disable the donor so only the borrower renders. No unusual sidecar editing is needed. A disabled mask is explicitly meant to continue lending its selection (<code>RecipeMasks.swift:25–28</code>).</p>
+<p><strong>Cause:</strong> <code>PipelineRenderer.maskSource</code> at <code>Sources/LumenPipeline/PipelineRenderer.swift:1615–1621</code> asks only <code>plan.masks</code> (enabled masks) and direct component kinds/refine fields whether a source image is needed. A <code>maskRef</code> says it does not directly read the picture. <code>MaskRaster.combine</code> subsequently resolves the reference from <code>plan.allMasks</code>, but the source has already been omitted. <code>maskReadsPicture</code> follows dependencies later, for caching, too late to repair the missing source. Brightness Range returns an empty plane without that source (<code>Sources/LumenCore/Image/MaskRaster.swift:1032</code>).</p>
+<p><strong>Reproduction:</strong> a disabled luma-range donor borrowed by an Exposure +1 mask has max alpha <strong>0</strong>. Enabling the donor produces max alpha <strong>1</strong>. Inverting the disabled donor produces <strong>min=max=1</strong>: a selective edit becomes a whole-frame correction. Probe <code>disabled_luma_donor</code> / <code>disabled_inverted_luma_donor</code>.</p>
+<p><strong>Impact:</strong> missing or whole-frame local adjustments on fresh renders and exports, not merely stale overlays. The same dependency pattern applies to colour/similarity/luminosity, donor Automask, and donor guided refinement. Only the luma/inverted-luma cases were executed.</p>
+<p><strong>Next test/fix direction:</strong> compute the needs-picture predicate over the contributing dependency closure; test an enabled borrower with a disabled image-dependent donor in a fresh <code>PipelineRenderer</code>, with and without inversion. Existing closure-helper tests are insufficient unless they exercise source construction. Historical F2 discusses the omitted traversal in a different cache/matte context; this is an independently reproduced missing-input/full-frame consequence. Persists on <code>a6e6941</code>.</p>
+<h3>M02 — Editing a referenced donor leaves the borrower&#39;s cached alpha stale, including final small-image exports [P1, high]</h3>
+<p><strong>Trigger:</strong> on an image at or below the raster-cache retention ceiling (1024 px), export an enabled mask borrowing a donor polygon; move the donor; export again using the same renderer.</p>
+<p><strong>Cause:</strong> <code>Sources/LumenPipeline/PipelineRenderer.swift:1477–1491</code> keys a mask raster by the borrower&#39;s own JSON, own stroke references/counts, matte-kind names and source key. The referenced donor recipe is absent. <code>Sources/LumenPipeline/MaskRasterCache.swift:150–159</code> accepts an exact hit even when stale rasters are disallowed; <code>:238–239</code> retains small rasters. A final export is therefore not automatically a fresh bake at native sizes ≤1024.</p>
+<p><strong>Reproduction:</strong> synthetic native 256×128 image, disabled left-hand polygon donor, enabled borrower Exposure +1. After moving the donor to the right, repeat export through the held renderer changes by <strong>0</strong>. A fresh renderer differs from the stale export by <strong>0.2379624546</strong> max red-channel value. Probe <code>reference_cache_small_export</code> drives <code>exportedImage</code>, not only a helper.</p>
+<p><strong>Impact:</strong> delivered small JPEG/PNG/screenshot edits can be based on an earlier mask shape. Larger exports bypass this particular retained-small-raster path, but that does not fix interactive dependency invalidation.</p>
+<p><strong>Next test/fix direction:</strong> recursively fingerprint referenced selections, including their relevant stroke/matte dependencies; test same-renderer export before/after a donor edit at both 512 and 4096 px. The cache header already admits the incomplete reference key but assumes settled rasters are thrown away; the reproduced native-small export is a new consequence of that acknowledged problem. Persists on the newer branch.</p>
+<h3>M03 — Local point/parametric curves ignore Brightness-only / Colour-only mask blending [P2, high]</h3>
+<p><strong>Trigger:</strong> choose Brightness only or Colour only for a mask, then edit its local channel curve.</p>
+<p><strong>Cause:</strong> the regular local adjustment pass honours <code>MaskBlend</code>. The separate local-curve pass does not: <code>Sources/LumenCore/Engine/ReferenceRenderer.swift:240–258</code> directly mixes the curve result; <code>Sources/LumenPipeline/RenderGraph.swift:1010–1030</code> always uses <code>blendMask</code>, never <code>blendMaskMode</code>.</p>
+<p><strong>Reproduction:</strong> opaque mask over RGB(.30,.18,.11), red curve <code>[0,0], [.5,.8], [1,1]</code>, preserve-luminance disabled. Normal, Brightness only and Colour only yield the same result: R/G <strong>1.666667→4.034906</strong>, luminance <strong>.207372913→.319357595</strong>. Thus Brightness only changes chroma and Colour only changes brightness. Both CPU execution and GPU wiring confirm it.</p>
+<p><strong>Next test/fix direction:</strong> apply the selected blend contract to S15b as well, using the stage&#39;s proper luminance coefficients. <code>MaskBlendTests</code> need actual local curves, not only the main local adjustment pass. No matching historical finding found. Persists on branch.</p>
+<h3>M04 — Brush Flow/Feather produce different opacity at preview and export resolutions [P2, high]</h3>
+<p><strong>Trigger:</strong> paint a narrow, low-flow stroke. Size 1% of the frame, Feather 50, Flow 10, Ceiling 80 already exposes the problem.</p>
+<p><strong>Cause:</strong> <code>Sources/LumenCore/Image/MaskRaster.swift:1438–1452</code> uses normalized brush diameter, but forces stamp spacing to at least one raster pixel and imposes a one-pixel feather rim. Each overlapped stamp accumulates opacity (<code>:1508–1513</code>), so a downsampled raster receives fewer/weaker overlapping stamps.</p>
+<p><strong>Reproduction:</strong> identical .1→.9 horizontal stroke on 2:1 frames: peak alpha <strong>.081769 at256</strong>, <strong>.258361 at512</strong>, <strong>.439656 at1024</strong>, <strong>.633971 at4096</strong>. The common 1024 draft and 4096 output differ by ~44% relative opacity. At UI minimum Size .002, a centred hard dot produces alpha <strong>0 at256 and512</strong>, <strong>.237618 at1024</strong>, <strong>1 at4096</strong>. A valid brush setting can be invisible on a small native file.</p>
+<p><strong>Next test/fix direction:</strong> density-correct resampling/stamping or rasterize consistently and downsample coverage; prove opacity, not just normalized radius, across resolutions. Existing flow accumulation tests do not establish resolution consistency. No matching historical finding found. Persists on branch.</p>
+<h3>M05 — Negative local Sharpness is a fixed pixel blur, almost disappearing on export [P2, high]</h3>
+<p><strong>Trigger:</strong> use negative Sharpness on a mask for skin or background softening, then compare a preview with full resolution.</p>
+<p><strong>Cause:</strong> <code>Sources/LumenCore/Engine/ReferenceRenderer.swift:376–377</code> and <code>Sources/LumenPipeline/RenderGraph.swift:989–994</code> use at most <strong>2.5 render pixels</strong>, rather than a frame-denominated sigma. Positive local/global sharpening does use frame-denominated scaling.</p>
+<p><strong>Reproduction:</strong> same 32-cycle-per-frame sine texture, Sharpness −100. CPU contrast retained: <strong>.145510 at256</strong>, <strong>.886531 at1024</strong>, <strong>.992502 at4096</strong>. GPU: <strong>.138734</strong>, <strong>.885203</strong>, <strong>.991102</strong>. The pipelines agree on the wrong resolution dependence. This is not a Core Image radius-vs-sigma error; that earlier hypothesis was tested and discarded.</p>
+<p><strong>Next test/fix direction:</strong> define a frame-based softening radius and test a fixed scene pattern at multiple dimensions. New adjacency to historical sharpening-scale fixes; persists on branch.</p>
+<h3>M06 — Off-centre crop + horizontal flip displaces the vignette outside the delivered crop [P2, high]</h3>
+<p><strong>Trigger:</strong> an off-centre crop, a negative vignette, then Flip horizontal.</p>
+<p><strong>Cause:</strong> <code>Sources/LumenApp/CropPanel.swift:381–389</code> reflects <code>crop.x</code> when flipping to keep the framed subject. <code>Sources/LumenPipeline/RenderGraph.swift:1323–1330</code> positions the pre-geometry vignette from that post-flip crop without transforming its centre back to source coordinates. <code>applyVignette</code> does not receive angle/flip.</p>
+<p><strong>Reproduction:</strong> uniform .18 image, crop x=.1/y=.1/w=.35/h=.7, Amount −2 EV, Feather75. Before flip: centre and brightest pixel <strong>.1800000</strong>. After flip and the UI&#39;s crop-x reflection: centre and brightest pixel <strong>.0450000</strong>—the entire delivered crop receives full −2 EV attenuation. Geometry alone should not convert an edge vignette into uniform darkening.</p>
+<p><strong>Next test/fix direction:</strong> apply in final cropped coordinates or map the vignette centre/axes through the exact inverse geometry. Add asymmetric crop + flip/angle image tests. Historical GEO16 notes a smaller straighten mismatch; this flip consequence is independently new and more severe. Persists on branch.</p>
+<h3>M07 — Film Strength does not scale the film&#39;s grain or halation [P2, high]</h3>
+<p><strong>Trigger:</strong> load a stock with spatial effects and move Strength 0→1→100.</p>
+<p><strong>Cause:</strong> <code>RenderPlan</code> creates a chain at any positive amount; <code>FilmChain</code> builds a solved stock for any positive blend. <code>Sources/LumenCore/Engine/FilmLab.swift:1585–1587</code> returns full grain amplitude, and <code>:1607–1613</code> passes the unscaled halation amount. Only the tonal blend uses Strength correctly at <code>:1524–1528</code>.</p>
+<p><strong>Reproduction:</strong> Portra defaults: grain amplitude is <strong>0</strong> at Strength0 and <strong>.054</strong> at both Strength1 and100. Halation red strength is <strong>.0175</strong> at both1 and100 (the graph skips the absent chain at0). Pulling Strength back cannot pull these effects back. This is a discontinuity, not a claim that grain pixels cannot change as underlying density changes.</p>
+<p><strong>Next test/fix direction:</strong> define and test a whole-chain blend for spatial stages, especially 0→1. Historical <strong>C1-02 still open</strong>, independently revalidated. Persists on branch.</p>
+<h3>M08 — Display Transform controls are disabled while they still form most of a partially blended film image [P2, high]</h3>
+<p><strong>Trigger:</strong> Film Strength anywhere 1…99.</p>
+<p><strong>Cause:</strong> <code>Sources/LumenApp/LookPanel.swift:1117–1119</code> disables the transform; <code>:1142–1148</code> marks it inert for any amount&gt;0. But <code>FilmChain.apply</code> mixes the user&#39;s solved transform with film at Strength/100. At Strength1 the transform is <strong>99%</strong> of the picture, not replaced.</p>
+<p><strong>Impact:</strong> the active Contrast/Skew/Hue keep/Black target and preset controls cannot be adjusted through their UI while still affecting output. UI help also incorrectly says loading a stock replaces the transform.</p>
+<p><strong>Next test/fix direction:</strong> inert only at full replacement; explicitly describe partial blending. Existing <code>FilmLabDisplayTransformTests</code> prove partial base influence, but no test ties UI enabled state to it. Historical <strong>C1-03 still open</strong> (not C1-01). Branch&#39;s Contrast log-scale change does not fix the disable predicate.</p>
+<h3>M09 — GPU halation has a different onset/energy response from the reference [P2, high]</h3>
+<p><strong>Cause:</strong> <code>Sources/LumenPipeline/Kernels.swift:434–436</code> uses <code>max(E−threshold,0)*boost</code>; <code>Sources/LumenCore/Engine/FilmLab.swift:541–550</code> uses a smooth log-space gate. The comment claiming a half-power match is not supported by the functions. The recent radius/sigma fix is real but separate.</p>
+<p><strong>Reproduction:</strong> flat-field actual GPU glow / analytic CPU reference glow is <strong>0 at scene .125 and .25</strong>, <strong>.612163 at .5</strong>, <strong>.750000 at1</strong>, <strong>.875000 at2</strong>, <strong>.937500 at4</strong>. Both use the same three blur weights; flat interiors remove blur shape from the comparison. GPU at .5 adds .0269313 red versus reference .0439937.</p>
+<p><strong>Impact:</strong> the preview/export look is materially weaker than the reference contract precisely in moderately bright, non-clipped regions. CPU proofs cannot stand in for GPU fidelity here. This is CPU/GPU disagreement, not preview-vs-export divergence because both production paths are GPU.</p>
+<p><strong>Next test/fix direction:</strong> one shared energy function and low-highlight goldens, rather than only a very bright block with broad tolerances. Historical <strong>C1-01 still open</strong>, independently GPU-measured. Persists on branch.</p>
+<h3>M10 — Film Exposure does not change the halation energy threshold [P2, high]</h3>
+<p><strong>Cause:</strong> halation runs before the display/film chain, while Film Exposure is applied only inside <code>FilmChain.apply</code> at <code>Sources/LumenCore/Engine/FilmLab.swift:1526</code>. <code>:1613</code> fixes clipLevel=1 regardless of film exposure.</p>
+<p><strong>Reproduction:</strong> Film Exposure −2 and+3 both report clip=1 and threshold=.25; the spatial stage gets the same input. Brightening the film exposure changes film tone but not which source highlights reach the film-base-scatter stage.</p>
+<p><strong>Impact:</strong> the claimed exposure/halation relationship is not implemented. This is a creative-model fidelity issue, not proof of exact physical behavior of a named stock.</p>
+<p><strong>Next test/fix direction:</strong> decide/document whether this is intentionally post-exposure-independent bloom; otherwise shift the energy threshold into film exposure coordinates. Test an equivalent exposure change made at film and scene stages. Historical <strong>C1-07 still open</strong> (heading is “Halation does not see Film Exposure”). Persists on branch.</p>
+<h3>M11 — Mask Strength &gt;100 disagrees between CPU and GPU for Texture/Clarity [P2, high]</h3>
+<p><strong>Trigger:</strong> Texture100 or Clarity100 and mask Strength100→200.</p>
+<p><strong>Cause:</strong> CPU <code>Sources/LumenCore/Image/DetailEngine.swift:264</code> / <code>:343</code> clamps incoming amounts to ±100 after local strength scaling; GPU <code>Sources/LumenPipeline/RenderGraph.swift:680</code> / <code>:743</code> uses the scaled values without the same amount clamp. Mask panel help at <code>MaskPanel.swift:331–333</code> says values past100 exaggerate every adjustment.</p>
+<p><strong>Reproduction:</strong> patterned128² fixture, Texture: CPU max change <strong>0</strong>, GPU <strong>.01151948</strong>; Clarity: CPU <strong>0</strong>, GPU <strong>.06672521</strong>. The overall CPU/GPU Texture/Clarity algorithms also differ, but these numbers isolate the above100 contract.</p>
+<p><strong>Related boundary:</strong> absolute Kelvin WB saturates its mix at1 (<code>ReferenceRenderer.swift:433</code>); Strength100 and200 give exactly the same result, unlike relative Temp/Tint. Do not describe Strength as uniformly extrapolating every local adjustment.</p>
+<p><strong>Next test/fix direction:</strong> define per-control strength composition, align CPU/GPU, test 0/50/100/200 and group×member strength. The effective group multiplier can reach400 while local stages cap the aggregate at200—also a documented-versus-effective ceiling to decide. New finding; branch unchanged.</p>
+<h3>M12 — Accepted extreme crop ratios cannot be represented by the crop minimum [P3, high]</h3>
+<p><strong>Trigger:</strong> enter a valid custom60:1 or1:60 ratio.</p>
+<p><strong>Cause:</strong> <code>Sources/LumenCore/Model/CropGeometry.swift:557–578</code> accepts the ratios, while <code>:154–165</code> and <code>:296–305</code> enforce width and height≥.05. <code>CropPanel.swift:695–726</code> stores the requested lock even when the fitted crop cannot satisfy it.</p>
+<p><strong>Reproduction:</strong> 6000×4000 source: requested60 becomes <strong>30</strong>, requested1/60 becomes <strong>.075 (3:40)</strong>, while requested3 correctly becomes3. The UI can display a ratio lock that is untrue.</p>
+<p><strong>Next test/fix direction:</strong> reject/limit ratios according to source geometry/minimum extent, or permit the necessary thin crop. Test accepted-range endpoints, not only common ratios. Historical <code>w2/K-area.md</code> custom-ratio finding still open; branch unchanged.</p>
+<h3>M13 — Ramp shape help describes the inverse of the actual control [P3, high]</h3>
+<p><code>Sources/LumenApp/MaskPanel.swift:2094–2098</code> says below1 comes up early and above1 holds back/arrives late. <code>Sources/LumenCore/Image/MaskRaster.swift:416–427</code> uses <code>t^(1/gamma)</code>: at alpha .5, gamma .5 yields <strong>.25</strong>, gamma2 yields <strong>.7071068</strong>. Above1 raises mask density; below1 lowers it. Fix the explanation or deliberately change the contract, and test the help&#39;s stated direction. Newly identified; branch unchanged.</p>
+<h3>M14 — Velvia exposes three halation sliders that cannot affect output [P3, high]</h3>
+<p><code>Sources/LumenCore/Engine/FilmLab.swift:343</code> gives Velvia zero halation strength. <code>:1574–1579</code> skips the stage for it regardless of Amount. <code>Sources/LumenApp/LookPanel.swift:1339–1380</code> shows enabled Halation, Halo Size and Halo Redness for every stock. Probe confirms Velvia Halation100 still gives amount=0 and redStrength=0, while the other five stocks respond.</p>
+<p>This is a disclosed/disable-state problem, not an argument that reversal film must physically halate. Disable/explain inapplicable controls or support an explicitly creative override. Historical <strong>C1-08 still open</strong>, now also covering the two newly added subordinate controls. Branch unchanged.</p>
+<h3>M15 — AI Amount is exposed on rendered files although only the RAW decoder consumes it [P2, high]</h3>
+<p><code>Sources/LumenApp/DetailPanel.swift:671–695</code> allows AI stand-in and Amount on rendered files; a tooltip acknowledges that it cannot operate there. <code>Sources/LumenPipeline/AppleRawSource.swift:317–336</code> is the production consumer. <code>RenderedImageSource.decode</code> has no matching denoise operation. For ordinary non-manually-overridden Classic masters, selecting AI also suppresses the Classic master values through <code>ISODefaults.coupled</code>, leaving no AI processing to replace them on rendered input.</p>
+<p>Thus the exposed Amount slider does not denoise JPEG/PNG/TIFF input; this is not evidence that the RAW slider is dead (it is live on all three ARWs below). Disable/gate the mode on unsupported input or implement the rendered-input pass; preserve the already-correct manually overridden Classic coupling behavior. This is a current disclosed capability gap with a misleading enabled control, not a claim that a neural AI engine exists. Source-confirmed, not a dedicated rendered-input runtime probe. Branch unchanged.</p>
+<h2>Suspected interaction issue — keep separate from confirmed findings</h2>
+<p><strong>Polygon vertex drag accumulation (likely P2):</strong> <code>Sources/LumenApp/MaskCanvas.swift:600</code> reads the current component path on each gesture update; <code>:643–658</code> adds the total drag-from-start delta to that already modified vertex and commits. Unlike gradient/radial drags, no origin path/vertex is saved. A sequence of +1,+2,+3-pixel events can accumulate +6 rather than ending at+3. This is strong source evidence but was not independently driven through SwiftUI in this sub-audit. Parent was asked to reproduce it in the UI. Unchanged on the newer branch; do not present as a measured UI result without that check.</p>
+<h2>Complete control inventory for this area</h2>
+<p>Status key: <strong>live/probed</strong> = independent pixels/scalars moved; <strong>live/traced</strong> = UI binding reaches an implementation, no exhaustive image-quality claim; <strong>conditional</strong> = requires amount/input/stock/shape; <strong>hidden wire-only</strong> = stored recipe field, not a shipped adjustment; <strong>defect</strong> references above. Paths below are relative to the audited repository.</p>
+<h3>Detail, presence, denoise</h3>
+<table>
+<thead>
+<tr>
+<th>Controls / valid UI travel</th>
+<th>UI → engine</th>
+<th>Status and important semantics</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Capture sharpening On/Off; Amount0…150 (auto100)</td>
+<td><code>DetailPanel:115–223</code> → <code>CaptureSharpen.strengthFraction</code>, <code>AppleRawSource:317–318</code></td>
+<td>Live/probed RAW; rendered input disabled. This is Apple&#39;s decoder sharpening, not Lumen&#39;s own estimated-PSF RL stage. Optional capture radius is wire-only.</td>
+</tr>
+<tr>
+<td>Manual Sharpen Amount0…150</td>
+<td><code>DetailPanel:296</code> → <code>RenderGraph.applySharpen</code>, <code>DetailEngine.applySharpen</code></td>
+<td>Live/probed; starts at0, separate from capture sharpening.</td>
+</tr>
+<tr>
+<td>Radius.5…3; Detail0…100; Masking0…100; Halo Damping0…100</td>
+<td><code>DetailPanel:320–381</code> → same stage</td>
+<td>All four independently live. Frame-denominated radius; effects cannot resolve identically below a pixel on tiny previews. The initial tiny-fixture apparent dead Radius was invalid and was retested at1024.</td>
+</tr>
+<tr>
+<td>Texture, Clarity, Dehaze −100…100</td>
+<td>Detail presence UI → <code>DetailEngine:262+ / 341+ / 385+</code>, <code>RenderGraph:635–800</code></td>
+<td>Live/probed. CPU/GPU Texture and Clarity are different approximations; do not equate CPU quality proofs with exact production response. M11.</td>
+</tr>
+<tr>
+<td>Denoise Off / Classic / AI stand-in</td>
+<td><code>DetailPanel:507–511</code> → <code>Denoise</code>, <code>ISODefaults.resolved</code>, <code>AppleRawSource</code></td>
+<td>Classic real. AI is an Apple RAW-decoder stand-in, not a shipped neural model. RAW live; rendered Amount issue M15.</td>
+</tr>
+<tr>
+<td>Classic Luminance0…100</td>
+<td><code>DetailPanel:535–560</code> → <code>ClassicNR.luma</code>, <code>ClassicalDenoise</code>, <code>RenderGraph.applyDenoise</code></td>
+<td>Live/probed. Sets lumaUserSet, so manual values survive AI coupling. ISO-adaptive otherwise.</td>
+</tr>
+<tr>
+<td>Luminance Detail0…100; Contrast0…100</td>
+<td><code>DetailPanel:585–599</code> → Classic engine</td>
+<td>Both live/probed; Luma must be active for meaningful appearance.</td>
+</tr>
+<tr>
+<td>Classic Colour0…100</td>
+<td><code>DetailPanel:603–623</code> → Classic engine</td>
+<td>Live/probed; sets chromaUserSet.</td>
+</tr>
+<tr>
+<td>Colour Detail0…100; Smoothness0…100</td>
+<td><code>DetailPanel:624–641</code> → Classic engine</td>
+<td>Both live/probed with active Colour. Smoothness uses a capped blotch mixture; current quality tests protect saturated edges.</td>
+</tr>
+<tr>
+<td>Hot Pixels0…100</td>
+<td><code>DetailPanel:644–652</code> → Classic hot-pixel pass</td>
+<td>Live/probed independently of the masters.</td>
+</tr>
+<tr>
+<td>AI Amount0…100</td>
+<td><code>DetailPanel:671–695</code> → <code>AppleStandIn</code>, <code>AppleRawSource:333–334</code></td>
+<td>Live/probed on RAW. It scales Apple&#39;s luma/chroma reduction, not an AI inference-strength result. M15 on rendered files.</td>
+</tr>
+</tbody></table>
+<p>Sharpen endpoint RMS (CPU / GPU) on1024×128: Amount <strong>.0255746/.0263120</strong>; Radius <strong>.0115313/.00759307</strong>; Detail <strong>.00315971/.00299151</strong>; Masking <strong>.00602784/.00644435</strong>; Halo Damping <strong>.0119775/.0122840</strong>. These establish that the controls are wired, not that every end value is aesthetically desirable.</p>
+<p>Classic endpoint RMS at ISO3200 synthetic128×96: Luminance <strong>.00674673</strong>, Luma Detail <strong>.00382283</strong>, Luma Contrast <strong>.000656754</strong>, Colour <strong>.00840068</strong>, Colour Detail <strong>.000062344</strong>, Colour Smoothness <strong>.00308304</strong>, Hot Pixels <strong>.00188183</strong> (CPU; GPU agrees to roughly3e−8 RMS at tested high endpoints). Small colour-detail change is real, not zero.</p>
+<p>Global presence CPU/GPU high-end RMS mismatch on the deliberately textured128×96 fixture: Texture <strong>.00533524</strong>, Clarity <strong>.0328782</strong>, Dehaze <strong>.00269551</strong>. The fixture stresses small render-size scales and does not prove that these absolute errors generalize to full photographs. CPU Texture uses multiscale à-trous bands, GPU a guided fine band; CPU Clarity uses local-Laplacian logic, GPU a guided mid band. This known approximation gap remains a test/quality risk beyond M11.</p>
+<p>Actual supplied RAW checks (512-px decode, RMS over RGB):</p>
+<table>
+<thead>
+<tr>
+<th>File / ISO</th>
+<th align="right">Capture0→150</th>
+<th align="right">AI Amount0→100</th>
+<th align="right">Lens off→on</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A7401502.ARW /500</td>
+<td align="right">.00169750</td>
+<td align="right">.00112836</td>
+<td align="right">.18584278</td>
+</tr>
+<tr>
+<td>A7401654.ARW /12800</td>
+<td align="right">.000795857</td>
+<td align="right">.000365633</td>
+<td align="right">.03293646</td>
+</tr>
+<tr>
+<td>A7401693.ARW /3200</td>
+<td align="right">.000380210</td>
+<td align="right">.000170650</td>
+<td align="right">.04206139</td>
+</tr>
+</tbody></table>
+<p>Lens differences include geometry/resampling and should not be read as a correction-quality score. Apple&#39;s decoded native long edge reported3504 for these files; no claim is made here that this equals the camera sensor&#39;s full active dimensions (the image sub-audit separately found mutable decoder dimensions). Noise profile production defaults use ISO; <code>NoiseProfile.estimate(from:)</code> exists but is not called by this production path. Calibration is generic ISO modelling, not a measured per-camera profile.</p>
+<h3>Real-photo Vision quality and latency</h3>
+<p>The probe used the <strong>actual production neutral rendition</strong> (<code>PipelineRenderer.matteSourceImage</code>, long edge1024) and the actual <code>VisionMattes.generate</code> implementation, not a direct external image/model service. Source images were683×1024. Subject returned same-size mattes; People returned1512×2016 planes which the production fitting logic scales to the source frame. Background was generated from the same Subject result and had <strong>zero complement error</strong> on all three.</p>
+<table>
+<thead>
+<tr>
+<th>Photo</th>
+<th>Subject result</th>
+<th>People result</th>
+<th align="right">Warm inference Subject / People</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A7401502</td>
+<td>All three people plus the held sign;44.06% mean coverage. Gross outline aligns, but gaps/fine edges need manual checking.</td>
+<td>All three people;39.63% mean coverage. Excludes most sign, but its right area remains contaminated and hair edges are approximate.</td>
+<td align="right">359 /479ms</td>
+</tr>
+<tr>
+<td>A7401654</td>
+<td>Seated/leaning foreground person;24.02% mean coverage; gross outline and open arm gap sensible.</td>
+<td>Same person;23.85% mean coverage, finer hair edge than Subject. No labelled boundary score asserted.</td>
+<td align="right">183 /398ms</td>
+</tr>
+<tr>
+<td>A7401693</td>
+<td>Small airborne figure correctly isolated;1.753% mean coverage.</td>
+<td><strong>Effectively misses the person:</strong> no pixels above alpha.5, maximum.0431 and mean alpha1.54e−7.</td>
+<td align="right">193 /406ms</td>
+</tr>
+</tbody></table>
+<p>Neutral render preparation in the warm recorded pass cost1.01–1.37s, separate from inference. The first cold People request in the preceding run took2.226s (Subject473ms); these are single-run observations under current machine load, not a benchmark percentile or guaranteed UI latency. Repeated mask values were identical across the two runs.</p>
+<p>The displayed neutral renditions have a strong cyan/green cast also covered by the independent image-accuracy audit; it is the image the production segmenter actually sees on this main checkout. Therefore do not attribute the small-person failure solely to the model, or extrapolate its frequency from three photos. Nevertheless it is a concrete workflow result: <strong>Subject worked where People did not</strong>, so the user needs a fallback rather than an assumption that either semantic button always succeeds.</p>
+<p>Representative local diagnostics, all beneath <code>work/audit/masks/</code>:</p>
+<ul>
+<li><code>A7401502-subject-overlay.png</code> and <code>A7401502-people-overlay.png</code>: person/sign distinction and residual contamination.</li>
+<li><code>A7401654-people-overlay.png</code>: larger-person boundary example.</li>
+<li><code>A7401693-subject-overlay.png</code> and <code>A7401693-people-overlay.png</code>: obvious small-person success versus miss.</li>
+<li>Corresponding <code>*-neutral.png</code> and <code>*-matte.png</code> files allow inspection without overlay tint. Red overlay is a local diagnostic composite at40% alpha, not a screenshot of the app UI. No user images were uploaded externally.</li>
+</ul>
+<h3>Mask construction, hierarchy and refinement</h3>
+<table>
+<thead>
+<tr>
+<th>Controls</th>
+<th>UI → engine</th>
+<th>Status / qualifications</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Enable, rename, reorder, duplicate/delete masks; grouping/folder collapse; group Enable/Strength0…200</td>
+<td><code>MaskPanel</code>, <code>Recipe.effective</code> at <code>Recipe.swift:107–114</code>, <code>RenderPlan:466–474</code></td>
+<td>Live/traced. Groups multiply members and retain disabled selections as reference donors by design. Folder is not a composited adjustment layer. M01/M02 break some donor workflows.</td>
+</tr>
+<tr>
+<td>Mask Strength0…200; Normal / Brightness only / Colour only</td>
+<td><code>MaskPanel:327–335</code> → <code>ReferenceRenderer.applyMasks</code>, <code>RenderGraph:902–928</code></td>
+<td>Ordinary blend implementation sound; M03 curves exception, M11 strength exceptions.</td>
+</tr>
+<tr>
+<td>Whole-mask Invert</td>
+<td><code>MaskRaster.refined:438–442</code></td>
+<td>Live/traced, before Follow/Edge Shift/Soften/Levels, so dilation grows the actually selected region. Missing-input inversion protections exist, except M01 source omission case.</td>
+</tr>
+<tr>
+<td>Add / Subtract / Intersect; component Invert; Contribution0…100</td>
+<td><code>MaskPanel:1399–1463</code> → <code>MaskAlgebra</code>, <code>MaskRaster:274–282</code></td>
+<td>Live/traced; ordered zero-seeded fold: add=max, subtract=min(a,1−b), intersect=a*b. This is not additive paint opacity. First Intersect alone is empty by that explicit algebra.</td>
+</tr>
+<tr>
+<td>Brush Size.002….5 frame-long-edge; Feather0…100; Flow1…100; Ceiling0…100</td>
+<td><code>MaskPanel:1691–1728</code> → <code>BrushStroke</code>, <code>MaskRaster.paint</code></td>
+<td>All live/probed; M04 cross-resolution. Flow25 one centre stamp=.25, four=.683594 at ceiling100; ceiling50 gives .125/.341797. Lower ceiling does not erase earlier denser paint.</td>
+</tr>
+<tr>
+<td>Eraser; temporary Option eraser; Shift connect; tablet pressure</td>
+<td><code>MaskCanvas:1220–1338</code> → stored stroke fields and pressure</td>
+<td>Implemented/traced. Pressure read from event, fallback1. No real tablet validation and no tilt model. Erase multiplies alpha toward0. Per-stroke settings are captured, changing a slider is not retroactive.</td>
+</tr>
+<tr>
+<td>Steadiness0…100</td>
+<td><code>MaskPanel:1733</code> → <code>BrushStabilizer</code>, <code>MaskCanvas</code></td>
+<td>Live/traced pulled-string stabilizer; stroke finalization closes endpoint gap. No independent hardware-latency test.</td>
+</tr>
+<tr>
+<td>Stay inside edges / Automask</td>
+<td>brush state→ <code>MaskRaster.paint:1460–1504</code>, Pipeline source eligibility</td>
+<td>Live/probed: red/blue boundary far-side alpha0 with Automask versus1 without. Disabled referenced donor caveat M01.</td>
+</tr>
+<tr>
+<td>Linear Gradient start/end/span/translate/rotate; Shift15° snap</td>
+<td><code>MaskCanvas.dragLinear</code> → <code>MaskRaster.linearPlane</code>, <code>MaskGPU</code></td>
+<td>Live/traced. Span defines feather; no separate linear feather slider. CPU/GPU formulas/pixel centres share conventions.</td>
+</tr>
+<tr>
+<td>Radial centre/radii/rotation−90…90; Feather0…100; translate/resize/rotate</td>
+<td><code>MaskPanel:1500+</code>, <code>MaskCanvas.dragRadial</code> → raster and GPU radial</td>
+<td>Live/traced. Long-edge metric avoids non-square rotation skew. Rotation is180° periodic; values outside±90 normalize equivalently.</td>
+</tr>
+<tr>
+<td>Outline/Polygon/Lasso; add/delete/move corner; Feather0…100</td>
+<td><code>MaskPanel:1579+</code>, <code>MaskCanvas.dragOutline</code> → <code>MaskRaster.polygonPlane</code></td>
+<td>Raster implemented; suspected vertex-drag issue separate above. Feather is symmetric around the outline despite help saying inward. No Bezier pen or whole-path transform UI.</td>
+</tr>
+<tr>
+<td>Brightness Range From/To−10…4EV; Smooth0…100; channel Brightness/R/G/B/max/min</td>
+<td><code>MaskPanel</code> range rows / bounders2766–2786 → <code>MaskRaster:1032–1050</code></td>
+<td>Live/traced. Scene signal&#39;s log2 axis, not EV relative to middle grey. Bounders prevent reversed UI range. M01 when borrowed from disabled donor.</td>
+</tr>
+<tr>
+<td>Luminosity Lights / Darks / Midtones; Level1…5, step.1; channel</td>
+<td><code>MaskPanel</code> luminosity rows → <code>MaskRaster:1232+</code></td>
+<td>Implemented/traced normalized power families. Midtone family must not be interpreted as the same monotonic narrowing as Lights/Darks without inspecting the formula.</td>
+</tr>
+<tr>
+<td>Colour Range samples (up to8), Tolerance0…100</td>
+<td>sample picker + <code>MaskPanel</code> → <code>MaskRaster:1253–1290</code></td>
+<td>Live/traced OKLCh tolerance. One slider jointly widens L/C/h; no independently adjustable three-dimensional sample range.</td>
+</tr>
+<tr>
+<td>Similarity points (positive/negative), gradient; Reach1…100; Colour/Brightness selectivity0…100</td>
+<td><code>MaskPanel:1856–1891</code>, canvas→ <code>MaskRaster:1313–1385</code></td>
+<td>Live/traced. Reach is source-long-edge based; selectivity tightens when increased. This is a useful creative capability beyond basic gradients.</td>
+</tr>
+<tr>
+<td>Mask Reference donor picker, invert/op/contribution</td>
+<td><code>MaskPanel</code>→ <code>MaskRaster.referenced</code>, <code>MaskDependency</code></td>
+<td>Implemented but M01/M02 must be fixed for reliable layered reuse. Cycles/depth guarded; missing targets skipped.</td>
+</tr>
+<tr>
+<td>Subject / Background / People</td>
+<td>mask creation→ <code>VisionMattes:85–150</code></td>
+<td>On-device Vision paths executed on all three supplied RAW photos. Background complements subject exactly; people selects the aggregate, not separately editable named people/body parts. Observed small-person miss above; no labelled quality benchmark.</td>
+</tr>
+<tr>
+<td>Sky / Object / Landscape / Depth Range</td>
+<td><code>RecipeMasks:328–350</code>, panel provider gating</td>
+<td>No bundled models; not functioning creation tools. UI gates/explains legacy unsupported recipes. Hidden/disclosed gap, not a live slider bug.</td>
+</tr>
+<tr>
+<td>Follow0…100</td>
+<td><code>MaskPanel</code> refine→ <code>MaskRaster:392–398,445–451</code></td>
+<td>Guided edge refinement, radius≈2%long-edge×value/100, integer rounded. Low values can be subpixel/no-op at draft sizes; source required.</td>
+</tr>
+<tr>
+<td>Edge Shift−50…50; Soften0…100</td>
+<td>refine→ <code>MaskRaster:454+</code></td>
+<td>Signed-distance expansion/erosion to≈1%long-edge; Gaussian sigma≈1%long-edge. Frame scaling present.</td>
+</tr>
+<tr>
+<td>Black floor0…100; White ceiling0…100; Ramp shape.2…5</td>
+<td><code>MaskPanel:2070–2098</code> → <code>MaskRaster.levels:416–427</code></td>
+<td>Levels percentages now unambiguous at0/1/2; previously reported unit-sniffing bug fixed. M13 reversed help only.</td>
+</tr>
+<tr>
+<td>Overlay six modes; tint red/green/white/black; opacity; component/mask selection</td>
+<td><code>MaskOverlayRule</code>, <code>MaskPanel:1200+</code>, <code>PipelineRenderer.renderMaskAlpha:1547+</code></td>
+<td>Real alpha overlay now, not an old uniform tint fallback. Overlay source decode capped1024; do not promise native-resolution inspection of every raster edge. Parametric render masks can still be full-resolution GPU.</td>
+</tr>
+</tbody></table>
+<p>Brush pins are still absent (<code>MaskCanvas.anchor:1732–1771</code> covers geometry/similarity/polygon, not brush); this is a navigability gap when many painted masks accumulate, not missing paint. The newer branch fixes foreign-pin hit-testing swallowing background viewer gestures; do not report that old bug as current on the branch.</p>
+<h3>Local adjustment inventory</h3>
+<table>
+<thead>
+<tr>
+<th>Controls</th>
+<th>UI → engine</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Exposure−4…4; Contrast/Highlights/Shadows/Whites/Blacks−100…100</td>
+<td><code>MaskPanel:2110+</code> → <code>ReferenceRenderer.applyLocalAdjust:285+</code>, <code>RenderGraph.LocalPlan</code></td>
+<td>Live/traced; local tone has real tables. Zone anchors are shared global window definitions, not a second unrelated local calibration.</td>
+</tr>
+<tr>
+<td>Shift Temp/Tint−100…100; absolute Kelvin2000…50000, Kelvin Tint±150</td>
+<td><code>MaskPanel:2845–2959</code> → <code>LocalWhiteBalance:388+</code>, local colour LUT</td>
+<td>Live/traced. Kelvin has its own amount interpolation, saturated above100; relative mode scales the shift.</td>
+</tr>
+<tr>
+<td>Hue±180; Saturation/Vibrance±100</td>
+<td>local colour section→ local plan</td>
+<td>Live/traced.</td>
+</tr>
+<tr>
+<td>Colorize enable, target colour, Amount0…100</td>
+<td>local colour→ <code>colorTint</code>, <code>colorTintStrength</code></td>
+<td>Live/traced luminance-preserving colourization. Not a hidden field.</td>
+</tr>
+<tr>
+<td>Local point/channel/parametric Curves; preserve luminance mode</td>
+<td><code>MaskPanel:2230–2275</code> → <code>applyLocalCurves</code> atS15b</td>
+<td>Live; M03 blend violation. The ability to curve only a selected region is substantial creative coverage.</td>
+</tr>
+<tr>
+<td>Four local grading wheels (shadows/midtones/highlights/global; wheel position/HSL fields)</td>
+<td><code>MaskPanel</code> wheel editor→ <code>LocalAdjust.wheels</code>, local plan</td>
+<td>Live/traced; inherits global zone windows. No independent local zones.</td>
+</tr>
+<tr>
+<td>Local Point Colour samples up to8; Hue±60, Sat/Lum±100, Range0…100, Variance±100</td>
+<td>local PointColour editor→ local colour plan</td>
+<td>Live/traced. Local selective colour is implemented; accuracy of the shared engine belongs to colour audit.</td>
+</tr>
+<tr>
+<td>Texture/Clarity/Dehaze/Sharpness±100</td>
+<td><code>MaskPanel:2370–2402</code> → local spatial stages</td>
+<td>Live; M05 negative Sharpness, M11 strength semantics. Local positive Sharpness is a single amount, not a full local Radius/Detail/Masking suite.</td>
+</tr>
+<tr>
+<td>Local Luma NR / Chroma NR / Moiré / Defringe / Grain</td>
+<td><code>RecipeMasks:652–691</code></td>
+<td><strong>Hidden wire-only</strong>, not rendered. Comments explicitly explain missing stages. Do not count them as available controls merely because JSON round-trips.</td>
+</tr>
+</tbody></table>
+<h3>Film, grain, vignette, lens and crop</h3>
+<table>
+<thead>
+<tr>
+<th>Controls</th>
+<th>UI → engine</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Film stock None / Portra400 / Gold200 / Ektar100 / Tri-X400 / Velvia50 / Cine250D</td>
+<td><code>LookPanel:1317</code> → <code>FilmStock.all</code>, <code>FilmChain</code></td>
+<td>Six real authored stocks, separate negative/print or reversal handling. No measured match to real film/Lightroom established here.</td>
+</tr>
+<tr>
+<td>Strength0…100</td>
+<td><code>LookPanel:1323</code> → film tonal blend</td>
+<td>Tonal blend live/correctly uses chosen display transform; M07 spatial discontinuity, M08 disabled base controls.</td>
+</tr>
+<tr>
+<td>Film Exposure−2…3; Push/Pull−1…2</td>
+<td><code>LookPanel:1329–1338</code> → <code>FilmChain.apply/build</code></td>
+<td>Live/traced. Exposure not seen by halation (M10). Push/pull is authored response modification, not evidence of calibrated film processing.</td>
+</tr>
+<tr>
+<td>Halation0…100; Halo Size.5…2; Halo Redness0…100</td>
+<td><code>LookPanel:1339–1380</code> → shared <code>halation</code> profile</td>
+<td>All three wired. Size endpoints give sigma .924444/3.697778 at1024; Redness0→100 gives green strength .015→0. M09 CPU/GPU gate, M14 Velvia dead state.</td>
+</tr>
+<tr>
+<td>Film Grain0…100; Grain Size.5…2</td>
+<td><code>LookPanel:1394–1411</code>, <code>EffectsPanel:263–296</code> → <code>GrainPlan.film</code></td>
+<td>Live/traced. Both panels now share identity/defaults correctly. Strength caveat M07.</td>
+</tr>
+<tr>
+<td>Creative Grain Amount/Size/Roughness0…100</td>
+<td><code>EffectsPanel:311–342</code> → <code>CreativeGrain</code>, <code>GrainPlan.creative</code></td>
+<td>Implemented. Size≈7…56µm at35mm gate; roughness redistributes octaves with normalized energy. Only used when a film stock isn&#39;t rendering. No separate local grain.</td>
+</tr>
+<tr>
+<td>Film print size</td>
+<td>wire <code>FilmLab.printSize</code></td>
+<td>Hidden/inert by design; cancels mathematically from gate-based grain. Old inert print-size menu removed. No format/gate control presently.</td>
+</tr>
+<tr>
+<td>Vignette Amount−4…2EV; Feather0…100</td>
+<td><code>EffectsPanel:131–172</code> → <code>RenderGraph.applyVignette</code>, <code>DetailEngine</code></td>
+<td>Live/traced, M06 crop flip. No midpoint/roundness/centre/highlight-protection UI; highlight protection fixed in engine.</td>
+</tr>
+<tr>
+<td>Built-in lens profile toggle</td>
+<td><code>EffectsPanel:442–453</code> → <code>AppleRawSource:336</code></td>
+<td>RAW-only; live on all three supplied files. No selectable manufacturer/lens-profile database UI.</td>
+</tr>
+<tr>
+<td>Remove CA; Purple/Green Defringe Amount/Hue bounds</td>
+<td><code>Recipe.swift:1394–1453</code></td>
+<td>Hidden wire-only; no production stage/UI. Apple profile may do decoder-owned corrections, but these recipe fields themselves have no consumer.</td>
+</tr>
+<tr>
+<td>Crop free/lock; presets/custom; portrait↔landscape; original; reset/revert/done</td>
+<td><code>CropPanel</code>, <code>CropGeometry</code> → <code>PipelineRenderer.applyGeometry</code></td>
+<td>Real geometry; M12 extreme accepted ratios. Ratio locks are pixel-aspect-aware for normal ratios.</td>
+</tr>
+<tr>
+<td>Angle−45…45; straightening ruler; Flip horizontal; guides</td>
+<td><code>CropPanel:356–389</code>, crop overlay→ shared geometry mapping</td>
+<td>Implemented. Geometry and source/display inverse shared with masks. Four guides, not every competitor&#39;s guide set. No90° rotation/vertical flip/perspective UI found.</td>
+</tr>
+<tr>
+<td>Upright Vertical/Horizontal/Rotate/Aspect/Scale/Offset X/Y/Strength</td>
+<td><code>Recipe.swift</code> Upright</td>
+<td>Hidden wire-only; no perspective render stage.</td>
+</tr>
+<tr>
+<td>Heal/Clone/Repair</td>
+<td><code>Recipe.swift:1457+</code> Heal</td>
+<td>Stroke reference/count placeholder only; no operative tool/render stage. Major Lightroom-replacement capability gap, not an inert visible slider.</td>
+</tr>
+</tbody></table>
+<h2>Historical claims checked against current code</h2>
+<p>Keep these distinctions when synthesizing the whole-app report:</p>
+<ul>
+<li><strong>Fixed:</strong> old local/parametric gradient scale/coordinate arithmetic problems; modern CPU/GPU gradients share long-edge/pixel-centre math. Not a claim that all canvas gestures are correct.</li>
+<li><strong>Fixed:</strong> missing brush/AI input inversion/intersection poisoning is guarded by <code>isEvaluable</code>; M01 is a different failure where a valid donor is resolved but its image source wasn&#39;t built.</li>
+<li><strong>Fixed:</strong> cross-photograph raster identity is now in the key. M02 is reference dependency mutation on the same photo, not the old cross-photo identity bug.</li>
+<li><strong>Fixed:</strong> Automask source eligibility on direct brushes; independently exercised. Borrowed disabled Automask source remains M01&#39;s adjacent case.</li>
+<li><strong>Fixed:</strong> matte dependency generation follows references into disabled donors (<code>MaskDependency.wantedMattes</code>, comment in <code>RecipeMasks:337+</code>). Do not conflate that with <code>maskSource</code> for image-dependent masks.</li>
+<li><strong>Fixed:</strong> Film&#39;s partial tonal blend now uses the user&#39;s solved display transform; old K-045/film engine discontinuity claim is stale. M08 UI and M07 spatial behavior remain.</li>
+<li><strong>Fixed:</strong> halation Gaussian radius now uses the shared sigma helper, not sigma×3. M09 energy gate remains.</li>
+<li><strong>Fixed:</strong> Halo Size/Redness are exposed, routed and tested. Old C1-04 absent-control claim is stale.</li>
+<li><strong>Fixed:</strong> film and creative grain are deferred to output-grid formation, including crop factor. Do not repeat the old downsampled-export-grain bug without new evidence.</li>
+<li><strong>Fixed:</strong> stock grain Amount/Size bindings now share the correct field identity/defaults across Effects and Film Lab. Old duplicate-key/default claims are stale.</li>
+<li><strong>Fixed:</strong> Classic NR has meaningful current quality tests (<code>Tests/LumenCoreTests/Proof/DenoiseQualityTests.swift</code>): full-deflection denoising vs noisy input, colour-edge retention, monotonic strength mapping, cap on destructive blotch mixing, ISO defaults near measured optimum, luma-detail retention. Old “only smoke tests” claim is false.</li>
+<li><strong>Fixed:</strong> AI coupling preserves explicitly edited Classic luma/chroma master values via userSet flags (<code>DenoiseEngine.swift:1824–1829</code>). Old “AI always zeroes user values” claim is false.</li>
+<li><strong>Fixed:</strong> capture sharpening On/Off reaches the RAW decoder through <code>strengthFraction</code>; probed live. Lumen&#39;s separate RL capture implementation still is not the production Apple path.</li>
+<li><strong>Branch-only fixed:</strong> foreign mask pins swallowing viewer background gestures (<code>MaskCanvasHitArea</code>); Contrast slider log travel (<code>LookPanel</code>). Source-only branch check, not this sub-audit&#39;s runtime target.</li>
+<li><strong>Still open:</strong> C1-01/02/03/07/08 as described above; extreme crop-ratio accepted range; absence of healing/perspective/local denoise/many model-based AI masks. The exact historical headings, not unverified old line numbers, define these mappings.</li>
+</ul>
+<h2>Creative capability assessment</h2>
+<p>Strong foundation: ordered add/subtract/intersect components; independent component inversion/contribution; geometric, range, luminosity and similarity masks; references and mask folders; guided edge refinement; pressure/flow/ceiling/Automask brush; local channel curves, point colour, wheels and colorization; dedicated film response, halation and density-domain grain. These can express sophisticated colour separation, dodge/burn, background isolation and stylized finishing without a Lightroom-shaped panel clone.</p>
+<p>Highest practical gaps for a personal Lightroom replacement: healing/cloning/content-aware repair; perspective/architectural correction; local denoise and local defringe/moiré; dependable references; subject/person sub-selections and sky/object/depth segmentation; brush pins and richer brush presets; image-anchored grain seed/format control; LUT import or a more expansive finishing stack (coordinate the latter with colour/look audit). The observed People miss on the small airborne figure is a concrete quality limitation within the shipped semantic tools, not a universal model failure; Subject provided a usable fallback on that file. More named stocks are optional creativity, not a substitute for correcting Strength/exposure behavior.</p>
+<p>Avoid interpreting authored film constants or comments saying “measured” as a demonstrated fit to real emulsion scans. This audit found functional controls and mathematical models, not calibration datasets or independent validation of stock authenticity. Likewise the Apple stand-in is real RAW denoise, but not a bundled state-of-the-art neural raw-denoising system.</p>
+<h2>Highest-value next validation work</h2>
+<ol>
+<li>Real pipeline reference-dependency tests: donor edit, disabled donor, inverted donor, group-off donor, image-dependent/brush/AI donors; repeated preview and final export, native512 and4096.</li>
+<li>Masked end-to-end control proofs: channel curves in all blend modes; absolute vs relative WB atStrength0/50/100/200; group×member strength; Texture/Clarity CPU/GPU under the same normalized contract.</li>
+<li>Resolution assertions for brush <strong>coverage and alpha</strong>, negative Sharpness, small refine values, overlay versus delivery—not just parameter radius math.</li>
+<li>Geometry-composed spatial effects: asymmetric crop, flip, angle, output resize, vignette and grain combined. Use uniform/ramp charts so movement cannot hide errors.</li>
+<li>Film full-chain monotonicity near Strength0; low-highlight halation GPU goldens; Film Exposure coupled with glow; disabled-state tests for unsupported stock/input controls.</li>
+<li>Independent visual fixtures for skin, foliage, high-ISO colour blotches, sky gradients and backlit hair. Existing quality tests are a meaningful start; endpoint nonzero tests do not establish aesthetically appropriate response or Lightroom equivalence.</li>
+</ol>
+</main></body></html>

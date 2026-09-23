@@ -1,0 +1,31 @@
+{
+  "auditDate": "2026-09-22",
+  "baseline": "99c37272b42c211a04262ceb98cfb39355d1ab99",
+  "latestBranchTip": "a6e6941",
+  "evidenceKind": "Consolidated observed tool output; not a raw transcript",
+  "catalog": {
+    "healthyExclusiveLock": {"sqliteError": 5, "ratingBefore": 5, "ratingAfterRecovery": 1, "originalSetAside": true},
+    "sidecarTransition": {"DNGExposure": 2, "newNEFExposure": 2, "sidecars": ["DSC_0001.xmp"]},
+    "changedOriginal": {"sizeBefore": 100, "sizeAfter": 200, "mtimeBefore": 10, "mtimeAfter": 20, "quickSignatureAfter": "old-original", "previewRowsAfter": 1, "signatureBackfillCandidates": 0},
+    "sameSecondSidecar": {"catalogExposure": 1, "sidecarExposure": 2, "selectedExposure": 1},
+    "sidecarFailedWrite": {"onFailureMessages": [], "sidecarStillDirectory": true},
+    "incompleteBlobBackup": {"finalDBPublished": true, "blobPresentInBackup": false, "blobReference": "blob:xxh64:8a2c7b2c88684b5b", "restoredRecipeRef": "blob:xxh64:8a2c7b2c88684b5b", "restoredPayloadCount": 0, "maskSumBefore": 18.563482284545898, "maskSumAfter": 0, "limit": "Backup-only restoration into fresh audit directory; no sidecar import before measurement; live audit store/originals left intact", "rawLog": "catalog-recovery-confirmed.log"},
+    "latestSubsetScan": {"visibleAlbumBefore": 2, "visibleAlbumAfter": 1, "unselectedPhotoMarkedMissing": true},
+    "latestFalseCommonRoot": {"falseRoot": "/a/photos", "registeredIDs": [3,3], "uniqueRows": 1, "firstRecipeAfterSecondSave": -2}
+  },
+  "ingestAlreadyPresent": {"plannedBytes": 5000, "sourceBytes": 100, "destinationBytes": 100, "allVerified": true, "reportedBytesCopied": 5000, "alreadyPresent": 1},
+  "originalReplacement": {"beforeDimensions": [32,24], "afterReplacementCachedDimensions": [32,24], "afterExplicitInvalidation": [64,48], "cachedSampleRGB": [0.328243,0.039643,0.012377], "afterInvalidationRGB": [0.174146,0.479270,0.0494]},
+  "previewProvenance": {"oldExposure": 0, "newExposure": 2, "oldFingerprint": "xxh64:fd50cceee634dfb4", "newFingerprint": "xxh64:e4ce9920b7023b16", "storedUnderNewFingerprint": true, "oldImageServedAsCurrent": true},
+  "outputNameRace": {"sentinelReplaced": true, "outputBytes": 859, "outputHeader": "FFD8FF"},
+  "formatReadback": {"jpegDepths": [8], "heicDepths": [8,10], "tiffDepths": [8,16], "pngDepths": [8,16], "requestedICC": "Display P3", "observedICC": "Display P3", "requestedSize": [32,24], "observedSize": [32,24]},
+  "metadataReadback": {"requestedPPI": 240, "jpegPPI": 72, "heicPPI": 240, "tiffPPI": 240, "pngPPI": 240, "contactSurvivedAnyFormat": false, "copyrightSurvivedAllFormats": true, "standardGPSRemoved": true, "bodyAndAuxSerialRemoved": true, "lensSerialRetainedWithEXIF": true, "captureDateRetainedWithEXIF": true, "sourceKeywordKeepStripWorked": true, "limit": "No exhaustive proprietary MakerNote or arbitrary XMP scrub certification"},
+  "registrationOptimizedLoadedSessionSeconds": [{"count":100,"cold":1.94636,"repeat":1.32540},{"count":500,"cold":22.92555,"repeat":18.73415}],
+  "sidecarLoopOptimizedLoadedSessionSeconds": [{"count":100,"seconds":0.459337},{"count":500,"seconds":22.31105},{"count":1000,"seconds":114.78266}],
+  "sidecarLoopOptimizedTmpWorkingDirectorySeconds": [{"count":100,"seconds":0.44654309749603271},{"count":500,"seconds":10.828945994377136}],
+  "releaseRenderBenchmarks": [
+    {"file":"A7401502.ARW","initializationMS":2549.743,"coldPreviewMS":1570.334,"coldDecodeMS":1541.670,"exposureP50MS":8.61597,"exposureP95MS":18.96,"exposureMaxMS":88.300,"hueP50MS":10.4411,"hueP95MS":16.1469,"draftHueP50MS":8.12292,"draftHueP95MS":9.38690,"settleMS":6.95491,"exportMS":3389.933,"exportBytes":8091637},
+    {"file":"A7401654.ARW","initializationMS":313.933,"coldPreviewMS":1022.503,"coldDecodeMS":1008.711,"exposureP50MS":7.63595,"exposureP95MS":10.8300,"exposureMaxMS":47.8389,"hueP50MS":10.6270,"hueP95MS":13.2630,"draftHueP50MS":7.73799,"draftHueP95MS":10.5009,"settleMS":8.30996,"exportMS":3628.7849,"exportBytes":3528461},
+    {"file":"A7401693.ARW","initializationMS":291.5989,"coldPreviewMS":874.0931,"coldDecodeMS":859.5636,"exposureP50MS":6.59704,"exposureP95MS":9.27198,"exposureMaxMS":35.83288,"hueP50MS":9.90105,"hueP95MS":13.1669,"draftHueP50MS":9.54497,"draftHueP95MS":11.5720,"settleMS":9.021997,"exportMS":3077.76594,"exportBytes":7026847}
+  ],
+  "benchmarkScope": {"hardware":"Apple M4","OS":"macOS27 arm64","Swift":"6.4","build":"Release -O package objects","previewLongEdge":1536,"samplesPerWarmCase":20,"nativeExportDimensions":[4672,7008],"staleServesPerDraftLoop":20,"deferredBakesPerDraftLoop":20,"allKernelsAvailable":true,"inputToPhoton":false,"diskCacheFlushed":false,"limits":["No UI compositing/scopes latency", "No long-session memory-pressure benchmark", "Audit activity may have overlapped some runs"]}
+}

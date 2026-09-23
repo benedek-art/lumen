@@ -179,12 +179,14 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 # not declared in-tree gets reported, so adding a genuinely new platform type means
 # adding it here — which is the point. Single capital letters are generic parameters.
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
+    # Native APIs used by the audited persistence/export safety regressions.
+    "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
-    "UInt64", "Double", "Float", "Float32", "Float64", "Bool", "String", "Substring",
+    "UInt64", "Double", "Float", "Float16", "Float32", "Float64", "Bool", "String", "Substring",
     "Character", "Array", "Dictionary", "Set", "Optional", "Result", "Range",
     # `#filePath` and `#line` defaults on a test helper, so a failure reports the
     # CALL site rather than the helper's own line.
@@ -205,10 +207,10 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "ObjCBool", "Duration", "ContinuousClock", "SuspendingClock",
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
-    "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
+    "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
-    "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
+    "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
@@ -225,7 +227,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
     # `XCTWaiter` for a test that must bound how long it waits rather than
     # assert on a value — a hang produces no failing test to assert on.
-    "XCTWaiter", "XCTExpectFailure",
+    "XCTWaiter", "XCTExpectFailure", "XCTExpectedFailure",
     "XCTUnwrap", "XCTFail", "XCTAssertEqual", "XCTAssertNotEqual", "XCTAssertTrue",
     "XCTAssertFalse", "XCTAssertNil", "XCTAssertNotNil", "XCTAssertGreaterThan",
     "XCTAssertLessThan", "XCTAssertGreaterThanOrEqual", "XCTAssertLessThanOrEqual",
@@ -236,7 +238,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGDataProvider", "CGPath", "CGMutablePath", "CGBitmapInfo", "CGImageAlphaInfo",
     "CGColorRenderingIntent", "CGImageSource", "CGImageDestination",
     "CGImagePropertyOrientation", "CGDirectDisplayID",
-    "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex",
+    "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex", "CGImageSourceCreateImageAtIndex",
     "CGImageDestinationCreateWithURL", "CGImageDestinationAddImage",
     "CGImageDestinationFinalize",
     "ImageIO", "CFString", "CFDictionary", "CFData", "CFURL",
@@ -266,7 +268,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # "Apple's XCTest, not swift-corelibs-xctest" — `XCTExpectFailure` exists in one and
     # not the other, and `swiftc -parse` accepts it either way. The condition names a
     # platform module rather than an in-tree type, so the symbols pass has to be told.
-    "Darwin",
+    "Darwin", "Glibc",
     "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
@@ -297,7 +299,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Label", "Link", "ProgressView", "Gauge", "Stepper", "DisclosureGroup", "TabView",
     "Table", "TableColumn", "GeometryReader", "GeometryProxy", "Canvas",
     "GraphicsContext", "Path", "Shape", "Rectangle", "RoundedRectangle", "Circle",
-    "Ellipse", "Capsule", "Binding", "State", "StateObject", "ObservedObject",
+    "Ellipse", "Capsule", "Binding", "State", "StateObject", "ObservedObject", "GestureState",
     "EnvironmentObject", "Environment", "EnvironmentValues", "EnvironmentKey",
     "PreferenceKey", "ViewModifier", "ViewBuilder", "App", "Scene", "WindowGroup",
     "Settings", "Commands", "CommandGroup", "CommandMenu", "AppStorage",

@@ -1,0 +1,596 @@
+warning: 'lumen': found 135 file(s) which are unhandled; explicitly declare them as resources or exclude from the target
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.brilliance.global.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.pivot.shadow.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.contrast.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.uniformity.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.yellow.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.mid.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.tintHue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.grain.amount.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.exposure.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.exposure.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.red.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.colorDetail.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.blue.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.chroma.mid.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.lumaContrast.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/detail.texture.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.lumaDetail.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.pushPull.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.mid.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.magenta.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.purple.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/printer.master.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.global.ev.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/color.protectSkin.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.red.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.saturation.global.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.chroma.shadows.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/detail.dehaze.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.gPurity.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.mid.ev.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.orange.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.high.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/pointColor.range.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.red.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.aqua.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/curve.shadows.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.gold200.strength.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/color.saturation.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.luma.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.purple.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/pointColor.luminance.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.gHue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.shadows.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.brilliance.high.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.global.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.grain.size.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.aqua.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.mid.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/look.vignette.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/color.density.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/pointColor.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.shadow.ev.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.blue.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.blue.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/pointColor.variance.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.rPurity.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/sharpen.radius.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.bright.ev.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.yellow.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/pointColor.saturation.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.chroma.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.colorSmoothness.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.high.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.shadows.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/detail.clarity.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.pivot.highlight.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.orange.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.green.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.purple.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.velvia50.strength.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.shadows.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/printer.b.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.pivot.2.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/raw.temp.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.purple.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.aqua.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/denoise.hotPixels.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.whites.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.portra400.strength.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.green.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.rHue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.chroma.global.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.magenta.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.ektar100.strength.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.pivot.1.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/printer.g.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.vibrance.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/curve.highlights.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.dark.ev.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.blending.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.pivot.0.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.chroma.high.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.brilliance.shadows.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/raw.tint.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.green.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.shadows.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.bPurity.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.blue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.saturation.shadows.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.pivot.4.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/color.vibrance.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.bHue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.brilliance.mid.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/curve.darks.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.trix400.strength.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/sharpen.haloSuppression.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.pivot.3.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.saturation.mid.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.balance.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.saturation.high.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/zones.light.ev.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/printer.r.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.cine250d.strength.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/sharpen.detail.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/curve.lights.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/cb.hueShift.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.orange.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.yellow.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.blacks.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.magenta.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.global.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.highlights.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.orange.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/tone.contrastPivot.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/sharpen.masking.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.aqua.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/bw.yellow.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/primaries.tintPurity.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.green.sat.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/sharpen.amount.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.high.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.magenta.lum.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/film.halation.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/grade.global.hue.json
+    /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/Proof/records/mixer.red.sat.json
+Building for production...
+[0/14] /private/tmp/lumen-astra-proof-build-20260922/arm64-apple-macosx/release/LumenPackageTests.derived/runner.swift
+[1/14] Write sources
+[8/14] Copying Fixtures
+[9/14] Write swift-version--58304C5D6DBC2206.txt
+[11/15] Compiling LumenCore BlobStore.swift
+[12/17] Compiling LumenPipeline AppleRawSource.swift
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenPipeline/Kernels.swift:1011:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings) [#DeprecatedDeclaration]
+1009 | 
+1010 |     private static func make(_ source: String) -> CIColorKernel? {
+1011 |         CIColorKernel(source: source)
+     |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings) [#DeprecatedDeclaration]
+1012 |     }
+1013 | 
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenPipeline/Kernels.swift:1019:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings) [#DeprecatedDeclaration]
+1017 |     /// graph around one on that basis.
+1018 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+1019 |         CIKernel(source: source)
+     |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings) [#DeprecatedDeclaration]
+1020 |     }
+1021 | 
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+[13/19] Compiling LumenPipelineTests DraftTruthfulnessTests.swift
+[14/19] Compiling LumenApp AppState.swift
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/AppState.swift:2667:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode [#SendableClosureCaptures]
+2665 |                 // Open folder A, then B before A finishes, and A's scan can land
+2666 |                 // second. The newest folder the user asked for is the one on screen.
+2667 |                 guard let self, self.scanGeneration == generation else { return false }
+     |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode [#SendableClosureCaptures]
+2668 |                 self.applyScan(found, stored: stored)
+2669 |                 return true
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/AppUpdater.swift:327:17: warning: result of 'try?' is unused [#NoUsage]
+325 |                 let config = NSWorkspace.OpenConfiguration()
+326 |                 config.createsNewApplicationInstance = true
+327 |                 try? await NSWorkspace.shared.openApplication(at: current,
+    |                 `- warning: result of 'try?' is unused [#NoUsage]
+328 |                                                               configuration: config)
+329 |                 NSApp.terminate(nil)
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/CatalogService.swift:748:61: warning: capture of 'store' with non-Sendable type 'CatalogStore' in a '@Sendable' closure [#SendableClosureCaptures]
+ 746 |             queue.async { [store] in
+ 747 |                 do {
+ 748 |                     continuation.resume(returning: try body(store))
+     |                                                             `- warning: capture of 'store' with non-Sendable type 'CatalogStore' in a '@Sendable' closure [#SendableClosureCaptures]
+ 749 |                 } catch {
+ 750 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenCore/Catalog/CatalogStore.swift:931:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+ 929 | // MARK: - Store
+ 930 | 
+ 931 | public final class CatalogStore {
+     |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+ 932 | 
+ 933 |     // MARK: Stored state
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/CatalogService.swift:18:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore' [#AddPreconcurrencyImport]
+  16 | 
+  17 | import Foundation
+  18 | import LumenCore
+     | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore' [#AddPreconcurrencyImport]
+  19 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+  20 | // with the rest of the platform-image code rather than in LumenCore.
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/GridView.swift:391:22: warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+389 | 
+390 |     private func loadThumbnail() async {
+391 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+    |                      `- warning: no 'async' operations occur within 'await' expression [#UnnecessaryEffectMarker]
+392 |             if image !== hit { image = hit }
+393 |             return
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/Keymap.swift:43:30: warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+ 41 |         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+ 42 |             guard let self else { return event }
+ 43 |             return MainActor.assumeIsolated {
+    |                              `- warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+ 44 |                 self.handle(event) ? nil : event
+ 45 |             }
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSColor.h: 0: 75 | 
+ 76 | NS_SWIFT_SENDABLE
+ 77 | @interface NSColor : NSObject <NSCopying, NSSecureCoding, NSPasteboardReading, NSPasteboardWriting>
+    +---  --------------------------------------------------------------
+    |1 | @_nonSendable(_assumed)
+    |  | `- note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+    +-------------------------------------------------------------------
+ 78 | 
+ 79 | - (instancetype)init NS_DESIGNATED_INITIALIZER;
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/RenderCoordinator.swift:512:60: warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+510 |         return renderer.renderMaskAlpha(source: source, recipe: recipe,
+511 |                                         maskID: maskID, strokeSets: strokeSets,
+512 |                                         longEdge: AppState.maskThumbnailLongEdge)
+    |                                                            `- warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+513 |     }
+514 | 
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/AppState.swift:981:16: note: static property declared here
+ 979 |     /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+ 980 |     /// editor does it live is that they compute it at mask resolution.
+ 981 |     static let maskThumbnailLongEdge = 96
+     |                `- note: static property declared here
+ 982 | 
+ 983 |     /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/ScopeData.swift:205:59: warning: main actor-isolated static property 'scopeProxyLongEdge' cannot be accessed from outside of the actor; this is an error in the Swift 6 language mode
+203 |             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+204 |                 guard let buffer = AppState.buffer(
+205 |                     from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+    |                                                           `- warning: main actor-isolated static property 'scopeProxyLongEdge' cannot be accessed from outside of the actor; this is an error in the Swift 6 language mode
+206 |                 else { return nil }
+207 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/ScopeData.swift:312:66: warning: main actor-isolated static property 'scopeProxyLongEdge' cannot be accessed from outside of the actor; this is an error in the Swift 6 language mode
+310 |                 // the extra pixels were commissioned for the count, not for the shape.
+311 |                 guard let buffer = AppState.buffer(
+312 |                     from: result.image, targetLongEdge: AppState.scopeProxyLongEdge)
+    |                                                                  `- warning: main actor-isolated static property 'scopeProxyLongEdge' cannot be accessed from outside of the actor; this is an error in the Swift 6 language mode
+313 |                 else { return nil }
+314 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/ScopeData.swift:486:42: warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+140 |     /// which is the viewport in device pixels. 24 MP is a 6K viewport at 1:1 with room
+141 |     /// over it, and costs 96 MB of transient bytes at the ceiling.
+142 |     static let scopeTapPixelCeiling: Int = 24_000_000
+    |                `- note: static property declared here
+143 | 
+144 |     /// Measure the scopes off the frame the viewer already has.
+    :
+484 |         let height: Int = image.height
+485 |         guard width > 0, height > 0 else { return nil }
+486 |         guard width * height <= AppState.scopeTapPixelCeiling else { return nil }
+    |                                          `- warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+487 |         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+488 |         var bytes = [UInt8](repeating: 0, count: width * height * 4)
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/ViewerOverlays.swift:1047:18: warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context
+ 919 |     /// compositing at the sampler's full 4096 was interpolating an interpolation at
+ 920 |     /// four times the cost. 2048 keeps a downscale on the way to the screen.
+ 921 |     static let compositeLongEdge = 2048
+     |                `- note: static property declared here
+ 922 | 
+ 923 |     private struct BuildKey: Equatable {
+     :
+1045 |         let cap = MaskOverlay.compositeLongEdge(
+1046 |             alphaLongEdge: Swift.max(alpha.width, alpha.height),
+1047 |             cap: compositeLongEdge)
+     |                  `- warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context
+1048 |         let longest = Swift.max(rawWidth, rawHeight)
+1049 |         let shrink = longest > cap ? Double(cap) / Double(longest) : 1
+
+[#AddPreconcurrencyImport]: <https://docs.swift.org/compiler/documentation/diagnostics/add-preconcurrency-import>
+[#NoUsage]: <https://docs.swift.org/compiler/documentation/diagnostics/no-usage>
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[#UnnecessaryEffectMarker]: <https://docs.swift.org/compiler/documentation/diagnostics/unnecessary-effect-marker>
+[14/19] Write Objects.LinkFileList
+[15/19] Linking LumenApp
+[17/20] Compiling LumenCoreTests AccuracyProbeTests.swift
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/DenoiseTests.swift:141:13: warning: initialization of immutable value 'base' was never used; consider replacing with assignment to '_' or removing it [#NoUsage]
+139 |         let profile = NoiseProfile.forISO(3200)
+140 |         let noisy = noisyField(level: 0.18, profile: profile)
+141 |         let base = basisSigma(noisy).luma
+    |             `- warning: initialization of immutable value 'base' was never used; consider replacing with assignment to '_' or removing it [#NoUsage]
+142 | 
+143 |         var previous = 0.0
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/IngestAdversarialTests.swift:477:13: warning: variable 'sources' was never mutated; consider changing to 'let' constant [#VariableNeverMutated]
+475 |         try Data([UInt8](repeating: 1, count: 100)).write(to: bad)
+476 |         let c = try frame("ISO00003.RAF", size: 2_500, seed: 53)
+477 |         var sources = [try source(a), try source(bad), try source(c)]
+    |             `- warning: variable 'sources' was never mutated; consider changing to 'let' constant [#VariableNeverMutated]
+478 |         _ = sources
+479 |         let plan = IngestPlanner.plan(sources: sources,
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/IngestCopyTests.swift:177:41: warning: mutation of captured var 'seen' in concurrently-executing code; this is an error in the Swift 6 language mode [#SendableClosureCaptures]
+175 |         var seen: [IngestProgress] = []
+176 |         let driver = VerifiedCopyDriver(chunkSize: 512)
+177 |         let report = driver.run(plan) { seen.append($0) }
+    |                                         `- warning: mutation of captured var 'seen' in concurrently-executing code; this is an error in the Swift 6 language mode [#SendableClosureCaptures]
+178 | 
+179 |         XCTAssertTrue(report.allVerified, "a clean two-volume ingest did not verify: "
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/MaskDependencyAdversarialTests.swift:401:77: warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+399 |         // of narrowing here is that a `.model` kind must never reach the segmenter.
+400 |         let bareDotNone: Set<MaskKind> = MaskDependency.wantedMattes(in: recipe,
+401 |                                                                      from: .none)
+    |                                                                            |`- warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+    |                                                                            |- note: explicitly specify 'Optional' to silence this warning
+    |                                                                            `- note: use 'MaskKind.MatteProvider.none' instead
+402 |         XCTAssertEqual(bareDotNone, everything,
+403 |                        "if this is now empty the ambiguity has been closed")
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/RollCursorTests.swift:110:13: warning: immutable value 'ids' was never used; consider replacing with '_' or removing it [#NoUsage]
+108 | 
+109 |     func testAnEmptyRollAnswersNilWithoutReadingAnIdentity() {
+110 |         let ids: [URL] = []
+    |             `- warning: immutable value 'ids' was never used; consider replacing with '_' or removing it [#NoUsage]
+111 |         var cursor = RollCursor()
+112 |         XCTAssertNil(cursor.index(of: URL(fileURLWithPath: "/a.arw"),
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/SidecarLabelPolicyTests.swift:13:22: warning: expression implicitly coerced from 'String??' to 'Any?'
+11 |     /// the write must not mention it.
+12 |     func testARatingKeystrokeLeavesALabelThisBuildCannotNameAlone() {
+13 |         XCTAssertNil(SidecarLabelPolicy.write(appLabel: nil, labelChanged: false),
+   |                      |                  |- note: provide a default value to avoid this warning
+   |                      |                  |- note: force-unwrap the value to avoid this warning
+   |                      |                  `- note: explicitly cast to 'Any?' with 'as Any?' to silence this warning
+   |                      `- warning: expression implicitly coerced from 'String??' to 'Any?'
+14 |                      "a flag or rating keystroke asserted `.some(nil)` for the label, "
+15 |                      + "and XMPMerge owns `xmp:Label`, so pressing a rating deleted "
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/SidecarLabelPolicyTests.swift:22:25: warning: expression implicitly coerced from 'String??' to 'Any?'
+20 |     func testClearingALabelStillClearsIt() {
+21 |         let written = SidecarLabelPolicy.write(appLabel: nil, labelChanged: true)
+22 |         XCTAssertNotNil(written, "a cleared label must reach the file")
+   |                         |- warning: expression implicitly coerced from 'String??' to 'Any?'
+   |                         |- note: provide a default value to avoid this warning
+   |                         |- note: force-unwrap the value to avoid this warning
+   |                         `- note: explicitly cast to 'Any?' with 'as Any?' to silence this warning
+23 |         XCTAssertEqual(written ?? "unset", String?.none,
+24 |                        "clearing writes `.some(nil)` — the element is removed")
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenCoreTests/SidecarLabelPolicyTests.swift:36:22: warning: expression implicitly coerced from 'String??' to 'Any?'
+34 |     /// An empty string is not a label; it is the absence of one wearing a name.
+35 |     func testAnEmptyNameIsTreatedAsNoLabel() {
+36 |         XCTAssertNil(SidecarLabelPolicy.write(appLabel: "", labelChanged: false))
+   |                      |                  |- note: provide a default value to avoid this warning
+   |                      |                  |- note: force-unwrap the value to avoid this warning
+   |                      |                  `- note: explicitly cast to 'Any?' with 'as Any?' to silence this warning
+   |                      `- warning: expression implicitly coerced from 'String??' to 'Any?'
+37 |     }
+38 | }
+
+[#NoUsage]: <https://docs.swift.org/compiler/documentation/diagnostics/no-usage>
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[#VariableNeverMutated]: <https://docs.swift.org/compiler/documentation/diagnostics/variable-never-mutated>
+[18/20] Compiling LumenAppTests AppStateSeamTests.swift
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Tests/LumenAppTests/HistoryPanelTests.swift:54:52: warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+ 52 |     /// One recipe step on one photograph, built the way `updateRecipe` builds one.
+ 53 |     private func step(_ url: URL, key: String?,
+ 54 |                       label: String = HistoryStack.unnamedLabel) -> HistoryStack.Step {
+    |                                                    `- warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+ 55 |         var after = Recipe()
+ 56 |         after.develop.tone.exposure = 0.4
+
+/Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/lumen/Sources/LumenApp/HistoryStack.swift:62:16: note: class property declared here
+ 60 |     /// named this step" and derives a name from the coalescing key instead — and a
+ 61 |     /// literal `"Edit"` written in two files is how that agreement would quietly end.
+ 62 |     static let unnamedLabel = "Edit"
+    |                `- note: class property declared here
+ 63 | 
+ 64 |     /// A drag that pauses longer than this starts a new undo step, so "nudge, think,
+[19/21] Compiling LumenPackageTests runner.swift
+[19/21] Write Objects.LinkFileList
+[20/21] Linking LumenPackageTests
+Build complete! (172.08s)
+Test Suite 'Selected tests' started at 2026-09-22 15:22:21.438.
+Test Suite 'LumenPackageTests.xctest' started at 2026-09-22 15:22:21.445.
+Test Suite 'ControlProofTests' started at 2026-09-22 15:22:21.446.
+Test Case '-[LumenCoreTests.ControlProofTests testEveryRegisteredControlHasVisibleAuthority]' started.
+Test Case '-[LumenCoreTests.ControlProofTests testEveryRegisteredControlHasVisibleAuthority]' passed (0.009 seconds).
+Test Case '-[LumenCoreTests.ControlProofTests testEveryRegisteredControlIsAliveAcrossItsWholeTravel]' started.
+Test Case '-[LumenCoreTests.ControlProofTests testEveryRegisteredControlIsAliveAcrossItsWholeTravel]' passed (0.000 seconds).
+Test Case '-[LumenCoreTests.ControlProofTests testNoControlHandsBackASeeableShareOfItsOwnEffect]' started.
+Test Case '-[LumenCoreTests.ControlProofTests testNoControlHandsBackASeeableShareOfItsOwnEffect]' passed (0.000 seconds).
+Test Case '-[LumenCoreTests.ControlProofTests testNoControlLeavesTheRangeUnlessItIsEntitledTo]' started.
+Test Case '-[LumenCoreTests.ControlProofTests testNoControlLeavesTheRangeUnlessItIsEntitledTo]' passed (0.000 seconds).
+Test Case '-[LumenCoreTests.ControlProofTests testTheCommittedRecordsStillDescribeWhatTheEngineDoes]' started.
+Test Case '-[LumenCoreTests.ControlProofTests testTheCommittedRecordsStillDescribeWhatTheEngineDoes]' passed (0.028 seconds).
+Test Case '-[LumenCoreTests.ControlProofTests testWriteTheEvidenceSheets]' started.
+Test Case '-[LumenCoreTests.ControlProofTests testWriteTheEvidenceSheets]' passed (9.623 seconds).
+Test Suite 'ControlProofTests' passed at 2026-09-22 15:24:13.042.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 9.661 (111.597) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-09-22 15:24:13.042.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 9.661 (111.597) seconds
+Test Suite 'Selected tests' passed at 2026-09-22 15:24:13.042.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 9.661 (111.605) seconds
+
+=== control authority, sRGB code values over full travel ===
+  tone.exposure  authority 251.54  mean 176.866  front 82.0%  dead 0  monotone  gave back 0.0
+  tone.contrast  authority 81.42  mean 45.249  front 75.0%  dead 0  monotone  gave back 0.0
+  tone.highlights  authority 55.84  mean 13.338  front 73.0%  dead 0  monotone  gave back 0.0
+  tone.shadows  authority 47.19  mean 13.642  front 41.0%  dead 0  monotone  gave back 0.0
+  tone.whites  authority 47.64  mean 9.389  front 49.0%  dead 0  monotone  gave back 0.0
+  tone.blacks  authority 23.27  mean 6.988  front 67.0%  dead 0  monotone  gave back 0.0
+  tone.contrastPivot  authority 114.57  mean 34.767  front 60.0%  dead 0  monotone  gave back 0.0
+  color.saturation  authority 137.44  mean 30.366  front 88.0%  dead 0  monotone  gave back 0.0
+  color.vibrance  authority 86.33  mean 22.575  front 73.0%  dead 0  monotone  gave back 0.0
+  color.density  authority 36.88  mean 7.052  front 47.0%  dead 0  monotone  gave back 0.0
+  color.protectSkin  authority 13.32  mean 0.66  front 58.0%  dead 0  monotone  gave back 0.0
+  raw.temp  authority 82.42  mean 32.558  front 83.0%  dead 0  monotone  gave back 0.0
+  raw.tint  authority 145.94  mean 57.229  front 44.0%  dead 0  monotone  gave back 0.0
+  curve.shadows  authority 51.85  mean 9.884  front 56.0%  dead 0  monotone  gave back 0.0
+  curve.darks  authority 61.99  mean 6.332  front 56.0%  dead 0  monotone  gave back 0.0
+  curve.lights  authority 62.56  mean 6.354  front 54.0%  dead 0  monotone  gave back 0.0
+  curve.highlights  authority 50.7  mean 7.414  front 54.0%  dead 0  monotone  gave back 0.0
+  detail.texture  authority 38.2  mean 15.936  front 57.0%  dead 0  monotone  gave back 0.0  out of range up 18.56 down 19.67
+  detail.clarity  authority 17.96  mean 6.188  front 23.0%  dead 0  monotone  gave back 0.0  out of range up 4.29 down 3.61
+  detail.dehaze  authority 96.8  mean 37.045  front 44.0%  dead 0  monotone  gave back 0.0  out of range up 0.0 down 51.06
+  sharpen.amount  authority 38.78  mean 0.046  front 65.0%  dead 0  monotone  gave back 0.0  out of range up 38.78 down 27.44
+  sharpen.radius  authority 23.37  mean 0.057  front 90.0%  dead 0  monotone  gave back 0.0  out of range up 8.52 down 5.88
+  sharpen.detail  authority 4.97  mean 2.434  front 61.0%  dead 0  monotone  gave back 0.0  out of range up 1.19 down 2.86
+  sharpen.masking  authority 14.21  mean 5.477  front 55.0%  dead 0  monotone  gave back 0.0  out of range up 0.0 down 0.0
+  sharpen.haloSuppression  authority 33.63  mean 0.016  front 47.0%  dead 0  monotone  gave back 0.0  out of range up 0.0 down 0.0
+  mixer.red.hue  authority 101.73  mean 4.397  front 67.0%  dead 0  monotone  gave back 0.0
+  mixer.red.sat  authority 76.39  mean 6.925  front 68.0%  dead 0  monotone  gave back 0.0
+  mixer.red.lum  authority 163.77  mean 19.864  front 66.0%  dead 0  monotone  gave back 0.0
+  mixer.orange.hue  authority 45.91  mean 3.438  front 76.0%  dead 0  monotone  gave back 0.0
+  mixer.orange.sat  authority 113.11  mean 6.286  front 82.0%  dead 0  monotone  gave back 0.0
+  mixer.orange.lum  authority 106.93  mean 14.094  front 66.0%  dead 0  monotone  gave back 0.0
+  mixer.yellow.hue  authority 84.46  mean 5.729  front 39.0%  dead 0  monotone  gave back 0.0
+  mixer.yellow.sat  authority 122.11  mean 6.313  front 75.0%  dead 0  not monotone  gave back 0.125
+  mixer.yellow.lum  authority 149.73  mean 17.87  front 62.0%  dead 0  monotone  gave back 0.0
+  mixer.green.hue  authority 61.68  mean 2.54  front 53.0%  dead 0  monotone  gave back 0.0
+  mixer.green.sat  authority 51.39  mean 2.356  front 49.0%  dead 0  monotone  gave back 0.0
+  mixer.green.lum  authority 101.96  mean 9.029  front 67.0%  dead 0  monotone  gave back 0.0
+  mixer.aqua.hue  authority 45.04  mean 1.197  front 73.0%  dead 0  monotone  gave back 0.0
+  mixer.aqua.sat  authority 60.04  mean 1.932  front 51.0%  dead 0  monotone  gave back 0.0
+  mixer.aqua.lum  authority 113.92  mean 5.771  front 67.0%  dead 0  monotone  gave back 0.0
+  mixer.blue.hue  authority 24.5  mean 2.447  front 58.0%  dead 0  monotone  gave back 0.0
+  mixer.blue.sat  authority 79.35  mean 4.447  front 63.0%  dead 0  monotone  gave back 0.0
+  mixer.blue.lum  authority 138.01  mean 15.955  front 68.0%  dead 0  monotone  gave back 0.0
+  mixer.purple.hue  authority 39.76  mean 2.697  front 46.0%  dead 0  monotone  gave back 0.0
+  mixer.purple.sat  authority 75.1  mean 4.37  front 63.0%  dead 0  monotone  gave back 0.0
+  mixer.purple.lum  authority 128.09  mean 15.403  front 53.0%  dead 0  monotone  gave back 0.0
+  mixer.magenta.hue  authority 106.01  mean 2.778  front 45.0%  dead 0  monotone  gave back 0.0
+  mixer.magenta.sat  authority 80.48  mean 3.381  front 46.0%  dead 0  monotone  gave back 0.0
+  mixer.magenta.lum  authority 152.05  mean 9.828  front 70.0%  dead 0  monotone  gave back 0.0
+  mixer.uniformity  authority 10.03  mean 0.739  front 56.0%  dead 0  monotone  gave back 0.0
+  grade.global.sat  authority 49.68  mean 10.519  front 74.0%  dead 0  not monotone  gave back 3.914
+  grade.global.lum  authority 156.66  mean 52.345  front 70.0%  dead 0  monotone  gave back 0.0
+  grade.global.hue  authority 68.98  mean 13.146  front 0.0%  dead 0  not monotone  gave back 81.961
+  grade.shadows.sat  authority 15.72  mean 1.191  front 50.0%  dead 0  monotone  gave back 0.0
+  grade.shadows.lum  authority 52.77  mean 2.825  front 41.0%  dead 0  monotone  gave back 0.0
+  grade.shadows.hue  authority 15.78  mean 1.209  front 0.0%  dead 0  not monotone  gave back 45.701
+  grade.mid.sat  authority 42.89  mean 5.312  front 62.0%  dead 0  monotone  gave back 0.0
+  grade.mid.lum  authority 139.86  mean 24.707  front 60.0%  dead 0  monotone  gave back 0.0
+  grade.mid.hue  authority 51.91  mean 6.948  front 0.0%  dead 0  not monotone  gave back 78.152
+  grade.high.sat  authority 49.68  mean 4.369  front 66.0%  dead 0  not monotone  gave back 3.914
+  grade.high.lum  authority 156.6  mean 24.606  front 70.0%  dead 0  monotone  gave back 0.0
+  grade.high.hue  authority 64.1  mean 5.158  front 0.0%  dead 0  not monotone  gave back 82.155
+  grade.blending  authority 33.79  mean 1.982  front 105.0%  dead 0  not monotone  gave back 11.771
+  grade.balance  authority 54.56  mean 9.686  front 75.0%  dead 0  monotone  gave back 0.0
+  grade.pivot.shadow  authority 48.95  mean 7.567  front 45.0%  dead 0  monotone  gave back 0.0
+  grade.pivot.highlight  authority 55.74  mean 11.806  front 83.0%  dead 0  monotone  gave back 0.0
+  printer.master  authority 240.73  mean 147.303  front 75.0%  dead 0  monotone  gave back 0.0
+  printer.r  authority 137.9  mean 28.539  front 61.0%  dead 0  monotone  gave back 0.0
+  printer.g  authority 143.98  mean 30.492  front 65.0%  dead 0  monotone  gave back 0.0
+  printer.b  authority 143.27  mean 29.965  front 65.0%  dead 0  monotone  gave back 0.0
+  primaries.rHue  authority 117.14  mean 9.655  front 62.0%  dead 0  monotone  gave back 0.0
+  primaries.rPurity  authority 88.12  mean 6.834  front 100.0%  dead 1  not monotone  gave back 0.419
+  primaries.gHue  authority 53.59  mean 7.523  front 66.0%  dead 0  monotone  gave back 0.0
+  primaries.gPurity  authority 58.53  mean 4.566  front 92.0%  dead 0  not monotone  gave back 0.0
+  primaries.bHue  authority 108.03  mean 12.306  front 98.0%  dead 0  not monotone  gave back 11.961
+  primaries.bPurity  authority 136.74  mean 10.357  front 87.0%  dead 0  not monotone  gave back 0.0
+  primaries.tintHue  authority 21.38  mean 2.11  front 58.0%  dead 0  monotone  gave back 0.0
+  primaries.tintPurity  authority 40.68  mean 2.642  front 56.0%  dead 0  monotone  gave back 0.0
+  pointColor.hue  authority 127.9  mean 5.884  front 72.0%  dead 0  monotone  gave back 0.0
+  pointColor.saturation  authority 77.57  mean 6.792  front 68.0%  dead 0  monotone  gave back 0.0
+  pointColor.luminance  authority 165.69  mean 16.562  front 66.0%  dead 0  monotone  gave back 0.0
+  pointColor.range  authority 53.05  mean 1.684  front 68.0%  dead 0  monotone  gave back 0.0
+  pointColor.variance  authority 69.26  mean 2.724  front 62.0%  dead 0  monotone  gave back 0.0
+  zones.dark.ev  authority 75.52  mean 19.469  front 23.0%  dead 0  monotone  gave back 0.0
+  zones.shadow.ev  authority 163.97  mean 31.674  front 33.0%  dead 0  monotone  gave back 0.0
+  zones.mid.ev  authority 194.19  mean 35.984  front 60.0%  dead 0  monotone  gave back 0.0
+  zones.light.ev  authority 129.34  mean 23.455  front 80.0%  dead 0  monotone  gave back 0.0
+  zones.bright.ev  authority 43.23  mean 8.211  front 100.0%  dead 0  monotone  gave back 0.0
+  zones.global.ev  authority 215.25  mean 113.675  front 68.0%  dead 0  monotone  gave back 0.0
+  zones.pivot.0  authority 12.61  mean 3.795  front 31.0%  dead 0  monotone  gave back 0.0
+  zones.pivot.1  authority 94.45  mean 9.046  front 36.0%  dead 0  monotone  gave back 0.0
+  zones.pivot.2  authority 155.59  mean 29.866  front 65.0%  dead 0  not monotone  gave back 0.61
+  zones.pivot.3  authority 37.18  mean 5.753  front 102.0%  dead 0  not monotone  gave back 5.158
+  zones.pivot.4  authority 44.3  mean 5.121  front 98.0%  dead 0  monotone  gave back 0.0
+  bw.red  authority 168.99  mean 24.248  front 88.0%  dead 0  monotone  gave back 0.0
+  bw.orange  authority 206.91  mean 24.627  front 86.0%  dead 0  monotone  gave back 0.0
+  bw.yellow  authority 211.85  mean 21.705  front 85.0%  dead 0  monotone  gave back 0.0
+  bw.green  authority 202.48  mean 12.823  front 87.0%  dead 0  monotone  gave back 0.0
+  bw.aqua  authority 153.13  mean 7.747  front 77.0%  dead 0  monotone  gave back 0.0
+  bw.blue  authority 161.53  mean 15.919  front 76.0%  dead 0  monotone  gave back 0.0
+  bw.purple  authority 161.23  mean 14.362  front 81.0%  dead 0  monotone  gave back 0.0
+  bw.magenta  authority 167.93  mean 9.653  front 74.0%  dead 0  monotone  gave back 0.0
+  film.portra400.strength  authority 84.55  mean 9.81  front 46.0%  dead 0  monotone  gave back 0.0
+  film.gold200.strength  authority 94.71  mean 10.221  front 45.0%  dead 0  monotone  gave back 0.0
+  film.ektar100.strength  authority 100.71  mean 11.647  front 44.0%  dead 0  monotone  gave back 0.0
+  film.velvia50.strength  authority 84.98  mean 11.654  front 48.0%  dead 0  monotone  gave back 0.0
+  film.cine250d.strength  authority 90.94  mean 12.377  front 45.0%  dead 0  monotone  gave back 0.0
+  film.trix400.strength  authority 126.8  mean 20.127  front 68.0%  dead 0  monotone  gave back 0.0
+  film.exposure  authority 186.01  mean 81.896  front 68.0%  dead 0  monotone  gave back 0.0
+  film.pushPull  authority 31.84  mean 13.58  front 61.0%  dead 0  monotone  gave back 0.0
+  film.halation  authority 24.71  mean 0.942  front 55.0%  dead 0  monotone  gave back 0.0
+  film.grain.amount  authority 16.32  mean 1.821  front 54.0%  dead 0  monotone  gave back 0.0
+  film.grain.size  authority 26.19  mean 2.804  front 105.0%  dead 0  not monotone  gave back 21.183
+  denoise.luma  authority 9.6  mean 3.049  front 65.0%  dead 0  monotone  gave back 0.0  out of range up 0.0 down 0.0
+  denoise.chroma  authority 16.16  mean 2.003  front 79.0%  dead 0  monotone  gave back 0.0  out of range up 0.0 down 0.0
+  denoise.lumaDetail  authority 6.77  mean 1.719  front 56.0%  dead 0  monotone  gave back 0.0  out of range up 0.15 down 2.35
+  denoise.lumaContrast  authority 0.75  mean 0.217  front 55.0%  dead 0  monotone  gave back 0.0  out of range up 0.03 down 0.52
+  denoise.colorDetail  authority 11.78  mean 0.185  front 56.0%  dead 0  monotone  gave back 0.0  out of range up 0.0 down 0.0
+  denoise.colorSmoothness  authority 6.83  mean 0.623  front 57.0%  dead 0  monotone  gave back 0.0  out of range up 0.07 down 0.0
+  denoise.hotPixels  authority 171.23  mean 0.196  front 100.0%  dead 19  monotone  gave back 0.0  out of range up 0.0 down 0.0
+  cb.hueShift  authority 190.07  mean 34.619  front 0.0%  dead 0  not monotone  gave back 199.35
+  cb.vibrance  authority 101.56  mean 9.643  front 65.0%  dead 0  monotone  gave back 0.0
+  cb.chroma.global  authority 159.21  mean 27.365  front 93.0%  dead 0  not monotone  gave back 2.123
+  cb.chroma.shadows  authority 54.85  mean 1.498  front 48.0%  dead 0  monotone  gave back 0.0
+  cb.chroma.mid  authority 157.1  mean 12.639  front 75.0%  dead 0  monotone  gave back 0.0
+  cb.chroma.high  authority 159.21  mean 14.016  front 93.0%  dead 0  not monotone  gave back 2.123
+  cb.saturation.global  authority 160.69  mean 27.58  front 94.0%  dead 0  not monotone  gave back 1.735
+  cb.saturation.shadows  authority 54.05  mean 1.482  front 49.0%  dead 0  monotone  gave back 0.0
+  cb.saturation.mid  authority 154.46  mean 12.534  front 75.0%  dead 0  monotone  gave back 0.0
+  cb.saturation.high  authority 160.69  mean 14.332  front 94.0%  dead 0  not monotone  gave back 1.735
+  cb.brilliance.global  authority 254.92  mean 141.011  front 100.0%  dead 0  monotone  gave back 0.0
+  cb.brilliance.shadows  authority 80.82  mean 4.34  front 61.0%  dead 0  monotone  gave back 0.0
+  cb.brilliance.mid  authority 159.72  mean 29.472  front 67.0%  dead 0  monotone  gave back 0.0
+  cb.brilliance.high  authority 189.93  mean 34.412  front 71.0%  dead 0  monotone  gave back 0.0
+  look.vignette  authority 167.66  mean 24.083  front 72.0%  dead 0  monotone  gave back 0.0
+
+
+=== controls that reverse at all, sRGB code values ===
+mixer.yellow.sat  gave back 0.1249 of 122.11 code values (0.102% of its authority)
+grade.global.sat  gave back 3.9145 of 49.68 code values (7.880% of its authority)
+grade.global.hue  gave back 81.9611 of 68.98 code values (118.821% of its authority)
+grade.shadows.hue  gave back 45.7006 of 15.78 code values (289.675% of its authority)
+grade.mid.hue  gave back 78.1517 of 51.91 code values (150.563% of its authority)
+grade.high.sat  gave back 3.9145 of 49.68 code values (7.880% of its authority)
+grade.high.hue  gave back 82.1547 of 64.10 code values (128.162% of its authority)
+grade.blending  gave back 11.7706 of 33.79 code values (34.835% of its authority)
+primaries.rPurity  gave back 0.4188 of 88.12 code values (0.475% of its authority)
+primaries.gPurity  gave back 0.0003 of 58.53 code values (0.001% of its authority)
+primaries.bHue  gave back 11.9614 of 108.03 code values (11.073% of its authority)
+primaries.bPurity  gave back 0.0000 of 136.74 code values (0.000% of its authority)
+zones.pivot.2  gave back 0.6098 of 155.59 code values (0.392% warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+of its authority)
+zones.pivot.3  gave back 5.1577 of 37.18 code values (13.872% of its authority)
+film.grain.size  gave back 21.1834 of 26.19 code values (80.878% of its authority)
+cb.hueShift  gave back 199.3495 of 190.07 code values (104.882% of its authority)
+cb.chroma.global  gave back 2.1230 of 159.21 code values (1.333% of its authority)
+cb.chroma.high  gave back 2.1230 of 159.21 code values (1.333% of its authority)
+cb.saturation.global  gave back 1.7354 of 160.69 code values (1.080% of its authority)
+cb.saturation.high  gave back 1.7354 of 160.69 code values (1.080% of its authority)
+
+
+=== excursion beyond the frame's own range, sRGB code values ===
+  detail.texture  above 18.56  below 19.67
+  detail.clarity  above 4.29  below 3.61
+  detail.dehaze  above 0.00  below 51.06
+  sharpen.amount  above 38.78  below 27.44
+  sharpen.radius  above 8.52  below 5.88
+  sharpen.detail  above 1.19  below 2.86
+  sharpen.masking  above 0.00  below 0.00
+  sharpen.haloSuppression  above 0.00  below 0.00
+  denoise.luma  above 0.00  below 0.00
+  denoise.chroma  above 0.00  below 0.00
+  denoise.lumaDetail  above 0.15  below 2.35
+  denoise.lumaContrast  above 0.03  below 0.52
+  denoise.colorDetail  above 0.00  below 0.00
+  denoise.colorSmoothness  above 0.07  below 0.00
+  denoise.hotPixels  above 0.00  below 0.00
+

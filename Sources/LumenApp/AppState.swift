@@ -93,6 +93,7 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     /// metadata backfill has reached this photo, and nil forever for a file that
     /// records no ISO, in which case the flat wire defaults stand.
     var iso: Int?
+    var sourceIdentity: SourceFileIdentity? = nil
 
     var filename: String { id.lastPathComponent }
     var isRaw: Bool { PhotoFormats.isRaw(id) }
@@ -2667,7 +2668,10 @@ final class AppState: ObservableObject {
             let parts = (isDirectory(url) ? url : url.deletingLastPathComponent())
                 .standardizedFileURL.pathComponents
             var shared: [String] = []
-            for (a, b) in zip(common, parts) where a == b { shared.append(a) }
+            for (a, b) in zip(common, parts) {
+                guard a == b else { break }
+                shared.append(a)
+            }
             common = shared
         }
         guard !common.isEmpty else { return nil }
@@ -2804,7 +2808,8 @@ final class AppState: ObservableObject {
             // file. It stays out here, on this thread: it used to run inside the
             // main-actor hop, which stopped the run loop for the whole of a 5,000
             // frame card.
-            let stored = catalog?.registerAndLoad(folder: url, files: found) ?? [:]
+            let stored = catalog?.registerAndLoad(folder: url, files: found,
+                                                   completeListing: restriction == nil) ?? [:]
             // Whether the roll this scan built is still the one the user wants —
             // decided on the main actor, and the BACKFILL LAUNCH depends on it too:
             // a superseded folder's scan used to fire its full EXIF pass anyway,
@@ -2885,11 +2890,13 @@ final class AppState: ObservableObject {
                 items[i].rating = row.rating
                 items[i].label = row.label
                 items[i].iso = row.iso
+                items[i].sourceIdentity = row.sourceIdentity
                 if let recipe = row.recipe { loaded[items[i].id] = recipe }
             }
         }
         recipes = loaded
         allPhotos = items
+        sourceRevision &+= 1
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
         // unread for as long as both have existed.
@@ -3575,6 +3582,8 @@ final class AppState: ObservableObject {
     /// 8-second watchdog all already call, so the deferred settle inherits all three
     /// safety nets rather than needing its own.
     @Published private(set) var settleTick: Int = 0
+    /// Re-key viewers on a completed rescan even when URL and recipe stayed equal.
+    @Published private(set) var sourceRevision: Int = 0
 
     private var pendingGesturePersist: [URL: Recipe] = [:]
     private var pendingGestureTouchedPixels = false
@@ -3777,8 +3786,16 @@ final class AppState: ObservableObject {
         statusMessage = "Backing up the catalog…"
     }
 
-    func undo() { apply(history.undo()) }
-    func redo() { apply(history.redo()) }
+    func undo() {
+        // End deferred persistence before restoring history, so a later release or
+        // quit cannot save the value that undo has just rejected.
+        sliderGesture(active: false)
+        apply(history.undo())
+    }
+    func redo() {
+        sliderGesture(active: false)
+        apply(history.redo())
+    }
 
     /// Put one history step back, restoring only the fields it recorded.
     private func apply(_ step: [URL: HistoryStack.PhotoEdit]?) {

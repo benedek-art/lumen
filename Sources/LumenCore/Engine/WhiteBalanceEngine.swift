@@ -133,9 +133,9 @@ public struct WhiteBalanceEngine: Sendable {
     /// colour measured on the CURRENT render (i.e. with `current` already applied).
     ///
     /// Solved by search rather than inversion: the locus is a fitted curve, so a
-    /// closed-form inverse would be a second approximation layered on the first. Two
-    /// passes over mired space cost well under a millisecond and are exact against the
-    /// forward model, which is the property that matters when the user clicks a grey card.
+    /// closed-form inverse would be a second approximation layered on the first. A
+    /// bounded search in mired/tint space minimizes the actual forward model, including
+    /// its physical tint guard, rather than introducing a separate inverse model.
     public static func neutralizing(sample: RGB, asShotKelvin: Double, asShotTint: Double,
                                     current: WhiteBalanceEngine,
                                     space: RGBColorSpace = .rec2020) -> (kelvin: Double, tint: Double) {
@@ -164,8 +164,10 @@ public struct WhiteBalanceEngine: Sendable {
         let miredEnd = 1e6 / ColorTemperature.minKelvin
         while mired <= miredEnd {
             let k = 1e6 / mired
-            var t = -150.0
-            while t <= 150 {
+            // Search the engine/typed range, not only the slider's soft travel.
+            // adaptation still applies the physical, temperature-dependent guard.
+            var t = -300.0
+            while t <= 300 {
                 let d = residualChroma(kelvin: k, tint: t)
                 if d < best { best = d; bestK = k; bestT = t }
                 t += 10
@@ -190,8 +192,41 @@ public struct WhiteBalanceEngine: Sendable {
             m2 += 0.25
         }
 
+        // Near the positive tint guard, Kelvin and tint trade off along a narrow
+        // valley. The best coarse seed's fixed refinement box can miss its minimum
+        // even when the exact manual correction is legal. Walk that valley with a
+        // bounded pattern search; each accepted move strictly improves the measured
+        // neutral residual. A fixed evaluation budget also bounds picker latency.
+        var remaining = 48
+        for level in 0..<10 {
+            let step = 4.0 / pow(2.0, Double(level))
+            for _ in 0..<8 {
+                guard remaining > 0, best > 1e-14 else { break }
+                remaining -= 1
+                let centre = 1e6 / bestK
+                let tint = bestT
+                var nextK = bestK
+                var nextT = bestT
+                var nextError = best
+                for dm in [-1.0, 0, 1] {
+                    for dt in [-1.0, 0, 1] where dm != 0 || dt != 0 {
+                        let m = Num.clamp(centre + dm * step,
+                                          1e6 / ColorTemperature.maxKelvin, miredEnd)
+                        let t = Num.clamp(tint + dt * step, -300, 300)
+                        let k = 1e6 / m
+                        let error = residualChroma(kelvin: k, tint: t)
+                        if error < nextError { nextError = error; nextK = k; nextT = t }
+                    }
+                }
+                guard nextError < best else { break }
+                best = nextError
+                bestK = nextK
+                bestT = nextT
+            }
+        }
+
         return (Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin),
-                Num.clamp(bestT, -150, 150))
+                Num.clamp(bestT, -300, 300))
     }
 }
 

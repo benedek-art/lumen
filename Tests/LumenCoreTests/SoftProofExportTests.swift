@@ -263,7 +263,7 @@ final class SoftProofExportTests: XCTestCase {
         XCTAssertEqual(write.components(separatedBy: "of: prepared, to: partial")
                         .count - 1, 5,
                        "every encoder branch has to write to the temp file")
-        XCTAssertTrue(write.contains("moveItem(at: partial, to: destination)"),
+        XCTAssertTrue(write.contains("renamex_np(from!, to!, flags)"),
                       "and the delivery is the rename")
         XCTAssertTrue(write.contains("removeItem(at: partial)"),
                       "every exit that is not the rename has to take the temp with it")

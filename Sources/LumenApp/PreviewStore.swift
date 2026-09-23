@@ -39,10 +39,12 @@ final class PreviewStore: @unchecked Sendable {
     /// to ask for the fingerprint, one for the rows — would put eight decode workers
     /// behind each other on the path the 50 ms goal is measured on.
     struct WritePlan: Sendable {
+        let url: URL
+        let sourceIdentity: SourceFileIdentity
         let photoID: Int64
         let level: PreviewLevel
         let pixels: Int
-        /// The photo's current `recipe_fp`, empty for as-shot.
+        /// The current recipe fingerprint, including concrete unsaved import defaults.
         let fingerprint: String
         /// The payload to read instead of decoding the original, if there is one.
         let payload: Payload?
@@ -74,6 +76,7 @@ final class PreviewStore: @unchecked Sendable {
     init(catalog: CatalogService, directory: URL) {
         self.catalog = catalog
         self.directory = directory
+        catalog.onInvalidatedPreviews = { [weak self] rows in self?.discardPayloads(rows) }
     }
 
     /// `~/Library/Caches/Lumen` — docs/15 §15.2 puts payloads here on purpose: the OS's
@@ -98,11 +101,16 @@ final class PreviewStore: @unchecked Sendable {
     /// `appendingPathComponent` is documented to append ONE component; handing it
     /// `previews/ab/x.heic` relies on it splitting the string, which is behaviour this
     /// code should not be betting a photographer's cache on. Three appends, no bet.
-    private func resolve(_ relative: String) -> URL {
+    private func resolve(_ relative: String) -> URL? {
+        guard !relative.hasPrefix("/"), !relative.isEmpty else { return nil }
+        let parts = relative.split(separator: "/")
+        guard !parts.contains(".."), !parts.contains(".") else { return nil }
         var url = directory
-        for component in relative.split(separator: "/") {
+        for component in parts {
             url = url.appendingPathComponent(String(component))
         }
+        let root = directory.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        guard url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(root) else { return nil }
         return url
     }
 
@@ -139,25 +147,44 @@ final class PreviewStore: @unchecked Sendable {
     /// .previewState`, where the same note explains why the picture stops updating
     /// while the interface keeps moving.
     func plan(for url: URL, pixels: Int) async -> WritePlan? {
-        guard let level = ThumbnailLadder.level(for: pixels),
+        guard let identity = SourceFileIdentity.read(url),
+              let level = ThumbnailLadder.level(for: pixels),
               let photoID = photoID(for: url),
-              let state = await catalog.previewState(photoID: photoID) else { return nil }
+              let state = await catalog.previewState(photoID: photoID),
+              SourceFileIdentity.read(url) == identity else { return nil }
+        let scope = Self.scope(for: identity)
+        let obsolete = state.rows.filter { !$0.path.hasPrefix(scope) }
+        if !obsolete.isEmpty { discardPayloads(await catalog.discardPreviews(obsolete)) }
         var payload: Payload?
         if case .serve(let row) = PreviewCache.decide(request: level,
                                                       fingerprint: state.fingerprint,
-                                                      stored: state.rows),
+                                                      stored: state.rows.filter { $0.path.hasPrefix(scope) }),
            let readPixels = PreviewCache.readPixels(request: level, served: row) {
             let file = resolve(row.path)
             // The row can outlive its payload: `~/Library/Caches` is reclaimable by the
             // OS and a user may empty it from Storage settings at any time. That is a
             // miss, not a failure — the decode below rewrites both halves.
-            if FileManager.default.fileExists(atPath: file.path) {
+            if let file, FileManager.default.fileExists(atPath: file.path) {
                 payload = Payload(file: file, pixels: readPixels, level: row.level,
                                   recipeFP: row.recipeFP)
             }
         }
-        return WritePlan(photoID: photoID, level: level, pixels: pixels,
+        return WritePlan(url: url, sourceIdentity: identity,
+                    photoID: photoID, level: level, pixels: pixels,
                     fingerprint: state.fingerprint, payload: payload)
+    }
+
+    /// The caller supplies provenance captured with the pixels, never a later lookup.
+    func developedPlan(for url: URL, pixels: Int,
+                       identity: DevelopedPreviewIdentity) async -> WritePlan? {
+        guard let plan = await plan(for: url, pixels: pixels),
+              plan.sourceIdentity == identity.source,
+              plan.fingerprint == identity.recipeFingerprint else { return nil }
+        return plan
+    }
+
+    private static func scope(for identity: SourceFileIdentity) -> String {
+        "render-v\(PreviewCache.renderingRevision)/\(identity.cacheKey)/"
     }
 
     /// Stamp the LRU. Fire-and-forget: a lost stamp costs eviction accuracy and nothing
@@ -213,6 +240,7 @@ final class PreviewStore: @unchecked Sendable {
     }
 
     private func persist(_ plan: WritePlan, image: CGImage, source: PreviewSource) {
+        guard SourceFileIdentity.read(plan.url) == plan.sourceIdentity else { return }
         // The row is built FIRST and the path is derived from the row's own key, so
         // there is no way for the file name and the row to disagree about which recipe
         // these pixels depict. `rowForDecode` is what decides that a camera render is
@@ -224,20 +252,50 @@ final class PreviewStore: @unchecked Sendable {
         else { return }
 
         for format in PreviewStore.formats {
-            let relative = PreviewCache.payloadPath(photoID: row.photoID,
+            let base = PreviewCache.payloadPath(photoID: row.photoID,
                                                     level: row.level,
                                                     recipeFP: row.recipeFP,
                                                     ext: format.ext)
-            guard let shard = PreviewCache.shardDirectory(for: relative) else { continue }
-            try? FileManager.default.createDirectory(at: resolve(shard),
+            guard let shard = PreviewCache.shardDirectory(for: base) else { continue }
+            let scope = Self.scope(for: plan.sourceIdentity)
+            // Unique publication paths let a rejected late writer remove its own
+            // payload without deleting a concurrently accepted writer's file.
+            let relative = scope + String(base.dropLast(format.ext.count + 1))
+                + "-" + UUID().uuidString + "." + format.ext
+            guard let shardURL = resolve(scope + shard), let file = resolve(relative) else { continue }
+            try? FileManager.default.createDirectory(at: shardURL,
                                                      withIntermediateDirectories: true)
-            let file = resolve(relative)
-            guard PreviewStore.encode(image, to: file, type: format.uti) else { continue }
+            guard PreviewStore.encode(image, to: file, type: format.uti) else {
+                try? FileManager.default.removeItem(at: file)
+                continue
+            }
             let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
             row.path = relative
             row.bytes = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-            catalog.recordPreview(row)
+            catalog.recordPreview(row, sourceURL: plan.url,
+                                  sourceIdentity: plan.sourceIdentity) { [weak self] accepted, replaced in
+                self?.discardPayloads(accepted ? replaced : [row])
+            }
             return
+        }
+    }
+
+    /// Queue barrier for deterministic cache lifecycle checks, without blocking an
+    /// actor or making normal frame delivery wait for an encoder.
+    func flushWrites() async {
+        await withCheckedContinuation { continuation in
+            writes.async { continuation.resume() }
+        }
+    }
+
+    private func discardPayloads(_ rows: [PreviewRow]) {
+        guard !rows.isEmpty else { return }
+        writes.async { [weak self] in
+            guard let self else { return }
+            for row in rows {
+                guard let file = self.resolve(row.path) else { continue }
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 
@@ -289,7 +347,7 @@ final class PreviewStore: @unchecked Sendable {
         let victims = catalog.prunePreviews(
             maxBytes: PreviewCache.budgetBytes(freeBytes: free))
         for row in victims {
-            try? FileManager.default.removeItem(at: resolve(row.path))
+            if let file = resolve(row.path) { try? FileManager.default.removeItem(at: file) }
         }
     }
 

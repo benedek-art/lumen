@@ -259,9 +259,16 @@ public struct DetailEngine: Sendable {
     /// `1 − coherence`, so coherent high-contrast edges keep their energy while isotropic
     /// mid-frequency texture loses it: −Texture smooths skin without dissolving eyelashes,
     /// and without negative Clarity's glow.
+    /// Texture/Clarity controls retain their ±100 domain; a local mask can scale
+    /// that resolved control up to 200%. Do not clamp again after multiplication.
+    public static func scaledPresenceAmount(_ amount: Double, strength: Double = 1) -> Double {
+        Num.clamp(amount, -100, 100) * Num.clamp(strength, 0, 2)
+    }
+
     public static func applyTexture(_ image: ImageBuffer, amount: Double,
+                                    strength: Double = 1,
                                     decomposition d: Decomposition) -> ImageBuffer {
-        let a = Num.clamp(amount, -100, 100) / 100
+        let a = scaledPresenceAmount(amount, strength: strength) / 100
         guard a != 0, !d.details.isEmpty else { return image }
 
         let w = image.width
@@ -339,8 +346,9 @@ public struct DetailEngine: Sendable {
     /// implemented here because the recipe's `Detail` has no mode field yet; adding it is a
     /// wire-format change (D52).
     public static func applyClarity(_ image: ImageBuffer, amount: Double,
+                                    strength: Double = 1,
                                     decomposition d: Decomposition) -> ImageBuffer {
-        let a = Num.clamp(amount, -100, 100) / 100
+        let a = scaledPresenceAmount(amount, strength: strength) / 100
         guard a != 0 else { return image }
         let w = image.width
         let h = image.height

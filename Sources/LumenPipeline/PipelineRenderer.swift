@@ -16,6 +16,7 @@ import os.signpost
 import CoreImage.CIFilterBuiltins
 import CoreText
 import Foundation
+import Darwin
 import ImageIO
 import LumenCore
 import UniformTypeIdentifiers
@@ -131,6 +132,9 @@ public final class PipelineRenderer {
     /// refinement chain, which is the only part of a mask that grows without bound as
     /// the photographer works. See the type's header (docs/36 §1.2).
     private let brushPlanes = BrushPlaneCache()
+    /// A deferred mask bake captures its picture key. If a source is replaced while
+    /// that bake is pending, its nested brush work must never share the new key.
+    private var maskSourceGeneration: UInt64 = 0
 
     /// One file's mattes, and which kinds have been LOOKED for.
     ///
@@ -143,12 +147,15 @@ public final class PipelineRenderer {
     /// nobody had made.
     private struct MatteEntry {
         var planes: [String: Plane] = [:]
+        /// Distinguishes replacement pixels even when the set of matte kinds is unchanged.
+        var generation: UInt64 = 0
         /// Kinds a generation pass has been RUN for, whatever it found. Vision looking
         /// for a person and finding none is an answer, and this is what keeps it from
         /// being re-asked on every edit — the job the old per-file flag was doing, at
         /// the granularity the question actually has.
         var attempted: Set<String> = []
     }
+    private var nextMatteGeneration: UInt64 = 0
 
     /// What this renderer believes about its kernels. `.live` in the app; a test can
     /// substitute a degraded build, which is the only way the refusal below can be
@@ -193,6 +200,10 @@ public final class PipelineRenderer {
                             for url: URL) -> [URL] {
         var entry = mattes[url] ?? MatteEntry()
         entry.planes.merge(produced) { _, new in new }
+        if !produced.isEmpty {
+            nextMatteGeneration &+= 1
+            entry.generation = nextMatteGeneration
+        }
         entry.attempted.formUnion(requested)
         mattes[url] = entry
         matteOrder.removeAll { $0 == url }
@@ -215,7 +226,12 @@ public final class PipelineRenderer {
         // alone cannot see a content change under an unchanged path. Coarse
         // (clears every photo's rasters), and correct: an invalidate is rare and
         // a raster rebake is a background stale-while-bake, not a stall.
+        maskSourceGeneration &+= 1
         maskRasters.clear()
+        // Automask brush prefixes sampled the same old pixels. Clearing the finished
+        // alpha alone would rebuild it from that obsolete prefix. The generation in
+        // pictureKey also isolates a deferred old bake that paints after this clear.
+        brushPlanes.clear()
         // The band-hue measurement is a statement about the same pixels.
         bandHues.removeValue(forKey: url)
         bandHueOrder.removeAll { $0 == url }
@@ -651,12 +667,15 @@ public final class PipelineRenderer {
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
-                       softProof: SoftProof? = nil) throws -> [String] {
+                       softProof: SoftProof? = nil,
+                       allowOverwrite: Bool = false) throws -> [String] {
+        try exportRecipe.metadata.validateContact()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
                                       softProof: softProof)
         try write(image, to: destination, using: exportRecipe,
-                  sourceProperties: Self.sourceImageProperties(source.url))
+                  sourceProperties: Self.sourceImageProperties(source.url),
+                  allowOverwrite: allowOverwrite)
         return availability.unavailable
     }
 
@@ -965,33 +984,12 @@ public final class PipelineRenderer {
     /// never need to be remembered — stripped nothing, because whatever the decode's
     /// property dictionary carried went to the encoder untouched.
     ///
-    /// **The two halves of this function rest on different amounts of evidence, and the
-    /// difference is the most important thing on this page.**
-    ///
-    /// The SUBTRACTIVE half — the `drop` calls below — is sound under either reading of
-    /// what `CIContext.write*Representation` does with the dictionary
-    /// `settingProperties` attaches. If it honours it, the removed keys are gone. If it
-    /// ignores it, nothing was going to be written anyway. Either way the coordinates do
-    /// not reach the file, and Strip GPS means what it says.
-    ///
-    /// The ADDITIVE half — Copyright, Contact and the DPI pair below — is sound under
-    /// only ONE of those readings. It is written here, correctly ordered after the
-    /// drops, and whether the encoder serialises properties that were ADDED rather than
-    /// merely preserved **has not been verified on a Mac by anyone**. The older comment
-    /// in this spot asserted that `CIContext.write*Representation` "takes no metadata
-    /// argument" and concluded the additive half was impossible; that is the pessimistic
-    /// reading, and it is not obviously right — `settingProperties` exists precisely to
-    /// carry a dictionary forward to an encoder. It is also not obviously wrong. Nobody
-    /// has opened a written file and looked.
-    ///
-    /// So: this code writes a copyright line, and the export sheet says it writes one
-    /// and says it is unconfirmed. That is the honest position while the fact is
-    /// unknown. It is one afternoon at a Mac to settle — export a JPEG and a TIFF with a
-    /// copyright set, read them back with `CGImageSourceCopyPropertiesAtIndex`, and
-    /// check `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`
-    /// — after which either this comment loses its hedge or the file has to be authored
-    /// through `CGImageDestination`, which takes an explicit properties dictionary and
-    /// removes the question. Zero tests touch this function on either platform.
+    /// Additions follow removals, so an explicitly supplied copyright/contact still
+    /// reaches an export with source metadata disabled. AuditExportMetadataTests opens
+    /// actual JPEG, HEIC, TIFF and PNG deliveries through ImageIO to verify standard
+    /// privacy controls, copyright, structured creator contact, print density and
+    /// geometry. That is readback evidence for those fields, not a guarantee about
+    /// every camera's proprietary metadata or every third-party reader.
     ///
     /// One thing the additive half is NOT: a way to guarantee EXIF is present when the
     /// switch is on. Nothing here fabricates camera fields the decode did not carry, and
@@ -1056,8 +1054,6 @@ public final class PipelineRenderer {
         // an export with EXIF off drops the whole TIFF dictionary, so a copyright placed
         // in it first would go out with the bathwater.
         //
-        // This is the additive half the header hedges. It is written; whether the
-        // encoder serialises it is unconfirmed, and the sheet says as much.
         func put(_ value: String?, _ key: CFString, in container: CFString) {
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return }
@@ -1069,8 +1065,20 @@ public final class PipelineRenderer {
             in: kCGImagePropertyTIFFDictionary)
         put(policy.copyright, kCGImagePropertyIPTCCopyrightNotice,
             in: kCGImagePropertyIPTCDictionary)
-        put(policy.contact, kCGImagePropertyIPTCContact,
-            in: kCGImagePropertyIPTCDictionary)
+        if let kind = policy.contactKind, let contact = policy.contact {
+            // ImageIO drops the legacy IPTC Contact key (String or Array). Its
+            // structured IPTC Core creator email/URL fields survive JPEG, HEIC,
+            // TIFF and PNG. A supplied contact replaces the source's contact block;
+            // it never inherits somebody else's address alongside the new value.
+            let field = kind == .email ? kCGImagePropertyIPTCContactInfoEmails
+                                      : kCGImagePropertyIPTCContactInfoWebURLs
+            let key = kCGImagePropertyIPTCDictionary as String
+            var iptc = properties[key] as? [String: Any] ?? [:]
+            iptc.removeValue(forKey: kCGImagePropertyIPTCContact as String)
+            iptc[kCGImagePropertyIPTCCreatorContactInfo as String] = [
+                field as String: contact.trimmingCharacters(in: .whitespacesAndNewlines)]
+            properties[key] = iptc
+        }
 
         // Resolution never reached the written file at all: `resolutionPPI` drove the
         // output-sharpening radius and nothing else, so the print TIFF a user asked for
@@ -1078,6 +1086,31 @@ public final class PipelineRenderer {
         if resolutionPPI.isFinite, resolutionPPI > 0 {
             properties[kCGImagePropertyDPIWidth as String] = resolutionPPI
             properties[kCGImagePropertyDPIHeight as String] = resolutionPPI
+            // JPEG's encoder prefers nested density to the generic DPI pair. The
+            // source's 72 ppi (or a synthesized default) must not override the export
+            // recipe. TIFF stores rational values, retaining fractional PPI; JFIF's
+            // integer density is only its compatibility copy.
+            let tiffKey = kCGImagePropertyTIFFDictionary as String
+            var tiff = properties[tiffKey] as? [String: Any] ?? [:]
+            tiff[kCGImagePropertyTIFFXResolution as String] = resolutionPPI
+            tiff[kCGImagePropertyTIFFYResolution as String] = resolutionPPI
+            tiff[kCGImagePropertyTIFFResolutionUnit as String] = 2 // inches
+            properties[tiffKey] = tiff
+            let jfifKey = kCGImagePropertyJFIFDictionary as String
+            var jfif = properties[jfifKey] as? [String: Any] ?? [:]
+            let density = Int(Num.clamp(resolutionPPI.rounded(), 1, 65_535))
+            jfif[kCGImagePropertyJFIFXDensity as String] = density
+            jfif[kCGImagePropertyJFIFYDensity as String] = density
+            jfif[kCGImagePropertyJFIFDensityUnit as String] = 1 // inches
+            properties[jfifKey] = jfif
+            // A PNG source may also carry its old physical-size chunk. Let the
+            // encoder derive a new one from the requested DPI rather than copying it.
+            let pngKey = kCGImagePropertyPNGDictionary as String
+            if var png = properties[pngKey] as? [String: Any] {
+                png.removeValue(forKey: kCGImagePropertyPNGXPixelsPerMeter as String)
+                png.removeValue(forKey: kCGImagePropertyPNGYPixelsPerMeter as String)
+                properties[pngKey] = png
+            }
         }
 
         // RECONCILE the geometry fields with the pixels being written. The source
@@ -1137,7 +1170,8 @@ public final class PipelineRenderer {
     /// exactly as it found it.
     private func write(_ image: CIImage, to destination: URL,
                        using recipe: ExportRecipe,
-                       sourceProperties: [String: Any]? = nil) throws {
+                       sourceProperties: [String: Any]? = nil,
+                       allowOverwrite: Bool = false) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
@@ -1201,14 +1235,18 @@ public final class PipelineRenderer {
         }
 
         do {
-            if FileManager.default.fileExists(atPath: destination.path) {
-                // The batch loop disambiguates, so this is the direct caller's case (a
-                // test, a re-export to a named path). `replaceItemAt` swaps the two and
-                // consumes the temp; it is what `moveItem` cannot do over an existing
-                // file.
-                _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
-            } else {
-                try FileManager.default.moveItem(at: partial, to: destination)
+            // A pre-render existence check cannot reserve a filename. RENAME_EXCL
+            // makes checking and publication ONE filesystem operation, including a
+            // destination created by another process while we encoded. Replacement
+            // requires an explicit opt-in; normal batch exports never opt in.
+            let flags = allowOverwrite ? UInt32(0) : UInt32(RENAME_EXCL)
+            let result = partial.withUnsafeFileSystemRepresentation { from in
+                destination.withUnsafeFileSystemRepresentation { to in
+                    renamex_np(from!, to!, flags)
+                }
+            }
+            guard result == 0 else {
+                throw RenderError.writeFailed(destination)
             }
         } catch {
             try? FileManager.default.removeItem(at: partial)
@@ -1409,7 +1447,7 @@ public final class PipelineRenderer {
                 // the staged ImageBuffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
                 pictureKey = Self.maskSourceFingerprint(recipe: plan.recipe)
-                    .map { photograph + "|" + $0 }
+                    .map { photograph + "|source-generation:\(maskSourceGeneration)|" + $0 }
             } else {
                 // No stage input was built, so nothing in this plan is reading one and
                 // no mask has a fingerprint to state. WHICH photograph is the key
@@ -1473,16 +1511,20 @@ public final class PipelineRenderer {
                                               masks: plan.allMasks)
                 }
                 let alpha: Plane
+                let dependencies = MaskDependency.closure(of: mask, in: plan.allMasks)
                 if let sourceKey,
-                   let maskJSON = (try? CanonicalJSON.tree(of: mask))
-                       .map(CanonicalJSON.serialize) {
-                    let strokesKey = mask.components.compactMap(\.strokesRef)
+                   let maskJSON = Self.maskSelectionFingerprint(dependencies) {
+                    // Blob refs are content-addressed. Include their availability from
+                    // the entire closure too: a disabled donor's strokes may arrive
+                    // after this borrower's empty raster was cached.
+                    let refs = Set(dependencies.flatMap { $0.components.compactMap(\.strokesRef) })
+                    let strokesKey = refs.sorted()
                         .map { "\($0):\(strokeSets[$0]?.strokes.count ?? 0)" }
                         .joined(separator: ",")
-                    // The matte KIND NAMES, not the matte pixels — which is why this
-                    // term cannot stand in for the photograph, and why it was so easy
-                    // to mistake for a term that could.
+                    // A regenerated matte can keep its kind and photograph. Its
+                    // generation prevents a referenced selection retaining old pixels.
                     let mattesKey = aiMattes.keys.sorted().joined(separator: ",")
+                        + "@\(mattes[sourceURL]?.generation ?? 0)"
                     let key = Self.maskRasterKey(sourceURL: sourceURL,
                                                  maskJSON: maskJSON,
                                                  width: width, height: height,
@@ -1577,7 +1619,8 @@ public final class PipelineRenderer {
         let height = Swift.max(Int(extent.height * fit), 8)
 
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
-                               height: height, extent: extent, strokeSets: strokeSets)
+                               height: height, extent: extent, strokeSets: strokeSets,
+                               masks: [mask])
         return MaskRaster.combine(mask: mask,
                                   size: (width: width, height: height),
                                   source: stage,
@@ -1596,26 +1639,14 @@ public final class PipelineRenderer {
     /// pure geometry and a brush is pure geometry plus its stroke set.
     private func maskSource(decoded: CIImage, plan: RenderPlan,
                             width: Int, height: Int, extent: CGRect,
-                            strokeSets: [String: BrushStrokeSet]) -> ImageBuffer? {
-        /// A brush is pure geometry UNLESS one of its strokes has Automask on, which
-        /// gates each stamp on a colour difference against the picture.
-        ///
-        /// `MaskKind.brush.readsSourceImage` is false, correctly, for a plain brush —
-        /// but that made this test skip the stage input whenever Refine was 0, and
-        /// `MaskRaster.paint` then computes `stroke.automask && source != nil`, which is
-        /// false, and drops the ΔE gate entirely. So the Automask toggle did nothing in
-        /// preview or export while the CPU reference honoured it, and turning Refine up
-        /// to 3 switched it back on by accident.
-        func usesAutomask(_ component: MaskComponent) -> Bool {
-            guard component.kind == .brush, let ref = component.strokesRef,
-                  let set = strokeSets[ref] else { return false }
-            return set.strokes.contains { $0.automask }
-        }
-
-        let needsPicture = plan.masks.contains { mask in
-            mask.components.contains { $0.kind.readsSourceImage || usesAutomask($0) }
-                || MaskRaster.refineRadius(feather: mask.refine.feather,
-                                           longEdge: Swift.max(width, height)) >= 1
+                            strokeSets: [String: BrushStrokeSet],
+                            masks: [Mask]? = nil) -> ImageBuffer? {
+        // Rendering starts at enabled masks; an overlay starts at the requested row,
+        // even when it is disabled. Both need the complete reference closure, not just
+        // the root's own kinds: a disabled luma donor still lends its selection.
+        let needsPicture = (masks ?? plan.masks).contains { mask in
+            Self.maskReadsPicture(mask, in: plan.allMasks, strokeSets: strokeSets,
+                                  longEdge: Swift.max(width, height))
         }
         guard needsPicture else { return nil }
 
@@ -1664,7 +1695,7 @@ public final class PipelineRenderer {
     ///    by evaluating the referenced stack with the same `source`, so "Sky ∩ Person"
     ///    reads the picture exactly when Sky or Person does. `MaskDependency.closure`
     ///    is the walk — the same one used everywhere else that has to follow a
-    ///    reference — so it terminates on a cycle and leads with `mask` itself.
+    ///    reference — so it terminates on a cycle and includes `mask` itself.
     ///
     /// Conservative in the direction that matters: every route by which the rasterizer
     /// could touch `source` for this mask puts the fingerprint back in its key. Being
@@ -1708,6 +1739,23 @@ public final class PipelineRenderer {
         return parts.joined(separator: "|")
     }
 
+    /// Only selection fields affect an alpha plane. Adjustment strength, colour edits,
+    /// names and folder membership do not; referenced selections include their own
+    /// components, inversion and refinement, regardless of whether their edits are on.
+    static func maskSelectionFingerprint(_ dependencies: [Mask]) -> String? {
+        struct Selection: Encodable {
+            var id: String
+            var components: [MaskComponent]
+            var invert: Bool
+            var refine: MaskRefine
+        }
+        let selections = dependencies.map {
+            Selection(id: $0.id, components: $0.components,
+                      invert: $0.invert, refine: $0.refine)
+        }
+        return (try? CanonicalJSON.tree(of: selections)).map(CanonicalJSON.serialize)
+    }
+
     /// One mask raster's `MaskRasterCache` key — the ONLY place a raster key is
     /// spelled, and the reason the photograph can no longer fall out of one.
     ///
@@ -1726,10 +1774,11 @@ public final class PipelineRenderer {
     /// a pasted mask definition share a key, and one frame wears the other's
     /// rasterized selection in the loupe and in the delivered file.
     ///
-    /// None of the other terms can stand in for it. `maskJSON` is the mask DEFINITION,
+    /// None of the other terms can stand in for it. `maskJSON` is the selection closure,
     /// which Paste Settings makes identical on purpose. `WxH` is the raster size, which
     /// collides across every frame of the same aspect. `strokesKey` is stroke refs and
-    /// counts. `mattesKey` is the matte KIND names — `aiSubject`, not the subject.
+    /// counts throughout the closure. `mattesKey` includes the matte kinds and their
+    /// stored generation, so replacing pixels invalidates a same-kind selection.
     /// `sourceKey` is the picture-source fingerprint, and it is PER MASK: "-" for a
     /// mask whose dependency closure reads no picture at all, so a brush or a polygon
     /// stops being invalidated by a tone edit it does not depend on. It is not, and

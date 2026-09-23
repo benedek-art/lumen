@@ -304,7 +304,7 @@ struct PhotoCell: View {
         }
         .frame(width: side)
         .contentShape(Rectangle())
-        .task(id: CellRequest(url: photo.id, pixels: pixels)) {
+        .task(id: CellRequest(url: photo.id, pixels: pixels, sourceIdentity: photo.sourceIdentity)) {
             await loadThumbnail()
         }
     }
@@ -403,6 +403,7 @@ struct PhotoCell: View {
 private struct CellRequest: Equatable {
     let url: URL
     let pixels: Int
+    let sourceIdentity: SourceFileIdentity?
 }
 
 #endif

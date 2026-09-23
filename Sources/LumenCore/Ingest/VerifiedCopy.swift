@@ -397,6 +397,11 @@ public struct VerifiedCopyDriver: Sendable {
                 if let existing = try? IngestFileDigest.digest(of: destination.url,
                                                                chunkSize: chunkSize),
                    let mine = digestOfSource(), existing == mine {
+                    guard mine.byteCount == copy.byteCount else {
+                        results.append(verdict(destination.url, destination.url, destination.role,
+                            .failed(.shortRead(expected: copy.byteCount, read: mine.byteCount))))
+                        continue
+                    }
                     results.append(verdict(destination.url, destination.url, destination.role,
                                            .alreadyPresent(existing)))
                     continue

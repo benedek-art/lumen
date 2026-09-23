@@ -254,7 +254,11 @@ public enum ReferenceRenderer {
                 for x in 0..<out.width {
                     let a = Num.saturate(alpha[x, y])
                     if a > 0 {
-                        out[x, y] = out[x, y].mix(curve.apply(out[x, y]), a)
+                        let base = out[x, y]
+                        let curved = curve.apply(base)
+                        let blended = MaskAlgebra.blended(base: base, adjusted: curved,
+                                                          blend: mask.blend, space: space)
+                        out[x, y] = base.mix(blended, a)
                     }
                 }
             }
@@ -354,16 +358,18 @@ public enum ReferenceRenderer {
         // caller composites the result through the mask's alpha — the same shape the
         // colour half already had, and the reason a masked Clarity does not need its
         // own cropped decomposition.
-        let texture = a.texture * scale
-        let clarity = a.clarity * scale
+        let texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
+        let clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         let dehaze = a.dehaze * scale
         let sharpness = a.sharpness * scale
         if texture != 0 || clarity != 0 || dehaze != 0 || sharpness != 0 {
             let radius = Swift.max(Int(Double(Swift.max(out.width, out.height)) * 0.02), 3)
             let node = DetailEngine.Decomposition(image: out, workingRadius: radius,
                                                   space: space)
-            out = DetailEngine.applyTexture(out, amount: texture, decomposition: node)
-            out = DetailEngine.applyClarity(out, amount: clarity, decomposition: node)
+            out = DetailEngine.applyTexture(out, amount: a.texture, strength: scale,
+                                           decomposition: node)
+            out = DetailEngine.applyClarity(out, amount: a.clarity, strength: scale,
+                                           decomposition: node)
             out = DetailEngine.applyDehaze(out, amount: dehaze, decomposition: node)
             if sharpness > 0 {
                 out = DetailEngine.applySharpen(
@@ -373,7 +379,11 @@ public enum ReferenceRenderer {
                 // Negative Sharpness is a blur, which `applySharpen` refuses by
                 // contract (it clamps amount at 0). A small Gaussian is what the
                 // control means.
-                let sigma = Num.clamp(-sharpness / 100, 0, 1) * 2.5
+                // Preserve the 2.5 px maximum at the same 2560 px reference as
+                // positive sharpening. A fixed render-pixel blur fades on export.
+                let sigma = SpatialOps.frameDenominatedSigma(
+                    radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                    longEdge: Swift.max(out.width, out.height))
                 out = SpatialOps.gaussianBlur(out, sigma: sigma)
             }
         }

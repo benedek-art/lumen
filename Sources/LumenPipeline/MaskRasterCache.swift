@@ -22,63 +22,17 @@
 // edge animates at the bake rate (5–10 Hz for a refined mask) behind a full-rate
 // picture. Both beat the mask not being there at all, which is what shipped.
 //
-// WHY THE SETTLE RUNG IS STILL NOT HELD, WRITTEN DOWN SO IT STOPS BEING RE-DISCOVERED.
+// The key builder in PipelineRenderer describes the selection's full reference
+// closure: components, whole-mask inversion and refinement, including disabled donor
+// masks; content-addressed stroke refs and availability; and stored matte generation.
+// Local adjustments and cosmetic fields do not affect alpha and are excluded. This
+// matters even without a larger cache: small native settles and exports fit within
+// the existing 1024 px retention limit and must not reuse an obsolete donor selection.
 //
-// `store` refuses every raster above the draft proxy, so a settle — which since docs/31
-// round two §3 rasterizes at the render target's own resolution — re-folds every mask
-// in the stack from nothing, every time, at up to sixteen times the proxy's pixels.
-// That is the larger half of the 1.7–3.0 s settle after a mask edit, and holding it
-// looks like a two-line change: route anything up to
-// `DraftLadder.interactiveLongEdgeCeiling` into a second, byte-budgeted list and serve
-// it on an exact key hit.
-//
-// It is not legal yet, and the reason is in the KEY rather than in this file. THE KEY
-// IS NOT A COMPLETE FUNCTION OF THE RASTER. A `maskRef` component's alpha is another
-// mask's finished alpha — `MaskRaster.referenced` resolves it against `plan.allMasks`,
-// deliberately, including masks that are switched off — and neither that mask's
-// definition nor its stroke set appears anywhere in this mask's key
-// (`PipelineRenderer.maskRasterKey`: the photograph, THIS mask's JSON, the size, THIS
-// mask's stroke refs, the matte kind names, the picture fingerprint). So editing mask A
-// changes mask B's raster without moving B's key.
-//
-// Today that under-key is survivable precisely BECAUSE the settle rung is thrown away:
-// a draft frame can show B stale, and the settle re-folds B from nothing and repairs
-// it. Hold the settle rung and the repair stops happening — B's referenced selection
-// freezes at whatever A last looked like, in the loupe and in the delivered file, with
-// nothing badged. A cache that changes the settled picture is not an optimisation, and
-// no eviction rule inside this class can fix it: the missing dependency is invisible
-// from here, and the mask that carries it (a disabled mask, held only in `allMasks`) is
-// never a client of this cache at all, so it can never announce that it changed.
-//
-// WHAT THE HELD RUNG WOULD BE WORTH, AND WHAT IT WOULD NOT TOUCH. Measured in a release
-// build on this project's Linux container (geometry-only at 1024 runs 32–45 ms there
-// against probe (b)'s 12.8 ms, so it is ~2.5–3.5× slower than probe (b)'s box, which
-// probe (b) itself calls 2–4× slower than an M-series Mac): a luma-range mask through
-// the guided refine chain costs 8.7 s at 4096×2731 and 3.4 s at a fit-view 2560×1707,
-// against 345 ms at the 1024 proxy. That is 0.24–0.67 s per refined mask per settle on
-// the owner's machine, thrown away and paid again every time.
-//
-// It is the second-largest term in the settle, not the largest, and the largest is not
-// in this file: `BrushPlaneCache`'s settle rung was worth 8.5 s of the same measurement
-// for a 60-stroke mask, and that one is held now.
-//
-// The term NEITHER cache touches, stated here because this is where someone will come
-// looking when the settle is still slow: `PipelineRenderer.image(from:)` runs on every
-// mask on every frame AFTER the lookup, hit or miss, and it interleaves a
-// single-channel alpha into an RGBAf bitmap one pixel at a time — 723 ms at 4096×2731
-// on that container, against 97 ms for handing the same plane's `values` over as-is.
-// These caches hold `Plane`s; nothing here can remove that pass.
-//
-// The prerequisite is one change in the key builder, not here: `maskJSON` must become a
-// RASTER identity — the mask's components, whole-mask invert and refine chain, CLOSED
-// OVER every mask reachable through `maskRef` and their stroke sets. That also removes
-// the opposite defect in the same term, which costs a bake on every event of every
-// drag: `maskJSON` today is the WHOLE mask, so `adjust`, `amount`, `enabled`, `blend`,
-// `name` and `group` are all in the key, and not one of them touches the raster
-// (`MaskAlgebra`'s header and `MaskRaster.combine`'s both say so outright). Dragging a
-// mask's own Exposure slider therefore invalidates its raster on every mouse event and
-// re-folds it at settle resolution on release, for an edit that cannot change a pixel
-// of it.
+// The retention policy is unchanged: only rasters at or below the draft proxy are
+// held. Larger settles and exports rasterize at the render target's own resolution
+// and are not retained. Extending retention would need its own byte budget and
+// performance evaluation; reference correctness does not authorize more memory use.
 
 #if os(macOS)
 
@@ -131,6 +85,9 @@ public final class MaskRasterCache {
     }
 
     private let lock = NSLock()
+    /// Work already outside the lock cannot be cancelled, but it cannot publish into
+    /// a replacement source's cache or alter the new generation's queue bookkeeping.
+    private var generation: UInt64 = 0
     private var entries: [(maskID: String, entry: Entry)] = []
     private var inFlight: Set<String> = []
     private var pending: [String: (key: String, identity: String,
@@ -150,6 +107,7 @@ public final class MaskRasterCache {
     func plane(maskID: String, key: String, identity: String, allowStale: Bool,
                bakeExact: @escaping () -> Plane) -> Plane {
         lock.lock()
+        let generation = self.generation
         if let index = entries.firstIndex(where: { $0.maskID == maskID }),
            entries[index].entry.key == key {
             entries[index].entry.identity = identity
@@ -180,7 +138,8 @@ public final class MaskRasterCache {
             lock.unlock()
             Self.count { $0.bakes += 1 }
             let built = bakeExact()
-            store(maskID: maskID, key: key, identity: identity, plane: built)
+            store(maskID: maskID, key: key, identity: identity, plane: built,
+                  generation: generation)
             return built
         }
         Self.count { $0.staleServes += 1 }
@@ -190,7 +149,11 @@ public final class MaskRasterCache {
         if mustStart { inFlight.insert(maskID) }
         lock.unlock()
 
-        if mustStart { bakeQueue.async { [weak self] in self?.drainPending(maskID) } }
+        if mustStart {
+            bakeQueue.async { [weak self] in
+                self?.drainPending(maskID, generation: generation)
+            }
+        }
         return previous.plane
     }
 
@@ -203,14 +166,20 @@ public final class MaskRasterCache {
 
     func clear() {
         lock.lock()
+        generation &+= 1
         entries.removeAll()
         pending.removeAll()
+        inFlight.removeAll()
         lock.unlock()
     }
 
-    private func drainPending(_ maskID: String) {
+    private func drainPending(_ maskID: String, generation: UInt64) {
         while true {
             lock.lock()
+            guard generation == self.generation else {
+                lock.unlock()
+                return
+            }
             guard let next = pending.removeValue(forKey: maskID) else {
                 inFlight.remove(maskID)
                 lock.unlock()
@@ -219,11 +188,13 @@ public final class MaskRasterCache {
             lock.unlock()
 
             let built = next.bakeExact()
-            store(maskID: maskID, key: next.key, identity: next.identity, plane: built)
+            store(maskID: maskID, key: next.key, identity: next.identity, plane: built,
+                  generation: generation)
         }
     }
 
-    private func store(maskID: String, key: String, identity: String, plane: Plane) {
+    private func store(maskID: String, key: String, identity: String, plane: Plane,
+                       generation: UInt64) {
         // Rasters above the draft proxy are not held, the same rule
         // `PlanTableCache` applies to export-size bakes: settle and export rasters
         // now come at the RENDER's resolution (docs/31 round two §3), and a single
@@ -231,13 +202,15 @@ public final class MaskRasterCache {
         // cache, it is a leak. The proxy-sized draft rasters are the ones a drag
         // actually revisits, and they still land here.
         //
-        // The settle rung between those two is the one this rule throws away for a
-        // reason that is no longer the memory argument; see the header for what has to
-        // change in the KEY before it can be held, and why no rule inside this class
-        // can substitute for that.
+        // A larger, byte-budgeted settle rung is a separate performance decision;
+        // complete reference keys do not change the existing retention budget.
         guard Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge
         else { return }
         lock.lock()
+        guard generation == self.generation else {
+            lock.unlock()
+            return
+        }
         entries.removeAll { $0.maskID == maskID }
         entries.insert((maskID: maskID,
                         entry: Entry(key: key, plane: plane, identity: identity)),

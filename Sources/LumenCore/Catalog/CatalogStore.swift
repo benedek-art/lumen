@@ -456,14 +456,17 @@ public struct ScannedFile: Equatable, Sendable {
     public var fileMTime: Int64
     public var quickSig: String?
     public var ext: String?
+    public var sourceIdentity: String?
 
     public init(filename: String, fileSize: Int64, fileMTime: Int64,
-                quickSig: String? = nil, ext: String? = nil) {
+                quickSig: String? = nil, ext: String? = nil,
+                sourceIdentity: String? = nil) {
         self.filename = filename
         self.fileSize = fileSize
         self.fileMTime = fileMTime
         self.quickSig = quickSig
         self.ext = ext
+        self.sourceIdentity = sourceIdentity
     }
 
     /// A photo's identity within its registered folder: the path from that folder down
@@ -498,15 +501,18 @@ public struct ScanResult: Equatable, Sendable {
     public var missing: [Int64]
     public var restored: [Int64]
     public var unchanged: Int
+    public var invalidatedPreviews: [PreviewRow]
 
     public init(added: [Int64] = [], changed: [Int64] = [], relocated: [Int64] = [],
-                missing: [Int64] = [], restored: [Int64] = [], unchanged: Int = 0) {
+                missing: [Int64] = [], restored: [Int64] = [], unchanged: Int = 0,
+                invalidatedPreviews: [PreviewRow] = []) {
         self.added = added
         self.changed = changed
         self.relocated = relocated
         self.missing = missing
         self.restored = restored
         self.unchanged = unchanged
+        self.invalidatedPreviews = invalidatedPreviews
     }
 }
 
@@ -559,6 +565,8 @@ public struct CatalogRecovery: Equatable, Sendable {
         case firstRun
         /// `PRAGMA quick_check` returned "ok". Nothing was touched.
         case healthy
+        /// Operational failure, not evidence that the original is corrupt.
+        case unavailable(reason: String)
         /// The catalog failed its check and was replaced by a backup that passed. The
         /// corrupt file is MOVED ASIDE, never deleted: a file SQLite cannot read may
         /// still be readable by a recovery tool, and the last hour of somebody's
@@ -578,6 +586,8 @@ public struct CatalogRecovery: Equatable, Sendable {
         switch outcome {
         case .firstRun, .healthy:
             return nil
+        case .unavailable(let reason):
+            return "The catalog could not be checked and was left untouched: " + reason
         case .restored(let backup, _):
             let name = URL(fileURLWithPath: backup).lastPathComponent
             // Careful about the tense. Sidecar recovery happens per folder, at scan
@@ -585,14 +595,14 @@ public struct CatalogRecovery: Equatable, Sendable {
             // yet — promising otherwise would be the same class of caption this project
             // keeps finding and removing.
             return "The catalog was damaged and has been restored from \(name). "
-                + "Edits made since that backup come back from the sidecars as each "
-                + "folder is rescanned."
+                + "Newer edits can be recovered from successfully saved sidecars as "
+                + "each folder is rescanned."
         case .unrecoverable(let tried):
             return tried == 0
                 ? "The catalog is damaged and there is no backup to restore from. "
-                    + "Your edits are still in the sidecars beside your photos."
+                    + "Successfully saved sidecars may recover your edits."
                 : "The catalog is damaged and none of the \(tried) backups could be "
-                    + "read either. Your edits are still in the sidecars beside your photos."
+                    + "restored with its required payloads. Successfully saved sidecars may recover your edits."
         }
     }
 
@@ -1550,7 +1560,11 @@ public final class CatalogStore {
         guard manager.fileExists(atPath: path) else {
             return CatalogRecovery(outcome: .firstRun)
         }
-        if probeQuickCheck(path: path) { return CatalogRecovery(outcome: .healthy) }
+        switch probeIntegrity(path: path) {
+        case .healthy: return CatalogRecovery(outcome: .healthy)
+        case .unavailable(let reason): return CatalogRecovery(outcome: .unavailable(reason: reason))
+        case .corrupt: break
+        }
 
         let backups = (try? manager.contentsOfDirectory(atPath: backupDirectory))?
             .filter { $0.hasSuffix(".db") }
@@ -1558,7 +1572,8 @@ public final class CatalogStore {
         for name in backups {
             let candidate = URL(fileURLWithPath: backupDirectory, isDirectory: true)
                 .appendingPathComponent(name).path
-            guard probeQuickCheck(path: candidate) else { continue }
+            guard probeQuickCheck(path: candidate),
+                  prepareBackupPayloads(path: candidate, liveCatalogPath: path) else { continue }
             let stamp = String(CatalogStore.now())
             let setAside = path + ".damaged-" + stamp
             do {
@@ -1581,25 +1596,100 @@ public final class CatalogStore {
 
     /// One `PRAGMA quick_check` on a file this process does not otherwise hold open.
     ///
-    /// False for anything that is not a readable SQLite catalog, including a file that
-    /// cannot be opened at all: the caller's question is "can this be used", and every
-    /// no is the same no.
+    /// True only for a positively checked healthy backup. A false result alone MUST
+    /// NOT authorize replacing the live catalog; `probeIntegrity` distinguishes
+    /// confirmed corruption from locks, permission failures and I/O errors.
     ///
     /// Internal rather than private so the recovery tests can assert that the damage
     /// they inflicted actually took. A restore test that ran against a file SQLite still
     /// finds perfectly readable would pass while proving nothing.
     ///
-    /// The existence guard is load-bearing, not defensive tidying. `SQLiteDatabase`
-    /// opens with `SQLITE_OPEN_CREATE`, so a path that is not there becomes an empty
-    /// database — which passes `quick_check` perfectly. Without this, a backup that
-    /// vanished between the directory listing and this call would be created empty,
-    /// pass, and be restored OVER a catalog that was merely damaged. Answering "no" for
-    /// a file that does not exist is also just correct: nothing there cannot be used.
+    /// Read-only opening is load-bearing: the ordinary CREATE mode would turn a
+    /// vanished backup into an empty database that passes `quick_check`. The probe
+    /// must never manufacture a valid-looking backup, even across a deletion race.
     static func probeQuickCheck(path: String) -> Bool {
-        guard FileManager.default.fileExists(atPath: path) else { return false }
-        guard let database = try? SQLiteDatabase(path: path) else { return false }
-        defer { database.close() }
-        return (try? database.scalarText("PRAGMA quick_check;")) == "ok"
+        if case .healthy = probeIntegrity(path: path) { return true }
+        return false
+    }
+
+    private enum IntegrityProbe {
+        case healthy, corrupt, unavailable(String)
+    }
+
+    /// Older builds could publish the SQLite snapshot before copying its brushes.
+    /// A healthy database alone is therefore not evidence of a complete backup.
+    /// Inspect references without migrating or rewriting the candidate. Live blobs
+    /// may satisfy a legacy database-only snapshot, but their bytes must hash to the
+    /// requested content address just like the backup's own payloads. Restore missing
+    /// or damaged payloads BEFORE replacing the database; an I/O failure must not
+    /// publish a restored catalog whose paintings do not exist. Damaged bytes are
+    /// preserved under a unique name, never discarded.
+    private static func prepareBackupPayloads(path: String, liveCatalogPath: String) -> Bool {
+        do {
+            let database = try SQLiteDatabase(path: path, readOnly: true)
+            defer { database.close() }
+            let statement = try database.prepare("SELECT recipe FROM edit;")
+            let backupBlobs = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("blobs")
+            let liveBlobs = URL(fileURLWithPath: liveCatalogPath).deletingLastPathComponent().appendingPathComponent("blobs")
+            var references: Set<String> = []
+            func collect(_ value: Any) {
+                if let object = value as? [String: Any] {
+                    for (key, child) in object {
+                        if key == "strokesRef", let ref = child as? String, !ref.isEmpty {
+                            references.insert(ref)
+                        } else { collect(child) }
+                    }
+                } else if let array = value as? [Any] {
+                    for child in array { collect(child) }
+                }
+            }
+            while try statement.step() {
+                guard let json = statement.string(0) else { return false }
+                collect(try JSONSerialization.jsonObject(with: Data(json.utf8)))
+            }
+            // Keep paths, not every painting's bytes: recovering a large library
+            // must not retain its entire blob store in memory at once.
+            var repairs: [(target: URL, source: URL, reference: String)] = []
+            for ref in references {
+                guard let name = BlobStore.filename(for: ref) else { return false }
+                let target = liveBlobs.appendingPathComponent(name)
+                if let live = try? Data(contentsOf: target), BrushStrokeSet.blobRef(for: live) == ref { continue }
+                let source = backupBlobs.appendingPathComponent(name)
+                guard let saved = try? Data(contentsOf: source),
+                      BrushStrokeSet.blobRef(for: saved) == ref else { return false }
+                repairs.append((target, source, ref))
+            }
+            if !repairs.isEmpty {
+                let manager = FileManager.default
+                try manager.createDirectory(at: liveBlobs, withIntermediateDirectories: true)
+                for repair in repairs {
+                    let bytes = try Data(contentsOf: repair.source)
+                    guard BrushStrokeSet.blobRef(for: bytes) == repair.reference else { return false }
+                    if manager.fileExists(atPath: repair.target.path) {
+                        let preserved = URL(fileURLWithPath: repair.target.path + ".damaged-" + UUID().uuidString)
+                        try manager.copyItem(at: repair.target, to: preserved)
+                    }
+                    try bytes.write(to: repair.target, options: .atomic)
+                }
+            }
+            return true
+        } catch { return false }
+    }
+
+    private static func probeIntegrity(path: String) -> IntegrityProbe {
+        do {
+            // Never CREATE a missing backup or mutate the catalog being checked.
+            let database = try SQLiteDatabase(path: path, readOnly: true)
+            defer { database.close() }
+            guard let result = try database.scalarText("PRAGMA quick_check;") else {
+                return .unavailable("The integrity check returned no result")
+            }
+            return result == "ok" ? .healthy : .corrupt
+        } catch let error as SQLiteError where error.indicatesCorruptDatabase {
+            return .corrupt
+        } catch {
+            return .unavailable(String(describing: error))
+        }
     }
 
     /// Move a catalog and its WAL companions aside, together.
@@ -1939,7 +2029,8 @@ public final class CatalogStore {
     ///                      intact. Only an unmatched disappearance sets `missing = 1`.
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = CatalogStore.now()) throws -> ScanResult {
+                     at now: Int64 = CatalogStore.now(),
+                     completeListing: Bool = true) throws -> ScanResult {
         try db.transaction {
             var result = ScanResult()
 
@@ -1969,12 +2060,27 @@ public final class CatalogStore {
                     newFiles.append(file)
                     continue
                 }
-                if row.size != file.fileSize || row.mtime != file.fileMTime {
+                let identityKey = "source_identity_\(row.id)"
+                let identityChanged = try file.sourceIdentity.map {
+                    try self.metaValue(identityKey) != $0
+                } ?? false
+                if row.size != file.fileSize || row.mtime != file.fileMTime || identityChanged {
                     try self.db.run("""
                     UPDATE photo SET file_size = ?, file_mtime = ?,
-                      quick_sig = COALESCE(?, quick_sig), missing = 0 WHERE id = ?;
+                      quick_sig = ?, full_hash = NULL, missing = 0,
+                      capture_at = NULL, capture_subsec = NULL, camera = NULL,
+                      camera_serial = NULL, lens = NULL, iso = NULL, shutter_s = NULL,
+                      aperture = NULL, focal_mm = NULL, width = NULL, height = NULL,
+                      orientation = NULL, gps_lat = NULL, gps_lon = NULL, aspect = NULL
+                    WHERE id = ?;
                     """, [.integer(file.fileSize), .integer(file.fileMTime),
                           .optionalText(file.quickSig), .integer(row.id)])
+                    // Source replacement invalidates even embedded browse rungs and
+                    // source-derived artifacts; user edits/culling remain untouched.
+                    result.invalidatedPreviews += try self.previews(photoID: row.id)
+                    try self.db.run("DELETE FROM cache.preview WHERE photo_id = ?;", [.integer(row.id)])
+                    try self.db.run("DELETE FROM cache.artifact WHERE photo_id = ?;", [.integer(row.id)])
+                    self.reindexText(photoID: row.id)
                     result.changed.append(row.id)
                 } else if row.missing {
                     try self.db.run("UPDATE photo SET missing = 0 WHERE id = ?;",
@@ -1983,13 +2089,16 @@ public final class CatalogStore {
                 } else {
                     result.unchanged += 1
                 }
+                if let identity = file.sourceIdentity {
+                    try self.setMetaValue(identityKey, identity)
+                }
             }
 
             // Rows whose filename vanished from the listing, indexed by signature so a
             // rename inside the folder is a relocation, not a disappearance.
             var goneBySignature: [String: Int64] = [:]
             var gone: [(name: String, id: Int64)] = []
-            for (name, row) in existing where !seen.contains(name) {
+            for (name, row) in existing where completeListing && !seen.contains(name) {
                 gone.append((name: name, id: row.id))
                 if let sig = row.sig, !sig.isEmpty { goneBySignature[sig] = row.id }
             }
@@ -2019,6 +2128,9 @@ public final class CatalogStore {
                                         ?? CatalogStore.fileExtension(of: file.filename)),
                           .integer(id)])
                     self.reindexText(photoID: id)
+                    if let identity = file.sourceIdentity {
+                        try self.setMetaValue("source_identity_\(id)", identity)
+                    }
                     result.relocated.append(id)
                     continue
                 }
@@ -2028,6 +2140,9 @@ public final class CatalogStore {
                     quickSig: file.quickSig, addedAt: now,
                     ext: file.ext ?? CatalogStore.fileExtension(of: file.filename)))
                 result.added.append(inserted)
+                if let identity = file.sourceIdentity {
+                    try self.setMetaValue("source_identity_\(inserted)", identity)
+                }
             }
 
             for entry in gone where !consumed.contains(entry.id) {
@@ -2036,8 +2151,10 @@ public final class CatalogStore {
                 result.missing.append(entry.id)
             }
 
-            try self.db.run("UPDATE folder SET last_scanned_at = ? WHERE id = ?;",
-                            [.integer(now), .integer(folderID)])
+            if completeListing {
+                try self.db.run("UPDATE folder SET last_scanned_at = ? WHERE id = ?;",
+                                [.integer(now), .integer(folderID)])
+            }
             return result
         }
     }
@@ -3157,6 +3274,23 @@ public final class CatalogStore {
         (try db.scalarInt("SELECT COALESCE(SUM(bytes), 0) FROM cache.preview;")) ?? 0
     }
 
+    /// Conditional removal: an obsolete plan must never remove the newer payload
+    /// that has since taken the same (photo, rung, recipe) key.
+    public func discardPreviews(_ candidates: [PreviewRow]) throws -> [PreviewRow] {
+        try db.transaction {
+            var removed: [PreviewRow] = []
+            for candidate in candidates {
+                guard let current = try self.preview(photoID: candidate.photoID,
+                    level: candidate.level, recipeFP: candidate.recipeFP),
+                    current.path == candidate.path else { continue }
+                try self.db.run("DELETE FROM cache.preview WHERE photo_id = ? AND level = ? AND recipe_fp = ? AND path = ?;",
+                    [.integer(candidate.photoID), .int(candidate.level.rawValue), .text(candidate.recipeFP), .text(candidate.path)])
+                removed.append(current)
+            }
+            return removed
+        }
+    }
+
     /// LRU eviction to a byte budget. Order is 1:1 -> fit -> grid, least-recently-viewed
     /// first; level 0 thumbnails are permanent (docs/15 §15.6). Returns the evicted rows
     /// so the caller can unlink the payload files — this layer only does bookkeeping.
@@ -4103,7 +4237,7 @@ public final class CatalogStore {
 
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = 0) throws -> ScanResult {
+                     at now: Int64 = 0, completeListing: Bool = true) throws -> ScanResult {
         throw CatalogError.unavailable
     }
 
@@ -4293,6 +4427,9 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func previewCacheBytes() throws -> Int64 { throw CatalogError.unavailable }
+    public func discardPreviews(_ candidates: [PreviewRow]) throws -> [PreviewRow] {
+        throw CatalogError.unavailable
+    }
     @discardableResult
     public func pruneCache(maxBytes: Int64) throws -> [PreviewRow] {
         throw CatalogError.unavailable
