@@ -456,14 +456,17 @@ public struct ScannedFile: Equatable, Sendable {
     public var fileMTime: Int64
     public var quickSig: String?
     public var ext: String?
+    public var sourceIdentity: String?
 
     public init(filename: String, fileSize: Int64, fileMTime: Int64,
-                quickSig: String? = nil, ext: String? = nil) {
+                quickSig: String? = nil, ext: String? = nil,
+                sourceIdentity: String? = nil) {
         self.filename = filename
         self.fileSize = fileSize
         self.fileMTime = fileMTime
         self.quickSig = quickSig
         self.ext = ext
+        self.sourceIdentity = sourceIdentity
     }
 
     /// A photo's identity within its registered folder: the path from that folder down
@@ -498,15 +501,18 @@ public struct ScanResult: Equatable, Sendable {
     public var missing: [Int64]
     public var restored: [Int64]
     public var unchanged: Int
+    public var invalidatedPreviews: [PreviewRow]
 
     public init(added: [Int64] = [], changed: [Int64] = [], relocated: [Int64] = [],
-                missing: [Int64] = [], restored: [Int64] = [], unchanged: Int = 0) {
+                missing: [Int64] = [], restored: [Int64] = [], unchanged: Int = 0,
+                invalidatedPreviews: [PreviewRow] = []) {
         self.added = added
         self.changed = changed
         self.relocated = relocated
         self.missing = missing
         self.restored = restored
         self.unchanged = unchanged
+        self.invalidatedPreviews = invalidatedPreviews
     }
 }
 
@@ -2054,12 +2060,27 @@ public final class CatalogStore {
                     newFiles.append(file)
                     continue
                 }
-                if row.size != file.fileSize || row.mtime != file.fileMTime {
+                let identityKey = "source_identity_\(row.id)"
+                let identityChanged = try file.sourceIdentity.map {
+                    try self.metaValue(identityKey) != $0
+                } ?? false
+                if row.size != file.fileSize || row.mtime != file.fileMTime || identityChanged {
                     try self.db.run("""
                     UPDATE photo SET file_size = ?, file_mtime = ?,
-                      quick_sig = COALESCE(?, quick_sig), missing = 0 WHERE id = ?;
+                      quick_sig = ?, full_hash = NULL, missing = 0,
+                      capture_at = NULL, capture_subsec = NULL, camera = NULL,
+                      camera_serial = NULL, lens = NULL, iso = NULL, shutter_s = NULL,
+                      aperture = NULL, focal_mm = NULL, width = NULL, height = NULL,
+                      orientation = NULL, gps_lat = NULL, gps_lon = NULL, aspect = NULL
+                    WHERE id = ?;
                     """, [.integer(file.fileSize), .integer(file.fileMTime),
                           .optionalText(file.quickSig), .integer(row.id)])
+                    // Source replacement invalidates even embedded browse rungs and
+                    // source-derived artifacts; user edits/culling remain untouched.
+                    result.invalidatedPreviews += try self.previews(photoID: row.id)
+                    try self.db.run("DELETE FROM cache.preview WHERE photo_id = ?;", [.integer(row.id)])
+                    try self.db.run("DELETE FROM cache.artifact WHERE photo_id = ?;", [.integer(row.id)])
+                    self.reindexText(photoID: row.id)
                     result.changed.append(row.id)
                 } else if row.missing {
                     try self.db.run("UPDATE photo SET missing = 0 WHERE id = ?;",
@@ -2067,6 +2088,9 @@ public final class CatalogStore {
                     result.restored.append(row.id)
                 } else {
                     result.unchanged += 1
+                }
+                if let identity = file.sourceIdentity {
+                    try self.setMetaValue(identityKey, identity)
                 }
             }
 
@@ -2104,6 +2128,9 @@ public final class CatalogStore {
                                         ?? CatalogStore.fileExtension(of: file.filename)),
                           .integer(id)])
                     self.reindexText(photoID: id)
+                    if let identity = file.sourceIdentity {
+                        try self.setMetaValue("source_identity_\(id)", identity)
+                    }
                     result.relocated.append(id)
                     continue
                 }
@@ -2113,6 +2140,9 @@ public final class CatalogStore {
                     quickSig: file.quickSig, addedAt: now,
                     ext: file.ext ?? CatalogStore.fileExtension(of: file.filename)))
                 result.added.append(inserted)
+                if let identity = file.sourceIdentity {
+                    try self.setMetaValue("source_identity_\(inserted)", identity)
+                }
             }
 
             for entry in gone where !consumed.contains(entry.id) {
@@ -3242,6 +3272,23 @@ public final class CatalogStore {
 
     public func previewCacheBytes() throws -> Int64 {
         (try db.scalarInt("SELECT COALESCE(SUM(bytes), 0) FROM cache.preview;")) ?? 0
+    }
+
+    /// Conditional removal: an obsolete plan must never remove the newer payload
+    /// that has since taken the same (photo, rung, recipe) key.
+    public func discardPreviews(_ candidates: [PreviewRow]) throws -> [PreviewRow] {
+        try db.transaction {
+            var removed: [PreviewRow] = []
+            for candidate in candidates {
+                guard let current = try self.preview(photoID: candidate.photoID,
+                    level: candidate.level, recipeFP: candidate.recipeFP),
+                    current.path == candidate.path else { continue }
+                try self.db.run("DELETE FROM cache.preview WHERE photo_id = ? AND level = ? AND recipe_fp = ? AND path = ?;",
+                    [.integer(candidate.photoID), .int(candidate.level.rawValue), .text(candidate.recipeFP), .text(candidate.path)])
+                removed.append(current)
+            }
+            return removed
+        }
     }
 
     /// LRU eviction to a byte budget. Order is 1:1 -> fit -> grid, least-recently-viewed
@@ -4380,6 +4427,9 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func previewCacheBytes() throws -> Int64 { throw CatalogError.unavailable }
+    public func discardPreviews(_ candidates: [PreviewRow]) throws -> [PreviewRow] {
+        throw CatalogError.unavailable
+    }
     @discardableResult
     public func pruneCache(maxBytes: Int64) throws -> [PreviewRow] {
         throw CatalogError.unavailable

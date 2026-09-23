@@ -25,6 +25,9 @@ import Foundation
 /// The disk preview cache's policy. Bookkeeping rows live in `cache.preview`
 /// (`CatalogStore`); payloads live under `previews/xx/` in the cache directory.
 public enum PreviewCache {
+    /// Invalidate legacy rendered pixels after RAW decoder/color-basis corrections.
+    /// Separate from recipe schema: the document did not change, its renderer did.
+    public static let renderingRevision = 2
 
     /// Where payloads sit, relative to the cache directory (docs/15 §15.2).
     public static let directoryName = "previews"

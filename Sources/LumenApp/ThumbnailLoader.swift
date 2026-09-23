@@ -101,6 +101,13 @@ final class ThumbnailLoader: ObservableObject {
     private struct Key: Hashable, Sendable {
         let url: URL
         let pixels: Int
+        let sourceIdentity: SourceFileIdentity?
+
+        init(url: URL, pixels: Int) {
+            self.url = url
+            self.pixels = pixels
+            self.sourceIdentity = SourceFileIdentity.read(url)
+        }
     }
 
     private struct Entry {
@@ -218,15 +225,18 @@ final class ThumbnailLoader: ObservableObject {
     /// Fire-and-forget, and refusable: `record` drops the write under back pressure, so
     /// a settle never waits on an encoder and a cache miss costs a decode rather than a
     /// stall.
-    func recordDeveloped(url: URL, image: CGImage) {
-        guard let previews else { return }
+    @discardableResult
+    func recordDeveloped(url: URL, image: CGImage,
+                         identity: DevelopedPreviewIdentity) -> Task<Void, Never>? {
+        guard let previews else { return nil }
         let longEdge = max(image.width, image.height)
         guard let pixels = PreviewCache.pixelsFilled(byPayloadLongEdge: longEdge) else {
-            return
+            return nil
         }
-        Task { [weak self] in
+        return Task { [weak self] in
             guard self != nil,
-                  let plan = await previews.plan(for: url, pixels: pixels) else { return }
+                  let plan = await previews.developedPlan(for: url, pixels: pixels,
+                                                         identity: identity) else { return }
             previews.record(plan, image: image, source: .lumen)
         }
     }
@@ -457,11 +467,12 @@ final class ThumbnailLoader: ObservableObject {
             // embedded-JPEG extraction out of a 40 MB original that does not happen.
             // Off the main actor by construction — this is the detached worker.
             let plan = await previews?.plan(for: key.url, pixels: key.pixels)
+            guard SourceFileIdentity.read(key.url) == key.sourceIdentity else { return nil }
             if let plan, let payload = plan.payload,
                let cached = PreviewStore.decodePayload(file: payload.file,
                                                        maxPixel: payload.pixels) {
                 previews?.served(payload, photoID: plan.photoID)
-                return cached
+                return SourceFileIdentity.read(key.url) == key.sourceIdentity ? cached : nil
             }
             if Task.isCancelled { return nil }
             guard let image = decodeEmbeddedThumbnail(url: key.url, maxPixel: key.pixels,
@@ -469,6 +480,7 @@ final class ThumbnailLoader: ObservableObject {
             else { return nil }
             // Filed asynchronously: the caller already has the photograph, and a
             // scrolling grid must not wait behind an encode.
+            guard SourceFileIdentity.read(key.url) == key.sourceIdentity else { return nil }
             if let plan { previews?.record(plan, image: image) }
             return image
         }
@@ -481,6 +493,7 @@ final class ThumbnailLoader: ObservableObject {
     }
 
     private func finish(_ key: Key, image: CGImage?) {
+        let image = SourceFileIdentity.read(key.url) == key.sourceIdentity ? image : nil
         active = max(0, active - 1)
         let job = jobs.removeValue(forKey: key)
         let wasCancelled = job?.task?.isCancelled ?? false

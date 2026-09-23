@@ -43,6 +43,14 @@ struct RenderResult: @unchecked Sendable {
     /// Wall time the RAW decode cost inside this render — near zero on a cache hit.
     /// Zero on the paths that do not decode (the embedded-preview fallback).
     let decodeMilliseconds: Double
+    /// Only exact, whole-frame, unproofed deliveries may become developed previews.
+    var previewIdentity: DevelopedPreviewIdentity? = nil
+    var sourceIdentity: SourceFileIdentity? = nil
+}
+
+struct DevelopedPreviewIdentity: Equatable, Sendable {
+    let source: SourceFileIdentity
+    let recipeFingerprint: String
 }
 
 /// What the renderer knows about one file's AI mattes after a pass, plus the files its
@@ -71,6 +79,7 @@ actor RenderCoordinator {
 
     private let renderer = PipelineRenderer()
     private var sources: [URL: any ImageSource] = [:]
+    private var sourceIdentities: [URL: SourceFileIdentity] = [:]
     private var latestGeneration: UInt64 = 0
 
     /// Bounded so a fast scroll through a folder cannot pin a hundred decoded RAWs in
@@ -293,6 +302,7 @@ actor RenderCoordinator {
 
         do {
             let source = try self.source(for: url)
+            let sourceIdentity = sourceIdentities[url]
             // AND AFTER THE ALLOCATION, NOT ONLY BEFORE IT — the other half of the
             // budget being advisory. `source(for:)` trims on the way in, which bounds
             // the process against what the LAST render left behind and says nothing
@@ -376,13 +386,23 @@ actor RenderCoordinator {
             // away, and the picture moved only when the hand paused. Finished work is
             // never stale by cancellation: the caller decides against
             // `FrameDelivery.shouldShow`, whose only questions are identity and order.
+            guard let sourceIdentity, SourceFileIdentity.read(url) == sourceIdentity else {
+                invalidate(url: url)
+                return nil
+            }
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
                                 note: note,
                                 nativeLongEdge: Int(source.nativeLongEdge.rounded()),
                                 regionUnit: regionUnit,
                                 fullPixelSize: fullPixelSize,
-                                decodeMilliseconds: decodeMilliseconds)
+                                decodeMilliseconds: decodeMilliseconds,
+                                previewIdentity: !draft && region == nil && !showingUncropped
+                                    && softProof == nil && note == nil
+                                    ? (try? RecipeFingerprint.fingerprint(recipe)).map {
+                                        DevelopedPreviewIdentity(source: sourceIdentity, recipeFingerprint: $0)
+                                    } : nil,
+                                sourceIdentity: sourceIdentity)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
@@ -603,6 +623,7 @@ actor RenderCoordinator {
 
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
+        sourceIdentities.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
         // The matte was computed from this file's pixels, so it goes with them — and
         // anyone holding a copy of the ledger hears about it the same way they hear
@@ -726,7 +747,8 @@ actor RenderCoordinator {
     /// filter that produces something, and a rendered file quietly run through the RAW
     /// stage would be wrong in ways nobody could see from the picture.
     private func source(for url: URL) throws -> any ImageSource {
-        if let cached = sources[url] {
+        let identity = SourceFileIdentity.read(url)
+        if let cached = sources[url], let identity, sourceIdentities[url] == identity {
             sourceOrder.removeAll { $0 == url }
             sourceOrder.append(url)
             // Here rather than after the render, because this is the one line every
@@ -738,14 +760,28 @@ actor RenderCoordinator {
             trimDecodeResidency()
             return cached
         }
+        // The source-object LRU is smaller than some renderer caches. A source
+        // reacquired after eviction must not inherit an older URL's measured hues,
+        // mattes or source-dependent mask rasters either.
+        let hadMattes = !renderer.attemptedMatteKinds(for: url).isEmpty
+        sources.removeValue(forKey: url)
+        sourceIdentities.removeValue(forKey: url)
+        sourceOrder.removeAll { $0 == url }
+        renderer.forgetMattes(for: url)
+        if hadMattes { evictedMattes.insert(url) }
         let created: any ImageSource = PhotoFormats.isRendered(url)
             ? try RenderedImageSource(url: url)
             : try AppleRawSource(url: url)
+        guard let identity, SourceFileIdentity.read(url) == identity else {
+            throw CocoaError(.fileReadUnknown)
+        }
         sources[url] = created
+        sourceIdentities[url] = identity
         sourceOrder.append(url)
         while sourceOrder.count > Self.sourceCacheLimit, let oldest = sourceOrder.first {
             sourceOrder.removeFirst()
             sources.removeValue(forKey: oldest)
+            sourceIdentities.removeValue(forKey: oldest)
         }
         trimDecodeResidency()
         return created

@@ -443,6 +443,8 @@ final class PhotoRenderModel: ObservableObject {
 
     @Published private(set) var image: CGImage?
     @Published private(set) var imageURL: URL?
+    private(set) var previewIdentity: DevelopedPreviewIdentity?
+    private var imageSourceIdentity: SourceFileIdentity?
     /// Bumped whenever `image` is replaced — a cheap `Equatable` handle for `.task(id:)`
     /// since `CGImage` is not `Equatable`.
     @Published private(set) var revision: Int = 0
@@ -601,9 +603,12 @@ final class PhotoRenderModel: ObservableObject {
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
-        if imageURL != url {
+        let requestedSourceIdentity = SourceFileIdentity.read(url)
+        if imageURL != url || (image != nil && imageSourceIdentity != requestedSourceIdentity) {
             image = nil
             imageURL = nil
+            previewIdentity = nil
+            imageSourceIdentity = nil
             isDraft = false
             usedEmbeddedPreview = false
             isUnreadable = false
@@ -623,6 +628,7 @@ final class PhotoRenderModel: ObservableObject {
                    url: url, maxPixel: ThumbnailLadder.loupeInstantPixels),
                let cg = preview.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 guard !Task.isCancelled else { return }
+                guard SourceFileIdentity.read(url) == requestedSourceIdentity else { return }
                 // Only into the void this task itself cleared. A superseded sibling's
                 // COMPLETED draft may legally land while the thumbnail loads (that is
                 // FrameDelivery's whole point), and the camera JPEG must not paint
@@ -632,6 +638,7 @@ final class PhotoRenderModel: ObservableObject {
                 guard imageURL == nil else { return }
                 image = cg
                 imageURL = url
+                imageSourceIdentity = requestedSourceIdentity
                 usedEmbeddedPreview = true
                 isDraft = true
                 revision &+= 1
@@ -1004,6 +1011,8 @@ final class PhotoRenderModel: ObservableObject {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
         image = result.image
         imageURL = url
+        previewIdentity = result.previewIdentity
+        imageSourceIdentity = result.sourceIdentity
         isDraft = result.isDraft
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note
@@ -1402,7 +1411,7 @@ struct LoupeView: View {
                 // full read of the RAW per photograph and a second occupant of the
                 // render actor (docs/34). Measuring what is on screen is cheaper and
                 // describes the picture the photographer is actually looking at.
-                if let cg = model.image, !model.isDraft, model.imageURL == photo.id {
+                if !Task.isCancelled, let cg = model.image, !model.isDraft, model.imageURL == photo.id {
                     state.measureScopes(fromViewerFrame: cg, url: photo.id)
                     // And file it, so coming back to this photograph does not read the
                     // RAW again. Only a SETTLED frame is worth filing: a draft is the
@@ -1412,8 +1421,8 @@ struct LoupeView: View {
                     // Region frames are excluded by `!model.isDraft` alone not being
                     // enough — a zoomed settle covers a rectangle, not the frame — so
                     // the whole-frame test is explicit.
-                    if model.regionUnit == nil, !cropArmed {
-                        state.thumbnails.recordDeveloped(url: photo.id, image: cg)
+                    if model.regionUnit == nil, !cropArmed, let identity = model.previewIdentity {
+                        state.thumbnails.recordDeveloped(url: photo.id, image: cg, identity: identity)
                     }
                 }
                 await warmNextPhoto(longEdge: longEdge)

@@ -93,6 +93,7 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     /// metadata backfill has reached this photo, and nil forever for a file that
     /// records no ISO, in which case the flat wire defaults stand.
     var iso: Int?
+    var sourceIdentity: SourceFileIdentity? = nil
 
     var filename: String { id.lastPathComponent }
     var isRaw: Bool { PhotoFormats.isRaw(id) }
@@ -2889,11 +2890,13 @@ final class AppState: ObservableObject {
                 items[i].rating = row.rating
                 items[i].label = row.label
                 items[i].iso = row.iso
+                items[i].sourceIdentity = row.sourceIdentity
                 if let recipe = row.recipe { loaded[items[i].id] = recipe }
             }
         }
         recipes = loaded
         allPhotos = items
+        sourceRevision &+= 1
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
         // unread for as long as both have existed.
@@ -3579,6 +3582,8 @@ final class AppState: ObservableObject {
     /// 8-second watchdog all already call, so the deferred settle inherits all three
     /// safety nets rather than needing its own.
     @Published private(set) var settleTick: Int = 0
+    /// Re-key viewers on a completed rescan even when URL and recipe stayed equal.
+    @Published private(set) var sourceRevision: Int = 0
 
     private var pendingGesturePersist: [URL: Recipe] = [:]
     private var pendingGestureTouchedPixels = false

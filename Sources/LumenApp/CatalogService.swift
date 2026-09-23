@@ -31,6 +31,7 @@ final class CatalogService: @unchecked Sendable {
         /// The capture ISO the backfill read, carried through so an unedited photo can
         /// start on the noise-reduction defaults its own gain calls for.
         var iso: Int?
+        var sourceIdentity: SourceFileIdentity? = nil
     }
 
     private let store: CatalogStore
@@ -56,6 +57,7 @@ final class CatalogService: @unchecked Sendable {
     /// nowhere else, so a full disk, a read-only volume or a locked database all
     /// presented as "the edit was applied" until the next launch reverted it.
     var onFailure: ((String) -> Void)?
+    var onInvalidatedPreviews: (([PreviewRow]) -> Void)?
 
     /// The payloads a recipe references rather than contains — brush stroke sets. A
     /// recipe stays small and diffable; the forty kilobytes of stylus samples behind
@@ -212,10 +214,12 @@ final class CatalogService: @unchecked Sendable {
                     return ScannedFile(filename: name,
                                        fileSize: size, fileMTime: mtime,
                                        quickSig: signature,
-                                       ext: file.pathExtension.lowercased())
+                                       ext: file.pathExtension.lowercased(),
+                                       sourceIdentity: SourceFileIdentity.read(file)?.token)
                 }
-                _ = try store.scan(folderID: folderID, files: scanned,
+                let scan = try store.scan(folderID: folderID, files: scanned,
                                    at: CatalogStore.now(), completeListing: completeListing)
+                onInvalidatedPreviews?(scan.invalidatedPreviews)
 
                 // ONE PHOTO'S FAILURE COSTS ONE PHOTO. This loop used to sit bare
                 // inside the folder's `do`, so the first `try` that threw abandoned
@@ -293,6 +297,7 @@ final class CatalogService: @unchecked Sendable {
                                               storedRecipe: recipe,
                                               store: store, file: file)
                         result[file] = Self.stored(resolution.state, row: row)
+                        result[file]?.sourceIdentity = SourceFileIdentity.read(file)
                     } catch {
                         withoutTheirRow.append(name)
                         NSLog("Lumen catalog: %@ could not be read from the catalog "
@@ -429,15 +434,23 @@ final class CatalogService: @unchecked Sendable {
                 cursor = last.id
                 // OFF the catalog queue: this is a file open and an EXIF parse per
                 // photograph, and it is what used to hold the lane.
-                let read: [(photoID: Int64, metadata: PhotoMetadata)] =
+                let read: [(photoID: Int64, metadata: PhotoMetadata, url: URL, identity: SourceFileIdentity)] =
                     chunk.compactMap { row in
                         let url = folder.appendingPathComponent(row.filename)
-                        guard let metadata = CaptureMetadataReader.read(url: url)
+                        guard let identity = SourceFileIdentity.read(url),
+                              let metadata = CaptureMetadataReader.read(url: url),
+                              SourceFileIdentity.read(url) == identity
                         else { return nil }
-                        return (photoID: row.id, metadata: metadata)
+                        return (photoID: row.id, metadata: metadata, url: url, identity: identity)
                     }
                 queue.sync {
-                    do { try store.setMetadata(read) }
+                    do {
+                        let current = try read.filter {
+                            guard SourceFileIdentity.read($0.url) == $0.identity else { return false }
+                            return try store.metaValue("source_identity_\($0.photoID)") == $0.identity.token
+                        }
+                        try store.setMetadata(current.map { (photoID: $0.photoID, metadata: $0.metadata) })
+                    }
                     catch {
                         stopped(error)
                         broke = true
@@ -466,15 +479,23 @@ final class CatalogService: @unchecked Sendable {
                 guard let last = chunk.last else { break }
                 signatureCursor = last.id
                 // A megabyte read and a hash per photograph, likewise off the lane.
-                let signed: [(photoID: Int64, signature: String)] =
+                let signed: [(photoID: Int64, signature: String, url: URL, identity: SourceFileIdentity)] =
                     chunk.compactMap { row in
                         let url = folder.appendingPathComponent(row.filename)
-                        guard let signature = try? QuickSignature.compute(url: url)
+                        guard let identity = SourceFileIdentity.read(url),
+                              let signature = try? QuickSignature.compute(url: url),
+                              SourceFileIdentity.read(url) == identity
                         else { return nil }
-                        return (photoID: row.id, signature: signature)
+                        return (photoID: row.id, signature: signature, url: url, identity: identity)
                     }
                 queue.sync {
-                    do { try store.setQuickSigs(signed) }
+                    do {
+                        let current = try signed.filter {
+                            guard SourceFileIdentity.read($0.url) == $0.identity else { return false }
+                            return try store.metaValue("source_identity_\($0.photoID)") == $0.identity.token
+                        }
+                        try store.setQuickSigs(current.map { (photoID: $0.photoID, signature: $0.signature) })
+                    }
                     catch {
                         stopped(error)
                         broke = true
@@ -1446,6 +1467,15 @@ final class CatalogService: @unchecked Sendable {
         var rows: [PreviewRow]
     }
 
+    private static func previewFingerprint(store: CatalogStore, photoID: Int64) throws -> String {
+        let fingerprint = try store.currentRecipeFingerprint(photoID: photoID)
+        guard fingerprint.isEmpty, let row = try store.photo(id: photoID) else { return fingerprint }
+        // An unsaved import still has a concrete rendered recipe (ISO defaults and
+        // rendered-file linear tone), not an empty recipe fingerprint.
+        return try RecipeFingerprint.fingerprint(Recipe.asImported(from: Recipe.SourceFile(
+            isRendered: PhotoFormats.isRendered(URL(fileURLWithPath: row.filename)), iso: row.iso)))
+    }
+
     /// AWAIT, never `queue.sync`.
     ///
     /// This used to block. The caller is a `Task.detached` decode worker and there are
@@ -1468,21 +1498,42 @@ final class CatalogService: @unchecked Sendable {
             // original instead — which is what it did on every launch before this cache
             // was wired at all.
             return PreviewState(
-                fingerprint: try store.currentRecipeFingerprint(photoID: photoID),
+                fingerprint: try Self.previewFingerprint(store: store, photoID: photoID),
                 rows: try store.previews(photoID: photoID))
         }
     }
 
     /// File a preview. Asynchronous: the pixels are already on screen by the time this
     /// runs, and a bookkeeping row must never be in front of a photograph.
-    func recordPreview(_ row: PreviewRow) {
+    func recordPreview(_ row: PreviewRow, sourceURL: URL? = nil,
+                       sourceIdentity: SourceFileIdentity? = nil,
+                       completion: ((Bool, [PreviewRow]) -> Void)? = nil) {
         queue.async { [store] in
+            var accepted = false
+            var replaced: [PreviewRow] = []
+            defer { completion?(accepted, replaced) }
             do {
+                if let sourceURL {
+                    guard let sourceIdentity,
+                          SourceFileIdentity.read(sourceURL) == sourceIdentity else { return }
+                }
+                if row.source == .lumen {
+                    guard try Self.previewFingerprint(store: store, photoID: row.photoID) == row.recipeFP else { return }
+                }
+                if let previous = try store.preview(photoID: row.photoID, level: row.level, recipeFP: row.recipeFP),
+                   previous.path != row.path { replaced.append(previous) }
                 try store.recordPreview(row)
+                accepted = true
             } catch {
                 NSLog("Lumen catalog: preview bookkeeping failed — %@",
                       String(describing: error))
             }
+        }
+    }
+
+    func discardPreviews(_ rows: [PreviewRow]) async -> [PreviewRow] {
+        await onQueue("discard obsolete previews", fallback: []) { store in
+            try store.discardPreviews(rows)
         }
     }
 
