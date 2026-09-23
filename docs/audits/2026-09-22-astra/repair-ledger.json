@@ -1,0 +1,521 @@
+{
+  "started": "2026-09-22",
+  "branch": "codex/lumen-verified-repairs",
+  "baseline": "a6e694103a3676e059847ac48b82c0031281ea53",
+  "note": "Historical audit remains immutable. Verified means tested within recorded scope, not exhaustive certification.",
+  "findings": [
+    {
+      "id": "AI-01",
+      "title": "Forced Apple RAW9 plus Lumen's wide-gamut working space turns all three supplied Sony RAWs cyan",
+      "priority": "P1",
+      "phase": 2,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-03",
+      "title": "Legal color edits lose substantial accuracy in both preview and export color tables",
+      "priority": "P1",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "BR-01",
+      "title": "Opening selected files from sibling trees can merge two photographs into one catalog identity",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: first batch — corrected red 8 tests / 10 assertion failures; green 118 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "Broader phase matrix and integrated/native workflow checks remain; targeted regression success is not complete app verification."
+      ]
+    },
+    {
+      "id": "BR-02",
+      "title": "Opening a selected subset marks unselected photographs as missing",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: first batch — corrected red 8 tests / 10 assertion failures; green 118 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "Broader phase matrix and integrated/native workflow checks remain; targeted regression success is not complete app verification."
+      ]
+    },
+    {
+      "id": "M01",
+      "title": "Disabled image-dependent donor fails to supply source to referenced mask",
+      "priority": "P1",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M02",
+      "title": "Referenced donor edits do not invalidate borrower alpha cache",
+      "priority": "P1",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-01",
+      "title": "Healthy exclusively locked catalog is restored from stale backup",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: first batch — corrected red 8 tests / 10 assertion failures; green 118 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "Broader phase matrix and integrated/native workflow checks remain; targeted regression success is not complete app verification."
+      ]
+    },
+    {
+      "id": "REL-02",
+      "title": "New same-basename RAW sibling inherits another photo's sidecar edits",
+      "priority": "P1",
+      "phase": 1,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-03",
+      "title": "Already-present ingest certifies matching truncated source and destination",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: first batch — corrected red 8 tests / 10 assertion failures; green 118 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "Broader phase matrix and integrated/native workflow checks remain; targeted regression success is not complete app verification."
+      ]
+    },
+    {
+      "id": "REL-04",
+      "title": "Export final publication overwrites a file created during rendering",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: delivery batch — red 3 tests / 6 assertion failures; green 41 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-05",
+      "title": "Sidecar sibling resolution makes folder registration quadratic",
+      "priority": "P1",
+      "phase": 6,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-12",
+      "title": "Test failures do not gate the automatic update release",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: offline release policy passes and rejects seven unsafe mutations",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "No hosted GitHub run or live release performed; workflow success must be checked after branch publication."
+      ]
+    },
+    {
+      "id": "UX-01",
+      "title": "Undo during a slider gesture saves the value that was just undone",
+      "priority": "P1",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: first batch — corrected red 8 tests / 10 assertion failures; green 118 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "Broader phase matrix and integrated/native workflow checks remain; targeted regression success is not complete app verification."
+      ]
+    },
+    {
+      "id": "AI-02",
+      "title": "Point Color picker and selection use different stages after mixer or primaries edits",
+      "priority": "P2",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-04",
+      "title": "Luma curve black lift is discontinuous and makes neutral deep blacks purple on the GPU",
+      "priority": "P2",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-05",
+      "title": "Point curve handles do not lie on the displayed composite trace when parametric edits are active",
+      "priority": "P2",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-06",
+      "title": "WB neutral picker cannot reach the full tint range accepted by the slider",
+      "priority": "P2",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-07",
+      "title": "Zone exposure combinations silently flatten broad tonal intervals",
+      "priority": "P2",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-08",
+      "title": "Uniformity and Point Variance still operate without the texture-preserving local mean",
+      "priority": "P2",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-11",
+      "title": "Main still has an architecture-dependent raw-double hash test already corrected on the other branch",
+      "priority": "P2",
+      "phase": 3,
+      "status": "inherited awaiting verification",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-12",
+      "title": "Basic Contrast clips highlights despite promising pinned endpoints",
+      "priority": "P2",
+      "phase": 3,
+      "status": "inherited awaiting verification",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-14",
+      "title": "Grading wheel painted hue and engine hue use different color systems on main",
+      "priority": "P2",
+      "phase": 3,
+      "status": "inherited awaiting verification",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-15",
+      "title": "RAW9 changes mutable nativeSize after downscaled decode, breaking Lumen's preview scale contract",
+      "priority": "P2",
+      "phase": 2,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M03",
+      "title": "Local curves ignore mask Brightness-only and Colour-only blend mode",
+      "priority": "P2",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M04",
+      "title": "Brush alpha depends on raster resolution, not just source-normalized stroke",
+      "priority": "P2",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M05",
+      "title": "Negative local Sharpness uses fixed 2.5-pixel blur",
+      "priority": "P2",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M06",
+      "title": "Vignette positioned incorrectly after off-centre crop and horizontal flip",
+      "priority": "P2",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M07",
+      "title": "Film Strength switches spatial effects on at full amplitude",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M08",
+      "title": "Display Transform disabled during partial film blend although still active",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M09",
+      "title": "GPU halation gate materially under-produces low-highlight glow versus reference",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M10",
+      "title": "Film Exposure does not affect halation onset",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M11",
+      "title": "Mask Strength above100 scales Texture/Clarity only in GPU",
+      "priority": "P2",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M15",
+      "title": "AI Amount enabled on rendered inputs without any denoise consumer",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-06",
+      "title": "Replacing an original at its URL retains stale source pixels, preview and quick signature",
+      "priority": "P2",
+      "phase": 2,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-07",
+      "title": "Old developed preview receives a newer recipe fingerprint",
+      "priority": "P2",
+      "phase": 2,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-08",
+      "title": "Catalog backup publishes final DB before blob backup can fail",
+      "priority": "P2",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: delivery batch — red 3 tests / 6 assertion failures; green 41 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "New backup publication tested; legacy incomplete snapshots and interruption/recovery fault matrix still require review."
+      ]
+    },
+    {
+      "id": "REL-09",
+      "title": "Sidecar write failure never invokes visible failure reporting",
+      "priority": "P2",
+      "phase": 1,
+      "status": "verifying",
+      "evidence": [
+        "EXECUTION-01.md: delivery batch — red 3 tests / 6 assertion failures; green 41 tests / 0 failures",
+        "EXECUTION-01.md: expanded safety 167 passed; optimized full suite 2414 tests, 14 skips, one pre-existing failing performance test (two assertions)"
+      ],
+      "commit": null,
+      "limitations": [
+        "Native quit/error-banner behaviour and durable retry across launch not yet verified; post-close writer regression now passes."
+      ]
+    },
+    {
+      "id": "REL-10",
+      "title": "JPEG encoder writes 72 PPI despite requested 240 PPI",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "REL-11",
+      "title": "Supplied Contact metadata is absent in JPEG, HEIC, TIFF and PNG output",
+      "priority": "P2",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "UX-02",
+      "title": "Panel resizing accumulates the full gesture translation repeatedly",
+      "priority": "P2",
+      "phase": 6,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "UX-03",
+      "title": "Custom editing sliders do not expose adjustable accessibility semantics",
+      "priority": "P2",
+      "phase": 6,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-09",
+      "title": "Black target accepts values9–15 that render identically",
+      "priority": "P3",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-10",
+      "title": "Geometric mixer band labels split common orange and green colors across neighboring controls",
+      "priority": "P3",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "AI-13",
+      "title": "Wheel Luminance tooltip understates the actual scene exposure range by3x",
+      "priority": "P3",
+      "phase": 3,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M12",
+      "title": "Custom60:1 and1:60 crop locks silently resolve to other ratios",
+      "priority": "P3",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M13",
+      "title": "Ramp shape tooltip describes opposite direction from gamma formula",
+      "priority": "P3",
+      "phase": 4,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    },
+    {
+      "id": "M14",
+      "title": "Velvia exposes enabled Halation/Size/Redness despite zero-strength stage",
+      "priority": "P3",
+      "phase": 5,
+      "status": "queued",
+      "evidence": [],
+      "commit": null,
+      "limitations": []
+    }
+  ]
+}
