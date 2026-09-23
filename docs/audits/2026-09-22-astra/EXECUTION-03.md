@@ -36,8 +36,20 @@ The original **5 tests / 10 failed assertions** pass after repair. Expanded qual
 
 Cross-review with the preview lane reproduced a further same-path Automask invalidation issue (**one test / one failure**, max linear channel difference 0.175399 versus a fresh renderer). Cache-clear races are being tested with semaphore-controlled work before repair. These follow-on changes and combined full-suite verification are not yet included in the counts above.
 
+The follow-on repair was integrated as `51c1ca1` from agent commit `b70c699`. Deterministic clear regressions produced four failed assertions in two of three race tests; the same-key new-request negative control passed before and after. The repair clears Automask prefixes, gives old picture-dependent work a distinct source-generation key, and guards both alpha publication and queue bookkeeping against obsolete work. Broad agent qualification: **541 tests, 11 existing RAW-corpus skips, zero failures**. No original tolerance or golden changed. The preview lane supplies detection of actual source replacement.
+
 ## UX-02 — panel resize gesture
 
 The production arithmetic was extracted without changing its behaviour, then exercised with repeated cumulative translations, overshoot/reversal, return to origin and a new gesture. Before repair: **2 tests / 5 failed assertions**. The calculation now holds one starting width through a gesture instead of repeatedly subtracting the full translation from the current width. Gesture completion and cancellation clear the starting value; persistence remains on completion.
 
 Focused arithmetic and adjacent layout/state checks: **23 tests, zero failures** (the inherited layout expected failures remain unchanged). Native pointer-event and cancellation delivery are not established by these pure calculation checks.
+
+## AI-01 / AI-15 — integrated RAW qualification
+
+Agent commit `2efd71e` was reviewed and integrated as `1965507`. New sources use Apple's per-file selected decoder rather than forcing the last advertised version; supported explicit recipe pins remain honored. Native dimensions are captured before any scaled decode. Every RAW9 path, including its first native/export/picker request, now establishes a real extended-linear-sRGB evaluation boundary before conversion to the pipeline's extended-linear Rec2020 half-float buffer.
+
+Beyond the original **3 tests / 48 failed assertions**, a fresh native first-read/cache test failed all **18 tile comparisons** across three private RAW fixtures before repair (worst absolute linear-channel error 0.547688). Qualification passed **129 tests, zero failures or skips**: 14 pipeline tests, 108 adjacent residency/draft/capture tests and 7 app budget tests. RAW9 native first/cache error is at most 0.000488; preview first/cache at most 0.001953, consistent with the final half-float buffer. Explicit decoder switches, unsupported-pin fallback and original dimensions also pass.
+
+A synthetic nonzero-origin fixture exposed a separate materializer defect: correct extent metadata but zero pixels. Source-to-destination coordinate mapping is now explicit, with throwing render-task completion. Signed negative values, highlight headroom, alpha, tag, extent and byte accounting pass both evaluation paths. The independent RAW8 oracle matches its pre-existing half-intermediate evaluation contract; the RAW9 oracle uses float intermediates. Tolerances were not increased.
+
+Limits: three Sony RAWs on one macOS/Apple Silicon host are not universal camera qualification. RAW9 now pays a full native demosaic and approximately 250 MiB at 33 MP even for a subsequent small picker read. The existing 512 MiB and 16,384-pixel allocation bounds remain; a required boundary that cannot allocate or render fails rather than returning wrongly coloured lazy pixels. Native RAW9 above roughly 67 MP needs a future tiled solution. Other decoders retain their previous lazy-first-native policy. Persistent cache revision invalidation belongs to the preview lane and must be integrated before acceptance. No photographs or original XMP data are committed.

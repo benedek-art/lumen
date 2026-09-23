@@ -10,10 +10,10 @@
       "title": "Forced Apple RAW9 plus Lumen's wide-gamut working space turns all three supplied Sony RAWs cyan",
       "priority": "P1",
       "phase": 2,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: independent RAW oracle red/green on 3 private fixtures; 129 qualification tests passed"],
+      "commit": "1965507",
+      "limitations": ["RAW9 native boundary costs about 250 MiB at 33 MP; allocation caps can reject very large RAW9 native output. One camera corpus/host, not universal qualification. Cache revision integration pending."]
     },
     {
       "id": "AI-03",
@@ -263,10 +263,10 @@
       "title": "RAW9 changes mutable nativeSize after downscaled decode, breaking Lumen's preview scale contract",
       "priority": "P2",
       "phase": 2,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: immutable native dimensions checked across decoder, scale, draft and cache transitions; 129 qualification tests passed"],
+      "commit": "1965507",
+      "limitations": ["Private corpus contains 3 Sony RAWs; broader camera/orientation corpus remains open."]
     },
     {
       "id": "M03",

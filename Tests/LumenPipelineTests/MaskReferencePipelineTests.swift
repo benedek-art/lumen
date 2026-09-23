@@ -11,7 +11,7 @@ final class MaskReferencePipelineTests: XCTestCase {
                                               .outputColorSpace: NSNull(),
                                               .workingFormat: CIFormat.RGBAf])
 
-    private final class Source: ImageSource {
+    private final class MaskReferenceFixtureSource: ImageSource {
         let url = URL(fileURLWithPath: "/tmp/lumen-mask-reference-regression.tif")
         let nativeLongEdge: Double
         let nativePixelSize: (width: Int, height: Int)
@@ -77,7 +77,7 @@ final class MaskReferencePipelineTests: XCTestCase {
         return r
     }
 
-    private func pixels(_ renderer: PipelineRenderer, _ source: Source,
+    private func pixels(_ renderer: PipelineRenderer, _ source: MaskReferenceFixtureSource,
                         _ recipe: Recipe,
                         strokes: [String: BrushStrokeSet] = [:]) throws -> ImageBuffer {
         let image = try renderer.exportedImage(source: source, recipe: recipe,
@@ -95,7 +95,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testDisabledImageDependentDonorKeepsItsSelectionThroughInvertedReferences() throws {
-        let source = Source(longEdge: 256)
+        let source = MaskReferenceFixtureSource(longEdge: 256)
         for transitive in [false, true] {
             for inverted in [false, true] {
                 let disabled = recipe(donor: band(), transitive: transitive,
@@ -116,7 +116,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testOverlayOfDisabledImageDependentMaskStillBuildsItsSource() throws {
-        let source = Source(longEdge: 256)
+        let source = MaskReferenceFixtureSource(longEdge: 256)
         var r = Recipe()
         r.masks = [Mask(id: "donor", enabled: false, components: [band()])]
         let disabled = try XCTUnwrap(PipelineRenderer().renderMaskAlpha(
@@ -131,7 +131,7 @@ final class MaskReferencePipelineTests: XCTestCase {
 
     func testDisabledDonorSourceIsPreparedForSmallAndFullResolutionExports() throws {
         for longEdge in [256, 1152] {
-            let source = Source(longEdge: longEdge)
+            let source = MaskReferenceFixtureSource(longEdge: longEdge)
             let disabled = recipe(donor: band(), transitive: true, inverted: true)
             var enabled = disabled
             enabled.masks[0].enabled = true
@@ -144,7 +144,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testDonorGeometryEditInvalidatesBorrowerInRepeatedSmallNativeExport() throws {
-        let source = Source(longEdge: 256)
+        let source = MaskReferenceFixtureSource(longEdge: 256)
         for transitive in [false, true] {
             var r = recipe(donor: polygon(left: true), transitive: transitive)
             let held = PipelineRenderer()
@@ -160,7 +160,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testReferencedBrushArrivalInvalidatesBorrowerWithoutChangingItsRecipe() throws {
-        let source = Source(longEdge: 128)
+        let source = MaskReferenceFixtureSource(longEdge: 128)
         var brush = MaskComponent(op: .add, kind: .brush)
         brush.strokesRef = "blob:donor"
         let r = recipe(donor: brush, transitive: true)
@@ -178,7 +178,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testReplacingSameKindMatteInvalidatesBorrower() throws {
-        let source = Source(longEdge: 128)
+        let source = MaskReferenceFixtureSource(longEdge: 128)
         let r = recipe(donor: MaskComponent(op: .add, kind: .aiSubject), transitive: true)
         let held = PipelineRenderer()
         let left = Plane(width: 128, height: 64) { u, _ in u < 0.5 ? 1 : 0 }
@@ -196,7 +196,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testCycleWithAnImageDependentSelectionIsFiniteAndPreservesThatSelection() throws {
-        let source = Source(longEdge: 128)
+        let source = MaskReferenceFixtureSource(longEdge: 128)
         var r = recipe(donor: band(), transitive: true, inverted: true)
         let acyclic = r
         r.masks[0].components.append(reference("borrower", invert: true))
@@ -213,7 +213,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testSwitchedOffGroupStillSuppliesReferencedImageSelection() throws {
-        let source = Source(longEdge: 128)
+        let source = MaskReferenceFixtureSource(longEdge: 128)
         var r = recipe(donor: band(), transitive: true)
         r.masks[0].enabled = true
         r.masks[0].group = "sources"
@@ -225,7 +225,8 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testSourcePredicateIncludesEveryImageReaderAutomaskAndRefineThroughReferences() {
-        for kind: MaskKind in [.lumaRange, .colorRange, .similarity, .similarityLine, .luminosity] {
+        let kinds: [MaskKind] = [.lumaRange, .colorRange, .similarity, .similarityLine, .luminosity]
+        for kind in kinds {
             let r = recipe(donor: MaskComponent(op: .add, kind: kind), transitive: true)
             XCTAssertTrue(PipelineRenderer.maskReadsPicture(r.masks.last!, in: r.masks,
                 strokeSets: [:], longEdge: 256), "referenced \(kind) needs source pixels")
@@ -279,7 +280,7 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testOrdinaryMaskReusesItsAlphaWhenOnlyItsAdjustmentChanges() throws {
-        let source = Source(longEdge: 128)
+        let source = MaskReferenceFixtureSource(longEdge: 128)
         var r = Recipe()
         r.develop.denoise.mode = .off
         var ordinary = Mask(id: "ordinary", components: [polygon(left: true)])
@@ -299,8 +300,8 @@ final class MaskReferencePipelineTests: XCTestCase {
     }
 
     func testForgettingSameURLSourceAlsoForgetsAutomaskedBrushPixels() throws {
-        let original = Source(longEdge: 128) { _, _ in RGB(gray: 0.18) }
-        let replacement = Source(longEdge: 128) { u, _ in RGB(gray: u < 0.5 ? 0.18 : 1.2) }
+        let original = MaskReferenceFixtureSource(longEdge: 128) { _, _ in RGB(gray: 0.18) }
+        let replacement = MaskReferenceFixtureSource(longEdge: 128) { u, _ in RGB(gray: u < 0.5 ? 0.18 : 1.2) }
         XCTAssertEqual(original.url, replacement.url)
         var brush = MaskComponent(op: .add, kind: .brush)
         brush.strokesRef = "blob:replacement-automask"

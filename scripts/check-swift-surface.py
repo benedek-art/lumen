@@ -299,7 +299,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Label", "Link", "ProgressView", "Gauge", "Stepper", "DisclosureGroup", "TabView",
     "Table", "TableColumn", "GeometryReader", "GeometryProxy", "Canvas",
     "GraphicsContext", "Path", "Shape", "Rectangle", "RoundedRectangle", "Circle",
-    "Ellipse", "Capsule", "Binding", "State", "StateObject", "ObservedObject",
+    "Ellipse", "Capsule", "Binding", "State", "StateObject", "ObservedObject", "GestureState",
     "EnvironmentObject", "Environment", "EnvironmentValues", "EnvironmentKey",
     "PreferenceKey", "ViewModifier", "ViewBuilder", "App", "Scene", "WindowGroup",
     "Settings", "Commands", "CommandGroup", "CommandMenu", "AppStorage",
