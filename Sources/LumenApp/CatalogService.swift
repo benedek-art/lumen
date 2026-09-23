@@ -1413,34 +1413,53 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// The other RAW files sharing `photo`'s basename, from one directory listing per
-    /// directory, memoized — this is asked once per sidecar read and per flush, and a
-    /// ten-thousand-frame folder must not stat ten thousand times to learn a fact that
-    /// is the same for all of them. `registerAndLoad` forgets the memo, because a
-    /// rescan is when a sibling can appear.
+    /// Index one directory's complete listing, including unselected neighbours.
+    /// Stems and extensions are case-insensitive just as SidecarNaming's original
+    /// listing resolver is; directory identity belongs to the outer memo, so matching
+    /// basenames in separate directories can never become siblings.
+    struct RawSiblingIndex {
+        private var extensionsByStem: [String: Set<String>] = [:]
+
+        init(names: [String], isRawName: (String) -> Bool) {
+            for name in names where isRawName(name) {
+                let url = URL(fileURLWithPath: name)
+                let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+                extensionsByStem[stem, default: []].insert(url.pathExtension.lowercased())
+            }
+        }
+
+        func siblings(of photo: URL) -> Set<String> {
+            let stem = photo.deletingPathExtension().lastPathComponent.lowercased()
+            // Same stem + extension is the same case-insensitive filename, which
+            // the original resolver excluded as the queried photo itself.
+            return (extensionsByStem[stem] ?? []).subtracting([photo.pathExtension.lowercased()])
+        }
+    }
+
+    /// A directory listing alone was not a useful memo: every query still parsed
+    /// all N names, and registration asks several times for each of N photos. Build
+    /// the basename index once, then answer from its bounded extension set. A rescan
+    /// drops the memo because a RAW may have gained or lost an unselected sibling.
     private static let siblingLock = NSLock()
-    private static var siblingNames: [String: [String]] = [:]
+    private static var siblingIndexes: [String: RawSiblingIndex] = [:]
 
     private static func rawSiblings(of photo: URL) -> Set<String> {
         let directory = photo.deletingLastPathComponent()
         siblingLock.lock()
-        var names = siblingNames[directory.path]
-        siblingLock.unlock()
-        if names == nil {
+        defer { siblingLock.unlock() }
+        if siblingIndexes[directory.path] == nil {
+            // Keep creation inside the lock: concurrent readers build at most once,
+            // and an older in-flight listing cannot republish after forgetSiblings.
             let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            siblingLock.lock()
-            siblingNames[directory.path] = listed
-            siblingLock.unlock()
-            names = listed
+            siblingIndexes[directory.path] = RawSiblingIndex(names: listed,
+                isRawName: { PhotoFormats.raw.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) })
         }
-        return SidecarNaming.rawSiblingExtensions(
-            of: photo, amongNames: names ?? [],
-            isRawName: { PhotoFormats.raw.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) })
+        return siblingIndexes[directory.path]?.siblings(of: photo) ?? []
     }
 
     static func forgetSiblings() {
         siblingLock.lock()
-        siblingNames.removeAll()
+        siblingIndexes.removeAll()
         siblingLock.unlock()
     }
 
