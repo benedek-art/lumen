@@ -1079,13 +1079,10 @@ struct LookPanel: View {
             // untouched JPEG modified — and Reset re-applied the default sigmoid on
             // top of the camera's own curve.
             //
-            // THE TITLE NAMES THE STOCK, and that is what replaced sixty-five words. A
-            // loaded stock bypasses this stage completely, and three paragraphs in this
-            // one file used to say so — the longest of them shouting two words in
-            // capitals directly above four controls that were sitting there, visible
-            // and inert, saying nothing about it themselves. Six words in the header
-            // answer it where the eye already is; the rows below answer it by going
-            // dim. Prose was never the only way to be honest about a disabled control.
+            // Only a stock at full Strength replaces this stage. A partial blend still
+            // uses the user's solved transform, so its controls remain live and the
+            // replacement badge stays absent. At full Strength the badge names the
+            // stock and the controls go dim without discarding their saved values.
             //
             // A NAME AND A BADGE, not a sentence. This was one line —
             // "Display Transform · replaced by Kodak Gold 200" — which measures about
@@ -1106,10 +1103,11 @@ struct LookPanel: View {
                                        for: photo.id, iso: photo.iso).look.render
                                } },
                                topRhythm: innerRhythm)
+                .help(FilmDisplayTransformAvailability.transformHelp)
 
             if only != nil || transformExpanded {
                 // Ghosted, not hidden. The values are still the recipe's, they still
-                // travel in the sidecar, and they render the moment the stock comes off
+                // travel in the sidecar, and they render as soon as Strength falls below 100
                 // — but a control the user can drag while it cannot reach a pixel is
                 // the defect this section shipped with. Opacity alone, with no fill or
                 // second surface behind it: a disabled state drawn as another box would
@@ -1134,15 +1132,11 @@ struct LookPanel: View {
 
     /// The stock standing in for this stage, or nil while the stage is live.
     ///
-    /// The three terms are `RenderPlan.init`'s own — a film block, a positive Strength,
-    /// and a stock this build actually ships — because they are the exact condition
-    /// under which its display closure bypasses `transform` entirely. A recipe naming a
-    /// stock we do not have falls back to the neutral transform, and at that point
-    /// these controls are live again.
+    /// A recognized stock replaces the transform only at full Strength. A partial
+    /// chain blends the transform in; an unknown stock leaves it in charge entirely.
     private var replacingStock: String? {
-        guard let film = state.currentRecipe.look.filmLab, film.amount > 0,
-              let stock = FilmStock.named(film.stock) else { return nil }
-        return stock.name
+        FilmDisplayTransformAvailability.replacingStock(
+            for: state.currentRecipe.look.filmLab)?.name
     }
 
     private var transformIsInert: Bool { replacingStock != nil }
@@ -1327,7 +1321,7 @@ struct LookPanel: View {
         LumenMenuPicker(title: "Stock",
                         options: filmStockOptions,
                         selection: stockBinding,
-                        help: "Loading a stock replaces the Display Transform")
+                        help: FilmDisplayTransformAvailability.stockHelp)
 
         if let film {
             LumenSlider(title: "Strength",
@@ -1336,6 +1330,7 @@ struct LookPanel: View {
                                         set: { $0.amount = Num.clamp($1, 0, 100) }),
                         range: 0...100, defaultValue: 100, step: 1, decimals: 0,
                         bipolar: false)
+                .help(FilmDisplayTransformAvailability.transformHelp)
             LumenSlider(title: "Film Exposure",
                         value: bindFilm("film.exposure",
                                         get: { $0.exposure },
@@ -1428,19 +1423,16 @@ struct LookPanel: View {
                         range: 0.5...2.0, defaultValue: 1.0, step: 0.05, decimals: 2,
                         bipolar: true)
 
-            // What a loaded stock does to the Display Transform is not written here
-            // any more. It was written here, and above the transform's own controls,
-            // and again where no stock is loaded at all — one fact, three paragraphs,
-            // one panel. The Display Transform header now names the stock that replaced
-            // it and its rows sit ghosted underneath, which is the same fact in six
-            // words at the place the eye is already looking.
+            // Only full Strength earns the Display Transform's replacement badge.
+            // The stock and Strength help explain the partial blend without adding
+            // another paragraph to the panel.
             if stock == nil {
                 // The one line in this file that must be READ rather than merely
                 // available: the recipe names a stock, the picture does not show it,
                 // and nothing else on screen says so.
                 caption("\u{201C}\(film.stock)\u{201D} is not a stock this build "
-                        + "ships — the render falls back to the neutral "
-                        + "transform rather than to a different look.",
+                        + "ships — the render uses your Display Transform "
+                        + "rather than a different stock.",
                         prominent: true)
             }
         }
