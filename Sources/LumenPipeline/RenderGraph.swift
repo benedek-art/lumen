@@ -974,8 +974,8 @@ public struct RenderGraph {
         // cropped decomposition of its own. Without this the mask panel's Texture,
         // Clarity, Dehaze and Sharpness sliders moved and nothing happened.
         var localDetail = Detail()
-        localDetail.texture = a.texture * scale
-        localDetail.clarity = a.clarity * scale
+        localDetail.texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
+        localDetail.clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         localDetail.dehaze = a.dehaze * scale
         if localDetail.texture != 0 || localDetail.clarity != 0 || localDetail.dehaze != 0 {
             out = Self.applyPresence(out, detail: localDetail, longEdge: longEdge)

@@ -358,16 +358,18 @@ public enum ReferenceRenderer {
         // caller composites the result through the mask's alpha — the same shape the
         // colour half already had, and the reason a masked Clarity does not need its
         // own cropped decomposition.
-        let texture = a.texture * scale
-        let clarity = a.clarity * scale
+        let texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
+        let clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         let dehaze = a.dehaze * scale
         let sharpness = a.sharpness * scale
         if texture != 0 || clarity != 0 || dehaze != 0 || sharpness != 0 {
             let radius = Swift.max(Int(Double(Swift.max(out.width, out.height)) * 0.02), 3)
             let node = DetailEngine.Decomposition(image: out, workingRadius: radius,
                                                   space: space)
-            out = DetailEngine.applyTexture(out, amount: texture, decomposition: node)
-            out = DetailEngine.applyClarity(out, amount: clarity, decomposition: node)
+            out = DetailEngine.applyTexture(out, amount: a.texture, strength: scale,
+                                           decomposition: node)
+            out = DetailEngine.applyClarity(out, amount: a.clarity, strength: scale,
+                                           decomposition: node)
             out = DetailEngine.applyDehaze(out, amount: dehaze, decomposition: node)
             if sharpness > 0 {
                 out = DetailEngine.applySharpen(

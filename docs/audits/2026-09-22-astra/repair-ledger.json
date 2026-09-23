@@ -305,7 +305,7 @@
       "phase": 4,
       "status": "verifying",
       "evidence": ["EXECUTION-03.md: native geometry red 3 tests / 20 assertions; 146-test qualification passed after exact coordinate field and integral delivered crop alignment"],
-      "commit": null,
+      "commit": "cddbd3d",
       "limitations": ["Production GPU geometry verified; native pointer workflow and full geometry-aware software reference rendering are separate qualifications."]
     },
     {
@@ -323,10 +323,10 @@
       "title": "Display Transform disabled during partial film blend although still active",
       "priority": "P2",
       "phase": 5,
-      "status": "queued",
-      "evidence": [],
-      "commit": null,
-      "limitations": []
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: four new baseline tests / 39 failed assertions; 59-test agent qualification passed with partial/full blend UI contract"],
+      "commit": "f2d5def",
+      "limitations": ["Native hover/drag interaction pending; pure availability, real-plan influence and source wiring tested."]
     },
     {
       "id": "M09",
@@ -353,10 +353,10 @@
       "title": "Mask Strength above100 scales Texture/Clarity only in GPU",
       "priority": "P2",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: native red 2 tests / 4 assertions; 120-test qualification passed for local strength, global defaults and group cap"],
       "commit": null,
-      "limitations": []
+      "limitations": ["Existing CPU/GPU spatial algorithms and resulting magnitudes still differ; this fixes strength composition, not full pixel parity. Absolute Kelvin and aggregate 200% cap remain explicitly disclosed."]
     },
     {
       "id": "M15",

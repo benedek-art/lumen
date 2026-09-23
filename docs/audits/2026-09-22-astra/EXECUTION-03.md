@@ -108,6 +108,20 @@ Baseline red: **3 tests / 20 assertions** across off-centre crop/reflected flip,
 
 Qualification: **146 tests, zero failures or skips**, including all kernel goldens, crop arithmetic, vignette response/feather/banding, local-curve blends, the non-enabled exact Mixer, and integrated cache-count/publication regressions. Maximum observed error against an independently evaluated delivered-coordinate vignette is 4.98e-7 in linear channels. Axis-aligned default controls retain their existing response. This is production GPU geometry qualification, not a new full-geometry implementation for the software reference renderer or a pointer-driven crop workflow. Private-photo visual comparisons and a fresh combined full suite remain separate checks.
 
+## M08 — display controls during partial film blending
+
+Agent `1dda467` was integrated as `f2d5def`. The pure availability rule now disables Display Transform controls only for a recognized stock at full replacement (Strength ≥100), matching the existing clamped FilmChain blend. At partial strength, nil film or unknown stock the controls remain live and the replacement badge is absent. Header/stock/Strength help explains partial versus full blending; the unknown-stock caption identifies the actual user-selected Display Transform. No rendering mathematics or saved recipe changes.
+
+Baseline: five existing film/display engine tests passed while four new tests produced **39 failed assertions**. Agent qualification: **59 tests, zero failures/skips**, including seven availability/real-plan/UI-source tests, existing film/display controls, layout and panel-broadcast checks. Layout edits only update shifted source citations, not metric limits. Native hover/drag interaction remains unverified.
+
+## M11 — local Texture/Clarity strength composition
+
+Baseline native regressions: **2 tests / 4 failed assertions**. CPU output was identical at 100% and 200% Strength for positive/negative Texture and Clarity, while the GPU controls remained live. The CPU now clamps the base control before multiplying by local strength, not afterwards. A shared scalar rule resolves the ±100 control and 0…200% multiplier; global callers retain unit strength, and legal GPU recipes retain the same effective amounts. Foreign out-of-range Texture/Clarity values are bounded before scaling consistently on both paths.
+
+Qualification: **120 tests, zero failures/skips**, including five new amount/pixel tests, group composition, global unit-strength identity, zero/equivalent composition controls, local blends/softening and adjacent GPU/detail/vignette checks. Existing group×member recipes still compose to 400 internally and both renderers retain their 200% aggregate ceiling. Help now discloses that ceiling and that absolute Kelvin reaches its target at 100%; neither behaviour was redesigned. Preview rendering revision is raised to 6 for the changed software-reference/foreign-value pixels.
+
+This repairs strength semantics, **not** the pre-existing CPU/GPU algorithm difference: CPU Texture uses multiscale bands and Clarity local Laplacian, while GPU uses guided bands. Their resulting magnitudes still differ; the same fixture measures positive Texture's 100→200 delta as 0.0362 CPU versus 0.0128 GPU, and Clarity as 0.1388 versus 0.0741. No assertion claims full pixel parity or that every local control extrapolates without its own safety limit.
+
 ## Combined integration status
 
 The first combined optimized run executed **2,470 tests, 14 skipped, six failed assertions**. Four were stale structural expectations: a fixed-width source scan no longer reached the decoder fork, five slider source addresses had shifted, and a precision test still expected the replaced Black target upper bound. Those expectations are corrected without deleting their checks. Two failures came from the existing draft-versus-settle timing ratio under concurrent work; no timing threshold was relaxed.

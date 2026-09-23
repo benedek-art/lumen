@@ -6,6 +6,13 @@ import XCTest
 
 /// Engine measurements plus source-level UI wiring checks, not a hosted UI test.
 final class AuditControlContractTests: XCTestCase {
+    func testMaskStrengthHelpDisclosesExistingControlLimits() throws {
+        let panel = try source("MaskPanel.swift")
+        XCTAssertTrue(panel.contains("combined group/member strength is capped at 200%"))
+        XCTAssertTrue(panel.contains("absolute Kelvin reaches its target at 100%"))
+        XCTAssertFalse(panel.contains("Past 100 it exaggerates them."))
+    }
+
     private func source(_ file: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

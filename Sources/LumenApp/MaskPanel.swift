@@ -328,9 +328,9 @@ struct MaskPanel: View {
                         value: maskValue(mask.id, "amount", get: { $0.amount },
                                          set: { $0.amount = Num.clamp($1, 0, 200) }),
                         range: 0...200, defaultValue: 100, step: 1, decimals: 0,
-                        help: "How far every adjustment below is pushed, all together. "
-                            + "Past 100 it exaggerates them. It does not change what is "
-                            + "selected — Contribution, up in the stack, does that.")
+                        help: "Scales local adjustments; combined group/member strength is capped at 200%. "
+                            + "Individual limits remain; absolute Kelvin reaches its target at 100%. "
+                            + "Selection is unchanged — Contribution controls that.")
             blendRow(mask)
             adjustSections(mask)
         }
