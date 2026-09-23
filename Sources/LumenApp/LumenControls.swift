@@ -1973,8 +1973,9 @@ struct LumenColorWheel: View {
                 Text("Luminance")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
-                    .help("Luminance — the zone's own brightness, up to half a stop "
-                          + "each way, holding its colour rather than washing it out. "
+                    .help("Luminance — the zone's perceptual brightness, up to "
+                          + "1.5 stops on neutral tones each way. Overlapping zone edits "
+                          + "may be eased to preserve tonal separation. "
                           + "Drag the bar, or double-click it to reset.")
             } else {
                 lightnessBar

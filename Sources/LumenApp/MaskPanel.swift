@@ -2094,8 +2094,8 @@ struct MaskPanel: View {
             refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
                          step: 0.05, decimals: 2, bipolar: true,
                          help: "Bends the fade between Ramp from and Ramp to. "
-                             + "Below 1 the selection comes up early and eases "
-                             + "in; above 1 it holds back and arrives late.")
+                             + "Below 1 the selection holds back and arrives late; "
+                             + "above 1 it comes up early and eases in.")
         }
     }
 

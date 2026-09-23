@@ -463,8 +463,8 @@
       "title": "Black target accepts values9–15 that render identically",
       "priority": "P3",
       "phase": 3,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: control contracts red 4 tests / 12 assertions; adjacent green 60 tests"],
       "commit": null,
       "limitations": []
     },
@@ -483,8 +483,8 @@
       "title": "Wheel Luminance tooltip understates the actual scene exposure range by3x",
       "priority": "P3",
       "phase": 3,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: numerical 1.5-stop neutral response and corrected UI help; adjacent green 60 tests"],
       "commit": null,
       "limitations": []
     },
@@ -503,8 +503,8 @@
       "title": "Ramp shape tooltip describes opposite direction from gamma formula",
       "priority": "P3",
       "phase": 4,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: measured inverse-gamma direction and corrected UI help; adjacent green 60 tests"],
       "commit": null,
       "limitations": []
     },
@@ -513,8 +513,8 @@
       "title": "Velvia exposes enabled Halation/Size/Redness despite zero-strength stage",
       "priority": "P3",
       "phase": 5,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-03.md: all three halation controls use stock capability; adjacent green 60 tests; native interaction still pending"],
       "commit": null,
       "limitations": []
     }

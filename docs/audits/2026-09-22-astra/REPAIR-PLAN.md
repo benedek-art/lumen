@@ -146,3 +146,5 @@ Nine findings now have changes under verification: UX-01, BR-01, BR-02, REL-01, 
 ### Ownership and recovery follow-up
 
 REL-02 implementation and deeper REL-08 recovery checks are recorded in [execution record 02](EXECUTION-02.md). The first public implementation checkpoint is [draft PR #5](https://github.com/benedek-art/lumen/pull/5). Keep it a draft; no automatic merge, release or installation is authorized.
+
+The next independent Astra lanes and UI-contract consistency repairs are tracked in [execution record 03](EXECUTION-03.md). Source-level UI checks are distinguished from native interaction, and unintegrated agent work is not counted as complete.

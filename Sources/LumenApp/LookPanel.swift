@@ -1208,12 +1208,12 @@ struct LookPanel: View {
                         onReset: { clearTransformOverride(\.huePreservation) })
             LumenSlider(title: "Black target",
                         value: renderBinding("render.black",
-                                             get: { $0.blackTarget },
+                                             get: { $0.blackTarget.map { Num.clamp($0, 0, 9) } },
                                              fallback: base.blackTarget,
-                                             set: { $0.blackTarget = $1 }),
-                        // 0…9 ON THE TRACK, 0…15 BY TYPING. `DisplayTransform` clamps
-                        // this to `midGrey * 0.5` — 0.09, i.e. blackTarget 9 — so the top
-                        // 40% of a 0…15 track rendered identically to its 60% mark.
+                                             set: { $0.blackTarget = Num.clamp($1, 0, 9) }),
+                        // Track, typing and binding share the engine's effective ceiling.
+                        // Legacy overrides above 9 display as 9 without rewriting recipes
+                        // on load; their rendered appearance is unchanged.
                         //
                         // TWO DECIMALS, NOT THREE. Three over 0…9 is nine thousand
                         // values, and the best gesture this app has — the readout scrub
@@ -1237,7 +1237,7 @@ struct LookPanel: View {
                         // against 0.0002 of white on the darkest pixel in the frame —
                         // about a sixth of one 8-bit code value once encoded. The hard
                         // range still takes 0.0152 typed.
-                        range: 0...9, hardRange: 0...15,
+                        range: 0...9, hardRange: 0...9,
                         defaultValue: base.blackTarget,
                         step: 0.01, decimals: 2, bipolar: false,
                         help: LookPanel.overrideHelp,
@@ -1314,6 +1314,7 @@ struct LookPanel: View {
     private var filmLabRows: some View {
         let film = state.currentRecipe.look.filmLab
         let stock = film.flatMap { FilmStock.named($0.stock) }
+        let halationSupported = stock.map { $0.halationStrength != .zero } ?? false
 
         // "None" IS THE FIRST OPTION, exactly as it was, and it is the empty string
         // rather than a nil selection — `stockBinding` reads "" for "no film block" and
@@ -1345,6 +1346,11 @@ struct LookPanel: View {
                                         get: { $0.pushPull },
                                         set: { $0.pushPull = Num.clamp($1, -1, 2) }),
                         range: -1...2, defaultValue: 0, step: 0.25, decimals: 2)
+            if !halationSupported {
+                Text("This stock has no halation response.")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+            }
             LumenSlider(title: "Halation",
                         value: bindFilm("film.halation",
                                         get: { $0.halation },
@@ -1354,6 +1360,7 @@ struct LookPanel: View {
                         step: 1, decimals: 0, bipolar: false,
                         help: "How much of the highlight energy passes through the "
                             + "emulsion and scatters back off the film base.")
+                .disabled(!halationSupported)
             // SIZE AND REDNESS, which `HalationProfile` has computed from since it was
             // written and which nothing could reach until now (C2-05). Both callers
             // passed the defaults, so every stock's halo was the same 65 µm radius
@@ -1370,6 +1377,7 @@ struct LookPanel: View {
                             + "emulsion's measured 65 µm at the film gate, and like "
                             + "grain it stays the same fraction of the picture at every "
                             + "delivery size.")
+                .disabled(!halationSupported)
             // Redness is OPTIONAL on the wire — nil means the stock's own measured
             // value — and a slider cannot express nil, so the binding reads the stock's
             // number when the recipe has none and writes a real one the moment the
@@ -1388,6 +1396,7 @@ struct LookPanel: View {
                             + "own value is the default; a colour negative's "
                             + "anti-halation layer leaks red first, which is why the "
                             + "glow around a bright window is warm.")
+                .disabled(!halationSupported)
             // NO PRINT SIZE CONTROL, and no caption apologising for one. A menu of
             // five sizes shipped once, above a sentence explaining that choosing one
             // does nothing; the caption has now gone after the menu, so the reasoning

@@ -539,7 +539,7 @@ enum SliderInventory {
                    step: 0.01, decimals: 2),
         SliderSpec("Hue keep", "LookPanel.swift:1200", .developTop, 0...100, step: 1),
         SliderSpec("Black target", "LookPanel.swift:1209", .developTop, 0...9,
-                   hard: 0...15, step: 0.01, decimals: 2),
+                   hard: 0...9, step: 0.01, decimals: 2),
         SliderSpec("Strength", "LookPanel.swift:1332", .developTop, 0...100, step: 1),
         SliderSpec("Film Exposure", "LookPanel.swift:1338", .developTop, -2...3,
                    step: 0.25, decimals: 2),
