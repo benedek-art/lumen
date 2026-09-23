@@ -373,7 +373,11 @@ public enum ReferenceRenderer {
                 // Negative Sharpness is a blur, which `applySharpen` refuses by
                 // contract (it clamps amount at 0). A small Gaussian is what the
                 // control means.
-                let sigma = Num.clamp(-sharpness / 100, 0, 1) * 2.5
+                // Preserve the 2.5 px maximum at the same 2560 px reference as
+                // positive sharpening. A fixed render-pixel blur fades on export.
+                let sigma = SpatialOps.frameDenominatedSigma(
+                    radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                    longEdge: Swift.max(out.width, out.height))
                 out = SpatialOps.gaussianBlur(out, sigma: sigma)
             }
         }

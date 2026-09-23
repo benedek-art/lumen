@@ -988,12 +988,41 @@ public struct RenderGraph {
                                     longEdge: longEdge)
         } else if sharpness < 0 {
             // Negative Sharpness is a softening; `applySharpen` clamps at zero.
-            let filter = CIFilter.gaussianBlur()
-            filter.inputImage = out.clampedToExtent()
-            filter.radius = Float(Num.clamp(-sharpness / 100, 0, 1) * 2.5)
-            out = filter.outputImage?.cropped(to: out.extent) ?? out
+            let sigma = SpatialOps.frameDenominatedSigma(
+                radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                longEdge: longEdge)
+            out = Self.applyLocalSoftening(out, sigma: sigma)
         }
         return out
+    }
+
+    /// Match the reference's discrete Gaussian at subpixel radii. Core Image's
+    /// Gaussian approximation over-softens this range (sigma .5 is visibly wider),
+    /// precisely where frame-denominated blur lands on a small preview. Nine taps
+    /// contain the reference's full 4-sigma support below one pixel; larger radii
+    /// keep the existing Gaussian and its established reference-resolution look.
+    private static func applyLocalSoftening(_ image: CIImage, sigma: Double) -> CIImage {
+        guard sigma > 0.05 else { return image }
+        if sigma < 1 {
+            let radius = Swift.max(Int(ceil(sigma * 4)), 1)
+            var weights = [CGFloat](repeating: 0, count: 9)
+            for i in -radius...radius {
+                weights[i + 4] = CGFloat(exp(-Double(i * i) / (2 * sigma * sigma)))
+            }
+            let total = weights.reduce(0, +)
+            weights = weights.map { $0 / total }
+            let vector = CIVector(values: weights, count: weights.count)
+            let horizontal = image.clampedToExtent().applyingFilter(
+                "CIConvolution9Horizontal", parameters: ["inputWeights": vector])
+                .cropped(to: image.extent)
+            return horizontal.clampedToExtent().applyingFilter(
+                "CIConvolution9Vertical", parameters: ["inputWeights": vector])
+                .cropped(to: image.extent)
+        }
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = image.clampedToExtent()
+        filter.radius = Float(sigma)
+        return filter.outputImage?.cropped(to: image.extent) ?? image
     }
 
     // MARK: - S15b local point curve
