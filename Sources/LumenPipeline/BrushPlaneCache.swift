@@ -70,13 +70,10 @@
 // `DraftLadder.interactiveLongEdgeCeiling` is the line between a surface being dragged
 // on and a file being written, read from the ladder rather than restated.
 //
-// `MaskRasterCache` does NOT get the same treatment, and the asymmetry is deliberate
-// rather than an oversight: that cache trusts a key completely, and its key does not
-// name the masks a `maskRef` component resolves against, so holding its settle rung
-// would freeze a referenced selection at whatever the mask it points to last looked
-// like. This cache trusts nothing of the sort — the strokes are COMPARED, entry against
-// request, and the only trusted term is the picture fingerprint that already gates the
-// draft rung. See `MaskRasterCache`'s header for what has to be fixed there.
+// `MaskRasterCache` retains its smaller, proxy-only budget. Its keys now include the
+// full referenced selection, but extending its retention is a separate performance
+// decision. This cache also compares the actual strokes, entry against request, before
+// reusing a prefix; matching a component identity alone never makes a prefix valid.
 
 #if os(macOS)
 

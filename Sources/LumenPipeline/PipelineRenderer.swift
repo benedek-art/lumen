@@ -144,12 +144,15 @@ public final class PipelineRenderer {
     /// nobody had made.
     private struct MatteEntry {
         var planes: [String: Plane] = [:]
+        /// Distinguishes replacement pixels even when the set of matte kinds is unchanged.
+        var generation: UInt64 = 0
         /// Kinds a generation pass has been RUN for, whatever it found. Vision looking
         /// for a person and finding none is an answer, and this is what keeps it from
         /// being re-asked on every edit — the job the old per-file flag was doing, at
         /// the granularity the question actually has.
         var attempted: Set<String> = []
     }
+    private var nextMatteGeneration: UInt64 = 0
 
     /// What this renderer believes about its kernels. `.live` in the app; a test can
     /// substitute a degraded build, which is the only way the refusal below can be
@@ -194,6 +197,10 @@ public final class PipelineRenderer {
                             for url: URL) -> [URL] {
         var entry = mattes[url] ?? MatteEntry()
         entry.planes.merge(produced) { _, new in new }
+        if !produced.isEmpty {
+            nextMatteGeneration &+= 1
+            entry.generation = nextMatteGeneration
+        }
         entry.attempted.formUnion(requested)
         mattes[url] = entry
         matteOrder.removeAll { $0 == url }
@@ -1481,16 +1488,20 @@ public final class PipelineRenderer {
                                               masks: plan.allMasks)
                 }
                 let alpha: Plane
+                let dependencies = MaskDependency.closure(of: mask, in: plan.allMasks)
                 if let sourceKey,
-                   let maskJSON = (try? CanonicalJSON.tree(of: mask))
-                       .map(CanonicalJSON.serialize) {
-                    let strokesKey = mask.components.compactMap(\.strokesRef)
+                   let maskJSON = Self.maskSelectionFingerprint(dependencies) {
+                    // Blob refs are content-addressed. Include their availability from
+                    // the entire closure too: a disabled donor's strokes may arrive
+                    // after this borrower's empty raster was cached.
+                    let refs = Set(dependencies.flatMap { $0.components.compactMap(\.strokesRef) })
+                    let strokesKey = refs.sorted()
                         .map { "\($0):\(strokeSets[$0]?.strokes.count ?? 0)" }
                         .joined(separator: ",")
-                    // The matte KIND NAMES, not the matte pixels — which is why this
-                    // term cannot stand in for the photograph, and why it was so easy
-                    // to mistake for a term that could.
+                    // A regenerated matte can keep its kind and photograph. Its
+                    // generation prevents a referenced selection retaining old pixels.
                     let mattesKey = aiMattes.keys.sorted().joined(separator: ",")
+                        + "@\(mattes[sourceURL]?.generation ?? 0)"
                     let key = Self.maskRasterKey(sourceURL: sourceURL,
                                                  maskJSON: maskJSON,
                                                  width: width, height: height,
@@ -1585,7 +1596,8 @@ public final class PipelineRenderer {
         let height = Swift.max(Int(extent.height * fit), 8)
 
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
-                               height: height, extent: extent, strokeSets: strokeSets)
+                               height: height, extent: extent, strokeSets: strokeSets,
+                               masks: [mask])
         return MaskRaster.combine(mask: mask,
                                   size: (width: width, height: height),
                                   source: stage,
@@ -1604,26 +1616,14 @@ public final class PipelineRenderer {
     /// pure geometry and a brush is pure geometry plus its stroke set.
     private func maskSource(decoded: CIImage, plan: RenderPlan,
                             width: Int, height: Int, extent: CGRect,
-                            strokeSets: [String: BrushStrokeSet]) -> ImageBuffer? {
-        /// A brush is pure geometry UNLESS one of its strokes has Automask on, which
-        /// gates each stamp on a colour difference against the picture.
-        ///
-        /// `MaskKind.brush.readsSourceImage` is false, correctly, for a plain brush —
-        /// but that made this test skip the stage input whenever Refine was 0, and
-        /// `MaskRaster.paint` then computes `stroke.automask && source != nil`, which is
-        /// false, and drops the ΔE gate entirely. So the Automask toggle did nothing in
-        /// preview or export while the CPU reference honoured it, and turning Refine up
-        /// to 3 switched it back on by accident.
-        func usesAutomask(_ component: MaskComponent) -> Bool {
-            guard component.kind == .brush, let ref = component.strokesRef,
-                  let set = strokeSets[ref] else { return false }
-            return set.strokes.contains { $0.automask }
-        }
-
-        let needsPicture = plan.masks.contains { mask in
-            mask.components.contains { $0.kind.readsSourceImage || usesAutomask($0) }
-                || MaskRaster.refineRadius(feather: mask.refine.feather,
-                                           longEdge: Swift.max(width, height)) >= 1
+                            strokeSets: [String: BrushStrokeSet],
+                            masks: [Mask]? = nil) -> ImageBuffer? {
+        // Rendering starts at enabled masks; an overlay starts at the requested row,
+        // even when it is disabled. Both need the complete reference closure, not just
+        // the root's own kinds: a disabled luma donor still lends its selection.
+        let needsPicture = (masks ?? plan.masks).contains { mask in
+            Self.maskReadsPicture(mask, in: plan.allMasks, strokeSets: strokeSets,
+                                  longEdge: Swift.max(width, height))
         }
         guard needsPicture else { return nil }
 
@@ -1672,7 +1672,7 @@ public final class PipelineRenderer {
     ///    by evaluating the referenced stack with the same `source`, so "Sky ∩ Person"
     ///    reads the picture exactly when Sky or Person does. `MaskDependency.closure`
     ///    is the walk — the same one used everywhere else that has to follow a
-    ///    reference — so it terminates on a cycle and leads with `mask` itself.
+    ///    reference — so it terminates on a cycle and includes `mask` itself.
     ///
     /// Conservative in the direction that matters: every route by which the rasterizer
     /// could touch `source` for this mask puts the fingerprint back in its key. Being
@@ -1716,6 +1716,23 @@ public final class PipelineRenderer {
         return parts.joined(separator: "|")
     }
 
+    /// Only selection fields affect an alpha plane. Adjustment strength, colour edits,
+    /// names and folder membership do not; referenced selections include their own
+    /// components, inversion and refinement, regardless of whether their edits are on.
+    static func maskSelectionFingerprint(_ dependencies: [Mask]) -> String? {
+        struct Selection: Encodable {
+            var id: String
+            var components: [MaskComponent]
+            var invert: Bool
+            var refine: MaskRefine
+        }
+        let selections = dependencies.map {
+            Selection(id: $0.id, components: $0.components,
+                      invert: $0.invert, refine: $0.refine)
+        }
+        return (try? CanonicalJSON.tree(of: selections)).map(CanonicalJSON.serialize)
+    }
+
     /// One mask raster's `MaskRasterCache` key — the ONLY place a raster key is
     /// spelled, and the reason the photograph can no longer fall out of one.
     ///
@@ -1734,10 +1751,11 @@ public final class PipelineRenderer {
     /// a pasted mask definition share a key, and one frame wears the other's
     /// rasterized selection in the loupe and in the delivered file.
     ///
-    /// None of the other terms can stand in for it. `maskJSON` is the mask DEFINITION,
+    /// None of the other terms can stand in for it. `maskJSON` is the selection closure,
     /// which Paste Settings makes identical on purpose. `WxH` is the raster size, which
     /// collides across every frame of the same aspect. `strokesKey` is stroke refs and
-    /// counts. `mattesKey` is the matte KIND names — `aiSubject`, not the subject.
+    /// counts throughout the closure. `mattesKey` includes the matte kinds and their
+    /// stored generation, so replacing pixels invalidates a same-kind selection.
     /// `sourceKey` is the picture-source fingerprint, and it is PER MASK: "-" for a
     /// mask whose dependency closure reads no picture at all, so a brush or a polygon
     /// stops being invalidated by a tone edit it does not depend on. It is not, and
