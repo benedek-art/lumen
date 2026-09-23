@@ -173,6 +173,9 @@ final class CatalogService: @unchecked Sendable {
         queue.sync {
             do {
                 let folderID = try store.registerFolder(path: folder.path)
+                // Resolve historical ownership BEFORE a new sibling is registered
+                // or allowed to import a bare sidecar belonging to an older photo.
+                establishLegacySidecarOwners(folder: folder, folderID: folderID, files: files)
                 // The folder scan is recursive and `photo` is UNIQUE per
                 // (folder, filename), so the basename is not an identity: one card
                 // with day1/ and day2/ subfolders puts two different frames named
@@ -1090,6 +1093,7 @@ final class CatalogService: @unchecked Sendable {
         // in the sidecar of a photograph whose brush masks had all been deleted.
         if let strokes { content.strokesPayload = strokes }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
+        content.sourceExtension = url.pathExtension.lowercased()
 
         // And the same nil-vs-`.some(nil)` distinction the parameters draw, carried
         // through to the write instead of being collapsed here. Everything NOT in this
@@ -1193,6 +1197,12 @@ final class CatalogService: @unchecked Sendable {
                 // short of a lock across another process's write can — but the two
                 // seconds the debounce buys are the part that was reachable by hand.
                 if let fresh = XMPSidecar.parse(existing) {
+                    guard fresh.sourceExtension == nil
+                            || fresh.sourceExtension == url.pathExtension.lowercased() else {
+                        report("Sidecar ownership mismatch for \(path.lastPathComponent); "
+                               + "it was left untouched. The catalog edit remains separate.")
+                        continue
+                    }
                     // Same interlock as the stale read's, applied to the fresh one:
                     // re-seeding from a HALF-READ document would delete whatever lies
                     // past the damage just as surely, and this read is the one being
@@ -1307,8 +1317,79 @@ final class CatalogService: @unchecked Sendable {
     /// `SidecarNaming`, in LumenCore, where it is tested; this function owns only the
     /// two facts it needs — is it a RAW, and which other RAWs share its name.
     static func sidecarURL(for photo: URL) -> URL {
-        SidecarNaming.url(for: photo, isRaw: PhotoFormats.isRaw(photo),
-                          rawSiblingExtensions: rawSiblings(of: photo))
+        let qualified = photo.appendingPathExtension("xmp")
+        guard PhotoFormats.isRaw(photo) else { return qualified }
+        // Once a photo has a qualified file, removing its neighbour cannot make it
+        // switch back to somebody else's bare file.
+        if FileManager.default.fileExists(atPath: qualified.path) { return qualified }
+        let bare = photo.deletingPathExtension().appendingPathExtension("xmp")
+        let content = (try? Data(contentsOf: bare)).flatMap { XMPSidecar.parse($0) }
+        if let owner = content?.sourceExtension {
+            return owner == photo.pathExtension.lowercased() ? bare : qualified
+        }
+        let siblings = rawSiblings(of: photo)
+        // Lumen itself writes DNG sidecars, unlike Adobe. An old Lumen document
+        // therefore cannot be assigned by Adobe's convention when a collision exists.
+        if !siblings.isEmpty, let content,
+           content.recipeJSON != nil || content.writeStamp != nil { return qualified }
+        return SidecarNaming.url(for: photo, isRaw: true, rawSiblingExtensions: siblings)
+    }
+
+    /// Backfill only ownership supported by BOTH the recorded recipe fingerprint
+    /// and the recorded sidecar timestamp, with exactly one matching catalog row.
+    /// Unknown/ambiguous legacy documents stay byte-for-byte intact and are reported.
+    private func establishLegacySidecarOwners(folder: URL, folderID: Int64, files: [URL]) {
+        let raws = files.filter { PhotoFormats.isRaw($0) }
+        guard !raws.isEmpty else { return }
+        let rows = (try? store.photos(folderID: folderID)) ?? []
+        var known: [String: [PhotoRow]] = [:]
+        for row in rows {
+            let file = folder.appendingPathComponent(row.filename)
+            guard PhotoFormats.isRaw(file) else { continue }
+            let key = file.deletingPathExtension().path.lowercased()
+            known[key, default: []].append(row)
+        }
+        var seen: Set<String> = []
+        for photo in raws {
+            let key = photo.deletingPathExtension().path.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            let bare = photo.deletingPathExtension().appendingPathExtension("xmp")
+            guard let data = try? Data(contentsOf: bare),
+                  var content = XMPSidecar.parse(data), content.sourceExtension == nil,
+                  content.recipeJSON != nil || content.writeStamp != nil else { continue }
+            let stamp = Self.modificationTime(of: bare)
+            let candidates = (known[key] ?? []).filter { row in
+                guard let stamp, row.sidecarMTime == stamp,
+                      let fingerprint = content.recipeFingerprint, !fingerprint.isEmpty
+                else { return false }
+                return (try? store.currentRecipeFingerprint(photoID: row.id)) == fingerprint
+            }
+            if candidates.count == 1, content.parsedCleanly,
+               content.pipelineVersion <= currentPipelineVersion,
+               let original = String(data: data, encoding: .utf8) {
+                content.sourceExtension = URL(fileURLWithPath: candidates[0].filename).pathExtension.lowercased()
+                if let updated = XMPSidecar.update(original, with: content) {
+                    do {
+                        // A changed file is no longer the document whose provenance
+                        // was checked. Refuse rather than migrate that newer edit.
+                        guard try Data(contentsOf: bare) == data else { continue }
+                        let attributes = try FileManager.default.attributesOfItem(atPath: bare.path)
+                        try Data(updated.utf8).write(to: bare, options: .atomic)
+                        if let date = attributes[.modificationDate] {
+                            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: bare.path)
+                        }
+                        continue
+                    } catch {
+                        report("Could not record sidecar ownership for \(bare.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+            }
+            if !Self.rawSiblings(of: photo).isEmpty {
+                report("Ambiguous sidecar ownership for \(bare.lastPathComponent). "
+                       + "Its edits were not assigned to either RAW. The sidecar and "
+                       + "existing catalog edits were preserved; choose its owner before importing it.")
+            }
+        }
     }
 
     /// The other RAW files sharing `photo`'s basename, from one directory listing per
@@ -1345,7 +1426,10 @@ final class CatalogService: @unchecked Sendable {
     static func readSidecar(for photo: URL) -> SidecarContent? {
         let url = sidecarURL(for: photo)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return XMPSidecar.parse(data)
+        guard let content = XMPSidecar.parse(data),
+              content.sourceExtension == nil || content.sourceExtension == photo.pathExtension.lowercased()
+        else { return nil }
+        return content
     }
 
     // MARK: - Preview cache

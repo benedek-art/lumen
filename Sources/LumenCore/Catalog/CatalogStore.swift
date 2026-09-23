@@ -589,14 +589,14 @@ public struct CatalogRecovery: Equatable, Sendable {
             // yet — promising otherwise would be the same class of caption this project
             // keeps finding and removing.
             return "The catalog was damaged and has been restored from \(name). "
-                + "Edits made since that backup come back from the sidecars as each "
-                + "folder is rescanned."
+                + "Newer edits can be recovered from successfully saved sidecars as "
+                + "each folder is rescanned."
         case .unrecoverable(let tried):
             return tried == 0
                 ? "The catalog is damaged and there is no backup to restore from. "
-                    + "Your edits are still in the sidecars beside your photos."
+                    + "Successfully saved sidecars may recover your edits."
                 : "The catalog is damaged and none of the \(tried) backups could be "
-                    + "read either. Your edits are still in the sidecars beside your photos."
+                    + "restored with its required payloads. Successfully saved sidecars may recover your edits."
         }
     }
 
@@ -1566,7 +1566,8 @@ public final class CatalogStore {
         for name in backups {
             let candidate = URL(fileURLWithPath: backupDirectory, isDirectory: true)
                 .appendingPathComponent(name).path
-            guard probeQuickCheck(path: candidate) else { continue }
+            guard probeQuickCheck(path: candidate),
+                  prepareBackupPayloads(path: candidate, liveCatalogPath: path) else { continue }
             let stamp = String(CatalogStore.now())
             let setAside = path + ".damaged-" + stamp
             do {
@@ -1607,6 +1608,66 @@ public final class CatalogStore {
 
     private enum IntegrityProbe {
         case healthy, corrupt, unavailable(String)
+    }
+
+    /// Older builds could publish the SQLite snapshot before copying its brushes.
+    /// A healthy database alone is therefore not evidence of a complete backup.
+    /// Inspect references without migrating or rewriting the candidate. Live blobs
+    /// may satisfy a legacy database-only snapshot, but their bytes must hash to the
+    /// requested content address just like the backup's own payloads. Restore missing
+    /// or damaged payloads BEFORE replacing the database; an I/O failure must not
+    /// publish a restored catalog whose paintings do not exist. Damaged bytes are
+    /// preserved under a unique name, never discarded.
+    private static func prepareBackupPayloads(path: String, liveCatalogPath: String) -> Bool {
+        do {
+            let database = try SQLiteDatabase(path: path, readOnly: true)
+            defer { database.close() }
+            let statement = try database.prepare("SELECT recipe FROM edit;")
+            let backupBlobs = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("blobs")
+            let liveBlobs = URL(fileURLWithPath: liveCatalogPath).deletingLastPathComponent().appendingPathComponent("blobs")
+            var references: Set<String> = []
+            func collect(_ value: Any) {
+                if let object = value as? [String: Any] {
+                    for (key, child) in object {
+                        if key == "strokesRef", let ref = child as? String, !ref.isEmpty {
+                            references.insert(ref)
+                        } else { collect(child) }
+                    }
+                } else if let array = value as? [Any] {
+                    for child in array { collect(child) }
+                }
+            }
+            while try statement.step() {
+                guard let json = statement.string(0) else { return false }
+                collect(try JSONSerialization.jsonObject(with: Data(json.utf8)))
+            }
+            // Keep paths, not every painting's bytes: recovering a large library
+            // must not retain its entire blob store in memory at once.
+            var repairs: [(target: URL, source: URL, reference: String)] = []
+            for ref in references {
+                guard let name = BlobStore.filename(for: ref) else { return false }
+                let target = liveBlobs.appendingPathComponent(name)
+                if let live = try? Data(contentsOf: target), BrushStrokeSet.blobRef(for: live) == ref { continue }
+                let source = backupBlobs.appendingPathComponent(name)
+                guard let saved = try? Data(contentsOf: source),
+                      BrushStrokeSet.blobRef(for: saved) == ref else { return false }
+                repairs.append((target, source, ref))
+            }
+            if !repairs.isEmpty {
+                let manager = FileManager.default
+                try manager.createDirectory(at: liveBlobs, withIntermediateDirectories: true)
+                for repair in repairs {
+                    let bytes = try Data(contentsOf: repair.source)
+                    guard BrushStrokeSet.blobRef(for: bytes) == repair.reference else { return false }
+                    if manager.fileExists(atPath: repair.target.path) {
+                        let preserved = URL(fileURLWithPath: repair.target.path + ".damaged-" + UUID().uuidString)
+                        try manager.copyItem(at: repair.target, to: preserved)
+                    }
+                    try bytes.write(to: repair.target, options: .atomic)
+                }
+            }
+            return true
+        } catch { return false }
     }
 
     private static func probeIntegrity(path: String) -> IntegrityProbe {

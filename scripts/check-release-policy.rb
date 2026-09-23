@@ -5,6 +5,7 @@ require 'yaml'
 def violations(workflow)
   jobs = workflow.fetch('jobs')
   errors = []
+  errors << 'default workflow access must be read-only' unless workflow.dig('permissions', 'contents') == 'read'
   publisher = jobs['publish-release']
   return ['release publication must be a separate gated job'] unless publisher
   required = %w[app-bundle build-macos test-fast fixtures-linux engine-linux release-validation]
@@ -41,6 +42,7 @@ end
 
 # Guard the guard: each unsafe mutation must be rejected by the actual policy.
 mutations = [
+  ->(w) { w['permissions']['contents'] = 'write' },
   ->(w) { w['jobs']['publish-release'].delete('needs') },
   ->(w) { w['jobs']['publish-release']['if'] = 'always()' },
   ->(w) { w['jobs']['publish-release']['if'] = "success() && github.ref == 'refs/heads/claude/photo-editor-design-plan-8ahzmm'" },

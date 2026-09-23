@@ -43,6 +43,9 @@ public struct SidecarContent: Equatable, Sendable {
     public var strokesPayload: String?
     public var catalogUUID: String?
     public var writeStamp: String?  // ISO 8601
+    /// Portable ownership of a same-basename RAW sidecar. The extension rather
+    /// than the filename survives renaming a photo and its XMP together.
+    public var sourceExtension: String?
 
     /// WHETHER THE WHOLE DOCUMENT PARSED, and it is a safety interlock rather than a
     /// diagnostic.
@@ -68,7 +71,7 @@ public struct SidecarContent: Equatable, Sendable {
                 recipeFingerprint: String? = nil, recipeJSON: String? = nil,
                 strokesPayload: String? = nil,
                 catalogUUID: String? = nil, writeStamp: String? = nil,
-                parsedCleanly: Bool = true) {
+                parsedCleanly: Bool = true, sourceExtension: String? = nil) {
         self.rating = rating
         self.flag = flag
         self.label = label
@@ -79,6 +82,7 @@ public struct SidecarContent: Equatable, Sendable {
         self.catalogUUID = catalogUUID
         self.writeStamp = writeStamp
         self.parsedCleanly = parsedCleanly
+        self.sourceExtension = sourceExtension
     }
 }
 
@@ -137,6 +141,7 @@ extension XMPSidecar {
         }
         if fields.contains(.strokes) { out.strokesPayload = stated.strokesPayload }
         out.writeStamp = stated.writeStamp
+        out.sourceExtension = stated.sourceExtension ?? fresh.sourceExtension
         return out
     }
 
@@ -501,6 +506,9 @@ public enum XMPSidecar {
         if let uuid = content.catalogUUID {
             fields += "   <lumen:catalogUUID>\(escapeXML(uuid))</lumen:catalogUUID>\n"
         }
+        if let ext = content.sourceExtension {
+            fields += "   <lumen:sourceExtension>\(escapeXML(ext))</lumen:sourceExtension>\n"
+        }
         if let recipe = content.recipeJSON {
             fields += "   <lumen:recipe>\(escapeXML(recipe))</lumen:recipe>\n"
         }
@@ -571,7 +579,7 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     private static let interesting: Set<String> = [
         "xmp:Rating", "xmp:Label", "lumen:flag",
         "lumen:pipelineVersion", "lumen:recipeFingerprint",
-        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp",
+        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp", "lumen:sourceExtension",
     ]
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,
@@ -655,6 +663,8 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
             content.catalogUUID = value
         case "lumen:writeStamp":
             content.writeStamp = value
+        case "lumen:sourceExtension":
+            content.sourceExtension = value.lowercased()
         default:
             break
         }

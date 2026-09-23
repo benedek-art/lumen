@@ -91,6 +91,14 @@ final class AuditPersistenceSafetyTests: XCTestCase {
     }
 
     func testPublishedBackupRestoresItsActualBrushPayload() throws {
+        try checkBackupRestore(corruptLiveBlob: false)
+    }
+
+    func testBackupRecoveryRepairsACorruptLiveBrushWithoutDiscardingIt() throws {
+        try checkBackupRestore(corruptLiveBlob: true)
+    }
+
+    private func checkBackupRestore(corruptLiveBlob: Bool) throws {
         let root = try scratch()
         let catalog = root.appendingPathComponent("catalog")
         let service = try CatalogService(directory: catalog)
@@ -113,12 +121,22 @@ final class AuditPersistenceSafetyTests: XCTestCase {
         XCTAssertNotNil(BackupRetention.timestamp(inBackupName: snapshot.lastPathComponent))
         XCTAssertEqual(try Data(contentsOf: snapshot.deletingPathExtension().appendingPathExtension("blobs").appendingPathComponent(blob.lastPathComponent)), payload)
         // Simulate loss of this test's live database and blob, retaining only backup.
-        try FileManager.default.removeItem(at: blob)
+        if corruptLiveBlob {
+            try Data("damaged brush bytes".utf8).write(to: blob)
+        } else {
+            try FileManager.default.removeItem(at: blob)
+        }
         try Data("damaged isolated catalog".utf8).write(to: catalog.appendingPathComponent("lumen.db"))
         let recovered = try CatalogService(directory: catalog)
         defer { recovered.close() }
         guard case .restored = recovered.recovery.outcome else { return XCTFail("Expected backup restore") }
         XCTAssertEqual(recovered.blobs.data(for: ref), payload)
+        if corruptLiveBlob {
+            let preserved = try FileManager.default.contentsOfDirectory(at: blob.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix(blob.lastPathComponent + ".damaged-") }
+            XCTAssertEqual(preserved.count, 1)
+            XCTAssertEqual(try Data(contentsOf: XCTUnwrap(preserved.first)), Data("damaged brush bytes".utf8))
+        }
         let restoredBrush = try XCTUnwrap(recovered.blobs.strokeSet(for: ref))
         let expectedMask = MaskRaster.rasterize(component: component, size: (64, 64), strokes: brush)
         let restoredMask = MaskRaster.rasterize(component: component, size: (64, 64), strokes: restoredBrush)

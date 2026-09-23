@@ -3,6 +3,7 @@
   "branch": "codex/lumen-verified-repairs",
   "baseline": "a6e694103a3676e059847ac48b82c0031281ea53",
   "note": "Historical audit remains immutable. Verified means tested within recorded scope, not exhaustive certification.",
+  "latestSafetyCheckpoint": "EXECUTION-02.md: focused 168 passed; full optimized suite 2424 tests, 14 skipped, zero failures. Timing-probe variability and native/interruption matrices remain open.",
   "findings": [
     {
       "id": "AI-01",
@@ -94,10 +95,10 @@
       "title": "New same-basename RAW sibling inherits another photo's sidecar edits",
       "priority": "P1",
       "phase": 1,
-      "status": "queued",
-      "evidence": [],
+      "status": "verifying",
+      "evidence": ["EXECUTION-02.md: ownership red 6 tests / 7 assertion failures; final focused safety 168 passed; full suite 2424 tests / 14 skipped / zero failures"],
       "commit": null,
-      "limitations": []
+      "limitations": ["Ambiguous untagged legacy sidecars without provenance require explicit owner resolution; no dedicated resolution UI. Cross-process writes and power-loss matrix remain unexhausted."]
     },
     {
       "id": "REL-03",
@@ -149,7 +150,7 @@
       ],
       "commit": null,
       "limitations": [
-        "No hosted GitHub run or live release performed; workflow success must be checked after branch publication."
+        "Initial hosted build and app-bundle passed; source checker compatibility fixes await a fresh hosted run. Offline policy now rejects eight unsafe mutations. No live release performed."
       ]
     },
     {
@@ -399,7 +400,7 @@
       ],
       "commit": null,
       "limitations": [
-        "New backup publication tested; legacy incomplete snapshots and interruption/recovery fault matrix still require review."
+        "EXECUTION-02.md verifies rejection of incomplete legacy snapshots and restoration of missing/corrupt brush payloads with exact raster checks. Exhaustive interruption/recovery fault matrix remains open."
       ]
     },
     {

@@ -97,6 +97,44 @@ final class AuditStateSafetyTests: XCTestCase {
     }
 
     @MainActor
+    func testUndoDoesNotLoseAnotherPhotosPendingEditAndNextGestureWorks() async throws {
+        try await withState(quitInBody: true) { state, root in
+            let a = root.appendingPathComponent("photos/a.png"), b = root.appendingPathComponent("photos/b.png")
+            try png(a); try png(b)
+            state.openFolder(a.deletingLastPathComponent())
+            try await scanned(state)
+            // The scanner normalizes /var to /private/var on macOS.
+            let first = try XCTUnwrap(state.allPhotos.first {
+                $0.id.resolvingSymlinksInPath() == a.resolvingSymlinksInPath()
+            })
+            let second = try XCTUnwrap(state.allPhotos.first {
+                $0.id.resolvingSymlinksInPath() == b.resolvingSymlinksInPath()
+            })
+            state.select(first)
+            state.updateRecipe(coalescingKey: "tone.exposure") { $0.develop.tone.exposure = 2 }
+            state.select(second)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.exposure") { $0.develop.tone.exposure = 1 }
+            state.undo()
+            state.sliderGesture(active: false)
+            XCTAssertEqual(state.recipe(for: first).develop.tone.exposure, 2)
+            XCTAssertEqual(state.recipe(for: second).develop.tone.exposure, 0)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.exposure") { $0.develop.tone.exposure = -1 }
+            state.sliderGesture(active: false)
+            state.prepareToQuit()
+            let reopened = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            defer { reopened.close() }
+            for (item, expected) in [(first, 2.0), (second, -1.0)] {
+                XCTAssertEqual(try reopened.currentRecipe(photoID: XCTUnwrap(item.catalogID))?.develop.tone.exposure, expected)
+                let content = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: item.id.appendingPathExtension("xmp"))))
+                let json = try XCTUnwrap(content.recipeJSON)
+                XCTAssertEqual(try CanonicalJSON.decodeRecipe(from: Data(json.utf8)).develop.tone.exposure, expected)
+            }
+        }
+    }
+
+    @MainActor
     func testSelectedFilesFromSiblingTreesKeepDistinctCatalogIdentity() async throws {
         try await withState { state, root in
             let a = root.appendingPathComponent("day1/photos/frame.png")

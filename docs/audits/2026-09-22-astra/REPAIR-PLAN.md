@@ -142,3 +142,7 @@ The machine-readable `repair-ledger.json` tracks all original IDs. Phase evidenc
 ### First implementation checkpoint
 
 Nine findings now have changes under verification: UX-01, BR-01, BR-02, REL-01, REL-03, REL-04, REL-08, REL-09 and REL-12. See [execution record 01](EXECUTION-01.md) for exact reproduced failures, passing adjacent checks, the full-suite run and remaining limitations. This does not close phase 1 or certify any later phase.
+
+### Ownership and recovery follow-up
+
+REL-02 implementation and deeper REL-08 recovery checks are recorded in [execution record 02](EXECUTION-02.md). The first public implementation checkpoint is [draft PR #5](https://github.com/benedek-art/lumen/pull/5). Keep it a draft; no automatic merge, release or installation is authorized.

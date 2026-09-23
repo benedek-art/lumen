@@ -4,7 +4,7 @@ Start with [the build-context handoff](START-HERE.md), then [the full written au
 
 This documentation preserves the owner's product goals, branch uncertainty, findings, reproduction evidence, actual coverage limits and proposed repair order for future development. **It does not implement fixes or certify the app as ready to replace Lightroom.**
 
-**Subsequent authorized implementation:** the owner has now requested a full repair programme. Follow the [repair plan](REPAIR-PLAN.md), [live finding ledger](repair-ledger.json), and [execution record](EXECUTION-01.md). Historical audit results below remain unchanged; repair status is recorded separately. Work is isolated on `codex/lumen-verified-repairs`, not installed or released.
+**Subsequent authorized implementation:** the owner has now requested a full repair programme. Follow the [repair plan](REPAIR-PLAN.md), [live finding ledger](repair-ledger.json), [initial execution record](EXECUTION-01.md), and [ownership/recovery follow-up](EXECUTION-02.md). Historical audit results below remain unchanged; repair status is recorded separately. Work is isolated on `codex/lumen-verified-repairs`, not installed or released.
 
 ## Contents
 
