@@ -559,6 +559,8 @@ public struct CatalogRecovery: Equatable, Sendable {
         case firstRun
         /// `PRAGMA quick_check` returned "ok". Nothing was touched.
         case healthy
+        /// Operational failure, not evidence that the original is corrupt.
+        case unavailable(reason: String)
         /// The catalog failed its check and was replaced by a backup that passed. The
         /// corrupt file is MOVED ASIDE, never deleted: a file SQLite cannot read may
         /// still be readable by a recovery tool, and the last hour of somebody's
@@ -578,6 +580,8 @@ public struct CatalogRecovery: Equatable, Sendable {
         switch outcome {
         case .firstRun, .healthy:
             return nil
+        case .unavailable(let reason):
+            return "The catalog could not be checked and was left untouched: " + reason
         case .restored(let backup, _):
             let name = URL(fileURLWithPath: backup).lastPathComponent
             // Careful about the tense. Sidecar recovery happens per folder, at scan
@@ -1550,7 +1554,11 @@ public final class CatalogStore {
         guard manager.fileExists(atPath: path) else {
             return CatalogRecovery(outcome: .firstRun)
         }
-        if probeQuickCheck(path: path) { return CatalogRecovery(outcome: .healthy) }
+        switch probeIntegrity(path: path) {
+        case .healthy: return CatalogRecovery(outcome: .healthy)
+        case .unavailable(let reason): return CatalogRecovery(outcome: .unavailable(reason: reason))
+        case .corrupt: break
+        }
 
         let backups = (try? manager.contentsOfDirectory(atPath: backupDirectory))?
             .filter { $0.hasSuffix(".db") }
@@ -1581,25 +1589,40 @@ public final class CatalogStore {
 
     /// One `PRAGMA quick_check` on a file this process does not otherwise hold open.
     ///
-    /// False for anything that is not a readable SQLite catalog, including a file that
-    /// cannot be opened at all: the caller's question is "can this be used", and every
-    /// no is the same no.
+    /// True only for a positively checked healthy backup. A false result alone MUST
+    /// NOT authorize replacing the live catalog; `probeIntegrity` distinguishes
+    /// confirmed corruption from locks, permission failures and I/O errors.
     ///
     /// Internal rather than private so the recovery tests can assert that the damage
     /// they inflicted actually took. A restore test that ran against a file SQLite still
     /// finds perfectly readable would pass while proving nothing.
     ///
-    /// The existence guard is load-bearing, not defensive tidying. `SQLiteDatabase`
-    /// opens with `SQLITE_OPEN_CREATE`, so a path that is not there becomes an empty
-    /// database — which passes `quick_check` perfectly. Without this, a backup that
-    /// vanished between the directory listing and this call would be created empty,
-    /// pass, and be restored OVER a catalog that was merely damaged. Answering "no" for
-    /// a file that does not exist is also just correct: nothing there cannot be used.
+    /// Read-only opening is load-bearing: the ordinary CREATE mode would turn a
+    /// vanished backup into an empty database that passes `quick_check`. The probe
+    /// must never manufacture a valid-looking backup, even across a deletion race.
     static func probeQuickCheck(path: String) -> Bool {
-        guard FileManager.default.fileExists(atPath: path) else { return false }
-        guard let database = try? SQLiteDatabase(path: path) else { return false }
-        defer { database.close() }
-        return (try? database.scalarText("PRAGMA quick_check;")) == "ok"
+        if case .healthy = probeIntegrity(path: path) { return true }
+        return false
+    }
+
+    private enum IntegrityProbe {
+        case healthy, corrupt, unavailable(String)
+    }
+
+    private static func probeIntegrity(path: String) -> IntegrityProbe {
+        do {
+            // Never CREATE a missing backup or mutate the catalog being checked.
+            let database = try SQLiteDatabase(path: path, readOnly: true)
+            defer { database.close() }
+            guard let result = try database.scalarText("PRAGMA quick_check;") else {
+                return .unavailable("The integrity check returned no result")
+            }
+            return result == "ok" ? .healthy : .corrupt
+        } catch let error as SQLiteError where error.indicatesCorruptDatabase {
+            return .corrupt
+        } catch {
+            return .unavailable(String(describing: error))
+        }
     }
 
     /// Move a catalog and its WAL companions aside, together.
@@ -1939,7 +1962,8 @@ public final class CatalogStore {
     ///                      intact. Only an unmatched disappearance sets `missing = 1`.
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = CatalogStore.now()) throws -> ScanResult {
+                     at now: Int64 = CatalogStore.now(),
+                     completeListing: Bool = true) throws -> ScanResult {
         try db.transaction {
             var result = ScanResult()
 
@@ -1989,7 +2013,7 @@ public final class CatalogStore {
             // rename inside the folder is a relocation, not a disappearance.
             var goneBySignature: [String: Int64] = [:]
             var gone: [(name: String, id: Int64)] = []
-            for (name, row) in existing where !seen.contains(name) {
+            for (name, row) in existing where completeListing && !seen.contains(name) {
                 gone.append((name: name, id: row.id))
                 if let sig = row.sig, !sig.isEmpty { goneBySignature[sig] = row.id }
             }
@@ -2036,8 +2060,10 @@ public final class CatalogStore {
                 result.missing.append(entry.id)
             }
 
-            try self.db.run("UPDATE folder SET last_scanned_at = ? WHERE id = ?;",
-                            [.integer(now), .integer(folderID)])
+            if completeListing {
+                try self.db.run("UPDATE folder SET last_scanned_at = ? WHERE id = ?;",
+                                [.integer(now), .integer(folderID)])
+            }
             return result
         }
     }
@@ -4103,7 +4129,7 @@ public final class CatalogStore {
 
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = 0) throws -> ScanResult {
+                     at now: Int64 = 0, completeListing: Bool = true) throws -> ScanResult {
         throw CatalogError.unavailable
     }
 

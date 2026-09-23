@@ -76,6 +76,9 @@ final class CatalogService: @unchecked Sendable {
         [URL: (photoID: Int64?, content: SidecarContent,
                stated: SidecarStatedFields)] = [:]
     private var sidecarFlushScheduled = false
+    private var sidecarsClosed = false
+    /// One actionable notice per photo/outage, reset after a successful write.
+    private var reportedSidecarFailures: Set<URL> = []
     private let sidecarLock = NSLock()
 
     /// Which backfill call is the CURRENT one. A folder switch starts a new pass and
@@ -161,7 +164,8 @@ final class CatalogService: @unchecked Sendable {
     /// Register a folder, reconcile its files, and return everything already known
     /// about them. Runs on the caller's thread by design: it is called from the
     /// background scan task, never from the main actor.
-    func registerAndLoad(folder: URL, files: [URL]) -> [URL: StoredState] {
+    func registerAndLoad(folder: URL, files: [URL],
+                         completeListing: Bool = true) -> [URL: StoredState] {
         var result: [URL: StoredState] = [:]
         // A scan is when a RAW can gain a same-name sibling; the sidecar naming memo
         // must not outlive it.
@@ -208,7 +212,7 @@ final class CatalogService: @unchecked Sendable {
                                        ext: file.pathExtension.lowercased())
                 }
                 _ = try store.scan(folderID: folderID, files: scanned,
-                                   at: CatalogStore.now())
+                                   at: CatalogStore.now(), completeListing: completeListing)
 
                 // ONE PHOTO'S FAILURE COSTS ONE PHOTO. This loop used to sit bare
                 // inside the folder's `do`, so the first `try` that threw abandoned
@@ -1069,6 +1073,7 @@ final class CatalogService: @unchecked Sendable {
                                 recipe: (json: String, fingerprint: String, version: Int)?,
                                 strokes: String?? = nil) {
         sidecarLock.lock()
+        guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let queued = pendingSidecars[url]
         var content = queued?.content ?? Self.readSidecar(for: url) ?? SidecarContent()
         if let rating { content.rating = rating }
@@ -1105,13 +1110,14 @@ final class CatalogService: @unchecked Sendable {
         sidecarLock.unlock()
 
         guard shouldSchedule else { return }
-        queue.asyncAfter(deadline: .now() + Self.sidecarDebounce) {
-            self.flushSidecars()
+        queue.asyncAfter(deadline: .now() + Self.sidecarDebounce) { [weak self] in
+            self?.flushSidecars()
         }
     }
 
     func flushSidecars() {
         sidecarLock.lock()
+        guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let batch = pendingSidecars
         pendingSidecars = [:]
         sidecarFlushScheduled = false
@@ -1226,6 +1232,9 @@ final class CatalogService: @unchecked Sendable {
             do {
                 // Atomic: a sidecar half-written by a crash is worse than no sidecar.
                 try Data(text.utf8).write(to: path, options: .atomic)
+                sidecarLock.lock()
+                reportedSidecarFailures.remove(url)
+                sidecarLock.unlock()
                 // And record the mtime we just gave it. This is half of what makes
                 // §15.5 rule 1 answerable: without a stamp taken on OUR writes, the very
                 // next scan sees a file newer than nothing and has to guess. `photoID`
@@ -1240,6 +1249,15 @@ final class CatalogService: @unchecked Sendable {
                 NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
                       path.lastPathComponent, String(describing: error))
                 failed.append((url, entry))
+                sidecarLock.lock()
+                let firstFailure = reportedSidecarFailures.insert(url).inserted
+                sidecarLock.unlock()
+                if firstFailure {
+                    report("Could not save portable sidecar \(path.lastPathComponent). "
+                           + "Check that the photo's volume is connected and writable. "
+                           + "Lumen will retry while open; the sidecar is not up to date "
+                           + "(\(error.localizedDescription)).")
+                }
             }
         }
 
@@ -1255,8 +1273,8 @@ final class CatalogService: @unchecked Sendable {
         if shouldSchedule { sidecarFlushScheduled = true }
         sidecarLock.unlock()
         if shouldSchedule {
-            queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) {
-                self.flushSidecars()
+            queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) { [weak self] in
+                self?.flushSidecars()
             }
         }
     }
@@ -1495,9 +1513,10 @@ final class CatalogService: @unchecked Sendable {
     ///     look at (it takes `.db` only), so a snapshot the process does not live to
     ///     finish is invisible to the restore rather than the newest thing in the
     ///     directory;
-    ///   · move it into place — the rename is what publishes it;
     ///   · copy the brush payloads next to it (K-018): a snapshot without them restores
     ///     every recipe intact with every brush mask rasterizing to nothing;
+    ///   · move the database into place LAST — only a complete snapshot is eligible
+    ///     for restore; an interruption before this leaves no discoverable `.db`;
     ///   · stamp it, only now, because a backup that failed must be owed again at the
     ///     next opportunity rather than buying a full disk twenty hours of silence;
     ///   · prune, only after a successful write, so a failing backup can never be the
@@ -1518,8 +1537,11 @@ final class CatalogService: @unchecked Sendable {
         // `BackupRetention` dates.
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let target = folder.appendingPathComponent("lumen-\(stamp).db")
+        // Never replace an earlier complete snapshot, even for two backups in the
+        // same second. Retention parses the timestamp prefix and permits suffixes.
+        let target = folder.appendingPathComponent("lumen-\(stamp)-\(UUID()).db")
         let partial = URL(fileURLWithPath: target.path + ".partial")
+        let blobBackup = target.deletingPathExtension().appendingPathExtension("blobs")
 
         do {
             try FileManager.default.createDirectory(
@@ -1529,14 +1551,8 @@ final class CatalogService: @unchecked Sendable {
             // out of existence, and then the open-time restore has nothing to restore
             // FROM (§15.8).
             try CatalogStore.snapshot(from: catalogPath, to: partial.path)
-            if FileManager.default.fileExists(atPath: target.path) {
-                try FileManager.default.removeItem(at: target)
-            }
-            try FileManager.default.moveItem(at: partial, to: target)
-
-            let blobBackup = target.deletingPathExtension()
-                .appendingPathExtension("blobs")
             let copied = try blobs.backUp(to: blobBackup)
+            try FileManager.default.moveItem(at: partial, to: target)
             queue.sync { try? self.store.noteBackupTaken(at: now) }
             let pruned = Self.pruneBackups(in: folder)
             NSLog("Lumen catalog: backed up %@ with %d brush payload(s); "
@@ -1545,6 +1561,10 @@ final class CatalogService: @unchecked Sendable {
         } catch {
             // Leave nothing half-written behind, even under a name the restore ignores.
             try? FileManager.default.removeItem(at: partial)
+            // These uniquely named payloads belong only to this unpublished attempt.
+            if !FileManager.default.fileExists(atPath: target.path) {
+                try? FileManager.default.removeItem(at: blobBackup)
+            }
             NSLog("Lumen catalog: backup failed — %@", String(describing: error))
             if let catalogError = error as? CatalogError,
                case .corrupt = catalogError {
@@ -1631,8 +1651,12 @@ final class CatalogService: @unchecked Sendable {
         // store, and the app terminated with the edit in the catalog and no sidecar. The
         // sidecar is the recovery copy, so the one edit most likely to be lost was the
         // last one made.
-        queue.sync {}
-        flushSidecars()
+        queue.sync {
+            flushSidecars()
+            sidecarLock.lock()
+            sidecarsClosed = true
+            sidecarLock.unlock()
+        }
         // J1-04: the restore path that exists and works used to have, on a typical
         // install, zero inputs — `backup()`'s only caller was a menu item nobody is
         // obliged to click. It has one here now, gated twice: on the once-per-N-hours

@@ -1789,7 +1789,8 @@ final class KernelGoldenTests: XCTestCase {
                                                    unavailable: ["grain", "vignette"])
         let reduced = try renderer.export(source: StubSource(ciImage(from: flat)),
                                           recipe: Recipe(), to: destination,
-                                          using: ExportRecipe(name: "t", format: .png))
+                                          using: ExportRecipe(name: "t", format: .png),
+                                          allowOverwrite: true)
         XCTAssertEqual(reduced, ["grain", "vignette"],
                        "a reduced export reported \(reduced) — `AppState.export` has "
                            + "nothing to put in the status line and counts the file "

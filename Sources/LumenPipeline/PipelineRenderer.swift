@@ -16,6 +16,7 @@ import os.signpost
 import CoreImage.CIFilterBuiltins
 import CoreText
 import Foundation
+import Darwin
 import ImageIO
 import LumenCore
 import UniformTypeIdentifiers
@@ -651,12 +652,14 @@ public final class PipelineRenderer {
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
-                       softProof: SoftProof? = nil) throws -> [String] {
+                       softProof: SoftProof? = nil,
+                       allowOverwrite: Bool = false) throws -> [String] {
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
                                       softProof: softProof)
         try write(image, to: destination, using: exportRecipe,
-                  sourceProperties: Self.sourceImageProperties(source.url))
+                  sourceProperties: Self.sourceImageProperties(source.url),
+                  allowOverwrite: allowOverwrite)
         return availability.unavailable
     }
 
@@ -1137,7 +1140,8 @@ public final class PipelineRenderer {
     /// exactly as it found it.
     private func write(_ image: CIImage, to destination: URL,
                        using recipe: ExportRecipe,
-                       sourceProperties: [String: Any]? = nil) throws {
+                       sourceProperties: [String: Any]? = nil,
+                       allowOverwrite: Bool = false) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
@@ -1201,14 +1205,18 @@ public final class PipelineRenderer {
         }
 
         do {
-            if FileManager.default.fileExists(atPath: destination.path) {
-                // The batch loop disambiguates, so this is the direct caller's case (a
-                // test, a re-export to a named path). `replaceItemAt` swaps the two and
-                // consumes the temp; it is what `moveItem` cannot do over an existing
-                // file.
-                _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
-            } else {
-                try FileManager.default.moveItem(at: partial, to: destination)
+            // A pre-render existence check cannot reserve a filename. RENAME_EXCL
+            // makes checking and publication ONE filesystem operation, including a
+            // destination created by another process while we encoded. Replacement
+            // requires an explicit opt-in; normal batch exports never opt in.
+            let flags = allowOverwrite ? UInt32(0) : UInt32(RENAME_EXCL)
+            let result = partial.withUnsafeFileSystemRepresentation { from in
+                destination.withUnsafeFileSystemRepresentation { to in
+                    renamex_np(from!, to!, flags)
+                }
+            }
+            guard result == 0 else {
+                throw RenderError.writeFailed(destination)
             }
         } catch {
             try? FileManager.default.removeItem(at: partial)

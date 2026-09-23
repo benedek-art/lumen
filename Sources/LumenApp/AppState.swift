@@ -2667,7 +2667,10 @@ final class AppState: ObservableObject {
             let parts = (isDirectory(url) ? url : url.deletingLastPathComponent())
                 .standardizedFileURL.pathComponents
             var shared: [String] = []
-            for (a, b) in zip(common, parts) where a == b { shared.append(a) }
+            for (a, b) in zip(common, parts) {
+                guard a == b else { break }
+                shared.append(a)
+            }
             common = shared
         }
         guard !common.isEmpty else { return nil }
@@ -2804,7 +2807,8 @@ final class AppState: ObservableObject {
             // file. It stays out here, on this thread: it used to run inside the
             // main-actor hop, which stopped the run loop for the whole of a 5,000
             // frame card.
-            let stored = catalog?.registerAndLoad(folder: url, files: found) ?? [:]
+            let stored = catalog?.registerAndLoad(folder: url, files: found,
+                                                   completeListing: restriction == nil) ?? [:]
             // Whether the roll this scan built is still the one the user wants —
             // decided on the main actor, and the BACKFILL LAUNCH depends on it too:
             // a superseded folder's scan used to fire its full EXIF pass anyway,
@@ -3777,8 +3781,16 @@ final class AppState: ObservableObject {
         statusMessage = "Backing up the catalog…"
     }
 
-    func undo() { apply(history.undo()) }
-    func redo() { apply(history.redo()) }
+    func undo() {
+        // End deferred persistence before restoring history, so a later release or
+        // quit cannot save the value that undo has just rejected.
+        sliderGesture(active: false)
+        apply(history.undo())
+    }
+    func redo() {
+        sliderGesture(active: false)
+        apply(history.redo())
+    }
 
     /// Put one history step back, restoring only the fields it recorded.
     private func apply(_ step: [URL: HistoryStack.PhotoEdit]?) {
