@@ -67,17 +67,22 @@ final class CanonicalJSONTests: XCTestCase {
         var bwOff = bwOn
         bwOff.look.bw?.enabled = false
 
-        // The two strips the Python mirror was missing (M-04): a LUT no stage reads and
-        // a hand-written grain at Amount 0. Both serialize, both fingerprint as the
-        // default — and the fixture's fingerprints are Python's, so a mirror that
-        // stopped stripping either one goes red here.
-        var lut = Recipe()
-        lut.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef", name: "Kodachrome")
+        // The Python mirror's LUT and grain clauses (M-04). A LUT at Amount 0 and a
+        // hand-written grain at Amount 0 serialize and fingerprint as the default; a
+        // LUT that renders fingerprints as itself, name blanked. The fixture's
+        // fingerprints are Python's, so a mirror that drifted from
+        // `Recipe.renderIdentity` on any of the three goes red here.
+        var lutOff = Recipe()
+        lutOff.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef",
+                                       name: "Kodachrome", amount: 0)
+        var lutOn = Recipe()
+        lutOn.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef", name: "Kodachrome")
         var grainOff = Recipe()
         grainOff.look.grain = CreativeGrain(amount: 0, size: 90, roughness: 50)
 
         return ["default": Recipe(),
-                "lutNoStageReads": lut,
+                "lutAtAmountZero": lutOff,
+                "lutRenders": lutOn,
                 "grainAtAmountZero": grainOff,
                 "developEdit": developEdit,
                 "maskAndLook": maskAndLookRecipe(),

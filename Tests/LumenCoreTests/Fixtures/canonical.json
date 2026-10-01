@@ -36,14 +36,19 @@
    "fingerprint": "xxh64:fd50cceee634dfb4"
   },
   {
-   "name": "lutNoStageReads",
-   "canonical": "{\"look\":{\"lut\":{\"amount\":100,\"name\":\"Kodachrome\",\"ref\":\"blob:xxh64:0123456789abcdef\",\"tap\":\"display\"}},\"pipelineVersion\":2}",
+   "name": "lutAtAmountZero",
+   "canonical": "{\"look\":{\"lut\":{\"amount\":0,\"name\":\"Kodachrome\",\"ref\":\"blob:xxh64:0123456789abcdef\",\"tap\":\"display\"}},\"pipelineVersion\":2}",
    "fingerprint": "xxh64:fd50cceee634dfb4"
   },
   {
    "name": "grainAtAmountZero",
    "canonical": "{\"look\":{\"grain\":{\"amount\":0,\"roughness\":50,\"size\":90}},\"pipelineVersion\":2}",
    "fingerprint": "xxh64:fd50cceee634dfb4"
+  },
+  {
+   "name": "lutRenders",
+   "canonical": "{\"look\":{\"lut\":{\"amount\":100,\"name\":\"Kodachrome\",\"ref\":\"blob:xxh64:0123456789abcdef\",\"tap\":\"display\"}},\"pipelineVersion\":2}",
+   "fingerprint": "xxh64:77271d64b0cf24bc"
   }
  ]
 }

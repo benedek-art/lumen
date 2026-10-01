@@ -287,11 +287,17 @@ def render_identity(tree):
     grain = out.get("look", {}).get("grain")
     if isinstance(grain, dict) and not (grain.get("amount", 0) > 0):
         del out["look"]["grain"]
-    # `look.lut` is removed unconditionally: NO STAGE READS IT (Recipe.swift says so
-    # beside its own strip). Delete this clause in the same commit as the Swift line,
-    # the day a LUT stage lands — the two halves of the mirror move together (M-04).
-    if isinstance(out.get("look"), dict) and "lut" in out["look"]:
-        del out["look"]["lut"]
+    # `look.lut` IS RENDERED (CreativeLUTStage), so it is hashed — except what reaches
+    # no pixel: an empty ref, or Amount at or below zero, is removed (the same picture
+    # as no LUT), and a rendered LUT's `name` is blanked because it is a label. This is
+    # Recipe.renderIdentity's rule, clause for clause; the two halves move together
+    # (M-04). Absent keys read as LUTReference's decoder reads them: ref "", amount 100.
+    lut = out.get("look", {}).get("lut")
+    if isinstance(lut, dict):
+        if lut.get("ref", "") == "" or not (lut.get("amount", 100) > 0):
+            del out["look"]["lut"]
+        else:
+            lut["name"] = ""
     return out
 
 
@@ -532,16 +538,17 @@ def gen_canonical_fixture():
     check(e_on_canon != e_off_canon,
           "turning the treatment off did not change the stored recipe")
 
-    # Case F: the two strips the mirror was missing (M-04). A LUT reference no stage
-    # reads, and a creative grain at Amount 0 written by hand: each must serialize (the
+    # Case F: the LUT and grain clauses of the mirror (M-04). A creative grain at Amount
+    # 0 written by hand and a LUT at Amount 0 reach no pixel: each must serialize (the
     # recipe keeps what the photographer's file carried) and each must fingerprint as
-    # the default recipe (neither reaches a pixel). Without the clauses above, Python
-    # and Swift disagree about both fingerprints and the replay goes red.
+    # the default recipe. A LUT that RENDERS must fingerprint differently from the
+    # default, and its name must not reach the fingerprint. Without the clauses above,
+    # Python and Swift disagree and the replay goes red.
     f_lut = json.loads(json.dumps(defaults))
     f_lut["look"]["lut"] = {"ref": "blob:xxh64:0123456789abcdef", "name": "Kodachrome",
-                            "tap": "display", "amount": 100}
+                            "tap": "display", "amount": 0}
     f_lut_canon = canonical_recipe_json(f_lut, defaults)
-    cases.append({"name": "lutNoStageReads", "canonical": f_lut_canon,
+    cases.append({"name": "lutAtAmountZero", "canonical": f_lut_canon,
                   "fingerprint": fp(canonical_recipe_json(render_identity(f_lut), defaults))})
     f_grain = json.loads(json.dumps(defaults))
     f_grain["look"]["grain"] = {"amount": 0, "size": 90, "roughness": 50}
@@ -553,6 +560,19 @@ def gen_canonical_fixture():
         check(fp(canonical_recipe_json(render_identity(tree), defaults))
               == fp(canonical_recipe_json(render_identity(defaults), defaults)),
               f"a {name} no stage renders changed the render fingerprint")
+    f_lut_on = json.loads(json.dumps(defaults))
+    f_lut_on["look"]["lut"] = {"ref": "blob:xxh64:0123456789abcdef", "name": "Kodachrome",
+                               "tap": "display", "amount": 100}
+    f_lut_on_canon = canonical_recipe_json(f_lut_on, defaults)
+    f_lut_on_fp = fp(canonical_recipe_json(render_identity(f_lut_on), defaults))
+    cases.append({"name": "lutRenders", "canonical": f_lut_on_canon,
+                  "fingerprint": f_lut_on_fp})
+    check(f_lut_on_fp != fp(canonical_recipe_json(render_identity(defaults), defaults)),
+          "a LUT that renders fingerprinted as no LUT")
+    f_lut_renamed = json.loads(json.dumps(f_lut_on))
+    f_lut_renamed["look"]["lut"]["name"] = "Ektachrome"
+    check(fp(canonical_recipe_json(render_identity(f_lut_renamed), defaults)) == f_lut_on_fp,
+          "renaming a LUT changed the render fingerprint")
 
     write_fixture("canonical.json", {"cases": cases})
     write_fixture("default-recipe.json", DEFAULT_RECIPE, sort_keys=True)
