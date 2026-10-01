@@ -320,9 +320,11 @@ final class AppState: ObservableObject {
             // the second unlatch beside the watchdog).
             sliderGesture(active: false)
             primaryFrameSize = nil
-            // Which way up is a fact about THIS photograph: the next one starts without
-            // an answer rather than inheriting the previous one's.
-            primaryFrameTransposed = false
+            // Which way up is a fact about THIS photograph (KG-03): the next one starts
+            // from what is known about IT — never the previous one's answer, and never
+            // a forgotten one, which a cropped portrait had no way to learn back.
+            primaryFrameTransposed = primarySelection.flatMap {
+                frameOrientations.transposed(for: $0.id) } ?? false
             primaryAsShotNeutral = nil
             refreshPrimaryFrameSize()
             refreshPrimaryAsShotNeutral()
@@ -370,6 +372,12 @@ final class AppState: ObservableObject {
     /// source reports an oriented size — take exactly the path it took before.
     @Published private(set) var primaryFrameTransposed: Bool = false
 
+    /// Every photograph's answer, kept across selection changes (KG-03). The rule —
+    /// which evidence is admissible, which outranks which — lives in LumenCore
+    /// (`FrameOrientation.Memory`, with tests); `primaryFrameTransposed` is only its
+    /// reading for the primary selection.
+    private var frameOrientations = FrameOrientation.Memory()
+
     /// What the reported size MEANS, once reconciled: the frame the overlays, the crop
     /// arithmetic and the mask conversions all place themselves against.
     ///
@@ -383,11 +391,21 @@ final class AppState: ObservableObject {
                                            transposed: primaryFrameTransposed)
     }
 
-    /// Told by the loupe when a whole-frame delivery has answered the question.
-    /// Idempotent: writing the same answer publishes nothing.
-    func noteFrameTransposed(_ transposed: Bool) {
-        guard primaryFrameTransposed != transposed else { return }
-        primaryFrameTransposed = transposed
+    /// Told by the loupe with every delivered frame for `url`; only a whole-frame one
+    /// is evidence (`FrameOrientation.Memory.learn`). Idempotent: writing the same
+    /// answer publishes nothing.
+    func noteFrameDelivered(_ url: URL, reported: CGSize, delivered: CGSize,
+                            wholeFrame: Bool) {
+        frameOrientations.learn(url, reported: reported, delivered: delivered,
+                                wholeFrame: wholeFrame)
+        publishPrimaryFrameTransposed(for: url)
+    }
+
+    private func publishPrimaryFrameTransposed(for url: URL) {
+        guard primarySelection?.id == url else { return }
+        let answer = frameOrientations.transposed(for: url) ?? false
+        guard primaryFrameTransposed != answer else { return }
+        primaryFrameTransposed = answer
     }
 
     /// The catalog's frame for each selected photograph, for the framing writes that fan
@@ -1221,7 +1239,18 @@ final class AppState: ObservableObject {
                   size.width > 0, size.height > 0 else { return }
             // The selection can have moved on across that hop.
             guard self.primarySelection?.id == url else { return }
-            self.primaryFrameSize = CGSize(width: size.width, height: size.height)
+            let reported = CGSize(width: size.width, height: size.height)
+            self.primaryFrameSize = reported
+            // The catalog's frame — stored extent turned by EXIF — describes the WHOLE
+            // photograph whatever its recipe crops, so a cropped portrait is reconciled
+            // without ever opening the crop tool (KG-03). It is the same frame every
+            // non-primary target of a framing write is computed against.
+            guard let catalog = self.catalog,
+                  let photoID = self.primarySelection?.catalogID,
+                  let frame = await catalog.frames(photoIDs: [photoID])[photoID]
+            else { return }
+            self.frameOrientations.learn(url, reported: reported, catalog: frame)
+            self.publishPrimaryFrameTransposed(for: url)
         }
     }
 

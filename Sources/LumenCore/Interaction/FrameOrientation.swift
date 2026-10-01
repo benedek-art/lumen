@@ -85,4 +85,93 @@ public enum FrameOrientation {
     public static func sourceSize(reported: CGSize, transposed flag: Bool) -> CGSize {
         flag ? transposed(reported) : reported
     }
+
+    /// Whether a delivery made under `geometry` is the whole photograph, so its extent
+    /// may be compared with the reported size. `cropToolLive` strips the crop AND the
+    /// angle from the render; otherwise an identity crop with no straighten is the same
+    /// guarantee. A flip does not change the extent's shape.
+    public static func deliversWholeFrame(_ geometry: Geometry, cropToolLive: Bool) -> Bool {
+        cropToolLive || (geometry.crop == Crop() && geometry.angle == 0)
+    }
+
+    /// The reconciliation, remembered PER PHOTOGRAPH (KG-03).
+    ///
+    /// It used to be one flag on `AppState`, reset to false on every selection change
+    /// and learned only from a whole-frame delivery. A portrait exposure whose recipe
+    /// already carries a crop or an angle never delivers a whole frame outside the crop
+    /// tool, so the flag sat at false for the whole visit: the overlays, the mask
+    /// conversions, the eyedropper and the crop arithmetic of every framing write were
+    /// laid out against the landscape sensor while the renderer and export — which take
+    /// the decoded, oriented extent — drew the portrait picture. Opening the crop tool
+    /// repaired it until the next selection change threw the answer away.
+    ///
+    /// Two kinds of evidence, neither of which a crop can confuse:
+    /// - a WHOLE-FRAME delivery (ground truth: it is what is on screen), and
+    /// - the catalog's frame — the stored extent turned by the EXIF orientation, the
+    ///   same `BatchFraming.catalogFrame` every non-primary target of a framing write is
+    ///   computed against — which describes the whole photograph by construction.
+    /// A delivery outranks the catalog (a stale row cannot overrule the screen); a
+    /// cropped delivery is never evidence and leaves whatever is known untouched.
+    public struct Memory: Equatable, Sendable {
+
+        private enum Evidence: Equatable, Sendable {
+            case catalog(Bool)
+            case delivery(Bool)
+
+            var transposed: Bool {
+                switch self { case .catalog(let t), .delivery(let t): return t }
+            }
+        }
+
+        private var answers: [URL: Evidence] = [:]
+
+        public init() {}
+
+        /// What is known about `url`: nil when nothing has answered yet.
+        public func transposed(for url: URL) -> Bool? { answers[url]?.transposed }
+
+        /// The frame an overlay or a framing write should place itself against for
+        /// `url`. With no answer this is `reported` unchanged — the old default — so a
+        /// photograph nothing has spoken for takes exactly the path it always took.
+        public func sourceSize(for url: URL, reported: CGSize) -> CGSize {
+            FrameOrientation.sourceSize(reported: reported,
+                                        transposed: transposed(for: url) ?? false)
+        }
+
+        /// Offer a delivery. Admissible only when `wholeFrame`; returns whether the
+        /// remembered answer changed.
+        @discardableResult
+        public mutating func learn(_ url: URL, reported: CGSize, delivered: CGSize,
+                                   wholeFrame: Bool) -> Bool {
+            guard wholeFrame, Self.usable(reported), Self.usable(delivered) else {
+                return false
+            }
+            let next = Evidence.delivery(FrameOrientation.isTransposed(reported: reported,
+                                                                       delivered: delivered))
+            guard answers[url] != next else { return false }
+            let changed = answers[url]?.transposed != next.transposed
+            answers[url] = next
+            return changed
+        }
+
+        /// Offer the catalog's frame for `url` (stored extent turned by EXIF). It never
+        /// overrules a delivery; returns whether the remembered answer changed.
+        @discardableResult
+        public mutating func learn(_ url: URL, reported: CGSize,
+                                   catalog: BatchFraming.Frame) -> Bool {
+            if case .delivery = answers[url] { return false }
+            guard Self.usable(reported) else { return false }
+            let frame = CGSize(width: catalog.width, height: catalog.height)
+            let next = Evidence.catalog(FrameOrientation.isTransposed(reported: reported,
+                                                                      delivered: frame))
+            let changed = answers[url]?.transposed != next.transposed
+            answers[url] = next
+            return changed
+        }
+
+        private static func usable(_ size: CGSize) -> Bool {
+            size.width > 0 && size.height > 0
+                && Double(size.width).isFinite && Double(size.height).isFinite
+        }
+    }
 }
