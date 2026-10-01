@@ -493,7 +493,9 @@ enum ExactColorTwin {
         let source = lch(toLab(mid, u))
         let moved = lch(toLab(blended, u))
         guard finite(source), finite(moved) else { return blended }
-        let weight = gate(source.y)
+        // `ColorEngine`'s hue hold: full from `gateLoChroma` (0.02) up, easing to 0 at
+        // chroma 0 — not the 0.02…0.06 chroma gate (September audit B1-05).
+        let weight = smoothstep(0, 0.02, source.y)
         guard weight > 0 else { return blended }
         let hue = wrapHue(moved.z + hueDelta(moved.z, source.z) * weight)
         let held = toRGB(lab(F3(moved.x, moved.y, hue)), u)
@@ -846,7 +848,7 @@ public enum ExactColorKernelSource {
                             vec3 sl = lumenLCh(\(toLab("mid")));
                             vec3 ml = lumenLCh(\(toLab("blended")));
                             if (lumenFinite(sl) && lumenFinite(ml)) {
-                                float weight = lumenGate(sl.y);
+                                float weight = lumenSmooth(0.0, 0.02, sl.y);
                                 if (weight > 0.0) {
                                     float hue = lumenWrap(ml.z + lumenHueDelta(ml.z, sl.z) * weight);
                                     vec3 held = lumenLab(vec3(ml.x, ml.y, hue));
