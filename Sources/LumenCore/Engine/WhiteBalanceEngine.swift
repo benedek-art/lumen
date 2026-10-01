@@ -25,10 +25,14 @@ public struct WhiteBalanceEngine: Sendable {
     public init(asShotKelvin: Double, asShotTint: Double,
                 targetKelvin: Double?, targetTint: Double?,
                 space: RGBColorSpace = .rec2020) {
-        let aK = Num.clamp(asShotKelvin, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
-        let aT = Num.clamp(asShotTint, -300, 300)
-        let tK = Num.clamp(targetKelvin ?? aK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
-        let tT = Num.clamp(targetTint ?? aT, -300, 300)
+        // A file with no defined neutral adapts from the rendered-file reference
+        // rather than from NaN; a NaN target means "as shot", which is what nil means.
+        let neutral = Neutral.sanitizedAsShot(kelvin: asShotKelvin, tint: asShotTint)
+        let aK = Num.clamp(neutral.kelvin, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
+        let aT = Num.clamp(neutral.tint, -300, 300)
+        let tK = Num.clampFinite(targetKelvin ?? aK, ColorTemperature.minKelvin,
+                                 ColorTemperature.maxKelvin, fallback: aK)
+        let tT = Num.clampFinite(targetTint ?? aT, -300, 300, fallback: aT)
         self.asShot = (aK, aT)
         self.target = (tK, tT)
         self.space = space
@@ -87,6 +91,24 @@ public struct WhiteBalanceEngine: Sendable {
         /// non-raw input). It is a real answer for a JPEG and a WRONG one for a RAW,
         /// which is the whole of the defect below.
         public static let reference = Neutral(kelvin: 5500, tint: 0)
+
+        /// The neutral a render may adapt FROM, given what the decoder reported.
+        ///
+        /// `CIRAWFilter.neutralTemperature`/`neutralTint` have no defined value for a
+        /// file that records no camera neutral — a LinearRaw, one-sample-per-pixel
+        /// monochrome DNG with no ColorMatrix, AsShotNeutral or CalibrationIlluminant
+        /// is the case on record (corpus 1087, Leica M Monochrom). A non-finite or
+        /// non-positive temperature is not a temperature, so the pair becomes the
+        /// rendered-file `reference`; a finite temperature with a non-finite tint keeps
+        /// the temperature and takes tint 0. Every real neutral passes through
+        /// unchanged, so no camera file with a neutral renders differently.
+        ///
+        /// Only the RENDER side is sanitised. The source still hands Apple's own value
+        /// back to the filter at decode, so the decode itself is untouched.
+        public static func sanitizedAsShot(kelvin: Double, tint: Double) -> Neutral {
+            guard kelvin.isFinite, kelvin > 0 else { return reference }
+            return Neutral(kelvin: kelvin, tint: tint.isFinite ? tint : reference.tint)
+        }
     }
 
     /// What a Temp/Tint row displays, and therefore what its first drag writes.
@@ -119,9 +141,10 @@ public struct WhiteBalanceEngine: Sendable {
     /// will silently pull in.
     public static func displayed(temp: Double?, tint: Double?,
                                  asShot: Neutral) -> AsShotDisplay {
-        let kelvin = Num.clamp(asShot.kelvin,
+        let neutral = Neutral.sanitizedAsShot(kelvin: asShot.kelvin, tint: asShot.tint)
+        let kelvin = Num.clamp(neutral.kelvin,
                                ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
-        let tintValue = Num.clamp(asShot.tint, -300, 300)
+        let tintValue = Num.clamp(neutral.tint, -300, 300)
         return AsShotDisplay(temperature: temp ?? kelvin,
                              tint: tint ?? tintValue,
                              isAsShot: temp == nil && tint == nil)
@@ -139,14 +162,17 @@ public struct WhiteBalanceEngine: Sendable {
     public static func neutralizing(sample: RGB, asShotKelvin: Double, asShotTint: Double,
                                     current: WhiteBalanceEngine,
                                     space: RGBColorSpace = .rec2020) -> (kelvin: Double, tint: Double) {
+        // The same neutral `init` adapts from, so a file with none cannot seed the
+        // search (or the fallback answer) with NaN.
+        let shot = Neutral.sanitizedAsShot(kelvin: asShotKelvin, tint: asShotTint)
         // Undo the current WB so we search against the decoded value.
         let decoded = current.matrix.inverse.apply(sample)
         guard decoded.isFinite, decoded.maxComponent > 1e-9 else {
-            return (asShotKelvin, asShotTint)
+            return (shot.kelvin, shot.tint)
         }
 
         func residualChroma(kelvin: Double, tint: Double) -> Double {
-            let m = adaptation(asShot: (asShotKelvin, asShotTint),
+            let m = adaptation(asShot: (shot.kelvin, shot.tint),
                                target: (kelvin, tint), space: space)
             let out = m.apply(decoded)
             let mean = (out.r + out.g + out.b) / 3
@@ -155,8 +181,8 @@ public struct WhiteBalanceEngine: Sendable {
             return (n.r - 1) * (n.r - 1) + (n.g - 1) * (n.g - 1) + (n.b - 1) * (n.b - 1)
         }
 
-        var bestK = asShotKelvin
-        var bestT = asShotTint
+        var bestK = shot.kelvin
+        var bestT = shot.tint
         var best = Double.infinity
 
         // Coarse sweep: even steps in mireds (the perceptually uniform axis) × tint.
