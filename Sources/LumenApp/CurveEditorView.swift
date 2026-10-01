@@ -336,6 +336,10 @@ struct CurveEditorView: View {
             .onAppear { plotSize = size }
             .onChange(of: size) { _, newValue in plotSize = newValue }
             .contextMenu { contextItems }
+            // ONE ADJUSTABLE ELEMENT PER POINT (UX-03). The graph is a Canvas, so
+            // VoiceOver found nothing in it: no point, no value, no way to move one
+            // without a pointer. Each point is now an element at the spot it is drawn.
+            .overlay { pointElements(plotted: controls, size: size) }
         }
         .background(Color.black.opacity(0.55))
         // THE SMALLEST RADIUS IN THE SCALE, and the only surface in the app that argues
@@ -388,6 +392,8 @@ struct CurveEditorView: View {
             }
             .contentShape(Rectangle())
             .gesture(railGesture(size: size))
+            // The three triangles, likewise one adjustable element each (UX-03).
+            .overlay { splitElements(splits: splits, size: size) }
         }
         .frame(height: CurveEditorView.railHeight)
         .help("Drag a triangle to move the boundary between two regions. Double-click "
@@ -409,6 +415,97 @@ struct CurveEditorView: View {
             Button("Reset Splits") { writeSplits(CurveEditing.defaultSplits) }
             Button("Reset Regions") { resetParametricRegions() }
         }
+    }
+
+    // MARK: Accessibility
+
+    /// The points as VoiceOver elements, each at the spot the graph draws it.
+    ///
+    /// Clear and not hit-testable: these are for the accessibility tree only, and the
+    /// plot's own gesture still takes every click. The name and the value follow the
+    /// readout (`CurveAccessibility`); increment and decrement move the point's output
+    /// one percent, the two named actions move its input, and each is bracketed like a
+    /// drag so it is one undo step under the point's own key and its deferred write
+    /// lands at once.
+    private func pointElements(plotted: [[Double]], size: CGSize) -> some View {
+        ForEach(Array(plotted.enumerated()), id: \.offset) { index, point in
+            if point.count >= 2 {
+                Color.clear
+                    .frame(width: CurveEditorView.hitRadius * 2,
+                           height: CurveEditorView.hitRadius * 2)
+                    .position(x: CGFloat(point[0]) * size.width,
+                              y: CGFloat(1 - point[1]) * size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(CurveAccessibility.pointLabel(
+                        curve: channel.displayName, index: index, count: plotted.count)))
+                    .accessibilityValue(Text(CurveAccessibility.pointValue(
+                        input: point[0], output: point[1])))
+                    .accessibilityAdjustableAction { direction in
+                        switch direction {
+                        case .increment: accessibilityPointStep(index, .increment, input: false)
+                        case .decrement: accessibilityPointStep(index, .decrement, input: false)
+                        @unknown default: break
+                        }
+                    }
+                    .accessibilityAction(named: Text("Move input right")) {
+                        accessibilityPointStep(index, .increment, input: true)
+                    }
+                    .accessibilityAction(named: Text("Move input left")) {
+                        accessibilityPointStep(index, .decrement, input: true)
+                    }
+            }
+        }
+    }
+
+    /// The split triangles as VoiceOver elements, on the rail where they are drawn.
+    private func splitElements(splits: [Double], size: CGSize) -> some View {
+        ForEach(Array(splits.enumerated()), id: \.offset) { index, position in
+            Color.clear
+                .frame(width: CurveEditorView.hitRadius * 2, height: size.height)
+                .position(x: CGFloat(position) * size.width, y: size.height / 2)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(CurveAccessibility.splitLabel(
+                    index: index, regions: CurveEditorView.regionTitles)))
+                .accessibilityValue(Text(CurveAccessibility.splitValue(position)))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: accessibilitySplitStep(index, .increment)
+                    case .decrement: accessibilitySplitStep(index, .decrement)
+                    @unknown default: break
+                    }
+                }
+        }
+    }
+
+    /// One assistive step of one point: the output axis, or with `input` the input axis
+    /// through `storedX`. Bracketed like a drag, under the key that point's drag uses.
+    private func accessibilityPointStep(_ index: Int, _ direction: SliderAccessibility.Direction,
+                                        input: Bool) {
+        let points: [[Double]] = currentPoints
+        let plotted: [[Double]] = plottedPoints
+        guard points.indices.contains(index), plotted.indices.contains(index),
+              plotted[index].count >= 2 else { return }
+        let next: [[Double]] = input
+            ? CurveAccessibility.shiftingInput(points, index: index,
+                                               plottedX: plotted[index][0], direction,
+                                               storedX: { storedX($0) })
+            : CurveAccessibility.raisingOutput(points, index: index, direction)
+        guard next != points else { return }
+        sliderGestureChanged(true)
+        commitPoints(next, key: pointKey(index))
+        sliderGestureChanged(false)
+    }
+
+    /// One assistive step of one split, bracketed the same way.
+    private func accessibilitySplitStep(_ index: Int, _ direction: SliderAccessibility.Direction) {
+        let splits: [Double] = currentSplits
+        let next: [Double] = CurveAccessibility.adjustedSplits(splits, index: index, direction)
+        guard next != splits else { return }
+        sliderGestureChanged(true)
+        writeSplits(next)
+        sliderGestureChanged(false)
     }
 
     // MARK: Readout
