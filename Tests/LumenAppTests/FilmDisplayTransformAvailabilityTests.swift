@@ -90,9 +90,7 @@ final class FilmDisplayTransformAvailabilityTests: XCTestCase {
 
     func testUIUsesThePureAvailabilityForBadgeDisablingAndAccurateHelp() throws {
         let raw = try LayoutSource.read("Sources/LumenApp/LookPanel.swift")
-        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let source = blankingComments(in: raw)
         let stockProperty = try XCTUnwrap(source.components(separatedBy: "private var replacingStock: String?").last)
             .components(separatedBy: "private var transformIsInert").first ?? ""
         XCTAssertTrue(stockProperty.contains("FilmDisplayTransformAvailability.replacingStock("))
