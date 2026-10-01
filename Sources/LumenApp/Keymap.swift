@@ -248,6 +248,12 @@ final class KeyDispatcher {
             // round trip: from outside it enters Crop with the section open and the
             // rectangle live, and from inside it toggles the rectangle without leaving.
             state.toggleCropTool()
+        case "q":
+            // Q IS THE HEAL TOOL, docs/12 §12.3's binding and free in this grammar (docs/29
+            // lists no claim on it). A round trip like R and M: Q arms it on the loupe,
+            // Q again puts it away. `toggleHealTool` carries the entry contract — out of
+            // masking, crop rectangle away — so this key holds none of its own.
+            state.toggleHealTool()
         case "m":
             // M IS A ROUND TRIP, and it has to be, because it is the only key that both
             // enters and leaves. The column becomes the mask editor and the workspace
@@ -577,6 +583,13 @@ final class KeyDispatcher {
                 state.deleteActiveMask()
                 return true
             }
+            // The same rule for the Heal tool: Delete removes the selected SPOT, and with
+            // none selected it does nothing rather than reject the photograph under a
+            // tool the photographer is plainly using.
+            if HealTool.shared.armed {
+                state.deleteSelectedSpot()
+                return true
+            }
             state.setFlag(.reject)
             return true
         case 0x1B:      // Escape
@@ -593,6 +606,12 @@ final class KeyDispatcher {
             // Escape would jump past a whole surface to the light table.
             if PanelLayout.shared.layout.isMasking {
                 PanelLayout.shared.setMasking(false)
+                return true
+            }
+            // Then the Heal tool, the same layer: its circles are a thing you are inside.
+            // Leaving keeps every spot — they are saved as they are placed.
+            if HealTool.shared.armed {
+                HealTool.shared.armed = false
                 return true
             }
             // Then the crop tool, the same layer of the same idiom: a rectangle on the

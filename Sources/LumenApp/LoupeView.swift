@@ -1097,6 +1097,8 @@ struct LoupeView: View {
     /// left reading a stale idea of "which tab" would take its tool dead SILENTLY, which
     /// is the defect class this project has been bitten by twice.
     @ObservedObject private var panel: PanelLayout = PanelLayout.shared
+    /// The Heal tool: whether its canvas and bar are up, and which spot is selected.
+    @ObservedObject private var healTool: HealTool = HealTool.shared
 
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
@@ -1311,6 +1313,15 @@ struct LoupeView: View {
                         .padding(10)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: .bottomTrailing)
+                }
+
+                // The Heal tool's bar, out here for the peaking HUD's reason: inside the
+                // zoomed canvas it would scale with the photograph. Top centre, the one
+                // edge no other viewer HUD uses.
+                if healTool.armed {
+                    HealToolBar()
+                        .padding(10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1820,6 +1831,26 @@ struct LoupeView: View {
                     MaskCanvas.apply(edit, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
+            }
+
+            // The Heal tool's circles, under the same gate as the mask canvas's mirror
+            // image: not while masking, and not while the crop rectangle is up — the
+            // entry verbs make both unreachable, and this keeps them unrepresentable.
+            if healTool.armed, !panel.layout.isMasking, !cropArmed {
+                HealCanvas(imageRect: CGRect(origin: .zero, size: drawn),
+                           sourceSize: sourceFrameSize
+                               ?? CGSize(width: cg.width, height: cg.height),
+                           geometry: recipe.develop.geometry,
+                           spots: recipe.develop.heal.spots,
+                           selectedID: healTool.selectedSpotID,
+                           add: { x, y in state.addSpot(sourceX: x, sourceY: y) },
+                           select: { id in HealTool.shared.selectedSpotID = id },
+                           drag: { spot, _ in
+                               state.updateSpot(id: spot.id,
+                                                coalescingKey: "heal.drag.\(spot.id)",
+                                                label: "Move Spot") { $0 = spot }
+                           })
+                    .frame(width: drawn.width, height: drawn.height)
             }
 
             // Last in the stack so it sits above the mask canvas and the crop tool:
