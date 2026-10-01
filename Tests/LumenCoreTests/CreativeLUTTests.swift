@@ -166,7 +166,8 @@ final class CreativeLUTTests: XCTestCase {
     func testTheLogTapRunsBeforeTheTransform() {
         let plan = RenderPlan(recipe: Recipe())
         XCTAssertTrue(plan.linear.isIdentity && plan.toneIsIdentity
-                          && plan.colorGradeIsIdentity && plan.vignetteEV == 0,
+                          && plan.colorStage.isIdentity && plan.gradeIsIdentity
+                          && plan.vignetteEV == 0,
                       "the default recipe has a scene-referred stage now; this test's "
                           + "premise needs a recipe where the log tap is the first move")
         let library = Self.library()

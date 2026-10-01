@@ -427,11 +427,12 @@ public struct ColorEngine: Sendable {
     /// pores, grain, sky texture — untouched, which is the half of "three surfaces, one
     /// kernel" docs/05 is actually selling.
     ///
-    /// **What it would take to supply a real one, precisely.** `RenderPlan` bakes this
-    /// function into a 3D LUT, and a 3D LUT cannot carry a second per-pixel input. The
-    /// variance controls have to leave that table and become their own stage:
-    ///   1. `RenderPlan` splits S9 into the closed-form part (bakeable, unchanged) and a
-    ///      variance part gated on `mixer.uniformity != 0 || any(pointColors.variance)`;
+    /// **What it would take to supply a real one, precisely.** This stage is no longer
+    /// baked into a 3D LUT (AI-03): it runs as `ExactColorStage`'s kernels, whose
+    /// `point` pass already takes a SECOND image — the fixed pre-Mixer reference. So
+    /// the table obstacle that used to head this list is gone; what remains is:
+    ///   1. a mean image to hand those kernels instead of the pixel itself (the Mixer
+    ///      pass would need the same second input for Uniformity);
     ///   2. the renderer computes a guided-filter mean of the stage input once per
     ///      frame at preview resolution — `SpatialOps` already has the filter, and
     ///      `RenderGraph.guidedFilter` already runs it on the GPU for the tone mask —
@@ -531,6 +532,85 @@ public struct ColorEngine: Sendable {
                             luminance: Num.clamp(band.lum, -100, 100) / 100)
         }
         return ExactMixer(engine: self, bands: resolved)
+    }
+
+    /// The whole stage, resolved for exact evaluation — what every renderer runs instead
+    /// of baking this engine into a table (AI-03; `ExactColorStage`'s header). Built from
+    /// exactly the sanitized state `apply` reads, so the two cannot disagree about what
+    /// the recipe means: the same clamps, the same arcs, the same compiled swatch list
+    /// (dead swatches already dropped), the same Uniformity targets.
+    public var exactStage: ExactColorStage {
+        var resolved = ExactColorStage.Resolved(
+            isIdentity: isIdentity, context: context,
+            remap: remapIsIdentity ? nil : remap,
+            tint: tintIsIdentity ? nil : (tintA, tintB),
+            luma: lumaWeights, mixer: nil, swatches: [],
+            vibranceSaturation: nil, blackAndWhite: nil)
+        if !mixerIsIdentity {
+            let bandRows: [[Double]] = (0..<Self.bandCount).map { i in
+                let arc = arcs[i]
+                let band = bands[i]
+                return [arc.centre, arc.coreBelow, arc.coreAbove,
+                        arc.featherBelow, arc.featherAbove,
+                        Num.clamp(band.hue, -100, 100) / 100 * Self.hueRangeDegrees,
+                        Num.clamp(band.sat, -100, 100) / 100,
+                        Num.clamp(band.lum, -100, 100) / 100 * Self.lumKappa,
+                        bandTargetHue(i)]
+            }
+            resolved.mixer = (bandRows, -uniformity / 100)
+        }
+        resolved.swatches = swatches.map { s in
+            [s.target.L, s.target.C, s.target.h, s.sigmaL, s.sigmaC, s.sigmaH,
+             s.shiftH, s.shiftS, s.shiftL * Self.lumKappa, s.q]
+        }
+        let vibrance = Num.clamp(color.vibrance, -100, 100) / 100
+        let saturation = Num.clamp(color.saturation, -100, 100) / 100
+        if vibrance != 0 || saturation != 0 {
+            resolved.vibranceSaturation = (vibrance, saturation,
+                                           Num.clamp(color.protectSkin, 0, 100) / 100,
+                                           Num.clamp(color.density, 0, 100) / 100)
+        }
+        if bwEnabled {
+            resolved.blackAndWhite = blackAndWhiteBands.map { $0 / 100 * Self.bwKappa }
+        }
+        return ExactColorStage(resolved)
+    }
+
+    // MARK: - What a picker must sample (AI-02)
+
+    /// Which selection a colour picker is feeding.
+    public enum SelectionTap: Equatable, Sendable {
+        /// The Mixer's band picker: band membership is read after the primaries remap
+        /// and Shadows Tint.
+        case mixerBand
+        /// Point Colour swatch `index` (the next index when adding one). A swatch
+        /// compares the pixel after the primaries, the Mixer, and every swatch BEFORE
+        /// it in creation order.
+        case pointColor(index: Int)
+    }
+
+    /// The value the selection behind `tap` actually compares, given the colour stage's
+    /// input `c` — what a picker has to store for the swatch to select the pixel that
+    /// was clicked.
+    ///
+    /// AI-02. The picker stored the stage INPUT while `applySwatch` compared the pixel
+    /// after the primaries and the Mixer, so with Red Mixer Hue +100 a red picked and
+    /// pulled to Saturation −100 kept 0.1198 of its 0.12 chroma at Range 0: the swatch
+    /// sat a whole band away from the colour it was meant to be. This is the same
+    /// sequence `apply` runs, stopped where the selection reads: never a second copy of
+    /// the stage order.
+    public func selectionInput(_ c: RGB, for tap: SelectionTap) -> RGB {
+        guard c.isFinite else { return c }
+        let primed = applyPrimaries(c)
+        guard case .pointColor(let index) = tap else { return primed }
+        var out = applyMixer(primed, localMean: primed)
+        // The swatches that precede `index` in the RECIPE, compiled the same way the
+        // render compiles them, so a dead swatch before it is skipped exactly as the
+        // render skips it.
+        let earlier = Self.compiledSwatches(Array(pointColors.prefix(Swift.max(index, 0))),
+                                            context: context)
+        for s in earlier { out = applySwatch(s, to: out, localMean: primed) }
+        return out
     }
 
     // MARK: - Band geometry (the four ring handles, D13)
@@ -740,12 +820,11 @@ public struct ColorEngine: Sendable {
     /// flat-neighbourhood case, which keeps the algebra and the direction of the move
     /// exactly right and gives up only the texture-preservation half.
     ///
-    /// Why the shipping path is still flat, precisely: S9 is compiled to a 3D LUT over
-    /// log-encoded RGB (`RenderPlan.colorGradeLUT`), and a 3D LUT is by construction a
-    /// function of ONE colour. A second, spatially varying input cannot be baked into
-    /// it at any table size. Making Uniformity and Variance texture-preserving on the
-    /// shipping path therefore needs a stage, not a parameter — see the note above
-    /// `apply(_:localMean:)`.
+    /// Why the shipping path is still flat, precisely: S9 used to be compiled to a 3D
+    /// LUT over log-encoded RGB, which is by construction a function of ONE colour. It
+    /// runs exactly now (`ExactColorStage`, AI-03), so a second, spatially varying input
+    /// is a kernel argument rather than an impossibility — but nothing computes that
+    /// mean yet. See the note above `apply(_:localMean:)`.
     public static func varianceCompress(value v: Double,
                                         localMean mu: Double,
                                         target: Double,

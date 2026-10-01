@@ -2261,8 +2261,19 @@ public final class PipelineRenderer {
     /// photograph carrying any real tone move selected the wrong colour, and the
     /// error grew with the edit. Through `RenderGraph.colorStageInput`, the same
     /// expression the render uses, never a re-derivation.
+    ///
+    /// AND THEN THROUGH THE STAGE AS FAR AS THE SELECTION READS (AI-02). The colour
+    /// stage's input is still not what a swatch compares: `ColorEngine.apply` runs the
+    /// primaries and the Mixer first, and every earlier swatch, so after a Red Hue +100
+    /// a red picked here sat a band away from the pixel its swatch was judging, and
+    /// Saturation −100 left 0.1198 of 0.12 chroma at Range 0. `tap` says which
+    /// selection the pick feeds and `ColorEngine.selectionInput` runs the same sequence
+    /// `apply` does, stopped where that selection reads. Applied to the window MEAN, so
+    /// on a busy patch it is the stage of the average rather than the average of the
+    /// stage — the same order of approximation the mean itself already is.
     public func sampleColorStageInput(source: any ImageSource, recipe: Recipe,
                                       sourceX: Double, sourceY: Double,
+                                      tap: ColorEngine.SelectionTap,
                                       radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
@@ -2277,8 +2288,17 @@ public final class PipelineRenderer {
         let staged = RenderGraph().colorStageInput(
             decoded, plan: plan,
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
-        return sampleMean(staged.cropped(to: decoded.extent),
-                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+        guard let input = sampleMean(staged.cropped(to: decoded.extent),
+                                     sourceX: sourceX, sourceY: sourceY, radius: radius)
+        else { return nil }
+        // The plan's own recipe and measured hues, so the engine is the render's.
+        let engine = ColorEngine(mixer: plan.recipe.develop.mixer,
+                                 pointColors: plan.recipe.develop.pointColors,
+                                 color: plan.recipe.develop.color,
+                                 primaries: plan.recipe.look.primaries,
+                                 bw: plan.recipe.look.bw,
+                                 bandMeanHues: plan.bandMeanHues)
+        return engine.selectionInput(input, for: tap)
     }
 
     /// The picture a new spot's source is searched in: the S5 INPUT — the decode,

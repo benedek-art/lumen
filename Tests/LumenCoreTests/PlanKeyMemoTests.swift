@@ -56,10 +56,16 @@ final class PlanKeyMemoTests: XCTestCase {
         exposure.develop.tone.exposure = 0.9
         XCTAssertEqual(encodes { _ = RenderPlan(recipe: exposure) }, 2)
 
-        // Saturation is a colour input: the colour+grade key's seven subtrees.
+        // Saturation moved out of every table when the colour stage became exact:
+        // it re-spells nothing now.
         var saturation = exposure
         saturation.develop.color.saturation = -20
-        XCTAssertEqual(encodes { _ = RenderPlan(recipe: saturation) }, 7)
+        XCTAssertEqual(encodes { _ = RenderPlan(recipe: saturation) }, 0)
+
+        // A grading wheel is the grade table's input: its two subtrees and nothing else.
+        var wheel = saturation
+        wheel.look.wheels.high.sat = 35
+        XCTAssertEqual(encodes { _ = RenderPlan(recipe: wheel) }, 2)
     }
 
     /// The reuse is only worth having if it is invisible: every key a memo hands back
@@ -101,7 +107,7 @@ final class PlanKeyMemoTests: XCTestCase {
         PlanTableCache.clear()
         let cold = RenderPlan(recipe: b)
         XCTAssertTrue(primed.finishLUT == cold.finishLUT)
-        XCTAssertTrue(primed.colorGradeLUT == cold.colorGradeLUT)
+        XCTAssertTrue(primed.gradeLUT == cold.gradeLUT)
         XCTAssertTrue(primed.toneGainCubeBaked == cold.toneGainCubeBaked)
         XCTAssertEqual(primed.finishScale, cold.finishScale)
     }

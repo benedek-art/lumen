@@ -786,11 +786,6 @@ actor RenderCoordinator {
         return sample
     }
 
-    /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
-    /// `ColorEngine.apply` compares a global Point Colour swatch against. The global
-    /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
-    /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
-    /// queue item 5).
     /// Where a new heal or clone spot should borrow from: `SpotSourceSearch` over the S5
     /// input around the spot (`PipelineRenderer.healSearchBuffer`). On this actor because
     /// the decoded source is, so a click on the photograph being viewed decodes nothing.
@@ -806,12 +801,22 @@ actor RenderCoordinator {
                                            sourceHeight: found.sourceHeight)
     }
 
+    /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
+    /// `ColorEngine.apply` compares a global Point Colour swatch against. The global
+    /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
+    /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
+    /// queue item 5).
+    ///
+    /// `tap` names the selection the pick feeds — a Mixer band, or swatch `i` — and the
+    /// renderer carries the sample through the colour stage as far as that selection
+    /// reads (AI-02): the stage input alone is before the primaries and the Mixer.
     func samplePointColorReference(url: URL, recipe: Recipe,
-                                   sourceX: Double, sourceY: Double) -> RGB? {
+                                   sourceX: Double, sourceY: Double,
+                                   tap: ColorEngine.SelectionTap) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
-                                                          sourceY: sourceY),
+                                                          sourceY: sourceY, tap: tap),
               sample.isFinite
         else { return nil }
         return sample

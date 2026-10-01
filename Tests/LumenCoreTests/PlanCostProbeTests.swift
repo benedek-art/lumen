@@ -195,16 +195,18 @@ final class PlanCostProbeTests: XCTestCase {
                 move(&recipe, (Double(i) + 0.5) / Double(events))
                 let draft = RenderPlan(recipe: recipe, allowStaleTables: true)
                 XCTAssertEqual(draft.recipe, recipe)
-                XCTAssertTrue(draft.colorGradeLUT == warm.colorGradeLUT,
-                               "same-photo stale colour pixels must be the previous plan's")
+                XCTAssertTrue(draft.gradeLUT == warm.gradeLUT,
+                               "same-photo stale grade pixels must be the previous plan's")
                 XCTAssertTrue(draft.finishLUT == warm.finishLUT,
                                "same-photo stale finish pixels must be the previous plan's")
                 XCTAssertEqual(draft.finishScale, warm.finishScale,
                                "a stale table must retain its matching normalization scalar")
                 lastRecipe = recipe
             }
+            // Saturation re-keys NOTHING now: the colour stage is exact and has no table
+            // (AI-03), so a colour drag is a cache hit on every table there is.
             let changedSlots: [PlanTableCache.Slot] = control == "whites"
-                ? [.colorGrade, .finish] : [.colorGrade]
+                ? [.grade, .finish] : []
             for slot in changedSlots {
                 let traffic = PlanTableCache.traffic(slot)
                 XCTAssertEqual(traffic.staleServes, events, "\(control) \(slot)")
@@ -218,8 +220,11 @@ final class PlanCostProbeTests: XCTestCase {
             XCTAssertEqual(tone.hits, control == "whites" ? 0 : events)
             XCTAssertEqual(tone.staleServes, 0)
             if control == "saturation" {
-                XCTAssertEqual(PlanTableCache.traffic(.finish).hits, events)
-                XCTAssertEqual(PlanTableCache.traffic(.finish).bakes, 0)
+                for slot in [PlanTableCache.Slot.finish, .grade] {
+                    XCTAssertEqual(PlanTableCache.traffic(slot).hits, events, "\(slot)")
+                    XCTAssertEqual(PlanTableCache.traffic(slot).bakes, 0, "\(slot)")
+                    XCTAssertEqual(PlanTableCache.traffic(slot).staleServes, 0, "\(slot)")
+                }
             }
 
             release.signal()
@@ -230,18 +235,24 @@ final class PlanCostProbeTests: XCTestCase {
             }
             PlanTableCache.resetStats()
             let settled = RenderPlan(recipe: lastRecipe)
-            for slot in [PlanTableCache.Slot.colorGrade, .finish, .toneGain] {
+            for slot in [PlanTableCache.Slot.grade, .finish, .toneGain] {
                 XCTAssertEqual(PlanTableCache.traffic(slot).hits, 1, "settle must use the published exact key")
                 XCTAssertEqual(PlanTableCache.traffic(slot).bakes, 0, "settle must not repair missing publication")
             }
             PlanTableCache.clear()
             let fresh = RenderPlan(recipe: lastRecipe)
-            XCTAssertTrue(settled.colorGradeLUT == fresh.colorGradeLUT, "settled colour must equal fresh pixels")
+            XCTAssertTrue(settled.gradeLUT == fresh.gradeLUT, "settled grade must equal fresh pixels")
+            XCTAssertTrue(settled.colorStage == fresh.colorStage, "settled colour must equal fresh pixels")
             XCTAssertTrue(settled.finishLUT == fresh.finishLUT, "settled finish must equal fresh pixels")
             XCTAssertEqual(settled.finishScale, fresh.finishScale)
             XCTAssertTrue(settled.toneGainCubeBaked == fresh.toneGainCubeBaked)
             XCTAssertEqual(settled.toneGainScale, fresh.toneGainScale)
-            XCTAssertTrue(fresh.colorGradeLUT != warm.colorGradeLUT, "fixture must change actual colour pixels")
+            if control == "whites" {
+                XCTAssertTrue(fresh.gradeLUT != warm.gradeLUT, "fixture must change actual grade pixels")
+            } else {
+                XCTAssertTrue(fresh.colorStage != warm.colorStage, "fixture must change actual colour pixels")
+                XCTAssertTrue(fresh.gradeLUT == warm.gradeLUT, "a colour drag must not move the grade table")
+            }
             if control == "whites" {
                 XCTAssertTrue(fresh.finishLUT != warm.finishLUT)
                 XCTAssertTrue(fresh.toneGainCubeBaked != warm.toneGainCubeBaked)
@@ -250,10 +261,14 @@ final class PlanCostProbeTests: XCTestCase {
     }
 
     func testColdDraftAndWarmCurrentPlansHaveExplicitPerSlotCosts() {
-        let recipe = base()
+        var recipe = base()
+        // A live grade, so the grade slot has a table to bake: the base recipe's colour
+        // edit no longer bakes one (AI-03).
+        recipe.look.wheels.high.sat = 25
+        recipe.look.wheels.high.hue = 30
         PlanTableCache.resetStats()
         let cold = RenderPlan(recipe: recipe, allowStaleTables: true)
-        for slot in [PlanTableCache.Slot.colorGrade, .finish, .toneGain] {
+        for slot in [PlanTableCache.Slot.grade, .finish, .toneGain] {
             let traffic = PlanTableCache.traffic(slot)
             XCTAssertEqual(traffic.bakes, 1, "a cold draft has nothing to borrow")
             XCTAssertEqual(traffic.hits, 0)
@@ -261,12 +276,12 @@ final class PlanCostProbeTests: XCTestCase {
         }
         PlanTableCache.resetStats()
         let warm = RenderPlan(recipe: recipe, allowStaleTables: true)
-        for slot in [PlanTableCache.Slot.colorGrade, .finish, .toneGain] {
+        for slot in [PlanTableCache.Slot.grade, .finish, .toneGain] {
             XCTAssertEqual(PlanTableCache.traffic(slot).hits, 1)
             XCTAssertEqual(PlanTableCache.traffic(slot).bakes, 0)
         }
         XCTAssertTrue(cold.finishLUT == warm.finishLUT)
-        XCTAssertTrue(cold.colorGradeLUT == warm.colorGradeLUT)
+        XCTAssertTrue(cold.gradeLUT == warm.gradeLUT)
 
         // An inherited identity must not lend a stale table to a different photo.
         PlanTableCache.setRenderIdentity("plan-cost-other-photo")
@@ -274,13 +289,13 @@ final class PlanCostProbeTests: XCTestCase {
         changed.develop.tone.whites = 45
         PlanTableCache.resetStats()
         let otherPhoto = RenderPlan(recipe: changed, allowStaleTables: true)
-        for slot in [PlanTableCache.Slot.colorGrade, .finish, .toneGain] {
+        for slot in [PlanTableCache.Slot.grade, .finish, .toneGain] {
             XCTAssertEqual(PlanTableCache.traffic(slot).bakes, 1)
             XCTAssertEqual(PlanTableCache.traffic(slot).staleServes, 0)
         }
         PlanTableCache.clear()
         let exact = RenderPlan(recipe: changed)
         XCTAssertTrue(otherPhoto.finishLUT == exact.finishLUT)
-        XCTAssertTrue(otherPhoto.colorGradeLUT == exact.colorGradeLUT)
+        XCTAssertTrue(otherPhoto.gradeLUT == exact.gradeLUT)
     }
 }

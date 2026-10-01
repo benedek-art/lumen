@@ -628,13 +628,13 @@ final class ColorScienceTests: XCTestCase {
     }
 
     /// Through `RenderPlan`, which is what the shipping path actually evaluates: the
-    /// baked S9+S10 table and the exact reference must both carry the grid.
+    /// baked S10 table and the exact reference must both carry the grid.
     func testColorBalanceGridSurvivesTheBake() {
         var recipe = Recipe()
         recipe.look.wheels.colorBalance.brilliance.global = 35
         let plan = RenderPlan(recipe: recipe)
-        XCTAssertFalse(plan.colorGradeIsIdentity,
-                       "the colour+grade table was swapped for an identity cube")
+        XCTAssertFalse(plan.gradeIsIdentity,
+                       "the grade table was swapped for an identity cube")
 
         let scene = RGB(0.22, 0.12, 0.30)
         let base = RenderPlan(recipe: Recipe())
@@ -879,12 +879,12 @@ final class ColorScienceTests: XCTestCase {
     }
 
     /// The wiring docs/23 audit queue item 12 asked for, at the plan level: a
-    /// measurement handed to `RenderPlan(bandMeanHues:)` must reach the colour-grade
-    /// TABLE — the thing every shipping pixel goes through — and must be part of that
-    /// table's cache key. The key half is the sharp edge: build the measured plan
-    /// first and the unmeasured one second, and a key without the hues part would
-    /// hand the second plan the first plan's cached table — photo B rendered with
-    /// photo A's convergence field, the Paste-Settings poisoning class one cache over.
+    /// measurement handed to `RenderPlan(bandMeanHues:)` must reach the colour stage
+    /// every shipping pixel goes through. It used to reach a cached TABLE, and the
+    /// sharp edge was that table's key: build the measured plan first and the
+    /// unmeasured one second, and a key without the hues would hand photo B photo A's
+    /// convergence field. The colour stage is exact now (AI-03) and is never cached,
+    /// so that door is gone — the order below still checks it stays gone.
     func testRenderPlanThreadsMeasuredHuesIntoTheTableAndItsKey() {
         PlanTableCache.clear()
         defer { PlanTableCache.clear() }
@@ -900,23 +900,21 @@ final class ColorScienceTests: XCTestCase {
         let unmeasured = RenderPlan(recipe: recipe)
 
         let colour = swatch(hue: centre)
-        let encoded = LumenLog.encode(colour)
-        let measuredHue = hue(of: LumenLog.decode(measured.colorGradeLUT.sample(encoded)))
-        let unmeasuredHue = hue(of: LumenLog.decode(unmeasured.colorGradeLUT.sample(encoded)))
+        let measuredHue = hue(of: measured.colorGraded(colour))
+        let unmeasuredHue = hue(of: unmeasured.colorGraded(colour))
 
         XCTAssertEqual(Num.hueDelta(centre, unmeasuredHue), 0, accuracy: 1.0,
                        "with no measurement, a pixel on the band centre should rest")
-        // Most of the 20° arrives; the shortfall is the 33³ table interpolating a
-        // hue rotation (measured 14.2° on this swatch — the engine-direct test above
-        // this one shows the full 20° when the table is not in the way). What this
-        // asserts is the THREADING: the measurement moved the shipping table's
-        // pixels, in the right direction, by most of the asked-for amount.
-        XCTAssertGreaterThan(Num.hueDelta(centre, measuredHue), 10,
-                             "the measured mean never reached the shipping table")
+        // The FULL 20° now. Through the 33³ table this measured 14.2° and the
+        // assertion here could only ask for "more than 10": the table could not
+        // hold the rotation. The exact stage reproduces the engine-direct result.
+        XCTAssertEqual(Num.hueDelta(centre, measuredHue), 20, accuracy: 1.5,
+                       "the measured mean never reached the shipping colour stage")
 
-        // And the cache serves the measured plan its own table on a rebuild.
+        // And a rebuild carries the measured plan's own stage.
         let again = RenderPlan(recipe: recipe, bandMeanHues: means)
-        XCTAssertEqual(again.colorGradeLUT, measured.colorGradeLUT)
+        XCTAssertEqual(again.colorStage, measured.colorStage)
+        XCTAssertNotEqual(unmeasured.colorStage, measured.colorStage)
     }
 
     /// The writer `bandMeanHues` never had. Before this the field was read at
@@ -1064,8 +1062,8 @@ final class ColorScienceTests: XCTestCase {
 
         XCTAssertLessThan(kept.maxAbsDifference(plain), 1e-12,
                           "a mix the user switched off is still painting the picture")
-        XCTAssertTrue(RenderPlan(recipe: off).colorGradeIsIdentity,
-                      "the switched-off mix is still baking a colour table")
+        XCTAssertTrue(RenderPlan(recipe: off).colorStage.isIdentity,
+                      "the switched-off mix is still running a colour stage")
 
         // The other direction, so the assertion above cannot pass by the stage being
         // dead: switched on, the same mix must reach a true neutral.

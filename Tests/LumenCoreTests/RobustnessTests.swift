@@ -498,7 +498,7 @@ final class RobustnessTests: XCTestCase {
                 // 65-cube reaching 0.02 EV there would have to be about fifty times
                 // finer. Below the cut the table is held to an absolute tolerance
                 // instead, which is the quantity that actually matters.
-                let tabled = plan.colorGradeLUT.sample(LumenLog.encode(c))
+                let tabled = LumenLog.encode(plan.colorGraded(c))
                 let exactLinear = grade.apply(color.apply(c))
                 let exactEncoded = LumenLog.encode(exactLinear)
                 let tabledLinear = LumenLog.decode(tabled)
@@ -668,7 +668,7 @@ final class RobustnessTests: XCTestCase {
                         let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
                         c = c * plan.tone.gain(at: Num.safeLog2(lum / 0.18))
                     }
-                    let tabled = LumenLog.decode(plan.colorGradeLUT.sample(LumenLog.encode(c)))
+                    let tabled = plan.colorGraded(c)
                     let exact = grade.apply(color.apply(c))
                     // The `where` is the swallower on this site, not the accumulator:
                     // a NaN fails `>= cut` and the channel is skipped, so a table that

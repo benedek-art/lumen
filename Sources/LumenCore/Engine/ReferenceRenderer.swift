@@ -79,9 +79,12 @@ public enum ReferenceRenderer {
             image = DetailEngine.apply(image, detail: detail, decomposition: node)
         }
 
-        // S9 + S10 — colour and grade.
-        if !plan.colorGradeIsIdentity {
-            let lut = plan.colorGradeLUT
+        // S9 — colour, exactly: the twin of the GPU's colour kernels, on the same
+        // Float32 uniforms (AI-03). Never a table.
+        image = plan.colorStage.apply(to: image)
+        // S10 — the grade, through its table.
+        if !plan.gradeIsIdentity {
+            let lut = plan.gradeLUT
             image = image.map { LumenLog.decode(lut.sample(LumenLog.encode($0))) }
         }
 
@@ -341,6 +344,10 @@ public enum ReferenceRenderer {
                                               saturation: a.sat * scale,
                                               inheriting: plan.recipe.develop.color),
                                 primaries: Primaries(), bw: nil)
+        // The exact stage's twin, not `color.apply`: the GPU's `LocalPlan` runs this
+        // mask's colour stage through the same kernels as the global one, and the CPU
+        // path runs their twin, so the two paths execute one implementation (AI-03).
+        let colorStage = color.exactStage
         let exposureGain = tone.exposureGain
         let hueShift = a.hue * scale
         let context = OKLabTransform.working
@@ -372,7 +379,7 @@ public enum ReferenceRenderer {
                 c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
             }
             c = balance.apply(c)
-            c = color.apply(c)
+            c = colorStage.apply(c)
             if hueShift != 0 {
                 var lch = context.toLCh(c)
                 lch.h = Num.wrapHue(lch.h + hueShift)

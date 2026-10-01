@@ -29,7 +29,9 @@ public enum PreviewCache {
     /// Separate from recipe schema: the document did not change, its renderer did.
     /// 7: brush strokes under a ten-pixel radius deposit density-corrected flow and
     /// fold on a shared fine grid (Astra M04 / S-10), so thin-brush masks move.
-    public static let renderingRevision = 7
+    /// 8: the colour stage (S9) left the colour/grade cube and runs exactly (AI-03), so
+    /// every stored preview of a photograph with a colour edit is a different picture.
+    public static let renderingRevision = 8
 
     /// Where payloads sit, relative to the cache directory (docs/15 §15.2).
     public static let directoryName = "previews"

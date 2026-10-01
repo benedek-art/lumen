@@ -208,26 +208,40 @@ final class ExactMixerGPUTests: XCTestCase {
         }
     }
 
-    func testIneligibleCombinationAndUniformityKeepTheExistingFusedRoute() throws {
+    /// This used to pin the OPPOSITE: that recipes the Mixer-only primitive could not
+    /// serve stayed on the fused colour/grade cube, bit for bit. That cube was AI-03.
+    /// The shipping stage is now the exact colour stage for EVERY recipe (no family
+    /// eligibility, so no route switch), so the same two recipes — the ones this
+    /// primitive refuses — must come out of `localStageInput` at the independent
+    /// engine's values, with a measured Uniformity target threaded through the plan.
+    func testIneligibleCombinationAndUniformityTakeTheExactShippingStage() throws {
         for uniformity in [false, true] {
             var r = Recipe()
             r.develop.denoise.mode = .off
             r.develop.mixer.bands[4].lum = -100
             if uniformity { r.develop.mixer.uniformity = 40 }
             else { r.develop.color.saturation = 20 }
-            let plan = RenderPlan(recipe: r, bandMeanHues: ColorEngine.bandHueCentres.map { $0+5 })
+            let hues = ColorEngine.bandHueCentres.map { $0 + 5 }
+            let plan = RenderPlan(recipe: r, bandMeanHues: hues)
             XCTAssertNil(engine(r).exactMixer)
-            let source = image(samples())
-            let actual = RenderGraph().localStageInput(source, plan: plan,
-                options: .init(longEdge: Int(source.extent.width)))
-            let legacy = try XCTUnwrap(RenderGraph.throughShaper(source) {
-                ColorCube.filter(plan.colorGradeLUT, image: $0)
-            })
-            for (a,b) in zip(read(actual),read(legacy)) {
-                XCTAssertEqual(a.r, b.r, accuracy: 1e-6)
-                XCTAssertEqual(a.g, b.g, accuracy: 1e-6)
-                XCTAssertEqual(a.b, b.b, accuracy: 1e-6)
+            XCTAssertTrue(plan.linear.isIdentity && plan.toneIsIdentity && plan.gradeIsIdentity,
+                          "fixture: S9 must be the only live stage before the local one")
+            let values = samples()
+            let source = image(values)
+            let actual = read(RenderGraph().localStageInput(source, plan: plan,
+                options: .init(longEdge: Int(source.extent.width))))
+            let oracle = ColorEngine(mixer: r.develop.mixer, pointColors: [],
+                                     color: r.develop.color, primaries: r.look.primaries,
+                                     bw: nil, bandMeanHues: hues)
+            var worst = 0.0
+            for (input, output) in zip(values, actual) {
+                let expected = oracle.apply(input)
+                let scale = max(1, input.maxAbsDifference(.zero), expected.maxAbsDifference(.zero))
+                worst = max(worst, output.maxAbsDifference(expected) / scale)
             }
+            // The renderer's own working context is half-float; this reads RGBAf, so
+            // the float32 gate applies with room for the κ term the Linux suite measures.
+            XCTAssertLessThan(worst, 1e-4, "uniformity=\(uniformity)")
         }
     }
 

@@ -61,12 +61,9 @@ final class PlanKeyMemo<Inputs: Equatable>: @unchecked Sendable {
 
 /// The three plans' key inputs, as values `==` can compare.
 extension RenderPlan {
-    struct ColorGradeKeyInputs: Equatable {
-        var mixer: Mixer
-        var pointColors: [PointColor]
-        var color: ColorAdjust
-        var primaries: Primaries
-        var bw: BlackAndWhite?
+    /// The grade table's inputs. The colour stage runs exactly on every path now, so
+    /// only the grade stays tabled and only its two subtrees spell its key.
+    struct GradeKeyInputs: Equatable {
         var wheels: GradingWheels
         var printerLights: PrinterLights
     }
@@ -81,7 +78,7 @@ extension RenderPlan {
         var zones: Zones
     }
 
-    static let colorGradeKeyMemo = PlanKeyMemo<ColorGradeKeyInputs>()
+    static let gradeKeyMemo = PlanKeyMemo<GradeKeyInputs>()
     static let finishKeyMemo = PlanKeyMemo<FinishKeyInputs>()
     static let filmKeyMemo = PlanKeyMemo<FilmLab>()
     static let toneKeyMemo = PlanKeyMemo<ToneKeyInputs>()
