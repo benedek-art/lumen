@@ -122,6 +122,27 @@ final class ControlIndexTests: XCTestCase {
 
     /// A control whose title does not find itself is unreachable by the most obvious
     /// query there is.
+    /// The palette must not answer "lut" while no stage reads a LUT (G3-07).
+    ///
+    /// `look.lut` was removed from the index because ⌘K "cube" took the photographer to
+    /// a section with no LUT in it — and the aliases moved to Film Lab, which has none
+    /// either. Keyed to the same fact `Recipe.renderIdentity` keys its strip to, so the
+    /// day a LUT stage lands (and that strip goes) this stops asserting rather than
+    /// blocking the alias from coming back with its control.
+    func testNoControlAnswersForALUTWhileNoStageReadsOne() {
+        var withLUT = Recipe()
+        withLUT.look.lut = LUTReference(ref: "blob:xxh64:0000000000000000", name: "test.cube")
+        guard withLUT.renderIdentity.look.lut == nil else { return }
+        for control in ControlIndex.all {
+            for alias in control.aliases {
+                let word = alias.lowercased()
+                XCTAssertFalse(word == "lut" || word == "cube" || word.contains("3d lut"),
+                               "\(control.title) answers for \"\(alias)\", and no stage "
+                                   + "reads a LUT — Return lands on a section without one")
+            }
+        }
+    }
+
     func testEveryControlIsFoundByItsOwnTitle() {
         for control in ControlIndex.all {
             let found = ControlIndex.search(control.title)

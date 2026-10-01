@@ -153,8 +153,13 @@ public struct ControlIndex: Sendable {
 
         // Grade — Film Lab
         Control(id: "look.filmLab", title: "Film Lab", section: .filmLab,
+                // Not "lut" or "cube" (G3-07): the comment above the Looks entries says
+                // why `look.lut` left this index, and the aliases followed it here — so
+                // ⌘K "lut" landed on a section of film stocks with no LUT row in it.
+                // `ControlIndexTests` ties them to `renderIdentity`'s strip: they can
+                // come back in the commit that gives a LUT a stage and a control.
                 aliases: ["film", "stock", "halation", "push pull", "portra",
-                          "film emulation", "lut", "cube"]),
+                          "film emulation"]),
 
         // Grade — Effects
         Control(id: "look.vignette", title: "Vignette", section: .effects,
