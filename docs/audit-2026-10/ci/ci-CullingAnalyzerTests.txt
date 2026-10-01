@@ -1,0 +1,1 @@
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/CullingAnalyzerTests.swift:85: error: -[LumenPipelineTests.CullingAnalyzerTests testASoftCopyScoresLowerAndHashesAsTheSamePicture] : XCTAssertLessThanOrEqual failed: ("28") is greater than ("12")
