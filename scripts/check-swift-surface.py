@@ -181,6 +181,10 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
+    # POSIX errno values and open(2) flags: the export's no-overwrite fallback
+    # (`ExclusivePublish`) branches on them, on Darwin and Glibc alike.
+    "ENOTSUP", "EOPNOTSUPP", "EINVAL", "EEXIST", "EPERM", "EXDEV", "EMLINK", "ENOSYS",
+    "EIO", "ENOSPC", "O_CREAT", "O_EXCL", "O_WRONLY",
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
