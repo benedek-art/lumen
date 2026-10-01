@@ -1543,6 +1543,16 @@ struct LumenSectionHeader: View {
     /// never goes anywhere observable — see `CommandState` for what a per-event publish
     /// costs a drag.
     @State private var hovering = false
+    /// Whether the pointer is over the verb WHILE it is greyed — the one spot in an
+    /// interactive row that answers no click (V7 D1). Row-local like `hovering`.
+    @State private var overDisabledVerb = false
+
+    /// The row's pointing hand: on wherever a click does something, which is the whole
+    /// interactive row EXCEPT a greyed verb. The swallowing layer below stops that
+    /// click; without this the hand still promised one over it.
+    private var rowCursorEnabled: Bool {
+        isInteractive && !(overDisabledVerb && !actionEnabled)
+    }
 
     /// Whether a click on this header means anything. False for a header that is only
     /// a group label — no chevron, no accordion callback — in which case the hover fill
@@ -1672,6 +1682,13 @@ struct LumenSectionHeader: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {}
+                            // And the row's pointing hand stands down over it: the
+                            // cursor region is the whole row, so the glyph that does
+                            // nothing still wore the hand that says "click".
+                            .onHover { overDisabledVerb = $0 }
+                            // A layer that goes while the pointer is on it gets no
+                            // exit event; the flag must not outlive it.
+                            .onDisappear { overDisabledVerb = false }
                     }
                 }
             }
@@ -1750,8 +1767,9 @@ struct LumenSectionHeader: View {
         // One cursor region for the whole header rather than one on the chevron: the
         // row and the arrow do the same thing, so the pointing hand should not appear
         // over 20 points of a 300-point target. Gated the same way the hover fill is —
-        // a pointing hand over a label that answers no click is a promise broken.
-        .lumenClickCursor(isInteractive)
+        // a pointing hand over a label that answers no click is a promise broken — and
+        // over a greyed verb inside the row, for the same reason (`rowCursorEnabled`).
+        .lumenClickCursor(rowCursorEnabled)
         .animation(Lumen.motionState, value: hovering)
         .padding(.top, topRhythm)
     }

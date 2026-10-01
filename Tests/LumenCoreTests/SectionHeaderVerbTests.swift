@@ -31,4 +31,29 @@ final class SectionHeaderVerbTests: XCTestCase {
         XCTAssertTrue(flatSwallow.contains(".onTapGesture {}"),
                       "the swallowing layer must claim the tap with its own empty gesture")
     }
+
+    /// The pointing hand is the row's promise that a click does something. The greyed
+    /// verb answers no click, so the row's cursor stands down while the pointer is on
+    /// it: the swallowing layer reports its hover, and the row's cursor is gated on it.
+    func testTheRowsPointingHandStandsDownOverADisabledVerb() throws {
+        let code = try ShellSource.code("Sources/LumenApp/LumenControls.swift")
+        let header = try XCTUnwrap(ShellSource.body(after: "struct LumenSectionHeader", in: code),
+                                   "LumenSectionHeader is gone or renamed; re-point this pin")
+        let verb = try XCTUnwrap(ShellSource.body(after: "if let onAction", in: header))
+        let swallow = ShellSource.squashed(try XCTUnwrap(
+            ShellSource.body(after: "if !actionEnabled", in: verb)))
+        XCTAssertTrue(swallow.contains(".onHover { overDisabledVerb = $0 }"),
+                      "the disabled verb's layer does not report the pointer, so the row "
+                          + "cannot know to drop its pointing hand there")
+        XCTAssertTrue(swallow.contains(".onDisappear { overDisabledVerb = false }"),
+                      "a layer removed under the pointer gets no exit; the flag would stick")
+        let gate = ShellSource.squashed(try XCTUnwrap(
+            ShellSource.body(after: "private var rowCursorEnabled: Bool", in: header)))
+        XCTAssertTrue(gate.contains("isInteractive && !(overDisabledVerb && !actionEnabled)"))
+        let flat = ShellSource.squashed(header)
+        XCTAssertTrue(flat.contains(".lumenClickCursor(rowCursorEnabled)"),
+                      "the row's cursor is not gated on the disabled verb")
+        XCTAssertFalse(flat.contains(".lumenClickCursor(isInteractive)"),
+                       "the row's cursor still ignores the disabled verb")
+    }
 }
