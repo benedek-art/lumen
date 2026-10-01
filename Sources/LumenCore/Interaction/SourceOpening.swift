@@ -1,0 +1,75 @@
+// SourceOpening.swift
+// What a set of dropped, picked or Finder-opened URLs becomes.
+
+import Foundation
+
+/// The decisions behind `AppState.openSources`, kept here so they run (and are tested)
+/// on every platform. The app supplies the filesystem facts — whether a URL is a
+/// directory — and acts on the answer.
+public enum SourceOpening {
+
+    /// What an open request should do.
+    public enum Plan: Equatable, Sendable {
+        /// Nothing in the request is something Lumen can open: leave the roll that is on
+        /// screen exactly as it is, remember nothing, and say so.
+        case nothing
+        /// One folder and nothing else: the plain folder open it has always been.
+        case folder(URL)
+        /// Supported photographs only: an explicit roll rooted at their common parent.
+        case files(root: URL, files: Set<URL>)
+        /// At least one directory among the sources. Expanding it is a recursive walk,
+        /// which must happen off the main actor, and only its RESULT can say whether
+        /// there is anything to open — so the roll on screen is not replaced until it
+        /// has (`expansionOutcome`).
+        case expand(root: URL, sources: Set<URL>)
+    }
+
+    /// - Parameters:
+    ///   - extensions: lower-cased extensions Lumen can open.
+    ///   - isDirectory: the filesystem's answer for a file URL.
+    ///
+    /// A URL that is not a file URL — a web link dropped on the window — is not a source
+    /// at all (V7 D7: it used to close the open folder and open an empty roll rooted at
+    /// the link's path, and remember that for the next launch). Nor is a file of a type
+    /// Lumen cannot open.
+    public static func plan(_ urls: [URL], extensions: Set<String>,
+                            isDirectory: (URL) -> Bool) -> Plan {
+        let local = urls.filter(\.isFileURL)
+        let directories = local.filter(isDirectory)
+        let photos = local.filter {
+            !isDirectory($0) && extensions.contains($0.pathExtension.lowercased())
+        }
+        if directories.isEmpty && photos.isEmpty { return .nothing }
+        if directories.count == 1 && photos.isEmpty { return .folder(directories[0]) }
+        guard let root = commonParent(of: directories + photos, isDirectory: isDirectory)
+        else { return .nothing }
+        if directories.isEmpty { return .files(root: root, files: Set(photos)) }
+        return .expand(root: root, sources: Set(directories + photos))
+    }
+
+    /// The deepest directory that contains every one of them. Nil only for an empty
+    /// list — two paths on different volumes still share `/`.
+    public static func commonParent(of urls: [URL], isDirectory: (URL) -> Bool) -> URL? {
+        guard let first = urls.first else { return nil }
+        var common = (isDirectory(first) ? first : first.deletingLastPathComponent())
+            .standardizedFileURL.pathComponents
+        for url in urls.dropFirst() {
+            let parts = (isDirectory(url) ? url : url.deletingLastPathComponent())
+                .standardizedFileURL.pathComponents
+            var shared: [String] = []
+            for (a, b) in zip(common, parts) {
+                guard a == b else { break }
+                shared.append(a)
+            }
+            common = shared
+        }
+        guard !common.isEmpty else { return nil }
+        return URL(fileURLWithPath: NSString.path(withComponents: common), isDirectory: true)
+    }
+
+    /// What an `.expand` plan's walk found decides whether it opens anything at all.
+    /// Nil means "Nothing there Lumen can open": the roll on screen stays.
+    public static func expansionOutcome(root: URL, found: [URL]) -> Plan? {
+        found.isEmpty ? nil : .files(root: root, files: Set(found))
+    }
+}

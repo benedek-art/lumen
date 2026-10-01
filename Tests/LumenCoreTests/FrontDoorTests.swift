@@ -86,9 +86,12 @@ final class FrontDoorTests: XCTestCase {
     func testEveryDoorGoesThroughOneVerb() throws {
         let state = try text("Sources/LumenApp/AppState.swift")
         XCTAssertTrue(state.contains("func openSources(_ urls: [URL])"))
-        // And it handles the mixed list rather than only the single-folder case.
-        XCTAssertTrue(state.contains("commonParent(of: urls)"),
+        // And it handles the mixed list rather than only the single-folder case. The
+        // decision (root, picked set, refusal) is `SourceOpening.plan`, tested in
+        // SourceOpeningTests; these say the verb still acts on every answer.
+        XCTAssertTrue(state.contains("SourceOpening.plan(urls"),
                       "loose frames need a root to hang off")
-        XCTAssertTrue(state.contains("openFolder(root, restrictedTo: Set(urls))"))
+        XCTAssertTrue(state.contains("openFolder(root, restrictedTo: files)"))
+        XCTAssertTrue(state.contains("SourceOpening.expansionOutcome("))
     }
 }

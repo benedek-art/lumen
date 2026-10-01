@@ -2635,23 +2635,66 @@ final class AppState: ObservableObject {
     /// very common word — the surface checker caught the collision immediately, which is
     /// the cheapest possible moment to learn it.
     func openSources(_ urls: [URL]) {
-        let directories = urls.filter { Self.isDirectory($0) }
-        let files = urls.filter { !Self.isDirectory($0) }
-
-        // The overwhelmingly common case, and the one that behaves exactly as before.
-        if directories.count == 1, files.isEmpty {
-            openFolder(directories[0])
-            return
+        // `SourceOpening` (LumenCore, tested) decides; this acts. Only file URLs of a
+        // type Lumen opens, or directories, count — a dropped web link or a stray
+        // `.txt` is not a source (V7 D7).
+        switch SourceOpening.plan(urls, extensions: Self.browsableExtensions,
+                                  isDirectory: { Self.isDirectory($0) }) {
+        case .nothing:
+            // NOTHING TO OPEN LEAVES THE ROLL ALONE. This guard existed and was lost
+            // when expansion moved off the main actor (b8d6d4f); without it a web link
+            // closed the open folder, opened an empty roll at the link's path, and
+            // remembered that for the next launch.
+            statusMessage = Self.nothingToOpenMessage
+        case .folder(let folder):
+            // The overwhelmingly common case, and the one that behaves exactly as before.
+            openFolder(folder)
+        case .files(let root, let files):
+            openFolder(root, restrictedTo: files)
+        case .expand(let root, let sources):
+            // A directory among the sources is expanded OFF the main actor — on the main
+            // thread it is the freeze `scan`'s own header exists to prevent ("a card with
+            // 5,000 frames must not freeze the window while it is enumerated"). And the
+            // roll on screen is not touched until the walk has said there is something
+            // to open: an empty answer keeps the open folder and says so, instead of
+            // replacing it with nothing.
+            let extensions = Self.browsableExtensions
+            let generation = scanGeneration
+            statusMessage = "Scanning…"
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let found = Self.expand(sources, extensions: extensions)
+                await MainActor.run {
+                    // Another open started meanwhile: that one is what the user wants.
+                    guard let self, self.scanGeneration == generation else { return }
+                    guard case .files(let expandedRoot, let files)? =
+                            SourceOpening.expansionOutcome(root: root, found: found) else {
+                        self.statusMessage = Self.nothingToOpenMessage
+                        return
+                    }
+                    self.openFolder(expandedRoot, restrictedTo: files)
+                }
+            }
         }
-        guard !urls.isEmpty else { return }
-        guard let root = Self.commonParent(of: urls) else { return }
-        // The chosen list is handed on WHOLE — directories included — and expanded off
-        // the main actor. Expanding here would have been a synchronous recursive
-        // enumeration on the main thread, which is the freeze `scan`'s own header exists
-        // to prevent: "a card with 5,000 frames must not freeze the window while it is
-        // enumerated". Choosing a folder alongside a few loose frames is exactly the
-        // case that would have hit it.
-        openFolder(root, restrictedTo: Set(urls))
+    }
+
+    static let nothingToOpenMessage = "Nothing there Lumen can open"
+
+    /// Every photograph a set of sources names: a file as itself (when Lumen opens its
+    /// type), a directory as everything under it. Sorted the way a scan sorts, so the
+    /// grid's initial order does not depend on which door the photographs came through.
+    nonisolated static func expand(_ sources: Set<URL>, extensions: Set<String>) -> [URL] {
+        var explicit: Set<URL> = []
+        for source in sources {
+            if isDirectory(source) {
+                explicit.formUnion(scan(url: source, extensions: extensions))
+            } else if extensions.contains(source.pathExtension.lowercased()) {
+                explicit.insert(source)
+            }
+        }
+        return explicit.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                == .orderedAscending
+        }
     }
 
     nonisolated static func isDirectory(_ url: URL) -> Bool {
@@ -2661,21 +2704,7 @@ final class AppState: ObservableObject {
     /// The deepest directory that contains every one of them. Nil only for an empty
     /// list — two paths on different volumes still share `/`.
     nonisolated static func commonParent(of urls: [URL]) -> URL? {
-        guard let first = urls.first else { return nil }
-        var common = (isDirectory(first) ? first : first.deletingLastPathComponent())
-            .standardizedFileURL.pathComponents
-        for url in urls.dropFirst() {
-            let parts = (isDirectory(url) ? url : url.deletingLastPathComponent())
-                .standardizedFileURL.pathComponents
-            var shared: [String] = []
-            for (a, b) in zip(common, parts) {
-                guard a == b else { break }
-                shared.append(a)
-            }
-            common = shared
-        }
-        guard !common.isEmpty else { return nil }
-        return URL(fileURLWithPath: NSString.path(withComponents: common), isDirectory: true)
+        SourceOpening.commonParent(of: urls, isDirectory: { isDirectory($0) })
     }
 
     // MARK: Reopening the last folder
@@ -2790,20 +2819,8 @@ final class AppState: ObservableObject {
             // "this folder and those three from next door" is one roll. Sorted the way a
             // scan sorts, so the grid's initial order does not depend on which door the
             // photographs came through.
-            let found: [URL] = restriction.map { chosen in
-                var explicit: Set<URL> = []
-                for source in chosen {
-                    if Self.isDirectory(source) {
-                        explicit.formUnion(Self.scan(url: source, extensions: extensions))
-                    } else if extensions.contains(source.pathExtension.lowercased()) {
-                        explicit.insert(source)
-                    }
-                }
-                return explicit.sorted {
-                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
-                        == .orderedAscending
-                }
-            } ?? Self.scan(url: url, extensions: extensions)
+            let found: [URL] = restriction.map { Self.expand($0, extensions: extensions) }
+                ?? Self.scan(url: url, extensions: extensions)
             // Registration is thousands of SQL round-trips and a sidecar read per
             // file. It stays out here, on this thread: it used to run inside the
             // main-actor hop, which stopped the run loop for the whole of a 5,000
