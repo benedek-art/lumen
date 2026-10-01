@@ -2238,7 +2238,6 @@ public final class CatalogStore {
                            name: String?, isCurrent: Bool,
                            isRenderedFile: Bool = false,
                            at now: Int64 = CatalogStore.now()) throws -> Int64 {
-        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
         let fingerprint = try RecipeFingerprint.fingerprint(recipe)
         // "Edited" means the recipe differs from what a fresh import of THIS
         // PHOTOGRAPH would have left behind — not from the type's default.
@@ -2288,6 +2287,17 @@ public final class CatalogStore {
         // `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` pins.
         let storedPipelineVersion = Swift.min(recipe.pipelineVersion,
                                               currentPipelineVersion)
+        // AND THE TEXT SAYS WHAT THE COLUMN SAYS (M-02). `canonicalRecipeJSON` writes the
+        // recipe's own `pipelineVersion` into the text, so clamping only the column left
+        // a row reading `pipeline_version = 2` beside `{"pipelineVersion":7,…}` — and
+        // `currentRecipe` decodes the TEXT, so the carried-forward number came back on
+        // every open and re-infected every later save and sidecar. Identical bytes for
+        // every recipe this build or an older one wrote (the clamp is the identity
+        // there); the fingerprint is left as the recipe's own, which is what the preview
+        // cache and the sidecar comparison were already keyed on.
+        var stamped = recipe
+        stamped.pipelineVersion = storedPipelineVersion
+        let json = try CanonicalJSON.canonicalRecipeJSON(stamped)
 
         return try db.transaction {
             if isCurrent {
