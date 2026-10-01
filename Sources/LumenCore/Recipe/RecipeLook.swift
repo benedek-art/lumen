@@ -48,7 +48,8 @@ public struct Look: Codable, Equatable, Sendable {
     /// same.
     public var grain: CreativeGrain?
     public var render: RenderParams
-    /// A creative LUT. **Stored and never applied** — see `LUTReference`.
+    /// A creative LUT — see `LUTReference` for the wire form and `CreativeLUTStage`
+    /// for where and how it renders.
     public var lut: LUTReference?
 
     /// The feather value that reproduces the fixed geometry recipes have always
@@ -174,26 +175,23 @@ public struct RenderParams: Codable, Equatable, Sendable {
     }
 }
 
-/// A user `.cube` LUT applied at one of the two documented taps (docs/14 §2.3):
-/// `display` = after the transform (the common case for SDR-referred LUT packs),
-/// `log` = before it, on a fixed log encoding.
-/// A creative LUT, as the wire format will name one — **and nothing renders it.**
+/// A creative LUT: a user `.cube` file, named by content hash, applied at one of the two
+/// documented taps (docs/14 §2.3, docs/05 "LUT import") and blended by `amount`.
 ///
-/// This is a reserved slot, not a feature. There is no stage that reads it on any path:
-/// not `RenderGraph`, not `export`, not `ReferenceRenderer`. `LUT3D.fromCubeFile` can
-/// parse a `.cube` and has only test callers, and there is no UI that would ever set
-/// `Look.lut` — the only way a recipe acquires one is a hand-edited sidecar, and that
-/// sidecar renders exactly like one without it.
+/// `ref` is `blob:xxh64:<16 hex>` — the hash of the file's own bytes, which live in the
+/// catalog's `BlobStore` beside the brush strokes, so the catalog backup carries them.
+/// `tap` is the DECLARED SPACE, input and output alike (a creative LUT maps a space onto
+/// itself): `.display` is sRGB-encoded, display-referred, applied after the transform;
+/// `.log` is `LumenLog`-encoded linear Rec.2020, applied before it. `amount` is 0…100,
+/// a blend against the stage's input. `name` is a label and nothing reads it but the
+/// panel. `CreativeLUTStage` is the whole of the rendering.
 ///
-/// Said here, at the definition, because a `Codable` field that survives the recipe, the
-/// sidecar and the catalog looks from every one of those three places like a capability.
-/// `Recipe.renderIdentity` strips it, so the inertness is mechanical rather than a
-/// promise in a comment: two recipes differing only in a LUT are equal to the fingerprint
-/// and to `rendersSameAs`, which is the truth about the pixels they produce.
-///
-/// `tap` and `amount` describe how a LUT WOULD be applied — after the display transform
-/// or in log, blended by percent. They are design, not behaviour, and they will only
-/// start meaning something when a stage reads them.
+/// THE WIRE KEYS ARE FROZEN AT THESE FOUR, and that is the M-01 guard rather than a
+/// style choice. Every build at `pipelineVersion` 2 decodes exactly `ref`, `name`, `tap`
+/// and `amount` here, so a recipe carrying a LUT round-trips through an older build's
+/// sidecar flush with nothing dropped. A fifth key would be silently removed by any of
+/// those builds on its next write — the M-01 defect — and therefore needs a
+/// `pipelineVersion` bump in the same commit. `CreativeLUTTests` pins the key set.
 public struct LUTReference: Codable, Equatable, Sendable {
     public enum Tap: String, Codable, Sendable { case display, log }
     public var ref: String        // "blob:xxh64:<hash>" or a bundled LUT id
@@ -214,8 +212,8 @@ public struct LUTReference: Codable, Equatable, Sendable {
 
     /// Tolerant of an absent key. `ref` has no default in the memberwise initializer —
     /// a LUT reference with nothing to reference is meaningless — and falls back to the
-    /// empty string here, which is the reading that costs least: no stage reads this slot
-    /// on any path, and an empty ref would resolve to no LUT on the day one does.
+    /// empty string here, which is the reading that costs least: an empty ref resolves
+    /// to no stage on either render path, and `renderIdentity` hashes it as no LUT.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.ref = try c.decodeIfPresent(String.self, forKey: .ref) ?? ""

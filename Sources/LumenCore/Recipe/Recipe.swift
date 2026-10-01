@@ -220,29 +220,31 @@ public struct Recipe: Codable, Equatable, Sendable {
         // must not be handed a different `recipe_fp`, which would throw away every
         // cached preview of that photograph to produce identical bytes.
         if copy.look.grain?.isIdentity == true { copy.look.grain = nil }
-        // `look.lut` goes the same way, for a blunter reason: NO STAGE READS IT.
-        // `LUTReference` round-trips through the recipe, the sidecar and the catalog,
-        // and there is no reader on any path — not `RenderGraph`, not `export`, not the
-        // reference renderer. `LUT3D.fromCubeFile` exists and has only test callers.
+        // `look.lut` IS RENDERED NOW (`CreativeLUTStage`), so it is hashed: a LUT that
+        // renders but is not hashed is a cache that hands back the previous picture
+        // when Amount moves. This line used to strip the field outright, because no
+        // stage read it; the stage and the removal of the strip landed together, as the
+        // note here asked.
         //
-        // So two recipes differing only in a LUT render the same picture, and this
-        // projection is defined as "what actually reaches a pixel". Leaving it in meant
-        // a hand-edited sidecar carrying `look.lut` got a different `recipe_fp`, threw
-        // away every cached preview and artifact for that photo, re-rendered the frame,
-        // and produced identical bytes — and the library called it edited.
-        //
-        // WHEN A LUT STAGE IS BUILT, DELETE THIS LINE IN THE SAME COMMIT. A LUT that
-        // renders but is not hashed is the mirror defect: the user drags Amount and the
-        // cache hands back the previous picture.
-        // `testALookCarryingALUTRendersTheSamePictureAsOneWithout` fails the moment this
-        // line is wrong in either direction, and says which.
-        copy.look.lut = nil
-        // `develop.heal` is the SAME situation and is deliberately handled the other
-        // way: nothing writes it, nothing reads it, and it is left in this projection so
-        // that it busts the cache on the day a heal stage lands. Both choices are safe
-        // and the divergence is not an oversight, but it would read as one, so: the
-        // tripwire above is the better of the two patterns and heal should adopt it when
-        // somebody is next in that code. Leaving a dead field in costs a cache miss
+        // What is still stripped is what still reaches no pixel. A reference with no
+        // ref, or with Amount at or below zero, resolves to no stage on either path, so
+        // it is the same picture as no LUT and gets the same `recipe_fp`. The NAME is a
+        // label — renaming a LUT must not re-render 45 megapixels — so it is blanked the
+        // way a mask's name is. `CanonicalJSONTests` pins all three.
+        if let lut = copy.look.lut {
+            if lut.ref.isEmpty || !(lut.amount > 0) {
+                copy.look.lut = nil
+            } else {
+                copy.look.lut?.name = ""
+            }
+        }
+        // `develop.heal` is the situation `look.lut` was in before its stage landed,
+        // and is deliberately handled the other way: nothing writes it, nothing reads
+        // it, and it is left in this projection so that it busts the cache on the day a
+        // heal stage lands. Both choices are safe and the divergence is not an
+        // oversight, but it would read as one, so: the strip-plus-tripwire `look.lut`
+        // had (a test that failed the day the stage landed) is the better of the two
+        // patterns and heal should adopt it when somebody is next in that code. Leaving a dead field in costs a cache miss
         // every time a sidecar happens to carry it, forever, to buy protection against a
         // mistake on a day that may never come — where a test that fails the moment the
         // stage lands buys the same protection and costs nothing until then.

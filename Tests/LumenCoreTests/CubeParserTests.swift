@@ -23,9 +23,9 @@
 // those parse, that is a cube built out of the wrong numbers rather than a rejection,
 // and this file is what says so.
 //
-// NOTE ON SCOPE: this is the PARSER, not the feature. No render stage reads `look.lut`
-// (`Recipe.renderIdentity` strips the field outright), so a cube that parses still
-// changes no pixel. Fixing the parser is not fixing LUT import.
+// NOTE ON SCOPE: this is the PARSER. The feature — storage by content hash, the two
+// render taps, Amount, the render identity and the wire formats — is
+// `CreativeLUTTests`, and the GPU half is `LumenPipelineTests/CreativeLUTParityTests`.
 
 import XCTest
 @testable import LumenCore

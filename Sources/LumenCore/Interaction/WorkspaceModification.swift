@@ -150,9 +150,10 @@ extension WorkspaceSection {
 
         // The Display Transform is parked in Looks pending a section of its own (see
         // `Workspace.swift`, which leaves canonical rank 3 free for it), so a changed
-        // render lights the section it is actually drawn in. The stored-but-unapplied
-        // LUT counts too: it is a thing the photographer set, and a dot that ignored it
-        // would be the panel disagreeing with the sidecar.
+        // render lights the section it is actually drawn in. A creative LUT counts too —
+        // its rows are drawn in Looks (`LookPanel.lutSection`) — and it counts whenever
+        // one is set, even at Amount 0: it is a thing the photographer set, and a dot
+        // that ignored it would be the panel disagreeing with the sidecar.
         if look.render != (renderDefault ?? RenderParams()) || look.lut != nil {
             out.insert(.looks)
         }
