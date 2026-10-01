@@ -684,9 +684,13 @@ public struct DetailEngine: Sendable {
         return Num.clamp(1.5 * vignetteMidpoint * (1 - f), 0, 0.98)
     }
 
-    /// The fixed geometry, for readers that carry no recipe feather — the GPU graph
-    /// reads this until its half of docs/32 Stream E item 4 lands, and it is the
-    /// default-feather answer by construction.
+    /// The inner radius at the DEFAULT feather — a convenience for tests and for any
+    /// reader that has no recipe in hand. Neither renderer reads it: both take the
+    /// recipe's feather through `vignetteInnerRadius(feather:)` (`RenderGraph
+    /// .applyVignette`, `DetailEngine.vignette`). It used to say the GPU graph read this
+    /// "until its half of docs/32 Stream E item 4 lands"; that half landed, and the
+    /// sentence left the next reader to work out which of the two the renderers call
+    /// (W2/D2-05).
     public static var vignetteInnerRadius: Double {
         vignetteInnerRadius(feather: Look.vignetteFeatherDefault)
     }

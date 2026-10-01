@@ -17,10 +17,11 @@
 //  - §12.6 the slider→threshold calibration against LR feel is unmeasured: the mappings in
 //    `lumaK` / `chromaK` / the band scalers are the shipped first cut, and every constant
 //    that a calibration pass would move is a named `public static let` here.
-//  - §12.7 `ClassicNR` carries only luma/chroma/hotPixels on the wire. The four LR-parity
-//    sub-sliders (Luminance Detail / Luminance Contrast / Color Detail / Color Smoothness)
-//    are engine parameters with documented defaults until the recipe schema grows them —
-//    this file does not invent wire format.
+//  - §12.7 is CLOSED: `ClassicNR` carries all seven sliders on the wire (luma, chroma, hot
+//    pixels and the four LR-parity sub-sliders) plus the two user-set bits, and
+//    `ClassicalDenoise.init(_:profile:)` reads every one. This bullet used to say the
+//    sub-sliders were engine constants "until the recipe schema grows them"; it grew them,
+//    and the gap table and the R6 decision memo had copied the stale bullet (W2/E1-08).
 //
 // Everything here is per-pixel f64 over f32 storage, single-threaded, allocation-simple.
 // The spatial primitives (à-trous analysis/synthesis, guided filter, blurs) live in

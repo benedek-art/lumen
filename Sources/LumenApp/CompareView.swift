@@ -530,9 +530,13 @@ private struct SurveyCell: View {
                          recipe: recipe,
                          coordinator: state.renderCoordinator,
                          thumbnails: state.thumbnails,
-                         // Survey panes have no zoom; DraftResolution at fit returns
-                         // the floor, so this stays the cheap 512 draft it was — but
-                         // through the shared rule rather than a bare number.
+                         // Survey panes have no zoom. At fit `DraftResolution` asks
+                         // for the SETTLE's own size, not the 512 floor — it used to
+                         // return the floor, and this comment still said so (W2/H1-04).
+                         // That is bounded here by the cell itself: `requestedLongEdge`
+                         // is the cell's bucketed device extent, 512…2048, so a draft
+                         // is never more than the cell can show, and each cell's own
+                         // `DraftLadder` takes back what this machine cannot afford.
                          draftLongEdge: DraftResolution.draftLongEdge(
                              settledLongEdge: longEdge,
                              fitLongEdge: 512,
