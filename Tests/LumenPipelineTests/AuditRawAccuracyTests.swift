@@ -49,7 +49,7 @@ final class AuditRawAccuracyTests: XCTestCase {
         for (index, url) in try files().enumerated() {
             try autoreleasepool {
                 let apple = try XCTUnwrap(CIRAWFilter(imageURL: url))
-                let expected = Int(apple.decoderVersion.rawValue.filter(\.isNumber))
+                let expected = RawParams.decoderNumber(apple.decoderVersion.rawValue)
                 let source = try AppleRawSource(url: url)
                 XCTAssertEqual(source.pinnedDecoderVersion, expected,
                                "An advertised version is not necessarily Apple's selected default")
@@ -65,7 +65,7 @@ final class AuditRawAccuracyTests: XCTestCase {
         for url in try files() {
             let apple = try XCTUnwrap(CIRAWFilter(imageURL: url))
             var versions = [apple.decoderVersion]
-            if let raw9 = apple.supportedDecoderVersions.first(where: { $0.rawValue == "9" }),
+            if let raw9 = apple.supportedDecoderVersions.first(where: AppleRawSource.needsRaw9Boundary),
                raw9 != apple.decoderVersion { versions.append(raw9) }
             for version in versions {
                 try autoreleasepool {
@@ -74,7 +74,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                     let longEdge = Double(max(size.width, size.height))
                     XCTAssertGreaterThan(longEdge, 0)
                     var recipe = quietRecipe
-                    recipe.develop.raw.decoderVersion = Int(version.rawValue.filter(\.isNumber))
+                    recipe.develop.raw.decoderVersion = RawParams.decoderNumber(version.rawValue)
                     for (scale, draft) in [(0.12, false), (0.25, true), (0.08, false), (0.12, false)] {
                         let image = try XCTUnwrap(source.decode(
                             recipe: recipe, draft: draft, scaleFactor: scale))
@@ -150,12 +150,12 @@ final class AuditRawAccuracyTests: XCTestCase {
             try autoreleasepool {
                 guard try supportsRaw9(url) else { return }
                 let apple = try XCTUnwrap(CIRAWFilter(imageURL: url))
-                let fallback = try XCTUnwrap(Int(apple.decoderVersion.rawValue.filter(\.isNumber)))
+                let fallback = try XCTUnwrap(RawParams.decoderNumber(apple.decoderVersion.rawValue))
                 let source = try AppleRawSource(url: url)
                 // Includes explicit8 when supported, a cached9, and an
                 // unavailable pin. Pixel comparisons prove the decoder, not just a label.
                 var requestedPins = [9]
-                if apple.supportedDecoderVersions.contains(where: { $0.rawValue == "8" }) {
+                if apple.supportedDecoderVersions.contains(where: { RawParams.decoderNumber($0.rawValue) == 8 }) {
                     requestedPins.append(8)
                 }
                 requestedPins += [fallback, 9, 999_999]
@@ -178,7 +178,7 @@ final class AuditRawAccuracyTests: XCTestCase {
 
     private func supportsRaw9(_ url: URL) throws -> Bool {
         try XCTUnwrap(CIRAWFilter(imageURL: url))
-            .supportedDecoderVersions.contains { $0.rawValue == "9" }
+            .supportedDecoderVersions.contains(where: AppleRawSource.needsRaw9Boundary)
     }
 
     /// Independent platform filter/context, never the materializer under test.
@@ -187,7 +187,7 @@ final class AuditRawAccuracyTests: XCTestCase {
         let filter = try XCTUnwrap(CIRAWFilter(imageURL: url))
         if let version {
             filter.decoderVersion = try XCTUnwrap(filter.supportedDecoderVersions.first {
-                Int($0.rawValue.filter(\.isNumber)) == version
+                RawParams.decoderNumber($0.rawValue) == version
             })
         }
         filter.scaleFactor = scale
@@ -206,7 +206,7 @@ final class AuditRawAccuracyTests: XCTestCase {
         filter.colorNoiseReductionAmount = 0
         filter.isLensCorrectionEnabled = false
         return (try XCTUnwrap(filter.outputImage),
-                filter.decoderVersion.rawValue == "9" ? raw9Context : legacyOracleContext)
+                AppleRawSource.needsRaw9Boundary(filter.decoderVersion) ? raw9Context : legacyOracleContext)
     }
 
     private func pixels(_ image: CIImage, context: CIContext, bounds: CGRect) -> [Float] {

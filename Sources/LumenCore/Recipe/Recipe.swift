@@ -445,6 +445,32 @@ public struct RawParams: Codable, Equatable, Sendable {
     }
 }
 
+extension RawParams {
+    /// The number an Apple RAW decoder identifier carries: "8" and "8.dng" are both 8.
+    ///
+    /// `CIRAWDecoderVersion` is a string, and Apple spells the DNG variants with a
+    /// suffix (`version8DNG` is "8.dng"). `decoderVersion` above stores the NUMBER, so
+    /// every comparison between a recipe pin and a decoder identifier, and every
+    /// decision keyed on which decoder is running, has to go through one normalization.
+    /// This is it. It is the same digits-only reading the pin has always been written
+    /// with, so no persisted pin changes meaning.
+    public static func decoderNumber(_ identifier: String) -> Int? {
+        Int(identifier.filter(\.isNumber))
+    }
+
+    /// RAW9 is the decoder whose lazy output is wrong (severely cyan) when a Rec2020
+    /// working context evaluates it, so its decode must be materialized through the
+    /// extended-linear-sRGB colour boundary first.
+    public static let raw9DecoderNumber = 9
+
+    /// Whether a decoder identifier names RAW9, in any spelling: "9", and also a DNG
+    /// variant such as "9.dng". Comparing the identifier with `== "9"` missed the
+    /// latter, and a missed boundary is the cyan decode AI-01 reproduced.
+    public static func needsRaw9ColourBoundary(_ identifier: String) -> Bool {
+        decoderNumber(identifier) == raw9DecoderNumber
+    }
+}
+
 /// The six-slider tone contract (D6): identical names/ranges to Lightroom Classic.
 /// exposure in EV (−5…+5); the rest −100…+100. contrastPivot is docs/04's
 /// Contrast+Pivot anchor in EV relative to mid-gray (−4…+4, 0 = mid-gray).
