@@ -138,6 +138,9 @@ extension AppState {
     func enterMasking() {
         PanelLayout.shared.setMasking(true)
         showLoupe()
+        // The Heal tool's circles take the photograph's drags exactly as the crop
+        // rectangle's do, so it goes away for the same reason.
+        HealTool.shared.armed = false
         let viewport = LoupeViewport.shared
         if viewport.showCrop {
             viewport.showCrop = false
@@ -211,6 +214,8 @@ extension AppState {
         if PanelLayout.shared.layout.isMasking {
             PanelLayout.shared.setMasking(false)
         }
+        // And the Heal tool, for the same reason: one tool owns the photograph's drags.
+        HealTool.shared.armed = false
 
         guard PanelLayout.shared.layout.workspace == .crop else {
             enter(.crop)

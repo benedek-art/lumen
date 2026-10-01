@@ -740,6 +740,21 @@ actor RenderCoordinator {
     /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
     /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
     /// queue item 5).
+    /// Where a new heal or clone spot should borrow from: `SpotSourceSearch` over the S5
+    /// input around the spot (`PipelineRenderer.healSearchBuffer`). On this actor because
+    /// the decoded source is, so a click on the photograph being viewed decodes nothing.
+    /// Nil when nothing fits — the caller then places the source beside the spot.
+    func healAutoSource(url: URL, recipe: Recipe, spot: HealSpot,
+                        priorSpots: [HealSpot]) -> (x: Double, y: Double)? {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                    spot: spot, priorSpots: priorSpots)
+        else { return nil }
+        return SpotSourceSearch.autoSource(for: spot, in: found.buffer, window: found.window,
+                                           sourceWidth: found.sourceWidth,
+                                           sourceHeight: found.sourceHeight)
+    }
+
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double) -> RGB? {
         guard let source = try? self.source(for: url),
