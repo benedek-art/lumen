@@ -1073,6 +1073,10 @@ public enum KernelLibrary {
         vec2 dc = destCoord();
         vec4 base = sample(src, samplerTransform(src, dc));
         float a = sample(alpha, samplerTransform(alpha, dc)).r;
+        // Clear where the stroke does not reach, for the reason lumenSpotApply is: Core
+        // Image trusts a general kernel's extent rather than cropping to it, and an
+        // opaque copy of the input outside the tube was stretched over the photograph.
+        if (a <= 0.0) { return vec4(0.0); }
         vec2 p = vec2(dc.x - ox, h - (dc.y - oy));
         vec2 sp = p + offset;
         vec3 fill = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;

@@ -642,7 +642,7 @@ public struct RenderGraph {
                               Float(g.radius), Float(count), Float(g.heal ? 1 : 0),
                               Float(h), Float(ox), Float(oy)])
         else { return nil }
-        return applied.composited(over: image)
+        return applied.cropped(to: box).composited(over: image)
     }
 
     // MARK: - S3 profiled classical noise reduction
