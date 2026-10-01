@@ -79,6 +79,10 @@ public struct RenderGraph {
     /// aliased speckle where the model says 0.5 px is the finest thing that may exist
     /// (C2-03 / K-065).
     public var defersGrain: Bool = false
+    /// Where `look.lut`'s cube is read from — the shared shelf the app attaches its blob
+    /// store to, and the one `ReferenceRenderer.Inputs` defaults to, so both renderers
+    /// resolve the same cube for the same ref. Tests hand in their own.
+    public var creativeLUTs: CreativeLUTLibrary = .shared
 
     public init() {}
 
@@ -177,6 +181,16 @@ public struct RenderGraph {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
         }
 
+        // The creative LUT, resolved once for both taps; nil skips both outright, so a
+        // recipe without one builds exactly the graph it built before the stage existed.
+        // Positions and spaces: `CreativeLUTStage`'s header, and the reference's twin
+        // lines in `ReferenceRenderer.render`.
+        let creativeLUT = CreativeLUTStage(reference: plan.recipe.look.lut,
+                                           library: creativeLUTs)
+        if let lut = creativeLUT, lut.tap == .log {
+            image = Self.applyCreativeLUT(image, lut) ?? image
+        }
+
         // S14 + S15 — picture formation and the curve, as one table. The table is
         // normalized, so display white comes back through a matrix; that keeps an HDR
         // rendition's highlights out of the cube's unit domain entirely.
@@ -228,6 +242,13 @@ public struct RenderGraph {
             image = applyLocalCurves(image, plan: plan, options: options)
         }
 
+        // Display-interpreted LUT: S15, after the local curve tap, before the grain —
+        // the export lays its grain down after the resize, so before grain is the one
+        // position preview and export share.
+        if let lut = creativeLUT, lut.tap == .display {
+            image = Self.applyCreativeLUT(image, lut) ?? image
+        }
+
         // Grain lives inside picture formation, in the density domain.
         //
         // Off `plan.grain` now, not off `plan.filmChain` — the plan answers "what grain
@@ -268,6 +289,48 @@ public struct RenderGraph {
         }
 
         return image
+    }
+
+    // MARK: - Creative LUT
+
+    /// `CreativeLUTStage.apply`, in the graph — the same steps with the same matrices.
+    ///
+    /// The user's cube is uploaded as the file defines it and fetched once per pixel; it
+    /// is never re-baked into a second table, so the only gap to the reference is the
+    /// fetch itself (Core Image's cube filter interpolates trilinearly where
+    /// `LUT3D.sample` is tetrahedral — the same gap every plan table here carries, and
+    /// `CreativeLUTParityTests` measures it). The display tap's encode and decode are
+    /// the stock sRGB tone-curve filters: the IEC 61966-2-1 curve, the one
+    /// `TransferFunction.srgb` is.
+    ///
+    /// Nil means a stage could not be built; the caller then leaves the image as it was,
+    /// the graph's rule for every stage (a frame missing its LUT is recoverable).
+    static func applyCreativeLUT(_ image: CIImage, _ lut: CreativeLUTStage) -> CIImage? {
+        let cube = CreativeLUTCubes.baked(lut)
+        let mapped: CIImage?
+        switch lut.tap {
+        case .log:
+            mapped = throughShaper(image) { ColorCube.filter(cube, image: $0) }
+        case .display:
+            let display = applyMatrix(image, CreativeLUTStage.workingToDisplay)
+            guard let unit = clamped(display, low: 0, high: 1) else { return nil }
+            let encode = CIFilter.linearToSRGBToneCurve()
+            encode.inputImage = unit
+            guard let encoded = encode.outputImage,
+                  let looked = ColorCube.filter(cube, image: encoded) else { return nil }
+            let decode = CIFilter.sRGBToneCurveToLinear()
+            decode.inputImage = looked
+            guard let linear = decode.outputImage else { return nil }
+            mapped = applyMatrix(linear, CreativeLUTStage.displayToWorking)
+        }
+        guard let mapped else { return nil }
+        let extent = image.extent
+        if lut.isFullStrength { return mapped.cropped(to: extent) }
+        // `blendMask` is `mix(base, over, m)`, which is the reference's
+        // `c + (mapped − c)·amount` term for term.
+        guard let amount = constant(RGB(gray: lut.amount), extent: extent) else { return nil }
+        return KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                   [image, mapped, amount])
     }
 
     // MARK: - Soft proof's gamut flag
@@ -2022,5 +2085,28 @@ struct LocalPlan {
         }
     }
 }
+
+/// Uploaded cube bytes per creative-LUT ref. A content-addressed ref names bytes that
+/// never change, so the copy into `CIColorCube`'s format is made once per LUT rather than
+/// once per frame — `ColorCube.Baked`'s own argument, for a table that is invariant per
+/// ref rather than per process. Bounded, because a session can audition many LUTs.
+enum CreativeLUTCubes {
+    private static let lock = NSLock()
+    private static var baked: [String: ColorCube.Baked] = [:]
+    private static let limit = 16
+
+    static func baked(_ lut: CreativeLUTStage) -> ColorCube.Baked {
+        // An empty ref is a stage built by hand (a test); there is no identity to key on.
+        guard !lut.ref.isEmpty else { return ColorCube.Baked(lut.cube) }
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = baked[lut.ref] { return hit }
+        if baked.count >= limit { baked.removeAll(keepingCapacity: true) }
+        let made = ColorCube.Baked(lut.cube)
+        baked[lut.ref] = made
+        return made
+    }
+}
+
 
 #endif
