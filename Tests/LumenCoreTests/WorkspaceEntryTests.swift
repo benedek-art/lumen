@@ -202,4 +202,38 @@ final class WorkspaceEntryTests: XCTestCase {
                       "Leaving Crop must disarm it — a crop rectangle over the Grade "
                       + "workspace is a control from a room you walked out of.")
     }
+
+    // MARK: Arriving at a section is not arriving in its workspace (K-029)
+
+    /// ⌘K → "Lens Corrections" solos Lens and folds Crop, so arming the rectangle there
+    /// gave the photograph a crop tool with no panel and an Escape with no baseline.
+    func testOnlyTheFrameSectionArmsTheCropToolOnArrival() {
+        for section in WorkspaceSection.allCases {
+            XCTAssertEqual(section.armsCropTool, section == .frame,
+                           "\(section.rawValue): the rectangle is armed only where its "
+                               + "panel is, and the Crop section is the only one that "
+                               + "holds the ratio, angle and guide rows")
+        }
+        XCTAssertEqual(WorkspaceSection.optics.workspace, .crop,
+                       "the premise of the rule: Lens lives in the Crop workspace, which "
+                           + "is why arriving there used to arm the rectangle")
+    }
+
+    /// The verb asks the rule. `enter` keeps arming (⌘3 and the rail open the Crop
+    /// section with the workspace); `jump` arms only for the section that holds it.
+    func testAJumpArmsTheCropToolOnlyWhereItsPanelIs() {
+        let entry = Self.withoutComments(Self.source(named: "WorkspaceEntry.swift"))
+        guard let start = entry.range(of: "func jump(to section: WorkspaceSection)") else {
+            return XCTFail("AppState.jump(to:) is gone")
+        }
+        let rest = entry[start.upperBound...]
+        let body = String(rest[..<(rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex)])
+        XCTAssertTrue(body.contains("armingCrop: section.armsCropTool"),
+                      "jump settles the Crop workspace without asking whether the "
+                          + "section it arrived at holds the crop tool's panel — ⌘K → "
+                          + "Lens Corrections arms a rectangle with no panel (K-029)")
+        XCTAssertTrue(entry.contains("workspace == .crop && armingCrop"),
+                      "settle arms the rectangle for the whole Crop workspace again, "
+                          + "whatever its caller asked")
+    }
 }
