@@ -260,6 +260,12 @@ documented contract.
 - **"stdlib" in the task.** The only stdlib item I found is STATUS.md's third
   surface-checker false-finding class (stdlib method names colliding with in-tree
   declarations). That is checker hygiene, which belongs to P11; I did not touch it.
+- **`check-swift-surface.py` counts braces inside string literals.** One of my tests
+  searched for `"…currentAspectName: String {"`. That left CropDragTests' member index
+  empty, and the checker exited 1, reporting four unrelated `frameAspect` arguments. I
+  removed every brace literal from this stream's tests in 997f5e4, and the checker exits
+  0. The checker itself is P11's: an unbalanced brace in any test's string literal
+  silently truncates that type's member index.
 - **`KeyGrammarTests` and `WorkspaceEntryTests` each carry a private copy of the
   comment stripper.** I copied it into three new test files as well, to keep this stream
   out of test-infrastructure files. Sharing one copy is a P11 item.
