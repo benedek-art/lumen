@@ -1925,7 +1925,9 @@ final class AppState: ObservableObject {
         // is kept, filtered in memory, and put at the end rather than dropped.
         let strays = allPhotos.filter { $0.catalogID == nil && filter.matches($0) }
         Task { [weak self] in
-            let rows = await catalog.photos(matching: query, folderPath: folder.path)
+            // Ids and ISO only: the whole `PhotoRow` was read and thrown away here on
+            // every chip and every filtered cull decision.
+            let rows = await catalog.photoOrder(matching: query, folderPath: folder.path)
             guard let self, self.libraryQueryGeneration == generation else { return }
             var byID = [Int64: URL](minimumCapacity: self.allPhotos.count)
             for item in self.allPhotos {
@@ -1947,7 +1949,7 @@ final class AppState: ObservableObject {
     ///
     /// One assignment rather than one per row: `allPhotos` is `@Published` and a
     /// per-element write republishes the whole grid.
-    private func adoptCaptureISO(from rows: [PhotoRow]) {
+    private func adoptCaptureISO(from rows: [PhotoOrderRow]) {
         var isoByID: [Int64: Int] = [:]
         for row in rows {
             if let iso = row.iso { isoByID[row.id] = iso }
