@@ -292,6 +292,16 @@ extension CropGeometry {
         return (c.w * usable.width) / h
     }
 
+    /// Whether a crop is the whole usable frame — what the ratio menu's "Original" writes.
+    ///
+    /// The menu has to recognise the RECTANGLE here, not its ratio (KG-05): on a
+    /// straightened photograph the whole usable frame is not the camera's ratio (3000 ×
+    /// 2000 at 5° is 1.626:1), so "Original" read itself back as "1.626" the moment it
+    /// was picked.
+    public static func isWholeFrame(_ crop: Crop) -> Bool {
+        normalized(crop) == Crop()
+    }
+
     /// The crop a ratio menu should write: `aspect` in pixels, centred, as large as fits.
     public static func centred(aspect: Double, sourceWidth: Double, sourceHeight: Double,
                                degrees: Double) -> Crop {

@@ -313,6 +313,36 @@ final class CropDragTests: XCTestCase {
         }
     }
 
+    /// "Original" writes the whole usable frame, and on a straightened photograph that is
+    /// NOT the camera's ratio — so the menu must recognise the rectangle, not the ratio,
+    /// or the item reads itself back as "1.626" the moment it is picked (KG-05).
+    func testOriginalReadsBackAsOriginalOnAStraightenedPhotograph() throws {
+        let read = try XCTUnwrap(CropGeometry.displayedAspect(
+            Crop(), sourceWidth: 3000, sourceHeight: 2000, degrees: 5))
+        XCTAssertEqual(read, 1.6259, accuracy: 1e-3,
+                       "the premise: the whole usable frame at 5° is not 3:2")
+        XCTAssertTrue(CropGeometry.isWholeFrame(Crop()))
+        XCTAssertFalse(CropGeometry.isWholeFrame(Crop(x: 0.1, y: 0.1, w: 0.8, h: 0.8)))
+
+        // The panel asks the rectangle FIRST, before any ratio comparison.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenApp/CropPanel.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        guard let start = source.range(of: "private var currentAspectName: String {") else {
+            return XCTFail("CropPanel.currentAspectName moved")
+        }
+        let code = source[start.upperBound...].split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+        XCTAssertEqual(code.first,
+                       "if CropGeometry.isWholeFrame(recipe.develop.geometry.crop) "
+                           + "{ return \"Original\" }",
+                       "the label compares ratios before asking whether the rectangle "
+                           + "is the whole frame")
+    }
+
     /// The menu's ratio is read against the USABLE frame. Reading it against the source's
     /// aspect instead is the same class of error that once made "1:1" produce an 8:9
     /// rectangle on a 4:3 body — it just needs a straighten angle to show up.
