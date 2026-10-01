@@ -15,15 +15,20 @@ import XCTest
 
 final class CurveBlackLiftGPUTests: XCTestCase {
 
-    func testANeutralNearBlackStaysNeutralOnTheGPUUnderALiftedLumaBlack() throws {
-        var recipe = Recipe()
-        recipe.develop.denoise.mode = .off
-        recipe.develop.curve = CurveSet(luma: [[0, 0.2], [1, 1]])
+    func testANeutralNearBlackStaysNeutralOnTheGPUUnderALiftedBlack() throws {
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020))
         let context = CIContext(options: [.workingColorSpace: space,
                                           .workingFormat: CIFormat.RGBAf,
                                           .cacheIntermediates: false])
         var failures: [String] = []
+        // the luma curve the audit measured, and the master point curve under Preserve
+        // Luminance, which had the same form and the same cast
+        for curve in [CurveSet(luma: [[0, 0.2], [1, 1]]),
+                      CurveSet(point: [[0, 0.2], [1, 1]])] {
+        var recipe = Recipe()
+        recipe.develop.denoise.mode = .off
+        recipe.develop.curve = curve
+        let label = curve.luma == nil ? "master" : "luma"
         for size in [LUT3D.interactiveSize, LUT3D.exportSize] {
             let plan = RenderPlan(recipe: recipe, lutSize: size)
             for scene in [1e-8, 1e-6, 1e-4, 1e-3] {
@@ -45,14 +50,15 @@ final class CurveBlackLiftGPUTests: XCTestCase {
                 XCTAssertGreaterThan(actual.maxComponent, 0.01, "Detect an unavailable GPU")
                 let spread = actual.maxComponent - actual.minComponent
                 if spread > 0.02 * actual.maxComponent {
-                    failures.append("size \(size), scene \(scene): \(actual) is not "
+                    failures.append("\(label) size \(size), scene \(scene): \(actual) is not "
                                     + "neutral (exact \(exact))")
                 }
                 if abs(actual.g - exact.g) > 0.02 * Swift.max(exact.g, 1e-6) {
-                    failures.append("size \(size), scene \(scene): GPU \(actual) against "
+                    failures.append("\(label) size \(size), scene \(scene): GPU \(actual) against "
                                     + "exact \(exact)")
                 }
             }
+        }
         }
         XCTAssertTrue(failures.isEmpty, "\(failures.count) failures: \(failures)")
     }

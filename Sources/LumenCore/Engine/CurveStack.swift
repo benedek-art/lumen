@@ -44,13 +44,20 @@ public struct CurveStack: Sendable {
     /// that does not lift it. Decided once, because it picks the branch in `apply`.
     private let lumaBlack: Double
 
+    /// The same for the master curve (parametric, then points). The parametric curve
+    /// pins 0, so this is the point curve's lift.
+    private let masterBlack: Double
+
     public init(_ set: CurveSet, encoding: TransferFunction = .srgb) {
         self.set = set
         self.encoding = encoding
         let baked = CurveStack.bakeParametric(set.parametric)
         self.parametric = baked
         self.parametricIsIdentity = baked.isIdentity()
-        self.point = set.point.map { MonotoneCubic(points: $0) }
+        let point = set.point.map { MonotoneCubic(points: $0) }
+        self.point = point
+        let parametricBlack = Num.saturate(baked.evaluate(0))
+        self.masterBlack = Num.saturate(point?.evaluate(parametricBlack) ?? parametricBlack)
         let luma = set.luma.map { MonotoneCubic(points: $0) }
         self.luma = luma
         self.lumaBlack = luma.map { Num.saturate($0.evaluate(0)) } ?? 0
@@ -327,7 +334,12 @@ public struct CurveStack: Sendable {
         if !(point == nil && parametricIsIdentity) {
             if set.preserveLuminance {
                 let lum = Num.saturate(space.luminance(e))
-                if lum > 1e-6 {
+                if masterBlack > 0 {
+                    // The same zero-luminance limit as the luma stage below: a master
+                    // curve that lifts black lifts it with grey (AI-04).
+                    e = CurveStack.liftedLuma(e, luminance: lum, black: masterBlack,
+                                              curve: master)
+                } else if lum > 1e-6 {
                     let scaled = master(lum) / lum
                     e = e * scaled
                 } else {
@@ -357,7 +369,10 @@ public struct CurveStack: Sendable {
         return encoding.decode(e.clamped(0, 1)) * w
     }
 
-    /// The luma curve for a curve that LIFTS BLACK (AI-04), on the encoded axis.
+    /// A luminance curve that LIFTS BLACK (AI-04), on the encoded axis: the luma curve,
+    /// and the master curve under Preserve Luminance, which has the same form and had
+    /// the same defect (a point curve `[[0, .2], [1, 1]]` rendered neutral 1e−8 as
+    /// `[.053, .032, .093]` through the trilinear cube).
     ///
     /// The luma stage is `e · f(L) / L`: curve the luminance, carry the chroma ratios.
     /// With `f(0) = b > 0` that ratio has no value at L = 0 and grows without bound
