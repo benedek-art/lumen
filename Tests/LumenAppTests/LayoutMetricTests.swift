@@ -749,6 +749,12 @@ final class LayoutMetricTests: XCTestCase {
                 ".padding(.horizontal, 14) .padding(.vertical, 8)",
                 "export editor gutter \(f(PanelChain.exportEditorInset))")
 
+        // The Heal tool's bar, a fixed HUD on the loupe.
+        try pin("Sources/LumenApp/HealCanvas.swift",
+                ".padding(10) .frame(width: 250) .lumenHUD(",
+                "heal bar \(f(PanelChain.healBarWidth)) wide, "
+                + "\(f(PanelChain.healBarInset)) padding")
+
         // The footer G1-06 is about.
         try pin("Sources/LumenApp/DevelopPanel.swift",
                 ".padding(.horizontal, 8) .padding(.vertical, 6)",
