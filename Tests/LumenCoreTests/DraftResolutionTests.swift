@@ -152,7 +152,9 @@ final class DraftResolutionTests: XCTestCase {
                                                      fitLongEdge: 1024,
                                                      zoomRatio: 0.5,
                                                      drawnDeviceLongEdge: 3504),
-                       3504,
+                       // 3504 drawn, rounded up to the 256-px bucket the ask is
+                       // quantized in (H1-03) — 80 pixels over, against 3504 under.
+                       3584,
                        "rendering pixels the panel cannot show is the ladder's whole "
                            + "budget spent on nothing")
     }
@@ -192,13 +194,33 @@ final class DraftResolutionTests: XCTestCase {
         XCTAssertNil(DraftResolution.visibleCeiling(0))
         XCTAssertNil(DraftResolution.visibleCeiling(-100))
         // Rounded UP: a fractional drawn extent must never ask for a pixel less than
-        // the panel will put on screen.
-        XCTAssertEqual(DraftResolution.visibleCeiling(3503.2), 3504)
+        // the panel will put on screen — and up to the bucket (W2/H1-03).
+        XCTAssertEqual(DraftResolution.visibleCeiling(3503.2), 3584)
+        XCTAssertNil(DraftResolution.visibleCeiling(1e300), "finite nonsense too")
         // And a nonsense ceiling leaves the ask exactly where it was.
         XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
                                                      fitLongEdge: 1024,
                                                      zoomRatio: 0.5,
                                                      drawnDeviceLongEdge: .nan),
                        4096)
+    }
+
+    /// THE BUCKET HAS TO BIND (W2/H1-03). The loupe asks for `min(bucketed container,
+    /// ceiling)`, and the photograph's drawn extent is inside the container, so the
+    /// ceiling is the answer on every fit frame. Unbucketed, a 200 pt window-edge drag on
+    /// a 2x display walked the ask through ~400 integers: 400 render keys and, because the
+    /// decode scale follows the ask, up to 400 full RAW decodes. Restore
+    /// `Int(drawn.rounded(.up))` and this fails with one ask per half-pixel.
+    func testAWindowResizeInsideOneBucketAsksForOneSize() throws {
+        let asks = Set(stride(from: 2049.0, through: 2304.0, by: 0.5)
+            .compactMap { DraftResolution.visibleCeiling($0) })
+        XCTAssertEqual(asks, [2304], "one bucket of window sizes minted \(asks.count) asks")
+        for drawn in [1.0, 255.5, 256.0, 640.2, 2360.0, 3503.2, 7008.0] {
+            let ceiling = try XCTUnwrap(DraftResolution.visibleCeiling(drawn))
+            XCTAssertEqual(ceiling % DraftResolution.ceilingBucket, 0)
+            XCTAssertGreaterThanOrEqual(Double(ceiling), drawn,
+                                        "a ceiling below what the panel draws")
+            XCTAssertLessThan(Double(ceiling) - drawn, Double(DraftResolution.ceilingBucket))
+        }
     }
 }

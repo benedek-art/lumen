@@ -2488,7 +2488,8 @@ struct LoupeView: View {
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
         guard longEdge.isFinite, longEdge > 0 else { return 1024 }
-        let bucket = Int((longEdge / 256).rounded(.up)) * 256
+        let step = Double(DraftResolution.ceilingBucket)
+        let bucket = Int((longEdge / step).rounded(.up)) * DraftResolution.ceilingBucket
         let asked = Swift.min(Swift.max(bucket, 640), LoupeView.maxRenderLongEdge)
         // AND NOT ONE PIXEL MORE THAN THE PANEL DRAWS. The bucket is the CONTAINER's
         // long edge; a portrait photograph in a landscape pane is fitted by its height
