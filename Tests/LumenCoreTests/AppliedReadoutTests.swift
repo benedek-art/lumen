@@ -106,6 +106,100 @@ final class AppliedReadoutTests: XCTestCase {
     }
 }
 
+// MARK: - AI-08, interim: the per-pixel variance tools say what they cost
+
+/// Mixer Uniformity ("Even out hues") and Point Colour Variance are meant to compress
+/// the LOCAL MEAN toward a target and leave texture alone. The shipping path hands the
+/// kernel the pixel itself (S9 is a colour table and cannot see a neighbourhood), so
+/// they flatten hue texture instead. Until a spatial mean reaches the stage (P14
+/// DECISION 6), the help says so. These tests pin the help's claims to the engine: if
+/// the engine stops flattening, the arithmetic half goes red and the help has to change
+/// with it; if the help loses the sentence, the scan goes red.
+final class PerPixelVarianceHelpTests: XCTestCase {
+
+    private let ctx = OKLabTransform.working
+
+    private func lch(_ L: Double, _ C: Double, _ h: Double) -> RGB {
+        ctx.toRGB(OKLCh(L: L, C: C, h: h))
+    }
+
+    private func pointEngine(swatch: RGB, variance: Double) -> ColorEngine {
+        ColorEngine(mixer: Mixer(),
+                    pointColors: [PointColor(sample: [swatch.r, swatch.g, swatch.b],
+                                             variance: variance)],
+                    color: ColorAdjust(), primaries: Primaries(), bw: nil)
+    }
+
+    /// "at −100 colours well inside its range take the swatch's hue and colourfulness
+    /// and move halfway to its lightness". Measured: 24°/29°/34° all leave at 29.23°.
+    func testPointVarianceMinus100TakesTheSwatchsHueAndChromaAndHalfItsLightness() {
+        let swatch = lch(0.55, 0.10, 29.23)
+        let engine = pointEngine(swatch: swatch, variance: -100)
+        for dh in [-5.0, 0, 5] {
+            let out = ctx.toLCh(engine.apply(lch(0.55, 0.10, 29.23 + dh)))
+            XCTAssertEqual(out.h, 29.23, accuracy: 0.01,
+                           "a hue \(dh)° off the swatch kept its offset: the help's "
+                               + "\"pixel by pixel\" sentence is no longer true")
+        }
+        for dC in [-0.02, 0.02] {
+            XCTAssertEqual(ctx.toLCh(engine.apply(lch(0.55, 0.10 + dC, 29.23))).C, 0.10,
+                           accuracy: 1e-6)
+        }
+        for dL in [-0.04, 0.04] {
+            XCTAssertEqual(ctx.toLCh(engine.apply(lch(0.55 + dL, 0.10, 29.23))).L,
+                           0.55 + dL / 2, accuracy: 1e-6)
+        }
+    }
+
+    /// "positive amplifies it, noise included": +100 doubles a hue's offset.
+    func testPointVariancePlus100AmplifiesTheOffset() {
+        let swatch = lch(0.55, 0.10, 29.23)
+        let engine = pointEngine(swatch: swatch, variance: 100)
+        let out = ctx.toLCh(engine.apply(lch(0.55, 0.10, 34.23)))
+        XCTAssertEqual(out.h, 39.23, accuracy: 0.01)
+    }
+
+    /// "at 100 the hues inside a band all land on one": ±5° around every band's centre.
+    func testUniformity100LandsEveryHueInsideABandOnOne() {
+        var mixer = Mixer()
+        mixer.uniformity = 100
+        let engine = ColorEngine(mixer: mixer, pointColors: [], color: ColorAdjust(),
+                                 primaries: Primaries(), bw: nil)
+        for centre in ColorEngine.bandHueCentres {
+            for dh in [-5.0, 0, 5] {
+                let out = ctx.toLCh(engine.apply(lch(0.6, 0.10, centre + dh)))
+                XCTAssertEqual(Num.hueDelta(centre, out.h), 0, accuracy: 0.01,
+                               "band at \(centre)°: a hue \(dh)° off kept its offset")
+            }
+        }
+    }
+
+    /// The help on both rows carries the sentence. String literals are joined first so
+    /// the assertion is about the words, not where the author wrapped them.
+    ///
+    /// SUBSTITUTION: restore either help string to its old text and this is red.
+    func testBothRowsSayTheyWorkPixelByPixel() throws {
+        let source = Scan.squeezed(Scan.stripped(try Scan.appSource("ColorPanel.swift")))
+            .replacingOccurrences(of: "\" + \"", with: "")
+        let uniformity = try Scan.between("LumenSlider(title: \"Even out hues\"",
+                                          "private func", in: source)
+        XCTAssertTrue(uniformity.contains("For now it works pixel by pixel, not on the "
+                                          + "neighbourhood: at 100 the hues inside a band "
+                                          + "all land on one, so fine colour texture "
+                                          + "flattens along with the blotches."),
+                      "Even out hues no longer says it flattens texture")
+        let variance = try Scan.between("LumenSlider(title: \"Variance\"",
+                                        ".onChange(of: swatches.count)", in: source)
+        XCTAssertTrue(variance.contains("For now it works pixel by pixel, not on the "
+                                        + "neighbourhood: at \u{2212}100 colours well "
+                                        + "inside its range take the swatch's hue and "
+                                        + "colourfulness and move halfway to its "
+                                        + "lightness, so fine colour texture flattens "
+                                        + "too; positive amplifies it, noise included."),
+                      "Point Colour Variance no longer says it flattens texture")
+    }
+}
+
 // MARK: - reading LumenApp as text
 
 /// Private to this file, in the shape `ColorPanelReachTests` uses; the stripper is the
