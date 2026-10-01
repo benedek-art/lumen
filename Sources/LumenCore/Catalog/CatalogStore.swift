@@ -2086,6 +2086,33 @@ public final class CatalogStore {
             }
             statement.reset()
 
+            // ONE FILE ON DISK IS ONE ROW, whichever registered folder it is opened under.
+            //
+            // A row is keyed on (folder, path relative to the folder), and folders nest:
+            // a picked set of frames is rooted at their common parent, and a card can be
+            // opened at `DCIM/100NIKON` one day and at its root the next. The same file
+            // then has a different relative name under each, and it used to get a second
+            // row — no rating, no recipe, no albums, its own history. So before anything
+            // is inserted, a file this folder does not know is looked up by its ABSOLUTE
+            // path in every registered ancestor or descendant folder, and a row found
+            // there is moved into this folder with everything on it. The ordinary loop
+            // below then treats it as an existing row: a changed file still invalidates,
+            // a missing one is restored. Nothing to pay when no related folder exists,
+            // which is every folder's first open.
+            for (id, relocated) in try self.adoptRowsFromRelatedFolders(
+                folderID: folderID,
+                names: files.map(\.filename).filter { existing[$0] == nil }) {
+                existing[relocated] = try {
+                    let row = try self.db.prepare(
+                        "SELECT file_size, file_mtime, quick_sig, missing FROM photo WHERE id = ?;")
+                    try row.bind(1, id)
+                    _ = try row.step()
+                    return (id: id, size: row.int(0), mtime: row.int(1),
+                            sig: row.string(2), missing: row.bool(3))
+                }()
+                result.relocated.append(id)
+            }
+
             var seen: Set<String> = []
             var newFiles: [ScannedFile] = []
 
@@ -2211,6 +2238,54 @@ public final class CatalogStore {
             }
             return result
         }
+    }
+
+    /// Moves into `folderID` every row that another registered folder holds for one of
+    /// `names` — the same absolute path reached through an ancestor or a descendant
+    /// folder — and returns `(row id, name in this folder)` for each one moved. Runs
+    /// inside `scan`'s transaction. Paths are compared by component, so `day1` never
+    /// matches `day10`.
+    private func adoptRowsFromRelatedFolders(folderID: Int64,
+                                             names: [String]) throws -> [(Int64, String)] {
+        guard !names.isEmpty else { return [] }
+        func components(_ path: String) -> [String] {
+            URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        }
+        var here: [String]? = nil
+        var related: [(id: Int64, parts: [String])] = []
+        let folders = try db.prepare("SELECT id, path FROM folder;")
+        var all: [(Int64, [String])] = []
+        while try folders.step() {
+            all.append((folders.int(0), components(folders.string(1) ?? "")))
+        }
+        for (id, parts) in all where id == folderID { here = parts }
+        guard let here else { return [] }
+        for (id, parts) in all where id != folderID {
+            let shorter = Swift.min(parts.count, here.count)
+            if Array(parts.prefix(shorter)) == Array(here.prefix(shorter)) {
+                related.append((id: id, parts: parts))
+            }
+        }
+        guard !related.isEmpty else { return [] }
+
+        var adopted: [(Int64, String)] = []
+        for name in names {
+            let absolute = here + name.split(separator: "/").map(String.init)
+            for folder in related {
+                guard folder.parts.count < absolute.count,
+                      Array(absolute.prefix(folder.parts.count)) == folder.parts else { continue }
+                let theirs = absolute.dropFirst(folder.parts.count).joined(separator: "/")
+                guard let id = try db.scalarInt(
+                    "SELECT id FROM photo WHERE folder_id = ? AND filename = ?;",
+                    [.integer(folder.id), .text(theirs)]) else { continue }
+                try db.run("UPDATE photo SET folder_id = ?, filename = ? WHERE id = ?;",
+                           [.integer(folderID), .text(name), .integer(id)])
+                reindexText(photoID: id)
+                adopted.append((id, name))
+                break
+            }
+        }
+        return adopted
     }
 
     // MARK: - Recipes

@@ -1343,7 +1343,13 @@ struct LoupeView: View {
             // photographer double-clicked an eye is the same defect `Space` was fixed
             // for. `toggleZoom(at:)` is the verb every other zoom source already uses,
             // so the anchoring rule stays in one place.
+            //
+            // GATED like the other three (V7 D3). It was the only viewer gesture with no
+            // guard, so under an armed Crop it zoomed a canvas that ignores zoom, and
+            // during masking or a pick a quick second click toggled the zoom under the
+            // tool. `ViewerGestureGate` (LumenCore, tested) holds the rule.
             .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { value in
+                guard gestureGate.doubleClickZoom else { return }
                 viewport.toggleZoom(at: value.location)
             })
             .onContinuousHover(coordinateSpace: .local) { phase in
@@ -2200,6 +2206,14 @@ struct LoupeView: View {
         !cropArmed && !panel.layout.isMasking && state.pickTarget == nil
     }
 
+    /// What the four pointer gestures may do right now — one rule, in LumenCore, so the
+    /// drag, the pinch, the wheel and the double-click cannot drift apart again.
+    private var gestureGate: ViewerGestureGate {
+        ViewerGestureGate(cropArmed: cropArmed,
+                          masking: panel.layout.isMasking,
+                          picking: state.pickTarget != nil)
+    }
+
     /// Ends the hold: the canvas re-states itself at the live zoom and one render is
     /// asked for at the size now on screen. Called the instant a pinch ends, and
     /// `ZoomLayoutHold.quietNanoseconds` after the last change of any other zoom.
@@ -2330,7 +2344,7 @@ struct LoupeView: View {
                 // The crop canvas ignores zoom and pan, so a drag that fell past the
                 // overlay must not scrub `zoomLevel` invisibly — the number would sit
                 // there, unseen, until the tool was put away and the picture jumped.
-                guard !cropArmed else { return }
+                guard gestureGate.continuous else { return }
                 guard let cg = model.image else { return }
                 // A DRAG PANS. Always, at every zoom, with no mode to be in.
                 //
@@ -2374,7 +2388,7 @@ struct LoupeView: View {
         MagnifyGesture()
             .onChanged { value in
                 // Same guard as the scrub above: the armed canvas is fit-only.
-                guard !cropArmed else { return }
+                guard gestureGate.continuous else { return }
                 guard let cg = model.image else { return }
                 let start = pinchStartZoom ?? viewport.zoom
                 if pinchStartZoom == nil { pinchStartZoom = start }
@@ -2401,7 +2415,7 @@ struct LoupeView: View {
     private func applyScroll(_ verb: ViewerScroll.Verb, container: CGSize) {
         // The crop canvas ignores zoom and pan (`cropCanvas`), so a scroll over it
         // must not move either invisibly — the same guard the scrub and the pinch use.
-        guard !cropArmed else { return }
+        guard gestureGate.continuous else { return }
         switch verb {
         case .zoom(let factor):
             guard let cg = model.image else { return }

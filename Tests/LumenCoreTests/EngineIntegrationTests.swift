@@ -1777,6 +1777,13 @@ final class EngineIntegrationTests: XCTestCase {
         // `tone.gain` is applied analytically by `referenceColor` AND by `exactColor`,
         // before either table is sampled. Contrast cannot add interpolation error; it
         // can only decide which part of the cube a colour is interpolated in.
+        //
+        // WHY 0.045 AND NOT MORE, MEASURED (Linux x86_64, this recipe, this sweep) with a
+        // one-off 129-cube that is too slow to keep here (55 s to bake against 8 s at
+        // 65): 33-against-129 is 0.0420 and 33-against-65 is 0.0410. The interactive
+        // cube's own convergence-limited error accounts for essentially the whole
+        // preview-against-export gap, so 0.045 is that measured gap plus ~10%, and a
+        // composed-transform defect would have at most ~0.004 to hide in.
         XCTAssertLessThan(worstAgainstExport, 0.045,
                           "preview and export disagreed by \(worstAgainstExport)")
 
@@ -1785,12 +1792,22 @@ final class EngineIntegrationTests: XCTestCase {
         // cube is made finer; a gap that survives a finer cube is a defect in the
         // composed transform and no tolerance should be moved to accommodate it. That is
         // the same test `testTheColourTableConverges` applies to the colour cube, asked
-        // here of the preview-against-export pair. Measured on this recipe: 17-against-65
-        // 0.0867, 33-against-65 0.0410, 65-against-129 0.0260.
+        // here of the preview-against-export pair. Measured on this recipe:
+        // 17-against-65 0.1194, 33-against-65 0.0410, 65-against-129 0.0260 (and
+        // 17-against-33 0.0867, which an earlier version of this comment mislabelled as
+        // 17-against-65).
         //
         // 17 rather than 129 for the third rung: it is one extra bake of 4,913 entries
-        // against 2,146,689, and the claim only needs two points on the same side of the
-        // export cube to be falsifiable.
+        // against 2,146,689.
+        //
+        // HALVING, NOT MERELY ORDERING. This used to assert only that the 33-cube beats
+        // the 17-cube, which any well-behaved trilinear table does, so it could not
+        // catch a defect smaller than the 17-cube's whole error (V7 W2). Doubling the
+        // cube must at least HALVE the gap — first-order convergence, the slowest a
+        // lattice that is tracking the transform can manage. Measured 0.1194 / 0.0410 =
+        // 2.91. A size-independent error e in the composed transform adds to both rungs
+        // and drags the ratio toward 1: it fails this at e above about 0.037, and a
+        // rung that stops converging fails it outright.
         let coarse = RenderPlan(recipe: recipe, lutSize: 17)
         var worstCoarseAgainstExport = 0.0
         for i in 0...24 {
@@ -1808,11 +1825,12 @@ final class EngineIntegrationTests: XCTestCase {
                 }
             }
         }
-        XCTAssertLessThan(worstAgainstExport, worstCoarseAgainstExport,
-                          "the interactive cube at \(LUT3D.interactiveSize) disagrees "
-                              + "with the export cube by \(worstAgainstExport), no "
-                              + "better than a 17-cube's \(worstCoarseAgainstExport) — "
-                              + "so the gap is not this cube's coarseness and widening "
-                              + "the bound above would be hiding a defect")
+        XCTAssertGreaterThanOrEqual(
+            worstCoarseAgainstExport, 2 * worstAgainstExport,
+            "the interactive cube at \(LUT3D.interactiveSize) disagrees with the export "
+                + "cube by \(worstAgainstExport), and a 17-cube by "
+                + "\(worstCoarseAgainstExport) — doubling the cube did not halve the gap, "
+                + "so the gap is not only this cube's coarseness and widening the bound "
+                + "above would be hiding a defect")
     }
 }
