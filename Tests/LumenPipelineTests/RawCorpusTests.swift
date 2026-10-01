@@ -151,6 +151,13 @@ final class RawCorpusTests: XCTestCase {
         var nonFiniteSamples = 0
         var nonFiniteFirst: String?
         var floatReadbackNote = "-"
+        /// Per-channel mean of the finite scene-linear decode samples, R/G/B.
+        var decodeMeans: [Double]?
+        /// `CIRAWFilter.neutralTemperature`/`neutralTint` exactly as Apple reported
+        /// them (`AppleRawSource.asShotTemperature`/`asShotTint`), before LumenCore's
+        /// `WhiteBalanceEngine.Neutral.sanitizedAsShot`.
+        var asShotTemperature: Double?
+        var asShotTint: Double?
         var meanLuma: Double?
         var p5: Double?
         var p95: Double?
@@ -663,6 +670,8 @@ final class RawCorpusTests: XCTestCase {
             return
         }
         p.opened = true
+        p.asShotTemperature = source.asShotTemperature
+        p.asShotTint = source.asShotTint
         p.pin = source.pinnedDecoderVersion
         let nativeSize = source.nativePixelSize
         p.native = Dim(w: nativeSize.width, h: nativeSize.height)
@@ -706,6 +715,7 @@ final class RawCorpusTests: XCTestCase {
         // 8-bit frame — see `testTheRenderIsNeitherBlankNorPoisoned` for why that is the
         // surface where a NaN is still a NaN.
         RawCorpusTests.readFiniteness(decodedImage, into: p)
+        RawCorpusTests.emit(RawCorpusTests.whiteBalanceLine(entry, p))
 
         // R-3/R-4/R-5/R-6/R-7 all read the same delivered frame, rendered once.
         guard let renderAttempt = RawCorpusTests.watched(
@@ -810,7 +820,18 @@ final class RawCorpusTests: XCTestCase {
         p.floatSamples = buffer.pixels.count
         var nonFinite = 0
         var first: String?
-        for index in 0..<buffer.pixels.count where !buffer.pixels[index].isFinite {
+        var sums = [0.0, 0.0, 0.0]
+        var counts = [0, 0, 0]
+        for index in 0..<buffer.pixels.count {
+            let value = buffer.pixels[index]
+            let channel = index % 4
+            if value.isFinite {
+                if channel < 3 {
+                    sums[channel] += Double(value)
+                    counts[channel] += 1
+                }
+                continue
+            }
             nonFinite += 1
             if first == nil {
                 let pixel = index / 4
@@ -820,6 +841,29 @@ final class RawCorpusTests: XCTestCase {
         }
         p.nonFiniteSamples = nonFinite
         p.nonFiniteFirst = first
+        p.decodeMeans = (0..<3).map { counts[$0] > 0 ? sums[$0] / Double(counts[$0]) : .nan }
+    }
+
+    /// The white-balance inputs one file hands the renderer, and what the decode looks
+    /// like before S6 touches it. Written for corpus 1087 (Leica M Monochrom: LinearRaw,
+    /// one sample per pixel, no ColorMatrix/AsShotNeutral/CalibrationIlluminant), whose
+    /// finite decode rendered black: the diagnosis is that `CIRAWFilter.neutralTemperature`
+    /// and `neutralTint` are not numbers for that file. The RAW values are printed with
+    /// `String(describing:)`, not `fmt`, because `fmt` prints NaN as "-" — and NaN is
+    /// exactly what this line exists to show. `sanitized=` is the neutral the render
+    /// now adapts from (`WhiteBalanceEngine.Neutral.sanitizedAsShot`).
+    private static func whiteBalanceLine(_ entry: CorpusEntry, _ p: Probe) -> String {
+        let kelvin = p.asShotTemperature ?? .nan
+        let tint = p.asShotTint ?? .nan
+        let used = WhiteBalanceEngine.Neutral.sanitizedAsShot(kelvin: kelvin, tint: tint)
+        let means = (p.decodeMeans ?? []).map { String(describing: $0) }
+            .joined(separator: comma)
+        return "corpus-wb: \(entry.id) "
+            + "neutralTemperature=\(String(describing: kelvin)) "
+            + "neutralTint=\(String(describing: tint)) "
+            + "sanitized=\(String(describing: used.kelvin))/\(String(describing: used.tint)) "
+            + "decode-mean-rgb=\(means.isEmpty ? dash : means) "
+            + "nonfinite=\(p.nonFiniteSamples)/\(p.floatSamples) · \(entry.label)"
     }
 
     /// The delivered frame as 8-bit sRGB bytes. This is what `renderPreview` hands the
