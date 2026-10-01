@@ -217,8 +217,15 @@ final class CatalogService: @unchecked Sendable {
                                        ext: file.pathExtension.lowercased(),
                                        sourceIdentity: SourceFileIdentity.read(file)?.token)
                 }
+                // A changed stat token is confirmed against the stored quick signature
+                // before the scan invalidates anything; only those files are read.
+                let urlsByName = Dictionary(zip(names, files), uniquingKeysWith: { first, _ in first })
                 let scan = try store.scan(folderID: folderID, files: scanned,
-                                   at: CatalogStore.now(), completeListing: completeListing)
+                                   at: CatalogStore.now(), completeListing: completeListing,
+                                   signature: { scannedFile in
+                                       urlsByName[scannedFile.filename]
+                                           .flatMap { try? QuickSignature.compute(url: $0) }
+                                   })
                 onInvalidatedPreviews?(scan.invalidatedPreviews)
 
                 // ONE PHOTO'S FAILURE COSTS ONE PHOTO. This loop used to sit bare

@@ -2023,6 +2023,9 @@ public final class CatalogStore {
     ///
     /// New file          -> insert.
     /// (size, mtime) differ -> update, reported as changed.
+    /// Stat token differs -> confirmed with `signature` (the file's quick signature,
+    ///                      computed only for these rows) against the stored one;
+    ///                      changed only on a mismatch or when nothing confirms it.
     /// Gone              -> move detection first: a `quick_sig` match against a newly
     ///                      appeared file (this folder, or a `missing` row anywhere)
     ///                      relocates the row with edits, history and album membership
@@ -2030,7 +2033,8 @@ public final class CatalogStore {
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
                      at now: Int64 = CatalogStore.now(),
-                     completeListing: Bool = true) throws -> ScanResult {
+                     completeListing: Bool = true,
+                     signature: ((ScannedFile) -> String?)? = nil) throws -> ScanResult {
         try db.transaction {
             var result = ScanResult()
 
@@ -2061,10 +2065,29 @@ public final class CatalogStore {
                     continue
                 }
                 let identityKey = "source_identity_\(row.id)"
-                let identityChanged = try file.sourceIdentity.map {
-                    try self.metaValue(identityKey) != $0
-                } ?? false
-                if row.size != file.fileSize || row.mtime != file.fileMTime || identityChanged {
+                var changed = row.size != file.fileSize || row.mtime != file.fileMTime
+                var newSig = file.quickSig
+                // A different stat token at the same size and second is a SUSPICION.
+                // A row with no stored token (scanned before tokens existed) adopts
+                // the current one: reading that as a change wiped every quick
+                // signature, EXIF field and preview in the library on the first scan
+                // after upgrading. A stored token that differs (a Finder tag moves
+                // ctime; a filesystem that renumbers inodes on remount) is confirmed
+                // against the stored quick signature, one megabyte, before anything
+                // is invalidated. Only when there is nothing to confirm against is
+                // the suspicion taken as a change, which is the safe direction for
+                // pixels.
+                if !changed, let current = file.sourceIdentity,
+                   let stored = try self.metaValue(identityKey),
+                   !SourceFileIdentity.sameGeneration(stored: stored, current: current) {
+                    if newSig == nil { newSig = signature?(file) }
+                    if let old = row.sig, !old.isEmpty, let newSig {
+                        changed = newSig != old
+                    } else {
+                        changed = true
+                    }
+                }
+                if changed {
                     try self.db.run("""
                     UPDATE photo SET file_size = ?, file_mtime = ?,
                       quick_sig = ?, full_hash = NULL, missing = 0,
@@ -2074,7 +2097,7 @@ public final class CatalogStore {
                       orientation = NULL, gps_lat = NULL, gps_lon = NULL, aspect = NULL
                     WHERE id = ?;
                     """, [.integer(file.fileSize), .integer(file.fileMTime),
-                          .optionalText(file.quickSig), .integer(row.id)])
+                          .optionalText(newSig), .integer(row.id)])
                     // Source replacement invalidates even embedded browse rungs and
                     // source-derived artifacts; user edits/culling remain untouched.
                     result.invalidatedPreviews += try self.previews(photoID: row.id)
@@ -4237,7 +4260,8 @@ public final class CatalogStore {
 
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = 0, completeListing: Bool = true) throws -> ScanResult {
+                     at now: Int64 = 0, completeListing: Bool = true,
+                     signature: ((ScannedFile) -> String?)? = nil) throws -> ScanResult {
         throw CatalogError.unavailable
     }
 
