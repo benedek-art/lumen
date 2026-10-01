@@ -3321,6 +3321,38 @@ public final class CatalogStore {
 
     // MARK: - Stacks
 
+    /// Stack the bursts in one folder by capture time (`BurstGrouping`), as
+    /// `burst-auto` stacks with the first frame as the pick. Returns the stacks made.
+    ///
+    /// ONLY FRAMES IN NO STACK ARE CONSIDERED, so running it again is a no-op, a
+    /// manual stack is never touched (docs/15 §15.3: "re-running burst analysis never
+    /// clobbers a manual stack"), and an auto stack the photographer has re-picked or
+    /// trimmed keeps what they did. Offline frames are left out: a stack whose pick
+    /// cannot be opened hides its siblings behind a cell that does not work.
+    @discardableResult
+    public func stackBursts(folderID: Int64,
+                            maxGap: Double = BurstGrouping.defaultMaxGapSeconds) throws -> [Int64] {
+        try db.transaction {
+            let frames = try self.allRows("""
+            SELECT photo.id, photo.capture_at, photo.capture_subsec,
+                   COALESCE(photo.camera_serial, photo.camera)
+              FROM photo
+             WHERE photo.folder_id = ? AND photo.missing = 0
+               AND photo.capture_at IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM stack_member sm WHERE sm.photo_id = photo.id);
+            """, [.integer(folderID)]) { s in
+                BurstFrame(id: s.int(0), captureAt: s.int(1),
+                           captureSubsec: s.isNull(2) ? nil : Int(s.int(2)),
+                           body: s.string(3))
+            }
+            var made: [Int64] = []
+            for group in BurstGrouping.groups(frames, maxGap: maxGap) {
+                made.append(try self.createStack(origin: "burst-auto", photoIDs: group))
+            }
+            return made
+        }
+    }
+
     /// The stack one photo belongs to, if any. `stack_member.photo_id` is UNIQUE, so
     /// this is a single index lookup and a photo is in at most one stack.
     public func stack(containing photoID: Int64) throws -> StackRow? {
@@ -4837,6 +4869,11 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func dissolveStack(id: Int64) throws { throw CatalogError.unavailable }
+    @discardableResult
+    public func stackBursts(folderID: Int64,
+                            maxGap: Double = BurstGrouping.defaultMaxGapSeconds) throws -> [Int64] {
+        throw CatalogError.unavailable
+    }
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
         throw CatalogError.unavailable

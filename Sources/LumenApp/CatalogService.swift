@@ -1179,6 +1179,14 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// Stack the open folder's bursts; the number of stacks made, nil on failure.
+    func stackBursts(folderPath: String) async -> Int? {
+        await onQueue("burst stacking", fallback: nil) { (store: CatalogStore) -> Int? in
+            guard let folder = try store.folder(path: folderPath) else { return 0 }
+            return try store.stackBursts(folderID: folder.id).count
+        }
+    }
+
     func addSynonym(_ synonym: String, toKeyword keyword: String) async -> Bool {
         await onQueue("keyword synonym", fallback: false) {
             try $0.addSynonym(synonym, toKeyword: keyword)

@@ -2338,6 +2338,27 @@ final class AppState: ObservableObject {
     }
 
     /// `⇧⌘G` — the grouping goes, the photographs stay.
+    /// Stack every burst in the open folder by capture time — frames from one body no
+    /// more than two seconds apart. A command, not a default: the spec's rule also asks
+    /// for a similarity check this build does not run, so a fast series of different
+    /// compositions can land in one stack, and ⇧⌘G undoes any of them.
+    func stackBursts() {
+        guard let catalog, let folder = folderURL else { return }
+        Task { [weak self] in
+            let made = await catalog.stackBursts(folderPath: folder.path)
+            guard let self else { return }
+            switch made {
+            case nil: self.statusMessage = "Could not stack the bursts in this folder"
+            case 0?: self.statusMessage = "No unstacked bursts in this folder — frames "
+                + "need capture times less than two seconds apart"
+            case let n?: self.statusMessage = "Stacked \(n) burst" + (n == 1 ? "" : "s")
+                + " — show one frame each with the Collapsed stacks filter"
+            }
+            self.refreshPrimaryLibraryDetail()
+            self.refreshLibraryQuery()
+        }
+    }
+
     func unstackSelection() {
         guard let catalog, let stack = primaryStack else {
             statusMessage = "That photo is not in a stack"
