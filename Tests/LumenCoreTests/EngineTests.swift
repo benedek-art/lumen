@@ -425,6 +425,35 @@ final class EngineTests: XCTestCase {
 
     /// The property the old wide window existed to protect, measured rather than argued.
     /// A brighter input must never render darker.
+    /// The geometry `ToneEngine.endShelfStart` / `blackShelfStart` now state in prose,
+    /// held as numbers (W2/A1-05). The comment had said the Whites and Blacks shelves
+    /// start where Highlights and Shadows have already saturated, and that Blacks'
+    /// steepest point was −5.9 EV; neither was true of the constants that ship. If a
+    /// constant moves, this fails and points at the paragraph that has to move with it.
+    func testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays() {
+        let engine = ToneEngine(tone: Tone())
+        // Whites' shelf runs +1 … +4 EV, inside Highlights' 0 … +5 EV ramp.
+        XCTAssertEqual(engine.whiteWeight(1.0), 0, accuracy: 1e-12)
+        XCTAssertEqual(engine.whiteWeight(4.0), 1, accuracy: 1e-12)
+        XCTAssertEqual(engine.highlightWeight(1.0), 0.104, accuracy: 0.001)
+        XCTAssertEqual(engine.highlightWeight(4.0), 0.896, accuracy: 0.001,
+                       "Highlights has not saturated where Whites does")
+
+        func steepest(_ weight: (Double) -> Double) -> Double {
+            var best = (t: 0.0, slope: -1.0)
+            var t = -9.0
+            while t < 0 {
+                let slope = (weight(t - 1e-4) - weight(t + 1e-4)) / 2e-4
+                if slope > best.slope { best = (t, slope) }
+                t += 0.001
+            }
+            return best.t
+        }
+        XCTAssertEqual(steepest(engine.shadowWeight), -2.25, accuracy: 0.01)
+        XCTAssertEqual(steepest(engine.blackWeight), -3.465, accuracy: 0.01,
+                       "Blacks' steepest point, which the comment said was −5.9 EV")
+    }
+
     func testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting() {
         for contrast in stride(from: -100.0, through: 100.0, by: 5) {
             for pivot in [-4.0, 0, 4] {
