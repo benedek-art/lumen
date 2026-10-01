@@ -23,6 +23,9 @@ final class SavedLibraryFilterTests: XCTestCase {
         f.stackState = .collapsedTops
         f.keywords = ["dawn", "Iceland"]
         f.matchAny = true
+        f.softFocus = true
+        f.closedEyes = true
+        f.burst = .inBurst
         return f
     }
 
@@ -38,11 +41,26 @@ final class SavedLibraryFilterTests: XCTestCase {
     /// The codec names its fields by hand. A criterion added to `LibraryFilter` without
     /// a line here would save as "off" and come back off — a smart album that quietly
     /// shows more than it was saved to show. This fails the day the field list moves.
+    /// The evidence chips raise the document to version 2 and nothing else does, so a
+    /// filter an older build could save is byte-identical and an older build refuses
+    /// one carrying chips it cannot name.
+    func testOnlyTheEvidenceChipsRaiseTheSavedVersion() {
+        var plain = LibraryFilter()
+        plain.minRating = 2
+        XCTAssertTrue(plain.savedJSON().contains("\"v\":1"), plain.savedJSON())
+        var soft = plain
+        soft.softFocus = true
+        XCTAssertTrue(soft.savedJSON().contains("\"v\":2"), soft.savedJSON())
+        XCTAssertEqual(LibraryFilter(savedJSON: soft.savedJSON()), soft)
+        XCTAssertNil(LibraryFilter(savedJSON: "{\"v\":3}"))
+    }
+
     func testTheCodecCoversEveryStoredField() {
         let fields = Mirror(reflecting: LibraryFilter()).children.compactMap(\.label).sorted()
-        XCTAssertEqual(fields, ["cameras", "edited", "flags", "includeUnlabeled",
-                                "isoBands", "keywords", "labels", "lenses", "matchAny",
-                                "minRating", "rawOnly", "stackState", "text"],
+        XCTAssertEqual(fields, ["burst", "cameras", "closedEyes", "edited", "flags",
+                                "includeUnlabeled", "isoBands", "keywords", "labels",
+                                "lenses", "matchAny", "minRating", "rawOnly", "softFocus",
+                                "stackState", "text"],
                        "LibraryFilter gained or lost a field: teach savedJSON and "
                        + "init(savedJSON:) about it, then update this list")
     }
@@ -56,7 +74,7 @@ final class SavedLibraryFilterTests: XCTestCase {
     }
 
     func testANewerOrDamagedDocumentIsRefusedWhole() {
-        XCTAssertNil(LibraryFilter(savedJSON: "{\"v\":2,\"minRating\":3}"),
+        XCTAssertNil(LibraryFilter(savedJSON: "{\"v\":3,\"minRating\":3}"),
                      "a newer format was half-read")
         XCTAssertNil(LibraryFilter(savedJSON: "{\"v\":1,\"labels\":[\"teal\"]}"),
                      "an unknown label was dropped instead of refusing the album")

@@ -362,7 +362,12 @@ extension LibraryFilter {
     /// newer one refuses it rather than dropping the criteria it cannot name: a smart
     /// album that silently lost a chip would show MORE photographs than it was saved
     /// to show, under the same name.
-    public static let savedFormatVersion = 1
+    ///
+    /// Version 2 added the culling-evidence chips (soft focus, closed eyes, burst). A
+    /// document states 2 only when one of them is lit, so every filter a version-1
+    /// build could save is still byte-identical, and a version-1 build refuses a filter
+    /// whose evidence chips it cannot name instead of reading it wider.
+    public static let savedFormatVersion = 2
 
     private struct Saved: Codable {
         var v: Int
@@ -379,12 +384,15 @@ extension LibraryFilter {
         var stack: String?
         var keywords: [String]?
         var any: Bool?
+        var softFocus: Bool?
+        var closedEyes: Bool?
+        var burst: String?
     }
 
     /// Canonical JSON. Only lit criteria are written, so a filter saved before a
     /// criterion existed and one saved after with it off are the same document.
     public func savedJSON() -> String {
-        var saved = Saved(v: Self.savedFormatVersion)
+        var saved = Saved(v: 1)
         if !flags.isEmpty { saved.flags = flags.map(\.rawValue).sorted() }
         if minRating > 0 { saved.minRating = minRating }
         if !labels.isEmpty { saved.labels = labels.map(\.rawValue).sorted() }
@@ -400,6 +408,9 @@ extension LibraryFilter {
         if stackState != .any { saved.stack = stackState.rawValue }
         if !keywords.isEmpty { saved.keywords = keywords.sorted() }
         if matchAny { saved.any = true }
+        if softFocus { saved.softFocus = true; saved.v = 2 }
+        if closedEyes { saved.closedEyes = true; saved.v = 2 }
+        if burst != .any { saved.burst = burst.rawValue; saved.v = 2 }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         guard let data = try? encoder.encode(saved),
@@ -440,6 +451,12 @@ extension LibraryFilter {
         }
         filter.keywords = Set(saved.keywords ?? [])
         filter.matchAny = saved.any ?? false
+        filter.softFocus = saved.softFocus ?? false
+        filter.closedEyes = saved.closedEyes ?? false
+        if let raw = saved.burst {
+            guard let state = BurstFilter(rawValue: raw) else { return nil }
+            filter.burst = state
+        }
         self = filter
     }
 }

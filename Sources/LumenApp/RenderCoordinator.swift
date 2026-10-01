@@ -775,12 +775,18 @@ actor RenderCoordinator {
     ///
     /// A mask has to compare against what it will be applied to, and it is applied to
     /// the output of this stage list.
+    ///
+    /// `pointColorSwatch` names the mask swatch a mask Point Colour pick feeds; the
+    /// renderer then carries the sample through that mask's own exposure, tone, white
+    /// balance and earlier swatches, which is what the swatch compares.
     func sampleMaskReference(url: URL, recipe: Recipe,
-                             sourceX: Double, sourceY: Double) -> RGB? {
+                             sourceX: Double, sourceY: Double,
+                             pointColorSwatch: (maskID: String, index: Int)? = nil) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
-                                                        sourceY: sourceY),
+                                                        sourceY: sourceY,
+                                                        pointColorSwatch: pointColorSwatch),
               sample.isFinite
         else { return nil }
         return sample
