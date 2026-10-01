@@ -193,6 +193,15 @@ final class BrushPlaneCache {
         return plane
     }
 
+    /// The sizes of every plane held, both rungs. Read by tests that need to know the
+    /// renderer painted at the size its fold runs at (`MaskRaster.brushFoldSize`).
+    func heldPlaneSizes() -> [(width: Int, height: Int)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return (entries + settled).map { (width: $0.entry.plane.width,
+                                          height: $0.entry.plane.height) }
+    }
+
     func clear() {
         lock.lock()
         entries.removeAll()

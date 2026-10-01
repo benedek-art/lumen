@@ -175,10 +175,22 @@ public enum MaskRaster {
                       brushPlanes: [String: Plane],
                       masks: [Mask],
                       resolving: Set<String>) -> Plane? {
-        let w = Swift.max(size.width, 1)
-        let h = Swift.max(size.height, 1)
-        var acc = Plane(width: w, height: h)
         if size.width < 1 || size.height < 1 { return nil }
+        // THE FOLD RUNS ON THE SHARED FINE GRID (Astra M04 / S-10). A brush stamp
+        // sampled at pixel centres is only the stroke the photographer drew while its
+        // radius spans a few pixels; below that, the fit view and the export disagree
+        // about what a thin stroke selects — and an Intersect or Subtract of two such
+        // strokes, folded pixel by pixel on the coarse grid, disagrees further, because
+        // max/min/× of two area averages is not the area average of max/min/×. So the
+        // whole stack is rasterized and folded at `supersample`× the requested size
+        // and box-reduced once, before the refinement chain. `supersample` is 1 — and
+        // this function is exactly what it was — for every mask with no brush stroke
+        // under `brushFineRadiusPx`.
+        let factor = brushSupersample(mask: mask, strokeSets: strokeSets,
+                                      size: (width: size.width, height: size.height))
+        let w = size.width * factor
+        let h = size.height * factor
+        var acc = Plane(width: w, height: h)
 
         // A MASK NOBODY HAS FINISHED MAKING SELECTS NOTHING, INVERT OR NOT.
         //
@@ -284,6 +296,7 @@ public enum MaskRaster {
         }
 
         guard contributed else { return nil }
+        if factor > 1 { acc = boxReduced(acc, by: factor) }
         return refined(acc, refine: mask.refine, source: source, invert: mask.invert)
     }
 
@@ -1422,6 +1435,79 @@ public enum MaskRaster {
         return fitted(matte, w, h).map { Num.saturate($0.isFinite ? $0 : 0) }
     }
 
+    // MARK: - Brush fine grid
+
+    /// The smallest brush stamp radius, in raster pixels, a mask fold is evaluated at.
+    /// Below it the fold runs on a finer grid and is box-reduced (see `alpha`). Chosen
+    /// by measurement, not taste: docs/audit-2026-10/streams/P15-brush.md.
+    static let brushFineRadiusPx: Double = 3
+    /// The most the fine grid may multiply each side by.
+    static let brushSupersampleLimit = 4
+
+    /// How many times finer than `size`, per side, a mask's fold must run so its
+    /// thinnest brush stroke is drawn with a radius of at least `brushFineRadiusPx`.
+    ///
+    /// Bounded twice: by `brushSupersampleLimit`, and so the fine grid's long edge
+    /// never passes `DraftLadder.interactiveLongEdgeCeiling` (or the requested long
+    /// edge, when that is already larger — an export at sensor size gets no fine grid
+    /// at all, and needs none: its thinnest legal stroke, Size 0.002, is a 6 px radius
+    /// at 6000 px). The ceiling is the same line `BrushPlaneCache` draws for what it
+    /// will hold, so a fine plane on an interactive surface is always one it can resume.
+    ///
+    /// Public because the pipeline paints its held brush planes at the fine size; a
+    /// plane of any other size is refused by `rasterize` and repainted.
+    public static func brushSupersample(mask: Mask,
+                                        strokeSets: [String: BrushStrokeSet],
+                                        size: (width: Int, height: Int)) -> Int {
+        let long = Swift.max(size.width, size.height)
+        guard long > 0 else { return 1 }
+        var thinnest = Double.infinity
+        for c in mask.components where c.kind == .brush {
+            guard let ref = c.strokesRef, let set = strokeSets[ref] else { continue }
+            for stroke in set.strokes
+            where stroke.size.isFinite && stroke.size > 0 && stroke.flow > 0 {
+                thinnest = Swift.min(thinnest, stroke.size / 2 * Double(long))
+            }
+        }
+        guard thinnest.isFinite, thinnest < brushFineRadiusPx else { return 1 }
+        let wanted = (brushFineRadiusPx / thinnest).rounded(.up)
+        let room = Swift.max(1, Swift.max(DraftLadder.interactiveLongEdgeCeiling, long) / long)
+        return Swift.max(1, Swift.min(Int(Swift.min(wanted, 64)),
+                                      brushSupersampleLimit, room))
+    }
+
+    /// The fine size `alpha` folds `mask` at for a request of `size`.
+    public static func brushFoldSize(mask: Mask,
+                                     strokeSets: [String: BrushStrokeSet],
+                                     size: (width: Int, height: Int))
+        -> (width: Int, height: Int) {
+        let f = brushSupersample(mask: mask, strokeSets: strokeSets, size: size)
+        return (width: size.width * f, height: size.height * f)
+    }
+
+    /// Box average of `factor`×`factor` blocks. `p`'s sides are exact multiples.
+    static func boxReduced(_ p: Plane, by factor: Int) -> Plane {
+        let w = p.width / factor
+        let h = p.height / factor
+        var out = Plane(width: w, height: h)
+        let inv = 1 / Double(factor * factor)
+        var row = [Double](repeating: 0, count: w)
+        for y in 0..<h {
+            for x in 0..<w { row[x] = 0 }
+            for fy in 0..<factor {
+                let base = (y * factor + fy) * p.width
+                for x in 0..<w {
+                    var sum = 0.0
+                    let start = base + x * factor
+                    for fx in 0..<factor { sum += Double(p.values[start + fx]) }
+                    row[x] += sum
+                }
+            }
+            for x in 0..<w { out.values[y * w + x] = Float(row[x] * inv) }
+        }
+        return out
+    }
+
     // MARK: - Brush stamping
 
     private struct StampPoint {
@@ -1448,15 +1534,34 @@ public enum MaskRaster {
         let hardness = Num.saturate(1 - Num.clamp(stroke.feather, 0, 100) / 100)
         let hardnessUsed = Swift.min(hardness, Swift.max(0, 1 - 1 / Swift.max(radiusPx, 1)))
 
-        let spacing = Swift.max(1, stampSpacingFraction * radiusPx)
+        // DENSITY-CORRECT SPACING (Astra M04). Flow is a deposit PER STAMP, and the
+        // stamps are laid every `stampSpacingFraction` of a radius — a length that is
+        // the same fraction of the photograph at every resolution. The 1 px floor below
+        // breaks that the moment a radius drops under ten pixels: a 2.5 px radius stamps
+        // every pixel instead of every quarter-pixel, so the same stroke laid a quarter
+        // of the deposits at that size that it lays where the radius is 25 px, and the
+        // audit's Flow-10 line peaked at 0.26 at 512 px against 0.63 at 4096.
+        //
+        // So every stamp after the first stands for `weight` nominal stamps, and
+        // deposits what that many would have: `1 − (1 − f·s)^weight`. A stroke is then
+        // the same stroke at every resolution, up to the spacing's own Riemann error at
+        // pixel scale. `weight` is exactly 1 whenever the radius is ten pixels or more,
+        // and that path below is the old arithmetic verbatim, so every stroke that was
+        // already resolution-independent paints bit-identically.
+        let nominalSpacing = stampSpacingFraction * radiusPx
+        let spacing = Swift.max(1, nominalSpacing)
+        let weight = spacing > nominalSpacing ? spacing / nominalSpacing : 1
         let centers = stampCenters(stroke.points, width: w, height: h, spacingPx: spacing)
         if centers.isEmpty { return }
 
         let context = OKLabTransform.working
         let useAutomask = stroke.automask && source != nil
 
-        for centre in centers {
+        for (stampIndex, centre) in centers.enumerated() {
             guard centre.x.isFinite, centre.y.isFinite else { continue }
+            // The first stamp is one stamp at every resolution (a dab is a dab); each
+            // later one stands for the nominal stamps laid along the spacing behind it.
+            let stampWeight = stampIndex == 0 ? 1 : weight
             // The automask reference is one sample per stamp, not per pixel (docs/08:
             // "per-stamp color-similarity gate against the stamp-center sample"),
             // taken from the denoised stage input rather than the raw signal.
@@ -1504,11 +1609,16 @@ public enum MaskRaster {
 
                     let i = y * w + x
                     let a = Double(p.values[i])
+                    // `stampWeight == 1` keeps the historical expression exactly:
+                    // `1 − (1 − x)` is not `x` in floating point.
+                    let deposit = stampWeight == 1
+                        ? flowPressure * s
+                        : -expm1(stampWeight * log1p(-Swift.min(flowPressure * s, 1)))
                     let next: Double
                     if stroke.erase {
-                        next = a * (1 - flowPressure * s)
+                        next = a * (1 - deposit)
                     } else {
-                        next = a + flowPressure * s * Swift.max(density - a, 0)
+                        next = a + deposit * Swift.max(density - a, 0)
                     }
                     p.values[i] = Float(Num.saturate(next))
                 }

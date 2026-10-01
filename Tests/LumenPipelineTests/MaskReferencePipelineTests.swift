@@ -360,5 +360,45 @@ final class MaskReferencePipelineTests: XCTestCase {
         XCTAssertGreaterThan(worst(expected, withoutGate), 0.05,
                              "the replacement fixture must exercise the Automask gate")
     }
+
+    /// Astra M04 / S-10, the renderer's half. A mask holding a stroke thinner than
+    /// `MaskRaster.brushFineRadiusPx` folds on a finer grid, and `rasterize` only uses a
+    /// held brush plane of exactly that grid's size. Painted at the raster size, every
+    /// plane this renderer held was refused and the whole set repainted inside the fold
+    /// on every frame — correct pixels, and the ~140 ms settle back to seconds.
+    func testAThinBrushIsHeldAtTheFoldSizeAndResumesThere() throws {
+        let source = MaskReferenceFixtureSource(longEdge: 128)
+        var brush = MaskComponent(op: .add, kind: .brush)
+        brush.strokesRef = "blob:thin-brush-fold-size"
+        var mask = Mask(id: "thin", components: [brush])
+        mask.adjust.exposure = 1
+        var r = Recipe()
+        r.develop.denoise.mode = .off
+        r.masks = [mask]
+        func strokes(_ n: Int) -> [String: BrushStrokeSet] {
+            ["blob:thin-brush-fold-size": BrushStrokeSet(strokes: (0..<n).map { i in
+                BrushStroke(points: [BrushPoint(x: 0.1, y: 0.3 + 0.1 * Double(i)),
+                                     BrushPoint(x: 0.9, y: 0.32 + 0.1 * Double(i))],
+                            size: 0.004, feather: 50, flow: 40, density: 100)
+            })]
+        }
+        let held = PipelineRenderer()
+        _ = try pixels(held, source, r, strokes: strokes(3))
+        let sizes = held.brushPlanes.heldPlaneSizes()
+        XCTAssertFalse(sizes.isEmpty, "the render must have painted through the cache")
+        let factor = MaskRaster.brushSupersampleLimit
+        for size in sizes {
+            XCTAssertEqual(Swift.max(size.width, size.height) % factor, 0)
+            XCTAssertGreaterThanOrEqual(Swift.max(size.width, size.height), factor * 100,
+                                        "held at the raster size, not the fold size: "
+                                        + "the fold refuses it and repaints every stroke")
+        }
+        let stats = BrushPlaneCache.currentStats
+        let appended = try pixels(held, source, r, strokes: strokes(4))
+        let now = BrushPlaneCache.currentStats
+        XCTAssertEqual(now.strokesPainted - stats.strokesPainted, 1)
+        let cold = try pixels(PipelineRenderer(), source, r, strokes: strokes(4))
+        XCTAssertEqual(worst(appended, cold), 0, accuracy: 1e-6)
+    }
 }
 #endif

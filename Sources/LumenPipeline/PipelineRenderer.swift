@@ -131,7 +131,7 @@ public final class PipelineRenderer {
     /// different granularity: one component's painting, before the fold and before the
     /// refinement chain, which is the only part of a mask that grows without bound as
     /// the photographer works. See the type's header (docs/36 §1.2).
-    private let brushPlanes = BrushPlaneCache()
+    let brushPlanes = BrushPlaneCache()
     /// A deferred mask bake captures its picture key. If a source is replaced while
     /// that bake is pending, its nested brush work must never share the new key.
     private var maskSourceGeneration: UInt64 = 0
@@ -1634,6 +1634,13 @@ public final class PipelineRenderer {
                     // `bake` and not before it, so a frame served a stale raster does
                     // not pay for painting it will not use.
                     var painted: [String: Plane] = [:]
+                    // Painted at the size the fold actually runs at: a mask with a
+                    // stroke thinner than `MaskRaster.brushFineRadiusPx` folds on a
+                    // finer grid (Astra M04 / S-10), and `rasterize` refuses a held
+                    // plane of any other size and repaints it from stroke one.
+                    let foldSize = MaskRaster.brushFoldSize(
+                        mask: mask, strokeSets: strokeSets,
+                        size: (width: width, height: height))
                     for (index, component) in mask.components.enumerated()
                     where component.kind == .brush {
                         guard let ref = component.strokesRef,
@@ -1648,7 +1655,7 @@ public final class PipelineRenderer {
                         painted[ref] = brushPlanes.plane(
                             componentKey: "\(mask.id)#\(index)",
                             set: set,
-                            size: (width: width, height: height),
+                            size: foldSize,
                             sourceKey: automasked ? (sourceKey ?? "-") : "-",
                             source: automasked ? source : nil)
                     }

@@ -180,7 +180,11 @@ final class BrushAccumulationTests: XCTestCase {
 
         let painted = MaskRaster.combine(mask: mask, size: size, source: nil,
                                          strokeSets: [ref: set])
-        let filled = Plane(width: size.width, height: size.height, fill: 1)
+        // At the size the fold runs at: this fixture's strokes are a 2.4 px radius, so
+        // the fold runs on the shared fine grid (Astra M04 / S-10) and a plane of the
+        // raster size is, correctly, a mis-sized one.
+        let fold = MaskRaster.brushFoldSize(mask: mask, strokeSets: [ref: set], size: size)
+        let filled = Plane(width: fold.width, height: fold.height, fill: 1)
         let supplied = MaskRaster.combine(mask: mask, size: size, source: nil,
                                           strokeSets: [ref: set],
                                           aiMattes: [:],
