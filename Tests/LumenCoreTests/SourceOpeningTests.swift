@@ -29,6 +29,22 @@ final class SourceOpeningTests: XCTestCase {
                        .files(root: dir("/shoot"), files: [file("/shoot/a.NEF")]))
     }
 
+    /// The link that the type filter alone cannot refuse. Dragging a picture out of a
+    /// browser drops `https://…/a.jpg`, whose extension IS one Lumen opens; and a link
+    /// ending in "/" has a directory path, which the app's `isDirectory` answers from the
+    /// LOCAL filesystem at that path (`https://host/Users/` names `/Users`). Only the
+    /// file-URL filter keeps either from replacing the roll.
+    func testAWebLinkToAPhotographOrAFolderIsNotASource() throws {
+        let photo = try XCTUnwrap(URL(string: "https://example.com/shoot/a.jpg"))
+        XCTAssertEqual(plan([photo]), .nothing,
+                       "a browser image drag opened a picked set rooted at the link's path")
+        let folder = try XCTUnwrap(URL(string: "https://example.com/shoot/"))
+        XCTAssertEqual(plan([folder]), .nothing,
+                       "a folder-shaped web link opened as a folder")
+        XCTAssertEqual(plan([photo, folder, file("/card/b.NEF")]),
+                       .files(root: dir("/card"), files: [file("/card/b.NEF")]))
+    }
+
     func testNothingOpenableIsNothing() {
         XCTAssertEqual(plan([]), .nothing)
         XCTAssertEqual(plan([file("/docs/notes.txt"), file("/docs/readme.md")]), .nothing)

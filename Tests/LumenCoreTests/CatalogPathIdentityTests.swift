@@ -118,6 +118,33 @@ final class CatalogPathIdentityTests: XCTestCase {
         XCTAssertTrue(rooted.added.isEmpty)
         XCTAssertEqual(try rowCount(store, [day10, other, day1, root]), 3)
     }
+
+    /// The prefix trap INSIDE a related folder. `/shoot/day1` is a real descendant of
+    /// `/shoot`, so it passes the folder-level relation; the name `day10/a.NEF` under
+    /// `/shoot` must still not be read as `a.NEF` under `day1` just because "day10"
+    /// starts with "day1". Compared as strings, day1's rated row moved onto day10's
+    /// frame and day1's own `a.NEF` got a fresh, unrated row.
+    func testASiblingWhoseNameExtendsARelatedFolderDoesNotTakeItsRow() throws {
+        let store = try makeStore()
+        let day1 = try store.registerFolder(path: "/Volumes/Shoots/day1")
+        _ = try store.scan(folderID: day1, files: [file("a.NEF")])
+        let original = try XCTUnwrap(store.photo(folderID: day1, filename: "a.NEF"))
+        try store.setRating(5, photoID: original.id)
+
+        let shoots = try store.registerFolder(path: "/Volumes/Shoots")
+        let result = try store.scan(folderID: shoots,
+                                    files: [file("day10/a.NEF", size: 40_000_000),
+                                            file("day1/a.NEF")])
+        let day10Frame = try XCTUnwrap(store.photo(folderID: shoots, filename: "day10/a.NEF"))
+        XCTAssertNotEqual(day10Frame.id, original.id,
+                          "day1's row was taken for day10/a.NEF, a different file")
+        XCTAssertEqual(day10Frame.rating, 0)
+        let day1Frame = try XCTUnwrap(store.photo(folderID: shoots, filename: "day1/a.NEF"))
+        XCTAssertEqual(day1Frame.id, original.id)
+        XCTAssertEqual(day1Frame.rating, 5)
+        XCTAssertEqual(result.added.count, 1, "only day10/a.NEF is new")
+        XCTAssertEqual(try rowCount(store, [day1, shoots]), 2)
+    }
 }
 
 #endif
