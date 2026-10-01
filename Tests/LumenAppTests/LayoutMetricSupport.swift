@@ -471,17 +471,17 @@ enum SliderInventory {
         SliderSpec("Halo Damping", "DetailPanel.swift:378", .developTop, 0...100, step: 1),
         // Noise Reduction — all of it inside a `DevelopDisclosure`.
         SliderSpec("Luminance", "DetailPanel.swift:537", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Detail", "DetailPanel.swift:587", .developDisclosure, 0...100,
+        SliderSpec("Detail", "DetailPanel.swift:588", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Contrast", "DetailPanel.swift:596", .developDisclosure, 0...100,
+        SliderSpec("Contrast", "DetailPanel.swift:598", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Colour", "DetailPanel.swift:605", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Detail", "DetailPanel.swift:626", .developDisclosure, 0...100,
+        SliderSpec("Colour", "DetailPanel.swift:608", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Detail", "DetailPanel.swift:625", .developDisclosure, 0...100,
                    step: 1, indented: true),
         SliderSpec("Smoothness", "DetailPanel.swift:636", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Hot Pixels", "DetailPanel.swift:646", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Amount", "DetailPanel.swift:682", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Hot Pixels", "DetailPanel.swift:647", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Amount", "DetailPanel.swift:683", .developDisclosure, 0...100, step: 1),
 
         // Effects — vignette, grain, retouch.
         SliderSpec("Amount", "EffectsPanel.swift:131", .developTop, -4...2,

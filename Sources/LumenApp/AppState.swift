@@ -3068,6 +3068,21 @@ final class AppState: ObservableObject {
             isRendered: PhotoFormats.isRendered(url), iso: iso))
     }
 
+    /// Double-click on a Noise Reduction row: each target goes back to ITS OWN imported
+    /// value for that row, not to the primary photograph's.
+    ///
+    /// Through the photo-aware `updateRecipe`, because the value is per file — see
+    /// `Recipe.resetDenoise(_:from:)`. The key names the reset rather than the row, so a
+    /// drag followed by a double-click are two decisions and one ⌘Z does not take back
+    /// both. `targets` is the same narrowing `updateRecipe` offers; nil is the selection.
+    func resetDenoise(_ row: Recipe.DenoiseRow, targets: [PhotoItem]? = nil) {
+        updateRecipe(coalescingKey: "denoise.classic.\(row.rawValue).reset",
+                     targets: targets) { photo, recipe in
+            recipe.resetDenoise(row, from: Recipe.SourceFile(
+                isRendered: PhotoFormats.isRendered(photo.id), iso: photo.iso))
+        }
+    }
+
     var currentRecipe: Recipe {
         primarySelection.map(recipe(for:)) ?? Recipe()
     }

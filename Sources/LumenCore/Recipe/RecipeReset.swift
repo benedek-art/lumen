@@ -122,6 +122,46 @@ extension Recipe {
         self = Recipe.asImported(from: file)
     }
 
+    /// One row of the Noise Reduction panel, as the thing its double-click resets.
+    public enum DenoiseRow: String, CaseIterable, Sendable {
+        case luma, lumaDetail, lumaContrast, chroma, colorDetail, colorSmoothness
+    }
+
+    /// Put ONE Noise Reduction row back to where THIS file was imported — its own ISO's
+    /// value — and leave every other field alone.
+    ///
+    /// The value a reset lands on differs per photograph (an ISO 400 raw imports at
+    /// Luminance 0, an ISO 25600 one at 40, a JPEG at the flat wire default), so it has
+    /// to be resolved per photograph. The panel resolved it ONCE, from the primary
+    /// selection, and wrote that one number through a closure that could not see the
+    /// photo onto every selected frame (W2/E1-01, K-028): double-clicking Luminance on a
+    /// mixed-ISO selection gave the ISO 25600 frames the ISO 400 frame's 0, and cleared
+    /// their user-set bits so the recipes then claimed the ISO table had chosen it.
+    ///
+    /// The two masters clear their user-set bit as well as the value, for the reason the
+    /// panel already gave: a reset that left the bit standing turned Auto into Manual
+    /// without changing a number, and a later switch to AI kept the master it should
+    /// have zeroed.
+    public mutating func resetDenoise(_ row: DenoiseRow, from file: SourceFile) {
+        let imported = Recipe.asImported(from: file).develop.denoise.classic
+        switch row {
+        case .luma:
+            develop.denoise.classic.luma = imported.luma
+            develop.denoise.classic.lumaUserSet = false
+        case .lumaDetail:
+            develop.denoise.classic.lumaDetail = imported.lumaDetail
+        case .lumaContrast:
+            develop.denoise.classic.lumaContrast = imported.lumaContrast
+        case .chroma:
+            develop.denoise.classic.chroma = imported.chroma
+            develop.denoise.classic.chromaUserSet = false
+        case .colorDetail:
+            develop.denoise.classic.colorDetail = imported.colorDetail
+        case .colorSmoothness:
+            develop.denoise.classic.colorSmoothness = imported.colorSmoothness
+        }
+    }
+
     /// Whether this photograph is still exactly as it was imported — the predicate a
     /// Reset affordance offers itself on, and the honest form of "is this edited".
     ///
