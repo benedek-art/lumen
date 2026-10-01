@@ -278,6 +278,11 @@ jobs:
       - name: Swift surface — the checker's own fixture suite
         run: python3 scripts/test-check-swift-surface.py
 
+      # Which verdict file speaks for a control when two carry the same id: the one
+      # named `<id>.json`, never whichever sorts first (V7 D9).
+      - name: Slider atlas generator — canonical verdict file wins
+        run: python3 scripts/test-gen-slider-atlas.py
+
 
   # The engine suite, on the lane that costs nothing. LumenCore is pure Swift — colour
   # science, tone, grade, film, detail, denoise, mask algebra, catalog and XMP — with no
