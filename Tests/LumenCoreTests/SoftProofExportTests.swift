@@ -317,23 +317,6 @@ final class SoftProofExportTests: XCTestCase {
     /// Comments blanked, so a doc comment naming a symbol cannot let a scan above pass
     /// its own substitution proof — `PipelineRenderer.swift` names every one of them.
     private static func stripped(_ source: String) -> String {
-        var out = ""
-        var i = source.startIndex
-        var block = false
-        while i < source.endIndex {
-            let rest = source[i...]
-            if block {
-                if rest.hasPrefix("*/") { block = false; i = source.index(i, offsetBy: 2) }
-                else { i = source.index(after: i) }
-                continue
-            }
-            if rest.hasPrefix("/*") { block = true; i = source.index(i, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while i < source.endIndex, source[i] != "\n" { i = source.index(after: i) }
-                continue
-            }
-            out.append(source[i]); i = source.index(after: i)
-        }
-        return out
+        blankingComments(in: source)
     }
 }

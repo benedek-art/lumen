@@ -36,6 +36,9 @@ struct GridView: View {
 
     var body: some View {
         let photos = state.photos
+        // Read AFTER `photos`, whose getter is what bumps it: the pair has to describe
+        // one roll, or the prefetch memo is keyed on a revision its array is not (S-08).
+        let rollRevision = state.rollRevision
         let side = CGFloat(state.gridThumbnailSize)
         // Retina: ask for twice the point size, then let the loader snap to a cache level.
         let pixels = Int(side * 2)
@@ -80,7 +83,7 @@ struct GridView: View {
                     // The ROLL, not a fresh array of its URLs — see the `onChange`
                     // below for the keystroke this projection used to be paid on.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos, size: pixels,
+                                              in: photos, revision: rollRevision, size: pixels,
                                               surface: .grid)
                 }
                 .onChange(of: geometry.size.width) { _, width in
@@ -115,7 +118,7 @@ struct GridView: View {
                     // backed by was in effect being rebuilt twice per frame at 2,000
                     // frames and would be rebuilt twice as often again at 4,000. The
                     // loader reads only the window's own indices now.
-                    state.thumbnails.prefetch(around: id, in: photos,
+                    state.thumbnails.prefetch(around: id, in: photos, revision: rollRevision,
                                               size: pixels, surface: .grid)
                 }
             }

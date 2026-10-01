@@ -208,7 +208,7 @@ final class CatalogService: @unchecked Sendable {
                let fingerprint = try? RecipeFingerprint.fingerprint(recipe) {
                 if stated.contains(.recipe) {
                     recipeFields = (json, fingerprint,
-                                    Swift.min(recipe.pipelineVersion, currentPipelineVersion))
+                                    Swift.min(recipe.pipelineVersion, supportedPipelineVersion))
                 }
                 if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
             }
@@ -824,7 +824,7 @@ final class CatalogService: @unchecked Sendable {
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint,
                                          Swift.min(recipe.pipelineVersion,
-                                                   currentPipelineVersion)),
+                                                   supportedPipelineVersion)),
                                 strokes: strokes)
         }
     }
@@ -874,6 +874,23 @@ final class CatalogService: @unchecked Sendable {
                     continuation.resume(returning: fallback)
                 }
             }
+        }
+    }
+
+    /// Each photograph's frame as the crop arithmetic needs it — stored extent turned by
+    /// its EXIF orientation — for a multi-selection's framing writes (S-11 / KG-01).
+    /// A photo with no metadata row yet is simply absent, and its framing is left alone.
+    func frames(photoIDs: [Int64]) async -> [Int64: BatchFraming.Frame] {
+        await onQueue("frame read", fallback: [:]) { store in
+            var out: [Int64: BatchFraming.Frame] = [:]
+            for id in photoIDs {
+                guard let row = try store.photo(id: id),
+                      let frame = BatchFraming.catalogFrame(width: row.width, height: row.height,
+                                                     exifOrientation: row.orientation)
+                else { continue }
+                out[id] = frame
+            }
+            return out
         }
     }
 
@@ -1283,7 +1300,7 @@ final class CatalogService: @unchecked Sendable {
                               + "build implements %d — its recipe is left exactly as it "
                               + "is; the rating, flag and label still go in",
                               path.lastPathComponent, fresh.pipelineVersion,
-                              currentPipelineVersion)
+                              supportedPipelineVersion)
                     }
                     content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
                 }
@@ -1425,7 +1442,7 @@ final class CatalogService: @unchecked Sendable {
                 return (try? store.currentRecipeFingerprint(photoID: row.id)) == fingerprint
             }
             if candidates.count == 1, content.parsedCleanly,
-               content.pipelineVersion <= currentPipelineVersion,
+               content.pipelineVersion <= supportedPipelineVersion,
                let original = String(data: data, encoding: .utf8) {
                 content.sourceExtension = URL(fileURLWithPath: candidates[0].filename).pathExtension.lowercased()
                 if let updated = XMPSidecar.update(original, with: content) {

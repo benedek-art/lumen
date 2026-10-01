@@ -92,6 +92,8 @@ final class CanonicalJSONTests: XCTestCase {
         }
         XCTAssertEqual(Set(fixture.cases.map(\.name)), Set(recipes.keys),
                        "the fixture and the replay table describe different case sets")
+        XCTAssertEqual(fixture.cases.count, recipes.count,
+                       "two fixture cases share a name, so one replays the other's recipe")
     }
 
     /// The property those two cases exist for, asserted directly rather than only

@@ -1242,18 +1242,28 @@ public final class PipelineRenderer {
             // makes checking and publication ONE filesystem operation, including a
             // destination created by another process while we encoded. Replacement
             // requires an explicit opt-in; normal batch exports never opt in.
-            let flags = allowOverwrite ? UInt32(0) : UInt32(RENAME_EXCL)
-            let result = partial.withUnsafeFileSystemRepresentation { from in
-                destination.withUnsafeFileSystemRepresentation { to in
-                    renamex_np(from!, to!, flags)
+            //
+            // RENAME_EXCL is only promised on APFS and HFS+. On exFAT/FAT cards, SMB
+            // and NFS it can answer ENOTSUP or EINVAL, and that used to fail every
+            // export to them. `ExclusivePublish` (LumenCore, tested with injected
+            // ENOTSUP) falls back on exactly those answers to a hard link, then to an
+            // O_EXCL claim of the name — both refuse an existing file just as
+            // RENAME_EXCL does. Its error carries the reason, which the batch's status
+            // line names.
+            let flags = UInt32(RENAME_EXCL)
+            let calls = ExclusivePublish.Syscalls(renameExclusive: { partial, destination in
+                let result = partial.withUnsafeFileSystemRepresentation { from in
+                    destination.withUnsafeFileSystemRepresentation { to in
+                        renamex_np(from!, to!, flags)
+                    }
                 }
-            }
-            guard result == 0 else {
-                throw RenderError.writeFailed(destination)
-            }
+                return result == 0 ? 0 : errno
+            })
+            try ExclusivePublish.publish(partial, as: destination,
+                                         allowOverwrite: allowOverwrite, using: calls)
         } catch {
             try? FileManager.default.removeItem(at: partial)
-            throw RenderError.writeFailed(destination)
+            throw error
         }
     }
 
@@ -1729,7 +1739,11 @@ public final class PipelineRenderer {
     /// callers stating the same dependency two ways is how they drift apart.
     public static func maskSourceFingerprint(recipe: Recipe) -> String? {
         var parts: [String] = []
+        // `develop.heal` because S5 runs inside the mask source (`colorStageInput`):
+        // a spot changes the pixels a luma or colour band selects from, and a key that
+        // omitted it would serve the raster of the picture before the spot.
         let inputs: [any Encodable] = [
+            recipe.develop.heal,
             recipe.develop.raw, recipe.develop.tone, recipe.develop.zones,
             recipe.develop.color, recipe.develop.mixer, recipe.develop.pointColors,
             recipe.look.wheels, recipe.look.printerLights, recipe.look.primaries,
@@ -2058,6 +2072,47 @@ public final class PipelineRenderer {
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
         return sampleMean(staged.cropped(to: decoded.extent),
                           sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
+    /// The picture a new spot's source is searched in: the S5 INPUT — the decode,
+    /// through the spots that come before it in the list — cut to the window
+    /// `SpotSourceSearch.window` names and scaled to the search's working size.
+    ///
+    /// Through the spots before it, so a new spot can borrow from a patch an earlier one
+    /// already cleaned, which is what it will actually be sampling when it renders. NOT
+    /// through S3 denoise: the search scores texture similarity on a downscaled window,
+    /// where the profiled noise reduction moves nothing the ranking can see, and paying a
+    /// wavelet stack per click for it would be a cost with no answer attached.
+    ///
+    /// Lazy like every other tap here: only the window is rendered.
+    public func healSearchBuffer(source: any ImageSource, recipe: Recipe, spot: HealSpot,
+                                 priorSpots: [HealSpot])
+        -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
+            sourceWidth: Int, sourceHeight: Int)? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        Self.stampRenderIdentity(source)
+        let extent = decoded.extent
+        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1 else { return nil }
+        let width = Int(extent.width.rounded()), height = Int(extent.height.rounded())
+        let window = SpotSourceSearch.window(for: spot, sourceWidth: width,
+                                             sourceHeight: height)
+        let staged = RenderGraph.applySpots(decoded, spots: priorSpots)
+        // The window is top-down; Core Image is bottom-up.
+        let rect = CGRect(x: extent.minX + CGFloat(window.x),
+                          y: extent.minY + extent.height
+                              - CGFloat(window.y + window.height),
+                          width: CGFloat(window.width), height: CGFloat(window.height))
+        var cut = staged.cropped(to: rect)
+            .transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+        if window.scale < 1 {
+            cut = cut.applyingFilter("CILanczosScaleTransform", parameters: [
+                kCIInputScaleKey: window.scale, kCIInputAspectRatioKey: 1.0,
+            ]).cropped(to: CGRect(x: 0, y: 0, width: window.bufferWidth,
+                                  height: window.bufferHeight))
+        }
+        guard let buffer = Self.buffer(from: cut, context: context) else { return nil }
+        return (buffer, window, width, height)
     }
 
     /// The mean of a small window about a normalized source coordinate, read back in

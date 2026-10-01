@@ -622,6 +622,11 @@ private struct WorkspaceSectionView: View {
         // scrolling column is a pile of floating tiles, and these are tiled edge to
         // edge — which is the case `Lumen.Elevation` names this step for.
         .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
+        // A NAMED GROUP, so VoiceOver hears "Tone" and then the controls inside it
+        // one by one, rather than the section as a run of words (UX-03). The name is
+        // `WorkspaceSection.title`, the same one `ControlIndex` files its controls under.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(section.title))
     }
 
     /// RESET BELONGS TO THE SECTION HEADER NOW, and the section is the column's idea of

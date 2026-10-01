@@ -43,10 +43,16 @@ def load(directory):
     The agents write their scratch beside their results — a probe's `.swift`, a sweep
     log, a `bw.aqua.compact.json` written alongside `bw.aqua.json` — so "every `.json`
     here is a verdict" is not true and a document generated on that assumption would
-    carry whatever else landed. A verdict is recognised by its shape, and the first
-    verdict for a control wins so a second file for the same id cannot double-count it.
+    carry whatever else landed. A verdict is recognised by its shape.
+
+    ONE VERDICT PER CONTROL, AND WHICH ONE IS DECIDED, NOT SORTED. When two files carry
+    the same id, the CANONICAL one — the file named exactly `<id>.json` — wins. It used to
+    be "the first in sorted order wins", and `bw.aqua.compact.json` sorts before
+    `bw.aqua.json` (`.c` < `.j`), so the agent's smaller scratch copy silently replaced
+    the verdict it was a copy of. With no canonical file among the claimants, the first
+    in sorted order still wins, so the output does not depend on `listdir` order.
     """
-    out, seen = [], set()
+    chosen = {}   # id -> (is_canonical, name, record)
     for name in sorted(os.listdir(directory)):
         if not name.endswith(".json"):
             continue
@@ -59,12 +65,19 @@ def load(directory):
         if not isinstance(record, dict) or "id" not in record or "entry" not in record:
             print(f"skipping {name}: not a VERDICT", file=sys.stderr)
             continue
-        if record["id"] in seen:
-            print(f"skipping {name}: {record['id']} already read", file=sys.stderr)
-            continue
-        seen.add(record["id"])
-        out.append(record)
-    return out
+        ident = record["id"]
+        canonical = name == f"{ident}.json"
+        held = chosen.get(ident)
+        if held is None:
+            chosen[ident] = (canonical, name, record)
+        elif canonical and not held[0]:
+            print(f"skipping {held[1]}: {name} is the canonical file for {ident}",
+                  file=sys.stderr)
+            chosen[ident] = (canonical, name, record)
+        else:
+            print(f"skipping {name}: {ident} already read from {held[1]}",
+                  file=sys.stderr)
+    return [chosen[ident][2] for ident in sorted(chosen)]
 
 
 def confirmed(verdict):

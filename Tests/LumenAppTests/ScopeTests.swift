@@ -297,24 +297,7 @@ final class ScopeTests: XCTestCase {
     /// chain of modifiers rather than its indentation — and so a comment that mentions
     /// a constant cannot satisfy a pin on the constant.
     private static func strippedFlattened(_ relativePath: String) throws -> String {
-        let raw = try LayoutSource.read(relativePath)
-        var out = ""
-        var i = raw.startIndex
-        var block = false
-        while i < raw.endIndex {
-            let rest = raw[i...]
-            if block {
-                if rest.hasPrefix("*/") { block = false; i = raw.index(i, offsetBy: 2) }
-                else { i = raw.index(after: i) }
-                continue
-            }
-            if rest.hasPrefix("/*") { block = true; i = raw.index(i, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while i < raw.endIndex, raw[i] != "\n" { i = raw.index(after: i) }
-                continue
-            }
-            out.append(raw[i]); i = raw.index(after: i)
-        }
+        let out = blankingComments(in: try LayoutSource.read(relativePath))
         return out.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 }

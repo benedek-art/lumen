@@ -283,15 +283,20 @@ final class CreativeLUTTests: XCTestCase {
                        "the version moved — re-read M-01 before relaxing the key pin above")
     }
 
-    /// And the guard itself still holds for a LUT recipe: this build writes one it can
-    /// represent, and declines to restate one a newer build wrote.
+    /// And the guard itself still holds for a LUT recipe. A LUT raises no stated
+    /// version — its keys are version-2 vocabulary, so no older build loses anything by
+    /// writing it back — so a version-2 build keeps full write access; and this build
+    /// still declines to restate a document newer than anything it supports.
     func testTheNewerBuildGuardStillHoldsForALUTRecipe() throws {
         let carried = recipe(tap: .display)
-        XCTAssertEqual(carried.pipelineVersion, currentPipelineVersion)
+        XCTAssertEqual(carried.pipelineVersion, currentPipelineVersion,
+                       "a LUT raised the stated version; every version-2 build would "
+                           + "now refuse to write this photograph's recipe")
         let all: SidecarStatedFields = [.rating, .recipe]
         XCTAssertTrue(XMPSidecar.writableFields(all, documentVersion: carried.pipelineVersion)
                         .contains(.recipe))
-        XCTAssertFalse(XMPSidecar.writableFields(all, documentVersion: currentPipelineVersion + 1)
+        XCTAssertFalse(XMPSidecar.writableFields(all,
+                                                 documentVersion: supportedPipelineVersion + 1)
                          .contains(.recipe))
     }
 

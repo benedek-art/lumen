@@ -547,6 +547,10 @@ struct LumenSlider: View {
     /// modified and stops following a retuned preset. Every one of those panels already
     /// has a correct clear action; the slider's own gesture contradicted them.
     var onReset: (() -> Void)?
+    /// What VoiceOver calls this row when `title` is empty — the colour wheels'
+    /// lightness bar is the one such row. Ignored when there is a title: the words on
+    /// screen are the name (UX-03, `SliderAccessibility.label`).
+    var accessibilityName: String? = nil
 
     @State private var isDragging = false
     @State private var dragStartValue: Double = 0
@@ -791,6 +795,38 @@ struct LumenSlider: View {
         // `LumenScrollNudge.swift`; everything about it that a Mac is not needed to run
         // is `ScrollNudge` in LumenCore.
         .lumenOptionScrollNudge { wheelNudge($0) }
+        // ONE ADJUSTABLE ELEMENT PER ROW (UX-03). The row is shapes and gestures, so
+        // the accessibility tree saw only its text: a section read as one run of static
+        // words — "Tone Exposure 0.00 Contrast 0 …" — with no control, no value and no
+        // way to change it. The children are replaced by a single element carrying the
+        // name on screen, the readout's digits and the tooltip's sentence, and
+        // increment/decrement move exactly one of the control's own steps through the
+        // same gesture bracket a key press uses — one undo step, deferred write landed.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(SliderAccessibility.label(title: title,
+                                                           name: accessibilityName)))
+        .accessibilityValue(Text(SliderAccessibility.value(value, decimals: decimals)))
+        .accessibilityHint(Text(help ?? ""))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: accessibilityStep(.increment)
+            case .decrement: accessibilityStep(.decrement)
+            @unknown default: break
+            }
+        }
+    }
+
+    /// One VoiceOver increment or decrement: a single step of this control, never the
+    /// ⇧-ten `nudge` reads off the keyboard, bracketed like a key press so it is one
+    /// undo step and its deferred write lands at once.
+    private func accessibilityStep(_ direction: SliderAccessibility.Direction) {
+        let next = SliderAccessibility.adjusted(value, direction, track: scrubTrack)
+        guard next != value, next.isFinite else { return }
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        commit(next)
+        onEditingChanged?(false)
+        sliderGestureChanged(false)
     }
 
     /// One arrow press, ten under ⇧.
@@ -1625,6 +1661,19 @@ struct LumenSectionHeader: View {
                 .disabled(!actionEnabled)
                 .lumenClickCursor(actionEnabled)
                 .help(actionHelp ?? "")
+                // A DISABLED BUTTON DOES NOT CONSUME ITS CLICK (V7 D1). The click falls
+                // through to the row's own `.onTapGesture { toggle() }`, so pressing the
+                // greyed tray glyph on Albums (no target album) or Stack (fewer than two
+                // selected) folded the section instead of doing nothing. A clear,
+                // hit-testable layer with its own empty tap claims the click while the
+                // verb is disabled; the innermost tap gesture wins over the row's.
+                .overlay {
+                    if !actionEnabled {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {}
+                    }
+                }
             }
             if let onReset, isModified {
                 // Reset appears on hover (design audit step 3, and Lightroom's own
@@ -1942,6 +1991,29 @@ struct LumenColorWheel: View {
                         sliderGestureChanged(false)
                     }
             )
+            // THE PUCK AS AN ADJUSTABLE ELEMENT (UX-03). The disc is gradients and a
+            // drag, so it was invisible to VoiceOver. It now reads as one element whose
+            // value is both halves of the puck, whose increment/decrement move its
+            // strength one percent, and whose named actions turn the hue — every write
+            // bracketed like a click, so each is one undo step.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(title.isEmpty ? "Colour wheel" : "\(title) colour wheel"))
+            .accessibilityValue(Text(SliderAccessibility.wheelValue(hue: hue, saturation: sat)))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    accessibilityWrite { sat = SliderAccessibility.adjustedWheelStrength(sat, .increment) }
+                case .decrement:
+                    accessibilityWrite { sat = SliderAccessibility.adjustedWheelStrength(sat, .decrement) }
+                @unknown default: break
+                }
+            }
+            .accessibilityAction(named: Text("Turn hue clockwise")) {
+                accessibilityWrite { hue = SliderAccessibility.rotatedWheelHue(hue, by: 1) }
+            }
+            .accessibilityAction(named: Text("Turn hue anticlockwise")) {
+                accessibilityWrite { hue = SliderAccessibility.rotatedWheelHue(hue, by: -1) }
+            }
 
             if !title.isEmpty {
                 Text(title)
@@ -1984,6 +2056,15 @@ struct LumenColorWheel: View {
         }
     }
 
+    /// One assistive write, bracketed the way a click on the disc is.
+    private func accessibilityWrite(_ write: () -> Void) {
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        write()
+        onEditingChanged?(false)
+        sliderGestureChanged(false)
+    }
+
     /// The lightness bar, one definition for both framings above.
     private var lightnessBar: some View {
         LumenSlider(title: "", value: $lum, range: -1...1, defaultValue: 0,
@@ -1998,7 +2079,10 @@ struct LumenColorWheel: View {
                     // wheels true — it has been claiming "the bar under each wheel
                     // is the zone's own lightness" over an undifferentiated grey.
                     trackStops: Lumen.wheelLightnessStops,
-                    onEditingChanged: onEditingChanged)
+                    onEditingChanged: onEditingChanged,
+                    // Untitled on screen, so it is named for VoiceOver — after the
+                    // wheel it belongs to where the wheel has a caption.
+                    accessibilityName: title.isEmpty ? "Luminance" : "\(title) luminance")
     }
 
     private var puck: some View {

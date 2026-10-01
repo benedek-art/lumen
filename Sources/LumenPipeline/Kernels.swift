@@ -1,5 +1,5 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: thirty-three small kernels.
+// The complete custom-shader surface of Lumen's render path: forty small kernels.
 // (A count that was "thirty-two" in three places while the registry held 33 — if you add
 // a kernel, grep for the number word and update all of them, or better, stop counting.)
 //
@@ -890,6 +890,78 @@ public enum KernelLibrary {
     }
     """
 
+    // MARK: S5 retouch — heal and clone spots (docs/14; `SpotRetouch` is the twin)
+    //
+    // Two GENERAL kernels, because both read away from the pixel they produce. The
+    // reference's arithmetic, line for line: the rim sample count, the sub-sample arc
+    // offsets, the smoothstep edge and the 1e-6 weight floor are `SpotRetouch`'s, and the
+    // constants are interpolated from it rather than retyped.
+    //
+    // COORDINATES are the reference's top-down pixels: `p = (x − ox, h − (y − oy))` for
+    // a `destCoord()` (x, y), exactly `MaskGPU`'s mapping, and a reference point (px, py)
+    // is sampled at Core Image's `(ox + px, oy + h − py)`. Bilinear sampling at pixel
+    // centres +0.5 is the same interpolation on both sides of that flip, and the image is
+    // handed in `clampedToExtent()`, which is `ImageBuffer.bilinear`'s clamped edge.
+
+    /// The rim: one output pixel per rim sample, `I_dst − I_src` averaged along the
+    /// sample's own arc. Rendered over a `boundarySamples`×1 extent.
+    static let spotBoundarySource = """
+    kernel vec4 lumenSpotBoundary(sampler src, vec2 c, vec2 s, float radius,
+                                  float h, float ox, float oy) {
+        float k = floor(destCoord().x);
+        float arc = 6.283185307179586 / \(SpotRetouch.boundarySamples).0;
+        vec3 acc = vec3(0.0);
+        for (int j = 0; j < \(SpotRetouch.boundarySubsamples); j++) {
+            float theta = arc * (k + (float(j) + 0.5) / \(SpotRetouch.boundarySubsamples).0 - 0.5);
+            vec2 u = vec2(cos(theta), sin(theta)) * radius;
+            vec2 dp = c + u;
+            vec2 sp = s + u;
+            vec3 dv = sample(src, samplerTransform(src, vec2(ox + dp.x, oy + h - dp.y))).rgb;
+            vec3 sv = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+            acc += dv - sv;
+        }
+        return vec4(acc / \(SpotRetouch.boundarySubsamples).0, 1.0);
+    }
+    """
+
+    /// One spot over its bounding box: the borrowed pixel, plus — for Heal — the
+    /// discrete Poisson integral of the rim, mixed in through the feathered alpha.
+    /// `heal` is 1 or 0; a Clone never reads the rim image.
+    static let spotApplySource = """
+    kernel vec4 lumenSpotApply(sampler src, sampler rim, vec2 c, vec2 s, float radius,
+                               float rin, float opacity, float heal,
+                               float h, float ox, float oy) {
+        vec2 dc = destCoord();
+        vec4 base = sample(src, samplerTransform(src, dc));
+        vec2 p = vec2(dc.x - ox, h - (dc.y - oy));
+        vec2 rel = (p - c) / radius;
+        float rho = length(rel);
+        float a;
+        if (rho >= 1.0) { a = 0.0; }
+        else if (rho <= rin) { a = opacity; }
+        else {
+            float t = clamp((rho - rin) / max(1.0 - rin, 1e-12), 0.0, 1.0);
+            a = opacity * (1.0 - t * t * (3.0 - 2.0 * t));
+        }
+        vec2 sp = p + (s - c);
+        vec3 fill = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+        if (heal > 0.5 && a > 0.0) {
+            float arc = 6.283185307179586 / \(SpotRetouch.boundarySamples).0;
+            vec3 acc = vec3(0.0);
+            float total = 0.0;
+            for (int k = 0; k < \(SpotRetouch.boundarySamples); k++) {
+                float theta = arc * float(k);
+                vec2 d = rel - vec2(cos(theta), sin(theta));
+                float w = 1.0 / max(dot(d, d), 1e-6);
+                acc += w * sample(rim, samplerTransform(rim, vec2(float(k) + 0.5, 0.5))).rgb;
+                total += w;
+            }
+            fill += acc / total;
+        }
+        return vec4(mix(base.rgb, fill, a), base.a);
+    }
+    """
+
     // MARK: - Compiled kernels
 
     public static let logEncode = make(logEncodeSource)
@@ -937,6 +1009,9 @@ public enum KernelLibrary {
     public static let box3 = makeGeneral(box3Source)
     public static let edgeMap = makeGeneral(edgeMapSource)
     public static let hotPixel = makeGeneral(hotPixelSource)
+    // S5's two, general for the same reason: both sample away from the pixel they write.
+    public static let spotBoundary = makeGeneral(spotBoundarySource)
+    public static let spotApply = makeGeneral(spotApplySource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -973,9 +1048,16 @@ public enum KernelLibrary {
             ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
             ("denoiseRemoved", denoiseRemoved), ("mixChroma", mixChroma),
             ("hotPixel", hotPixel),
+            // S5 degrades like every other non-core stage: a missing spot kernel leaves
+            // the spots unrendered AND names itself in the preview's "Reduced" note,
+            // rather than taking the whole GPU path down for photographs with no spots.
+            ("spotBoundary", spotBoundary), ("spotApply", spotApply),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }
+
+    /// The kernels S5 needs. Retouch degrades as a whole: half a heal is a wrong picture.
+    public static var retouchAvailable: Bool { spotBoundary != nil && spotApply != nil }
 
     /// The kernels S3 needs. Denoise degrades as a whole rather than in pieces: half a
     /// wavelet shrinkage is not a gentler denoise, it is a wrong picture.
