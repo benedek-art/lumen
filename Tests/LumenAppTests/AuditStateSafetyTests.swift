@@ -84,6 +84,40 @@ final class AuditStateSafetyTests: XCTestCase {
         }
     }
 
+    /// UX-01's sibling: Auto's asynchronous measurement lands mid-drag and no further
+    /// drag event follows. The release must not flush the slider's older value over
+    /// Auto's in the catalog and the sidecar.
+    @MainActor
+    func testAutoToneLandingMidGestureSurvivesReleaseAndQuit() async throws {
+        try await withState(quitInBody: true) { state, root in
+            let photo = root.appendingPathComponent("photos/frame.png")
+            try png(photo)
+            state.openFolder(photo.deletingLastPathComponent())
+            try await scanned(state)
+            let item = try XCTUnwrap(state.allPhotos.first)
+            state.select(item)
+            let original = state.recipe(for: item).develop.tone.exposure
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.exposure") { $0.develop.tone.exposure = original + 1 }
+            var auto = Tone()
+            auto.exposure = original + 0.25
+            state.applyAutoToneSuggestions([item.id: auto])
+            state.sliderGesture(active: false)
+            state.prepareToQuit()
+            XCTAssertEqual(state.recipe(for: item).develop.tone.exposure, original + 0.25)
+            let reopened = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path,
+                                             cachePath: root.appendingPathComponent("read-cache.db").path)
+            defer { reopened.close() }
+            let id = try XCTUnwrap(item.catalogID)
+            XCTAssertEqual(try reopened.currentRecipe(photoID: id)?.develop.tone.exposure, original + 0.25,
+                           "the gesture release overwrote Auto in the catalog")
+            let sidecar = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: photo.appendingPathExtension("xmp"))))
+            let json = try XCTUnwrap(sidecar.recipeJSON)
+            XCTAssertEqual(try CanonicalJSON.decodeRecipe(from: Data(json.utf8)).develop.tone.exposure,
+                           original + 0.25)
+        }
+    }
+
     @MainActor
     func testCommonParentStopsAtFirstDifferentComponent() async throws {
         try await withState { _, root in
