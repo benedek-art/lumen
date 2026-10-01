@@ -401,24 +401,6 @@ final class LookRenderPresetDoorTests: XCTestCase {
     /// either would pass with the code gone. Two tests in this project have already
     /// passed their own substitution proof that way.
     private static func stripComments(_ source: String) -> String {
-        var out = ""
-        var i = source.startIndex
-        var inBlock = false
-        while i < source.endIndex {
-            let rest = source[i...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; i = source.index(i, offsetBy: 2) }
-                else { i = source.index(after: i) }
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; i = source.index(i, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while i < source.endIndex, source[i] != "\n" { i = source.index(after: i) }
-                continue
-            }
-            out.append(source[i])
-            i = source.index(after: i)
-        }
-        return out
+        blankingComments(in: source)
     }
 }
