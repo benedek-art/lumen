@@ -1,0 +1,63 @@
+# V1: verifying library, ingest and catalog repairs
+
+Verifier: V1. Tested revision: `76b62bc`, the October trunk head on `claude/jolly-sagan-k7ch7z`. My worktree was created at an older `main` (`99c3727`) that does not contain PR #5, so I reset it to `76b62bc` before doing any work. Build dir: `/tmp/lumen-build-v1`. Worktree branch: `worktree-agent-abbe7ee2c139a195e`. I made no code commits.
+
+Method: I read each fix's mechanism in source. Each LumenCore fix was substituted out in the worktree, and I rebuilt, ran the filtered suite and then restored. LumenApp code and LumenAppTests are `#if os(macOS)`, so they do not compile here. I verified those from source only and traced the test logic against the old code by hand. `python3 scripts/check-swift-surface.py` exits 0 on the restored tree.
+
+## Verdicts
+
+| Finding | Fix (commit) | Verdict | Evidence |
+|---|---|---|---|
+| BR-01 sibling trees share one catalog identity | `commonParent` breaks at the first mismatch (cc30178, `Sources/LumenApp/AppState.swift:2663`) | **CONFIRMED (source-verified only)**, with one hardening note | Old loop `for (a,b) in zip(...) where a == b` gives `/root/photos` for `root/day1/photos` + `root/day2/photos`. The new code gives `/root`. `AuditStateSafetyTests.testCommonParentStopsAtFirstDifferentComponent` asserts `root`. `testSelectedFilesFromSiblingTreesKeepDistinctCatalogIdentity` asserts 2 distinct `catalogID`s. Under the old code both URLs would map to the `frame.png` basename row, a Set of 1, so the test goes red. macOS only, so I could not run it here. Hardening (not a reachable trigger I could construct): `ScannedFile.catalogName` (`CatalogStore.swift:484`) still falls back to the basename for out-of-root files. The finding's second direction, reject instead of collapse, was not taken. |
+| BR-02 subset open marks unselected photos missing | `scan(..., completeListing:)`. A partial listing builds no `gone` set and leaves `last_scanned_at` alone. AppState passes `restriction == nil` (cc30178). | **CONFIRMED** (core red-verified; app half source-verified) | Mutant: dropped `completeListing &&` from the `gone` loop (`CatalogStore.swift:2101`). `AuditSafetyTests.testPartialScanCannotRelocateAnUnseenTwinOrRemoveAlbumMembership` went red with 3 assertions (rows 1≠2, a's id nil, b took a's id). Restored: green. Only one caller of `store.scan` exists (`CatalogService.swift:220`), and `reopenLastFolder` also goes through `restrictedTo`. Side effect: deletions inside a subset roll are only noticed on a full-folder open. This is safe and by design. |
+| REL-01 healthy locked catalog restored from stale backup | Three-state `probeIntegrity` (healthy / corrupt / unavailable), read-only open, `code & 0xff` corruption class (cc30178) | **CONFIRMED** | Mutant: `case .unavailable: break`, so it falls through to restore. `testBusyCatalogIsNotReplacedByAnOlderBackup` went red with 3 assertions: restored, `.damaged-*` present, rating 1≠5. Restored: green. The test holds a real `BEGIN EXCLUSIVE` lock. Extra probe: a hot-WAL catalog copied without `-shm` and opened read-only still passes `quick_check` ok (sqlite 3.45.1), so read-only mode does not misclassify an uncheckpointed catalog. `.unavailable` produces a notice that AppState surfaces (`AppState.swift:2579`). |
+| REL-03 already-present ingest certifies a truncated pair | `guard mine.byteCount == copy.byteCount` on the already-present branch (cc30178, `VerifiedCopy.swift:400`) | **CONFIRMED** | Mutant: `guard true \|\| ...`. `testAlreadyPresentStillChecksThePlannedByteCount` went red with 2 assertions: allVerified true, alreadyPresent 1. Restored: green. `IngestCopyTests` (13) green on both sides. The test covers the finding's exact trigger (5000-byte plan, 100-byte identical source and destination), and the existing file is preserved. |
+| REL-05 quadratic sidecar sibling resolution | `RawSiblingIndex`, built once per directory under the memo lock (cf508cf) | **WEAK-TEST** (fix correct; source-verified only) | The mechanism is right. Each name is classified once and each query is a dictionary hit. `testIndexPreservesOriginalResolverDecisions...` checks parity with `SidecarNaming.rawSiblingExtensions`, including case and duplicate names. The problem is that the counting test (`testLargeDirectoryClassifiesEachNameOnce...`) instantiates `RawSiblingIndex` directly. If production `rawSiblings(of:)` went back to calling `SidecarNaming.rawSiblingExtensions(of:amongNames:)` per query while the struct stayed defined, every test in `AuditSidecarScalingTests` would stay green. `testLargeFolderRegistration...` only prints its timing. Nothing binds the production path to the index. |
+| REL-08 backup publishes the final DB before blob backup can fail | Blobs are copied before `partial → target` rename; snapshot names are unique; an unpublished `.blobs` is removed on failure (cc30178). Recovery also rejects legacy DB-only snapshots and repairs damaged live payloads (40e1048). | **CONFIRMED** (publication order source-verified only; recovery half red-verified) | `CatalogService.backUp` (`:1707-1709`) now runs snapshot, then `blobs.backUp`, then `moveItem`. `AuditPersistenceSafetyTests.testBlobCopyFailureDoesNotPublishAnIncompleteBackup` (0o000 blob, XCTSkip only if the runner ignores permissions) would see a `.db` under the old order, so it is red under substitution. Core mutant: `(true \|\| prepareBackupPayloads(...))` made `testRecoverySkipsLegacySnapshotWithMissingBrushPayload` go red (chose the 09-21 brushless snapshot over 09-20). Restored: green. Minor: if the process dies after the blob copy and before the rename, it leaves a UUID-named `.blobs` directory that `pruneBackups` never removes. Only `.db` victims and `.db.partial` are swept. This leaks disk space, not correctness. |
+
+Baseline (restored tree): `AuditSafetyTests` 6/6, `IngestAdversarialTests` 21/21 (12 of them return early on Linux), `IngestCopyTests` 13/13. All green.
+
+## SUPPLEMENTAL-BACKLOG S-01 / S-02 ("implementing")
+
+**Nothing has landed for either.** `Sources/LumenCore/Ingest/` was last touched by cc30178, and only for the REL-03 guard. `git diff HEAD origin/codex/lumen-verified-repairs -- Sources/LumenCore/Ingest Tests/LumenCoreTests/IngestAdversarialTests.swift` is empty, so the Astra branch has no unlanded work either. "Implementing" describes intent, not code. Both defects reproduce on HEAD (below).
+
+## The 16 expected assertions in IngestAdversarialTests
+
+All 12 `XCTExpectFailure` tests use `#if canImport(Darwin) XCTExpectFailure #else return #endif`, so **they never execute on Linux**. I removed the 12 `#else return` lines temporarily and ran the suite: **21 tests, exactly 16 assertion failures**, matching the backlog count. Every one is a real, currently open defect. One of them has a wrong oracle.
+
+| # | Test (line) | Observed on HEAD | Backlog | Real? |
+|---|---|---|---|---|
+| 1 | `testTwoIdenticalFramesUnderOneRenderedNameBothSurvive` (:390) | 2 frames planned, 1 file `2026/wedding.RAF`, "every copy verified · 1 already on disk" | S-01 | Yes, P1 |
+| 2 | `testATwinFrameThatWasAbsorbedDoesNotUnlockEject` (:573) | `allVerified == true`, so eject is offered while the second frame's identity is gone | S-01 | Yes, P1 |
+| 3-4 | `testTwoRootsThatAreOneDirectoryAreNotReportedAsTwoCopies` (:596, :598) | Symlinked backup root: `LNK00001.RAF` + `LNK00001-1.RAF` in one directory, "every copy verified" | S-02 | Yes, P1 (false redundancy claim) |
+| 5 | `testAFrameThatShrinksAfterThePlanIsNotReportedAsShort` (:227) | `bytesCopied` 5000 with nothing landed. The `allVerified == false` half already passes. | S-03 | Defect real, oracle wrong: it compares against the `-1` missing-file sentinel. Replace with an explicit missing-file assertion and `bytesCopied == 0`. |
+| 6 | `testBytesCopiedDoesNotCountFramesThatWereAlreadyPresent` (:249) | 900 reported, 0 copied | S-03 | Yes, P2 |
+| 7 | `testBytesCopiedDoesNotCountAFrameThatFailedEverywhere` (:278) | 7400 reported, 400 landed | S-03 | Yes, P2 |
+| 8 | `testACancelledRunStillNamesTheDestinationThatFailed` (:307) | Summary is "Stopped after 1 of 2 frames — nothing was left half-written." The failed backup is not named. | S-03 | Yes, P2 |
+| 9 | `testAFrameWithNoDestinationCannotCountAsVerified` (:330) | `bytesCopied` 200 with no destination. The `allVerified` half passes. | S-03 | Yes, P2 |
+| 10-11 | `testTheProgressBarDoesNotCountFramesThatNeverLanded` (:529, :532) | Bar ends at 10000 bytes with 400 on disk, and reaches fraction 1.0 | S-03 | Bytes: yes. Whether the fraction may reach 1.0 on a failed run is a UI contract. **DECISION NEEDED** (does "complete" mean finished or succeeded?). |
+| 12 | `testTheSummaryDoesNotSayItIngestedAFrameThatFailed` (:622) | "Ingested 2 of 2 frames — 1 failed — …" | S-03 | Yes, P2 (wording contract) |
+| 13-15 | `testReIngestAfterADisambiguationDoesNotDuplicateTheFrame` (:363, :366, :369) | Second run: alreadyPresent 0, 3 files, 700 bytes copied | S-04 | Yes, P2 |
+| 16 | `testEveryReIngestOfARenamedFrameAddsAnotherCopy` (:554) | 3 runs leave `-1`, `-2`, `-3` copies | S-04 | Yes, P2 |
+
+Split: S-01 = 2, S-02 = 2, S-03 = 8, S-04 = 4. The P1 safety items are #1-4. Each one lets the run report "every copy verified" and unlock eject when the volume does not hold what the photographer was told.
+
+Process note: the `#else return` pattern means these tests also cannot report an unexpected pass on Linux when a fix lands. A fixer must run them on macOS, or temporarily remove the `return`, to see the transition.
+
+## Phase 2 specs
+
+**REL-05: bind the production path to the index (WEAK-TEST).** Files: `Sources/LumenApp/CatalogService.swift` (`rawSiblings(of:)`, `RawSiblingIndex`) and `Tests/LumenAppTests/AuditSidecarScalingTests.swift`. Add an internal test-visible counter of name classifications made by the *production* `rawSiblings` path. Alternatively, give `rawSiblings` an injectable `isRawName` classifier that counts. Acceptance test: in a scratch directory of N = 400 RAW files, call `CatalogService.forgetSiblings()`, then `registerAndLoad(folder:files:)` (plus `sidecarURL(for:)` for every file). Assert classifications == N, not ≈N². The test must go red when `rawSiblings` is substituted with `SidecarNaming.rawSiblingExtensions(of:amongNames:isRawName:)` over the cached listing. Must run on the macOS lane.
+
+**BR-01 hardening (optional, not a reachable defect).** `ScannedFile.catalogName(for:in:)` (`Sources/LumenCore/Catalog/CatalogStore.swift:484`) silently returns the basename for a file outside `folder`. Make it return nil or throw, and have `CatalogService.registerAndLoad` skip and report such files instead of colliding them. Acceptance (LumenCore, runs on Linux): `catalogName(for: /a/x/f.NEF, in: /b)` does not equal `catalogName(for: /c/y/f.NEF, in: /b)`, or is rejected. A registration of two out-of-root files with the same basename yields no shared row. Changing the public contract is the owner's call: **DECISION NEEDED**.
+
+**REL-08 debris (minor).** `CatalogService.pruneBackups` should also remove a `lumen-*.blobs` directory that has no matching `.db`, left by a crash between blob copy and rename. Only remove it when it is older than the in-flight window or not the current attempt's. Acceptance: a planted orphan `.blobs` is gone after a successful backup, and the published pair is untouched.
+
+**S-01 / S-02: unimplemented, P1.** File: `Sources/LumenCore/Ingest/VerifiedCopy.swift` (`perform`, already-present branch at :397, rename/disambiguation). S-01: when two *different source URLs* in one plan resolve to the same destination, the already-present match must not satisfy the second one. Either land it under a disambiguated name or fail it so `allVerified == false`. Acceptance: tests #1 and #2 above pass with their `XCTExpectFailure` removed. S-02: before copying, resolve each destination root (`resolvingSymlinksInPath` plus file-resource identity / `st_dev`+`st_ino` of the directory) and refuse, or fail the backup role, when two roots are the same directory. Do not claim physical independence for distinct directories on one volume. Acceptance: tests #3 and #4 pass. Remove the matching `XCTExpectFailure`/`#else return` blocks so Linux executes them.
+
+**S-03 test oracle.** In `testAFrameThatShrinksAfterThePlanIsNotReportedAsShort`, replace the `-1` sentinel with `XCTAssertFalse(fileExists(landed))` and `XCTAssertEqual(report.bytesCopied, 0)` when S-03 is implemented.
+
+## Commits / branch
+
+- Local commits: none.
+- Worktree branch: `worktree-agent-abbe7ee2c139a195e` (reset to `76b62bc`). The only change is this uncommitted report file.
+- No rendered pixels moved; no proof records affected.
