@@ -2908,6 +2908,52 @@ public final class CatalogStore {
         }
     }
 
+    /// Rename an album. Returns false, and writes nothing, for a name that is empty
+    /// once trimmed — an album row with no words in it is a row nobody can find again.
+    ///
+    /// An album could be created and never renamed: the sidebar's only verb on a
+    /// typo was to make a second album and live with the first.
+    @discardableResult
+    public func renameCollection(id: Int64, to name: String) throws -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard try collection(id: id) != nil else {
+            throw CatalogError.notFound("album \(id)")
+        }
+        try db.run("UPDATE album SET name = ? WHERE id = ?;", [.text(trimmed), .integer(id)])
+        return true
+    }
+
+    /// Delete an album. The photographs stay — membership rows are bookkeeping, and
+    /// nothing in here touches `photo` — which is what makes this safe to offer
+    /// without an undo.
+    ///
+    /// Three things go with the row, in one transaction:
+    ///   · its membership rows. `album_photo` references `album` with no cascade and
+    ///     the catalog runs with `foreign_keys=ON`, so deleting the row alone fails.
+    ///   · its place as a parent. Album sets nest one level (docs/10 §10.9); a child
+    ///     of a deleted set moves up to the set's own parent rather than vanishing.
+    ///   · its place as a smart album's scope. A smart album scoped to this album is
+    ///     left with no scope, which reads "everywhere" — the broader answer, never a
+    ///     query pointed at a row that no longer exists.
+    /// If it was the target album there is then no target, and `B` says so rather
+    /// than silently promoting another album the photographer did not choose.
+    public func deleteCollection(id: Int64) throws {
+        try db.transaction {
+            guard let row = try self.collection(id: id) else {
+                throw CatalogError.notFound("album \(id)")
+            }
+            try self.db.run("DELETE FROM album_photo WHERE album_id = ?;", [.integer(id)])
+            try self.db.run("UPDATE album SET parent_id = ? WHERE parent_id = ?;",
+                            [.optionalInteger(row.parentID), .integer(id)])
+            try self.db.run("""
+            UPDATE album SET scope = NULL, scope_id = NULL
+             WHERE scope = 'album' AND scope_id = ?;
+            """, [.integer(id)])
+            try self.db.run("DELETE FROM album WHERE id = ?;", [.integer(id)])
+        }
+    }
+
     /// Collapsing 3,000 frames into 400 stacks is a pure index operation.
     public func setStackCollapsed(_ collapsed: Bool, stackID: Int64) throws {
         try db.run("UPDATE stack SET collapsed = ? WHERE id = ?;",

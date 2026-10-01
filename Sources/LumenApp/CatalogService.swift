@@ -997,6 +997,20 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// False for a blank name (nothing written) or a failed write; the caller says so.
+    func renameCollection(_ albumID: Int64, to name: String) async -> Bool {
+        await onQueue("album rename", fallback: false) {
+            try $0.renameCollection(id: albumID, to: name)
+        }
+    }
+
+    func deleteCollection(_ albumID: Int64) async -> Bool {
+        await onQueue("album deletion", fallback: false) {
+            try $0.deleteCollection(id: albumID)
+            return true
+        }
+    }
+
     // MARK: - Saved looks
 
     /// Every look the photographer has saved. Off the main actor like every other

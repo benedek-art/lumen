@@ -337,6 +337,14 @@ private struct Sidebar: View {
     @EnvironmentObject var state: AppState
 
     @State private var newAlbumName: String = ""
+    /// The album whose name is being edited in place, and the draft. Return commits,
+    /// Escape puts the row back — the saved-look browser's rename, so a photographer
+    /// who has renamed a look has already learned this one.
+    @State private var renamingAlbumID: Int64?
+    @State private var albumRenameDraft: String = ""
+    /// The album whose Delete was chosen and not yet confirmed. The confirmation is the
+    /// row itself, as in the look browser: it names what goes, Keep is first.
+    @State private var pendingDeleteAlbumID: Int64?
     @State private var newKeyword: String = ""
     @FocusState private var keywordFieldFocused: Bool
     /// The album field's own focus. Nothing asks for it today — ⇧⌘K is the keyword
@@ -644,26 +652,86 @@ private struct Sidebar: View {
             }
 
             ForEach(state.collections) { album in
-                sourceRow(title: album.name, count: album.count,
-                          isSelected: state.selectedCollectionID == album.id,
-                          isTarget: album.isTarget,
-                          help: album.isTarget
-                              ? "Show \(album.name) — the target album, where B adds"
-                              : "Show \(album.name)") {
-                    state.selectedCollectionID = album.id
-                }
-                .contextMenu {
-                    Button("Make Target Album") { state.setTargetCollection(album.id) }
-                    Button("Remove Selection from \(album.name)") {
-                        state.removeSelectionFromCollection(album.id)
-                    }
-                }
+                albumRow(album)
             }
 
             SidebarEntryField(placeholder: "New album",
                               actionHelp: "Create the album (Return)",
                               text: $newAlbumName,
                               focus: $albumFieldFocused, submit: createAlbum)
+        }
+    }
+
+    /// One album: its source row, or — while it is being renamed or deleted — the field
+    /// or the confirmation in its place.
+    @ViewBuilder
+    private func albumRow(_ album: CollectionItem) -> some View {
+        if renamingAlbumID == album.id {
+            TextField(album.name, text: $albumRenameDraft)
+                .textFieldStyle(.plain)
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.primaryText)
+                .padding(.horizontal, 6)
+                .frame(height: Lumen.rowHeight)
+                .onSubmit {
+                    renamingAlbumID = nil
+                    state.renameCollection(album.id, to: albumRenameDraft)
+                }
+                .onExitCommand { renamingAlbumID = nil }
+        } else if pendingDeleteAlbumID == album.id {
+            HStack(spacing: 6) {
+                Text("Delete \u{201C}\(album.name)\u{201D}?")
+                    .font(.lumenBody)
+                    .foregroundStyle(Lumen.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { pendingDeleteAlbumID = nil } label: {
+                    Text("Keep").font(.lumenCaptionStrong)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.secondaryText)
+                .help("Leave \"\(album.name)\" in the sidebar.")
+                Button {
+                    pendingDeleteAlbumID = nil
+                    state.deleteCollection(album.id)
+                } label: {
+                    Text("Delete").font(.lumenCaptionStrong)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.accent)
+                // Said before the write: albums are not in the edit history, so this
+                // is not undoable — and the photographs are not what it deletes.
+                .help("Delete the album. Its photographs stay in their folders; "
+                      + "only the grouping goes, and it cannot be undone.")
+            }
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+        } else {
+            sourceRow(title: album.name, count: album.count,
+                      isSelected: state.selectedCollectionID == album.id,
+                      isTarget: album.isTarget,
+                      help: album.isTarget
+                          ? "Show \(album.name) — the target album, where B adds"
+                          : "Show \(album.name)") {
+                state.selectedCollectionID = album.id
+            }
+            .contextMenu {
+                Button("Make Target Album") { state.setTargetCollection(album.id) }
+                Button("Remove Selection from \(album.name)") {
+                    state.removeSelectionFromCollection(album.id)
+                }
+                Divider()
+                Button("Rename…") {
+                    pendingDeleteAlbumID = nil
+                    albumRenameDraft = album.name
+                    renamingAlbumID = album.id
+                }
+                Button("Delete Album…") {
+                    renamingAlbumID = nil
+                    pendingDeleteAlbumID = album.id
+                }
+            }
         }
     }
 

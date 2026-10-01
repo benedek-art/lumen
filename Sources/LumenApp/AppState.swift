@@ -2113,6 +2113,45 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Rename an album from the sidebar. An unchanged or blank name writes nothing.
+    func renameCollection(_ albumID: Int64, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog,
+              let album = collections.first(where: { $0.id == albumID }),
+              album.name != trimmed else { return }
+        guard !trimmed.isEmpty else {
+            statusMessage = "An album needs a name — \"\(album.name)\" was kept"
+            return
+        }
+        Task { [weak self] in
+            let renamed = await catalog.renameCollection(albumID, to: trimmed)
+            guard let self else { return }
+            self.statusMessage = renamed
+                ? "Renamed \"\(album.name)\" to \"\(trimmed)\""
+                : "Could not rename \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Delete an album. The photographs are not touched; if the grid was showing the
+    /// album it goes back to the whole folder rather than to an empty source.
+    func deleteCollection(_ albumID: Int64) {
+        guard let catalog,
+              let album = collections.first(where: { $0.id == albumID }) else { return }
+        Task { [weak self] in
+            let deleted = await catalog.deleteCollection(albumID)
+            guard let self else { return }
+            if deleted, self.selectedCollectionID == albumID {
+                self.selectedCollectionID = nil
+            }
+            self.statusMessage = deleted
+                ? "Deleted album \"\(album.name)\" — its \(album.count) photo"
+                    + (album.count == 1 ? " is" : "s are") + " still in their folders"
+                : "Could not delete \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
     func removeSelectionFromCollection(_ albumID: Int64) {
         let ids = editTargets.compactMap(\.catalogID)
         guard let catalog, !ids.isEmpty else { return }
