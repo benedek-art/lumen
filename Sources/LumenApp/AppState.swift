@@ -2995,10 +2995,18 @@ final class AppState: ObservableObject {
         history.record(before: before, after: after, coalescingKey: nil, label: label)
         // A rejected frame under a "Picked" chip has just left the grid, and only the
         // catalog knows it: the badge lives in `allPhotos`, the membership does not.
-        if filter.isActive || sortOrder == .rating || sortOrder == .flag
-            || sortOrder == .label {
-            refreshLibraryQuery()
-        }
+        refreshLibraryQueryIfCullingShowsInTheGrid()
+    }
+
+    /// A culling change moves grid MEMBERSHIP or ORDER whenever a filter is lit or the
+    /// sort reads flag, rating or label — and the grid's membership is the catalog's
+    /// answer, not `allPhotos`. Shared by the way in (`mutateTargets`) and the way back
+    /// (`apply`'s restore): undo of a reject under a "Rejected" chip left the restored
+    /// frame in the grid, because only the keystroke asked the catalog again.
+    private func refreshLibraryQueryIfCullingShowsInTheGrid() {
+        guard filter.isActive || sortOrder == .rating || sortOrder == .flag
+            || sortOrder == .label else { return }
+        refreshLibraryQuery()
     }
 
     /// Put every culling state of one history step back, wherever each photo sits in
@@ -3032,6 +3040,7 @@ final class AppState: ObservableObject {
             catalog?.saveCullingState(entry.item, labelChanged: entry.labelChanged)
         }
         if let freshPrimary { primarySelection = freshPrimary }
+        refreshLibraryQueryIfCullingShowsInTheGrid()
     }
 
     /// Advance from where the cursor WAS. `mutateTargets` may have just made the

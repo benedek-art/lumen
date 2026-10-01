@@ -69,6 +69,31 @@ final class CullUndoScaleTests: XCTestCase {
                       "apply never restores the step's culling")
     }
 
+    /// Undo is a culling change like the keystroke it undoes, so it asks the catalog
+    /// for the grid again under the same conditions. Under a "Rejected" chip, undoing a
+    /// reject left the frame in the grid: the badge changed, the membership did not,
+    /// because only `mutateTargets` re-ran the query.
+    func testUndoOfACullAsksTheCatalogForTheGridLikeTheKeystrokeDid() throws {
+        let code = try appStateCode()
+        let rule = "refreshLibraryQueryIfCullingShowsInTheGrid()"
+        guard let restore = body(of: "private func restore(_ cullings:", in: code),
+              let mutate = body(of: "private func mutateTargets(", in: code),
+              let helper = body(of: "private func refreshLibraryQueryIfCullingShowsInTheGrid(",
+                                in: code) else {
+            return XCTFail("restore, mutateTargets or the shared refresh rule moved")
+        }
+        XCTAssertTrue(restore.contains(rule),
+                      "undo restores flags and ratings and leaves the filtered grid as "
+                          + "the keystroke left it")
+        XCTAssertTrue(mutate.contains(rule),
+                      "the keystroke no longer asks the catalog after a cull")
+        for clause in ["filter.isActive", ".rating", ".flag", ".label",
+                       "refreshLibraryQuery()"] {
+            XCTAssertTrue(helper.contains(clause),
+                          "the shared rule lost \(clause)")
+        }
+    }
+
     /// Comments blanked, string bodies kept, newlines preserved.
     private static func withoutComments(_ text: String) -> String {
         var out = Array(text)
