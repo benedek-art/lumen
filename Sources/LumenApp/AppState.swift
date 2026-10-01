@@ -3001,17 +3001,37 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Put a culling state back on a photo, wherever it currently sits in the roll.
-    private func restore(_ culling: HistoryStack.Culling, to url: URL) {
-        guard let i = allPhotos.firstIndex(where: { $0.id == url }) else { return }
-        let wasLabel = allPhotos[i].label
-        allPhotos[i].flag = culling.flag
-        allPhotos[i].rating = culling.rating
-        allPhotos[i].label = culling.label
-        catalog?.saveCullingState(allPhotos[i], labelChanged: wasLabel != culling.label)
-        if allPhotos[i].id == primarySelection?.id {
-            primarySelection = allPhotos[i]
+    /// Put every culling state of one history step back, wherever each photo sits in
+    /// the roll — in ONE pass over a local copy and ONE assignment.
+    ///
+    /// It was one call per photo, each doing a linear `firstIndex(where:)` over the
+    /// roll and then three separate element writes to `allPhotos`. `allPhotos` is
+    /// `@Published`, so every element write copies the whole roll and republishes the
+    /// grid: ⌘Z on a 200-frame reject in a 20,000-frame folder was 600 whole-roll
+    /// copies and 600 publishes (J2-02's undo half) — the cost `mutateTargets` above
+    /// was rid of on the way in, still paid on the way back.
+    private func restore(_ cullings: [URL: HistoryStack.Culling]) {
+        guard !cullings.isEmpty else { return }
+        var updated = allPhotos
+        var restored: [(item: PhotoItem, labelChanged: Bool)] = []
+        var freshPrimary: PhotoItem?
+        for i in updated.indices {
+            guard let culling = cullings[updated[i].id] else { continue }
+            let wasLabel = updated[i].label
+            updated[i].flag = culling.flag
+            updated[i].rating = culling.rating
+            updated[i].label = culling.label
+            restored.append((updated[i], wasLabel != culling.label))
+            if updated[i].id == primarySelection?.id {
+                freshPrimary = updated[i]
+            }
         }
+        guard !restored.isEmpty else { return }
+        allPhotos = updated
+        for entry in restored {
+            catalog?.saveCullingState(entry.item, labelChanged: entry.labelChanged)
+        }
+        if let freshPrimary { primarySelection = freshPrimary }
     }
 
     /// Advance from where the cursor WAS. `mutateTargets` may have just made the
@@ -3621,6 +3641,7 @@ final class AppState: ObservableObject {
     private func apply(_ step: [URL: HistoryStack.PhotoEdit]?) {
         guard let step else { return }
         var recipeChanges: [URL: Recipe] = [:]
+        var cullings: [URL: HistoryStack.Culling] = [:]
         var touchedPixels = false
         for (url, edit) in step {
             if let recipe = edit.recipe {
@@ -3629,9 +3650,10 @@ final class AppState: ObservableObject {
                 touchedPixels = true
             }
             if let culling = edit.culling {
-                restore(culling, to: url)
+                cullings[url] = culling
             }
         }
+        restore(cullings)
         persist(recipeChanges)
         if touchedPixels {
             scheduleScopeRefresh()

@@ -1,0 +1,109 @@
+// CullUndoScaleTests.swift
+// Undoing a cull over a selection costs one roll copy, not three per photo (J2-02).
+//
+// `mutateTargets` learned to mutate a local copy of `allPhotos` and assign it once,
+// because `allPhotos` is `@Published` and every element write through it copies the
+// whole roll and republishes the grid. Undo went the other way through `restore`, once
+// per photo: a linear search for the photo, then three element writes — ⌘Z on a
+// 200-frame reject in a 20,000-frame folder was 600 whole-roll copies and 600 publishes.
+//
+// `AppState` compiles on macOS only, so this reads `AppState.swift` as text, comments
+// blanked first: the comment above the fix names every construct asserted absent here.
+// On the Linux lane, where it actually runs.
+
+import XCTest
+
+final class CullUndoScaleTests: XCTestCase {
+
+    private func appStateCode() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenApp/AppState.swift")
+        return Self.withoutComments(try String(contentsOf: url, encoding: .utf8))
+    }
+
+    /// The body of the first function whose declaration starts with `signature`, found
+    /// by brace depth from the first `{` after it.
+    private func body(of signature: String, in code: String) -> String? {
+        guard let start = code.range(of: signature) else { return nil }
+        guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var i = open
+        while i < code.endIndex {
+            if code[i] == "{" { depth += 1 }
+            if code[i] == "}" {
+                depth -= 1
+                if depth == 0 { return String(code[open...i]) }
+            }
+            i = code.index(after: i)
+        }
+        return nil
+    }
+
+    func testUndoRestoresAStepsCullingInOnePass() throws {
+        let code = try appStateCode()
+        guard let restore = body(of: "private func restore(_ cullings:", in: code) else {
+            return XCTFail("restore no longer takes the whole step's cullings at once — "
+                           + "a per-photo restore is a whole-roll copy per photo")
+        }
+        XCTAssertFalse(restore.contains("allPhotos["),
+                       "restore writes `allPhotos` element by element: each write copies "
+                           + "the roll and republishes the grid")
+        for search in ["firstIndex(where:", "firstIndex(of:", "first(where:"] {
+            XCTAssertFalse(restore.contains(search),
+                           "restore searches the roll per photo with \(search)")
+        }
+        XCTAssertEqual(restore.components(separatedBy: "allPhotos = ").count - 1, 1,
+                       "the restored roll must be published exactly once")
+
+        guard let apply = body(of: "private func apply(_ step:", in: code) else {
+            return XCTFail("AppState.apply(_:) moved")
+        }
+        guard let loop = body(of: "for (url, edit) in step", in: apply) else {
+            return XCTFail("apply no longer walks the step")
+        }
+        XCTAssertFalse(loop.contains("restore("),
+                       "apply restores inside its per-photo loop again")
+        XCTAssertTrue(apply.contains("restore(cullings)"),
+                      "apply never restores the step's culling")
+    }
+
+    /// Comments blanked, string bodies kept, newlines preserved.
+    private static func withoutComments(_ text: String) -> String {
+        var out = Array(text)
+        var i = 0
+        let n = out.count
+        func blank(_ from: Int, _ to: Int) {
+            for k in from..<to where out[k] != "\n" { out[k] = " " }
+        }
+        while i < n {
+            let c = out[i]
+            let next: Character? = i + 1 < n ? out[i + 1] : nil
+            if c == "/" && next == "/" {
+                var j = i
+                while j < n && out[j] != "\n" { j += 1 }
+                blank(i, j)
+                i = j
+            } else if c == "/" && next == "*" {
+                var j = i + 2
+                while j + 1 < n && !(out[j] == "*" && out[j + 1] == "/") { j += 1 }
+                let end = Swift.min(j + 2, n)
+                blank(i, end)
+                i = end
+            } else if c == "\"" {
+                var j = i + 1
+                while j < n {
+                    if out[j] == "\\" { j += 2; continue }
+                    if out[j] == "\"" { j += 1; break }
+                    if out[j] == "\n" { break }
+                    j += 1
+                }
+                i = j
+            } else {
+                i += 1
+            }
+        }
+        return String(out)
+    }
+}
