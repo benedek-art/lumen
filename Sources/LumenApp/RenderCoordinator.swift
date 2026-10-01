@@ -446,7 +446,8 @@ actor RenderCoordinator {
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
                                 note: note,
-                                nativeLongEdge: Int(source.nativeLongEdge.rounded()),
+                                nativeLongEdge: DraftLadder.pixelCount(
+                                    from: source.nativeLongEdge),
                                 regionUnit: regionUnit,
                                 fullPixelSize: fullPixelSize,
                                 decodeMilliseconds: decodeMilliseconds,
@@ -468,8 +469,9 @@ actor RenderCoordinator {
                 return RenderResult(image: preview, generation: generation, isDraft: true,
                                     usedEmbeddedPreview: true,
                                     note: "Embedded preview — \(Self.describe(error))",
-                                    nativeLongEdge: Int((try? self.source(for: url))
-                                        .map(\.nativeLongEdge)?.rounded() ?? 0),
+                                    nativeLongEdge: DraftLadder.pixelCount(
+                                        from: (try? self.source(for: url))
+                                            .map(\.nativeLongEdge) ?? 0),
                                     regionUnit: nil,
                                     fullPixelSize: nil,
                                     decodeMilliseconds: 0)
@@ -488,9 +490,14 @@ actor RenderCoordinator {
         // reconsider until the next source lookup — and an export is often the last
         // thing the app does before being left alone.
         defer { trimDecodeResidency() }
+        // A source that cannot say how big it is has nothing to export: asking the
+        // renderer for a zero long edge is not a smaller export, it is a broken one,
+        // and `Int(_:)` on the file's own number would trap before getting that far.
+        let native = DraftLadder.pixelCount(from: source.nativeLongEdge)
+        guard native > 0 else { throw RawSourceError.undecodable(url) }
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.renderPreview(source: source, recipe: recipe,
-                                          maxLongEdge: Int(source.nativeLongEdge),
+                                          maxLongEdge: native,
                                           draft: false, coarseDecode: false,
                                           strokeSets: strokeSets)
     }

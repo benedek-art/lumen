@@ -122,6 +122,71 @@ extension Recipe {
         self = Recipe.asImported(from: file)
     }
 
+    /// The recipe the viewer's BEFORE rendition is rendered with (`\`, `Y`, `⇧Y`).
+    ///
+    /// "Before" is this file as imported — not a bare `Recipe()`, which is the TYPE's
+    /// default and on a JPEG is a second tone map (the K-027 / D1-01 mechanism, arriving
+    /// through the comparison view) — framed the way the edit is framed: the crop, the
+    /// straighten, the flip and the upright travel from the edit, so the two renditions
+    /// are the same shape and show the same part of the scene.
+    ///
+    /// The framing has to travel because the viewer draws both renditions into ONE
+    /// drawn extent, sized from the edit. A before rendered uncropped came back at the
+    /// sensor's aspect and was stretched into the edit's box on every cropped or
+    /// straightened photograph — a 3:2 frame squashed into a 1:1 crop, faces narrowed,
+    /// and in split view two halves of one picture disagreeing about geometry across
+    /// the divider (W2/H1-02). The lens profile does NOT travel: it is a correction,
+    /// i.e. part of what the edit did, and the comparison exists to show that.
+    public static func beforeRendition(of edit: Recipe, from file: SourceFile) -> Recipe {
+        var before = Recipe.asImported(from: file)
+        before.pipelineVersion = edit.pipelineVersion
+        before.develop.geometry.crop = edit.develop.geometry.crop
+        before.develop.geometry.angle = edit.develop.geometry.angle
+        before.develop.geometry.flipH = edit.develop.geometry.flipH
+        before.develop.geometry.upright = edit.develop.geometry.upright
+        return before
+    }
+
+    /// One row of the Noise Reduction panel, as the thing its double-click resets.
+    public enum DenoiseRow: String, CaseIterable, Sendable {
+        case luma, lumaDetail, lumaContrast, chroma, colorDetail, colorSmoothness
+    }
+
+    /// Put ONE Noise Reduction row back to where THIS file was imported — its own ISO's
+    /// value — and leave every other field alone.
+    ///
+    /// The value a reset lands on differs per photograph (an ISO 400 raw imports at
+    /// Luminance 0, an ISO 25600 one at 40, a JPEG at the flat wire default), so it has
+    /// to be resolved per photograph. The panel resolved it ONCE, from the primary
+    /// selection, and wrote that one number through a closure that could not see the
+    /// photo onto every selected frame (W2/E1-01, K-028): double-clicking Luminance on a
+    /// mixed-ISO selection gave the ISO 25600 frames the ISO 400 frame's 0, and cleared
+    /// their user-set bits so the recipes then claimed the ISO table had chosen it.
+    ///
+    /// The two masters clear their user-set bit as well as the value, for the reason the
+    /// panel already gave: a reset that left the bit standing turned Auto into Manual
+    /// without changing a number, and a later switch to AI kept the master it should
+    /// have zeroed.
+    public mutating func resetDenoise(_ row: DenoiseRow, from file: SourceFile) {
+        let imported = Recipe.asImported(from: file).develop.denoise.classic
+        switch row {
+        case .luma:
+            develop.denoise.classic.luma = imported.luma
+            develop.denoise.classic.lumaUserSet = false
+        case .lumaDetail:
+            develop.denoise.classic.lumaDetail = imported.lumaDetail
+        case .lumaContrast:
+            develop.denoise.classic.lumaContrast = imported.lumaContrast
+        case .chroma:
+            develop.denoise.classic.chroma = imported.chroma
+            develop.denoise.classic.chromaUserSet = false
+        case .colorDetail:
+            develop.denoise.classic.colorDetail = imported.colorDetail
+        case .colorSmoothness:
+            develop.denoise.classic.colorSmoothness = imported.colorSmoothness
+        }
+    }
+
     /// Whether this photograph is still exactly as it was imported — the predicate a
     /// Reset affordance offers itself on, and the honest form of "is this edited".
     ///

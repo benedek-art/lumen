@@ -329,6 +329,50 @@ final class VignetteResponseTests: XCTestCase {
         XCTAssertEqual(atDefault.mean * 3.0, 0.875, accuracy: 0.01)
     }
 
+    /// The Feather row's tooltip states what fraction of Amount the frame receives at
+    /// 0, 50 and 100, and the test above says the tooltips are wrong the moment it is —
+    /// but it never read the tooltip. The feather-0 phrase said "a twelfth" (0.083)
+    /// while the measured mean is 0.0407, a 2.05x overstatement twenty lines under a
+    /// comment that had it right (W2/D2-04). So this reads the help string out of
+    /// `EffectsPanel.swift` (string bodies kept, comments blanked) and holds each quoted
+    /// fraction to the measurement within a quarter. Put "a twelfth" back and it fails.
+    func testTheFeatherTooltipQuotesTheMeasuredFractions() throws {
+        let root = RawTruthProvenanceTests.repositoryRoot
+        let code = RawTruthProvenanceTests.withoutComments(try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/EffectsPanel.swift"),
+            encoding: .utf8))
+        // The help is concatenated literals; join them so a phrase may span two.
+        let literals = code.components(separatedBy: "\"")
+            .enumerated().filter { $0.offset % 2 == 1 }.map(\.element).joined()
+        let sentence = try XCTUnwrap(
+            literals.range(of: "how much of Amount the frame actually receives: ")
+                .map { String(literals[$0.upperBound...].prefix { $0 != "." }) },
+            "the Feather tooltip no longer states the delivered fraction")
+        let words: [String: Double] = [
+            "a twelfth": 1.0 / 12, "a twentieth": 0.05, "a twenty-fifth": 0.04,
+            "a tenth": 0.1, "a quarter": 0.25, "a third": 1.0 / 3, "half": 0.5,
+            "over half": 0.55,
+        ]
+        func quoted(at feather: String) throws -> Double {
+            let marker = " of it at \(feather)"
+            let clause = try XCTUnwrap(sentence.components(separatedBy: ",")
+                .first { $0.contains("at \(feather)") }, "no clause for feather \(feather)")
+            let phrase = clause.replacingOccurrences(of: marker, with: "")
+                .replacingOccurrences(of: " at \(feather)", with: "")
+                .replacingOccurrences(of: "about ", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            return try XCTUnwrap(words[phrase], "unrecognised fraction \"\(phrase)\"")
+        }
+        for (feather, label) in [(0.0, "0"), (50.0, "50"), (100.0, "100")] {
+            let measured = Self.falloffStatistics(
+                inner: DetailEngine.vignetteInnerRadius(feather: feather)).mean
+            let stated = try quoted(at: label)
+            XCTAssertEqual(stated / measured, 1, accuracy: 0.25,
+                           "the tooltip says \(stated) of Amount at feather \(label); "
+                               + "the frame receives \(measured)")
+        }
+    }
+
     /// Both ends of the falloff are flat, and here is how flat, because it is the thing
     /// the owner reported and it deserves a number rather than a shrug.
     ///

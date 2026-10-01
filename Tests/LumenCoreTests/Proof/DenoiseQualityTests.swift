@@ -128,9 +128,21 @@ final class DenoiseQualityTests: XCTestCase {
         let edge = ProofFrames.chromaEdge()
         let column = edge.width / 2
 
-        for (chroma, smoothness, label) in [(100.0, 50.0, "Colour 100, shipped defaults"),
-                                            (40.0, 69.85, "the ISO 6400 default"),
-                                            (55.0, 83.86, "the ISO 25600 default")] {
+        // The two ISO rows are READ from the table, not transcribed. They were the
+        // literals (40, 69.85) and (55, 83.86): the smoothness half was current and the
+        // Colour half was the pre-flattening climb, so the test exercised settings no
+        // import gets — the shipped defaults are 25 and 30 (W2/E1-06). A literal pair is
+        // half-updatable, and that is exactly how it went stale.
+        let iso6400 = ISODefaults.classic(forISO: 6400)
+        let iso25600 = ISODefaults.classic(forISO: 25600)
+        for (chroma, smoothness, label) in [
+            (100.0, 50.0, "Colour 100, shipped defaults"),
+            (iso6400.chroma, iso6400.colorSmoothness, "the ISO 6400 default"),
+            (iso25600.chroma, iso25600.colorSmoothness, "the ISO 25600 default"),
+            // The old, harsher pair is kept as what it actually is — a stress point
+            // above both defaults — rather than under a label it no longer earns.
+            (55.0, 83.86, "Colour 55 at the ISO 25600 smoothness"),
+        ] {
             let out = denoised(luma: 0, chroma: chroma, colorSmoothness: smoothness, edge)
             let kept = ProofMetrics.edgeRetention(out, against: edge, acrossColumn: column)
             XCTAssertGreaterThan(kept, 0.90,

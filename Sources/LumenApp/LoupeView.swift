@@ -1236,9 +1236,14 @@ struct LoupeView: View {
         return stripped
     }
 
-    /// "Before" is just another recipe through the same pipeline (docs/12 §B8): the
-    /// import default, i.e. an empty recipe at this photo's pipeline version.
-    private var beforeRecipe: Recipe { Recipe(pipelineVersion: recipe.pipelineVersion) }
+    /// "Before" is just another recipe through the same pipeline (docs/12 §B8): this
+    /// file as imported, framed the way the edit is — see `Recipe.beforeRendition`.
+    /// From `renderRecipe`, so while the crop tool is armed both renditions are the
+    /// whole frame together.
+    private var beforeRecipe: Recipe {
+        Recipe.beforeRendition(of: renderRecipe, from: Recipe.SourceFile(
+            isRendered: PhotoFormats.isRendered(photo.id), iso: photo.iso))
+    }
 
     private var needsBeforeRender: Bool {
         state.showBefore || viewport.beforeMode.showsPair
@@ -1485,7 +1490,7 @@ struct LoupeView: View {
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
                                 wanted: needsBeforeRender, longEdge: longEdge,
                                 strokeRefs: Set(state.strokeSets(for: beforeRecipe).keys))) {
-                await renderBefore(longEdge: longEdge)
+                await renderBefore(longEdge: longEdge, drawnDevice: drawnDevice)
             }
             .task(id: SamplerKey(revision: model.revision, needed: samplerNeeded)) {
                 await rebuildSampler()
@@ -1670,7 +1675,7 @@ struct LoupeView: View {
     /// The before rendition, evaluated through the same pipeline as the edit so the
     /// flip is a comparison and not a different renderer's opinion.
     @MainActor
-    private func renderBefore(longEdge: Int) async {
+    private func renderBefore(longEdge: Int, drawnDevice: Double?) async {
         guard needsBeforeRender else { return }
         // Let the edited rendition claim the coordinator's generation lane first: it
         // supersedes by number, and the picture being edited must never lose that race
@@ -1683,12 +1688,23 @@ struct LoupeView: View {
                                thumbnails: nil,
                                // Same geometry, same rule: the before rendition shares
                                // this canvas and would pump in size beside the edit.
+                               // SAME RULE INCLUDES THE DRAWN EXTENT. Without it the
+                               // visible ceiling never bound for the before pass and its
+                               // ladder had no sharpness floor — the one ladder in the
+                               // loupe with authority was the one drawing beside a plate
+                               // that had none, so after one hot frame the before half of
+                               // a ⇧Y split was a rung softer than the after half
+                               // (W2/H1-08). The before is framed like the edit
+                               // (`Recipe.beforeRendition`), so the edit's drawn extent
+                               // is the before's too.
                                draftLongEdge: DraftResolution.draftLongEdge(
                                    settledLongEdge: longEdge,
                                    fitLongEdge: LoupeView.draftLongEdge,
-                                   zoomRatio: viewport.zoom),
+                                   zoomRatio: viewport.zoom,
+                                   drawnDeviceLongEdge: drawnDevice),
                                fullLongEdge: longEdge,
-                               strokeSets: state.strokeSets(for: beforeRecipe))
+                               strokeSets: state.strokeSets(for: beforeRecipe),
+                               drawnDeviceLongEdge: drawnDevice)
         // DELIBERATELY NOT GIVEN THE SETTLE GUARD the compare panes just received.
         //
         // The guard SKIPS a settle while a hand is down, and something has to ask for
@@ -1715,7 +1731,8 @@ struct LoupeView: View {
             } else if viewport.beforeMode.isTwoPane, let before = beforeImage {
                 // Two-pane compare fits each side in its own half: pan and zoom belong
                 // to the split view, which shares one set of tiles.
-                BeforeAfterPair(mode: viewport.beforeMode, before: before, after: cg)
+                BeforeAfterPair(mode: viewport.beforeMode, before: before, after: cg,
+                                hold: state.inspectionHold)
                     .frame(width: container.width, height: container.height)
             } else {
                 canvas(cg: cg, container: container)
@@ -2686,7 +2703,8 @@ struct LoupeView: View {
         let scale = Double(Swift.max(displayScale, 1))
         let longEdge = Double(Swift.max(container.width, container.height)) * scale
         guard longEdge.isFinite, longEdge > 0 else { return 1024 }
-        let bucket = Int((longEdge / 256).rounded(.up)) * 256
+        let step = Double(DraftResolution.ceilingBucket)
+        let bucket = Int((longEdge / step).rounded(.up)) * DraftResolution.ceilingBucket
         let asked = Swift.min(Swift.max(bucket, 640), LoupeView.maxRenderLongEdge)
         // AND NOT ONE PIXEL MORE THAN THE PANEL DRAWS. The bucket is the CONTAINER's
         // long edge; a portrait photograph in a landscape pane is fitted by its height

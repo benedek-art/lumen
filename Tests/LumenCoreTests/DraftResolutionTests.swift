@@ -152,7 +152,9 @@ final class DraftResolutionTests: XCTestCase {
                                                      fitLongEdge: 1024,
                                                      zoomRatio: 0.5,
                                                      drawnDeviceLongEdge: 3504),
-                       3504,
+                       // 3504 drawn, rounded up to the 256-px bucket the ask is
+                       // quantized in (H1-03) — 80 pixels over, against 3504 under.
+                       3584,
                        "rendering pixels the panel cannot show is the ladder's whole "
                            + "budget spent on nothing")
     }
@@ -192,13 +194,77 @@ final class DraftResolutionTests: XCTestCase {
         XCTAssertNil(DraftResolution.visibleCeiling(0))
         XCTAssertNil(DraftResolution.visibleCeiling(-100))
         // Rounded UP: a fractional drawn extent must never ask for a pixel less than
-        // the panel will put on screen.
-        XCTAssertEqual(DraftResolution.visibleCeiling(3503.2), 3504)
+        // the panel will put on screen — and up to the bucket (W2/H1-03).
+        XCTAssertEqual(DraftResolution.visibleCeiling(3503.2), 3584)
+        XCTAssertNil(DraftResolution.visibleCeiling(1e300), "finite nonsense too")
         // And a nonsense ceiling leaves the ask exactly where it was.
         XCTAssertEqual(DraftResolution.draftLongEdge(settledLongEdge: 4096,
                                                      fitLongEdge: 1024,
                                                      zoomRatio: 0.5,
                                                      drawnDeviceLongEdge: .nan),
                        4096)
+    }
+
+    /// THE BUCKET HAS TO BIND (W2/H1-03). The loupe asks for `min(bucketed container,
+    /// ceiling)`, and the photograph's drawn extent is inside the container, so the
+    /// ceiling is the answer on every fit frame. Unbucketed, a 200 pt window-edge drag on
+    /// a 2x display walked the ask through ~400 integers: 400 render keys and, because the
+    /// decode scale follows the ask, up to 400 full RAW decodes. Restore
+    /// `Int(drawn.rounded(.up))` and this fails with one ask per half-pixel.
+    func testAWindowResizeInsideOneBucketAsksForOneSize() throws {
+        let asks = Set(stride(from: 2049.0, through: 2304.0, by: 0.5)
+            .compactMap { DraftResolution.visibleCeiling($0) })
+        XCTAssertEqual(asks, [2304], "one bucket of window sizes minted \(asks.count) asks")
+        for drawn in [1.0, 255.5, 256.0, 640.2, 2360.0, 3503.2, 7008.0] {
+            let ceiling = try XCTUnwrap(DraftResolution.visibleCeiling(drawn))
+            XCTAssertEqual(ceiling % DraftResolution.ceilingBucket, 0)
+            XCTAssertGreaterThanOrEqual(Double(ceiling), drawn,
+                                        "a ceiling below what the panel draws")
+            XCTAssertLessThan(Double(ceiling) - drawn, Double(DraftResolution.ceilingBucket))
+        }
+    }
+
+    /// THE LOUPE'S TWO RENDITIONS SHARE ONE CANVAS, so they share one sizing rule
+    /// (W2/H1-08). The edit's draft passes the drawn extent; the before rendition's did
+    /// not, so its visible ceiling never bound and its ladder had no sharpness floor —
+    /// and after one hot frame the before half of a split was a rung softer than the
+    /// after half. Read from LoupeView.swift with comments blanked: every
+    /// `DraftResolution.draftLongEdge(` call there carries `drawnDeviceLongEdge:`, and
+    /// so does every `load(` that sizes a draft. Drop it from `renderBefore` and this
+    /// names the call.
+    func testBothLoupeRenditionsAreSizedByTheDrawnExtent() throws {
+        let root = RawTruthProvenanceTests.repositoryRoot
+        let code = RawTruthProvenanceTests.withoutComments(try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/LoupeView.swift"),
+            encoding: .utf8))
+        func arguments(after marker: String) -> [String] {
+            var out: [String] = []
+            var search = code.startIndex..<code.endIndex
+            while let hit = code.range(of: marker, range: search) {
+                var depth = 1
+                var i = hit.upperBound
+                while i < code.endIndex, depth > 0 {
+                    if code[i] == "(" { depth += 1 }
+                    if code[i] == ")" { depth -= 1 }
+                    i = code.index(after: i)
+                }
+                out.append(String(code[hit.upperBound..<i]))
+                search = i..<code.endIndex
+            }
+            return out
+        }
+        let drafts = arguments(after: "DraftResolution.draftLongEdge(")
+        XCTAssertGreaterThanOrEqual(drafts.count, 2, "the edit and the before both size a draft")
+        for call in drafts {
+            XCTAssertTrue(call.contains("drawnDeviceLongEdge:"),
+                          "a loupe draft sized without the drawn extent: \(call.prefix(160))")
+        }
+        let loads = arguments(after: "Model.load(").filter { $0.contains("draftLongEdge:") }
+            + arguments(after: "model.load(").filter { $0.contains("draftLongEdge:") }
+        XCTAssertGreaterThanOrEqual(loads.count, 2)
+        for call in loads {
+            XCTAssertTrue(call.contains("drawnDeviceLongEdge: drawnDevice"),
+                          "a loupe load without the ladder's floor: \(call.prefix(160))")
+        }
     }
 }

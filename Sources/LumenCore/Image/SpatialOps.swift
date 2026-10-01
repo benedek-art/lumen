@@ -647,8 +647,15 @@ public enum SpatialOps {
     /// The heuristic. A Gaussian PSF of width σ maps a point source to
     /// `exp(−d²/2σ²)`, so the ratio between a local peak and its neighbour one pixel away
     /// is at most `exp(1/2σ²)` — sharper optics allow a larger single-pixel ratio, and
-    /// nothing in the image can exceed it. docs/06 §11.2 states the inverted form directly:
-    /// `σ = sqrt(1 / ln(maxRatio))`.
+    /// nothing in the image can exceed it. Inverted, `σ = sqrt(1 / (2·ln(maxRatio)))`.
+    ///
+    /// NOT `sqrt(1 / ln(maxRatio))`, which is what this computed until W2/E2-03 measured
+    /// it. That is docs/06's form, and it is right for the geometry docs/06 describes —
+    /// RawTherapee's, comparing adjacent CFA GREEN samples, which sit at d = √2, where
+    /// `exp(d²/2σ²)` is `exp(1/σ²)`. This function compares
+    /// neighbours on the demosaiced luminance plane at d = 1, so its inverse carries the
+    /// factor of two — without it every σ came back √2 too large (1.47–1.50× measured on
+    /// impulses blurred by a known σ).
     ///
     /// Three restrictions turn that into a statistic instead of a lottery:
     ///   · **Only 1-D local peaks count.** A pair straddling a step edge measures the
@@ -656,13 +663,22 @@ public enum SpatialOps {
     ///     neighbours along an axis is the point-source geometry the formula assumes.
     ///   · **Only unclipped mid-to-high tones count.** A clipped highlight has had its
     ///     ratio destroyed by the sensor, and a shadow pair's ratio is noise.
+    ///   · **Only peaks sharp enough to be evidence count.** A ratio below
+    ///     `exp(1/2·maxPSFSigma²)` is what a σ wider than the ceiling would give, and it
+    ///     is also what every smooth local extremum of ordinary texture gives — there the
+    ///     peak/neighbour ratio is `1 + curvature/2`, not the point-source `exp(1/2σ²)`.
+    ///     Counted, those bumps outnumbered the real point sources a hundred to one (5014
+    ///     of 5051 samples in the bottom bin on a fractal frame, W2/E2-03), the quantile
+    ///     landed among them, and the function returned the 2.0 px ceiling on 8 of 9
+    ///     photograph-like frames — a constant, arrived at expensively.
     ///   · **A high quantile, not the maximum.** One hot pixel would otherwise report a
     ///     perfect lens. The 99.5th percentile is the tuning knob, calibrated against the
     ///     golden corpus (docs/06 §17.3).
     ///
-    /// Result is clamped to `[minPSFSigma, maxPSFSigma]`; a frame with too few valid peaks
-    /// (flat scan, synthetic gradient) returns 0.8 px, the middle of the range where the
-    /// deconvolution is harmless either way.
+    /// Result is clamped to `[minPSFSigma, maxPSFSigma]`; a frame with too few qualifying
+    /// peaks (flat scan, synthetic gradient, texture with no point-like detail) returns
+    /// 0.8 px, the middle of the range where the deconvolution is harmless either way —
+    /// a stated default rather than the ceiling.
     public static func estimatePSFSigma(_ plane: Plane) -> Double {
         let defaultSigma = 0.8
         let w = plane.width
@@ -675,10 +691,12 @@ public enum SpatialOps {
         let clipLevel = peak * 0.95
         let noiseFloor = Swift.max(peak * 0.02, 1e-6)
 
-        // Histogram over ln(ratio). The top of the range corresponds to σ = minPSFSigma,
-        // so the whole representable σ interval maps inside the bins.
+        // Histogram over ln(ratio). The top of the range corresponds to σ = minPSFSigma
+        // and the qualifying floor to σ = maxPSFSigma, so the whole representable σ
+        // interval maps inside the bins and nothing outside it is counted.
         let bins = 256
-        let maxLn = 1.0 / (minPSFSigma * minPSFSigma)
+        let maxLn = 0.5 / (minPSFSigma * minPSFSigma)
+        let minLn = 0.5 / (maxPSFSigma * maxPSFSigma)
         var hist = [Double](repeating: 0, count: bins)
         var total = 0.0
 
@@ -693,7 +711,7 @@ public enum SpatialOps {
                     let neighbour = Swift.max(left, right)
                     if neighbour > noiseFloor {
                         let l = log(c / neighbour)
-                        if l > 0 {
+                        if l >= minLn {
                             let idx = Swift.min(Int(l / maxLn * Double(bins)), bins - 1)
                             hist[Swift.max(idx, 0)] += 1
                             total += 1
@@ -707,7 +725,7 @@ public enum SpatialOps {
                     let neighbour = Swift.max(up, down)
                     if neighbour > noiseFloor {
                         let l = log(c / neighbour)
-                        if l > 0 {
+                        if l >= minLn {
                             let idx = Swift.min(Int(l / maxLn * Double(bins)), bins - 1)
                             hist[Swift.max(idx, 0)] += 1
                             total += 1
@@ -727,7 +745,7 @@ public enum SpatialOps {
         }
         let lnRatio = (Double(cut) + 0.5) / Double(bins) * maxLn
         guard lnRatio > 1e-6 else { return maxPSFSigma }
-        let sigma = (1.0 / lnRatio).squareRoot()
+        let sigma = (0.5 / lnRatio).squareRoot()
         guard sigma.isFinite else { return defaultSigma }
         return Num.clamp(sigma, minPSFSigma, maxPSFSigma)
     }

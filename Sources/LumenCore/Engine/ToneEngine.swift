@@ -76,15 +76,27 @@ public struct ToneEngine: Sendable {
     /// Saturating at half the anchor puts full strength at −4.5 EV instead.
     public static let shadowShelfEnd: Double = 0.5
 
-    /// Where the Whites and Blacks shelves run, as a fraction of the anchor. They start
-    /// above where Highlights and Shadows have already saturated, so the two controls
-    /// act on different parts of the range instead of fighting for the same one.
+    /// Where the Whites shelf runs, as a fraction of the white anchor: +1 … +4 EV on the
+    /// default anchors.
+    ///
+    /// IT OVERLAPS HIGHLIGHTS, and this sentence used to say it did not ("they start
+    /// above where Highlights and Shadows have already saturated", W2/A1-05). Highlights'
+    /// shelf rises over 0 … +5 EV (`highlightShelfEnd`), so Whites' whole travel lies
+    /// inside it: at Whites' first stop Highlights is at 0.10, at Whites' last (+4 EV) it
+    /// is at 0.90 and still at its steepest. The two are still different controls —
+    /// Whites peaks higher and also moves the white anchor — but they share the top of
+    /// the range, which is why Highlights −60 then Whites +60 partly cancel.
+    /// `EngineTests.testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays` holds these
+    /// numbers; moving `endShelfStart` up to where Highlights has saturated is the other
+    /// way to make the old sentence true, and it costs Whites authority (DECISION, P12).
     public static let endShelfStart: Double = 0.20
     public static let endShelfEnd: Double = 0.80
 
-    /// Blacks' shelf, as a fraction of |black anchor|. Deeper than Shadows' and wider,
-    /// so the two controls act on different tones and their slopes do not peak
-    /// together — Shadows' steepest point is around −2.2 EV, Blacks' around −5.9.
+    /// Blacks' shelf, as a fraction of |black anchor|: −1.35 … −5.58 EV on the default
+    /// anchors. Deeper than Shadows' and wider, so the two slopes do not peak together —
+    /// Shadows' steepest point is at −2.25 EV, Blacks' at −3.47 EV (each shelf's
+    /// midpoint), 1.2 stops apart. This said −5.9 for Blacks, a number for some earlier
+    /// pair of constants, which overstated the separation threefold.
     public static let blackShelfStart: Double = 0.15
     public static let blackShelfEnd: Double = 0.62
 
@@ -442,7 +454,8 @@ public struct ToneEngine: Sendable {
         return Num.smoothstep(0, hi * Self.highlightShelfEnd, t)
     }
 
-    /// Whites: a shelf in the top of the range, above where Highlights has saturated.
+    /// Whites: a shelf in the top of the range, inside Highlights' rising ramp rather
+    /// than above it — see `endShelfStart` for the overlap, measured.
     ///
     /// Whites used to move the white ANCHOR and nothing else. Measured on a -9…+5 EV
     /// grey ramp, full travel was worth 26.7 code values up and 12.3 down — and Blacks,

@@ -633,6 +633,7 @@ struct DevelopPanel: View {
                                     help: "Apply the copied Look, leaving each photo's "
                                         + "own white balance and exposure alone",
                                     action: { state.pasteLook() })
+                    .disabled(!state.hasCopiedLook)
             }
         }
         .padding(.horizontal, 8)
@@ -669,6 +670,10 @@ private struct DevelopFooterButton: View {
     let action: () -> Void
 
     @State private var hovering = false
+    /// Read, not just inherited: a `.plain` button stops firing under `.disabled` and
+    /// changes nothing else, so a disabled footer button drew and hovered exactly like a
+    /// live one — the `LumenToggleRow` defect, one struct over.
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -681,8 +686,9 @@ private struct DevelopFooterButton: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 5)
-            .background(hovering ? Lumen.controlHover : Color.clear)
-            .foregroundStyle(hovering ? Lumen.primaryText : Lumen.secondaryText)
+            .background(hovering && isEnabled ? Lumen.controlHover : Color.clear)
+            .foregroundStyle(hovering && isEnabled ? Lumen.primaryText : Lumen.secondaryText)
+            .opacity(isEnabled ? 1 : 0.45)
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl,
                                         style: .continuous))
             .contentShape(Rectangle())

@@ -1334,10 +1334,14 @@ public struct ClassicNR: Codable, Equatable, Sendable {
     /// Luminance every time, silently, and the only trace was a default argument at a
     /// call site nobody reads.
     ///
-    /// They are `false` by default and serialize sparsely, so no recipe already in a
-    /// catalog or a sidecar changes its canonical form or its fingerprint. A photo
-    /// edited before this existed is treated as never hand-set, which is what the
-    /// coupling assumed about every photo until now.
+    /// They are `false` by default and decode as `false` when absent, so a photo edited
+    /// before this existed is treated as never hand-set, which is what the coupling
+    /// assumed about every photo until now. They are NOT written sparsely: `encode`
+    /// writes both keys always, so their landing added two keys to every recipe's
+    /// canonical form and moved every fingerprint once (the default-recipe fixture
+    /// carries `"lumaUserSet": false`). This said "serialize sparsely … no fingerprint
+    /// changes", which is not a property of this encoder (W2/E1-09); making it one would
+    /// move every fingerprint a second time.
     public var lumaUserSet: Bool        // default false
     public var chromaUserSet: Bool      // default false
 

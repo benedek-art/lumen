@@ -1383,13 +1383,13 @@ public struct Vectorscope: Sendable {
     /// The angular convention is this scope's: degrees CCW from +a, i.e. `OKLab.hue`,
     /// which is also the convention `ColorEngine.skinWeight` compares against.
     ///
-    /// Caveat worth a golden test (see `deriveSkinToneLineDegrees`): re-deriving the
-    /// I-bar through the working space lands at ≈56.4° from +a, not 33°. 33° is that same
-    /// line measured from **+b** (90° − 56.4° = 33.6°), the traditional vectorscope
-    /// orientation with the yellow–blue axis horizontal — so the shipped constant is
-    /// right in the vectorscope's own frame and off by the complement in OKLab's. This
-    /// file does not resolve it unilaterally, because both consumers must move together;
-    /// `deriveSkinToneLineDegrees` is here so the reconciliation is one assertion away.
+    /// RESOLVED, at 56.4° from +a: re-deriving the I-bar through the working space lands
+    /// there, and `ColorEngine.skinLineDegrees` moved to it (its comment has the
+    /// argument). The old 33° was the same line measured from +b (90° − 56.4° = 33.6°),
+    /// the traditional vectorscope orientation. This paragraph still called the
+    /// discrepancy open after both consumers had moved together (W2/H2-10); the
+    /// reconciliation it promised is `ScopeMathTests.testTheDrawnSkinLineIsTheDerivedSkinLine`,
+    /// which holds `deriveSkinToneLineDegrees()` to this constant.
     public static let skinToneLineDegrees: Double = ColorEngine.skinLineDegrees
 
     /// The same line measured from the +b axis — the traditional vectorscope reading.

@@ -107,8 +107,11 @@ public final class AppleRawSource: ImageSource {
     }
 
     public var nativePixelSize: (width: Int, height: Int) {
+        // Through the one guard for a file-derived size (`DraftLadder.pixelCount`):
+        // `Int(_:)` traps on a non-finite value, and this one came out of the file.
         let size = originalNativeSize
-        return (Int(size.width), Int(size.height))
+        return (DraftLadder.pixelCount(from: Double(size.width)),
+                DraftLadder.pixelCount(from: Double(size.height)))
     }
 
     /// Decode at camera-reference white balance, with Apple's picture-forming stages
@@ -251,8 +254,7 @@ public final class AppleRawSource: ImageSource {
         // interactive: the safe side, since the only thing the inspection class buys is
         // an exemption from the memory budget.
         let asked = clampedScale * nativeLongEdge
-        let askedLongEdge = asked.isFinite && asked > 0 && asked < 1e9
-            ? Int(asked.rounded()) : 0
+        let askedLongEdge = DraftLadder.pixelCount(from: asked)
 
         // A hit must match every field the filter reads, because the entry was produced
         // under the filter's settings AT DECODE TIME. The source lives inside an actor,

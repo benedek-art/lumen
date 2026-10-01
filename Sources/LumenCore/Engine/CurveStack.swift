@@ -408,13 +408,15 @@ public struct CurveStack: Sendable {
         return neutral.mix(ratio, w)
     }
 
-    /// Per-channel 1-D LUTs on the encoded axis — the upload the GPU stage wants when
-    /// there is no luminance coupling to honour.
-    public func bakeChannelLUTs(size: Int = 1024) -> (r: LUT1D, g: LUT1D, b: LUT1D) {
-        (LUT1D(size: size) { channelCurve(master($0), channel: 0) },
-         LUT1D(size: size) { channelCurve(master($0), channel: 1) },
-         LUT1D(size: size) { channelCurve(master($0), channel: 2) })
-    }
+    // There was a `bakeChannelLUTs` here: per-channel 1-D tables composing
+    // `channelCurve(master(x))` — "the upload the GPU stage wants when there is no
+    // luminance coupling to honour". It had no caller in the repository, and it was not
+    // a safe one to acquire: it composed neither `preserveLuminance` (`apply`'s master
+    // branch) nor the luma curve, so the day something wired it, every curve using
+    // either would have rendered differently on that path and nothing would have said
+    // so (K-061). The curve stage is baked into the finish cube through `apply`, which
+    // honours both. Removed rather than fixed, because a correct per-channel upload of a
+    // luminance-coupled curve does not exist — that is what the coupling means.
 
     // MARK: - Editing helpers (TAT and the curve editor)
 

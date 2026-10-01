@@ -168,8 +168,8 @@ struct EffectsPanel: View {
                                 + "tight ring near the corners, 100 lets it fall off "
                                 + "across the whole frame from the centre. It is also "
                                 + "how much of Amount the frame actually receives: "
-                                + "about a twelfth of it at 0, a third at 50, over "
-                                + "half at 100. It shapes the Amount above, so it "
+                                + "about a twenty-fifth of it at 0, a third at 50, "
+                                + "over half at 100. It shapes the Amount above, so it "
                                 + "changes nothing at Amount 0.")
             }
         }

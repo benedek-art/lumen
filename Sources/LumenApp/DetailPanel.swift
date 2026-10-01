@@ -555,11 +555,12 @@ struct DetailPanel: View {
                             // master at its default changed no number and still
                             // flipped Auto to Manual, and a later switch to AI kept
                             // the master instead of zeroing it.
-                            onReset: { binder.edit("denoise.classic.luma") { recipe in
-                                recipe.develop.denoise.classic.luma =
-                                    isoDefault.classic.luma
-                                recipe.develop.denoise.classic.lumaUserSet = false
-                            } })
+                            //
+                            // And it resets EACH selected photo to its own ISO's value:
+                            // `isoDefault` is the primary's, and writing it through a
+                            // closure that cannot see the photo stamped one frame's ISO
+                            // baseline on a whole mixed-ISO selection (W2/E1-01).
+                            onReset: { state.resetDenoise(.luma) })
                 // NAMED FOR WHAT THEY DO, AND SUBORDINATE TO THEIR MASTER.
                 //
                 // They were `Luminance Detail`, `Luminance Contrast`, `Colour Detail`
@@ -592,7 +593,8 @@ struct DetailPanel: View {
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
                             help: "Raises the shrinkage threshold, so texture survives "
-                                + "— and so does the noise beside it.")
+                                + "— and so does the noise beside it.",
+                            onReset: { state.resetDenoise(.lumaDetail) })
                 LumenSlider(title: "Contrast",
                             value: binder.value(\.develop.denoise.classic.lumaContrast,
                                                 "denoise.classic.lumaContrast"),
@@ -601,7 +603,8 @@ struct DetailPanel: View {
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
                             help: "Keeps coarse luminance structure, at the cost of "
-                                + "mottling.")
+                                + "mottling.",
+                            onReset: { state.resetDenoise(.lumaContrast) })
                 LumenSlider(title: "Colour",
                             value: binder.custom(
                                 "denoise.classic.chroma",
@@ -618,11 +621,7 @@ struct DetailPanel: View {
                                 + "alone, so edges and texture stay put. Its default "
                                 + "follows the photo's ISO.",
                             // Same clearing reset as Luminance above, same reason.
-                            onReset: { binder.edit("denoise.classic.chroma") { recipe in
-                                recipe.develop.denoise.classic.chroma =
-                                    isoDefault.classic.chroma
-                                recipe.develop.denoise.classic.chromaUserSet = false
-                            } })
+                            onReset: { state.resetDenoise(.chroma) })
                 LumenSlider(title: "Detail",
                             value: binder.value(\.develop.denoise.classic.colorDetail,
                                                 "denoise.classic.colorDetail"),
@@ -630,7 +629,8 @@ struct DetailPanel: View {
                             defaultValue: isoDefault.classic.colorDetail,
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
-                            help: "Protects thin colour edges.")
+                            help: "Protects thin colour edges.",
+                            onReset: { state.resetDenoise(.colorDetail) })
                 // The one row here with a cost worth naming, so it is named on the
                 // row rather than in a paragraph four rows below it.
                 LumenSlider(title: "Smoothness",
@@ -642,7 +642,8 @@ struct DetailPanel: View {
                             indented: true,
                             help: "Reaches the large blotches. Its guided pass follows "
                                 + "luminance, so it softens a boundary that is pure "
-                                + "colour.")
+                                + "colour.",
+                            onReset: { state.resetDenoise(.colorSmoothness) })
                 LumenSlider(title: "Hot Pixels",
                             value: binder.value(\.develop.denoise.classic.hotPixels,
                                                 "denoise.classic.hotPixels"),

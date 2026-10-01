@@ -3261,6 +3261,21 @@ final class AppState: ObservableObject {
             isRendered: PhotoFormats.isRendered(url), iso: iso))
     }
 
+    /// Double-click on a Noise Reduction row: each target goes back to ITS OWN imported
+    /// value for that row, not to the primary photograph's.
+    ///
+    /// Through the photo-aware `updateRecipe`, because the value is per file — see
+    /// `Recipe.resetDenoise(_:from:)`. The key names the reset rather than the row, so a
+    /// drag followed by a double-click are two decisions and one ⌘Z does not take back
+    /// both. `targets` is the same narrowing `updateRecipe` offers; nil is the selection.
+    func resetDenoise(_ row: Recipe.DenoiseRow, targets: [PhotoItem]? = nil) {
+        updateRecipe(coalescingKey: "denoise.classic.\(row.rawValue).reset",
+                     targets: targets) { photo, recipe in
+            recipe.resetDenoise(row, from: Recipe.SourceFile(
+                isRendered: PhotoFormats.isRendered(photo.id), iso: photo.iso))
+        }
+    }
+
     var currentRecipe: Recipe {
         primarySelection.map(recipe(for:)) ?? Recipe()
     }
@@ -3833,9 +3848,20 @@ final class AppState: ObservableObject {
     /// plain stored property does not tell SwiftUI to look again — so "Paste Masks"
     /// would stay greyed out until something else happened to redraw the menu bar.
     @Published private var copiedRecipe: Recipe?
-    private var copiedLook: Look?
+    /// Published for the same reason as `copiedRecipe`: Paste Look is `.disabled` on
+    /// whether it is nil, and a plain stored property does not tell SwiftUI to look
+    /// again. It was plain, so Paste Look was always enabled — and before anything had
+    /// been copied ⌥⌘V did nothing at all, no picture change and no message, which
+    /// reads as the app being wedged (W2/D1-04).
+    @Published private var copiedLook: Look?
 
-    func copySettings() { copiedRecipe = primarySelection.map(recipe(for:)) }
+    /// A copy with nothing selected copies NOTHING — it does not empty the clipboard.
+    /// `primarySelection.map` assigned nil, so a stray ⌘C or ⌥⌘C in the grid with the
+    /// selection cleared threw away what had been copied and the next paste was a no-op.
+    func copySettings() {
+        guard let photo = primarySelection else { return }
+        copiedRecipe = recipe(for: photo)
+    }
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
@@ -3888,12 +3914,16 @@ final class AppState: ObservableObject {
     /// for — the menu greys them out rather than offering a paste that does nothing.
     var hasCopiedMasks: Bool { !(copiedRecipe?.masks.isEmpty ?? true) }
     var hasCopiedSettings: Bool { copiedRecipe != nil }
+    var hasCopiedLook: Bool { copiedLook != nil }
 
     /// Copy Look copies exactly the look-tagged slice (D4) — grade, film stock,
     /// transform preset — and nothing else. Each target keeps its own white balance,
     /// exposure and denoise, which is what makes one look across 800 frames a
     /// selection gesture rather than a copy-paste-then-fix ritual.
-    func copyLook() { copiedLook = primarySelection.map { recipe(for: $0).look } }
+    func copyLook() {
+        guard let photo = primarySelection else { return }
+        copiedLook = recipe(for: photo).look
+    }
 
     func pasteLook() {
         guard let look = copiedLook else { return }
