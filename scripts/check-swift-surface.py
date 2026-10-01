@@ -324,7 +324,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "SQLITE_NOTADB", "SQLITE_FORMAT", "SQLITE_OPEN_READWRITE", "SQLITE_OPEN_CREATE",
     "SQLITE_OPEN_FULLMUTEX", "SQLITE_ERROR", "SQLITE_ROW", "SQLITE_DONE",
     # ImageIO
-    "ImageIO", "CGImageSourceCopyPropertiesAtIndex",
+    "ImageIO", "CGImageSourceCopyPropertiesAtIndex", "CGImageSourceCopyAuxiliaryDataInfoAtIndex",
     "CChar", "UTF8", "NSNull",
     # this package's own modules
     "LumenCore", "LumenPipeline", "LumenApp",

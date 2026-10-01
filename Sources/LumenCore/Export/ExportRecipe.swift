@@ -878,7 +878,7 @@ public struct HDRSettings: Codable, Equatable, Sendable {
     }
 
     /// Tolerant, per the note at the top of this file. This is the nested type most
-    /// likely to grow — the gain map it describes is half-written (`hdrIsWritable`) and
+    /// likely to grow — the gain map it describes is written by Core Image (`hdrIsWritable`) and
     /// the ISO 21496-1 fields it still needs are not invented yet — so it is the one
     /// whose next field would otherwise be the one that empties the preset list.
     public init(from decoder: Decoder) throws {
@@ -895,30 +895,30 @@ public struct HDRSettings: Codable, Equatable, Sendable {
 
 extension ExportRecipe {
 
-    /// Whether the encoder can actually store the extra range HDR asks for.
+    /// Whether this export writes a gain map: HDR settings on a container that can
+    /// carry one (HEIC, JPEG — docs/11 §HDR export).
     ///
-    /// False everywhere today, and stated here rather than assumed, because assuming it
-    /// made the HDR toggle produce a file strictly WORSE than leaving it off.
-    /// `renderHDRPair` and the whole `GainMap` relation are implemented and tested, but
-    /// nothing calls them: `export` renders once and `write` emits a single rendition
-    /// through `writeJPEG`/`HEIFRepresentation` with only a quality option. No second
-    /// image plane is ever attached.
+    /// This was `false` everywhere, and said so, because the encoder attached nothing:
+    /// `write` emitted one rendition with a quality option and no second image plane.
+    /// It is now `PipelineRenderer.write`'s own condition for handing Core Image the HDR
+    /// rendition (`CIImageRepresentationOption.hdrImage`, macOS 15), from which Core
+    /// Image computes and embeds the ISO 21496-1 gain map against the SDR primary —
+    /// Apple's WWDC24 strategy #3, the one docs/11 adopts.
     ///
-    /// What `hdr` DID reach was the render plan's `displayWhiteTarget`. At the default
-    /// +2 EV that is 400%, which puts the display transform's white at 4.0 and scales
-    /// the finish LUT to match — and then the result was encoded to 8 bits, so every
-    /// value above diffuse white clipped to 255. Ticking the box threw away all the
-    /// highlight roll-off the transform had just placed between 1.0 and 4.0.
-    ///
-    /// Writing it for real needs an auxiliary gain-map image attached through
-    /// `CGImageDestination` (ISO 21496-1), which is the piece that does not exist.
-    /// Until it does, HDR must not change the render, and the sheet must not claim a
-    /// map was stored.
-    public var hdrIsWritable: Bool { false }
+    /// What it must NOT do is raise the PRIMARY's white, which is the mistake this
+    /// property used to guard against: at +2 EV the transform's white goes to 4.0, and
+    /// an 8-bit primary encoded from that clips everything above diffuse white. The
+    /// primary is always the SDR rendition at display white 100 (`exportPlan` is given
+    /// no white target for it); the HDR rendition is a SECOND render at
+    /// `gainMapWhiteTargetPercent` that only ever reaches the encoder as the gain map's
+    /// source.
+    public var hdrIsWritable: Bool { hdr != nil && format.supportsGainMap }
 
-    /// The display white target the render should actually use — the HDR ceiling only
-    /// when there is somewhere to put it, and SDR otherwise.
-    public var renderWhiteTargetPercent: Double? {
+    /// The display white the HDR rendition renders at — `HDRSettings.whiteTargetPercent`,
+    /// the same expression the loupe's HDR preview renders at when the display covers
+    /// the content (`EDRPreview.whiteTarget`) — or nil when no map is written. The SDR
+    /// primary never reads this.
+    public var gainMapWhiteTargetPercent: Double? {
         guard let hdr, hdrIsWritable else { return nil }
         return hdr.whiteTargetPercent
     }

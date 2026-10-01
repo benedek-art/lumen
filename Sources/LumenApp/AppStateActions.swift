@@ -262,7 +262,7 @@ extension AppState {
     ///
     /// The sharing is worth building and is not built. `PipelineRenderer.export` names
     /// the shape and the one complication: `RenderPlan` reads
-    /// `exportRecipe.renderWhiteTargetPercent`, so recipes with different HDR white
+    /// `ExportRecipe.gainMapWhiteTargetPercent`, so recipes with different HDR white
     /// targets cannot share a master.
     func export(to directory: URL) {
         let targets = selectedPhotos.isEmpty

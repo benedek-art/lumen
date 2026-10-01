@@ -384,15 +384,17 @@ public final class PipelineRenderer {
     /// never rides a stale table, and its proof has been through `deliveredProof`.
     func exportPlan(source: any ImageSource, recipe: Recipe,
                     using exportRecipe: ExportRecipe,
-                    softProof: SoftProof?) -> RenderPlan {
+                    softProof: SoftProof?,
+                    displayWhiteTarget: Double? = nil) -> RenderPlan {
         Self.stampRenderIdentity(source)
         return RenderPlan(recipe: recipe,
                           asShotKelvin: source.asShotTemperature,
                           asShotTint: source.asShotTint,
-                          // Not `hdr?.whiteTargetPercent`: raising the ceiling to
-                          // 400% and then encoding 8 bits clipped everything above
-                          // diffuse white. See `ExportRecipe.hdrIsWritable`.
-                          displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
+                          // nil — SDR white — for the primary, always: raising the
+                          // ceiling to 400% and then encoding 8 bits clipped everything
+                          // above diffuse white. Only the gain map's HDR rendition
+                          // passes `ExportRecipe.gainMapWhiteTargetPercent` here.
+                          displayWhiteTarget: displayWhiteTarget,
                           lutSize: LUT3D.exportSize,
                           captureISO: source.captureMetadata.iso,
                           softProof: Self.deliveredProof(softProof),
@@ -676,9 +678,14 @@ public final class PipelineRenderer {
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
                                       softProof: softProof)
+        // nil unless the recipe writes a gain map, so every other export reaches
+        // `write` with exactly the arguments it always had.
+        let hdr = try exportedHDRImage(source: source, recipe: recipe,
+                                       using: exportRecipe, strokeSets: strokeSets,
+                                       softProof: softProof)
         try write(image, to: destination, using: exportRecipe,
                   sourceProperties: Self.sourceImageProperties(source.url),
-                  allowOverwrite: allowOverwrite)
+                  allowOverwrite: allowOverwrite, hdrImage: hdr)
         return availability.unavailable
     }
 
@@ -704,6 +711,42 @@ public final class PipelineRenderer {
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
                        softProof: SoftProof? = nil) throws -> CIImage {
+        try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
+                               strokeSets: strokeSets, softProof: softProof,
+                               displayWhiteTarget: nil, dither: true)
+    }
+
+    /// The gain map's HDR rendition, or nil when the recipe writes no map
+    /// (`ExportRecipe.hdrIsWritable`).
+    ///
+    /// The SAME delivery as `exportedImage` — plan, proof, graph, geometry, resize,
+    /// grain, output sharpening, watermark — at `gainMapWhiteTargetPercent` instead of
+    /// SDR white, so the two renditions differ by the display transform's peak and by
+    /// nothing else (docs/11: "they agree by construction"). Anything else that
+    /// differed — a resize, a sharpen — would be encoded into the map as if it were
+    /// highlight headroom. Two deliberate differences, both because this image is never
+    /// quantized by us: no dither (it exists to break 8-bit banding), and no metadata
+    /// (the primary carries the file's).
+    func exportedHDRImage(source: any ImageSource, recipe: Recipe,
+                          using exportRecipe: ExportRecipe,
+                          strokeSets: [String: BrushStrokeSet] = [:],
+                          softProof: SoftProof? = nil) throws -> CIImage? {
+        guard let white = exportRecipe.gainMapWhiteTargetPercent else { return nil }
+        return try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
+                                      strokeSets: strokeSets, softProof: softProof,
+                                      displayWhiteTarget: white, dither: false)
+    }
+
+    /// One delivered rendition: `exportedImage`'s body, parameterized by the display
+    /// white (nil is SDR) and by whether the 8-bit dither runs. The SDR call passes
+    /// `nil, true`, which is the plan and the tail this function had before it took
+    /// either argument.
+    private func deliveredRendition(source: any ImageSource, recipe: Recipe,
+                                    using exportRecipe: ExportRecipe,
+                                    strokeSets: [String: BrushStrokeSet],
+                                    softProof: SoftProof?,
+                                    displayWhiteTarget: Double?,
+                                    dither: Bool) throws -> CIImage {
         // An export is a promise in a way a preview is not, so it refuses rather than
         // delivers.
         //
@@ -726,7 +769,7 @@ public final class PipelineRenderer {
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let plan = exportPlan(source: source, recipe: recipe, using: exportRecipe,
-                              softProof: softProof)
+                              softProof: softProof, displayWhiteTarget: displayWhiteTarget)
 
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -752,7 +795,7 @@ public final class PipelineRenderer {
         // built: the natural shape is for `exportedImage` to take an already-rendered
         // master and apply only geometry, resize, grain, sharpen, watermark and dither
         // — everything from here down. What makes it more than a refactor is that
-        // `RenderPlan` is built from `exportRecipe.renderWhiteTargetPercent`, so two
+        // `RenderPlan` is built from a display white (the gain map renders a second), so two
         // recipes with different HDR white targets do NOT share a master and the
         // sharing has to be keyed on that. It also needs measuring on a Mac before
         // anyone claims a number for it.
@@ -838,8 +881,10 @@ public final class PipelineRenderer {
         }
         // Last, on the output pixel grid: the dither has to be one output CODE wide, and
         // a resample after it would average the pattern away.
-        image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
-                                 bitDepth: exportRecipe.effectiveBitDepth)
+        if dither {
+            image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
+                                     bitDepth: exportRecipe.effectiveBitDepth)
+        }
         return image
     }
 
@@ -930,10 +975,13 @@ public final class PipelineRenderer {
     ///
     /// `softProof` is threaded and delivered through `deliveredProof(_:)` for the same
     /// reason `exportedImage` does it: this is a DELIVERY path, and a delivery path that
-    /// silently renders unproofed is the defect that was found in the one beside it. It
-    /// has no caller today (`ExportRecipe` line 774 records that the gain-map write is
-    /// specified and unbuilt), which is precisely why the argument goes in now — the
-    /// caller that eventually arrives should not have to rediscover this.
+    /// silently renders unproofed is the defect that was found in the one beside it.
+    ///
+    /// The gain-map EXPORT does not come through here: `export` renders its HDR
+    /// rendition with `exportedHDRImage`, which runs the delivery's resize, grain,
+    /// sharpen and watermark too, so the pair the encoder sees differs only by the
+    /// transform's peak. This pair is full-resolution and untailed — the loupe preview's
+    /// reference (`EDRPreviewRenderTests`).
     public func renderHDRPair(source: any ImageSource, recipe: Recipe,
                               settings: HDRSettings,
                               strokeSets: [String: BrushStrokeSet] = [:],
@@ -1174,7 +1222,8 @@ public final class PipelineRenderer {
     private func write(_ image: CIImage, to destination: URL,
                        using recipe: ExportRecipe,
                        sourceProperties: [String: Any]? = nil,
-                       allowOverwrite: Bool = false) throws {
+                       allowOverwrite: Bool = false,
+                       hdrImage: CIImage? = nil) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
@@ -1185,7 +1234,18 @@ public final class PipelineRenderer {
         let quality = Num.clamp(recipe.quality / 100.0, 0, 1)
         let qualityKey = CIImageRepresentationOption(
             rawValue: kCGImageDestinationLossyCompressionQuality as String)
-        let options: [CIImageRepresentationOption: Any] = [qualityKey: quality]
+        var options: [CIImageRepresentationOption: Any] = [qualityKey: quality]
+        // THE GAIN MAP (docs/11 §HDR export). Core Image's `hdrImage` option (macOS 15)
+        // takes the HDR rendition beside the SDR primary being written and computes and
+        // embeds the ISO 21496-1 gain map from the pair — the encoder side of Apple's
+        // "render both renditions, recompute the map on save" strategy. Only the HEIC
+        // and JPEG branches read `options`, and `hdrImage` is nil unless the recipe
+        // writes a map, so every other export hands the encoder the dictionary it
+        // always did. The map's resolution is Core Image's choice: `HDRSettings.mapScale`
+        // has no reader on this path, and the sheet says so.
+        if let hdrImage, recipe.format.supportsGainMap {
+            options[.hdrImage] = hdrImage
+        }
 
         // Every branch writes `prepared`, not `image` — the metadata policy is only
         // applied if the thing carrying it is the thing that gets encoded. And every

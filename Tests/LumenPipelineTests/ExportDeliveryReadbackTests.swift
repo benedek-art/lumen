@@ -65,5 +65,89 @@ final class ExportDeliveryReadbackTests: XCTestCase {
         let files = try FileManager.default.contentsOfDirectory(atPath: root.path)
         XCTAssertFalse(files.contains { $0.hasPrefix(".") }, "a temporary leaked: \(files)")
     }
+
+    // MARK: - Gain-map HDR export (docs/11 §HDR export)
+
+    /// The brightest component of the file decoded the way an HDR-aware reader decodes
+    /// it (`expandToHDR`, extended-linear sRGB — 1.0 is SDR white).
+    private func hdrPeak(_ url: URL) throws -> Float {
+        let image = try XCTUnwrap(CIImage(contentsOf: url, options: [.expandToHDR: true]))
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let extent = image.extent.integral
+        var pixels = [Float](repeating: 0, count: Int(extent.width * extent.height) * 4)
+        CIContext().render(image, toBitmap: &pixels, rowBytes: Int(extent.width) * 16,
+                           bounds: extent, format: .RGBAf, colorSpace: space)
+        var peak: Float = 0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            peak = Swift.max(peak, pixels[i], pixels[i + 1], pixels[i + 2])
+        }
+        return peak
+    }
+
+    /// The primary image, decoded plainly to 8-bit sRGB — what a reader that knows
+    /// nothing about gain maps shows.
+    private func primaryPixels(_ url: URL) throws -> [UInt8] {
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let data = try XCTUnwrap(context.data)
+        let count = image.width * image.height * 4
+        return Array(UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self),
+                                         count: count))
+    }
+
+    /// A gain-map recipe's file carries an ISO 21496-1 gain map, decodes above SDR
+    /// white where the plain export does not, and its primary IS the plain export.
+    ///
+    /// Red before this change on all three: `write` attached no second plane, so the
+    /// auxiliary-data lookup came back nil and the expanded decode peaked at SDR white.
+    func testAGainMapRecipeWritesAnISOGainMapOverTheUnchangedSDRPicture() throws {
+        let (root, source) = try fixture()
+        // +1.5 EV pushes the bright patch well past diffuse white in scene-linear, so
+        // the SDR transform rolls it off and the +2 EV rendition has room to place it.
+        let develop = recipe(exposure: 1.5)
+        for format in [ExportFormat.heif, .jpeg] {
+            let plainURL = root.appendingPathComponent("plain.\(format.fileExtension)")
+            let hdrURL = root.appendingPathComponent("hdr.\(format.fileExtension)")
+            let plain = ExportRecipe(name: "plain", format: format, quality: 100,
+                                     colorSpace: .displayP3, resizeMode: .none)
+            var hdr = plain
+            hdr.hdr = HDRSettings(headroomEV: 2)
+            XCTAssertTrue(hdr.hdrIsWritable)
+            _ = try PipelineRenderer().export(source: source, recipe: develop, to: plainURL,
+                                              using: plain)
+            _ = try PipelineRenderer().export(source: source, recipe: develop, to: hdrURL,
+                                              using: hdr)
+
+            let container = try XCTUnwrap(CGImageSourceCreateWithURL(hdrURL as CFURL, nil))
+            XCTAssertNotNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(
+                container, 0, kCGImageAuxiliaryDataTypeISOGainMap),
+                            "\(format): no ISO 21496-1 gain map in the file")
+            let plainContainer = try XCTUnwrap(CGImageSourceCreateWithURL(plainURL as CFURL,
+                                                                          nil))
+            XCTAssertNil(CGImageSourceCopyAuxiliaryDataInfoAtIndex(
+                plainContainer, 0, kCGImageAuxiliaryDataTypeISOGainMap),
+                         "\(format): a recipe without HDR settings grew a gain map")
+
+            let hdrPeak = try hdrPeak(hdrURL)
+            let plainPeak = try hdrPeak(plainURL)
+            print("GAINMAP \(format) peak hdr=\(hdrPeak) plain=\(plainPeak)")
+            XCTAssertLessThanOrEqual(plainPeak, 1.02, "\(format): the plain file is SDR")
+            XCTAssertGreaterThan(hdrPeak, 1.5,
+                                 "\(format): the gain map adds no headroom above SDR white")
+
+            // The deliberate SDR picture: the primary is the plain export. One code of
+            // slack for the encoder; the HDR rendition must not have leaked into it.
+            let a = try primaryPixels(plainURL), b = try primaryPixels(hdrURL)
+            XCTAssertEqual(a.count, b.count)
+            let worst = zip(a, b).map { abs(Int($0) - Int($1)) }.max() ?? 255
+            XCTAssertLessThanOrEqual(worst, 2,
+                                     "\(format): the primary is not the SDR export")
+        }
+    }
 }
 #endif

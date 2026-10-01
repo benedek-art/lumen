@@ -229,6 +229,10 @@ struct ExportSheet: View {
             parts.append("10-bit")
         }
         parts.append(recipe.colorSpace.displayName)
+        // docs/11's "HDR badge on the recipe row", in this list's prose idiom.
+        if let hdr = recipe.hdr, recipe.hdrIsWritable {
+            parts.append(String(format: "HDR +%.1f EV", hdr.headroomEV))
+        }
         if recipe.resizeMode != .none {
             let unit = recipe.resizeMode == .megapixels ? "MP" : "px"
             parts.append("\(recipe.resizeMode.displayName) "
@@ -1015,8 +1019,9 @@ private struct ExportRecipeEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "HDR gain map")
             LumenToggleRow(title: "Emit gain map", isOn: hdrEnabled,
-                           help: "Schema-reserved. The encoder writes no map yet, and "
-                               + "these settings do not change the exported file.")
+                           help: "Writes an ISO 21496-1 gain map beside the SDR picture, "
+                               + "so HDR displays show the highlights above white and "
+                               + "everything else shows the SDR picture unchanged.")
             if recipe.hdr != nil {
                 LumenSlider(title: "Headroom", value: hdrValue(\.headroomEV),
                             range: 0.5...4, defaultValue: 2, step: 0.1, decimals: 1,
@@ -1029,26 +1034,26 @@ private struct ExportRecipeEditor: View {
                                help: "The SDR rendition is authored, never an automatic tone-map.")
                 ExportNote(hdrExplanation)
             } else {
-                ExportNote("\(recipe.format.rawValue.uppercased()) will be able to "
-                           + "carry a gain map. Today every export is a plain SDR file.")
+                ExportNote("Off: a plain SDR \(recipe.format.rawValue.uppercased()). On, "
+                           + "the same SDR picture carries a gain map.")
             }
         }
     }
 
     /// Says what will happen, not what was designed.
     ///
-    /// This used to report "HDR ceiling 2.0 EV above SDR white; map stored at 25%
-    /// resolution" for a file that had no map in it — and the setting it described was
-    /// actively harmful, because the raised ceiling reached the render and the 8-bit
-    /// encode then clipped everything above diffuse white. The settings are stored so
-    /// nothing migrates when the encoder lands; they no longer touch the render.
+    /// This used to report a map that was not in the file; then, honestly, that none
+    /// was written. Now one is, and the note says the three things a photographer
+    /// needs: the SDR picture is the one they graded, the ceiling is the headroom
+    /// slider, and the map's resolution is Core Image's choice, not the Map size row.
     private var hdrExplanation: String {
         let settings = recipe.hdr ?? HDRSettings()
-        return String(format: "Planned: %.1f EV of headroom above SDR white, map at "
-                      + "%.0f%% resolution. Not written yet — this export is a plain "
-                      + "SDR file either way, and turning this on no longer changes "
-                      + "its pixels.",
-                      settings.headroomEV, settings.mapScale * 100)
+        return String(format: "The file's main picture is the SDR export, pixel for pixel; "
+                      + "the gain map carries the HDR rendition, %.1f EV above SDR white — "
+                      + "what View ▸ HDR Preview shows on a display with that headroom. "
+                      + "Core Image chooses the map's resolution, so Map size is stored "
+                      + "but not applied.",
+                      settings.headroomEV)
     }
 
     private var hdrEnabled: Binding<Bool> {
