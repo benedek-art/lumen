@@ -281,12 +281,13 @@ extension AppState {
         // file anyway. Reading here blocks for a few tens of kilobytes per component;
         // the alternative is a delivered file with the photographer's masking missing
         // and nothing to say so.
-        let jobs = targets.map { photo -> (url: URL, recipe: Recipe,
-                                           strokes: [String: BrushStrokeSet],
-                                           refusal: String?) in
+        let jobs = targets.enumerated().map { index, photo
+            -> (url: URL, photo: PhotoItem, index: Int, recipe: Recipe,
+                strokes: [String: BrushStrokeSet], refusal: String?) in
             let r = recipe(for: photo)
             let resolved = resolveStrokeSets(for: r)
-            return (url: photo.id, recipe: r, strokes: resolved.sets,
+            return (url: photo.id, photo: photo, index: index, recipe: r,
+                    strokes: resolved.sets,
                     refusal: BrushStrokes.refusal(unresolved: resolved.unresolved))
         }
         isExporting = true
@@ -342,10 +343,17 @@ extension AppState {
                     }
                     continue
                 }
+                // Read once per PHOTO, not per recipe: every recipe of one frame shares
+                // its date, body and sequence number.
+                let naming = Self.namingContext(for: job.photo, source: job.url,
+                                                recipeName: "", sequence: job.index)
                 for exportRecipe in active {
+                    var recipeNaming = naming
+                    recipeNaming.recipeName = exportRecipe.name
+                    recipeNaming.sequence = exportRecipe.sequenceNumber(forPhotoAt: job.index)
                     let wanted = Self.destination(directory: directory,
-                                                  source: job.url,
-                                                  recipe: exportRecipe)
+                                                  recipe: exportRecipe,
+                                                  naming: recipeNaming)
                     let destination = ExportRecipe.disambiguated(wanted) { candidate in
                         claimed.contains(candidate)
                             || FileManager.default.fileExists(atPath: candidate.path)
@@ -442,7 +450,8 @@ extension AppState {
         }
     }
 
-    static func destination(directory: URL, source: URL, recipe: ExportRecipe) -> URL {
+    static func destination(directory: URL, recipe: ExportRecipe,
+                            naming: ExportNamingContext) -> URL {
         var folder = directory
         // Sanitizing lives in LumenCore so the export sheet's preview can call the same
         // function — it used to build its own path by concatenation, and so disagreed
@@ -451,40 +460,42 @@ extension AppState {
         for component in ExportRecipe.sanitizedSubfolderComponents(recipe.subfolder) {
             folder = folder.appendingPathComponent(component, isDirectory: true)
         }
-        let base = renderFilename(template: recipe.filenameTemplate, source: source,
-                                  recipeName: recipe.name)
+        let base = renderFilename(template: recipe.filenameTemplate, naming: naming)
         return folder.appendingPathComponent(base)
             .appendingPathExtension(recipe.format.fileExtension)
     }
 
-    /// The token grammar shared with the ingest renamer. An unknown token is left
-    /// alone rather than silently deleted — a filename that still shows `{whatever}`
-    /// tells the user what went wrong.
-    static func renderFilename(template: String, source: URL, recipeName: String) -> String {
-        let name = source.deletingPathExtension().lastPathComponent
-        var out = template.isEmpty ? "{name}" : template
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let attributes = try? FileManager.default.attributesOfItem(atPath: source.path)
-        let date = (attributes?[.creationDate] as? Date) ?? Date()
+    /// The export filename grammar — `ExportNaming.render`, which guards what the
+    /// template RENDERED (J3-02: an empty result puts the extension on the folder) and
+    /// leaves an unknown token visible. Both callers, the exporter and the sheet's
+    /// preview, come through here so the preview is the name that gets written.
+    static func renderFilename(template: String, naming: ExportNamingContext) -> String {
+        ExportNaming.render(template: template, context: naming)
+    }
 
-        out = out.replacingOccurrences(of: "{name}", with: name)
-        out = out.replacingOccurrences(of: "{date}", with: formatter.string(from: date))
-        out = out.replacingOccurrences(of: "{recipe}", with: recipeName)
-        out = out.replacingOccurrences(of: "{ext}", with: source.pathExtension)
-        // Filesystem-hostile characters never reach a path.
-        let rendered = out.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-        // AND NEITHER DOES AN EMPTY RESULT. The guard above is on the literal template;
-        // this one is on what the template RENDERED, which is a different question and
-        // the one that reaches the filesystem. `{recipe}` with a cleared recipe name
-        // renders nothing, and a nothing appended to the delivery folder puts the
-        // extension on the FOLDER — the whole batch written beside it as one file.
-        // Falling back to the source's own name is what the empty-template branch above
-        // already does; this applies the same answer to the same question one step later.
-        return RenameTemplate.usableBasename(rendered)
-            ?? RenameTemplate.usableBasename(name)
-            ?? "Untitled"
+    /// What the naming tokens read for one photo, from the file itself.
+    ///
+    /// The capture date is the camera's wall clock from EXIF (J3-05: `{date}` used to
+    /// be the file's creation date — the day the card was copied — while the ingest
+    /// renamer's `{date}` is the capture date). The creation date stays as the fallback,
+    /// read the way it always was, so a file with no EXIF names exactly as before.
+    /// Camera, lens and ISO come off the same metadata read; rating and label are the
+    /// catalog's, through `PhotoItem`.
+    static func namingContext(for photo: PhotoItem?, source: URL, recipeName: String,
+                              sequence: Int) -> ExportNamingContext {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: source.path)
+        let created = (attributes?[.creationDate] as? Date) ?? Date()
+        let fileDate = Calendar.current.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second], from: created)
+        let metadata = CaptureMetadataReader.read(url: source)
+        return ExportNamingContext(
+            source: source, recipeName: recipeName,
+            captureDate: CaptureMetadataReader.captureWallClock(url: source),
+            fileDate: fileDate,
+            camera: metadata?.camera, lens: metadata?.lens,
+            iso: metadata?.iso ?? photo?.iso,
+            rating: photo.map(\.rating), label: photo?.label?.displayName,
+            sequence: sequence)
     }
 
     func chooseExportDestination() {

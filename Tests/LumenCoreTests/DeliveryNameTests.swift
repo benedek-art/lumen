@@ -70,14 +70,25 @@ final class DeliveryNameTests: XCTestCase {
 
     // MARK: - The export path has to use it
 
+    /// The rule now lives in `ExportNaming.render` (LumenCore), so it is asserted on the
+    /// function itself: a template that renders empty falls back to the source's name.
+    func testAnEmptyRenderingFallsBackToTheSourceName() {
+        let context = ExportNamingContext(source: URL(fileURLWithPath: "/x/DSC_0001.NEF"),
+                                          recipeName: "")
+        XCTAssertEqual(ExportNaming.render(template: "{recipe}", context: context),
+                       "DSC_0001")
+        XCTAssertEqual(ExportNaming.render(template: "  ", context: context), "DSC_0001")
+        XCTAssertEqual(ExportNaming.render(template: "..", context: context), "DSC_0001")
+    }
+
     /// `AppState.renderFilename` is in LumenApp, which has no test target that runs
     /// here, so this reads it as text — comments stripped, because a doc comment naming
     /// the symbol would let this test pass its own substitution proof.
     func testTheExportNameGoesThroughTheRule() throws {
         let source = Self.strippingComments(try Self.appSource("AppStateActions.swift"))
-        XCTAssertTrue(source.contains("RenameTemplate.usableBasename("),
-                      "renderFilename must guard what the template RENDERED, not just "
-                      + "the literal template")
+        XCTAssertTrue(source.contains("ExportNaming.render("),
+                      "renderFilename must render through ExportNaming, which guards what "
+                      + "the template RENDERED, not just the literal template")
         // Both callers — the exporter and the sheet's preview — go through
         // `renderFilename`, so guarding it once is what keeps the preview honest about
         // what will actually be written.

@@ -502,15 +502,14 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     public var metadata: MetadataPolicy
     public var watermark: Watermark?
 
-    /// Tokens implemented today, by `AppState.renderFilename`: {name} {date} {recipe}
-    /// {ext} — and the sheet's Naming note lists exactly these. This used to claim a
-    /// grammar "shared with the ingest renamer" including {seq:N} {time} {camera}
-    /// {lens} {iso}; the ingest renamer (`RenameTemplate`) is a separate
-    /// implementation with its own token set, and none of those five is read by the
-    /// export path. An unknown token stays visible in the delivered name rather than
-    /// being silently dropped.
+    /// Rendered by `ExportNaming.render`, whose `knownTokens` is the list and whose
+    /// header says which spellings it shares with the ingest renamer. An unknown token
+    /// stays visible in the delivered name rather than being silently dropped.
     public var filenameTemplate: String
     public var subfolder: String?
+    /// What `{seq}` counts from (docs/11 §Naming: 1…999999). The first photo of the
+    /// batch is this number; a template with no sequence token never reads it.
+    public var sequenceStart: Int
 
     /// HDR: emit a gain map alongside the SDR base rendition.
     public var hdr: HDRSettings?
@@ -527,6 +526,7 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
                 metadata: MetadataPolicy = MetadataPolicy(),
                 watermark: Watermark? = nil,
                 filenameTemplate: String = "{name}", subfolder: String? = nil,
+                sequenceStart: Int = 1,
                 hdr: HDRSettings? = nil) {
         self.id = id
         self.name = name
@@ -544,6 +544,7 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.watermark = watermark
         self.filenameTemplate = filenameTemplate
         self.subfolder = subfolder
+        self.sequenceStart = sequenceStart
         self.hdr = hdr
     }
 
@@ -600,7 +601,16 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         filenameTemplate = c.tolerant(String.self, forKey: .filenameTemplate,
                                       default: fallback.filenameTemplate)
         subfolder = c.tolerant(String.self, forKey: .subfolder)
+        sequenceStart = c.tolerant(Int.self, forKey: .sequenceStart,
+                                   default: fallback.sequenceStart)
         hdr = c.tolerant(HDRSettings.self, forKey: .hdr)
+    }
+
+    /// The `{seq}` value for the photo at 0-based `index` in the batch — the start
+    /// clamped to the range the sheet offers, so a stored 0 or a negative start cannot
+    /// render `-001`.
+    public func sequenceNumber(forPhotoAt index: Int) -> Int {
+        Swift.min(Swift.max(sequenceStart, 1), 999_999) + Swift.max(index, 0)
     }
 
     /// The depth the encoder will actually use.

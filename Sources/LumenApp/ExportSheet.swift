@@ -239,6 +239,8 @@ struct ExportSheet: View {
         if let id = selectedRecipeID, state.exportRecipes.contains(where: { $0.id == id }) {
             ExportRecipeEditor(recipe: recipeBinding(id: id),
                                previewSource: previewSourceURL,
+                               previewPhoto: targetPhotos.first,
+                               batchCount: targetPhotos.count,
                                previewIsPlaceholder: targetPhotos.isEmpty)
         } else {
             VStack(spacing: 6) {
@@ -522,6 +524,9 @@ private struct ExportRecipeRow: View {
 private struct ExportRecipeEditor: View {
     @Binding var recipe: ExportRecipe
     let previewSource: URL
+    let previewPhoto: PhotoItem?
+    /// How many photos the run will name — what the collapse warning counts.
+    let batchCount: Int
     let previewIsPlaceholder: Bool
 
     var body: some View {
@@ -808,6 +813,12 @@ private struct ExportRecipeEditor: View {
                 ExportTextEntry(text: optionalText(\.subfolder), placeholder: "none",
                                 monospaced: true)
             }
+            if usesSequence {
+                LumenSlider(title: "Start at", value: sequenceStartBinding,
+                            range: 1...9999, hardRange: 1...999_999, defaultValue: 1,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "The first photo of the batch gets this {seq} number.")
+            }
             ExportFieldRow("Preview") {
                 Text(filenamePreview)
                     .font(.lumenNumeric)
@@ -815,8 +826,40 @@ private struct ExportRecipeEditor: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let warning = namingWarning {
+                // The contact error's treatment: accent caption under the field it is
+                // about, so the warning is read before the run rather than discovered in
+                // the delivered folder (J3-08).
+                Text(warning)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ExportNote(namingNote)
         }
+    }
+
+    private var usesSequence: Bool { ExportNaming.usesSequence(recipe.filenameTemplate) }
+
+    private var sequenceStartBinding: Binding<Double> {
+        let recipe = self.$recipe
+        return Binding(get: { Double(recipe.wrappedValue.sequenceStart) },
+                       set: { recipe.wrappedValue.sequenceStart = Int($0.rounded()) })
+    }
+
+    /// Unknown tokens first — they are certain — then a template that cannot tell the
+    /// photos of a batch apart.
+    private var namingWarning: String? {
+        let unknown = ExportNaming.unknownTokens(in: recipe.filenameTemplate)
+        if !unknown.isEmpty {
+            return "Not a token: " + unknown.map { "{" + $0 + "}" }.joined(separator: " ")
+                + " — it will appear in the file name as typed."
+        }
+        if batchCount > 1, !ExportNaming.identifiesEachPhoto(recipe.filenameTemplate) {
+            return "This name has no {name} or {seq}, so the \(batchCount) photos can share "
+                + "it; any that do are told apart only by -1, -2 … in selection order."
+        }
+        return nil
     }
 
     private var namingNote: String {
@@ -826,15 +869,19 @@ private struct ExportRecipeEditor: View {
         } else {
             note = "Preview is the real name for " + previewSource.lastPathComponent + ". "
         }
-        note += "Tokens implemented today: {name} {date} {recipe} {ext}. Anything else stays "
-        note += "visible in the name rather than being silently dropped, so a typo shows up "
-        note += "here instead of in the delivered folder."
+        note += "Tokens: " + ExportNaming.documentedTokens.joined(separator: " ") + ". "
+        note += "{date} and {time} are when the shutter fired, falling back to the file's "
+        note += "creation date; {seq} counts the batch from Start at, four digits wide "
+        note += "({seq:N} for N). Anything else stays visible in the name rather than being "
+        note += "silently dropped, so a typo shows up here instead of in the delivered folder."
         return note
     }
 
     private var filenamePreview: String {
-        let base = AppState.renderFilename(template: recipe.filenameTemplate,
-                                           source: previewSource, recipeName: recipe.name)
+        let naming = AppState.namingContext(
+            for: previewPhoto, source: previewSource, recipeName: recipe.name,
+            sequence: recipe.sequenceNumber(forPhotoAt: 0))
+        let base = AppState.renderFilename(template: recipe.filenameTemplate, naming: naming)
         let file = base + "." + recipe.format.fileExtension
         // Through the same sanitizer the exporter uses. Concatenating the raw string
         // here meant the preview showed `../../secrets/x.jpg` for a subfolder the
