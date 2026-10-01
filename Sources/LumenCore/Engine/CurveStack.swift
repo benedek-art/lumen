@@ -40,6 +40,10 @@ public struct CurveStack: Sendable {
     /// from 10.1 ms to 2.6 ms.
     private let parametricIsIdentity: Bool
 
+    /// Where the luma curve puts black: `f(0)` on the encoded axis, zero for a curve
+    /// that does not lift it. Decided once, because it picks the branch in `apply`.
+    private let lumaBlack: Double
+
     public init(_ set: CurveSet, encoding: TransferFunction = .srgb) {
         self.set = set
         self.encoding = encoding
@@ -47,7 +51,9 @@ public struct CurveStack: Sendable {
         self.parametric = baked
         self.parametricIsIdentity = baked.isIdentity()
         self.point = set.point.map { MonotoneCubic(points: $0) }
-        self.luma = set.luma.map { MonotoneCubic(points: $0) }
+        let luma = set.luma.map { MonotoneCubic(points: $0) }
+        self.luma = luma
+        self.lumaBlack = luma.map { Num.saturate($0.evaluate(0)) } ?? 0
         self.rCurve = set.r.map { MonotoneCubic(points: $0) }
         self.gCurve = set.g.map { MonotoneCubic(points: $0) }
         self.bCurve = set.b.map { MonotoneCubic(points: $0) }
@@ -289,7 +295,10 @@ public struct CurveStack: Sendable {
 
         if luma != nil {
             let lum = Num.saturate(space.luminance(e))
-            if lum > 1e-6 {
+            if lumaBlack > 0 {
+                e = CurveStack.liftedLuma(e, luminance: lum, black: lumaBlack,
+                                          curve: lumaCurve)
+            } else if lum > 1e-6 {
                 e = e * (lumaCurve(lum) / lum)
             }
         }
@@ -301,6 +310,42 @@ public struct CurveStack: Sendable {
         }
 
         return encoding.decode(e.clamped(0, 1)) * w
+    }
+
+    /// The luma curve for a curve that LIFTS BLACK (AI-04), on the encoded axis.
+    ///
+    /// The luma stage is `e · f(L) / L`: curve the luminance, carry the chroma ratios.
+    /// With `f(0) = b > 0` that ratio has no value at L = 0 and grows without bound
+    /// beside it. The stage used to skip `L ≤ 1e-6`, so black stayed black while a
+    /// pixel 1e−7 above it jumped to the plotted lift — the graph's endpoint honoured
+    /// everywhere except AT the endpoint. And next to black `b / L` is enormous, so a
+    /// dark blue corner of the finish cube came out a saturated blue; Core Image's
+    /// trilinear `CIColorCube` mixes that corner with its red and green neighbours on
+    /// the diagonal, and a NEUTRAL near-black rendered `[.027, .006, .067]` — purple.
+    ///
+    /// The limit: below the lift, black is lifted with GREY. The neutral form
+    /// `e · (f(L) − b) / L + b` adds `b` to every channel and applies only the curve's
+    /// remaining rise as a ratio; that ratio tends to the curve's slope at 0, so the
+    /// form is continuous into black, where it is exactly `(b, b, b)`. Its luminance is
+    /// `f(L)` — the weights sum to one — so it is still a luma curve, and on a neutral
+    /// it equals the ratio form exactly.
+    ///
+    /// It takes over only BELOW the lift. From `L = b` up, the ratio's gain is bounded
+    /// (about `1 + f′`), and there the old ratio form runs unchanged; between 0 and `b`
+    /// the two are blended with a smoothstep in `L / b`, so the hand-over is C¹ and a
+    /// curve that does not lift black never reaches this function at all.
+    static func liftedLuma(_ e: RGB, luminance lum: Double, black b: Double,
+                           curve f: (Double) -> Double) -> RGB {
+        let floor = 1e-6
+        let l = Swift.max(lum, floor)
+        let fl = f(l)
+        let neutral = e * ((fl - b) / l) + RGB(b, b, b)
+        guard lum > floor else { return neutral }
+        let ratio = e * (fl / l)
+        let t = Num.saturate(lum / b)
+        let w = t * t * (3 - 2 * t)
+        guard w < 1 else { return ratio }
+        return neutral.mix(ratio, w)
     }
 
     /// Per-channel 1-D LUTs on the encoded axis — the upload the GPU stage wants when
