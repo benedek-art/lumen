@@ -24,6 +24,28 @@ final class AuditSafetyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: destination), prefix, "Do not destroy the existing partial file")
     }
 
+    /// REL-02's ownership tag is the only LumenCore half of that repair, and nothing on
+    /// the Linux lane exercised it: write, splice, re-seed and read it back.
+    func testSidecarOwnershipSurvivesSerializeSpliceAndReseed() throws {
+        let written = XMPSidecar.serialize(SidecarContent(rating: 2, writeStamp: "2026-10-01T00:00:00Z",
+                                                          sourceExtension: "dng"))
+        XCTAssertEqual(XMPSidecar.parse(written)?.sourceExtension, "dng")
+        var fresh = try XCTUnwrap(XMPSidecar.parse(written))
+        // A batch that states its own owner replaces the old one exactly once.
+        let restated = XMPSidecar.reseed(SidecarContent(rating: 3, sourceExtension: "nef"),
+                                         fields: [.rating], onto: fresh)
+        let spliced = try XCTUnwrap(XMPSidecar.update(written, with: restated))
+        XCTAssertEqual(XMPSidecar.parse(spliced)?.sourceExtension, "nef")
+        XCTAssertEqual(spliced.components(separatedBy: "<lumen:sourceExtension>").count, 2)
+        // A batch silent on ownership keeps the document's.
+        fresh.sourceExtension = "dng"
+        XCTAssertEqual(XMPSidecar.reseed(SidecarContent(rating: 4), fields: [.rating],
+                                         onto: fresh).sourceExtension, "dng")
+        // Case written by another tool still compares as an extension.
+        let upper = written.replacingOccurrences(of: ">dng<", with: ">DNG<")
+        XCTAssertEqual(XMPSidecar.parse(upper)?.sourceExtension, "dng")
+    }
+
     #if canImport(SQLite3)
     func testPartialScanCannotRelocateAnUnseenTwinOrRemoveAlbumMembership() throws {
         let root = try scratch()
@@ -72,6 +94,60 @@ final class AuditSafetyTests: XCTestCase {
         let result = CatalogStore.recoverIfNeeded(path: path, backupDirectory: backups.path)
         guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected older complete snapshot") }
         XCTAssertEqual(chosen, old.path, "A database without its brush is not a usable snapshot")
+    }
+
+    /// A newer snapshot whose brush exists only as damaged bytes, plus an older complete
+    /// one. Builds a real content-addressed payload so the hash check is what decides.
+    private func brushSnapshots(backupBytes: (Data) -> Data) throws
+        -> (path: String, backups: URL, old: URL, newer: URL, live: URL, payload: Data) {
+        let root = try scratch()
+        let path = root.appendingPathComponent("lumen.db").path
+        let backups = root.appendingPathComponent("backups")
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let blobs = try BlobStore(directory: root.appendingPathComponent("blobs"))
+        let set = BrushStrokeSet(strokes: [BrushStroke(points: [BrushPoint(x: 0.2, y: 0.4),
+                                                                BrushPoint(x: 0.7, y: 0.5)])])
+        let ref = try blobs.store(set)
+        let live = try XCTUnwrap(blobs.url(for: ref))
+        let payload = try Data(contentsOf: live)
+        let store = try CatalogStore(path: path, cachePath: root.appendingPathComponent("cache.db").path)
+        let folder = try store.registerFolder(path: root.path)
+        let id = try store.upsertPhoto(PhotoRow(folderID: folder, filename: "frame.jpg", rating: 1))
+        let old = backups.appendingPathComponent("lumen-2026-09-20T12-00-00Z.db")
+        try store.backup(to: old.path)
+        var brush = MaskComponent(op: .add, kind: .brush)
+        brush.strokesRef = ref
+        var recipe = Recipe()
+        recipe.masks = [Mask(id: "paint", name: "Paint", components: [brush])]
+        try store.saveRecipe(recipe, photoID: id, isCurrent: true)
+        let newer = backups.appendingPathComponent("lumen-2026-09-21T12-00-00Z.db")
+        try store.backup(to: newer.path)
+        store.close()
+        let newerBlobs = newer.deletingPathExtension().appendingPathExtension("blobs")
+        try FileManager.default.createDirectory(at: newerBlobs, withIntermediateDirectories: true)
+        try backupBytes(payload).write(to: newerBlobs.appendingPathComponent(live.lastPathComponent))
+        // The live copy is lost along with the database.
+        try FileManager.default.removeItem(at: live)
+        try Data("damaged isolated catalog".utf8).write(to: URL(fileURLWithPath: path))
+        return (path, backups, old, newer, live, payload)
+    }
+
+    func testRecoveryRejectsSnapshotWhoseOnlyBrushCopyIsCorrupt() throws {
+        let fixture = try brushSnapshots { _ in Data("not the painting".utf8) }
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected older complete snapshot") }
+        XCTAssertEqual(chosen, fixture.old.path, "Bytes that do not hash to the reference are not the brush")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.live.path),
+                       "Damaged backup bytes must not be published as the live brush")
+    }
+
+    func testRecoveryRestoresTheLiveBrushFromTheChosenSnapshot() throws {
+        let fixture = try brushSnapshots { $0 }
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected newest snapshot") }
+        XCTAssertEqual(chosen, fixture.newer.path)
+        XCTAssertEqual(try Data(contentsOf: fixture.live), fixture.payload,
+                       "The restored catalog's painting must exist where the live store reads it")
     }
 
     func testReadOnlyIntegrityProbeCannotCreateMissingBackups() throws {
