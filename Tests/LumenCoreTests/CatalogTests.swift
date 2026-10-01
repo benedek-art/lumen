@@ -235,22 +235,22 @@ final class CatalogTests: XCTestCase {
         let (_, ids) = try seed(store, count: 1)
         guard let photo = ids.first else { return XCTFail("no photo") }
 
-        var carried = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        var carried = Recipe(pipelineVersion: supportedPipelineVersion + 1)
         carried.develop.tone.exposure = 1.25
         try store.saveRecipe(carried, photoID: photo, isCurrent: true)
 
         let reopened = try XCTUnwrap(try store.currentRecipe(photoID: photo))
-        XCTAssertEqual(reopened.pipelineVersion, currentPipelineVersion,
+        XCTAssertEqual(reopened.pipelineVersion, supportedPipelineVersion,
                        "the row's column was clamped and its text was not, so the next "
                            + "open reads the newer number back out of the bytes")
         XCTAssertEqual(reopened.develop.tone.exposure, 1.25,
                        "the clamp must change the stamp and nothing else")
         let working = try XCTUnwrap(try store.edits(photoID: photo)
             .first(where: { $0.kind == .working }))
-        XCTAssertTrue(working.recipeJSON.contains("\"pipelineVersion\":\(currentPipelineVersion)"),
+        XCTAssertTrue(working.recipeJSON.contains("\"pipelineVersion\":\(supportedPipelineVersion)"),
                       "stored text: \(working.recipeJSON)")
         XCTAssertFalse(working.recipeJSON.contains(
-            "\"pipelineVersion\":\(currentPipelineVersion + 1)"))
+            "\"pipelineVersion\":\(supportedPipelineVersion + 1)"))
 
         // An OLDER recipe keeps its own age in the text as well as the column.
         if currentPipelineVersion > 1 {
