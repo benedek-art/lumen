@@ -754,15 +754,21 @@ struct ColorPanel: View {
     /// that "the spread between them is preserved".
     ///
     /// `GroupMove.allowed` stops the SET when the first member reaches the rail, so the
-    /// move is a rigid translation: every difference inside the set survives it exactly,
-    /// and dragging back restores the set bit for bit. The rule and its properties live
-    /// in LumenCore, where they are tested; the panel does not restate them.
+    /// move is a rigid translation: every difference inside the set survives it, and
+    /// dragging back restores the set — to round-off, with zero restored exactly so the
+    /// Reset dot clears (S-06). Both halves read the set through `GroupMove.legal`, so
+    /// the number shown and the set moved agree even for an out-of-range sidecar. The
+    /// rule and its properties live in LumenCore, where they are tested; the panel does
+    /// not restate them.
     private func mixerBinding(_ component: MixerComponent) -> Binding<Double> {
         Binding(
             get: {
                 let bands = ColorPanel.normalizedBands(state.currentRecipe.develop.mixer.bands)
                 if allBands {
-                    return GroupMove.mean(bands.map { component.value($0) })
+                    // The mean of the LEGAL set, which is where `moved` starts from —
+                    // so a sidecar band at 150 shows the value the drag will move.
+                    return GroupMove.mean(GroupMove.legal(bands.map { component.value($0) },
+                                                          lower: -100, upper: 100))
                 }
                 let i = min(max(selectedBand, 0), bands.count - 1)
                 return component.value(bands[i])
@@ -774,7 +780,8 @@ struct ColorPanel: View {
                 state.updateRecipe(coalescingKey: key) { recipe in
                     var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
                     if everything {
-                        let values = bands.map { component.value($0) }
+                        let values = GroupMove.legal(bands.map { component.value($0) },
+                                                     lower: -100, upper: 100)
                         let moved = GroupMove.moved(values,
                                                     by: newValue - GroupMove.mean(values),
                                                     lower: -100, upper: 100)

@@ -289,6 +289,23 @@ public enum CurveEditing {
         "\(prefix)\(channel).point.\(index)"
     }
 
+    /// The coalescing key a point DELETION records under: none (S-05).
+    ///
+    /// It was `<prefix>delete.<channel>.<index>`, and the index is not an identity for
+    /// a deletion the way it is for a drag. Deleting point 1 shifts point 2 into slot
+    /// 1, so two ⌥-clicks on the same spot inside the coalescing window removed two
+    /// different points under ONE key, and ⌘Z brought both back. A drag holds one
+    /// index for its life; a deletion is over the moment it lands, and no later edit
+    /// is "more of the same deletion". A deletion is a discrete action, so it carries
+    /// no key, and `HistoryCoalescing` never folds a keyless edit into the open step
+    /// except by gesture epoch — which is the drag-out-to-delete case, one gesture
+    /// that already holds the point it removes. Mask deletion records the same way.
+    public static let deletionCoalescingKey: String? = nil
+
+    /// What the Edit menu and the history list call a point deletion. A keyless step
+    /// has no key to derive a name from, so it has to be named here.
+    public static let deletionLabel = "Delete Point"
+
     // MARK: - Readout
 
     /// The in/out readout, in percent of the encoded axis (docs/04 §7.1's coordinate
