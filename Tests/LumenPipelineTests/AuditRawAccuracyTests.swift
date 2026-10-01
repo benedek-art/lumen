@@ -373,6 +373,8 @@ final class AuditRawAccuracyTests: XCTestCase {
     private func oracle(_ url: URL, source: AppleRawSource, version: Int?, scale: Float)
         throws -> (image: CIImage, context: CIContext)? {
         guard let filter = CIRAWFilter(imageURL: url) else { return nil }
+        // Read before any scaled decode: RAW9 can rewrite `nativeSize` afterwards.
+        let openedNativeSize = filter.nativeSize
         if let version {
             filter.decoderVersion = try XCTUnwrap(filter.supportedDecoderVersions.first {
                 RawParams.decoderNumber($0.rawValue) == version
@@ -393,7 +395,11 @@ final class AuditRawAccuracyTests: XCTestCase {
         filter.luminanceNoiseReductionAmount = 0
         filter.colorNoiseReductionAmount = 0
         filter.isLensCorrectionEnabled = false
-        guard let image = filter.outputImage else { return nil }
+        // R-2: an outputImage with a null extent from a file opened at 0 x 0 (the
+        // corpus's X3F) is the platform forming NO image, which Lumen must refuse too.
+        guard let image = filter.outputImage,
+              RawDecodeAcceptance.accepts(extent: image.extent,
+                                          nativeSize: openedNativeSize) else { return nil }
         return (image,
                 AppleRawSource.needsRaw9Boundary(filter.decoderVersion) ? raw9Context : legacyOracleContext)
     }

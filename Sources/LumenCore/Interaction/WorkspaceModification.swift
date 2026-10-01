@@ -134,8 +134,15 @@ extension WorkspaceSection {
         // recipe differs from its defaults, and a dot that ignored it would leave the
         // section's Reset unoffered with a moved slider on screen — the sibling of the
         // grain omission this clause was already convicted of.
+        // Heal SPOTS are not an Effects edit and do not light this dot: the Effects
+        // panel has no spot controls, so a dot it could not explain — and a Reset beside
+        // it that silently deleted every spot on the photograph — would be the panel
+        // lying about what it holds. Spots are removed with ⌫ in the Heal tool, or by the
+        // whole-photo Reset. The reserved painted-heal fields keep their old membership.
+        var healSansSpots = develop.heal
+        healSansSpots.spots = []
         if look.vignette != 0 || look.vignetteFeather != Look.vignetteFeatherDefault
-            || develop.heal != Heal() || grainIsModified {
+            || healSansSpots != Heal() || grainIsModified {
             out.insert(.effects)
         }
 
@@ -150,9 +157,10 @@ extension WorkspaceSection {
 
         // The Display Transform is parked in Looks pending a section of its own (see
         // `Workspace.swift`, which leaves canonical rank 3 free for it), so a changed
-        // render lights the section it is actually drawn in. The stored-but-unapplied
-        // LUT counts too: it is a thing the photographer set, and a dot that ignored it
-        // would be the panel disagreeing with the sidecar.
+        // render lights the section it is actually drawn in. A creative LUT counts too —
+        // its rows are drawn in Looks (`LookPanel.lutSection`) — and it counts whenever
+        // one is set, even at Amount 0: it is a thing the photographer set, and a dot
+        // that ignored it would be the panel disagreeing with the sidecar.
         if look.render != (renderDefault ?? RenderParams()) || look.lut != nil {
             out.insert(.looks)
         }
@@ -255,7 +263,8 @@ extension WorkspaceSection {
         case .effects:
             recipe.look.vignette = 0
             recipe.look.vignetteFeather = Look.vignetteFeatherDefault
-            recipe.develop.heal = Heal()
+            // Spots survive an Effects reset — see `nonDefault`.
+            recipe.develop.heal = Heal(spots: recipe.develop.heal.spots)
             // The creative grain goes back to its own defaults — Amount 0, Size and
             // Roughness at their middles — and it goes back whether or not it is the
             // grain currently on screen. A Reset that cleared only the visible half

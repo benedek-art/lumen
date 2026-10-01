@@ -129,24 +129,6 @@ final class LookPanelPrecisionTests: XCTestCase {
     }
 
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2) }
-                else { index = source.index(after: index) }
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }

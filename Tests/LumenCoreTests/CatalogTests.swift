@@ -131,11 +131,11 @@ final class CatalogTests: XCTestCase {
         // `currentPipelineVersion`; this one now clamps what it writes to its own
         // (K-020), precisely so a carried-forward future version cannot be re-stamped,
         // so calling `saveRecipe` with a v+1 recipe no longer simulates a newer writer.
-        var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        var newer = Recipe(pipelineVersion: supportedPipelineVersion + 1)
         newer.develop.tone.exposure = 2.0
         try store.saveRecipe(newer, photoID: photo, isCurrent: true)
         try store.debugExecute(
-            "UPDATE edit SET pipeline_version = \(currentPipelineVersion + 1) "
+            "UPDATE edit SET pipeline_version = \(supportedPipelineVersion + 1) "
             + "WHERE photo_id = \(photo);")
         let newerFP = try RecipeFingerprint.fingerprint(newer)
 
@@ -150,7 +150,7 @@ final class CatalogTests: XCTestCase {
         guard let preserved = edits.first(where: { $0.kind == .version }) else {
             return XCTFail("no preserved version row: \(edits.map(\.kind))")
         }
-        XCTAssertEqual(preserved.pipelineVersion, currentPipelineVersion + 1)
+        XCTAssertEqual(preserved.pipelineVersion, supportedPipelineVersion + 1)
         XCTAssertEqual(preserved.recipeFP, newerFP,
                        "the preserved row's recipe is not the newer build's bytes")
         XCTAssertFalse(preserved.isCurrent)
@@ -182,11 +182,11 @@ final class CatalogTests: XCTestCase {
         let (_, ids) = try seed(store, count: 1)
         guard let photo = ids.first else { return XCTFail("no photo") }
 
-        var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        var newer = Recipe(pipelineVersion: supportedPipelineVersion + 1)
         newer.develop.tone.exposure = 2.0
         try store.saveRecipe(newer, photoID: photo, isCurrent: true)
         try store.debugExecute(
-            "UPDATE edit SET pipeline_version = \(currentPipelineVersion + 1) "
+            "UPDATE edit SET pipeline_version = \(supportedPipelineVersion + 1) "
             + "WHERE photo_id = \(photo);")
         let newerFP = try RecipeFingerprint.fingerprint(newer)
 
@@ -211,7 +211,7 @@ final class CatalogTests: XCTestCase {
         guard let working = edits.first(where: { $0.kind == .working }) else {
             return XCTFail("no fresh working row")
         }
-        XCTAssertEqual(working.pipelineVersion, currentPipelineVersion,
+        XCTAssertEqual(working.pipelineVersion, supportedPipelineVersion,
                        "this build wrote a row claiming a version it does not implement")
 
         var again = carried
@@ -220,6 +220,46 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(try store.edits(photoID: photo).count, 2,
                        "a second edit made another version row — the working row is "
                        + "demoting itself every time it is saved")
+        store.close()
+    }
+
+    /// THE TEXT OF THIS BUILD'S ROW SAYS WHAT ITS COLUMN SAYS (M-02).
+    ///
+    /// The test above pins the `pipeline_version` COLUMN. `currentRecipe` reads the
+    /// TEXT, and the text was serialized from the recipe as handed in — still carrying
+    /// the newer number — so the column said N and the text said N+1, and the next open
+    /// handed the app a recipe claiming N+1 again: every later save and sidecar flush
+    /// for that photograph re-stamped a version this build does not implement.
+    func testThisBuildsRowDoesNotCarryANewerVersionInItsText() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 1)
+        guard let photo = ids.first else { return XCTFail("no photo") }
+
+        var carried = Recipe(pipelineVersion: supportedPipelineVersion + 1)
+        carried.develop.tone.exposure = 1.25
+        try store.saveRecipe(carried, photoID: photo, isCurrent: true)
+
+        let reopened = try XCTUnwrap(try store.currentRecipe(photoID: photo))
+        XCTAssertEqual(reopened.pipelineVersion, supportedPipelineVersion,
+                       "the row's column was clamped and its text was not, so the next "
+                           + "open reads the newer number back out of the bytes")
+        XCTAssertEqual(reopened.develop.tone.exposure, 1.25,
+                       "the clamp must change the stamp and nothing else")
+        let working = try XCTUnwrap(try store.edits(photoID: photo)
+            .first(where: { $0.kind == .working }))
+        XCTAssertTrue(working.recipeJSON.contains("\"pipelineVersion\":\(supportedPipelineVersion)"),
+                      "stored text: \(working.recipeJSON)")
+        XCTAssertFalse(working.recipeJSON.contains(
+            "\"pipelineVersion\":\(supportedPipelineVersion + 1)"))
+
+        // An OLDER recipe keeps its own age in the text as well as the column.
+        if currentPipelineVersion > 1 {
+            var older = Recipe(pipelineVersion: currentPipelineVersion - 1)
+            older.develop.tone.exposure = 0.5
+            try store.saveRecipe(older, photoID: photo, isCurrent: true)
+            XCTAssertEqual(try store.currentRecipe(photoID: photo)?.pipelineVersion,
+                           currentPipelineVersion - 1)
+        }
         store.close()
     }
 
@@ -518,6 +558,7 @@ final class CatalogTests: XCTestCase {
         let matched = try store.photos(matching: disjoint, folderID: folderID).map(\.id)
         XCTAssertEqual(Set(matched), Set([ids[0], ids[3], ids[2]]),
                        "disjoint ISO bands did not stay disjoint")
+        XCTAssertEqual(matched.count, 3, "an OR of two bands returned a photo twice")
         XCTAssertFalse(matched.contains(ids[1]),
                        "ISO 6400 sits in the gap between the two lit bands and was "
                            + "returned anyway — the bands were collapsed to their span")
@@ -693,8 +734,8 @@ final class CatalogTests: XCTestCase {
                                (photoID: ids[2], metadata: PhotoMetadata(camera: "Leica Q3"))])
         var leica = PhotoQuery()
         leica.text = "leica"
-        XCTAssertEqual(Set(try store.photos(matching: leica, folderID: folderID).map(\.id)),
-                       Set([ids[1], ids[2]]),
+        XCTAssertEqual(try store.photos(matching: leica, folderID: folderID).map(\.id).sorted(),
+                       [ids[1], ids[2]].sorted(),
                        "the batch metadata writer left the text index behind")
 
         // And the row it replaced must be gone: re-indexing has to be a replace, not

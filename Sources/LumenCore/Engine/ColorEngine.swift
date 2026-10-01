@@ -1403,15 +1403,25 @@ public struct ColorEngine: Sendable {
         // than a discontinuity that was removed.
         //
         // So the hue is rotated from where the blend put it TOWARD the source hue by
-        // the gate's weight: identical to the full restore above `gateHiChroma`, exactly
-        // nothing below `gateLoChroma`, and smooth in between. `hueDelta` takes the
-        // short way round, so the interpolation crosses the 0/360 seam correctly rather
-        // than travelling the long way when the two hues straddle it.
+        // a weight that is 1 from `gateLoChroma` up, eases to 0 at chroma 0, and is
+        // smooth throughout. `hueDelta` takes the short way round, so the
+        // interpolation crosses the 0/360 seam correctly rather than travelling the
+        // long way when the two hues straddle it.
+        //
+        // THE WEIGHT USED TO BE `chromaGate` ITSELF, which only opens fully at
+        // `gateHiChroma` (0.06) — and 0.02…0.06 is not "near-neutral". It is every
+        // coloured surface a few stops under mid-grey, because OKLab chroma falls with
+        // the cube root of exposure. On `tonalColourWedge` at the SHIPPED Density the
+        // turn survived there at 3.05° for Saturation +50 and 6.03° for +100, and
+        // 12.94° at Density 100 (September audit B1-05). The fade now lives entirely
+        // below 0.02, where the proof metric and `HuePreservationTests` stop calling
+        // an angle a hue, and `testTheColourTableConverges` still passes at all three
+        // lattice sizes with the steeper ease.
         let source = context.toLCh(mid)
         let out = context.toLCh(blended)
         guard source.h.isFinite, out.h.isFinite,
               out.L.isFinite, out.C.isFinite else { return blended }
-        let weight = Self.chromaGate(source.C)
+        let weight = Num.smoothstep(0, Self.gateLoChroma, source.C)
         guard weight > 0 else { return blended }
         let hue = Num.wrapHue(out.h + Num.hueDelta(out.h, source.h) * weight)
         let held = context.toRGB(OKLCh(L: out.L, C: out.C, h: hue))

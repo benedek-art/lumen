@@ -100,12 +100,10 @@
 // whoever touched the file last. It is written down here instead.
 //
 // Nothing in the Look subtree is conditional here — a look carries the whole struct,
-// `lut` included. That is deliberate on two counts. `Recipe.renderIdentity` strips
-// `look.lut` because no stage reads it, and that projection is about which recipes
-// render the same picture; which fields a photographer's saved look remembers is a
-// different question with a different answer. And a LUT is the most look-shaped thing
-// there is, so the day a LUT stage lands, looks carry it with no change here and no
-// second dead-field decision to unwind.
+// `lut` included. A LUT is the most look-shaped thing there is; since its stage landed
+// (`CreativeLUTStage`) a saved look carrying one renders it, and the look's Amount
+// dials the LUT's own Amount (`blendedLUT`). The cube's bytes stay in the catalog's
+// blob store under the content-hash ref the look names.
 //
 // HOW MUCH OF IT LANDS — `amount`, and why it is a property of the LOOK rather than of
 // the photograph.
@@ -277,6 +275,30 @@ public struct LookSubset: Codable, Equatable, Sendable {
         out.grain = CreativeGrain.normalized(
             LookSubset.blendedGrain(from: own.grain, toward: carried.grain, t: t))
         out.render = LookSubset.blendedRender(from: own.render, toward: carried.render, t: t)
+        out.lut = LookSubset.blendedLUT(from: own.lut, toward: carried.lut, t: t)
+        return out
+    }
+
+    /// A creative LUT, part of the way — through its Amount, the one number it has.
+    ///
+    /// Two cubes cannot be interpolated, so WHICH cube is categorical like a stock's
+    /// name: the look's, whole. What fades is how much of it lands, which is the
+    /// sentence the panel's Amount tooltip already makes about the film stock ("arrive
+    /// whole and this dials their strength"). Same cube on both sides: the Amounts walk.
+    /// A different cube, or none here: the look's at its own Amount × t. No cube in the
+    /// look: this frame's own fades out, the creative grain's rule one helper up.
+    static func blendedLUT(from own: LUTReference?, toward carried: LUTReference?,
+                           t: Double) -> LUTReference? {
+        guard var out = carried else {
+            guard var fading = own else { return nil }
+            fading.amount = Num.mix(fading.amount, 0, t)
+            return fading
+        }
+        if let own, own.ref == out.ref, own.tap == out.tap {
+            out.amount = Num.mix(own.amount, out.amount, t)
+        } else {
+            out.amount = Num.mix(0, out.amount, t)
+        }
         return out
     }
 

@@ -480,41 +480,55 @@ extension KeyGrammarTests {
     /// modifier at child indent (`.keyboardShortcut` after a multi-line Button) starts
     /// with `.` and is skipped. Still not a parser — a text rule that matches how this
     /// file is actually indented, with a floor assertion so silent non-scanning fails.
+    ///
+    /// And `ForEach(…) {` / `ForEach(…) { value in` too, in EVERY file that declares
+    /// `: Commands`, not one spelled path (G3-05): the Photo menu's rating `ForEach` is
+    /// a builder block under the same ten-child rule and the opener did not match it,
+    /// and commands moved to a second file would have left the floor assertions passing
+    /// on the file that stayed behind.
     func testEveryMenuBuilderBlockStaysUnderTenChildren() throws {
-        let file = Self.repositoryRoot
-            .appendingPathComponent("Sources/LumenApp/LumenApp.swift")
-        let text = try String(contentsOf: file, encoding: .utf8)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
+        let files = Self.appSources.filter {
+            ((try? String(contentsOf: $0, encoding: .utf8)) ?? "").contains(": Commands")
+        }
+        XCTAssertFalse(files.isEmpty, "no file declares `: Commands`, so nothing is scanned")
 
         func indent(of line: String) -> Int {
             line.prefix(while: { $0 == " " }).count
         }
         let opener = try NSRegularExpression(
-            pattern: #"^\s*(Group|CommandMenu\(.*\)|CommandGroup\(.*\))\s*\{\s*$"#)
+            pattern: #"^\s*(Group|ForEach\(.*\)|CommandMenu\(.*\)|CommandGroup\(.*\))"#
+                + #"\s*\{\s*(\w+\s+in\s*)?$"#)
 
-        var blocks: [(line: Int, children: Int)] = []
-        for (i, line) in lines.enumerated() {
-            let range = NSRange(line.startIndex..., in: line)
-            guard opener.firstMatch(in: line, range: range) != nil else { continue }
-            let base = indent(of: line)
-            var children = 0
-            for follower in lines[(i + 1)...] {
-                let trimmed = follower.trimmingCharacters(in: .whitespaces)
-                if trimmed.isEmpty { continue }
-                let level = indent(of: follower)
-                if level <= base {
-                    break                       // the block closed (its `}` or beyond)
+        var blocks: [(file: String, line: Int, children: Int, forEach: Bool)] = []
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            for (i, line) in lines.enumerated() {
+                let range = NSRange(line.startIndex..., in: line)
+                guard opener.firstMatch(in: line, range: range) != nil else { continue }
+                let base = indent(of: line)
+                var children = 0
+                for follower in lines[(i + 1)...] {
+                    let trimmed = follower.trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty { continue }
+                    let level = indent(of: follower)
+                    if level <= base {
+                        break                       // the block closed (its `}` or beyond)
+                    }
+                    guard level == base + 4 else { continue }
+                    guard let first = trimmed.first else { continue }
+                    if first == "." || first == "}" || first == ")" || first == "#" { continue }
+                    if trimmed.hasPrefix("//") { continue }
+                    children += 1
                 }
-                guard level == base + 4 else { continue }
-                guard let first = trimmed.first else { continue }
-                if first == "." || first == "}" || first == ")" || first == "#" { continue }
-                if trimmed.hasPrefix("//") { continue }
-                children += 1
+                blocks.append((file.lastPathComponent, i + 1, children,
+                               line.trimmingCharacters(in: .whitespaces).hasPrefix("ForEach(")))
             }
-            blocks.append((i + 1, children))
         }
 
+        XCTAssertTrue(blocks.contains { $0.forEach },
+                      "no `ForEach` builder block was matched, so the opener cannot see them")
         XCTAssertGreaterThanOrEqual(blocks.count, 5,
                                     "the scanner found almost no builder blocks, so it "
                                         + "is not scanning")
@@ -523,7 +537,7 @@ extension KeyGrammarTests {
                                         + "counter is under-counting")
         for block in blocks {
             XCTAssertLessThanOrEqual(block.children, 10,
-                                     "the builder block at LumenApp.swift:\(block.line) "
+                                     "the builder block at \(block.file):\(block.line) "
                                          + "has \(block.children) children; the limit "
                                          + "is ten and the compiler will only say "
                                          + "'buildExpression' is unavailable. Split it "

@@ -68,6 +68,17 @@ final class AuditControlContractTests: XCTestCase {
             XCTAssertTrue(row.contains(".disabled(!halationSupported)"), title)
         }
         XCTAssertTrue(panel.contains("This stock has no halation response."))
+        // NEW-V5-2: the caption is about a KNOWN stock. An unknown one leaves
+        // `halationSupported` false too, and told the user that stock "has no halation
+        // response" above the caption saying the build does not ship it at all.
+        let beforeCaption = try XCTUnwrap(
+            panel.components(separatedBy: "Text(\"This stock has no halation response.\")")
+                .first)
+        let gate = try XCTUnwrap(beforeCaption.components(separatedBy: "\n")
+            .last(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("if ") }))
+        XCTAssertEqual(gate.trimmingCharacters(in: .whitespaces),
+                       "if stock != nil && !halationSupported {",
+                       "the no-halation caption is not gated on a known stock")
     }
 }
 #endif

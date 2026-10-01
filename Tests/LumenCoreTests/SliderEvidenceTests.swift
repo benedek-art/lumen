@@ -78,6 +78,7 @@ final class SliderEvidenceTests: XCTestCase {
         "geometry.reset": "section reset button",
         "geometry.revert": "action — revert geometry",
         "look.grain.reset": "section reset button",
+        "look.lut.tap": "segmented picker — the LUT's declared space, display or log",
         "look.vignette.reset": "section reset button",
         "mask.name.*": "text field — the mask's name",
         "mask.wb.unit.*": "picker — relative or absolute white balance",
@@ -246,6 +247,13 @@ final class SliderEvidenceTests: XCTestCase {
         "look.vignetteFeather": .contract(
             "VignetteResponseTests.testFeatherMovesTheDeliveredStrengthTwelvefold — a "
                 + "contract, not a sweep: no authority floor and no monotonicity check."),
+        // The creative LUT's Amount has no sweep record: a sweep needs a cube in the
+        // proof frame's recipe, and the 135 committed records were left untouched on
+        // purpose when the stage landed. What pins it is a contract on both renderers.
+        "look.lut.amount": .contract(
+            "CreativeLUTTests.testAmountBlendsAgainstTheInput and "
+                + "CreativeLUTParityTests (macOS) — Amount is a linear blend against the "
+                + "stage input, identical on CPU and GPU; a contract, not a sweep."),
         "look.grain.amount": .record(["look.grain.amount"]),
         "look.grain.size": .record(["look.grain.size"]),
         "look.grain.roughness": .record(["look.grain.roughness"]),

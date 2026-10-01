@@ -25,9 +25,42 @@ import Foundation
 /// reader would render as black and white. The version is what tells the two apart.
 public let currentPipelineVersion = 2
 
+/// The newest recipe vocabulary this build can READ, RENDER AND WRITE BACK without loss.
+///
+/// 3 — `develop.heal.spots` (circular Heal and Clone spots, docs/09). Kept apart from
+/// `currentPipelineVersion` on purpose, and the separation is what makes this bump cost
+/// nothing for a photograph that has no spots:
+///
+///   · `currentPipelineVersion` is what a document STATES when it uses nothing newer —
+///     the stamp on `Recipe()`, the sidecar's default, every cache key that carries a
+///     version. It does not move, so no fixture, no `recipe_fp` and no cached artifact
+///     changes on the day this ships, and an older build keeps full write access to
+///     every photograph without spots.
+///   · A recipe that HAS spots states `healSpotsPipelineVersion` (`Recipe
+///     .statedVersion`). That is the number the M-01 newer-build guards compare, so an
+///     older build — whose decoder would drop the `spots` key and then flush the reduced
+///     recipe back over the sidecar and the catalog row — declines to write the recipe
+///     and preserves the document instead (`XMPSidecar.writableFields`,
+///     `CatalogStore.saveRecipe`).
+///   · Every such guard in THIS build compares against this constant, because the
+///     question it asks is "can this build represent the document", and a version-3
+///     document is one this build can.
+public let supportedPipelineVersion = 3
+
+/// The version a recipe carrying heal spots states. A build older than this reads it as
+/// "newer than me" and refuses to overwrite it.
+public let healSpotsPipelineVersion = 3
+
 public struct Recipe: Codable, Equatable, Sendable {
     public var pipelineVersion: Int
-    public var develop: Develop
+    /// The stated version is raised HERE, on the property, and not at each place a spot
+    /// can be added — Paste Settings, an undo target, the heal tool and any writer added
+    /// later all reach the spots through `develop`, and a version bump that has to be
+    /// remembered at every call site is one that will be forgotten at one of them.
+    /// Forgetting it is silent data loss on an older build.
+    public var develop: Develop {
+        didSet { pipelineVersion = Recipe.statedVersion(pipelineVersion, develop: develop) }
+    }
     public var look: Look
     public var masks: [Mask]
     /// The folders masks can sit in. Order is the panel's order; a mask names one by id.
@@ -40,11 +73,22 @@ public struct Recipe: Codable, Equatable, Sendable {
         masks: [Mask] = [],
         maskGroups: [MaskGroup] = []
     ) {
-        self.pipelineVersion = pipelineVersion
+        self.pipelineVersion = Recipe.statedVersion(pipelineVersion, develop: develop)
         self.develop = develop
         self.look = look
         self.masks = masks
         self.maskGroups = maskGroups
+    }
+
+    /// The version a recipe must state given what it carries: never lower than the
+    /// version whose vocabulary it uses, and never lowered from what it already says.
+    ///
+    /// Raise-only: a newer document's own number is carried forward untouched (K-020),
+    /// and a recipe without spots keeps exactly what it said, so nothing about a
+    /// spot-less photograph moves.
+    public static func statedVersion(_ version: Int, develop: Develop) -> Int {
+        guard !develop.heal.spots.isEmpty else { return version }
+        return Swift.max(version, healSpotsPipelineVersion)
     }
 
     /// This recipe with `source`'s masks and folders APPENDED.
@@ -220,32 +264,31 @@ public struct Recipe: Codable, Equatable, Sendable {
         // must not be handed a different `recipe_fp`, which would throw away every
         // cached preview of that photograph to produce identical bytes.
         if copy.look.grain?.isIdentity == true { copy.look.grain = nil }
-        // `look.lut` goes the same way, for a blunter reason: NO STAGE READS IT.
-        // `LUTReference` round-trips through the recipe, the sidecar and the catalog,
-        // and there is no reader on any path — not `RenderGraph`, not `export`, not the
-        // reference renderer. `LUT3D.fromCubeFile` exists and has only test callers.
+        // `look.lut` IS RENDERED NOW (`CreativeLUTStage`), so it is hashed: a LUT that
+        // renders but is not hashed is a cache that hands back the previous picture
+        // when Amount moves. This line used to strip the field outright, because no
+        // stage read it; the stage and the removal of the strip landed together, as the
+        // note here asked.
         //
-        // So two recipes differing only in a LUT render the same picture, and this
-        // projection is defined as "what actually reaches a pixel". Leaving it in meant
-        // a hand-edited sidecar carrying `look.lut` got a different `recipe_fp`, threw
-        // away every cached preview and artifact for that photo, re-rendered the frame,
-        // and produced identical bytes — and the library called it edited.
-        //
-        // WHEN A LUT STAGE IS BUILT, DELETE THIS LINE IN THE SAME COMMIT. A LUT that
-        // renders but is not hashed is the mirror defect: the user drags Amount and the
-        // cache hands back the previous picture.
-        // `testALookCarryingALUTRendersTheSamePictureAsOneWithout` fails the moment this
-        // line is wrong in either direction, and says which.
-        copy.look.lut = nil
-        // `develop.heal` is the SAME situation and is deliberately handled the other
-        // way: nothing writes it, nothing reads it, and it is left in this projection so
-        // that it busts the cache on the day a heal stage lands. Both choices are safe
-        // and the divergence is not an oversight, but it would read as one, so: the
-        // tripwire above is the better of the two patterns and heal should adopt it when
-        // somebody is next in that code. Leaving a dead field in costs a cache miss
-        // every time a sidecar happens to carry it, forever, to buy protection against a
-        // mistake on a day that may never come — where a test that fails the moment the
-        // stage lands buys the same protection and costs nothing until then.
+        // What is still stripped is what still reaches no pixel. A reference with no
+        // ref, or with Amount at or below zero, resolves to no stage on either path, so
+        // it is the same picture as no LUT and gets the same `recipe_fp`. The NAME is a
+        // label — renaming a LUT must not re-render 45 megapixels — so it is blanked the
+        // way a mask's name is. `CanonicalJSONTests` pins all three.
+        if let lut = copy.look.lut {
+            if lut.ref.isEmpty || !(lut.amount > 0) {
+                copy.look.lut = nil
+            } else {
+                copy.look.lut?.name = ""
+            }
+        }
+        // `develop.heal` STAYS, and since the S5 retouch stage landed that is no
+        // longer a tripwire but a requirement: `heal.spots` is read by both renderers
+        // (`SpotRetouch`, `RenderGraph.applySpots`), so a spot moved or added must move
+        // `recipe_fp`, or the cache hands back the picture from before the spot.
+        // `strokesRef`/`count` are still unread — the painted-heal half is not built —
+        // and ride along in the projection at the cost of a miss when a sidecar
+        // happens to carry them.
         return copy
     }
 
@@ -262,6 +305,12 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// stray `??` from stamping today's number onto every old recipe in the catalog.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // The version is READ, never raised here, spots or not: a decoder reports what
+        // the document says (RecipeDecoding.swift's rule, which
+        // `RecipeCodecToleranceTests` enforces). Every writer this build owns states
+        // the spots' version because the edit that adds a spot raises it
+        // (`develop`'s observer); only a hand-made document can carry spots under an
+        // older number, and its first develop edit here corrects it.
         self.pipelineVersion = try c.decodeIfPresent(Int.self, forKey: .pipelineVersion)
             ?? currentPipelineVersion
         self.develop = try c.decodeIfPresent(Develop.self, forKey: .develop) ?? Develop()
@@ -542,6 +591,47 @@ public struct Zones: Codable, Equatable, Sendable {
             / (ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV)
     }
 
+    /// The pivot list a decoded file is allowed to hand the tone engine (M-03).
+    ///
+    /// `RecipeWire.fixedLength` pads a short array from the defaults' tail, which is
+    /// right for arrays whose positions are independent and wrong for this one: its
+    /// ORDER is its meaning, and `ToneEngine` accepted it on count alone. A trimmed
+    /// `{"pivots":[0.9]}` became `[0.9, 0.5, 0.64, 0.79, 0.93]` and every scene value
+    /// below +3.6 EV crossfaded into Darks — the Mids slider moved and mid-grey did not.
+    ///
+    ///   · padded and still strictly ascending — a real partial answer, kept, which is
+    ///     the padding contract `RecipeCodecToleranceTests` pins;
+    ///   · padded into a list that does NOT ascend — nobody wrote it, so the defaults
+    ///     whole;
+    ///   · the right length but out of order or touching — a list somebody did write,
+    ///     so repaired rather than discarded: saturated, sorted, and pushed apart by the
+    ///     same 0.02 gap `ZonesPanel` draws and drags with, so the panel's repair is
+    ///     the identity on whatever this returns and the strip and the picture agree.
+    ///
+    /// Identity on every ascending list, so no recipe this app wrote moves a pixel.
+    public static func decodedPivots(_ decoded: [Double]?) -> [Double] {
+        let defaults = defaultPivots
+        guard let decoded else { return defaults }
+        let filled = RecipeWire.fixedLength(decoded, default: defaults)
+        if Self.strictlyAscending(filled) { return filled }
+        guard decoded.count == defaults.count,
+              decoded.allSatisfy({ $0.isFinite }) else { return defaults }
+        var out = decoded.map { Num.saturate($0) }.sorted()
+        for i in 1..<out.count where out[i] <= out[i - 1] {
+            out[i] = Swift.min(out[i - 1] + Self.minimumPivotGap, 1)
+        }
+        return Self.strictlyAscending(out) ? out : defaults
+    }
+
+    /// `ZonesPanel.minimumGap`'s value: `ZoneWeights` divides by the gap between two
+    /// bounding pivots, so two pivots may not coincide.
+    static let minimumPivotGap: Double = 0.02
+
+    private static func strictlyAscending(_ pivots: [Double]) -> Bool {
+        guard pivots.allSatisfy({ $0.isFinite }) else { return false }
+        return zip(pivots, pivots.dropFirst()).allSatisfy { $0 < $1 }
+    }
+
     public init(pivots: [Double] = Zones.defaultPivots,
                 dark: ZoneAdjust = ZoneAdjust(), shadow: ZoneAdjust = ZoneAdjust(),
                 mid: ZoneAdjust = ZoneAdjust(), light: ZoneAdjust = ZoneAdjust(),
@@ -563,9 +653,8 @@ public struct Zones: Codable, Equatable, Sendable {
     /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.pivots = RecipeWire.fixedLength(
-            try c.decodeIfPresent([Double].self, forKey: .pivots),
-            default: Zones.defaultPivots)
+        self.pivots = Zones.decodedPivots(
+            try c.decodeIfPresent([Double].self, forKey: .pivots))
         self.dark = try c.decodeIfPresent(ZoneAdjust.self, forKey: .dark) ?? ZoneAdjust()
         self.shadow = try c.decodeIfPresent(ZoneAdjust.self, forKey: .shadow)
             ?? ZoneAdjust()
@@ -1482,18 +1571,29 @@ public struct Defringe: Codable, Equatable, Sendable {
     }
 }
 
-/// Heal/clone stroke vectors live in content-addressed blobs (docs/15 §15.4 rule 4).
+/// Retouching: Heal and Clone (docs/09 §Heal / Clone, docs/14 S5).
+///
+/// Two storage forms, for two shapes of data. Painted heal STROKES are vectors that can
+/// run to thousands of points, so they belong in content-addressed blobs (docs/15 §15.4
+/// rule 4) — `strokesRef` and `count`, reserved and not yet written by anything. A
+/// circular SPOT is seven numbers, smaller than the blob reference that would point at
+/// it, so spots live inline: they ride the recipe JSON into the catalog row, the
+/// fingerprint and the `.xmp` with no second persistence path to keep in step.
 public struct Heal: Codable, Equatable, Sendable {
     public var strokesRef: String?  // "blob:xxh64:<hash>"
     public var count: Int
+    /// Applied in order, each reading the picture the previous ones left — so a spot can
+    /// borrow from an area an earlier spot already cleaned, as LR's spot list composes.
+    public var spots: [HealSpot]
 
-    public init(strokesRef: String? = nil, count: Int = 0) {
+    public init(strokesRef: String? = nil, count: Int = 0, spots: [HealSpot] = []) {
         self.strokesRef = strokesRef
         self.count = count
+        self.spots = spots
     }
 
     private enum CodingKeys: String, CodingKey {
-        case strokesRef, count
+        case strokesRef, count, spots
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
@@ -1502,5 +1602,102 @@ public struct Heal: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.strokesRef = try c.decodeIfPresent(String.self, forKey: .strokesRef)
         self.count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        self.spots = try c.decodeIfPresent([HealSpot].self, forKey: .spots) ?? []
+    }
+
+    /// Written out rather than synthesized for ONE reason: an empty spot list is
+    /// omitted, the way a nil optional is. Synthesized, `Recipe()`'s full tree would gain
+    /// `"spots":[]` — a change to `default-recipe.json`, the format's own fixture, for a
+    /// key that says nothing. Omitted, every recipe without spots encodes to exactly the
+    /// bytes it did before this field existed, so no `recipe_fp` moves.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(strokesRef, forKey: .strokesRef)
+        try c.encode(count, forKey: .count)
+        if !spots.isEmpty { try c.encode(spots, forKey: .spots) }
+    }
+}
+
+/// What a spot does with the pixels it borrows.
+///
+/// An unknown case from a later build (docs/09's third mode, Remove) fails to decode,
+/// deliberately — RecipeDecoding.swift's rule for enums: a spot that silently became a
+/// different kind of spot renders a picture nobody asked for. The version guard is what
+/// keeps an older build from writing over such a document.
+public enum HealMode: String, Codable, Sendable, CaseIterable {
+    /// Borrow the source patch's texture and re-light it to the destination's boundary:
+    /// the gradient-domain (Poisson) solution, in closed form (`SpotRetouch`).
+    case heal
+    /// Copy the source patch's pixels exactly.
+    case clone
+}
+
+/// One circular Heal or Clone spot.
+///
+/// RESOLUTION INDEPENDENT. Positions are fractions of the SOURCE frame (x of its width,
+/// y of its height, y running down — the mask components' convention), and the radius
+/// is a fraction of the source LONG EDGE, so a circle stays a circle on any aspect ratio
+/// and the same spot lands on the same content at a 1024 px draft and a full-size
+/// export. Source coordinates, before geometry (docs/09's invariant): a crop or a
+/// rotation never moves a spot off the blemish it was put on.
+public struct HealSpot: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var mode: HealMode
+    /// Destination centre.
+    public var x: Double
+    public var y: Double
+    /// Source centre — where the pixels are borrowed from.
+    public var sourceX: Double
+    public var sourceY: Double
+    /// Fraction of the source long edge.
+    public var radius: Double
+    /// 0…100: how much of the radius is the soft edge.
+    public var feather: Double
+    /// 0…100.
+    public var opacity: Double
+
+    public static let defaultRadius: Double = 0.01
+    public static let defaultFeather: Double = 50
+    public static let defaultOpacity: Double = 100
+    /// The radius range the renderer honours; anything outside is clamped at render.
+    public static let radiusRange: ClosedRange<Double> = 0.0005...0.25
+
+    public init(id: String = UUID().uuidString, mode: HealMode = .heal,
+                x: Double, y: Double, sourceX: Double, sourceY: Double,
+                radius: Double = HealSpot.defaultRadius,
+                feather: Double = HealSpot.defaultFeather,
+                opacity: Double = HealSpot.defaultOpacity) {
+        self.id = id
+        self.mode = mode
+        self.x = x
+        self.y = y
+        self.sourceX = sourceX
+        self.sourceY = sourceY
+        self.radius = radius
+        self.feather = feather
+        self.opacity = opacity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, mode, x, y, sourceX, sourceY, radius, feather, opacity
+    }
+
+    /// Tolerant of absent keys, per RecipeDecoding.swift: each falls back to a
+    /// constant, never to another field — the frame's centre for a position, the
+    /// statics above for the rest.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        self.mode = try c.decodeIfPresent(HealMode.self, forKey: .mode) ?? .heal
+        self.x = try c.decodeIfPresent(Double.self, forKey: .x) ?? 0.5
+        self.y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0.5
+        self.sourceX = try c.decodeIfPresent(Double.self, forKey: .sourceX) ?? 0.5
+        self.sourceY = try c.decodeIfPresent(Double.self, forKey: .sourceY) ?? 0.5
+        self.radius = try c.decodeIfPresent(Double.self, forKey: .radius)
+            ?? HealSpot.defaultRadius
+        self.feather = try c.decodeIfPresent(Double.self, forKey: .feather)
+            ?? HealSpot.defaultFeather
+        self.opacity = try c.decodeIfPresent(Double.self, forKey: .opacity)
+            ?? HealSpot.defaultOpacity
     }
 }

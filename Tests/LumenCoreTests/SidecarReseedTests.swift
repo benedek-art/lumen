@@ -155,35 +155,7 @@ final class SidecarReseedTests: XCTestCase {
     /// both learned this the same way: a text-scanning test whose own explanation
     /// contains the symbol it scans for passes when the code is gone.
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") {
-                    inBlock = false
-                    index = source.index(index, offsetBy: 2)
-                } else {
-                    index = source.index(after: index)
-                }
-                continue
-            }
-            if rest.hasPrefix("/*") {
-                inBlock = true
-                index = source.index(index, offsetBy: 2)
-                continue
-            }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" {
-                    index = source.index(after: index)
-                }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }
 
@@ -203,7 +175,7 @@ final class SidecarReseedTests: XCTestCase {
 final class SidecarNewerFormatTests: XCTestCase {
 
     func testThisBuildDeclinesToStateARecipeItCannotRepresent() {
-        let newer = currentPipelineVersion + 1
+        let newer = supportedPipelineVersion + 1
         let all: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes]
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: newer),
                        [.rating, .flag, .label, .strokes],
@@ -212,7 +184,7 @@ final class SidecarNewerFormatTests: XCTestCase {
 
     func testAnOlderOrEqualDocumentIsWrittenNormally() {
         let all: SidecarStatedFields = [.rating, .recipe]
-        XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: currentPipelineVersion),
+        XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: supportedPipelineVersion),
                        all, "this build's own format is not a newer one")
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: 1), all,
                        "and an OLDER document is exactly what this build is for")
@@ -222,7 +194,7 @@ final class SidecarNewerFormatTests: XCTestCase {
     /// downgrade this pins is the real one: a recipe decoded by this build, reduced to
     /// the keys it knows, on its way back to a file that had more.
     func testANewerBuildsRecipeSurvivesARatingKeystroke() throws {
-        let newer = currentPipelineVersion + 1
+        let newer = supportedPipelineVersion + 1
         let theirs = XMPSidecar.serialize(
             SidecarContent(rating: 0, flag: .none, label: nil,
                            pipelineVersion: newer,

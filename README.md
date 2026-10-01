@@ -36,10 +36,10 @@ What is built, by phase:
 | 2 — Catalog + culling | SQLite catalog with migrations, folder scan, the full bare-key culling grammar, filter/sort in SQL, preview cache with direction-aware prefetch, recipes in both the catalog and XMP sidecars. |
 | 3 — Develop engine | The whole stack: CAT16 white balance, the six-slider tone contract on an edge-aware guided mask, THE display transform, curves, presence off one decomposition, capture and creative sharpening, crop, deterministic Auto, history and snapshots. |
 | 4 — Masking | Component stacks with add/subtract/intersect, every geometric and range component rasterized, the refine chain, local adjustments including the local curve and local wheels Lightroom lacks. AI components await models. |
-| 5 — Denoise | Profiled VST + wavelet classical NR, the cached AI-splice model, ISO-adaptive defaults, tiling. Runs in the reference implementation; the GPU path still rides Apple's decode-stage NR. |
+| 5 — Denoise | Profiled VST + wavelet classical NR, the cached AI-splice model, ISO-adaptive defaults, tiling. Classical NR runs on the GPU in the interactive and export renders (`RenderGraph.applyDenoise`, golden-tested against the reference; a view decoded below `contributingNoiseScale` skips it, since the downsample already averaged the noise away); Apple's decode-stage NR is off under Off and Classic and drives only the AI mode's stand-in until a model ships. |
 | 6 — Colour depth | Eight-band mixer, point colour, three-way wheels with visible pivots, printer lights in twelfths of a stop, primaries, B&W — all in an H-K-aware perceptual model. |
 | 7 — Film Lab, output, HDR | Six stocks with real characteristic curves, halation and density-domain grain; multi-recipe export; ISO 21496-1 gain-map maths. The HDR *viewport* is not built. |
-| 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Heal and AI culling assists are not built. |
+| 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Heal and Clone spots (circular, auto-sourced, `Q`) are built as a first slice — brushed heal, Remove and dust removal are not; AI culling assists are not built. |
 
 The owner has run it on a Mac four times (2026-08-23 ×2, and sessions A and B on
 2026-08-26) against his own RAW folders, recorded in `docs/audit/`, docs/19 and

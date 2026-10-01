@@ -278,7 +278,7 @@ struct ColorPanel: View {
                          },
                          onResetArc: { resetArc(index) })
 
-            MixerBandRibbon(weights: ColorPanel.ribbonWeights(arcs),
+            MixerBandRibbon(weights: ColorPanel.ribbon(arcs),
                             colors: ColorPanel.bandSwatchColors,
                             selected: index,
                             allBands: allBands)
@@ -400,7 +400,12 @@ struct ColorPanel: View {
                     .background(
                         RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                             .fill(pickIsArmed ? Lumen.fillColor.opacity(0.35) : Color.clear))
-                    .disabled(!pickIsArmed && swatches.count >= ColorPanel.maxSwatches)
+                    // Dead with no photograph, like the mixer's pill below (B3-09): the
+                    // pick resolves only on the loupe's photograph, so arming it with
+                    // none left "Click the colour to work on." on screen with nothing
+                    // to click. An ARMED button stays live — pressing it is the cancel.
+                    .disabled(!pickIsArmed && (swatches.count >= ColorPanel.maxSwatches
+                                               || state.primarySelection == nil))
                     .lumenClickCursor()
                     .help(pickHelp)
 
@@ -574,7 +579,8 @@ struct ColorPanel: View {
             state.cancelPick()
             return
         }
-        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches
+        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches,
+              state.primarySelection != nil
         else { return }
         state.beginPick(.newPointColor)
     }
@@ -1032,6 +1038,19 @@ struct ColorPanel: View {
         return out
     }
 
+    /// `ribbonWeights`, remembered against the arcs it was computed from (B3-04).
+    ///
+    /// Still a function of the live arcs — a handle move is a new key and recomputes —
+    /// but the panel re-bodies on EVERY mouse event of ANY slider drag in the column
+    /// (`EditRevision`), and the arcs move only when a ring handle does. Without this an
+    /// Exposure drag with the Colour section open paid 97 membership evaluations per
+    /// event to redraw a ribbon that had not changed.
+    static let ribbonMemo = LastValueMemo<[ColorEngine.BandArc], [[Double]]>()
+
+    static func ribbon(_ arcs: [ColorEngine.BandArc]) -> [[Double]] {
+        ribbonMemo.value(for: arcs, compute: ribbonWeights)
+    }
+
     /// Two finite values from a wire array that a decoded file could have made anything.
     static func pair(_ values: [Double], _ fallback: [Double]) -> [Double] {
         var out = fallback
@@ -1264,6 +1283,14 @@ struct MixerHueRing: View {
                             grabbed = taken
                             handle = taken
                         }
+                        // A PRESS IS NOT A MOVE (B3-05). `minimumDistance: 0` delivers
+                        // the press itself as a change, and the first click of a
+                        // double-click has `clickCount` 1 — so it moved the grabbed
+                        // handle to the clicked angle, the second click reset the arc,
+                        // and one ⌘Z landed on an arc nobody made. Nothing is written
+                        // until the pointer has actually travelled.
+                        guard drag.translation.width != 0 || drag.translation.height != 0
+                        else { return }
                         sliderGestureChanged(true)
                         let dx = Double(drag.location.x - box / 2)
                         let dy = Double(drag.location.y - box / 2)

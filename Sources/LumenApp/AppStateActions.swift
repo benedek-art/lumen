@@ -17,6 +17,7 @@ import Foundation
 import LumenCore
 import LumenPipeline
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension AppState {
 
@@ -536,6 +537,47 @@ extension AppState {
             // photographer's call, and `Close` is still there for a batch they are happy
             // to leave running.
             export(to: url)
+        }
+    }
+}
+
+// MARK: - Creative LUT
+
+extension AppState {
+
+    /// Choose a `.cube` file and put it on the selection's look, at the display tap and
+    /// full Amount — the spec's defaults (docs/05 "LUT import").
+    ///
+    /// The file is parsed BEFORE anything is stored (`CreativeLUTImport.importCube`), so
+    /// a file the parser refuses never becomes a blob and never reaches a recipe; the
+    /// status line says so by name instead. The bytes go into the catalog's blob store
+    /// under their own content hash — the shelf the brush strokes live on, which
+    /// `backUpCatalog` already copies — and the recipe carries only that hash.
+    func chooseCreativeLUT() {
+        guard let blobs = catalog?.blobs else {
+            statusMessage = "Open a folder first — a LUT is stored in its catalog"
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let cube = UTType(filenameExtension: "cube") {
+            panel.allowedContentTypes = [cube]
+        }
+        panel.message = "Choose a 3-D .cube LUT"
+        panel.prompt = "Use LUT"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let name = url.deletingPathExtension().lastPathComponent
+        do {
+            let data = try Data(contentsOf: url)
+            let reference = try CreativeLUTImport.importCube(data, named: name, into: blobs)
+            updateRecipe(label: "Creative LUT") { $0.look.lut = reference }
+        } catch CreativeLUTImport.Failure.notACube {
+            statusMessage = "\(url.lastPathComponent) is not a 3-D .cube LUT Lumen can read"
+        } catch let failure {
+            statusMessage = "Could not read \(url.lastPathComponent): "
+                + failure.localizedDescription
         }
     }
 }

@@ -635,6 +635,11 @@ changed the picture.
   participates in `renderIdentity`, so it busts the cache: nothing writes it today, so
   that costs nothing, and stripping it would plant a stale-cache bug for the day a heal
   stage lands. Perspective/Upright is in the same position and the Crop section says so.
+  *Superseded 2026-10 (stream F4-heal):* circular Heal and Clone SPOTS now exist end to
+  end — `Heal.spots` inline in the recipe (version 3, see `supportedPipelineVersion`),
+  S5 in both renderers (`SpotRetouch`, `RenderGraph.applySpots`), auto source by
+  `SpotSourceSearch`, and the `Q` tool on the loupe. `strokesRef`/`count` (painted heal)
+  are still unread, as above.
 - **Speed Edit (D44) is not implemented.** Correctly absent from the keyboard reference,
   so nobody is sent looking for it.
 - **The eyedropper is wired; what it feeds is not all verified.** The probe is

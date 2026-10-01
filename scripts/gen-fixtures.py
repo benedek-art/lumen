@@ -281,6 +281,17 @@ def render_identity(tree):
     bw = out.get("look", {}).get("bw")
     if isinstance(bw, dict) and bw.get("enabled", True) is False:
         del out["look"]["bw"]
+    # A creative grain at Amount 0 is three numbers no pixel reads (Recipe.swift,
+    # `look.grain?.isIdentity`): removed, so a hand-edited `{"grain":{"size":90}}`
+    # fingerprints like no grain at all. `isIdentity` is `!(amount > 0)`.
+    grain = out.get("look", {}).get("grain")
+    if isinstance(grain, dict) and not (grain.get("amount", 0) > 0):
+        del out["look"]["grain"]
+    # `look.lut` is removed unconditionally: NO STAGE READS IT (Recipe.swift says so
+    # beside its own strip). Delete this clause in the same commit as the Swift line,
+    # the day a LUT stage lands — the two halves of the mirror move together (M-04).
+    if isinstance(out.get("look"), dict) and "lut" in out["look"]:
+        del out["look"]["lut"]
     return out
 
 
@@ -520,6 +531,28 @@ def gen_canonical_fixture():
           "a switched-off B&W mix changed the render fingerprint")
     check(e_on_canon != e_off_canon,
           "turning the treatment off did not change the stored recipe")
+
+    # Case F: the two strips the mirror was missing (M-04). A LUT reference no stage
+    # reads, and a creative grain at Amount 0 written by hand: each must serialize (the
+    # recipe keeps what the photographer's file carried) and each must fingerprint as
+    # the default recipe (neither reaches a pixel). Without the clauses above, Python
+    # and Swift disagree about both fingerprints and the replay goes red.
+    f_lut = json.loads(json.dumps(defaults))
+    f_lut["look"]["lut"] = {"ref": "blob:xxh64:0123456789abcdef", "name": "Kodachrome",
+                            "tap": "display", "amount": 100}
+    f_lut_canon = canonical_recipe_json(f_lut, defaults)
+    cases.append({"name": "lutNoStageReads", "canonical": f_lut_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(f_lut), defaults))})
+    f_grain = json.loads(json.dumps(defaults))
+    f_grain["look"]["grain"] = {"amount": 0, "size": 90, "roughness": 50}
+    f_grain_canon = canonical_recipe_json(f_grain, defaults)
+    cases.append({"name": "grainAtAmountZero", "canonical": f_grain_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(f_grain), defaults))})
+    for name, tree, canon in (("lut", f_lut, f_lut_canon), ("grain", f_grain, f_grain_canon)):
+        check('"%s"' % name in canon, f"the {name} key did not survive serialization: {canon}")
+        check(fp(canonical_recipe_json(render_identity(tree), defaults))
+              == fp(canonical_recipe_json(render_identity(defaults), defaults)),
+              f"a {name} no stage renders changed the render fingerprint")
 
     write_fixture("canonical.json", {"cases": cases})
     write_fixture("default-recipe.json", DEFAULT_RECIPE, sort_keys=True)

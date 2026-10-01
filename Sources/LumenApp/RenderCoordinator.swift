@@ -46,6 +46,15 @@ struct RenderResult: @unchecked Sendable {
     /// Only exact, whole-frame, unproofed deliveries may become developed previews.
     var previewIdentity: DevelopedPreviewIdentity? = nil
     var sourceIdentity: SourceFileIdentity? = nil
+    /// The HDR preview's frame of the SAME request — half-float, extended-linear sRGB
+    /// (`PipelineRenderer.edrColorSpace`), rendered at `edrWhiteTarget` — or nil when
+    /// the preview is off, the display cannot show it, or the pass failed. It is
+    /// DISPLAY-ONLY: `image` above stays the 8-bit SDR frame whatever this holds, so
+    /// the scopes, the readout, the clipping and peaking overlays and the developed
+    /// preview cache all go on measuring the SDR rendition — the deliberate base the
+    /// gain map is built on — exactly as they do with the preview off.
+    var edrImage: CGImage? = nil
+    var edrWhiteTarget: Double? = nil
 }
 
 struct DevelopedPreviewIdentity: Equatable, Sendable {
@@ -234,7 +243,8 @@ actor RenderCoordinator {
                 strokeSets: [String: BrushStrokeSet] = [:],
                 showingUncropped: Bool = false,
                 softProof: SoftProof? = nil,
-                region: CGRect? = nil) async -> RenderResult? {
+                region: CGRect? = nil,
+                edrWhiteTarget: Double? = nil) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
@@ -252,7 +262,8 @@ actor RenderCoordinator {
                              strokeSets: strokeSets,
                              showingUncropped: showingUncropped,
                              softProof: softProof,
-                             region: region)
+                             region: region,
+                             edrWhiteTarget: edrWhiteTarget)
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
@@ -290,7 +301,8 @@ actor RenderCoordinator {
                          strokeSets: [String: BrushStrokeSet],
                          showingUncropped: Bool = false,
                          softProof: SoftProof? = nil,
-                         region: CGRect? = nil) async -> RenderResult? {
+                         region: CGRect? = nil,
+                         edrWhiteTarget: Double? = nil) async -> RenderResult? {
         // Stale by TICKET, or stale because the caller has gone away.
         //
         // The ticket alone could not drop a backlog. `latestGeneration` is claimed when
@@ -346,6 +358,7 @@ actor RenderCoordinator {
             var regionUnit: CGRect?
             var fullPixelSize: CGSize?
             var decodeMilliseconds: Double = 0
+            var edrImage: CGImage?
             if KernelLibrary.coreAvailable {
                 let delivery = try renderer.renderPreviewDelivery(
                     source: source, recipe: recipe,
@@ -367,6 +380,30 @@ actor RenderCoordinator {
                     : "Reduced — \(missing.count) GPU "
                         + (missing.count == 1 ? "kernel" : "kernels")
                         + " unavailable: " + missing.joined(separator: ", ")
+                // THE HDR PREVIEW'S PASS, AFTER the SDR frame and beside it — never
+                // instead of it. Nothing above this line reads `edrWhiteTarget`, so with
+                // the preview off (nil) the SDR frame is produced by the identical call
+                // with identical arguments it always was.
+                //
+                // Not gated on staleness: a drag cancels this task on every event, and a
+                // frame that landed without its EDR half would flash SDR on screen.
+                // Kept only when it covers exactly what the SDR frame covers — the two
+                // region computations are separate copies, and a mismatch costs the
+                // HDR preview for one frame rather than misplacing a picture.
+                if let edrWhiteTarget,
+                   let edr = try? renderer.renderPreviewEDR(
+                        source: source, recipe: recipe,
+                        maxLongEdge: maxLongEdge, draft: draft,
+                        coarseDecode: coarseDecode,
+                        showingUncropped: showingUncropped,
+                        strokeSets: strokeSets,
+                        softProof: softProof,
+                        region: region,
+                        displayWhiteTarget: edrWhiteTarget),
+                   edr.regionUnit == delivery.regionUnit,
+                   edr.fullPixelSize == delivery.fullPixelSize {
+                    edrImage = edr.image
+                }
             } else {
                 // No region on the CPU fallback: it is rare, whole-frame by
                 // construction, and a region contract it half-honoured would be
@@ -421,7 +458,9 @@ actor RenderCoordinator {
                                     ? (try? RecipeFingerprint.fingerprint(recipe)).map {
                                         DevelopedPreviewIdentity(source: sourceIdentity, recipeFingerprint: $0)
                                     } : nil,
-                                sourceIdentity: sourceIdentity)
+                                sourceIdentity: sourceIdentity,
+                                edrImage: edrImage,
+                                edrWhiteTarget: edrImage == nil ? nil : edrWhiteTarget)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
@@ -745,6 +784,21 @@ actor RenderCoordinator {
     /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
     /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
     /// queue item 5).
+    /// Where a new heal or clone spot should borrow from: `SpotSourceSearch` over the S5
+    /// input around the spot (`PipelineRenderer.healSearchBuffer`). On this actor because
+    /// the decoded source is, so a click on the photograph being viewed decodes nothing.
+    /// Nil when nothing fits — the caller then places the source beside the spot.
+    func healAutoSource(url: URL, recipe: Recipe, spot: HealSpot,
+                        priorSpots: [HealSpot]) -> (x: Double, y: Double)? {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                    spot: spot, priorSpots: priorSpots)
+        else { return nil }
+        return SpotSourceSearch.autoSource(for: spot, in: found.buffer, window: found.window,
+                                           sourceWidth: found.sourceWidth,
+                                           sourceHeight: found.sourceHeight)
+    }
+
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double) -> RGB? {
         guard let source = try? self.source(for: url),

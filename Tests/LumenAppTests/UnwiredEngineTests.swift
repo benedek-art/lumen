@@ -53,10 +53,12 @@
 //     What is missing is narrower than the audit's row: Point Colour has no isolation
 //     view, and cannot have an honest one until `ColorEngine` exposes the swatch weight
 //     its pixel loop already computes privately.
-//   · LUT IMPORT — the PARSER is real; the FEATURE is not. `LUT3D.fromCubeFile` builds a
-//     genuine cube, and no render stage anywhere reads `look.lut`. An import row would
-//     be a control that changes no pixel, so the scan below asserts the parser has NO
-//     app-layer caller and says what has to exist before it may.
+//   · LUT IMPORT — real now, end to end. `LUT3D.fromCubeFile` builds the cube,
+//     `CreativeLUTStage` renders `look.lut` on both paths, and the Looks section's
+//     Creative LUT rows import one through `CreativeLUTImport.importCube`. The scans
+//     below used to assert the parser had NO app-layer caller, because an import row in
+//     front of no stage would have been a control that changes no pixel; with the stage
+//     landed they are inverted, and assert the caller exists.
 #if os(macOS)
 
 import AppKit
@@ -496,7 +498,7 @@ final class UnwiredEngineTests: XCTestCase {
                            + "an unchanged frame and call it a selection")
     }
 
-    // MARK: - LUT import: a real parser in front of a stage that does not exist
+    // MARK: - LUT import: a real parser, and now a stage behind it
 
     /// The parser is not a stub. It returns a cube that differs from the identity by the
     /// amount the file asked for — which is the assertion a `return .identity()` stub
@@ -582,39 +584,37 @@ final class UnwiredEngineTests: XCTestCase {
                        file: file, line: line)
     }
 
-    /// AND THE REASON THERE IS NO IMPORT ROW. Two recipes differing only in `look.lut`
-    /// are the same picture — not by convention but by construction: `renderIdentity`
-    /// strips the field because no stage on any path reads it.
+    /// THE STAGE HAS LANDED, so this is inverted from what it asserted while it had not.
     ///
-    /// So the caller scan below is INVERTED on purpose. Everywhere else in this file a
-    /// missing caller is the defect; here a caller is, because a row that imports a
-    /// `.cube` into a slot nothing renders is a control that does nothing — the exact
-    /// thing this file was written to stop shipping.
-    func testNothingRendersALookLUTSoAnImportRowWouldChangeNoPixel() {
+    /// It used to pin that two recipes differing only in `look.lut` were the same
+    /// picture — `renderIdentity` stripped the field because nothing read it — and it
+    /// was the tripwire: "a look carrying a LUT now renders differently … which means a
+    /// stage HAS landed. Delete the strip in the same commit." Both happened in one
+    /// commit, so a LUT now changes the render identity, and this asserts it does.
+    func testALookLUTRendersSoTheImportRowChangesThePicture() {
         var withLUT = Recipe()
         withLUT.look.lut = LUTReference(ref: "blob:xxh64:0123456789abcdef",
                                         name: "Probe", tap: .log, amount: 42)
         XCTAssertNotEqual(withLUT, Recipe(),
                           "the recipe does not even carry the LUT; this test is "
                               + "measuring the wrong field")
-        XCTAssertTrue(withLUT.rendersSameAs(Recipe()),
-                      "a look carrying a LUT now renders differently from one without — "
-                          + "which means a stage HAS landed. Delete the `copy.look.lut = "
-                          + "nil` line in `Recipe.renderIdentity` in the same commit, and "
-                          + "then the import row this test blocks is worth building")
+        XCTAssertFalse(withLUT.rendersSameAs(Recipe()),
+                       "a look carrying a LUT renders the same as one without — the "
+                           + "stage's render identity was stripped again, and the import "
+                           + "row would be a control that changes no cached picture")
     }
 
-    func testTheCubeParserHasNoAppLayerCallerUntilAStageExists() {
-        // Scanned once into a local rather than twice — the assertion and its message
-        // were walking every file in the app target for the same needle.
-        let callers = sitesOf("LUT3D.fromCubeFile(")
-        XCTAssertTrue(callers.isEmpty,
-                      "an import path has appeared in "
-                          + callers.joined(separator: ", ")
-                          + " — check that a render stage reads `look.lut` before this "
-                          + "expectation is relaxed, because the parser working has "
-                          + "never been the thing standing between a photographer and a "
-                          + "LUT")
+    /// And the import row reaches the stage through the one import path, which parses
+    /// before it stores. Inverted from "no caller until a stage exists".
+    func testTheCubeImportHasAnAppLayerCallerNowThatAStageExists() {
+        let callers = sitesOf("CreativeLUTImport.importCube(")
+        XCTAssertFalse(callers.isEmpty,
+                       "nothing in the app imports a .cube — the Creative LUT row has "
+                           + "lost its chooser")
+        XCTAssertTrue(sitesOf("LUT3D.fromCubeFile(").isEmpty,
+                      "the app parses .cube files itself instead of through "
+                          + "`CreativeLUTImport`, which is what keeps a refused file out "
+                          + "of the blob store")
     }
 
     // MARK: - One label, and the column it has to fit in

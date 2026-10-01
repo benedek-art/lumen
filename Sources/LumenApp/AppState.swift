@@ -302,7 +302,10 @@ final class AppState: ObservableObject {
         }
     }
     @Published var selection: Set<URL> = [] {
-        didSet { selectedPhotosCache = nil }
+        didSet {
+            selectedPhotosCache = nil
+            if selection != oldValue { refreshSelectionFrames() }
+        }
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
@@ -380,6 +383,49 @@ final class AppState: ObservableObject {
     func noteFrameTransposed(_ transposed: Bool) {
         guard primaryFrameTransposed != transposed else { return }
         primaryFrameTransposed = transposed
+    }
+
+    /// The catalog's frame for each selected photograph, for the framing writes that fan
+    /// out over a multi-selection (S-11 / KG-01). Read when the selection changes; a
+    /// photograph missing from it has its framing left alone rather than computed
+    /// against some other photograph's frame.
+    private var selectionFrames: [URL: BatchFraming.Frame] = [:]
+    private var selectionFramesGeneration: UInt64 = 0
+
+    private func refreshSelectionFrames() {
+        selectionFramesGeneration &+= 1
+        let generation = selectionFramesGeneration
+        let ids = selectedPhotos.compactMap { photo in photo.catalogID.map { (photo.id, $0) } }
+        guard let catalog, ids.count > 1 else {
+            selectionFrames = [:]
+            return
+        }
+        Task { [weak self] in
+            let frames = await catalog.frames(photoIDs: ids.map(\.1))
+            guard let self, self.selectionFramesGeneration == generation else { return }
+            var byURL: [URL: BatchFraming.Frame] = [:]
+            for (url, id) in ids { if let frame = frames[id] { byURL[url] = frame } }
+            self.selectionFrames = byURL
+        }
+    }
+
+    /// The frame a framing write should be computed against for ONE target.
+    ///
+    /// The primary's is the decoded, orientation-reconciled `sourceFrameSize`, exactly
+    /// as before; until that lands, the catalog's, then the caller's own fallback (the
+    /// crop panel's assumed 3:2, the loupe's delivered image). Every other target gets
+    /// its OWN catalog frame or nil — never the primary's, which is the defect.
+    func framingFrame(for photo: PhotoItem,
+                      primaryFallback: BatchFraming.Frame? = nil) -> BatchFraming.Frame? {
+        if photo.id == primarySelection?.id {
+            if let size = sourceFrameSize,
+               let frame = BatchFraming.Frame(width: Double(size.width),
+                                              height: Double(size.height)) {
+                return frame
+            }
+            return selectionFrames[photo.id] ?? primaryFallback
+        }
+        return selectionFrames[photo.id]
     }
 
     var primaryFrameAspect: Double? {
@@ -1692,17 +1738,22 @@ final class AppState: ObservableObject {
     /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
     /// an approximation of what those calls did — it is the same comparison, memoised.
     /// `RollCursor` verifies its own answer against the roll it is handed (the length
-    /// matches and the photograph is still standing at the remembered index) before it
-    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
-    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
-    /// that cannot be checked in constant time.
+    /// matches and the photograph is still standing at the remembered index) AND
+    /// against `rollRevision`, which changes every time `photos` is rebuilt — the
+    /// verification alone could not tell the first copy of a duplicated URL from a later
+    /// one, so the answer depended on the cursor's history (S-08).
     private var rollCursor = RollCursor()
+
+    /// Bumped each time `photos` is rebuilt, which is the only way the roll's contents
+    /// change. Every `RollCursor` over this roll keys its memo on it.
+    private(set) var rollRevision: UInt64 = 0
 
     /// The index of `photo` in the roll as it stands, or nil when the roll no longer
     /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
     func rollIndex(of photo: PhotoItem) -> Int? {
         let list = photos
-        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+        return rollCursor.index(of: photo.id, inRollOf: list.count,
+                                revision: rollRevision) { list[$0].id }
     }
 
     func invalidatePhotoCache() {
@@ -1771,6 +1822,7 @@ final class AppState: ObservableObject {
         if let photoCache { return photoCache }
         let built = buildPhotos()
         photoCache = built
+        rollRevision &+= 1
         return built
     }
 
@@ -1938,9 +1990,27 @@ final class AppState: ObservableObject {
         refreshLibraryQuery()
     }
 
+    /// A typed word is ONE grid query, not one per letter. The query runs on the
+    /// catalog's serial queue in front of the thumbnails, so a keystroke-per-query
+    /// search field stalled the contact sheet it was searching. `LibraryQueryPacing`
+    /// holds the rule (chips at once, keystrokes after a pause, a newer one superseding);
+    /// this is its one caller. Not a LIMIT: `libraryOrder` is the whole roll.
+    private var pacedLibraryQuery: Task<Void, Never>?
+
     private func filterOrSortChanged(_ oldValue: LibraryFilter) {
         guard filter != oldValue else { return }
-        refreshLibraryQuery()
+        pacedLibraryQuery?.cancel()
+        pacedLibraryQuery = nil
+        guard let delay = LibraryQueryPacing.delay(from: oldValue, to: filter) else {
+            refreshLibraryQuery()
+            return
+        }
+        pacedLibraryQuery = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.pacedLibraryQuery = nil
+            self.refreshLibraryQuery()
+        }
     }
 
     // MARK: Per-source view state (docs/10 §10.2)
@@ -3008,23 +3078,52 @@ final class AppState: ObservableObject {
         history.record(before: before, after: after, coalescingKey: nil, label: label)
         // A rejected frame under a "Picked" chip has just left the grid, and only the
         // catalog knows it: the badge lives in `allPhotos`, the membership does not.
-        if filter.isActive || sortOrder == .rating || sortOrder == .flag
-            || sortOrder == .label {
-            refreshLibraryQuery()
-        }
+        refreshLibraryQueryIfCullingShowsInTheGrid()
     }
 
-    /// Put a culling state back on a photo, wherever it currently sits in the roll.
-    private func restore(_ culling: HistoryStack.Culling, to url: URL) {
-        guard let i = allPhotos.firstIndex(where: { $0.id == url }) else { return }
-        let wasLabel = allPhotos[i].label
-        allPhotos[i].flag = culling.flag
-        allPhotos[i].rating = culling.rating
-        allPhotos[i].label = culling.label
-        catalog?.saveCullingState(allPhotos[i], labelChanged: wasLabel != culling.label)
-        if allPhotos[i].id == primarySelection?.id {
-            primarySelection = allPhotos[i]
+    /// A culling change moves grid MEMBERSHIP or ORDER whenever a filter is lit or the
+    /// sort reads flag, rating or label — and the grid's membership is the catalog's
+    /// answer, not `allPhotos`. Shared by the way in (`mutateTargets`) and the way back
+    /// (`apply`'s restore): undo of a reject under a "Rejected" chip left the restored
+    /// frame in the grid, because only the keystroke asked the catalog again.
+    private func refreshLibraryQueryIfCullingShowsInTheGrid() {
+        guard filter.isActive || sortOrder == .rating || sortOrder == .flag
+            || sortOrder == .label else { return }
+        refreshLibraryQuery()
+    }
+
+    /// Put every culling state of one history step back, wherever each photo sits in
+    /// the roll — in ONE pass over a local copy and ONE assignment.
+    ///
+    /// It was one call per photo, each doing a linear `firstIndex(where:)` over the
+    /// roll and then three separate element writes to `allPhotos`. `allPhotos` is
+    /// `@Published`, so every element write copies the whole roll and republishes the
+    /// grid: ⌘Z on a 200-frame reject in a 20,000-frame folder was 600 whole-roll
+    /// copies and 600 publishes (J2-02's undo half) — the cost `mutateTargets` above
+    /// was rid of on the way in, still paid on the way back.
+    private func restore(_ cullings: [URL: HistoryStack.Culling]) {
+        guard !cullings.isEmpty else { return }
+        var updated = allPhotos
+        var restored: [(item: PhotoItem, labelChanged: Bool)] = []
+        var freshPrimary: PhotoItem?
+        for i in updated.indices {
+            guard let culling = cullings[updated[i].id] else { continue }
+            let wasLabel = updated[i].label
+            updated[i].flag = culling.flag
+            updated[i].rating = culling.rating
+            updated[i].label = culling.label
+            restored.append((updated[i], wasLabel != culling.label))
+            if updated[i].id == primarySelection?.id {
+                freshPrimary = updated[i]
+            }
         }
+        guard !restored.isEmpty else { return }
+        allPhotos = updated
+        for entry in restored {
+            catalog?.saveCullingState(entry.item, labelChanged: entry.labelChanged)
+        }
+        if let freshPrimary { primarySelection = freshPrimary }
+        refreshLibraryQueryIfCullingShowsInTheGrid()
     }
 
     /// Advance from where the cursor WAS. `mutateTargets` may have just made the
@@ -3634,6 +3733,7 @@ final class AppState: ObservableObject {
     private func apply(_ step: [URL: HistoryStack.PhotoEdit]?) {
         guard let step else { return }
         var recipeChanges: [URL: Recipe] = [:]
+        var cullings: [URL: HistoryStack.Culling] = [:]
         var touchedPixels = false
         for (url, edit) in step {
             if let recipe = edit.recipe {
@@ -3642,9 +3742,10 @@ final class AppState: ObservableObject {
                 touchedPixels = true
             }
             if let culling = edit.culling {
-                restore(culling, to: url)
+                cullings[url] = culling
             }
         }
+        restore(cullings)
         persist(recipeChanges)
         if touchedPixels {
             scheduleScopeRefresh()
@@ -3675,28 +3776,13 @@ final class AppState: ObservableObject {
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
+        // `Recipe.adoptingSettings` is the rule, in LumenCore where it is tested: the
+        // develop, the look less the one leaf that describes the target
+        // (`LookSubset.carriedRenderPreset` — four doors into a look, one decision),
+        // the masks WITH their folders, and the newer of the two version stamps, since
+        // the result now holds whatever the source could express (M-06).
         updateRecipe(label: "Paste Settings") { recipe in
-            recipe.develop = source.develop
-            // `.look` whole EXCEPT the one leaf in it that describes the target rather
-            // than the look. `LookSubset.carriedRenderPreset` is that rule, and it lives
-            // in LumenCore precisely because there are four doors into a look — this
-            // one, Paste Settings Without Masks, Paste Look, and `LookSubset.applied` —
-            // and a copy of the decision at each is how they drift. See that function's
-            // header: carrying `render.preset` across the tone-mapped boundary applies a
-            // second tone map (sRGB 32 goes to 13, 255 to 222) or clips two and a half
-            // stops, depending on direction.
-            // `own` is read BEFORE the assignment: after it, `recipe.look` IS
-            // `source.look` and the target's own preset is already gone.
-            let own = recipe.look.render.preset
-            recipe.look = source.look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
-            recipe.masks = source.masks
-            // The folders come with their masks. Without this line every pasted mask
-            // names a group the target photograph has not got, which `Recipe.effective`
-            // treats as ungrouped — so the edit survives and the organization silently
-            // does not, which is the kind of loss nobody notices until they go looking.
-            recipe.maskGroups = source.maskGroups
+            recipe = recipe.adoptingSettings(from: source, includingMasks: true)
         }
     }
 
@@ -3712,11 +3798,7 @@ final class AppState: ObservableObject {
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
-            recipe.develop = source.develop
-            let own = recipe.look.render.preset
-            recipe.look = source.look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
+            recipe = recipe.adoptingSettings(from: source, includingMasks: false)
         }
     }
 

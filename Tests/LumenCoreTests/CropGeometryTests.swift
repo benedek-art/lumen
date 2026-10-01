@@ -313,6 +313,37 @@ final class CropDragTests: XCTestCase {
         }
     }
 
+    /// "Original" writes the whole usable frame, and on a straightened photograph that is
+    /// NOT the camera's ratio — so the menu must recognise the rectangle, not the ratio,
+    /// or the item reads itself back as "1.626" the moment it is picked (KG-05).
+    func testOriginalReadsBackAsOriginalOnAStraightenedPhotograph() throws {
+        let read = try XCTUnwrap(CropGeometry.displayedAspect(
+            Crop(), sourceWidth: 3000, sourceHeight: 2000, degrees: 5))
+        XCTAssertEqual(read, 1.6259, accuracy: 1e-3,
+                       "the premise: the whole usable frame at 5° is not 3:2")
+        XCTAssertTrue(CropGeometry.isWholeFrame(Crop()))
+        XCTAssertFalse(CropGeometry.isWholeFrame(Crop(x: 0.1, y: 0.1, w: 0.8, h: 0.8)))
+
+        // The panel asks the rectangle FIRST, before any ratio comparison.
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenApp/CropPanel.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        guard let start = source.range(of: "private var currentAspectName: String") else {
+            return XCTFail("CropPanel.currentAspectName moved")
+        }
+        let code = source[start.upperBound...].split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+            .drop { $0.allSatisfy { $0.asciiValue == 123 } }   // the opening brace line
+        let first = code.first ?? ""
+        XCTAssertTrue(first.hasPrefix("if CropGeometry.isWholeFrame(recipe.develop.geometry.crop)"),
+                      "the label compares ratios before asking whether the rectangle "
+                          + "is the whole frame")
+        XCTAssertTrue(first.contains("Original"))
+    }
+
     /// The menu's ratio is read against the USABLE frame. Reading it against the source's
     /// aspect instead is the same class of error that once made "1:1" produce an 8:9
     /// rectangle on a 4:3 body — it just needs a straighten angle to show up.
@@ -660,6 +691,42 @@ final class CropReangleTests: XCTestCase {
                                        "\(w)x\(h) \(from)°→\(to)°, \(crop): aspect "
                                            + "drifted \(before.w / before.h) → "
                                            + "\(after.w / after.h)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The same promise AT THE FLOOR (KG-04). A crop at the minimum size, carried to an
+    /// angle whose usable frame is larger, becomes a smaller fraction of it, and
+    /// `normalized` floored each axis on its own: a 2.13:1 crop at the floor at 10°
+    /// came back to 0° as 1.645:1. The sweep above never put a rectangle at the floor.
+    func testThePixelAspectSurvivesAnAngleChangeAtTheMinimumSize() {
+        let floor = CropGeometry.minimumCropFraction
+        for (sw, sh) in [(3000.0, 2000.0), (2000.0, 3000.0)] {
+            for aspect in [16.0 / 9, 2.134, 3.0, 0.5] {
+                for from in [10.0, -10.0, 6.0] {
+                    // The smallest rectangle of this pixel aspect the floor allows.
+                    let usable = CropGeometry.usableSize(width: sw, height: sh,
+                                                         degrees: from)
+                    var w = floor
+                    var h = w * usable.width / aspect / usable.height
+                    if h < floor { h = floor; w = h * aspect * usable.height / usable.width }
+                    let crop = Crop(x: 0.4, y: 0.4, w: w, h: h)
+                    let before = pixels(crop, w: sw, h: sh, degrees: from)
+                    XCTAssertEqual(before.w / before.h, aspect, accuracy: 1e-9)
+                    for to in [0.0, 2.0, from / 2] {
+                        let out = CropGeometry.reangled(crop, sourceWidth: sw,
+                                                        sourceHeight: sh,
+                                                        from: from, to: to)
+                        let after = pixels(out, w: sw, h: sh, degrees: to)
+                        XCTAssertEqual(after.w / after.h, aspect, accuracy: 1e-6,
+                                       "\(sw)x\(sh) \(aspect):1 at the floor, "
+                                           + "\(from)°→\(to)°: the lock broke at "
+                                           + "\(after.w / after.h)")
+                        XCTAssertGreaterThanOrEqual(min(out.w, out.h), floor - 1e-12)
+                        XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-12)
+                        XCTAssertLessThanOrEqual(out.y + out.h, 1 + 1e-12)
                     }
                 }
             }

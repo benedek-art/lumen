@@ -154,6 +154,8 @@ final class InspectionHoldTests: XCTestCase {
                       "the rule owns \(InspectionHolds.keys.subtracting(KeyGrammar.dispatchedKeys)) "
                           + "which the keyboard reference does not list")
         XCTAssertEqual(Set(InspectionHold.allCases.map(\.key)), InspectionHolds.keys)
+        XCTAssertEqual(InspectionHold.allCases.count, InspectionHolds.keys.count,
+                       "two holds claim one key")
     }
 
     func testTheDispatcherRoutesTheseKeysThroughThisRule() {

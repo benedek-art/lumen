@@ -2313,7 +2313,6 @@ public final class CatalogStore {
                            name: String?, isCurrent: Bool,
                            isRenderedFile: Bool = false,
                            at now: Int64 = CatalogStore.now()) throws -> Int64 {
-        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
         let fingerprint = try RecipeFingerprint.fingerprint(recipe)
         // "Edited" means the recipe differs from what a fresh import of THIS
         // PHOTOGRAPH would have left behind — not from the type's default.
@@ -2358,11 +2357,22 @@ public final class CatalogStore {
         // claiming semantics this build does not have — and the next older build to
         // open the catalog would then demote a row that is, in fact, its own.
         //
-        // `min`, not `currentPipelineVersion` outright: an OLDER recipe must keep
+        // `min`, not `supportedPipelineVersion` outright: an OLDER recipe must keep
         // reporting its own age, which is what migrations read and what
         // `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` pins.
         let storedPipelineVersion = Swift.min(recipe.pipelineVersion,
-                                              currentPipelineVersion)
+                                              supportedPipelineVersion)
+        // AND THE TEXT SAYS WHAT THE COLUMN SAYS (M-02). `canonicalRecipeJSON` writes the
+        // recipe's own `pipelineVersion` into the text, so clamping only the column left
+        // a row reading `pipeline_version = 2` beside `{"pipelineVersion":7,…}` — and
+        // `currentRecipe` decodes the TEXT, so the carried-forward number came back on
+        // every open and re-infected every later save and sidecar. Identical bytes for
+        // every recipe this build or an older one wrote (the clamp is the identity
+        // there); the fingerprint is left as the recipe's own, which is what the preview
+        // cache and the sidecar comparison were already keyed on.
+        var stamped = recipe
+        stamped.pipelineVersion = storedPipelineVersion
+        let json = try CanonicalJSON.canonicalRecipeJSON(stamped)
 
         return try db.transaction {
             if isCurrent {
@@ -2404,7 +2414,7 @@ public final class CatalogStore {
             if let id = editID,
                let rowVersion = try self.db.scalarInt(
                    "SELECT pipeline_version FROM edit WHERE id = ?;", [.integer(id)]),
-               rowVersion > Int64(currentPipelineVersion) {
+               rowVersion > Int64(supportedPipelineVersion) {
                 try self.db.run("""
                 UPDATE edit SET kind = 'version', is_current = 0,
                   name = COALESCE(name, ?) WHERE id = ?;
