@@ -9,6 +9,8 @@ Repo: /home/user/lumen (or your worktree). Lumen is a macOS RAW editor in Swift:
   `swift build --build-tests --scratch-path /tmp/lumen-build-<yourname>` then
   `swift test --skip-build --scratch-path /tmp/lumen-build-<yourname> --filter <Suite>`.
   The machine has 4 cores shared by ~6 agents: filter tests, never run the whole suite more than once.
+  `--filter LumenCoreTests` FAILS here (posix_spawn: argument list too long). Filter by suite name
+  (`--filter ColorEngineTests`); for the whole suite, run `swift test --skip-build` with no filter.
 - `python3 scripts/check-swift-surface.py` — the only local check on LumenApp/LumenPipeline. Read its EXIT CODE.
 - Context: `docs/audits/2026-09-22-astra/` (Astra audit: findings.json, repair-ledger.json,
   REPAIR-PLAN.md, EXECUTION-0*.md, SUPPLEMENTAL-BACKLOG.md), `docs/audit-2026-09/` (the September
