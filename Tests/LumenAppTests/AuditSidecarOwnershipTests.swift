@@ -125,6 +125,22 @@ final class AuditSidecarOwnershipTests: XCTestCase {
         XCTAssertEqual(portable.registerAndLoad(folder: root, files: [nef])[nef]?.recipe?.develop.tone.exposure, -1)
     }
 
+    /// The ambiguity is reported, but once: every rescan of the folder used to repeat it.
+    func testAmbiguousOwnershipIsReportedOncePerSessionNotEveryScan() throws {
+        let root = try scratch()
+        let a = root.appendingPathComponent("frame.DNG"), b = root.appendingPathComponent("frame.NEF")
+        try Data([1, 2, 3]).write(to: a); try Data([4, 5, 6]).write(to: b)
+        let content = SidecarContent(recipeJSON: try CanonicalJSON.canonicalRecipeJSON(Recipe()),
+                                     writeStamp: "2026-09-01T00:00:00Z")
+        try Data(XMPSidecar.serialize(content).utf8).write(to: root.appendingPathComponent("frame.xmp"))
+        let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
+        defer { service.close() }
+        var notices: [String] = []
+        service.onFailure = { notices.append($0) }
+        for _ in 0..<3 { _ = service.registerAndLoad(folder: root, files: [a, b]) }
+        XCTAssertEqual(notices.filter { $0.localizedCaseInsensitiveContains("ambiguous") }.count, 1)
+    }
+
     func testUnownedAdobeSidecarStillBelongsToNativeRawBesideDNG() throws {
         let root = try scratch()
         let a = root.appendingPathComponent("frame.DNG"), b = root.appendingPathComponent("frame.NEF")

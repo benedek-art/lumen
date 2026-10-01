@@ -85,6 +85,9 @@ final class CatalogService: @unchecked Sendable {
     /// mirrored into `meta` (`UnsavedSidecarRecord.metaKey`) so the debt survives the
     /// process. Guarded by `sidecarLock`.
     private var unsavedSidecars: [String: UnsavedSidecarRecord] = [:]
+    /// Bare sidecars already reported as of ambiguous ownership this session.
+    /// Confined to `queue`, where `establishLegacySidecarOwners` runs.
+    private var reportedAmbiguousSidecars: Set<String> = []
     private let sidecarLock = NSLock()
 
     /// Set at open when the last quit left sidecars unwritten. Read once after
@@ -1494,7 +1497,10 @@ final class CatalogService: @unchecked Sendable {
                     }
                 }
             }
-            if !Self.rawSiblings(of: photo).isEmpty {
+            // Once per document per session: this runs on every scan, and an unresolved
+            // legacy file used to put the same notice in the status bar every time.
+            if !Self.rawSiblings(of: photo).isEmpty,
+               reportedAmbiguousSidecars.insert(bare.path).inserted {
                 report("Ambiguous sidecar ownership for \(bare.lastPathComponent). "
                        + "Its edits were not assigned to either RAW. The sidecar and "
                        + "existing catalog edits were preserved; choose its owner before importing it.")
