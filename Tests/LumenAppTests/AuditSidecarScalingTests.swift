@@ -40,6 +40,35 @@ final class AuditSidecarScalingTests: XCTestCase {
         }
     }
 
+    /// REL-05, bound to the production path rather than to the index struct: a
+    /// registration plus a sidecar lookup for every frame classifies each listed name
+    /// once. A `rawSiblings(of:)` that went back to running the resolver over the cached
+    /// listing per query would classify N names per query — N² here, 160 000 — while
+    /// every index-level test above stayed green.
+    func testProductionSiblingPathClassifiesEachListedNameOnce() throws {
+        let root = try scratch()
+        let photos = root.appendingPathComponent("photos")
+        try FileManager.default.createDirectory(at: photos, withIntermediateDirectories: true)
+        let count = 400
+        let files = (0..<count).map { photos.appendingPathComponent("frame_\($0).NEF") }
+        for file in files { try Data([1]).write(to: file) }
+        let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
+        defer { service.close() }
+        CatalogService.forgetSiblings()
+        XCTAssertEqual(CatalogService.siblingClassificationCount, 0)
+        let rows = service.registerAndLoad(folder: photos, files: files)
+        XCTAssertEqual(rows.count, count)
+        for file in files {
+            XCTAssertEqual(CatalogService.sidecarURL(for: file),
+                           file.deletingPathExtension().appendingPathExtension("xmp"))
+        }
+        let listed = try FileManager.default.contentsOfDirectory(atPath: photos.path).count
+        XCTAssertEqual(listed, count, "registration wrote into the photo folder")
+        XCTAssertEqual(CatalogService.siblingClassificationCount, count,
+                       "the production sibling path classified "
+                       + "\(CatalogService.siblingClassificationCount) names for \(count) frames")
+    }
+
     func testIndexPreservesOriginalResolverDecisionsIncludingCaseAndDuplicates() {
         let names = ["a.NEF", "A.dNg", "a.JPG", "a.xmp", "a.NEF.xmp", "a.nef",
                      "b.ARW", "B.CR3", "b.DNG", "c.DNG", "d.NEF", "d.jpeg",

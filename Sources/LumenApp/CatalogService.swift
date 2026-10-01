@@ -1442,6 +1442,24 @@ final class CatalogService: @unchecked Sendable {
     /// drops the memo because a RAW may have gained or lost an unselected sibling.
     private static let siblingLock = NSLock()
     private static var siblingIndexes: [String: RawSiblingIndex] = [:]
+    /// How many names the PRODUCTION sibling path has classified since the last
+    /// `forgetSiblings()`, guarded by `siblingLock`. It exists so a test can bind
+    /// `rawSiblings(of:)` itself to the index (REL-05): a per-query rescan of the
+    /// cached listing classifies N names per query, the index N names per directory.
+    private static var siblingClassifications = 0
+
+    static var siblingClassificationCount: Int {
+        siblingLock.lock()
+        defer { siblingLock.unlock() }
+        return siblingClassifications
+    }
+
+    /// The one RAW-name classifier the production path uses. Called with
+    /// `siblingLock` held.
+    private static func classifyRawName(_ name: String) -> Bool {
+        siblingClassifications += 1
+        return PhotoFormats.raw.contains(URL(fileURLWithPath: name).pathExtension.lowercased())
+    }
 
     private static func rawSiblings(of photo: URL) -> Set<String> {
         let directory = photo.deletingLastPathComponent()
@@ -1452,7 +1470,7 @@ final class CatalogService: @unchecked Sendable {
             // and an older in-flight listing cannot republish after forgetSiblings.
             let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
             siblingIndexes[directory.path] = RawSiblingIndex(names: listed,
-                isRawName: { PhotoFormats.raw.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) })
+                                                             isRawName: classifyRawName)
         }
         return siblingIndexes[directory.path]?.siblings(of: photo) ?? []
     }
@@ -1460,6 +1478,7 @@ final class CatalogService: @unchecked Sendable {
     static func forgetSiblings() {
         siblingLock.lock()
         siblingIndexes.removeAll()
+        siblingClassifications = 0
         siblingLock.unlock()
     }
 
