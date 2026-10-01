@@ -309,7 +309,7 @@ struct CurveEditorView: View {
             let size: CGSize = geometry.size
             let backdrop: [Double] = histogram?.normalized(.luma) ?? []
             let samples: [Double] = curveSamples
-            let controls: [[Double]] = channel == .parametric ? [] : currentPoints
+            let controls: [[Double]] = channel == .parametric ? [] : plottedPoints
             let regions: [ParametricRegion] = channel == .parametric
                 ? CurveEditorView.regions(splits: currentSplits) : []
             let highlight: Int? = channel == .parametric ? highlightRegion : nil
@@ -495,7 +495,7 @@ struct CurveEditorView: View {
     /// shown while the point was being placed.
     private var readoutText: String {
         if channel != .parametric, let index = dragPointIndex {
-            let points: [[Double]] = currentPoints
+            let points: [[Double]] = plottedPoints
             if points.indices.contains(index), points[index].count >= 2 {
                 return CurveEditing.readout(input: points[index][0] * 100,
                                             output: points[index][1] * 100)
@@ -646,6 +646,25 @@ struct CurveEditorView: View {
         return CurveEditing.sanitized(curveSet[keyPath: keyPath])
     }
 
+    /// The stored points where the graph DRAWS and HIT-TESTS them (AI-05).
+    ///
+    /// The Point graph's trace is the master curve — parametric, then points — and a
+    /// point is stored on the point curve's own input axis, which is the parametric
+    /// curve's OUTPUT. With a parametric slider off zero those are different axes, and
+    /// the handles used to sit at their raw stored coordinates: Lights 50 drew a point
+    /// stored at (.6, .7) 17 px off the trace it shapes. `compositeHandles` puts each
+    /// one at the picture input that reaches it, which is on the trace by construction.
+    /// The other channels have nothing composed in front of them and draw as stored.
+    private var plottedPoints: [[Double]] {
+        channel == .point ? stack.compositeHandles(currentPoints) : currentPoints
+    }
+
+    /// A graph x — a picture input — as the x a point is STORED at. The inverse of
+    /// `plottedPoints`, used by every gesture that writes a point.
+    private func storedX(_ plotX: Double) -> Double {
+        channel == .point ? stack.pointInput(atCompositeX: plotX) : plotX
+    }
+
     /// Write a point list back under one coalescing key.
     ///
     /// An identity curve is stored as nil so it costs the render nothing — the same rule
@@ -755,7 +774,7 @@ struct CurveEditorView: View {
         // A click on empty graph adds a point and keeps dragging it, which is the same
         // gesture as placing one and adjusting it in one motion — so the placement and
         // the adjustment share a key and stay ONE undo step.
-        let x: Double = CurveEditing.clamp01(Double(location.x / size.width))
+        let x: Double = storedX(CurveEditing.clamp01(Double(location.x / size.width)))
         let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
         let updated: [[Double]] = CurveEditing.sanitized(
             CurveStack.settingPoint(points, x: x, y: y))
@@ -804,7 +823,7 @@ struct CurveEditorView: View {
 
     private func updateDrag(to location: CGPoint, size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
-        let x: Double = CurveEditing.clamp01(Double(location.x / size.width))
+        let plotX: Double = CurveEditing.clamp01(Double(location.x / size.width))
         let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
 
         if channel == .parametric {
@@ -816,6 +835,7 @@ struct CurveEditorView: View {
         guard let index = dragPointIndex else { return }
         let points: [[Double]] = currentPoints
         guard points.indices.contains(index) else { return }
+        let x: Double = storedX(plotX)
         // `moved` clamps x inside the neighbours' window, so the array stays strictly
         // increasing and the index this drag is holding stays the point the hand grabbed.
         commitPoints(CurveEditing.moved(points, index: index, toX: x, toY: y),
@@ -849,7 +869,7 @@ struct CurveEditorView: View {
         guard channel != .parametric, let location else { return nil }
         guard size.width > 1, size.height > 1 else { return nil }
         return CurveEditing.hitIndex(
-            currentPoints,
+            plottedPoints,
             x: Double(location.x / size.width),
             y: 1 - Double(location.y / size.height),
             toleranceX: Double(CurveEditorView.hitRadius / size.width),

@@ -258,6 +258,51 @@ public struct CurveStack: Sendable {
         luma?.evaluate(Num.saturate(x)) ?? x
     }
 
+    // MARK: - The point curve's handles on the composite graph (AI-05)
+
+    /// Where a picture input lands on the POINT curve's own axis: the parametric curve,
+    /// which runs first. This is the coordinate a point is stored in.
+    ///
+    /// The Point graph draws the master curve — parametric then points — because that
+    /// is what the pipeline applies. Its handles were drawn, hit-tested and dragged in
+    /// the point curve's raw coordinates, which are a DIFFERENT axis the moment a
+    /// parametric slider is off zero: Lights 50 with a point at (.6, .7) drew the handle
+    /// at .7 while the trace under it at x = .6 was .7565 — 17 px apart on a 300 px
+    /// plot, 32 px at Lights 100. The handle the hand grabbed was not on the curve the
+    /// eye was reading.
+    public func pointInput(atCompositeX x: Double) -> Double {
+        let u = Num.saturate(x)
+        return parametricIsIdentity ? u : parametric.evaluate(u)
+    }
+
+    /// The inverse: the picture input whose parametric output is `u`, so that a stored
+    /// point `(u, y)` lies on the drawn trace at `(compositeX(u), y)` — the master there
+    /// is `point(parametric(compositeX(u))) = point(u) = y`.
+    ///
+    /// The parametric curve is non-decreasing and pins both ends, so the preimage
+    /// exists; on a plateau (two regions pulled against each other can make one) this
+    /// takes its left end. Bisection to below 1e-15: it runs once per handle per draw.
+    public func compositeX(atPointInput u: Double) -> Double {
+        let target = Num.saturate(u)
+        guard !parametricIsIdentity else { return target }
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<56 {
+            let mid = (lo + hi) / 2
+            if parametric.evaluate(mid) < target { lo = mid } else { hi = mid }
+        }
+        return hi
+    }
+
+    /// Stored point-curve points as the Point graph must draw and hit-test them.
+    /// Malformed rows pass through untouched, so indices still line up with the store.
+    public func compositeHandles(_ points: [[Double]]) -> [[Double]] {
+        guard !parametricIsIdentity else { return points }
+        return points.map { p in
+            guard p.count >= 2 else { return p }
+            return [compositeX(atPointInput: p[0]), p[1]]
+        }
+    }
+
     public func channelCurve(_ x: Double, channel: Int) -> Double {
         let c = channel == 0 ? rCurve : (channel == 1 ? gCurve : bCurve)
         return c?.evaluate(Num.saturate(x)) ?? x
@@ -376,9 +421,13 @@ public struct CurveStack: Sendable {
     }
 
     /// Nudge the curve at `x` by `delta` on the y axis — the TAT drag.
+    ///
+    /// `x` is a picture input; the point is stored at the point curve's own input for
+    /// it, `pointInput(atCompositeX:)`. Stored at `x` itself it would move the curve at
+    /// some other tone whenever a parametric slider is off zero (AI-05's axis mix-up).
     public func nudged(at x: Double, by delta: Double) -> [[Double]] {
         let y = Num.saturate(master(x) + delta)
-        return CurveStack.settingPoint(set.point, x: x, y: y)
+        return CurveStack.settingPoint(set.point, x: pointInput(atCompositeX: x), y: y)
     }
 }
 

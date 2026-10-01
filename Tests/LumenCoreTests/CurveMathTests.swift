@@ -301,6 +301,25 @@ final class CurveMathTests: XCTestCase {
         }
     }
 
+    /// AI-05: the Point graph draws the master (parametric, then points), so its
+    /// handles, its hit test and its drags must all go through the composite axis.
+    /// `CurveCompositeHandleTests` proves the arithmetic; this pins that the editor
+    /// uses it for the drawn handles, the hit test, and the stored x of a drag.
+    func testThePointGraphDrawsAndHitTestsItsHandlesOnTheCompositeAxis() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertTrue(source.contains("stack.compositeHandles(currentPoints)"),
+                      "the Point graph's handles are drawn at raw point coordinates")
+        XCTAssertTrue(source.contains("stack.pointInput(atCompositeX:"),
+                      "a drag on the Point graph stores the picture x as the point x")
+        XCTAssertTrue(source.contains("? [] : plottedPoints"),
+                      "the drawn controls are not the composite handles")
+        XCTAssertTrue(source.contains("CurveEditing.hitIndex(\n            plottedPoints"),
+                      "the hit test is not run against the handles that are drawn")
+        XCTAssertEqual(source.components(separatedBy: "storedX(").count - 1, 3,
+                       "storedX must be declared once and used by both point-writing "
+                       + "gestures (place and drag)")
+    }
+
     func testTheCurveEditorDoesNotKeyEveryPointOfAChannelTogether() throws {
         let source = try Self.appSource("CurveEditorView.swift")
         XCTAssertFalse(source.contains("keyPrefix + channel.rawValue)"),
