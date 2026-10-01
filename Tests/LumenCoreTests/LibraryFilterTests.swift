@@ -162,6 +162,44 @@ final class LibraryFilterTests: XCTestCase {
                        "Picked or Rejected  or  ★ 3 or better")
     }
 
+    /// The memory path honours the toggle. It used to AND every criterion whatever the
+    /// toggle said, so with no catalog the grid answered "picked AND ★4" under a
+    /// sentence reading "Picked  or  ★ 4 or better".
+    func testMatchAnyIsHonouredByTheMemoryPath() {
+        var filter = LibraryFilter()
+        filter.flags = [.pick]
+        filter.minRating = 4
+        filter.matchAny = true
+
+        XCTAssertTrue(filter.matches(TestPhoto(flag: .pick, rating: 1)),
+                      "picked passes the flag criterion, which is enough under Any")
+        XCTAssertTrue(filter.matches(TestPhoto(flag: .unflagged, rating: 5)),
+                      "★5 passes the rating criterion, which is enough under Any")
+        XCTAssertFalse(filter.matches(TestPhoto(flag: .reject, rating: 1)),
+                       "a photo that passes no lit criterion still fails")
+    }
+
+    /// Under Any, the label criterion is still ONE criterion — colours and Unlabelled
+    /// OR inside it — and a criterion that is not lit is not a reason to pass.
+    func testMatchAnyCountsOnlyLitCriteria() {
+        var filter = LibraryFilter()
+        filter.labels = [.red]
+        filter.includeUnlabeled = true
+        filter.rawOnly = true
+        filter.matchAny = true
+
+        XCTAssertTrue(filter.matches(TestPhoto(label: nil, isRaw: false)))
+        XCTAssertTrue(filter.matches(TestPhoto(label: .red, isRaw: false)))
+        XCTAssertTrue(filter.matches(TestPhoto(label: .blue, isRaw: true)))
+        XCTAssertFalse(filter.matches(TestPhoto(flag: .pick, rating: 5, label: .blue,
+                                                isRaw: false)),
+                       "flag and rating are not lit, so passing them counts for nothing")
+
+        var empty = LibraryFilter()
+        empty.matchAny = true
+        XCTAssertTrue(empty.matches(TestPhoto()), "no criterion lit, nothing to fail")
+    }
+
     func testTheCompiledQueryCarriesTheToggleToSQL() {
         var filter = LibraryFilter()
         filter.flags = [.pick]
@@ -444,6 +482,85 @@ final class LibraryFilterTests: XCTestCase {
         }
         XCTAssertEqual(bands.first?.lowerBound, 0)
     }
+
+    // MARK: - The two paths agree
+
+    #if canImport(SQLite3)
+    /// THE MEMORY PATH AND THE CATALOG ANSWER THE SAME QUESTION THE SAME WAY.
+    ///
+    /// A real catalog holding every combination of flag x rating x label x file type,
+    /// and every combination of the four memory criteria both paths can evaluate, with
+    /// the toggle off and on. For each, the rows `CatalogStore` returns for the compiled
+    /// query must be exactly the rows `matches` keeps. Search text is left out on
+    /// purpose: the SQL text search also reads keywords, camera and lens, which the
+    /// memory path has no access to, and that difference is the bar's to declare.
+    func testTheMemoryPathAgreesWithTheCatalogOnEveryCombination() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-filter-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path,
+                                     cachePath: directory.appendingPathComponent("cache.db").path)
+        let folderID = try store.registerFolder(path: "/Volumes/Shoots/agreement")
+
+        var files: [ScannedFile] = []
+        var photos: [String: TestPhoto] = [:]
+        let labels: [ColorLabel?] = [nil, .red, .blue]
+        for flag in PhotoFlag.allCases {
+            for rating in [0, 2, 4] {
+                for (l, label) in labels.enumerated() {
+                    for ext in ["arw", "jpg"] {
+                        let name = "F\(flag.rawValue + 1)R\(rating)L\(l).\(ext)"
+                        files.append(ScannedFile(filename: name, fileSize: 1_000,
+                                                 fileMTime: 1_700_000_000, ext: ext))
+                        photos[name] = TestPhoto(
+                            flag: flag, rating: rating, label: label,
+                            isRaw: PhotoFormats.isRaw(URL(fileURLWithPath: "/x/" + name)),
+                            filename: name)
+                    }
+                }
+            }
+        }
+        _ = try store.scan(folderID: folderID, files: files, at: CatalogStore.now())
+        for (name, photo) in photos {
+            let id = try XCTUnwrap(store.photo(folderID: folderID, filename: name)?.id)
+            try store.setFlag(photo.flag, photoID: id)
+            try store.setRating(photo.rating, photoID: id)
+            try store.setLabel(photo.label, photoID: id)
+        }
+
+        var compared = 0
+        for flagSet: Set<PhotoFlag> in [[], [.pick], [.pick, .reject]] {
+            for minRating in [0, 3] {
+                for (labelSet, unlabeled): (Set<ColorLabel>, Bool)
+                    in [([], false), ([.red], false), ([], true), ([.red], true)] {
+                    for rawOnly in [false, true] {
+                        for matchAny in [false, true] {
+                            var filter = LibraryFilter()
+                            filter.flags = flagSet
+                            filter.minRating = minRating
+                            filter.labels = labelSet
+                            filter.includeUnlabeled = unlabeled
+                            filter.rawOnly = rawOnly
+                            filter.matchAny = matchAny
+                            let query = filter.query(sortKey: .filename, ascending: true,
+                                                     albumID: nil)
+                            let catalog = Set(try store.photos(matching: query,
+                                                               folderID: folderID)
+                                .map(\.filename))
+                            let memory = Set(photos.values.filter { filter.matches($0) }
+                                .map(\.filename))
+                            XCTAssertEqual(memory, catalog,
+                                           "\(filter.sentence(catalogLive: true))")
+                            compared += 1
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(compared, 96)
+    }
+    #endif
 
     // MARK: - PhotoFormats, which RAW-only compiles from
 

@@ -148,7 +148,14 @@ public struct LibraryFilter: Equatable, Sendable {
     /// criteria a roll entry can answer and is deliberately not extended past them:
     /// a filter that silently ignores a lit chip is the failure this file exists to
     /// avoid, which is why the bar hides those chips in this mode instead.
+    ///
+    /// It honours `matchAny` the way `CatalogStore`'s builder does: each lit criterion
+    /// is one verdict, OR-ed within itself, and the verdicts are AND-ed — or OR-ed under
+    /// Match: Any. It used to AND them whatever the toggle said, so with no catalog the
+    /// grid, and every chip count `memoryCount` draws from this, answered a different
+    /// question from the sentence above them.
     public func matches<Photo: LibraryFilterable>(_ photo: Photo) -> Bool {
+        if matchAny { return matchesAny(photo) }
         if !flags.isEmpty && !flags.contains(photo.flag) { return false }
         if photo.rating < minRating { return false }
         if !labels.isEmpty || includeUnlabeled {
@@ -162,6 +169,35 @@ public struct LibraryFilter: Equatable, Sendable {
         if !text.isEmpty
             && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
         return true
+    }
+
+    /// Match: Any over the same five criteria. A photo passes when ANY lit criterion
+    /// passes; with none of the five lit there is nothing to disagree with, so it passes
+    /// — the same answer the All join gives an empty set of criteria.
+    private func matchesAny<Photo: LibraryFilterable>(_ photo: Photo) -> Bool {
+        var lit = false
+        if !flags.isEmpty {
+            if flags.contains(photo.flag) { return true }
+            lit = true
+        }
+        if minRating > 0 {
+            if photo.rating >= minRating { return true }
+            lit = true
+        }
+        if !labels.isEmpty || includeUnlabeled {
+            let passes = photo.label.map { labels.contains($0) } ?? includeUnlabeled
+            if passes { return true }
+            lit = true
+        }
+        if rawOnly {
+            if photo.isRaw { return true }
+            lit = true
+        }
+        if !text.isEmpty {
+            if photo.filename.localizedCaseInsensitiveContains(text) { return true }
+            lit = true
+        }
+        return !lit
     }
 
     // MARK: The catalog path
