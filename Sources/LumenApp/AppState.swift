@@ -1938,9 +1938,27 @@ final class AppState: ObservableObject {
         refreshLibraryQuery()
     }
 
+    /// A typed word is ONE grid query, not one per letter. The query runs on the
+    /// catalog's serial queue in front of the thumbnails, so a keystroke-per-query
+    /// search field stalled the contact sheet it was searching. `LibraryQueryPacing`
+    /// holds the rule (chips at once, keystrokes after a pause, a newer one superseding);
+    /// this is its one caller. Not a LIMIT: `libraryOrder` is the whole roll.
+    private var pacedLibraryQuery: Task<Void, Never>?
+
     private func filterOrSortChanged(_ oldValue: LibraryFilter) {
         guard filter != oldValue else { return }
-        refreshLibraryQuery()
+        pacedLibraryQuery?.cancel()
+        pacedLibraryQuery = nil
+        guard let delay = LibraryQueryPacing.delay(from: oldValue, to: filter) else {
+            refreshLibraryQuery()
+            return
+        }
+        pacedLibraryQuery = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.pacedLibraryQuery = nil
+            self.refreshLibraryQuery()
+        }
     }
 
     // MARK: Per-source view state (docs/10 §10.2)
