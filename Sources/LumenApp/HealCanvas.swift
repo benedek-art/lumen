@@ -42,6 +42,11 @@ final class HealTool: ObservableObject {
     @Published var radius: Double = HealSpot.defaultRadius
     @Published var feather: Double = HealSpot.defaultFeather
     @Published var opacity: Double = HealSpot.defaultOpacity
+    /// Visualize Spots (docs/09): the loupe shows `SpotVisualization`'s inverted
+    /// band-pass instead of the photograph, so dust can be found. A view setting —
+    /// session state, never in the recipe, never rendered.
+    @Published var visualize: Bool = false
+    @Published var visualizeThreshold: Double = SpotVisualization.defaultThreshold
 }
 
 // MARK: - Verbs
@@ -370,6 +375,19 @@ struct HealToolBar: View {
                     .buttonStyle(.plain)
                     .font(.lumenCaption)
                     .help("Put the Heal tool away (Q or Esc)")
+            }
+            HStack(spacing: 6) {
+                LumenCheckbox(isOn: $tool.visualize)
+                Text("Visualize Spots").font(.lumenCaption)
+            }
+            .help("Show an inverted edge view so sensor dust stands out. A view only: "
+                  + "it is never saved or exported.")
+            if tool.visualize {
+                LumenSlider(title: "Threshold", value: $tool.visualizeThreshold,
+                            range: 0...100,
+                            defaultValue: SpotVisualization.defaultThreshold,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Higher shows fainter spots, and more noise with them.")
             }
             LumenSegmented(options: [(value: HealMode.heal, label: "Heal"),
                                      (value: HealMode.clone, label: "Clone")],
