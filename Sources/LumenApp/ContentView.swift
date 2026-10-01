@@ -537,16 +537,16 @@ private struct Sidebar: View {
     /// explains why, which is a better home for a derived number than a list of sources.
     private var counts: some View {
         // Memoised in AppState.cullCounts; these were two more full passes per body.
-        let picked = state.cullCounts.flags[.picked] ?? 0
-        let rejected = state.cullCounts.flags[.rejected] ?? 0
-        // Named and typed rather than written as bare `[.picked]` literals at four
+        let picked = state.cullCounts.flags[.pick] ?? 0
+        let rejected = state.cullCounts.flags[.reject] ?? 0
+        // Named and typed rather than written as bare `[.pick]` literals at four
         // sites: `LumenApp` compiles only on macOS and the surface checker misses
         // everything type-level, so an inference that needs help is an inference this
         // machine cannot find out about.
-        let unflagged = state.cullCounts.flags[.none] ?? 0
-        let picks: Set<PhotoFlag> = [.picked]
-        let rejects: Set<PhotoFlag> = [.rejected]
-        let unflaggeds: Set<PhotoFlag> = [.none]
+        let unflagged = state.cullCounts.flags[.unflagged] ?? 0
+        let picks: Set<PhotoFlag> = [.pick]
+        let rejects: Set<PhotoFlag> = [.reject]
+        let unflaggeds: Set<PhotoFlag> = [.unflagged]
         let noFlag: Set<PhotoFlag> = []
         // `Lumen.rowGap`, not a bare 1. The rows are 24 pt now and a one-point gutter
         // between them read as a single block of text rather than as a list.

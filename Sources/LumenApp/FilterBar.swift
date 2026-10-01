@@ -32,9 +32,8 @@ import SwiftUI
 // For `FacetCounts` and `PhotoQuery`. The counts beside these chips are the
 // catalog's answer to the grid's own query now, not a pass over the roll, so
 // this file names catalog types for the first time. `ColorLabel` and
-// `PhotoFlag` still mean the app's enums here — a declaration in this module
-// shadows the imported one — which is why the two are mapped explicitly through
-// `CatalogService.coreLabel` / `coreFlag` rather than left to read alike.
+// `PhotoFlag` are LumenCore's own — there is one of each now, so a facet count is
+// looked up by the very value the chip toggles, with nothing translated between.
 import LumenCore
 
 struct FilterBar: View {
@@ -261,14 +260,14 @@ struct FilterBar: View {
     private var flagGroup: some View {
         HStack(spacing: 3) {
             chip(title: "Pick", systemImage: "flag.fill",
-                 count: flagCount(.picked),
-                 isOn: state.filter.flags.contains(.picked)) { toggleFlag(.picked) }
+                 count: flagCount(.pick),
+                 isOn: state.filter.flags.contains(.pick)) { toggleFlag(.pick) }
             chip(title: "Reject", systemImage: "xmark",
-                 count: flagCount(.rejected),
-                 isOn: state.filter.flags.contains(.rejected)) { toggleFlag(.rejected) }
+                 count: flagCount(.reject),
+                 isOn: state.filter.flags.contains(.reject)) { toggleFlag(.reject) }
             chip(title: "Unflagged", systemImage: nil,
-                 count: flagCount(.none),
-                 isOn: state.filter.flags.contains(.none)) { toggleFlag(.none) }
+                 count: flagCount(.unflagged),
+                 isOn: state.filter.flags.contains(.unflagged)) { toggleFlag(.unflagged) }
         }
     }
 
@@ -328,8 +327,12 @@ struct FilterBar: View {
                 .help(helpCount(label.displayName, labelCount(label)))
             }
             Spacer(minLength: 6)
-            chip(title: "Unlabelled", systemImage: nil, count: labelCount(.none),
-                 isOn: state.filter.labels.contains(.none)) { toggleLabel(.none) }
+            // `nil`, not `.none`: unlabelled is the absence of a colour, and the filter
+            // carries it as `includeUnlabeled` beside the five.
+            chip(title: "Unlabelled", systemImage: nil, count: labelCount(nil),
+                 isOn: state.filter.includeUnlabeled) {
+                state.filter.includeUnlabeled.toggle()
+            }
         }
     }
 
@@ -734,7 +737,7 @@ struct FilterBar: View {
             return memoryCount { $0.flags = [flag] }
         }
         guard facetsCounted else { return nil }
-        return facets.flags[CatalogService.coreFlag(flag)] ?? 0
+        return facets.flags[flag] ?? 0
     }
 
     private func ratingCount(_ minimum: Int) -> Int? {
@@ -746,16 +749,27 @@ struct FilterBar: View {
         return facets.ratingAtLeast[minimum]
     }
 
-    private func labelCount(_ label: ColorLabel) -> Int? {
+    /// `nil` is the Unlabelled chip.
+    private func labelCount(_ label: ColorLabel?) -> Int? {
         guard state.isLibraryQueryLive else {
-            return memoryCount { $0.labels = [label] }
+            // The value as the SOLE selection of the label criterion — colours and
+            // Unlabelled are one criterion, so both halves of it are set.
+            return memoryCount { clicked in
+                if let label {
+                    clicked.labels = [label]
+                    clicked.includeUnlabeled = false
+                } else {
+                    clicked.labels = []
+                    clicked.includeUnlabeled = true
+                }
+            }
         }
         guard facetsCounted else { return nil }
         // "Unlabelled" is its own number rather than a sixth colour, because it is its
         // own predicate: `label IN (…)` can never match the NULL an unlabelled
         // photograph stores.
-        guard let core = CatalogService.coreLabel(label) else { return facets.unlabeled }
-        return facets.labels[core] ?? 0
+        guard let label else { return facets.unlabeled }
+        return facets.labels[label] ?? 0
     }
 
     /// An uncounted facet reads as an en dash rather than as a number, in a slot the
@@ -783,7 +797,7 @@ struct FilterBar: View {
     private func memoryCount(_ click: (inout LibraryFilter) -> Void) -> Int {
         var clicked = state.filter
         click(&clicked)
-        return state.allPhotos.filter(clicked.matches).count
+        return state.allPhotos.filter { clicked.matches($0) }.count
     }
 
     // MARK: Mutation

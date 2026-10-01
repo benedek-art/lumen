@@ -4,12 +4,13 @@
 // chrome counts — the numbers the filter bar and sidebar show on every body pass.
 #if os(macOS)
 import XCTest
+import LumenCore
 @testable import LumenApp
 
 final class CullCountsTests: XCTestCase {
 
-    private func photo(_ name: String, flag: PhotoFlag = .none, rating: Int = 0,
-                       label: ColorLabel = .none) -> PhotoItem {
+    private func photo(_ name: String, flag: PhotoFlag = .unflagged, rating: Int = 0,
+                       label: ColorLabel? = nil) -> PhotoItem {
         var item = PhotoItem(id: URL(fileURLWithPath: "/roll/\(name).arw"))
         item.flag = flag
         item.rating = rating
@@ -19,9 +20,9 @@ final class CullCountsTests: XCTestCase {
 
     func testCountsMatchTheFourteenReducesTheyReplaced() {
         let roll = [
-            photo("a", flag: .picked, rating: 5, label: .red),
-            photo("b", flag: .picked, rating: 3),
-            photo("c", flag: .rejected, label: .blue),
+            photo("a", flag: .pick, rating: 5, label: .red),
+            photo("b", flag: .pick, rating: 3),
+            photo("c", flag: .reject, label: .blue),
             photo("d", rating: 1, label: .red),
             photo("e"),
         ]
@@ -38,10 +39,13 @@ final class CullCountsTests: XCTestCase {
                            roll.reduce(0) { $0 + ($1.rating >= minimum ? 1 : 0) },
                            "rating ≥ \(minimum)")
         }
-        for label in ColorLabel.allCases {
+        // nil — unlabelled — is a key like any colour, exactly as the old app enum's
+        // `.none` case was.
+        let everyLabel: [ColorLabel?] = [nil] + ColorLabel.allCases.map { Optional($0) }
+        for label in everyLabel {
             XCTAssertEqual(counts.labels[label] ?? 0,
                            roll.reduce(0) { $0 + ($1.label == label ? 1 : 0) },
-                           "label \(label)")
+                           "label \(label?.rawValue ?? "unlabelled")")
         }
     }
 
