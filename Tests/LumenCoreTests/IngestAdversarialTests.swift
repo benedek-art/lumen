@@ -384,16 +384,6 @@ final class IngestAdversarialTests: XCTestCase {
     /// Two distinct frames on the card whose template renders them to one name, with
     /// identical bytes. One of them must not simply vanish into the other.
     func testTwoIdenticalFramesUnderOneRenderedNameBothSurvive() throws {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
-        #else
-        return
-        #endif
         let a = try frame("TWIN0001.RAF", size: 500, seed: 21)
         let b = card.appendingPathComponent("TWIN0002.RAF", isDirectory: false)
         try fm.copyItem(at: a, to: b)
@@ -403,6 +393,14 @@ final class IngestAdversarialTests: XCTestCase {
         let landed = filesUnder(primary)
         XCTAssertEqual(landed.count, 2,
                        "two frames were planned and the volume holds \(landed): "
+                       + report.summary)
+        XCTAssertEqual(landed, ["2026/wedding-1.RAF", "2026/wedding.RAF"], report.summary)
+        try assertLandedMatchesSource(a, primary.appendingPathComponent("2026/wedding.RAF"),
+                                      "the first twin")
+        try assertLandedMatchesSource(b, primary.appendingPathComponent("2026/wedding-1.RAF"),
+                                      "the second twin")
+        XCTAssertEqual(report.alreadyPresent.count, 0,
+                       "a file this run wrote for one frame was counted as another: "
                        + report.summary)
     }
 
@@ -574,25 +572,57 @@ final class IngestAdversarialTests: XCTestCase {
     }
 
     /// The eject gate, in the twin case: two frames on the card, one file on the volume.
+    ///
+    /// The engine now gives the second twin its own file, so eject may be offered —
+    /// but only because each frame stands on a file of its own. The assertion is that
+    /// pairing, not a blanket "never eject": a run whose two frames share one file must
+    /// not unlock eject (see the report-level test below), and a run where they do not
+    /// share one has honestly copied both.
     func testATwinFrameThatWasAbsorbedDoesNotUnlockEject() throws {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
-        #else
-        return
-        #endif
         let a = try frame("EJT00001.RAF", size: 500, seed: 91)
         let b = card.appendingPathComponent("EJT00002.RAF", isDirectory: false)
         try fm.copyItem(at: a, to: b)
         let report = VerifiedCopyDriver(chunkSize: 64)
             .run(try plan([a, b], renameTemplate: "{job}"))
-        XCTAssertFalse(report.allVerified,
-                       "two frames on the card, \(filesUnder(primary)) on the volume, "
-                       + "and the card may be ejected: " + report.summary)
+        let fileOf = Dictionary(grouping: report.results.filter(\.isProven), by: \.source)
+            .mapValues { $0.map(\.destination.standardizedFileURL.path) }
+        XCTAssertEqual(fileOf.count, 2, "a frame has no proven copy: " + report.summary)
+        XCTAssertEqual(Set(fileOf.values.flatMap { $0 }).count, 2,
+                       "two frames on the card, \(filesUnder(primary)) on the volume: "
+                       + report.summary)
+        XCTAssertFalse(report.twoFramesShareOneFile, report.summary)
+        XCTAssertEqual(report.allVerified, filesUnder(primary).count == 2,
+                       "eject is offered exactly when both frames are on the volume: "
+                       + report.summary)
+    }
+
+    /// The eject gate itself, independent of the engine: two frames whose proven
+    /// verdicts point at one file — including through a second spelling of its folder —
+    /// do not add up to two frames on the volume.
+    func testAReportWhereTwoFramesStandOnOneFileDoesNotUnlockEject() throws {
+        let folder = primary.appendingPathComponent("2026", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("wedding.RAF")
+        try Data([1, 2, 3]).write(to: file)
+        let link = root.appendingPathComponent("alias", isDirectory: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: primary)
+        let viaLink = link.appendingPathComponent("2026/wedding.RAF")
+        let digest = try IngestFileDigest.digest(of: file, chunkSize: 64)
+        func proven(_ name: String, _ at: URL, _ outcome: IngestCopyOutcome) -> IngestFileResult {
+            IngestFileResult(source: card.appendingPathComponent(name), plannedDestination: at,
+                             destination: at, role: .primary, outcome: outcome)
+        }
+        for second in [file, viaLink] {
+            let report = IngestReport(
+                results: [proven("A.RAF", file, .verified(digest)),
+                          proven("B.RAF", second, .alreadyPresent(digest))],
+                refusals: [], wasCancelled: false, filesAttempted: 2, filesPlanned: 2,
+                bytesCopied: 3)
+            XCTAssertTrue(report.twoFramesShareOneFile, second.path)
+            XCTAssertFalse(report.allVerified,
+                           "two frames, one file, eject offered: " + report.summary)
+            XCTAssertTrue(report.summary.contains("point at one file"), report.summary)
+        }
     }
 
     /// Two destination roots that are two names for one directory. The photographer is

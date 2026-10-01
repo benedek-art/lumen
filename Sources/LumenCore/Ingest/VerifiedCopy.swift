@@ -209,6 +209,21 @@ public struct IngestReport: Sendable {
             && filesAttempted == filesPlanned
             && !results.isEmpty
             && results.allSatisfy(\.isProven)
+            && !twoFramesShareOneFile
+    }
+
+    /// Two different frames on the card standing on ONE file at the destination. Each
+    /// verdict on its own can be honest — the bytes there do match each source — and
+    /// the card still holds a frame the volume does not (S-01). Compared by directory
+    /// identity, so a second spelling of the same folder is the same file.
+    public var twoFramesShareOneFile: Bool {
+        var owner: [String: URL] = [:]
+        for result in results where result.isProven {
+            let slot = IngestLocation.fileIdentity(of: result.destination)
+            if let other = owner[slot], other != result.source { return true }
+            owner[slot] = result.source
+        }
+        return false
     }
 
     /// One line, true, and specific enough to act on.
@@ -245,6 +260,9 @@ public struct IngestReport: Sendable {
         }
         if !refusals.isEmpty {
             sentence += " · \(refusals.count) refused: " + refusals[0]
+        }
+        if twoFramesShareOneFile {
+            sentence += " · two different frames point at one file on the destination"
         }
         return sentence
     }
@@ -298,6 +316,11 @@ public struct VerifiedCopyDriver: Sendable {
         var bytesCopied: Int64 = 0
         var cancelled = false
         let total = plan.totalBytes
+        // Which source frame each destination file stands for in THIS run (S-01). A
+        // file this run already landed or proved for one frame is that frame's copy;
+        // a second frame with identical bytes rendered to the same name is a second
+        // frame, and must get its own file rather than be absorbed into the first.
+        var claims: [String: URL] = [:]
 
         for copy in plan.copies {
             if cancellation.isCancelled { cancelled = true; break }
@@ -306,7 +329,7 @@ public struct VerifiedCopyDriver: Sendable {
                                      bytesCopied: bytesCopied, bytesTotal: total,
                                      currentFile: name))
             var readSoFar: Int64 = 0
-            let outcome = perform(copy, cancellation: cancellation) { chunk in
+            let outcome = perform(copy, cancellation: cancellation, claims: &claims) { chunk in
                 readSoFar += chunk
                 progress?(IngestProgress(filesCompleted: attempted,
                                          filesTotal: plan.copies.count,
@@ -350,14 +373,26 @@ public struct VerifiedCopyDriver: Sendable {
     }
 
     private func perform(_ copy: IngestPlannedCopy, cancellation: IngestCancellation,
+                         claims: inout [String: URL],
                          onChunk: (Int64) -> Void) -> FrameOutcome {
         let fm = FileManager.default
         var results: [IngestFileResult] = []
 
         func verdict(_ planned: URL, _ landed: URL, _ role: IngestDestinationRole,
                      _ outcome: IngestCopyOutcome) -> IngestFileResult {
-            IngestFileResult(source: copy.source, plannedDestination: planned,
-                             destination: landed, role: role, outcome: outcome)
+            switch outcome {
+            case .verified, .copied, .alreadyPresent:
+                claims[IngestLocation.fileIdentity(of: landed)] = copy.source
+            case .failed:
+                break
+            }
+            return IngestFileResult(source: copy.source, plannedDestination: planned,
+                                    destination: landed, role: role, outcome: outcome)
+        }
+        /// A file this run has already landed or proved for a DIFFERENT frame.
+        func claimedByAnotherFrame(_ url: URL) -> Bool {
+            guard let owner = claims[IngestLocation.fileIdentity(of: url)] else { return false }
+            return owner != copy.source
         }
 
         let reader: FileHandle
@@ -411,8 +446,11 @@ public struct VerifiedCopyDriver: Sendable {
             if fm.fileExists(atPath: destination.url.path) {
                 // Already there. Either it is this frame — a card that was half
                 // drained, re-inserted — or it is a different frame that rendered to
-                // the same name. The bytes decide, never the name.
-                if let existing = try? IngestFileDigest.digest(of: destination.url,
+                // the same name. The bytes decide, never the name — and never for a
+                // file this run already wrote for another frame on the card, which is
+                // that frame's copy however alike the bytes are (S-01).
+                if !claimedByAnotherFrame(destination.url),
+                   let existing = try? IngestFileDigest.digest(of: destination.url,
                                                                chunkSize: chunkSize),
                    let mine = digestOfSource(), existing == mine {
                     guard mine.byteCount == copy.byteCount else {
