@@ -167,6 +167,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                                          + "and Lumen claims to")
                 return "refused-at-open"
             }
+            if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
             let decoders = Self.describe(apple)
             let expected = RawParams.decoderNumber(apple.decoderVersion.rawValue)
             let source = try AppleRawSource(url: fixture.url)
@@ -193,6 +194,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                 XCTAssertThrowsError(try AppleRawSource(url: fixture.url))
                 return "refused-at-open"
             }
+            if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
             var versions = [apple.decoderVersion]
             if let raw9 = apple.supportedDecoderVersions.first(where: AppleRawSource.needsRaw9Boundary),
                raw9 != apple.decoderVersion { versions.append(raw9) }
@@ -324,6 +326,7 @@ final class AuditRawAccuracyTests: XCTestCase {
                 XCTAssertThrowsError(try AppleRawSource(url: fixture.url))
                 return "refused-at-open"
             }
+            if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
             let fallback = RawParams.decoderNumber(apple.decoderVersion.rawValue)
             var others: [Int] = []
             for version in apple.supportedDecoderVersions {
@@ -360,6 +363,21 @@ final class AuditRawAccuracyTests: XCTestCase {
             let pins = requestedPins.map(String.init).joined(separator: Self.comma)
             return "decoded pins=" + pins
         }
+    }
+
+    /// A file Apple's filter opens but selects no RAW decoder for (default "",
+    /// supported ["None"]: on the lane, the IIQ, X3F, GPR and that OS's X-H2 RAF) is not
+    /// a RAW decode, and Lumen refuses it at open (`RawParams.selectsRawDecoder`).
+    /// Asserted here so the refusal is checked rather than thrown into `eachFixture`.
+    private static func refusedWithoutDecoder(_ apple: CIRAWFilter,
+                                              _ fixture: Fixture) -> String? {
+        guard !RawParams.selectsRawDecoder(apple.decoderVersion.rawValue) else { return nil }
+        XCTAssertThrowsError(try AppleRawSource(url: fixture.url),
+                             "\(fixture.name): Apple's filter selects no RAW decoder for "
+                                 + "this file and Lumen opened it anyway")
+        let supported = apple.supportedDecoderVersions.map(\.rawValue)
+            .joined(separator: Self.comma)
+        return "refused-no-decoder supported=" + supported
     }
 
     private func supportsRaw9(_ url: URL) -> Bool {

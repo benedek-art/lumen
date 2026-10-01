@@ -35,6 +35,34 @@ final class RawDecoderNumberTests: XCTestCase {
         }
     }
 
+    /// The RAW corpus lane's 2767 (Phase One P65+ IIQ): CIRAWFilter reported default ""
+    /// and supported ["None"], decoded the container's 296 x 220 RGB thumbnail, and Lumen
+    /// accepted it with a nil decoder pin. Only an identifier carrying a decoder number
+    /// is a RAW decode, and AppleRawSource's init must refuse through this predicate.
+    func testOnlyANumberedDecoderIsARawDecode() throws {
+        for identifier in ["5", "6", "7", "8", "9", "6.dng", "8.dng", "9.dng"] {
+            XCTAssertTrue(RawParams.selectsRawDecoder(identifier), identifier)
+        }
+        for identifier in ["", "None", "dng"] {
+            XCTAssertFalse(RawParams.selectsRawDecoder(identifier), identifier)
+        }
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent(
+            "Sources/LumenPipeline/AppleRawSource.swift"), encoding: .utf8)
+        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let range = line.range(of: "//") else { return line }
+                return line[..<range.lowerBound]
+            }
+            .joined(separator: "\n")
+        XCTAssertTrue(code.contains(
+            "guard RawParams.selectsRawDecoder(filter.decoderVersion.rawValue) else {\n"
+            + "            throw RawSourceError.undecodable(url)"),
+            "AppleRawSource.init must refuse a file for which CIRAWFilter selected no decoder")
+    }
+
     /// The helper only helps if the decode path and the private RAW tests USE it. A
     /// literal spelling comparison anywhere in either file is the defect coming back.
     /// Code only: comments are stripped first, since the fix's own explanation quotes

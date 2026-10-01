@@ -70,6 +70,11 @@ public final class AppleRawSource: ImageSource {
         guard let filter = CIRAWFilter(imageURL: url) else {
             throw RawSourceError.undecodable(url)
         }
+        // No RAW decoder selected: what the filter would deliver is ImageIO's reading
+        // of the container (an embedded thumbnail for the P65+ IIQ), not a decode.
+        guard RawParams.selectsRawDecoder(filter.decoderVersion.rawValue) else {
+            throw RawSourceError.undecodable(url)
+        }
         self.url = url
         self.filter = filter
         self.originalNativeSize = filter.nativeSize
