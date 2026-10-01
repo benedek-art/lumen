@@ -224,7 +224,7 @@ final class LibraryFilterTests: XCTestCase {
         XCTAssertEqual(LibraryFilter().activeCriteriaCount, 0)
         XCTAssertFalse(LibraryFilter().isActive)
 
-        XCTAssertEqual(fullyLoadedFilter().activeCriteriaCount, 11,
+        XCTAssertEqual(fullyLoadedFilter().activeCriteriaCount, 14,
                        "every criterion the filter has, each counted once")
     }
 
@@ -248,7 +248,7 @@ final class LibraryFilterTests: XCTestCase {
             mutate(&filter)
             XCTAssertEqual(filter.hiddenCriteriaCount, name == "text" ? 0 : 1, name)
         }
-        XCTAssertEqual(fullyLoadedFilter().hiddenCriteriaCount, 10,
+        XCTAssertEqual(fullyLoadedFilter().hiddenCriteriaCount, 13,
                        "everything but the search text, each criterion once")
     }
 
@@ -306,7 +306,8 @@ final class LibraryFilterTests: XCTestCase {
             var filter = LibraryFilter()
             mutate(&filter)
             let expected = ["edited", "cameras", "lenses", "isoBands",
-                            "stackState", "keywords"].contains(name)
+                            "stackState", "keywords",
+                            "softFocus", "closedEyes", "burst"].contains(name)
             XCTAssertEqual(filter.usesCatalogOnlyCriteria, expected, name)
         }
     }
@@ -344,6 +345,9 @@ final class LibraryFilterTests: XCTestCase {
             + "  and  ISO ≤ 400 or ISO 1601–6400"
             + "  and  sunset"
             + "  and  collapsed stacks"
+            + "  and  soft focus"
+            + "  and  eyes closed"
+            + "  and  in a burst"
             + "  and  matching \"beach\"")
     }
 
@@ -388,6 +392,9 @@ final class LibraryFilterTests: XCTestCase {
         XCTAssertEqual(query.keywords, ["sunset"])
         XCTAssertEqual(query.isoRanges, [0...400, 1601...6400])
         XCTAssertEqual(query.stackState, .collapsedTopsOnly)
+        XCTAssertTrue(query.softFocus)
+        XCTAssertTrue(query.closedEyes)
+        XCTAssertEqual(query.burstState, .inBurst)
         XCTAssertEqual(query.text, "beach")
         XCTAssertEqual(query.sortKey, .rating)
         XCTAssertFalse(query.ascending)
@@ -410,6 +417,9 @@ final class LibraryFilterTests: XCTestCase {
         XCTAssertTrue(query.keywords.isEmpty)
         XCTAssertTrue(query.isoRanges.isEmpty)
         XCTAssertEqual(query.stackState, .any)
+        XCTAssertFalse(query.softFocus)
+        XCTAssertFalse(query.closedEyes)
+        XCTAssertEqual(query.burstState, .any)
         XCTAssertNil(query.text)
     }
 
@@ -619,6 +629,9 @@ final class LibraryFilterTests: XCTestCase {
         ("isoBands", { $0.isoBands = [.upTo400] }),
         ("stackState", { $0.stackState = .collapsedTops }),
         ("keywords", { $0.keywords = ["sunset"] }),
+        ("softFocus", { $0.softFocus = true }),
+        ("closedEyes", { $0.closedEyes = true }),
+        ("burst", { $0.burst = .inBurst }),
     ]
 
     /// One of every criterion at once, with two values wherever a criterion takes a set,
@@ -637,6 +650,9 @@ final class LibraryFilterTests: XCTestCase {
         filter.isoBands = [.upTo400, .to6400]
         filter.stackState = .collapsedTops
         filter.keywords = ["sunset"]
+        filter.softFocus = true
+        filter.closedEyes = true
+        filter.burst = .inBurst
         return filter
     }
 }

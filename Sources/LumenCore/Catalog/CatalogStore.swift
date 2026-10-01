@@ -896,6 +896,13 @@ public struct PhotoQuery: Sendable {
         case any, collapsedTopsOnly, unstacked
     }
 
+    /// Burst membership, from the culling pass's grouping (`cache.frame_score.burst_id`).
+    /// A frame the pass has not reached is "not in a burst" — the same answer as a frame
+    /// it measured and found alone, because both are frames nobody has grouped.
+    public enum BurstState: String, Sendable {
+        case any, inBurst, notInBurst
+    }
+
     /// Virtual copies are `edit` rows, so "masters" means "no version edit exists".
     public enum VersionKind: String, Sendable {
         case all, mastersOnly, versionsOnly
@@ -935,6 +942,7 @@ public struct PhotoQuery: Sendable {
     public var cameraPreviewOnly: Bool = false
     public var closedEyesThreshold: Double = 0.35
     public var softFocusThreshold: Double = 0.35
+    public var burstState: BurstState = .any
 
     // Text chip — tokenized contains/prefix
     public var text: String? = nil
@@ -949,6 +957,67 @@ public struct PhotoQuery: Sendable {
     public var offset: Int? = nil
 
     public init() {}
+}
+
+// MARK: - Culling evidence rows
+
+/// One `cache.frame_score` row as the culling pass writes it (docs/10 §10.6).
+///
+/// Evidence, never a verdict: nothing that reads this writes `photo.flag`. The row is
+/// disposable (`cache.db`) and keyed on the FILE — the measurement is taken on the
+/// camera's preview, which no slider changes.
+public struct FrameScoreRow: Equatable, Sendable {
+    public var photoID: Int64
+    /// 0…1 (`SharpnessScorer`); nil when the frame could not be measured.
+    public var sharpness: Double?
+    /// Estimated noise σ at the analysis scale.
+    public var noise: Double?
+    /// 64-bit DCT perceptual hash (`PerceptualHash`), stored as its bit pattern.
+    public var perceptualHash: UInt64?
+    /// The long edge the score was measured at. Below `SharpnessScorer.analysisLongEdge`
+    /// the number came from a thumbnail and reads high.
+    public var analysedLongEdge: Int?
+    /// The burst this frame belongs to (its first frame's photo id), nil when ungrouped.
+    public var burstID: Int64?
+    /// 1-based position in the burst's evidence order (sharpest first).
+    public var burstRank: Int?
+    public var analyzerRevision: Int
+    public var computedAt: Int64
+
+    public init(photoID: Int64, sharpness: Double?, noise: Double?,
+                perceptualHash: UInt64?, analysedLongEdge: Int?,
+                burstID: Int64? = nil, burstRank: Int? = nil,
+                analyzerRevision: Int = SharpnessScorer.analyzerRevision,
+                computedAt: Int64 = 0) {
+        self.photoID = photoID
+        self.sharpness = sharpness
+        self.noise = noise
+        self.perceptualHash = perceptualHash
+        self.analysedLongEdge = analysedLongEdge
+        self.burstID = burstID
+        self.burstRank = burstRank
+        self.analyzerRevision = analyzerRevision
+        self.computedAt = computedAt
+    }
+}
+
+/// One `cache.face` row: where the face is and what the evidence says about it.
+public struct FaceEvidenceRow: Equatable, Sendable {
+    public var rect: NormalizedRect
+    /// 0 closed … 1 open (`EyeOpenness.openness`); nil when no eye landmarks were found.
+    public var eyesOpen: Double?
+    /// The face region's own sharpness score, 0…1; nil when the region was too small.
+    public var focus: Double?
+    /// Vision's capture-quality score, 0…1, when the platform provides it.
+    public var captureQuality: Double?
+
+    public init(rect: NormalizedRect, eyesOpen: Double?, focus: Double?,
+                captureQuality: Double? = nil) {
+        self.rect = rect
+        self.eyesOpen = eyesOpen
+        self.focus = focus
+        self.captureQuality = captureQuality
+    }
 }
 
 // MARK: - Migrations
@@ -1010,7 +1079,8 @@ public final class CatalogStore {
 
     /// Gap-closing migration for `cache.db` (G1–G4, G19, G28, G29).
     public static let cacheMigrations: [CatalogMigration] = [
-        CatalogMigration(version: 2, sql: CatalogStore.cacheMigration2)
+        CatalogMigration(version: 2, sql: CatalogStore.cacheMigration2),
+        CatalogMigration(version: 3, sql: CatalogStore.cacheMigration3),
     ]
 
     private static let lumenMigration2: String = """
@@ -1196,6 +1266,26 @@ public final class CatalogStore {
 
     -- G29: one concept, one name.
     ALTER TABLE feature_print RENAME COLUMN revision TO analyzer_rev;
+    """
+
+    /// The culling pass's columns (docs/10 §10.6, F5).
+    ///
+    /// `frame_score` had a sharpness column and nothing to fill it; the pass that fills it
+    /// also produces a noise estimate, the scale it measured at, a perceptual hash, and the
+    /// burst grouping that hash feeds. ADD COLUMN, not a table rewrite: every existing row
+    /// keeps what it had and reads NULL for the new evidence.
+    ///
+    /// The two indexes are the sort and the chips: the sharpness sort and the soft-focus
+    /// chip read `sharpness`, the burst chip reads `burst_id`, and both have to stay
+    /// index-backed at 100k frames (§15.2).
+    private static let cacheMigration3: String = """
+    ALTER TABLE frame_score ADD COLUMN noise REAL;
+    ALTER TABLE frame_score ADD COLUMN phash INTEGER;
+    ALTER TABLE frame_score ADD COLUMN analysed_edge INTEGER;
+    ALTER TABLE frame_score ADD COLUMN burst_id INTEGER;
+    ALTER TABLE frame_score ADD COLUMN burst_rank INTEGER;
+    CREATE INDEX IF NOT EXISTS frame_score_sharpness ON frame_score(sharpness);
+    CREATE INDEX IF NOT EXISTS frame_score_burst ON frame_score(burst_id, burst_rank);
     """
 
     /// G16: the text chip needs tokenized contains/prefix; `LIKE '%x%'` cannot meet
@@ -2161,6 +2251,11 @@ public final class CatalogStore {
                     result.invalidatedPreviews += try self.previews(photoID: row.id)
                     try self.db.run("DELETE FROM cache.preview WHERE photo_id = ?;", [.integer(row.id)])
                     try self.db.run("DELETE FROM cache.artifact WHERE photo_id = ?;", [.integer(row.id)])
+                    // The culling evidence was measured on the OLD file's preview; a
+                    // sharpness score and a hash describing a picture that is no longer
+                    // there would keep sorting and grouping it as that picture.
+                    try self.db.run("DELETE FROM cache.frame_score WHERE photo_id = ?;", [.integer(row.id)])
+                    try self.db.run("DELETE FROM cache.face WHERE photo_id = ?;", [.integer(row.id)])
                     self.reindexText(photoID: row.id)
                     result.changed.append(row.id)
                 } else if row.missing {
@@ -3676,6 +3771,158 @@ public final class CatalogStore {
               .int(Swift.max(0, limit))]) { $0.int(0) }
     }
 
+    // MARK: - Culling evidence (`cache.frame_score`, `cache.face`)
+
+    /// Write one frame's measurement. Upserts the measured columns only: the burst
+    /// grouping is a property of the FOLDER, written by `replaceBursts` after a pass, and
+    /// junk/aesthetic belong to detectors that are not this one — re-measuring one frame
+    /// must not ungroup it or erase another detector's evidence.
+    public func recordFrameScore(_ row: FrameScoreRow,
+                                 at now: Int64 = CatalogStore.now()) throws {
+        try db.run("""
+        INSERT INTO cache.frame_score
+          (photo_id, sharpness, noise, phash, analysed_edge, analyzer_rev, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(photo_id) DO UPDATE SET
+          sharpness     = excluded.sharpness,
+          noise         = excluded.noise,
+          phash         = excluded.phash,
+          analysed_edge = excluded.analysed_edge,
+          analyzer_rev  = excluded.analyzer_rev,
+          computed_at   = excluded.computed_at;
+        """, [.integer(row.photoID), .optionalReal(row.sharpness), .optionalReal(row.noise),
+              .optionalInteger(row.perceptualHash.map { Int64(bitPattern: $0) }),
+              .optionalInt(row.analysedLongEdge), .int(row.analyzerRevision),
+              .integer(now)])
+    }
+
+    private static let frameScoreColumns = """
+    fs.photo_id, fs.sharpness, fs.noise, fs.phash, fs.analysed_edge, fs.burst_id, \
+    fs.burst_rank, fs.analyzer_rev, fs.computed_at
+    """
+
+    private static func decodeFrameScore(_ s: SQLiteStatement) -> FrameScoreRow {
+        FrameScoreRow(photoID: s.int(0), sharpness: s.optionalDouble(1),
+                      noise: s.optionalDouble(2),
+                      perceptualHash: s.optionalInt(3).map { UInt64(bitPattern: $0) },
+                      analysedLongEdge: s.optionalIntValue(4), burstID: s.optionalInt(5),
+                      burstRank: s.optionalIntValue(6), analyzerRevision: Int(s.int(7)),
+                      computedAt: s.int(8))
+    }
+
+    public func frameScore(photoID: Int64) throws -> FrameScoreRow? {
+        try firstRow("SELECT \(CatalogStore.frameScoreColumns) FROM cache.frame_score AS fs "
+                     + "WHERE fs.photo_id = ?;", [.integer(photoID)],
+                     CatalogStore.decodeFrameScore)
+    }
+
+    /// Every scored frame in a folder, for the grid's badge map. One query per pass
+    /// batch, never one per cell and never on the keystroke path.
+    public func frameScores(folderID: Int64) throws -> [FrameScoreRow] {
+        try allRows("""
+        SELECT \(CatalogStore.frameScoreColumns) FROM cache.frame_score AS fs
+        JOIN photo ON photo.id = fs.photo_id
+        WHERE photo.folder_id = ?
+        ORDER BY fs.photo_id;
+        """, [.integer(folderID)], CatalogStore.decodeFrameScore)
+    }
+
+    /// The culling pass's queue: frames in a folder with no row at this revision, oldest
+    /// id first. A row at another revision counts as missing, so bumping
+    /// `SharpnessScorer.analyzerRevision` is a recompute, not a permanent stale answer.
+    public func photosMissingFrameScore(folderID: Int64,
+                                        revision: Int = SharpnessScorer.analyzerRevision,
+                                        afterID: Int64 = 0,
+                                        limit: Int = 200) throws -> [Int64] {
+        try allRows("""
+        SELECT photo.id FROM photo
+        LEFT JOIN cache.frame_score AS fs
+               ON fs.photo_id = photo.id AND fs.analyzer_rev = ?
+        WHERE photo.folder_id = ? AND photo.id > ? AND photo.missing = 0
+          AND fs.photo_id IS NULL
+        ORDER BY photo.id
+        LIMIT ?;
+        """, [.int(revision), .integer(folderID), .integer(afterID),
+              .int(Swift.max(0, limit))]) { $0.int(0) }
+    }
+
+    /// What the burst grouper needs for every present frame of a folder. Frames the pass
+    /// has not hashed come back with a nil hash and are left ungrouped.
+    public func burstCandidates(folderID: Int64) throws -> [BurstCandidate] {
+        try allRows("""
+        SELECT photo.id, photo.capture_at, photo.capture_subsec,
+               COALESCE(photo.camera_serial, photo.camera), fs.phash, fs.sharpness
+        FROM photo
+        LEFT JOIN cache.frame_score AS fs ON fs.photo_id = photo.id
+        WHERE photo.folder_id = ? AND photo.missing = 0
+        ORDER BY photo.id;
+        """, [.integer(folderID)]) { s in
+            let seconds = s.optionalInt(1)
+            let micro = s.optionalInt(2) ?? 0
+            return BurstCandidate(
+                photoID: s.int(0),
+                captureTime: seconds.map { Double($0) + Double(micro) / 1_000_000 },
+                camera: s.string(3),
+                hash: s.optionalInt(4).map { UInt64(bitPattern: $0) },
+                sharpness: s.optionalDouble(5))
+        }
+    }
+
+    /// Replace a folder's burst grouping with `groups`, in one transaction. Grouping is
+    /// recomputed whole: a frame that left a burst (a re-shoot, a deleted neighbour) must
+    /// lose its id, which an additive write would never do.
+    ///
+    /// Writes `cache.frame_score` only. Stacks are the photographer's (`stack` in
+    /// lumen.db); turning a burst into a stack is their keystroke.
+    public func replaceBursts(_ groups: [BurstGroup], folderID: Int64) throws {
+        try db.transaction {
+            try self.db.run("""
+            UPDATE cache.frame_score SET burst_id = NULL, burst_rank = NULL
+            WHERE burst_id IS NOT NULL
+              AND photo_id IN (SELECT id FROM main.photo WHERE folder_id = ?);
+            """, [.integer(folderID)])
+            for group in groups {
+                for (rank, photoID) in group.ranked.enumerated() {
+                    try self.db.run("""
+                    UPDATE cache.frame_score SET burst_id = ?, burst_rank = ?
+                    WHERE photo_id = ?;
+                    """, [.integer(group.id), .int(rank + 1), .integer(photoID)])
+                }
+            }
+        }
+    }
+
+    /// Replace one frame's face evidence.
+    public func recordFaces(_ faces: [FaceEvidenceRow], photoID: Int64,
+                            revision: Int = SharpnessScorer.analyzerRevision) throws {
+        try db.transaction {
+            try self.db.run("DELETE FROM cache.face WHERE photo_id = ?;", [.integer(photoID)])
+            for face in faces {
+                try self.db.run("""
+                INSERT INTO cache.face
+                  (photo_id, rect_x, rect_y, rect_w, rect_h, eyes_open, capture_quality,
+                   focus, analyzer_rev)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, [.integer(photoID), .real(face.rect.x), .real(face.rect.y),
+                      .real(face.rect.width), .real(face.rect.height),
+                      .optionalReal(face.eyesOpen), .optionalReal(face.captureQuality),
+                      .optionalReal(face.focus), .int(revision)])
+            }
+        }
+    }
+
+    public func faces(photoID: Int64) throws -> [FaceEvidenceRow] {
+        try allRows("""
+        SELECT rect_x, rect_y, rect_w, rect_h, eyes_open, focus, capture_quality
+        FROM cache.face WHERE photo_id = ? ORDER BY id;
+        """, [.integer(photoID)]) { s in
+            FaceEvidenceRow(rect: NormalizedRect(x: s.double(0), y: s.double(1),
+                                                 width: s.double(2), height: s.double(3)),
+                            eyesOpen: s.optionalDouble(4), focus: s.optionalDouble(5),
+                            captureQuality: s.optionalDouble(6))
+        }
+    }
+
     // MARK: - Filter / sort query builder
 
     /// Builds and runs the grid query. Every value is a bound parameter; the only
@@ -3851,6 +4098,16 @@ public final class CatalogStore {
                             + "WHERE fa.photo_id = photo.id AND fa.eyes_open IS NOT NULL "
                             + "AND fa.eyes_open < ?)")
             parameters.append(.real(query.closedEyesThreshold))
+        }
+        switch query.burstState {
+        case .any:
+            break
+        case .inBurst:
+            criteria.append("EXISTS (SELECT 1 FROM cache.frame_score f "
+                            + "WHERE f.photo_id = photo.id AND f.burst_id IS NOT NULL)")
+        case .notInBurst:
+            criteria.append("NOT EXISTS (SELECT 1 FROM cache.frame_score f "
+                            + "WHERE f.photo_id = photo.id AND f.burst_id IS NOT NULL)")
         }
         if query.cameraPreviewOnly {
             criteria.append("""

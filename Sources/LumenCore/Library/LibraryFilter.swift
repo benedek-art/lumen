@@ -64,6 +64,18 @@ public enum StackFilter: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
+/// The burst chip (docs/10 §10.2/§10.6): the culling pass's near-duplicate grouping as a
+/// set to look at. Evidence, not a verdict — there is deliberately no "best of each burst"
+/// value: a filter that hides every frame but the sharpest one is an auto-pick wearing a
+/// chip's clothes (D37).
+public enum BurstFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "Any"
+    case inBurst = "In a burst"
+    case notInBurst = "Not in a burst"
+
+    public var id: String { rawValue }
+}
+
 // MARK: - The filter
 
 public struct LibraryFilter: Equatable, Sendable {
@@ -91,6 +103,20 @@ public struct LibraryFilter: Equatable, Sendable {
     public var isoBands: Set<ISOBand> = []
     public var stackState: StackFilter = .any
     public var keywords: Set<String> = []
+
+    // Evidence chips (docs/10 §10.8): the culling pass's output as reviewable sets. All
+    // three read `cache.db`, so all three are catalog-only. Lighting one never rejects
+    // anything; it shows the frames the evidence points at, and the keystroke stays the
+    // photographer's.
+
+    /// Frames whose sharpness score is below `PhotoQuery.softFocusThreshold`. Unscored
+    /// frames are NOT soft — the pass has not looked at them, and "not measured" must
+    /// never read as "measured bad".
+    public var softFocus: Bool = false
+    /// Frames with at least one face whose eyes read closed.
+    public var closedEyes: Bool = false
+    public var burst: BurstFilter = .any
+
     public var matchAny: Bool = false
 
     public init() {}
@@ -103,6 +129,7 @@ public struct LibraryFilter: Equatable, Sendable {
     public var usesCatalogOnlyCriteria: Bool {
         edited != nil || !cameras.isEmpty || !lenses.isEmpty || !isoBands.isEmpty
             || stackState != .any || !keywords.isEmpty
+            || softFocus || closedEyes || burst != .any
     }
 
     public var isActive: Bool {
@@ -128,6 +155,9 @@ public struct LibraryFilter: Equatable, Sendable {
         if !isoBands.isEmpty { n += 1 }
         if !keywords.isEmpty { n += 1 }
         if stackState != .any { n += 1 }
+        if softFocus { n += 1 }
+        if closedEyes { n += 1 }
+        if burst != .any { n += 1 }
         if !text.isEmpty { n += 1 }
         return n
     }
@@ -242,6 +272,13 @@ public struct LibraryFilter: Equatable, Sendable {
         case .collapsedTops: query.stackState = .collapsedTopsOnly
         case .unstacked: query.stackState = .unstacked
         }
+        query.softFocus = softFocus
+        query.closedEyes = closedEyes
+        switch burst {
+        case .any: query.burstState = .any
+        case .inBurst: query.burstState = .inBurst
+        case .notInBurst: query.burstState = .notInBurst
+        }
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         query.text = trimmed.isEmpty ? nil : trimmed
         query.matchAny = matchAny
@@ -302,6 +339,9 @@ public struct LibraryFilter: Equatable, Sendable {
         }
         if !keywords.isEmpty { parts.append(keywords.sorted().joined(separator: " or ")) }
         if stackState != .any { parts.append(stackState.rawValue.lowercased()) }
+        if softFocus { parts.append("soft focus") }
+        if closedEyes { parts.append("eyes closed") }
+        if burst != .any { parts.append(burst.rawValue.lowercased()) }
         if !text.isEmpty { parts.append("matching \"\(text)\"") }
         return parts.joined(separator: matchAny ? "  or  " : "  and  ")
     }
