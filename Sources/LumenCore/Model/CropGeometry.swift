@@ -473,8 +473,21 @@ extension CropGeometry {
         // each axis on its own is exactly how the aspect — and any ratio lock riding on
         // it — would break.
         let scale = Swift.min(1, after.width / w, after.height / h)
-        let w2 = w * scale
-        let h2 = h * scale
+        var w2 = w * scale
+        var h2 = h * scale
+        // AND THE FLOOR IS RATIO-PRESERVING, for the reason `shrinkIntoFrame` states
+        // (KG-04). A crop at the minimum size carried to an angle whose usable frame is
+        // LARGER becomes a smaller fraction of it, and `normalized` below floors each
+        // axis on its own — a 2.13:1 crop at the floor at 10° came back to 0° as 1.65:1.
+        // Lifted here on one factor, capped where the frame cannot hold the shape, so
+        // `normalized` has nothing left to floor.
+        let lift = Swift.max(minimumCropFraction * after.width / w2,
+                             minimumCropFraction * after.height / h2)
+        if lift > 1 {
+            let capped = Swift.min(lift, after.width / w2, after.height / h2)
+            w2 *= capped
+            h2 *= capped
+        }
         let cx2 = Num.clamp(cx, -(after.width - w2) / 2, (after.width - w2) / 2)
         let cy2 = Num.clamp(cy, -(after.height - h2) / 2, (after.height - h2) / 2)
         return normalized(Crop(x: (cx2 - w2 / 2) / after.width + 0.5,

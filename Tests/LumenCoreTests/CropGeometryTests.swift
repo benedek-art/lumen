@@ -666,6 +666,42 @@ final class CropReangleTests: XCTestCase {
         }
     }
 
+    /// The same promise AT THE FLOOR (KG-04). A crop at the minimum size, carried to an
+    /// angle whose usable frame is larger, becomes a smaller fraction of it, and
+    /// `normalized` floored each axis on its own: a 2.13:1 crop at the floor at 10°
+    /// came back to 0° as 1.645:1. The sweep above never put a rectangle at the floor.
+    func testThePixelAspectSurvivesAnAngleChangeAtTheMinimumSize() {
+        let floor = CropGeometry.minimumCropFraction
+        for (sw, sh) in [(3000.0, 2000.0), (2000.0, 3000.0)] {
+            for aspect in [16.0 / 9, 2.134, 3.0, 0.5] {
+                for from in [10.0, -10.0, 6.0] {
+                    // The smallest rectangle of this pixel aspect the floor allows.
+                    let usable = CropGeometry.usableSize(width: sw, height: sh,
+                                                         degrees: from)
+                    var w = floor
+                    var h = w * usable.width / aspect / usable.height
+                    if h < floor { h = floor; w = h * aspect * usable.height / usable.width }
+                    let crop = Crop(x: 0.4, y: 0.4, w: w, h: h)
+                    let before = pixels(crop, w: sw, h: sh, degrees: from)
+                    XCTAssertEqual(before.w / before.h, aspect, accuracy: 1e-9)
+                    for to in [0.0, 2.0, from / 2] {
+                        let out = CropGeometry.reangled(crop, sourceWidth: sw,
+                                                        sourceHeight: sh,
+                                                        from: from, to: to)
+                        let after = pixels(out, w: sw, h: sh, degrees: to)
+                        XCTAssertEqual(after.w / after.h, aspect, accuracy: 1e-6,
+                                       "\(sw)x\(sh) \(aspect):1 at the floor, "
+                                           + "\(from)°→\(to)°: the lock broke at "
+                                           + "\(after.w / after.h)")
+                        XCTAssertGreaterThanOrEqual(min(out.w, out.h), floor - 1e-12)
+                        XCTAssertLessThanOrEqual(out.x + out.w, 1 + 1e-12)
+                        XCTAssertLessThanOrEqual(out.y + out.h, 1 + 1e-12)
+                    }
+                }
+            }
+        }
+    }
+
     /// The owner's exact scenario: the default full-frame crop, then a tilt. The box
     /// must NOT stay pinned at 100% of the new inscribed frame — it keeps the source's
     /// own aspect, so slack appears on one axis and there is somewhere to move it.
