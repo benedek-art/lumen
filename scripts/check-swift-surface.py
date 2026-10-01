@@ -1542,6 +1542,13 @@ USE = re.compile(r"(?<![\w.])([a-z_]\w*)\??\.([a-zA-Z_]\w*)")
 # parsing scopes.
 INFERRED = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*=")
 CLOSURE_ARG = re.compile(r"[{(]\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s+in\b")
+# A binding annotated with a type ANNOTATED cannot read — a tuple, an array, a
+# dictionary — is still a binding of that name. Without this, `var found: (url: URL,
+# digest: IngestDigest)?` was invisible, a later `let found: IngestDigest` in the same
+# function made `found` look unambiguous, and `found.url` was reported as a missing
+# member of IngestDigest (docs/audit-2026-10/streams/P1-ingest.md). Such a name is
+# ambiguous exactly like an inferred one.
+UNREAD_ANNOTATION = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*:\s*[(\[]")
 
 # The platform value types this pass knows the whole surface of.
 #
@@ -1710,7 +1717,7 @@ def pass_value_members():
             seen = {}
             for m in ANNOTATED.finditer(scope):
                 seen.setdefault(m.group(1), set()).add(m.group(2))
-            ambiguous = set(INFERRED.findall(scope))
+            ambiguous = set(INFERRED.findall(scope)) | set(UNREAD_ANNOTATION.findall(scope))
             for m in CLOSURE_ARG.finditer(scope):
                 for part in m.group(1).split(","):
                     ambiguous.add(part.strip())
