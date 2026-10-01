@@ -962,6 +962,26 @@ METHOD_SKIP = {
     "combine", "cgImage",
 }
 
+# Standard-library signatures whose NAME collides with an in-tree method, consulted
+# ONLY after a value-receiver call has failed every in-tree declaration of that name.
+#
+# The pass is name-based, so `items.drop(while: …)` was judged against the two in-tree
+# `func drop(_:)` and reported — a stdlib call the compiler accepts (docs/audit-2026-09
+# STATUS.md, the third false-finding class). METHOD_SKIP is the wrong tool for that: it
+# would stop checking `drop` altogether. This table instead names the exact stdlib
+# signatures, so `drop(count:)` is still reported while `drop(while:)` is not.
+#
+# Same rule as PLATFORM_MEMBERS: every row is a signature the standard library really
+# declares, written as (labels, required labels) exactly as `collect_methods` records
+# an in-tree one. Add a row only for a name that collides with an in-tree func AND a
+# call the compiler accepts; never to quiet a finding you have not checked.
+STDLIB_SIGNATURES = {
+    "drop": [(["while"], ["while"])],                       # Sequence.drop(while:)
+    "firstIndex": [(["of"], ["of"]), (["where"], ["where"])],  # Collection
+    "merge": [([None, "uniquingKeysWith"], [None, "uniquingKeysWith"])],  # Dictionary
+    "round": [([], []), ([None], [None])],                  # FloatingPoint.round(_:)
+}
+
 
 def collect_methods():
     """method name -> [(labels, required labels, file, file_local)] for every in-tree func.
@@ -1040,11 +1060,11 @@ def pass_method_labels():
         for m in METHOD_CALL.finditer(text):
             if m.group(1) in RECEIVER_KEYWORDS:
                 continue
-            yield m, m.group(2)
+            yield m, m.group(2), True
         for m in METHOD_CALL_TYPED.finditer(text):
             receiver = m.group(1)
             if receiver == "Self" or receiver in intree_types:
-                yield m, m.group(2)
+                yield m, m.group(2), False
         for m in METHOD_CALL_BARE.finditer(text):
             name = m.group(1)
             if name in RECEIVER_KEYWORDS or name in shadowed or name in variadic:
@@ -1053,7 +1073,7 @@ def pass_method_labels():
             # The declaration itself, and an enum case with an associated value.
             if re.search(r"\b(?:func|case)\s+$", before):
                 continue
-            yield m, name
+            yield m, name, False
 
     for path in FILES:
         # Bodies blanked so prose — the schema strings in `CatalogStore`, above all —
@@ -1063,7 +1083,7 @@ def pass_method_labels():
         text = strip_all_keep_quotes(path.read_text())
         shadowed = (set(VALUE_BOUND.findall(text)) | set(PARAM_LABELLED.findall(text))
                     | set(PARAM_PLAIN.findall(text)))
-        for m, name in call_sites(text, shadowed):
+        for m, name, on_value in call_sites(text, shadowed):
             if name in METHOD_SKIP or name not in methods:
                 continue
             open_i = m.end() - 1
@@ -1117,7 +1137,12 @@ def pass_method_labels():
                 continue
 
             checked += 1
-            if not any(accepts(s) for s in visible):
+            # A value receiver's type is unknown here, so it may be a stdlib one: the
+            # narrow table above, and only once the in-tree declarations have failed.
+            stdlib = STDLIB_SIGNATURES.get(name, []) if on_value else []
+            if not any(accepts(s) for s in visible) and not any(
+                    accepts((labels, required, None, False))
+                    for labels, required in stdlib):
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line, name,
                                  call_labels, visible))
