@@ -1024,19 +1024,14 @@ final class AppState: ObservableObject {
             maskThumbnailKey = nil
             return
         }
-        // The masks themselves, minus their names — renaming a mask must not re-render
-        // ninety-six pixels — plus everything the mask SOURCE is a function of, which is
-        // what `PipelineRenderer.maskSourceFingerprint` already knows how to state.
-        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
-            .map(CanonicalJSON.serialize) ?? UUID().uuidString
-        let key = [photo.id.absoluteString, shape,
-                   PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-"]
-            .joined(separator: "|")
+        let strokes = strokeSets(for: recipe)
+        let key = Self.maskThumbnailKey(url: photo.id, recipe: recipe,
+                                        sourceIdentity: SourceFileIdentity.read(photo.id),
+                                        strokeSets: strokes)
         guard key != maskThumbnailKey else { return }
         maskThumbnailKey = key
 
         let ids = recipe.masks.map(\.id)
-        let strokes = strokeSets(for: recipe)
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
             guard let self else { return }
@@ -1068,6 +1063,30 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
             self.maskThumbnails = built
         }
+    }
+
+    /// What a set of mask thumbnails is a picture OF.
+    ///
+    /// The masks themselves, minus their names — renaming a mask must not re-render
+    /// ninety-six pixels — plus everything the mask SOURCE is a function of, which is
+    /// what `PipelineRenderer.maskSourceFingerprint` already knows how to state. And two
+    /// terms that key used to lack: the FILE's identity, because a photograph replaced at
+    /// the same path keeps its url and its recipe while every picture-dependent mask
+    /// selects something else; and which stroke sets are actually LOADED, because a
+    /// brush mask drawn before its blob arrived is an empty picture of a mask that is
+    /// not empty, and the blob arriving changes nothing else in the key.
+    nonisolated static func maskThumbnailKey(url: URL, recipe: Recipe,
+                                             sourceIdentity: SourceFileIdentity?,
+                                             strokeSets: [String: BrushStrokeSet]) -> String {
+        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
+            .map(CanonicalJSON.serialize) ?? UUID().uuidString
+        let refs = Set(recipe.masks.flatMap { $0.components.compactMap(\.strokesRef) })
+        let loaded = refs.sorted()
+            .map { "\($0):\(strokeSets[$0]?.strokes.count ?? -1)" }
+            .joined(separator: ",")
+        return [url.absoluteString, sourceIdentity?.token ?? "?", shape,
+                PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-", loaded]
+            .joined(separator: "|")
     }
 
     /// An alpha plane as a grey image a row can draw.
@@ -2538,6 +2557,10 @@ final class AppState: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 for (ref, set) in resolved { self.strokeCache[ref] = set }
+                // The rows' pictures of a brush mask drawn before its strokes arrived
+                // are empty; the thumbnail key now carries stroke availability, so
+                // this re-renders exactly when an arrival matters.
+                self.refreshMaskThumbnails()
             }
         }
     }
@@ -2897,6 +2920,9 @@ final class AppState: ObservableObject {
         recipes = loaded
         allPhotos = items
         sourceRevision &+= 1
+        // A rescan is where a same-path replacement is noticed. The thumbnail key
+        // carries the file's identity, so this costs nothing unless the bytes changed.
+        refreshMaskThumbnails()
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
         // unread for as long as both have existed.
