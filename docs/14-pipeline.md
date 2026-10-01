@@ -570,7 +570,7 @@ classical stages) with halo overlap and discards the aprons on stitching. Declar
 |---|---|---|
 | S1 demosaic | 8 px | RCD/Markesteijn neighborhood |
 | S2 AI denoise | 32 px | fixed 512–1024 px ML tiles, fp16 (D26/D48) |
-| S3 classical NR | 24 px | wavelet support at deepest level |
+| S3 classical NR | 79 px | hot-pixel 1 + five à-trous bands 62 + blotch guided filter 16 — `ClassicalDenoise.receptiveField` (was declared 24 px, the deepest band alone) |
 | S4 capture sharpen | 64 px | 13×13 max kernel × iteration diffusion, bounded |
 | S8 guided base / wavelets | r₁ / 2⁵ px | radius-scaled at export res |
 | S8 LLF clarity | pyramid support | computed per-tile with pyramid-depth apron |
