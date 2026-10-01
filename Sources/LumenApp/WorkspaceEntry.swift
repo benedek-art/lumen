@@ -92,7 +92,10 @@ extension AppState {
     /// sheet.
     func jump(to section: WorkspaceSection) {
         PanelLayout.shared.reveal(section)
-        settle(in: section.workspace)
+        // `reveal` SOLOS the section, so arriving at Lens Corrections folds Crop: the
+        // rectangle is armed only when the section arrived at is the one that holds its
+        // panel (`armsCropTool`, K-029).
+        settle(in: section.workspace, armingCrop: section.armsCropTool)
     }
 
     /// ENTER OR LEAVE MASKING — `M`, and the rail's mask door. One verb, because masking
@@ -152,7 +155,7 @@ extension AppState {
     /// What arriving in a workspace means once the column has been arranged: the view
     /// mode, and the crop tool. Private, because the two verbs above are the vocabulary
     /// and a third caller reaching past them would be the next unwired route.
-    private func settle(in workspace: Workspace) {
+    private func settle(in workspace: Workspace, armingCrop: Bool = true) {
         if workspace == .cull {
             showGrid()
         } else {
@@ -160,7 +163,7 @@ extension AppState {
         }
 
         let viewport = LoupeViewport.shared
-        if workspace == .crop {
+        if workspace == .crop && armingCrop {
             viewport.showCrop = true
         } else if viewport.showCrop {
             viewport.showCrop = false

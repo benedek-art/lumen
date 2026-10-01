@@ -274,7 +274,7 @@ final class AppUpdater {
             try FileManager.default.createDirectory(at: work,
                                                     withIntermediateDirectories: true)
             // Ditto for the same reason CI zips with it: it preserves the signature.
-            try run("/usr/bin/ditto", "-x", "-k", tempFile.path, work.path)
+            try await run("/usr/bin/ditto", "-x", "-k", tempFile.path, work.path)
             let newApp = work.appendingPathComponent("Lumen.app")
             guard FileManager.default.fileExists(
                 atPath: newApp.appendingPathComponent("Contents/MacOS/Lumen").path)
@@ -284,7 +284,7 @@ final class AppUpdater {
             // which catches a truncated or tampered EXTRACTION. It proves nothing about
             // who signed it — these builds are ad-hoc signed, so an ad-hoc signature
             // made by anybody satisfies it. The digest above is the identity check.
-            try run("/usr/bin/codesign", "--verify", "--deep", "--strict", newApp.path)
+            try await run("/usr/bin/codesign", "--verify", "--deep", "--strict", newApp.path)
 
             // THE INSTALLED BUNDLE IS NEVER MOVED OUT OF THE WAY (L-04).
             //
@@ -341,15 +341,31 @@ final class AppUpdater {
         var errorDescription: String? { message }
     }
 
-    private func run(_ tool: String, _ arguments: String...) throws {
+    /// Run a tool and wait for it WITHOUT blocking the main actor (K-034).
+    ///
+    /// This class is `@MainActor`, and the wait was `waitUntilExit()` — so `ditto` over
+    /// the whole archive and a deep `codesign --verify` of every nested binary froze the
+    /// window for as long as they took, with nothing bounding either. The wait is now a
+    /// suspension: the process reports through `terminationHandler`, the main actor
+    /// keeps drawing, and the install continues where it left off.
+    private func run(_ tool: String, _ arguments: String...) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { finished in
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
+        guard status == 0 else {
             throw UpdateError("\(URL(fileURLWithPath: tool).lastPathComponent) failed "
-                + "(exit \(process.terminationStatus))")
+                + "(exit \(status))")
         }
     }
 

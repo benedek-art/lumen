@@ -292,6 +292,16 @@ extension CropGeometry {
         return (c.w * usable.width) / h
     }
 
+    /// Whether a crop is the whole usable frame — what the ratio menu's "Original" writes.
+    ///
+    /// The menu has to recognise the RECTANGLE here, not its ratio (KG-05): on a
+    /// straightened photograph the whole usable frame is not the camera's ratio (3000 ×
+    /// 2000 at 5° is 1.626:1), so "Original" read itself back as "1.626" the moment it
+    /// was picked.
+    public static func isWholeFrame(_ crop: Crop) -> Bool {
+        normalized(crop) == Crop()
+    }
+
     /// The crop a ratio menu should write: `aspect` in pixels, centred, as large as fits.
     public static func centred(aspect: Double, sourceWidth: Double, sourceHeight: Double,
                                degrees: Double) -> Crop {
@@ -473,8 +483,21 @@ extension CropGeometry {
         // each axis on its own is exactly how the aspect — and any ratio lock riding on
         // it — would break.
         let scale = Swift.min(1, after.width / w, after.height / h)
-        let w2 = w * scale
-        let h2 = h * scale
+        var w2 = w * scale
+        var h2 = h * scale
+        // AND THE FLOOR IS RATIO-PRESERVING, for the reason `shrinkIntoFrame` states
+        // (KG-04). A crop at the minimum size carried to an angle whose usable frame is
+        // LARGER becomes a smaller fraction of it, and `normalized` below floors each
+        // axis on its own — a 2.13:1 crop at the floor at 10° came back to 0° as 1.65:1.
+        // Lifted here on one factor, capped where the frame cannot hold the shape, so
+        // `normalized` has nothing left to floor.
+        let lift = Swift.max(minimumCropFraction * after.width / w2,
+                             minimumCropFraction * after.height / h2)
+        if lift > 1 {
+            let capped = Swift.min(lift, after.width / w2, after.height / h2)
+            w2 *= capped
+            h2 *= capped
+        }
         let cx2 = Num.clamp(cx, -(after.width - w2) / 2, (after.width - w2) / 2)
         let cy2 = Num.clamp(cy, -(after.height - h2) / 2, (after.height - h2) / 2)
         return normalized(Crop(x: (cx2 - w2 / 2) / after.width + 0.5,

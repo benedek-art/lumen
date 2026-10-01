@@ -591,6 +591,47 @@ public struct Zones: Codable, Equatable, Sendable {
             / (ToneEngine.defaultWhiteAnchorEV - ToneEngine.defaultBlackAnchorEV)
     }
 
+    /// The pivot list a decoded file is allowed to hand the tone engine (M-03).
+    ///
+    /// `RecipeWire.fixedLength` pads a short array from the defaults' tail, which is
+    /// right for arrays whose positions are independent and wrong for this one: its
+    /// ORDER is its meaning, and `ToneEngine` accepted it on count alone. A trimmed
+    /// `{"pivots":[0.9]}` became `[0.9, 0.5, 0.64, 0.79, 0.93]` and every scene value
+    /// below +3.6 EV crossfaded into Darks — the Mids slider moved and mid-grey did not.
+    ///
+    ///   · padded and still strictly ascending — a real partial answer, kept, which is
+    ///     the padding contract `RecipeCodecToleranceTests` pins;
+    ///   · padded into a list that does NOT ascend — nobody wrote it, so the defaults
+    ///     whole;
+    ///   · the right length but out of order or touching — a list somebody did write,
+    ///     so repaired rather than discarded: saturated, sorted, and pushed apart by the
+    ///     same 0.02 gap `ZonesPanel` draws and drags with, so the panel's repair is
+    ///     the identity on whatever this returns and the strip and the picture agree.
+    ///
+    /// Identity on every ascending list, so no recipe this app wrote moves a pixel.
+    public static func decodedPivots(_ decoded: [Double]?) -> [Double] {
+        let defaults = defaultPivots
+        guard let decoded else { return defaults }
+        let filled = RecipeWire.fixedLength(decoded, default: defaults)
+        if Self.strictlyAscending(filled) { return filled }
+        guard decoded.count == defaults.count,
+              decoded.allSatisfy({ $0.isFinite }) else { return defaults }
+        var out = decoded.map { Num.saturate($0) }.sorted()
+        for i in 1..<out.count where out[i] <= out[i - 1] {
+            out[i] = Swift.min(out[i - 1] + Self.minimumPivotGap, 1)
+        }
+        return Self.strictlyAscending(out) ? out : defaults
+    }
+
+    /// `ZonesPanel.minimumGap`'s value: `ZoneWeights` divides by the gap between two
+    /// bounding pivots, so two pivots may not coincide.
+    static let minimumPivotGap: Double = 0.02
+
+    private static func strictlyAscending(_ pivots: [Double]) -> Bool {
+        guard pivots.allSatisfy({ $0.isFinite }) else { return false }
+        return zip(pivots, pivots.dropFirst()).allSatisfy { $0 < $1 }
+    }
+
     public init(pivots: [Double] = Zones.defaultPivots,
                 dark: ZoneAdjust = ZoneAdjust(), shadow: ZoneAdjust = ZoneAdjust(),
                 mid: ZoneAdjust = ZoneAdjust(), light: ZoneAdjust = ZoneAdjust(),
@@ -612,9 +653,8 @@ public struct Zones: Codable, Equatable, Sendable {
     /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.pivots = RecipeWire.fixedLength(
-            try c.decodeIfPresent([Double].self, forKey: .pivots),
-            default: Zones.defaultPivots)
+        self.pivots = Zones.decodedPivots(
+            try c.decodeIfPresent([Double].self, forKey: .pivots))
         self.dark = try c.decodeIfPresent(ZoneAdjust.self, forKey: .dark) ?? ZoneAdjust()
         self.shadow = try c.decodeIfPresent(ZoneAdjust.self, forKey: .shadow)
             ?? ZoneAdjust()

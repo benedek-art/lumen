@@ -223,6 +223,46 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// THE TEXT OF THIS BUILD'S ROW SAYS WHAT ITS COLUMN SAYS (M-02).
+    ///
+    /// The test above pins the `pipeline_version` COLUMN. `currentRecipe` reads the
+    /// TEXT, and the text was serialized from the recipe as handed in — still carrying
+    /// the newer number — so the column said N and the text said N+1, and the next open
+    /// handed the app a recipe claiming N+1 again: every later save and sidecar flush
+    /// for that photograph re-stamped a version this build does not implement.
+    func testThisBuildsRowDoesNotCarryANewerVersionInItsText() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 1)
+        guard let photo = ids.first else { return XCTFail("no photo") }
+
+        var carried = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        carried.develop.tone.exposure = 1.25
+        try store.saveRecipe(carried, photoID: photo, isCurrent: true)
+
+        let reopened = try XCTUnwrap(try store.currentRecipe(photoID: photo))
+        XCTAssertEqual(reopened.pipelineVersion, currentPipelineVersion,
+                       "the row's column was clamped and its text was not, so the next "
+                           + "open reads the newer number back out of the bytes")
+        XCTAssertEqual(reopened.develop.tone.exposure, 1.25,
+                       "the clamp must change the stamp and nothing else")
+        let working = try XCTUnwrap(try store.edits(photoID: photo)
+            .first(where: { $0.kind == .working }))
+        XCTAssertTrue(working.recipeJSON.contains("\"pipelineVersion\":\(currentPipelineVersion)"),
+                      "stored text: \(working.recipeJSON)")
+        XCTAssertFalse(working.recipeJSON.contains(
+            "\"pipelineVersion\":\(currentPipelineVersion + 1)"))
+
+        // An OLDER recipe keeps its own age in the text as well as the column.
+        if currentPipelineVersion > 1 {
+            var older = Recipe(pipelineVersion: currentPipelineVersion - 1)
+            older.develop.tone.exposure = 0.5
+            try store.saveRecipe(older, photoID: photo, isCurrent: true)
+            XCTAssertEqual(try store.currentRecipe(photoID: photo)?.pipelineVersion,
+                           currentPipelineVersion - 1)
+        }
+        store.close()
+    }
+
     // And the ordinary direction is untouched: a save at the SAME or a newer version
     // updates the working row in place — no version-row litter from normal editing.
     func testASameVersionSaveStillUpdatesTheWorkingRowInPlace() throws {

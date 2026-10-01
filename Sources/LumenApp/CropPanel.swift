@@ -656,6 +656,9 @@ struct CropSection: View {
     /// Reports what the stored rectangle *is*, not what was last clicked — the same
     /// grammar the white-balance preset row uses.
     private var currentAspectName: String {
+        // The whole frame is "Original" whatever its ratio: straightened, it is not the
+        // camera's ratio, and the menu item that wrote it must read back as itself (KG-05).
+        if CropGeometry.isWholeFrame(recipe.develop.geometry.crop) { return "Original" }
         guard let ratio = currentRatio else { return "Custom" }
         if abs(ratio - originalRatio) < 0.005 { return "Original" }
         for aspect in cropAspects {
