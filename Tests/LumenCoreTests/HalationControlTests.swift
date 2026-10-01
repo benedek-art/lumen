@@ -187,4 +187,38 @@ final class HalationControlTests: XCTestCase {
                        "the recipe's Halo Redness is not reaching the profile the "
                            + "renderers build")
     }
+
+    // MARK: - The panel's capability predicate agrees with the engine
+
+    /// THE PANEL DISABLES ALL THREE ROWS ON ONE PREDICATE, `halationStrength != .zero`
+    /// (LookPanel `halationSupported`, Astra M14 / September C1-08). That is only honest
+    /// if, for every stock this build ships, the predicate is true exactly when some
+    /// Amount, Size and Redness reach pixels, and false exactly when none can. The
+    /// LumenApp test checks the predicate's text and two stocks; this sweeps the roster
+    /// through the accessor both renderers call, at every Redness end, so a stock whose
+    /// halo dies at Redness 100 (a zero red record) cannot sit behind an enabled row.
+    func testEveryStocksHalationRowsAreLiveExactlyWhenTheEngineCanGlow() {
+        for stock in FilmStock.all {
+            let supported = stock.halationStrength != .zero
+            for redness in [0.0, 50, 100] {
+                for size in [0.5, 1.0, 2.0] {
+                    var lab = FilmChain.defaultRecipe(for: stock)
+                    lab.halation = 100
+                    lab.halationSize = size
+                    lab.halationRedness = redness
+                    let chain = FilmChain(lab, displayWhite: 1.0)
+                    let profile = chain.halation(longEdgePixels: 3000)
+                    let reaches = chain.halationAmount > 0
+                        && profile.strengths.maxComponent > 0
+                    XCTAssertEqual(reaches, supported,
+                                   "\(stock.id) redness \(redness) size \(size): the panel "
+                                       + "says \(supported ? "enabled" : "disabled") but "
+                                       + "the engine \(reaches ? "glows" : "cannot glow")")
+                }
+            }
+        }
+        // Not vacuous: the roster carries both kinds.
+        XCTAssertTrue(FilmStock.all.contains { $0.halationStrength == .zero })
+        XCTAssertTrue(FilmStock.all.contains { $0.halationStrength != .zero })
+    }
 }
