@@ -330,6 +330,9 @@ public struct ArtifactRow: Equatable, Sendable {
 /// `pinned` distinguishes a sidebar smart album from a bar preset (gap G23);
 /// `scope`/`scopeID` carry everywhere / folder-subtree / album (gap G22).
 public struct CollectionRow: Equatable, Sendable {
+    /// `album.kind` for a smart album: a saved `LibraryFilter` (`query`), no members.
+    public static let smartKind = "smart"
+
     public var id: Int64
     public var parentID: Int64?
     public var name: String
@@ -2859,7 +2862,13 @@ public final class CatalogStore {
     }
 
     /// `B` adds to the target album (default "Tray"); any album is designatable.
+    ///
+    /// Never a smart album: its contents are its query, so `B` would write membership
+    /// rows that nothing reads — a keystroke that reports success and does nothing.
     public func setTargetCollection(_ albumID: Int64) throws {
+        if try collection(id: albumID)?.kind == CollectionRow.smartKind {
+            throw CatalogError.invalid("a smart album cannot be the target album")
+        }
         try db.transaction {
             try self.db.run("UPDATE album SET is_target = 0 WHERE is_target = 1;")
             try self.db.run("UPDATE album SET is_target = 1 WHERE id = ?;",
@@ -2922,6 +2931,19 @@ public final class CatalogStore {
         }
         try db.run("UPDATE album SET name = ? WHERE id = ?;", [.text(trimmed), .integer(id)])
         return true
+    }
+
+    /// Replace a smart album's saved filter — "update with the current filter".
+    /// Refuses a manual album: membership is its meaning, and a query beside it would
+    /// be a second, contradicting one.
+    public func updateCollectionQuery(id: Int64, query: String) throws {
+        guard let row = try collection(id: id) else {
+            throw CatalogError.notFound("album \(id)")
+        }
+        guard row.kind == CollectionRow.smartKind else {
+            throw CatalogError.invalid("album \(id) is not a smart album")
+        }
+        try db.run("UPDATE album SET query = ? WHERE id = ?;", [.text(query), .integer(id)])
     }
 
     /// Delete an album. The photographs stay — membership rows are bookkeeping, and
@@ -4533,6 +4555,14 @@ public final class CatalogStore {
     public func setTargetCollection(_ albumID: Int64) throws { throw CatalogError.unavailable }
     public func targetCollectionID() throws -> Int64? { throw CatalogError.unavailable }
     public func addToCollection(_ albumID: Int64, photoIDs: [Int64]) throws {
+        throw CatalogError.unavailable
+    }
+    @discardableResult
+    public func renameCollection(id: Int64, to name: String) throws -> Bool {
+        throw CatalogError.unavailable
+    }
+    public func deleteCollection(id: Int64) throws { throw CatalogError.unavailable }
+    public func updateCollectionQuery(id: Int64, query: String) throws {
         throw CatalogError.unavailable
     }
     public func removeFromCollection(_ albumID: Int64, photoIDs: [Int64]) throws {

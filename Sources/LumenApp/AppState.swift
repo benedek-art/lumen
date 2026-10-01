@@ -233,6 +233,11 @@ struct CollectionItem: Identifiable, Equatable, Sendable {
     var name: String
     var count: Int
     var isTarget: Bool
+    /// A smart album: a saved filter rather than a membership list (D39).
+    var isSmart: Bool = false
+    /// The saved filter, or nil for a manual album — and for a smart album this build
+    /// cannot read whole (a newer format), which the sidebar says rather than guessing.
+    var filter: LibraryFilter? = nil
 }
 
 /// One value a metadata chip offers — a keyword, a camera body — and how many photos
@@ -2027,7 +2032,7 @@ final class AppState: ObservableObject {
             return
         }
         Task { [weak self] in
-            let albums = await catalog.collections()
+            let albums = await catalog.collections(folderPath: folder.path)
             let keywords = await catalog.allKeywords()
             let cameras = await catalog.facets(.camera, folderPath: folder.path)
             let lenses = await catalog.facets(.lens, folderPath: folder.path)
@@ -2113,6 +2118,51 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Open a smart album: its saved filter goes into the bar, over the whole open
+    /// folder. The bar is then the editor (docs/10 §10.8: "Edit — reopens the bar
+    /// populated"), and "Update to Current Filter" saves it back.
+    func applySmartCollection(_ album: CollectionItem) {
+        guard let saved = album.filter else {
+            statusMessage = "\"\(album.name)\" was saved by a newer Lumen and cannot "
+                + "be opened by this one"
+            return
+        }
+        selectedCollectionID = nil
+        filter = saved
+        statusMessage = "\(album.name): " + saved.sentence(catalogLive: isLibraryQueryLive)
+    }
+
+    /// Save the bar as a smart album, named for what it asks — rename it after.
+    func saveFilterAsSmartCollection() {
+        guard let catalog, filter.isActive else { return }
+        let words = filter.sentence(catalogLive: true)
+            .replacingOccurrences(of: "  ", with: " ")
+        let name = words.count > 60 ? String(words.prefix(59)) + "…" : words
+        let query = filter.savedJSON()
+        Task { [weak self] in
+            let id = await catalog.createSmartCollection(name: name, query: query)
+            guard let self else { return }
+            self.statusMessage = id == nil
+                ? "Could not save the filter as a smart album"
+                : "Saved smart album \"\(name)\" — right-click it to rename"
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Save the bar over an existing smart album.
+    func updateSmartCollection(_ album: CollectionItem) {
+        guard let catalog, filter.isActive else { return }
+        let query = filter.savedJSON()
+        Task { [weak self] in
+            let saved = await catalog.updateSmartCollection(album.id, query: query)
+            guard let self else { return }
+            self.statusMessage = saved
+                ? "\"\(album.name)\" now asks: " + self.filter.sentence(catalogLive: true)
+                : "Could not update \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
     /// Rename an album from the sidebar. An unchanged or blank name writes nothing.
     func renameCollection(_ albumID: Int64, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2144,10 +2194,15 @@ final class AppState: ObservableObject {
             if deleted, self.selectedCollectionID == albumID {
                 self.selectedCollectionID = nil
             }
-            self.statusMessage = deleted
-                ? "Deleted album \"\(album.name)\" — its \(album.count) photo"
+            if !deleted {
+                self.statusMessage = "Could not delete \"\(album.name)\""
+            } else if album.isSmart {
+                self.statusMessage = "Deleted smart album \"\(album.name)\" — no "
+                    + "photograph was touched"
+            } else {
+                self.statusMessage = "Deleted album \"\(album.name)\" — its \(album.count) photo"
                     + (album.count == 1 ? " is" : "s are") + " still in their folders"
-                : "Could not delete \"\(album.name)\""
+            }
             self.refreshLibrarySections()
         }
     }

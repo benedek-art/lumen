@@ -988,10 +988,29 @@ final class CatalogService: @unchecked Sendable {
     /// Albums with their membership counts, which is what the sidebar shows. Counted
     /// through the same query builder the grid uses, so an album row and the grid it
     /// opens can never report different numbers.
-    func collections() async -> [CollectionItem] {
+    ///
+    /// A smart album has no members; its number is its saved filter run over the open
+    /// folder — the grid it produces when clicked, which is the invariant every other
+    /// count in this column keeps.
+    func collections(folderPath: String?) async -> [CollectionItem] {
         await onQueue("album list", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
             var out: [CollectionItem] = []
             for album in try store.collections() {
+                if album.kind == CollectionRow.smartKind {
+                    let filter = album.query.flatMap { LibraryFilter(savedJSON: $0) }
+                    var count = 0
+                    if let filter {
+                        count = try store.countPhotos(
+                            matching: filter.query(sortKey: .captureTime, ascending: true,
+                                                   albumID: nil),
+                            folderID: folderID)
+                    }
+                    out.append(CollectionItem(id: album.id, name: album.name, count: count,
+                                              isTarget: false, isSmart: true,
+                                              filter: filter))
+                    continue
+                }
                 var query = PhotoQuery()
                 query.albumID = album.id
                 let count = try store.countPhotos(matching: query)
@@ -999,6 +1018,20 @@ final class CatalogService: @unchecked Sendable {
                                           count: count, isTarget: album.isTarget))
             }
             return out
+        }
+    }
+
+    func createSmartCollection(name: String, query: String) async -> Int64? {
+        await onQueue("smart album creation", fallback: nil) { (store: CatalogStore) -> Int64? in
+            try store.createCollection(name: name, kind: CollectionRow.smartKind,
+                                       query: query, pinned: true)
+        }
+    }
+
+    func updateSmartCollection(_ albumID: Int64, query: String) async -> Bool {
+        await onQueue("smart album update", fallback: false) {
+            try $0.updateCollectionQuery(id: albumID, query: query)
+            return true
         }
     }
 

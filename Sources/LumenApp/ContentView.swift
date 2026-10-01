@@ -655,6 +655,18 @@ private struct Sidebar: View {
                 albumRow(album)
             }
 
+            // The bar, kept. Only while it says something and the catalog can run it:
+            // a smart album saved from the in-memory fallback would name chips the
+            // fallback never applied.
+            if state.filter.isActive && state.isLibraryQueryLive {
+                SidebarVerb(title: "Save Filter as Smart Album",
+                            systemImage: "line.3.horizontal.decrease.circle",
+                            help: "Keep the current filter in this column; clicking it "
+                                + "puts the filter back in the bar") {
+                    state.saveFilterAsSmartCollection()
+                }
+            }
+
             SidebarEntryField(placeholder: "New album",
                               actionHelp: "Create the album (Return)",
                               text: $newAlbumName,
@@ -707,6 +719,29 @@ private struct Sidebar: View {
             }
             .padding(.horizontal, 6)
             .frame(height: Lumen.rowHeight)
+        } else if album.isSmart {
+            sourceRow(title: album.name, count: album.count, isSelected: false,
+                      isTarget: false, symbol: "line.3.horizontal.decrease.circle",
+                      help: album.filter == nil
+                          ? "Saved by a newer Lumen — this one cannot read it"
+                          : "Smart album: put its filter in the bar. The count is this "
+                              + "folder's") {
+                state.applySmartCollection(album)
+            }
+            .contextMenu {
+                Button("Update to Current Filter") { state.updateSmartCollection(album) }
+                    .disabled(!state.filter.isActive)
+                Divider()
+                Button("Rename…") {
+                    pendingDeleteAlbumID = nil
+                    albumRenameDraft = album.name
+                    renamingAlbumID = album.id
+                }
+                Button("Delete Smart Album…") {
+                    renamingAlbumID = nil
+                    pendingDeleteAlbumID = album.id
+                }
+            }
         } else {
             sourceRow(title: album.name, count: album.count,
                       isSelected: state.selectedCollectionID == album.id,
@@ -982,12 +1017,12 @@ private struct Sidebar: View {
     /// decision — "Row pitch: 24 pt, one pitch everywhere" — and this row was the
     /// divergence, at 11 pt of text plus 2 of padding.
     private func sourceRow(title: String, count: Int, isSelected: Bool,
-                           isTarget: Bool, help: String? = nil,
+                           isTarget: Bool, symbol: String? = nil, help: String? = nil,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if isTarget {
-                    Image(systemName: "target")
+                if let glyph = isTarget ? "target" : symbol {
+                    Image(systemName: glyph)
                         .font(.lumenGlyphCaption)
                         .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
                 }
