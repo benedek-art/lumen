@@ -557,23 +557,19 @@ public struct HalationProfile: Sendable {
         base + strength * blurred
     }
 
-    // MARK: The GPU stand-in
+    // MARK: The GPU form
 
-    // The shader form of the reconstruction is a hard pedestal — `max(E − threshold, 0)
-    // · boost` — because a smoothstep in log space is not worth a per-pixel `log2` in
-    // the glow pass. The two are matched at the reference ramp's half-power point
-    // rather than at its foot, which is where a linear stand-in and a smoothstep agree
-    // best (docs/14 §1.4: the GPU kernel approximates this file, within tolerance).
-
-    /// Scene-linear onset for the shader's pedestal.
-    public var threshold: Double {
-        clipLevel * pow(2.0, -HalationProfile.protectEV / 2.0)
-    }
-
-    /// Multiplier for the shader's pedestal — the reconstruction headroom.
-    public var boost: Double {
-        pow(2.0, HalationProfile.boostRange)
-    }
+    // The shader (`KernelLibrary.halationEnergy`) evaluates `highlightEnergy` itself —
+    // the same smoothstep in log2 space, from `clipLevel`, `protectEV` and `boostRange`
+    // — so there is ONE gate, not a reference and a stand-in.
+    //
+    // There used to be a stand-in: a hard pedestal `max(E − clip·2⁻², 0)·2^0.3`, said
+    // to be "matched at the reference ramp's half-power point". It was matched nowhere.
+    // Above the onset it sat a constant 0.308 below the reference, so the GPU rendered
+    // 0.612 of the reference's glow at E = 0.5, 0.750 at the clip and NONE at all at
+    // E ≤ 0.25, where the reference still returns 0.139 (M09 / C1-01). A sky two stops
+    // under the clip glowed in the reference and not in the app. One `log2` and one
+    // `exp2` per pixel in a quarter-res glow pass was never worth that.
 
     /// Per-channel strengths, under the name the spatial stage uses.
     public var strengths: RGB { strength }

@@ -1419,9 +1419,13 @@ public struct RenderGraph {
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
         let profile = film.halation(longEdgePixels: longEdge)
         guard profile.strengths.maxComponent > 0 else { return image }
+        // The reference's gate, evaluated in the shader — not a pedestal standing in
+        // for it (M09: the pedestal rendered 0.61 of the reference's glow at E = 0.5
+        // and none at all two stops under the clip).
         guard let energy = KernelLibrary.apply(
-            KernelLibrary.highlightEnergy, extent: image.extent,
-            [image, Float(profile.threshold), Float(profile.boost)])
+            KernelLibrary.halationEnergy, extent: image.extent,
+            [image, Float(profile.clipLevel), Float(HalationProfile.protectEV),
+             Float(HalationProfile.boostRange)])
         else { return image }
 
         // Three bounces at geometrically spaced radii, decaying by half each time —

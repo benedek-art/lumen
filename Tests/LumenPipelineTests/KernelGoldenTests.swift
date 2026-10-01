@@ -1200,10 +1200,9 @@ final class KernelGoldenTests: XCTestCase {
                              filmExposure: 0, displayWhite: 1.0)
         let profile = film.halation(longEdgePixels: longEdge)
 
-        // Two stops over the clip, on a background four and a half stops BELOW the
-        // reconstruction's onset — so both the reference's smoothstep and the shader's
-        // pedestal read exactly zero everywhere but the block, and the two energy
-        // fields differ in amplitude only, never in footprint.
+        // Two stops over the clip, on a background 1.6 stops below the gate's onset
+        // (log2 0.02 = −5.6 against −4) — so both paths' smoothstep reads exactly zero
+        // everywhere but the block.
         var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
         for y in low..<(low + block) {
             for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
@@ -1271,16 +1270,18 @@ final class KernelGoldenTests: XCTestCase {
                        "the two paths disagree about how wide the glow is: "
                            + "\(gpuGlow.spread) against \(referenceGlow.spread)")
 
-        // The energy divergence the engine has claimed is "matched at the half-power
-        // point" and never measured: the shader reconstructs highlights with a hard
-        // pedestal and the reference with a C¹ smoothstep. Recorded as a number with a
-        // bound on it, so a change in either ramp shows up here rather than in a
-        // photograph.
+        // ONE GATE ON BOTH PATHS (M09). This bound was 30%, wide enough to hold the
+        // hard pedestal the shader used to stand in for the reference's smoothstep —
+        // 0.936 of the reference's mass at this block's E = 4, and the bound could
+        // not see the 0.61 at E = 0.5 or the zero at E = 0.25 that
+        // `testHalationGateMatchesTheReferenceAcrossTheOnset` now pins. 3% is f32
+        // read-back and blur discretisation; a pedestal at this E is 6.4% out.
         XCTAssertEqual(gpuGlow.mass, referenceGlow.mass,
-                       accuracy: referenceGlow.mass * 0.30,
-                       "the pedestal and the smoothstep now disagree about total glow "
-                           + "energy by more than 30%: \(gpuGlow.mass) against "
-                           + "\(referenceGlow.mass)")
+                       accuracy: referenceGlow.mass * 0.03,
+                       "the graph and the reference disagree about total glow energy "
+                           + "by more than 3%: \(gpuGlow.mass) against "
+                           + "\(referenceGlow.mass) — the shader's highlight gate is "
+                           + "not the reference's")
 
         // Halation is red because the stock's measured strengths are, and Portra's blue
         // strength is exactly zero. A glow that is not red is a glow through the wrong
@@ -1290,6 +1291,57 @@ final class KernelGoldenTests: XCTestCase {
                           "the glow carried \(blue.mass) of blue against "
                               + "\(gpuGlow.mass) of red, and this stock's blue halation "
                               + "strength is zero")
+    }
+
+    /// The halation gate, GPU against reference, on flat fields either side of the
+    /// clip (M09 / C1-01).
+    ///
+    /// The shader used a hard pedestal `max(E − clip/4, 0)·2^0.3` where the reference
+    /// opens a smoothstep across the last four stops below the clip, and called the two
+    /// "matched at the half-power point". Measured, the GPU rendered 0.000 of the
+    /// reference's glow at E = 0.125 and 0.25, 0.612 at 0.5, 0.750 at the clip and
+    /// 0.9375 at E = 4 — and the only golden sat at E = 4 behind a 30% bound. A sky a
+    /// stop or two under the clip glowed in the f64 reference and not in the app.
+    ///
+    /// A FLAT field, so the blurs are the identity away from the border and the glow at
+    /// the centre is `strength · H(E)` on both paths with nothing spatial in between —
+    /// the gate is the only thing measured. E = 0.125 and 0.25 are where the pedestal
+    /// rendered nothing at all; 0.5 and 1 are its 39% and 25% deficits; 4 is the old
+    /// golden's corner. With the pedestal substituted back the first four go red.
+    func testHalationGateMatchesTheReferenceAcrossTheOnset() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 96
+        let longEdge = 2215
+        let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                     halation: 100),
+                             filmExposure: 0, displayWhite: 1.0)
+        for level in [0.125, 0.25, 0.5, 1.0, 4.0] {
+            let source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: level) }
+            let glowed = RenderGraph().applyHalation(ciImage(from: source), film: film,
+                                                     longEdge: longEdge)
+            guard let gpu = readBack(glowed, width: side, height: side) else {
+                return XCTFail("read-back failed at E = \(level)")
+            }
+            let reference = ReferenceRenderer.applyHalation(source, film: film,
+                                                            longEdge: longEdge)
+            // The central 16 × 16, far from the border at every bounce's sigma.
+            var gpuGlow = 0.0, referenceGlow = 0.0
+            for y in (side / 2 - 8)..<(side / 2 + 8) {
+                for x in (side / 2 - 8)..<(side / 2 + 8) {
+                    gpuGlow += gpu[x, y].r - level
+                    referenceGlow += reference[x, y].r - level
+                }
+            }
+            print(String(format: "HALATION gate E=%.3f gpu %.6f reference %.6f ratio %.4f",
+                         level, gpuGlow, referenceGlow,
+                         referenceGlow > 0 ? gpuGlow / referenceGlow : 0))
+            XCTAssertGreaterThan(referenceGlow, 0,
+                                 "the reference glows nothing at E = \(level)")
+            XCTAssertEqual(gpuGlow, referenceGlow, accuracy: referenceGlow * 0.03,
+                           "at E = \(level) the graph's halation glow is "
+                               + "\(gpuGlow / referenceGlow) of the reference's — the "
+                               + "shader's gate is not `HalationProfile.highlightEnergy`")
+        }
     }
 
     /// Halation has to reach pixels THROUGH `RenderGraph.build`.

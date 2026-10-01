@@ -437,6 +437,25 @@ public enum KernelLibrary {
     }
     """
 
+    /// Halation's highlight-energy gate — `HalationProfile.highlightEnergy`, the same
+    /// expression, not an approximation of it: a smoothstep that opens across the last
+    /// `protectEV` stops below `clip` (in log2 space), times the reconstruction headroom
+    /// of up to `boostRange` stops. Per channel: `t = smoothstep(−protect, 0,
+    /// log2(e/clip)); out = t·e·2^(boost·t)`, and zero for `e ≤ 0`.
+    ///
+    /// It replaced a hard pedestal `max(E − clip/4, 0)·2^0.3` that rendered 0.61 of the
+    /// reference's glow at E = 0.5 and none at E ≤ 0.25 (M09). `highlightEnergy` above
+    /// stays as it is: it is the general `max(E − t, 0)·b` clamp the gamut flag and
+    /// `logLuminance` use with t = 0, b = 1.
+    static let halationEnergySource = """
+    kernel vec4 lumenHalationEnergy(__sample image, float clip, float protectEV, float boostRange) {
+        vec3 e = max(image.rgb, vec3(0.0));
+        vec3 ev = log2(max(e, vec3(1.0e-12)) / clip);
+        vec3 t = smoothstep(vec3(-protectEV), vec3(0.0), ev);
+        return vec4(t * e * exp2(boostRange * t), 1.0);
+    }
+    """
+
     /// Composite an adjusted image over a base through a single-channel mask.
     /// Linear interpolation, unclamped — the local stage blends scene-referred values.
     static let blendMaskSource = """
@@ -924,6 +943,7 @@ public enum KernelLibrary {
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
     public static let highlightEnergy = make(highlightEnergySource)
+    public static let halationEnergy = make(halationEnergySource)
     public static let denoiseForward = make(denoiseForwardSource)
     public static let denoiseInverse = make(denoiseInverseSource)
     public static let chromaMagnitude = make(chromaMagnitudeSource)
@@ -967,7 +987,7 @@ public enum KernelLibrary {
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),
-            ("highlightEnergy", highlightEnergy),
+            ("highlightEnergy", highlightEnergy), ("halationEnergy", halationEnergy),
             ("denoiseForward", denoiseForward), ("denoiseInverse", denoiseInverse),
             ("bSpline5", bSpline5), ("box3", box3),
             ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
