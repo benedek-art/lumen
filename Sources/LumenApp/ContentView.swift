@@ -80,7 +80,13 @@ struct ContentView: View {
                     // wearing a resize cursor.
                     .lumenScrubCursor()
                     .gesture(
-                        DragGesture(minimumDistance: 0)
+                        // `.global`, because this handle sits on the column's left
+                        // edge and moves as the width changes. Measured in its own
+                        // local space, each translation is reported against a frame
+                        // the previous event already displaced; anchored to the start
+                        // width, that alternates between the dragged and the starting
+                        // width (the floating mask panel's feedback loop, again).
+                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
                             .updating($panelResizeActive) { _, active, _ in active = true }
                             .onChanged { drag in
                                 // Leftward drag widens the column, so the delta is
