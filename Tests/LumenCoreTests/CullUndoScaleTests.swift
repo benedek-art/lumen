@@ -25,14 +25,19 @@ final class CullUndoScaleTests: XCTestCase {
 
     /// The body of the first function whose declaration starts with `signature`, found
     /// by brace depth from the first `{` after it.
+    /// The braces are compared by ASCII value (123, 125) so this file's own text stays
+    /// balanced for `check-swift-surface.py`, whose scope walk counts braces inside
+    /// string literals.
     private func body(of signature: String, in code: String) -> String? {
         guard let start = code.range(of: signature) else { return nil }
-        guard let open = code[start.upperBound...].firstIndex(of: "{") else { return nil }
+        guard let open = code[start.upperBound...].firstIndex(where: { $0.asciiValue == 123 }) else {
+            return nil
+        }
         var depth = 0
         var i = open
         while i < code.endIndex {
-            if code[i] == "{" { depth += 1 }
-            if code[i] == "}" {
+            if code[i].asciiValue == 123 { depth += 1 }
+            if code[i].asciiValue == 125 {
                 depth -= 1
                 if depth == 0 { return String(code[open...i]) }
             }

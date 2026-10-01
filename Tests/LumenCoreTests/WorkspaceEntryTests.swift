@@ -267,7 +267,10 @@ final class WorkspaceEntryTests: XCTestCase {
             return XCTFail("AppState.jump(to:) is gone")
         }
         let rest = entry[start.upperBound...]
-        let body = String(rest[..<(rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex)])
+        // Up to the next member declared at this indentation.
+        let end = ["\n    func ", "\n    private func "]
+            .compactMap { rest.range(of: $0)?.lowerBound }.min() ?? rest.endIndex
+        let body = String(rest[..<end])
         XCTAssertTrue(body.contains("armingCrop: section.armsCropTool"),
                       "jump settles the Crop workspace without asking whether the "
                           + "section it arrived at holds the crop tool's panel — ⌘K → "

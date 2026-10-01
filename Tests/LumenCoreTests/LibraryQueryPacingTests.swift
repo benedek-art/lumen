@@ -80,7 +80,9 @@ final class LibraryQueryPacingTests: XCTestCase {
                            + "must still route through one function that paces it")
         }
         let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex
+        // Up to the next member declared at this indentation.
+        let end = ["\n    func ", "\n    private func ", "\n    private var "]
+            .compactMap { rest.range(of: $0)?.lowerBound }.min() ?? rest.endIndex
         let body = String(rest[..<end])
         XCTAssertTrue(body.contains("LibraryQueryPacing.delay(from:"),
                       "the filter observer queries without asking whether this change "

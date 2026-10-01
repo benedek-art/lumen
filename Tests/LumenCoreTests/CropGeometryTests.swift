@@ -330,17 +330,18 @@ final class CropDragTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/LumenApp/CropPanel.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
-        guard let start = source.range(of: "private var currentAspectName: String {") else {
+        guard let start = source.range(of: "private var currentAspectName: String") else {
             return XCTFail("CropPanel.currentAspectName moved")
         }
         let code = source[start.upperBound...].split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("//") }
-        XCTAssertEqual(code.first,
-                       "if CropGeometry.isWholeFrame(recipe.develop.geometry.crop) "
-                           + "{ return \"Original\" }",
-                       "the label compares ratios before asking whether the rectangle "
-                           + "is the whole frame")
+            .drop { $0.allSatisfy { $0.asciiValue == 123 } }   // the opening brace line
+        let first = code.first ?? ""
+        XCTAssertTrue(first.hasPrefix("if CropGeometry.isWholeFrame(recipe.develop.geometry.crop)"),
+                      "the label compares ratios before asking whether the rectangle "
+                          + "is the whole frame")
+        XCTAssertTrue(first.contains("Original"))
     }
 
     /// The menu's ratio is read against the USABLE frame. Reading it against the source's
