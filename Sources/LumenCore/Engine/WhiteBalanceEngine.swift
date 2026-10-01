@@ -225,8 +225,15 @@ public struct WhiteBalanceEngine: Sendable {
             }
         }
 
-        return (Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin),
-                Num.clamp(bestT, -300, 300))
+        // Report the tint the render will USE. Every magenta past the guard renders
+        // identically, so the search cannot tell them apart and keeps the first grid
+        // point it met beyond the bound — +10 written where +3.5 renders at 2000 K,
+        // which the Tint row then flags as "bounded by physics" on the user's own
+        // click. `temperatureAndTint` already reports the bounded value; this is the
+        // same contract. Pixel-identical: `chromaticity` clamps to exactly this.
+        let kelvin = Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
+        return (kelvin,
+                ColorTemperature.clampedTint(kelvin: kelvin, tint: Num.clamp(bestT, -300, 300)))
     }
 }
 
