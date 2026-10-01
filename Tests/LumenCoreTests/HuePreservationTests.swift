@@ -220,12 +220,13 @@ final class HuePreservationTests: XCTestCase {
     /// idiom and whose comment states the rule: it multiplies adjustment magnitude,
     /// never membership. Which means the honest contract is:
     ///
-    ///   · at or above `gateHiChroma` (0.06) the gate is fully open and the rotation is
-    ///     ZERO — floating-point zero, ~1e-13, the OKLCh round trip.
-    ///   · between `gateLoChroma` and `gateHiChroma` the restore fades, so a residue
-    ///     survives, largest where the gate is half open.
-    ///   · below `gateLoChroma` (0.02) nothing is restored, and nothing needs to be:
-    ///     the hue of a near-neutral is the arctangent of two nearly-zero numbers.
+    ///   · at or above `gateLoChroma` (0.02) the rotation is ZERO — floating-point zero,
+    ///     ~1e-13, the OKLCh round trip. (It used to fade between 0.02 and 0.06, which
+    ///     left 6° on a dark red at the shipped Density and 13° at Density 100 — see
+    ///     `testDensityHoldsHueAcrossItsWholeTravelOnTheTonalWedge`.)
+    ///   · below `gateLoChroma` the restore fades to nothing at chroma 0, and nothing
+    ///     needs to be restored there: the hue of a near-neutral is the arctangent of
+    ///     two nearly-zero numbers.
     ///
     /// A near-neutral turning four degrees is not the complaint this file was opened
     /// for. A FACE turning four degrees is, and skin sits at 0.07–0.09 chroma, well
@@ -293,6 +294,49 @@ final class HuePreservationTests: XCTestCase {
         XCTAssertLessThan(worstChroma, ColorEngine.gateHiChroma,
                           "the worst residue is at chroma \(worstChroma), which the gate "
                           + "is fully open on — it should be a near-neutral")
+    }
+
+    /// B1-05 (September audit): Density's hue rotation, on the frame that has
+    /// the colours the chart does not — the eight band-centre hues down the whole
+    /// −9…+5 EV axis, where a dark red sits at OKLab chroma 0.02–0.06.
+    ///
+    /// The restore used to be weighted by `chromaGate`, which is half shut there, so
+    /// the blend's turn survived on exactly those pixels. Measured before the fix,
+    /// worst over this wedge at C > 0.02 (the proof metric's own hue floor):
+    ///
+    ///     Saturation +50   Density 50 → 3.05°   Density 100 →  6.52°
+    ///     Saturation +100  Density 50 → 6.03°   Density 100 → 12.94°
+    ///
+    /// Density 0 is the hue-exact additive push, so "the input's hue" is the right
+    /// reference at every setting, and the whole travel is swept rather than the ends.
+    func testDensityHoldsHueAcrossItsWholeTravelOnTheTonalWedge() {
+        let wedge = ProofFrames.tonalColourWedge(width: 64, height: 64)
+        var pixels: [RGB] = []
+        for y in 0..<wedge.height {
+            for x in 0..<wedge.width where lch(wedge[x, y]).C > ColorEngine.gateLoChroma {
+                pixels.append(wedge[x, y])
+            }
+        }
+        // The point of the frame: plenty of colour where the old gate was half shut.
+        let inTheFade = pixels.filter { ColorEngine.chromaGate(lch($0).C) < 1 }.count
+        XCTAssertGreaterThan(inTheFade, 100,
+                             "the wedge must carry colours between the gate's two ends")
+        for saturation in [50.0, 100.0] {
+            for density in stride(from: 0.0, through: 100.0, by: 10.0) {
+                let engine = colorEngine(ColorAdjust(saturation: saturation, density: density))
+                var worst = 0.0
+                var worstAt = RGB(gray: 0)
+                for p in pixels {
+                    let out = engine.apply(p)
+                    guard out.isFinite, let d = hueMove(p, out).map(abs) else { continue }
+                    if d > worst { worst = d; worstAt = p }
+                }
+                XCTAssertLessThan(
+                    worst, 1e-6,
+                    String(format: "Saturation +%.0f at Density %.0f rotates hue by %.4f° on the tonal wedge",
+                           saturation, density, worst) + " at \(worstAt), chroma \(lch(worstAt).C)")
+            }
+        }
     }
 
     /// THE DARKENING SURVIVED. This is the other half of the fix and the half a

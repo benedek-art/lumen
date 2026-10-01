@@ -185,6 +185,16 @@ public enum HelmholtzKohlrausch {
     public static func brightnessFactor(chroma: Double, hue: Double) -> Double {
         // OKLab chroma ~0.4 is about as saturated as real surface colour gets;
         // scale it into the "saturation" argument Nayatani's model expects.
+        //
+        // WHAT THIS DELIVERS, measured (September audit B1-06), because the pair
+        // `· 4.0 … · 0.1` makes the effective argument 0.4·C — and Nayatani's S is CIE
+        // 1960 saturation, 13·|uv − uv_n|, which runs 19× to 55× larger on the same
+        // colours. So this factor is 1.0050 on a blue sky (the published VAC form gives
+        // 1.090), 1.0079 on a C 0.20 red (1.439) and 1.0148 on the sRGB blue primary
+        // (1.272); across every hue at C 0.40 it spans 1.0110…1.0195. Saturation and
+        // Vibrance are therefore, to within about 1%, plain OKLab chroma scales. Whether
+        // to run the model at its published strength is a look change for the owner,
+        // not a constant to retune here: every saturation and mixer record would move.
         let s = Swift.max(0, chroma) * 4.0
         return 1 + (-0.1340 * q(hueDegrees: hue) + 0.0872 * kBr) * s * 0.1
     }

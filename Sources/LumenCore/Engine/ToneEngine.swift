@@ -656,8 +656,20 @@ public struct ToneEngine: Sendable {
         // posterized is not a gentler failure than an inversion, it is a different one.
         // With the scale solved first the clamp fires on 0 of 1024 samples for every one
         // of the 242 combinations of the five sliders at ±100.
+        let curve = clampedResponse(size: size)
+        var samples = [Double](repeating: 1, count: curve.domain.count)
+        for i in 0..<curve.domain.count {
+            samples[i] = pow(2, curve.mapped[i] - curve.domain[i])
+        }
+        return LUT1D(samples: samples)
+    }
+
+    /// The baked response before and after the forward clamp, on the shaper's domain.
+    /// One function so `bakeGainLUT` and `zoneFlattening` cannot disagree about what
+    /// the clamp did.
+    private func clampedResponse(size: Int)
+        -> (domain: [Double], requested: [Double], mapped: [Double]) {
         let count = Swift.max(size, 2)
-        var samples = [Double](repeating: 1, count: count)
         var mapped = [Double](repeating: 0, count: count)
         var domain = [Double](repeating: 0, count: count)
         for i in 0..<count {
@@ -666,16 +678,49 @@ public struct ToneEngine: Sendable {
             domain[i] = t
             mapped[i] = t + stops(at: t)
         }
+        let requested = mapped
         // One forward pass: never let the mapped value fall below the one before it.
         // The domain is increasing, so this is exactly "no brighter input renders
         // darker", and it touches nothing that was already monotone.
         for i in 1..<mapped.count where mapped[i] < mapped[i - 1] {
             mapped[i] = mapped[i - 1]
         }
-        for i in 0..<count {
-            samples[i] = pow(2, mapped[i] - domain[i])
+        return (domain, requested, mapped)
+    }
+
+    /// Where the bake's forward clamp flattened the tone response, if anywhere.
+    ///
+    /// Astra AI-07. The clamp is the Zones panel's only limiter, and it limits by
+    /// rendering a band of input tones as ONE output value: Darks +2 EV at the default
+    /// pivots flattens 1.74 EV of input (−3.53…−1.80 EV) and Darks +4 EV flattens
+    /// 3.85 EV, where the rendered tone sits up to 2.20 EV away from what the slider
+    /// asked for. Texture inside that band is gone, and nothing said so. This is the
+    /// measurement a panel needs to say so; it changes no pixel.
+    public struct Flattening: Equatable, Sendable {
+        /// Darkest and brightest input tone, in EV from mid-grey, that the clamp moved.
+        public var lowEV: Double
+        public var highEV: Double
+        /// Largest distance between the requested and the rendered tone, in EV.
+        public var worstEV: Double
+        /// Share of the shaper's samples the clamp moved.
+        public var fraction: Double
+        public var widthEV: Double { highEV - lowEV }
+    }
+
+    /// `nil` when the clamp in `bakeGainLUT` moved nothing — every recipe the six
+    /// tone sliders alone can produce, by `solveZonalLimits`.
+    public func zoneFlattening(size: Int = 1024) -> Flattening? {
+        let curve = clampedResponse(size: size)
+        var low = Double.nan, high = Double.nan, worst = 0.0, moved = 0
+        for i in 0..<curve.domain.count where curve.mapped[i] != curve.requested[i] {
+            moved += 1
+            if low.isNaN { low = curve.domain[i] }
+            high = curve.domain[i]
+            worst = Swift.max(worst, curve.mapped[i] - curve.requested[i])
         }
-        return LUT1D(samples: samples)
+        guard moved > 0 else { return nil }
+        return Flattening(lowEV: low, highEV: high, worstEV: worst,
+                          fraction: Double(moved) / Double(curve.domain.count))
     }
 
     /// True when nothing in the tone stack changes a pixel — lets the renderer skip
