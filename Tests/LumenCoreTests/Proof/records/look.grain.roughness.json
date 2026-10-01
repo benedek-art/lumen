@@ -1,0 +1,15 @@
+{
+  "authority" : 12.370203012181321,
+  "deadSteps" : 0,
+  "frame" : "grainField",
+  "frontLoading" : 0.5265393698489111,
+  "givenBack" : 0,
+  "hueRotation" : 0,
+  "id" : "look.grain.roughness",
+  "isMonotone" : true,
+  "meanSeparation" : 1.2108683465171384,
+  "panel" : "Effects",
+  "smallestLiveStep" : 0.5059005067838598,
+  "travelHigh" : 100,
+  "travelLow" : 0
+}

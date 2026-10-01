@@ -1,0 +1,4 @@
+INPUT ["/audit/day1/photos/DSC0001.ARW", "/audit/day2/photos/DSC0002.ARW"]
+ACTUAL /audit/photos
+EXPECTED /audit
+BOTH_INPUTS_DESCEND_FROM_RESULT false

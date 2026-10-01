@@ -1,0 +1,10 @@
+{"case":"cached-original-changed-on-disk","values":{"afterInvalidationPixel":[0.17414577305316925,0.47927036881446838,0.049399837851524353],"afterRewritePixel":[0.32824331521987915,0.039642993360757828,0.012377483770251274],"beforePixel":[0.32824331521987915,0.039642993360757828,0.012377483770251274],"cachedSizeAfterRewrite":[32,24],"initialSize":[32,24],"onDiskSize":[64,48],"sizeAfterExplicitInvalidation":[64,48]}}
+{"case":"kernel-availability","values":{"core":true,"missing":[]}}
+{"case":"destination-appears-during-render","values":{"deliveredBytes":859,"deliveredHeader":[255,216,255],"files":["collision.jpg","original.png"],"sentinelSurvived":false}}
+{"case":"export-format","values":{"depth":8,"elapsedSeconds":0.89795708656311035,"format":"jpeg","height":24,"profile":"Display P3","requestedDepth":8,"width":32}}
+{"case":"export-format","values":{"depth":8,"elapsedSeconds":0.99673902988433838,"format":"heif","height":24,"profile":"Display P3","requestedDepth":8,"width":32}}
+{"case":"export-format","values":{"depth":10,"elapsedSeconds":0.98481607437133789,"format":"heif","height":24,"profile":"Display P3","requestedDepth":10,"width":32}}
+{"case":"export-format","values":{"depth":8,"elapsedSeconds":0.93830502033233643,"format":"tiff","height":24,"profile":"Display P3","requestedDepth":8,"width":32}}
+{"case":"export-format","values":{"depth":16,"elapsedSeconds":0.78163599967956543,"format":"tiff","height":24,"profile":"Display P3","requestedDepth":16,"width":32}}
+{"case":"export-format","values":{"depth":8,"elapsedSeconds":0.8814469575881958,"format":"png","height":24,"profile":"Display P3","requestedDepth":8,"width":32}}
+{"case":"export-format","values":{"depth":16,"elapsedSeconds":0.98579108715057373,"format":"png","height":24,"profile":"Display P3","requestedDepth":16,"width":32}}

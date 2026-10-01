@@ -1,0 +1,1585 @@
+{
+  "date": "2026-09-22",
+  "main": "99c37272b42c211a04262ceb98cfb39355d1ab99",
+  "latest": "a6e694103a3676e059847ac48b82c0031281ea53",
+  "findings": [
+    {
+      "id": "AI-01",
+      "severity": "P1",
+      "confidence": "reproduced",
+      "title": "Forced Apple RAW9 plus Lumen's wide-gamut working space turns all three supplied Sony RAWs cyan",
+      "location": "Sources/LumenPipeline/AppleRawSource.swift:75-80",
+      "trigger": "Fresh RAW with no recipe decoder version, on tested macOS 27 arm64. Apple chooses decoder 8; supported versions are [7,8,9]; Lumen forces 9.",
+      "effect": "The decoded buffer already loses red, before Lumen WB/tone/color/denoise. A7401502 direct flat v8 mean RGB [0.133833,0.133078,0.122484], v9 [0.033745,0.150265,0.113542]. Pixels with any nonpositive channel rise 0.0685%→43.56%. A7401654 rises 2.73%→74.27%; A7401693 0.261%→79.86%. Lumen WB matrix at default is identity; disabling denoise does not repair the cast.",
+      "blindSpot": "The fallback verifies outputImage is non-nil, not that pixels retain color. Synthetic render goldens cannot test camera decoder selection. Must compare actual RAW against Apple's per-file default, with rendered pixels.",
+      "workingSpaceIsolation": "On A7401502, RAW9 is healthy in default/linear-sRGB working space: common Rec2020 readback mean RGB [0.133965,0.138112,0.124154], nonpositive fraction 0.3312%. Linear-P3 yields [0.097522,0.142875,0.117251], 5.2712%; linear-Rec2020 yields [0.033745,0.150265,0.113542], 43.5558%. RAW8 is nearly invariant across the same contexts. Visually verified both RAW9 default and Rec2020 PNGs. This isolates a RAW9/custom-wide-working-space integration failure, not a blanket defect in RAW9.",
+      "history": "New environment/file-based reproduction at main. Do not generalize to all cameras/macOS versions. Apple's related RAW9/custom-working-space DNG report is a different camera and not proof of an identical underlying bug.",
+      "evidence": [
+        "RawProbe.swift",
+        "raw-all-results.txt",
+        "RawSpaceProbe.swift",
+        "raw-space-results.jsonl",
+        "raw-v9-working-default.png",
+        "raw-v9-working-linear-rec2020.png",
+        "apple-flat-v8.png",
+        "apple-flat-v9.png",
+        "A7401654-flat-v8.png",
+        "A7401654-flat-v9.png",
+        "A7401693-flat-v8.png",
+        "A7401693-flat-v9.png"
+      ],
+      "direction": "Respect and pin Apple's per-file default for fresh images; retain explicit recorded decoder choices and add these real-camera comparisons. If opting into RAW9, isolate its decode to a validated working space before conversion to Lumen's Rec2020 pipeline, with actual rendered-pixel checks.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Respect and pin Apple's per-file default for fresh images; retain explicit recorded decoder choices and add these real-camera comparisons. If opting into RAW9, isolate its decode to a validated working space before conversion to Lumen's Rec2020 pipeline, with actual rendered-pixel checks.",
+      "testGap": "The fallback verifies outputImage is non-nil, not that pixels retain color. Synthetic render goldens cannot test camera decoder selection. Must compare actual RAW against Apple's per-file default, with rendered pixels."
+    },
+    {
+      "id": "AI-03",
+      "severity": "P1",
+      "confidence": "reproduced",
+      "title": "Legal color edits lose substantial accuracy in both preview and export color tables",
+      "location": "Sources/LumenCore/Engine/RenderPlan.swift:214-221; Sources/LumenCore/Color/LUT.swift:27-49,161-162; Sources/LumenPipeline/Kernels.swift:1118-1123",
+      "trigger": "Aqua Mixer Luminance −100 on Rec2020 RGB [.3841336,.5959171,.6482891], with all other controls neutral.",
+      "effect": "Exact color stage remains positive [.106532,.205737,.232635], but 65-cube color stage returns [.202614,.348038,.384925]. Final exact [.127833,.220671,.249249] versus real GPU [.242881,.383300,.422760] at export size 65; max 37.13 encoded-code equivalents. Preview size33 differs by51.21. Global Saturation100 on another positive input gives real GPU65 max31.33 codes. These examples are not merely input-negative clipping; input and exact color-stage output remain positive.",
+      "blindSpot": "Existing tests pin aliveness/monotonicity or use broad tolerances and sparse patches; cube dimensions are fixed despite narrow chroma gates, hue windows, and skin protection. CPU referenceColor also samples a cube, so comparing GPU only to that reference does not validate the intended exact effect.",
+      "history": "Known negative-working-channel finish-domain gap independently remains; this reproduces a separate positive-input/positive-exact-output under-sampling failure inside the color-grade cube. General log-table architectural risk acknowledged, these quantitative settings re-probed at main.",
+      "evidence": [
+        "Probe.swift",
+        "FocusedProbe.swift",
+        "GPUColorProbe.swift",
+        "probe-results.jsonl",
+        "focused-results.jsonl",
+        "gpu-results.jsonl"
+      ],
+      "direction": "Validate exact intended color operations versus the actual GPU across narrow gates and boundaries; consider direct/adaptive stages or a denser/appropriate cube domain. Raising 33 to65 alone is not enough and can worsen an individual sample.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Validate exact intended color operations versus the actual GPU across narrow gates and boundaries; consider direct/adaptive stages or a denser/appropriate cube domain. Raising 33 to65 alone is not enough and can worsen an individual sample.",
+      "testGap": "Existing tests pin aliveness/monotonicity or use broad tolerances and sparse patches; cube dimensions are fixed despite narrow chroma gates, hue windows, and skin protection. CPU referenceColor also samples a cube, so comparing GPU only to that reference does not validate the intended exact effect."
+    },
+    {
+      "id": "BR-01",
+      "severity": "P1",
+      "confidence": "exact new-branch algorithm replay plus production catalog reproduction",
+      "title": "Opening selected files from sibling trees can merge two photographs into one catalog identity",
+      "location": "latest branch Sources/LumenApp/AppState.swift:2662–2674; Sources/LumenCore/Catalog/CatalogStore.swift:476–485",
+      "trigger": "Select /audit/day1/photos/DSC_0001.NEF and /audit/day2/photos/DSC_0001.NEF using the newer multi-file Open workflow.",
+      "effect": "commonParent collects every equal path component, even after a mismatch, producing /audit/photos instead of /audit. ScannedFile.catalogName falls back to basename because neither file is below the fake root. Both become DSC_0001.NEF in one folder row; the catalog probe returns the same ID twice and one row. Saving exposure −2 for the second changes the first's current recipe from +1 to −2.",
+      "evidence": [
+        "BranchProbe.swift",
+        "branch-probe.log",
+        "reliability/core_probe.swift"
+      ],
+      "latestStatus": "new in latest branch a6e6941; multi-file workflow absent on main",
+      "direction": "Stop common-prefix comparison at the first mismatch. Reject out-of-root catalog paths rather than collapsing to basename; assert distinct identity for every selected original.",
+      "area": "root",
+      "areaLabel": "Application & branches",
+      "evidenceScope": "exact new-branch algorithm replay plus production catalog reproduction",
+      "recommendation": "Stop common-prefix comparison at the first mismatch. Reject out-of-root catalog paths rather than collapsing to basename; assert distinct identity for every selected original.",
+      "testGap": "",
+      "history": ""
+    },
+    {
+      "id": "BR-02",
+      "severity": "P1",
+      "confidence": "new-branch call-path review plus production catalog reproduction",
+      "title": "Opening a selected subset marks unselected photographs as missing",
+      "location": "latest branch Sources/LumenApp/AppState.swift:2747–2803; Sources/LumenApp/CatalogService.swift:214; Sources/LumenCore/Catalog/CatalogStore.swift:2033–2036",
+      "trigger": "Scan a folder of photographs, then use the newer Open-selected-files workflow to open only one file from that same folder.",
+      "effect": "The selected subset is passed to the full-folder reconciliation API. Other existing rows are marked missing, although their originals remain on disk. Core reproduction: two-photo album becomes a one-photo visible album after a one-file scan; missingIDs contains the unselected file. Reopening the full folder repairs the missing state. No original is deleted.",
+      "evidence": [
+        "reliability/core_probe.swift"
+      ],
+      "latestStatus": "new latest-branch caller misuse of unchanged catalog API; main has no selected-subset caller",
+      "direction": "Separate register/update-selected-files from complete-folder reconciliation. Only a complete enumeration may declare an absent row missing.",
+      "area": "root",
+      "areaLabel": "Application & branches",
+      "evidenceScope": "new-branch call-path review plus production catalog reproduction",
+      "recommendation": "Separate register/update-selected-files from complete-folder reconciliation. Only a complete enumeration may declare an absent row missing.",
+      "testGap": "",
+      "history": ""
+    },
+    {
+      "id": "M01",
+      "priority": "P1",
+      "confidence": "high",
+      "kind": "rendering defect",
+      "title": "Disabled image-dependent donor fails to supply source to referenced mask",
+      "primaryLocation": {
+        "file": "Sources/LumenPipeline/PipelineRenderer.swift",
+        "start": 1615,
+        "end": 1621
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Image/MaskRaster.swift:1032",
+        "Sources/LumenCore/Image/MaskRaster.swift:442",
+        "Sources/LumenCore/Recipe/RecipeMasks.swift:25"
+      ],
+      "trigger": "Enabled borrower references a disabled Brightness Range donor; no other enabled image-dependent mask forces source construction.",
+      "effect": "Selection disappears; if donor is inverted, the borrowed selection becomes whole-frame.",
+      "evidence": {
+        "probe": "probe.swift / disabled_luma_donor, disabled_inverted_luma_donor",
+        "disabledDonorMaxAlpha": 0,
+        "enabledDonorMaxAlpha": 1,
+        "disabledInvertedMinAlpha": 1,
+        "disabledInvertedMaxAlpha": 1
+      },
+      "coverage": "Executed fresh PipelineRenderer alpha rendering; source logic shared with production graph. Other image-dependent donor kinds inferred from same guard.",
+      "historicalStatus": "Known traversal omission discussed in F2 under matte cache; newly reproduced missing-source and inverted whole-frame consequence.",
+      "branchStatus": "persists",
+      "testGap": "Dependency helper tests do not drive source construction for an enabled borrower and disabled donor.",
+      "suggestedAction": "Build picture source from contributing reference closure and add disabled/inverted image-dependent donor pipeline tests.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P1",
+      "location": "Sources/LumenPipeline/PipelineRenderer.swift:1615",
+      "latestStatus": "persists",
+      "evidenceScope": "Executed fresh PipelineRenderer alpha rendering; source logic shared with production graph. Other image-dependent donor kinds inferred from same guard.",
+      "recommendation": "Build picture source from contributing reference closure and add disabled/inverted image-dependent donor pipeline tests.",
+      "history": "Known traversal omission discussed in F2 under matte cache; newly reproduced missing-source and inverted whole-frame consequence."
+    },
+    {
+      "id": "M02",
+      "priority": "P1",
+      "confidence": "high",
+      "kind": "stale final export",
+      "title": "Referenced donor edits do not invalidate borrower alpha cache",
+      "primaryLocation": {
+        "file": "Sources/LumenPipeline/PipelineRenderer.swift",
+        "start": 1477,
+        "end": 1491
+      },
+      "relatedLocations": [
+        "Sources/LumenPipeline/MaskRasterCache.swift:150",
+        "Sources/LumenPipeline/MaskRasterCache.swift:238"
+      ],
+      "trigger": "Export native <=1024px image, change referenced donor polygon, export again using same renderer.",
+      "effect": "Second delivered image retains the previous mask; fresh renderer produces different correct placement.",
+      "evidence": {
+        "probe": "probe.swift / reference_cache_small_export",
+        "nativeSize": "256x128",
+        "changedDonorRepeatedRendererMaxDelta": 0,
+        "freshVsStaleMaxDelta": 0.23796245455741882
+      },
+      "coverage": "Executed exportedImage twice on held renderer and once on fresh renderer, not only an alpha helper.",
+      "historicalStatus": "Incomplete reference cache key acknowledged in current cache header; durable small-native final-export consequence independently demonstrated.",
+      "branchStatus": "persists",
+      "testGap": "No same-renderer small-image final export test after reference donor mutation.",
+      "suggestedAction": "Fingerprint reference closure including selection/stroke/matte dependencies, test both small and large native images.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P1",
+      "location": "Sources/LumenPipeline/PipelineRenderer.swift:1477",
+      "latestStatus": "persists",
+      "evidenceScope": "Executed exportedImage twice on held renderer and once on fresh renderer, not only an alpha helper.",
+      "recommendation": "Fingerprint reference closure including selection/stroke/matte dependencies, test both small and large native images.",
+      "history": "Incomplete reference cache key acknowledged in current cache header; durable small-native final-export consequence independently demonstrated."
+    },
+    {
+      "id": "REL-01",
+      "title": "Healthy exclusively locked catalog is restored from stale backup",
+      "priority": "P1",
+      "confidence": "high",
+      "evidenceLevel": "dynamic exact core API",
+      "locations": [
+        {
+          "file": "Sources/LumenCore/Catalog/CatalogStore.swift",
+          "start": 1553,
+          "end": 1577
+        },
+        {
+          "file": "Sources/LumenCore/Catalog/CatalogStore.swift",
+          "start": 1598,
+          "end": 1602
+        }
+      ],
+      "trigger": "Another connection holds an exclusive SQLite lock while recoverIfNeeded performs its open-time quick_check.",
+      "effect": "SQLITE_BUSY is collapsed to corruption; the healthy live database is set aside and replaced with an older snapshot. Reopened rating fell from 5 to 1. Scope: Ordinary WAL writes are not claimed to trigger this; original DB is retained as .damaged-* and is recoverable. Other transient errors use the same code branch but were not independently injected.",
+      "scopeLimit": "Ordinary WAL writes are not claimed to trigger this; original DB is retained as .damaged-* and is recoverable. Other transient errors use the same code branch but were not independently injected.",
+      "repro": {
+        "harness": "core_probe.swift",
+        "case": "healthy-but-locked-recovery",
+        "expected": "Return unavailable/busy and leave live catalog untouched",
+        "observed": "error 5 database is locked; outcome restored; rating 5 to 1",
+        "rawLog": "core-confirmed.log"
+      },
+      "testBlindSpot": "Recovery tests cover corrupt/missing databases, not healthy-but-unavailable databases.",
+      "newVsKnown": "new",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Use a tri-state integrity result and recover only after confirmed corruption, never from operational failure.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P1",
+      "location": "Sources/LumenCore/Catalog/CatalogStore.swift:1553–1577; Sources/LumenCore/Catalog/CatalogStore.swift:1598–1602",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic exact core API",
+      "testGap": "Recovery tests cover corrupt/missing databases, not healthy-but-unavailable databases.",
+      "history": "new"
+    },
+    {
+      "id": "REL-02",
+      "title": "New same-basename RAW sibling inherits another photo's sidecar edits",
+      "priority": "P1",
+      "confidence": "high",
+      "evidenceLevel": "dynamic unchanged CatalogService reopen",
+      "locations": [
+        {
+          "file": "Sources/LumenCore/XMP/SidecarNaming.swift",
+          "start": 49,
+          "end": 58
+        },
+        {
+          "file": "Sources/LumenApp/CatalogService.swift",
+          "start": 1291,
+          "end": 1318
+        }
+      ],
+      "trigger": "Edit lone DSC_0001.DNG, then add DSC_0001.NEF and register/reopen folder.",
+      "effect": "Bare DSC_0001.xmp switches ownership from DNG to NEF. New NEF receives DNG exposure +2; DNG's newly expected qualified sidecar is absent. Scope: A transition in folder membership is required; static collision combinations alone may behave as designed.",
+      "scopeLimit": "A transition in folder membership is required; static collision combinations alone may behave as designed.",
+      "repro": {
+        "harness": "catalog_probe.swift",
+        "case": "service-sidecar-transition",
+        "expected": "Independent edits and stable ownership",
+        "observed": "DNG +2; new NEF +2; only DSC_0001.xmp"
+      },
+      "testBlindSpot": "Sidecar naming tests assert static sets, not transitions after edits are already written.",
+      "newVsKnown": "new transition failure beyond known collision fixes",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Track ownership/provenance and migrate safely, or refuse ambiguous sidecar reassignment.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P1",
+      "location": "Sources/LumenCore/XMP/SidecarNaming.swift:49–58; Sources/LumenApp/CatalogService.swift:1291–1318",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic unchanged CatalogService reopen",
+      "testGap": "Sidecar naming tests assert static sets, not transitions after edits are already written.",
+      "history": "new transition failure beyond known collision fixes"
+    },
+    {
+      "id": "REL-03",
+      "title": "Already-present ingest certifies matching truncated source and destination",
+      "priority": "P1",
+      "confidence": "high",
+      "evidenceLevel": "dynamic exact VerifiedCopyDriver API",
+      "locations": [
+        {
+          "file": "Sources/LumenCore/Ingest/VerifiedCopy.swift",
+          "start": 397,
+          "end": 402
+        },
+        {
+          "file": "Sources/LumenCore/Ingest/VerifiedCopy.swift",
+          "start": 427,
+          "end": 430
+        },
+        {
+          "file": "Sources/LumenCore/Ingest/VerifiedCopy.swift",
+          "start": 503,
+          "end": 512
+        }
+      ],
+      "trigger": "Source shrinks after a 5000-byte plan, and destination already contains the same 100-byte prefix.",
+      "effect": "Already-present shortcut bypasses planned-length guard. allVerified=true and reported bytesCopied=5000 for two 100-byte files.",
+      "repro": {
+        "harness": "core_probe.swift",
+        "case": "ingest-short-already-present",
+        "expected": "shortRead failure and allVerified=false",
+        "observed": "allVerified=true; alreadyPresent=1; reportedBytesCopied=5000"
+      },
+      "testBlindSpot": "Short-read tests use a fresh destination; matching existing-destination branch returns before that validation.",
+      "newVsKnown": "new bypass of previously fixed fresh-copy short-read issue",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Require digest byteCount to match planned byteCount before accepting alreadyPresent.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P1",
+      "location": "Sources/LumenCore/Ingest/VerifiedCopy.swift:397–402; Sources/LumenCore/Ingest/VerifiedCopy.swift:427–430; Sources/LumenCore/Ingest/VerifiedCopy.swift:503–512",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic exact VerifiedCopyDriver API",
+      "testGap": "Short-read tests use a fresh destination; matching existing-destination branch returns before that validation.",
+      "history": "new bypass of previously fixed fresh-copy short-read issue"
+    },
+    {
+      "id": "REL-04",
+      "title": "Export final publication overwrites a file created during rendering",
+      "priority": "P1",
+      "confidence": "high",
+      "evidenceLevel": "dynamic real GPU export with sentinel race",
+      "locations": [
+        {
+          "file": "Sources/LumenApp/AppStateActions.swift",
+          "start": 337,
+          "end": 341
+        },
+        {
+          "file": "Sources/LumenPipeline/PipelineRenderer.swift",
+          "start": 1203,
+          "end": 1211
+        }
+      ],
+      "trigger": "Another writer creates the selected free destination after batch disambiguation but before renderer publication.",
+      "effect": "replaceItemAt silently replaces that file even though normal batch workflow intends disambiguation. Scope: Pre-existing files present before selection are correctly renamed; race requires another writer/concurrent export.",
+      "scopeLimit": "Pre-existing files present before selection are correctly renamed; race requires another writer/concurrent export.",
+      "repro": {
+        "harness": "pipeline_probe.swift",
+        "case": "destination-appears-during-render",
+        "expected": "No-overwrite rename or failure",
+        "observed": "Sentinel replaced by 859-byte JPEG with FFD8FF header",
+        "rawLog": "pipeline-confirmed.log"
+      },
+      "testBlindSpot": "Pure disambiguation checks do not inject a competing final-path creation during the long render.",
+      "newVsKnown": "new; contradicts completeness of prior OUT-04 preflight guard verification",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Separate explicit replace mode from batch no-replace publication; atomically claim or re-disambiguate final output.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P1",
+      "location": "Sources/LumenApp/AppStateActions.swift:337–341; Sources/LumenPipeline/PipelineRenderer.swift:1203–1211",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic real GPU export with sentinel race",
+      "testGap": "Pure disambiguation checks do not inject a competing final-path creation during the long render.",
+      "history": "new; contradicts completeness of prior OUT-04 preflight guard verification"
+    },
+    {
+      "id": "REL-05",
+      "title": "Sidecar sibling resolution makes folder registration quadratic",
+      "priority": "P1",
+      "confidence": "high",
+      "evidenceLevel": "source complexity plus optimized real CatalogService benchmark",
+      "locations": [
+        {
+          "file": "Sources/LumenApp/CatalogService.swift",
+          "start": 1291,
+          "end": 1318
+        },
+        {
+          "file": "Sources/LumenCore/XMP/SidecarNaming.swift",
+          "start": 66,
+          "end": 77
+        },
+        {
+          "file": "Sources/LumenApp/AppState.swift",
+          "start": 2652,
+          "end": 2668
+        }
+      ],
+      "trigger": "Register a large flat folder, including all-JPEG folders without sidecars.",
+      "effect": "Approximately four complete sibling-name passes per photo before applyScan; 500 tiny files took 22.93 seconds cold and 18.73 seconds repeat in optimized service harness. Scope: Timings were under audit-session load, not controlled SLA tests. Main AppState lines shift on latest, but catalog/naming implementation is unchanged.",
+      "scopeLimit": "Timings were under audit-session load, not controlled SLA tests. Main AppState lines shift on latest, but catalog/naming implementation is unchanged.",
+      "repro": {
+        "harness": "catalog_probe.swift; sibling_benchmark.swift",
+        "case": "register-no-sidecars",
+        "expected": "Near-linear registration and prompt supersession",
+        "observed": "500 optimized service files 22.93/18.73 seconds; isolated exact sibling loop scales quadratically"
+      },
+      "testBlindSpot": "Small folder/unit examples and cached directory listing do not expose repeated per-photo full-list scanning.",
+      "newVsKnown": "new measured root cause for known LIB-25 first-grid performance concern",
+      "latestBranchStatus": "persists; catalog and naming source identical",
+      "recommendation": "Build one stem index per directory, bypass sibling work for non-RAWs, memoize per-photo sidecar path and make registration supersedable.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P1",
+      "location": "Sources/LumenApp/CatalogService.swift:1291–1318; Sources/LumenCore/XMP/SidecarNaming.swift:66–77; Sources/LumenApp/AppState.swift:2652–2668",
+      "latestStatus": "persists; catalog and naming source identical",
+      "evidenceScope": "source complexity plus optimized real CatalogService benchmark",
+      "testGap": "Small folder/unit examples and cached directory listing do not expose repeated per-photo full-list scanning.",
+      "history": "new measured root cause for known LIB-25 first-grid performance concern"
+    },
+    {
+      "id": "REL-12",
+      "title": "Test failures do not gate the automatic update release",
+      "priority": "P1",
+      "confidence": "high for ungated publication; branch race source-inferred",
+      "evidenceLevel": "source-only workflow/updater audit",
+      "locations": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "start": 121,
+          "end": 170,
+          "latestStart": 146,
+          "latestEnd": 195
+        },
+        {
+          "file": "Sources/LumenApp/AppUpdater.swift",
+          "start": 161,
+          "end": 162
+        },
+        {
+          "file": "Sources/LumenApp/AppUpdater.swift",
+          "start": 231,
+          "end": 241
+        }
+      ],
+      "trigger": "A build succeeds while tests fail/time out, or two publishing branches complete competing runs.",
+      "effect": "Independent app-bundle job publishes to auto-installed dev-latest regardless of tests; both branches share feed and dates do not enforce ancestry. Scope: No remote write, malicious package, live install or branch race was executed. This is an intentional development release policy, not an exploit demonstration.",
+      "scopeLimit": "No remote write, malicious package, live install or branch race was executed. This is an intentional development release policy, not an exploit demonstration.",
+      "repro": {
+        "harness": null,
+        "case": "CI dependency and updater decision audit",
+        "expected": "Validated monotonic release channel",
+        "observed": "No needs test gate; main and Claude branch publish same dev-latest; quiet check installs eligible release"
+      },
+      "testBlindSpot": "Passing updater decision unit tests cannot enforce missing CI dependency/channel promotion policy.",
+      "newVsKnown": "known intentional policy; release-readiness risk",
+      "latestBranchStatus": "persists; only test timeout/comments changed",
+      "recommendation": "Separate experimental artifacts from auto-update releases, require tests/proof, restrict publishing branch and serialize monotonic feed promotion.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P1",
+      "location": ".github/workflows/ci.yml:121–170; Sources/LumenApp/AppUpdater.swift:161–162; Sources/LumenApp/AppUpdater.swift:231–241",
+      "latestStatus": "persists; only test timeout/comments changed",
+      "evidenceScope": "source-only workflow/updater audit",
+      "testGap": "Passing updater decision unit tests cannot enforce missing CI dependency/channel promotion policy.",
+      "history": "known intentional policy; release-readiness risk"
+    },
+    {
+      "id": "UX-01",
+      "severity": "P1",
+      "confidence": "reproduced with production AppState",
+      "title": "Undo during a slider gesture saves the value that was just undone",
+      "location": "Sources/LumenApp/AppState.swift:3565–3568,3631–3649",
+      "trigger": "Begin a slider gesture, set Exposure from 0 to +1, invoke undo before the gesture sink closes, end gesture, quit.",
+      "effect": "In-memory exposure remains 0, but test.png.xmp contains exposure:1. Negative control: close gesture before undo; sidecar correctly omits the non-default exposure. Slider release and prepareToQuit flush pendingGesturePersist without replacing it with the undo result.",
+      "evidence": [
+        "AppProbe.swift",
+        "app-probe-open.log",
+        "app-probe-closed.log"
+      ],
+      "latestStatus": "persists by source comparison; apply/flush logic unchanged",
+      "direction": "Make undo/redo and pending gesture persistence one ordered state transition; regression-test memory, catalog and XMP after release and reopen.",
+      "area": "root",
+      "areaLabel": "Application & branches",
+      "evidenceScope": "reproduced with production AppState",
+      "recommendation": "Make undo/redo and pending gesture persistence one ordered state transition; regression-test memory, catalog and XMP after release and reopen.",
+      "testGap": "",
+      "history": ""
+    },
+    {
+      "id": "AI-02",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Point Color picker and selection use different stages after mixer or primaries edits",
+      "location": "Sources/LumenCore/Engine/ColorEngine.swift:417-422; Sources/LumenPipeline/PipelineRenderer.swift:1991-2010; Sources/LumenPipeline/RenderGraph.swift:123-153",
+      "trigger": "Set Red Mixer Hue +100; pick that same red into Point Color; set Point Saturation −100.",
+      "effect": "At Range 0 the picked color retains C=0.1198007 of original C=.12; at default Range 50 retains C=.0426767. A target sampled after the mixer reaches C≈0. The picker taps before primaries/mixer, while swatches compare after them. Its maskSource option also skips presence and denoise despite claiming S3–S8 (presence consequence source-confirmed, not separately image-probed).",
+      "blindSpot": "Point-selection tests feed the engine an already matching sample with preceding controls neutral. They do not exercise the actual picker tap after an existing mixer/primaries edit.",
+      "history": "New extension of previously fixed pre-tone picker-domain issue; that older fix does not cover intra-color-stage ordering.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Define the sample/selection domain explicitly and sample through the stages that precede the selected swatch, or compare membership consistently in a stable source domain.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Define the sample/selection domain explicitly and sample through the stages that precede the selected swatch, or compare membership consistently in a stable source domain.",
+      "testGap": "Point-selection tests feed the engine an already matching sample with preceding controls neutral. They do not exercise the actual picker tap after an existing mixer/primaries edit."
+    },
+    {
+      "id": "AI-04",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Luma curve black lift is discontinuous and makes neutral deep blacks purple on the GPU",
+      "location": "Sources/LumenCore/Engine/CurveStack.swift:290-294; Sources/LumenCore/Engine/DisplayTransform.swift:324-338",
+      "trigger": "Luma point curve [[0,.2],[1,1]] on black and very dark neutral pixels.",
+      "effect": "CurveStack.apply(black) stays black; input1e−7 jumps to .033105 linear, violating the plotted endpoint. Through actual GPU, neutral scene1e−8 should be neutral .033596 but becomes [.027359,.006368,.067010] at33 and [.048389,.011588,.117056] at65. The absent zero-luma branch plus existing display zero singularity creates a sharply varying cube field, and GPU trilinear interpolation pulls colored neighboring corners into grey.",
+      "blindSpot": "Tests check master endpoint pass-through and a no-clipping midtone hue case. They omit lifted luma endpoints at/near zero and neutral GPU equality under lifted black curves.",
+      "history": "New reproduced finding at main; exact-vs-table errors at this endpoint are much larger than generic float tolerance.",
+      "evidence": [
+        "Probe.swift",
+        "GPUColorProbe.swift",
+        "probe-results.jsonl",
+        "gpu-results.jsonl"
+      ],
+      "direction": "Define a continuous neutral-preserving zero-luma limit and add real GPU grey-ramp tests with raised luma black endpoints.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Define a continuous neutral-preserving zero-luma limit and add real GPU grey-ramp tests with raised luma black endpoints.",
+      "testGap": "Tests check master endpoint pass-through and a no-clipping midtone hue case. They omit lifted luma endpoints at/near zero and neutral GPU equality under lifted black curves."
+    },
+    {
+      "id": "AI-05",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Point curve handles do not lie on the displayed composite trace when parametric edits are active",
+      "location": "Sources/LumenApp/CurveEditorView.swift:312,603-617,644-647; Sources/LumenCore/Engine/CurveStack.swift:231-235",
+      "trigger": "Parametric Lights50, then master point curve [[0,0],[.6,.7],[1,1]].",
+      "effect": "The handle is drawn at(.6,.7), but the displayed composed master trace atx=.6 is .756543; 16.96px separation in a300px plot. Lights100 raises discrepancy to32.03px. The UI draws parametric→point composition but handles/drag coordinates remain raw point-curve coordinates.",
+      "blindSpot": "Curve math tests exercise composition and point editing separately. None verifies that editable handles lie on the drawn trace with parametric controls active.",
+      "history": "New source-confirmed plus numeric reproduction at main; root can visually verify actual panel.",
+      "evidence": [
+        "SmallProbe.swift"
+      ],
+      "direction": "Display/edit the point curve in its own input domain or transform handles and hit-testing into the composite domain consistently.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Display/edit the point curve in its own input domain or transform handles and hit-testing into the composite domain consistently.",
+      "testGap": "Curve math tests exercise composition and point editing separately. None verifies that editable handles lie on the drawn trace with parametric controls active."
+    },
+    {
+      "id": "AI-06",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "WB neutral picker cannot reach the full tint range accepted by the slider",
+      "location": "Sources/LumenCore/Engine/WhiteBalanceEngine.swift:167-168,183-194; Sources/LumenApp/BasicPanel.swift:278-279",
+      "trigger": "A grey sample whose neutralizing WB is5500K/Tint−250, a setting the manual control accepts.",
+      "effect": "The sample [.188355,.139596,.595352] has an exact permitted neutralization, but picker solves8474.6K/−150 and returns [.208774,.166850,.209656], C=.034829. Coarse search is ±150, local refinement only12 beyond that, and final return reclamps±150. At requested−180 it still leaves C=.011698.",
+      "blindSpot": "Neutral-pick grid in HuePreservationTests synthesizes a current WB then inverts that same current matrix, so it largely recovers original neutral. Cast test in EngineTests uses only3400K/Tint20; no full hard-range cast.",
+      "history": "New finding at main. Positive extreme tint has an intentional safety bound; the negative−250 reproduction avoids that separate limitation.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Search/refine the supported admissible tint domain and return the actual best admissible setting, or visibly disclose a narrower picker contract.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Search/refine the supported admissible tint domain and return the actual best admissible setting, or visibly disclose a narrower picker contract.",
+      "testGap": "Neutral-pick grid in HuePreservationTests synthesizes a current WB then inverts that same current matrix, so it largely recovers original neutral. Cast test in EngineTests uses only3400K/Tint20; no full hard-range cast."
+    },
+    {
+      "id": "AI-07",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Zone exposure combinations silently flatten broad tonal intervals",
+      "location": "Sources/LumenCore/Engine/ToneEngine.swift:512-517,566-567; Sources/LumenApp/ZonesPanel.swift:135-141",
+      "trigger": "Default pivots, Darks +2EV or +4EV, other zone amounts0.",
+      "effect": "The monotonic prefix-max bake replaces decreasing requested response with a flat interval. Dark+2 measured1.813EV nearly flat; +4 measured3.894EV. The latter differs from requested mathematical response byup to2.204EV. Scene textures occupying that interval can collapse; the slider still reports a precise exposure amount and shows no limiting telemetry.",
+      "blindSpot": "Tone six-slider tests prove the separate eased shelf solve. They do not establish equivalent guarantees for Zones; exactColor/referenceColor call direct gain while shipped ReferenceRenderer uses the clamped toneGainLUT.",
+      "history": "Known open design/accuracy gap: docs24 tone item3 and audit ledger K-040. Reverified current code, not counted as newly discovered.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Use an explicit zone limiter with applied-value/flattening feedback, or signal destructive flattening before it silently changes the requested zone exposure.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Use an explicit zone limiter with applied-value/flattening feedback, or signal destructive flattening before it silently changes the requested zone exposure.",
+      "testGap": "Tone six-slider tests prove the separate eased shelf solve. They do not establish equivalent guarantees for Zones; exactColor/referenceColor call direct gain while shipped ReferenceRenderer uses the clamped toneGainLUT."
+    },
+    {
+      "id": "AI-08",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Uniformity and Point Variance still operate without the texture-preserving local mean",
+      "location": "Sources/LumenCore/Engine/ColorEngine.swift:373-376,672-684; Sources/LumenCore/Engine/RenderPlan.swift:218",
+      "trigger": "Point Variance−100 on small hue texture around a chosen color; analogous Even out hues setting.",
+      "effect": "Three input hues24.23°,29.23°,34.23° all become29.23° in the shipping one-argument path. Supplying local mean at29.23° preserves the ±5° texture, demonstrating the unused seam. Shipping all-RGB LUT cannot carry a spatial mean.",
+      "blindSpot": "ColorScienceTests checks apply(localMean:) algebra but shipping callers only invoke apply(pixel). Passing that unit test does not establish texture preservation in the app.",
+      "history": "Known open COLOR-07/local-neighborhood limitation acknowledged in current source. Measured hue targets ARE wired now, so the older 'means not passed' claim is stale and must not be repeated.",
+      "evidence": [
+        "SmallProbe.swift"
+      ],
+      "direction": "Add a spatial correction path for those tools or present them as pixelwise color convergence with its texture tradeoff.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Add a spatial correction path for those tools or present them as pixelwise color convergence with its texture tradeoff.",
+      "testGap": "ColorScienceTests checks apply(localMean:) algebra but shipping callers only invoke apply(pixel). Passing that unit test does not establish texture preservation in the app."
+    },
+    {
+      "id": "AI-11",
+      "severity": "P2",
+      "confidence": "source-confirmed",
+      "title": "Main still has an architecture-dependent raw-double hash test already corrected on the other branch",
+      "location": "Tests/LumenCoreTests/GradeJointLimiterTests.swift:242-295",
+      "trigger": "Native Apple Silicon baseline test.",
+      "effect": "Root observed hash5029306187037463546 versus Linux-derived12301920802024793674. The per-recipe exact jointScale1 and appliedBrilliance checks do not fail. FNV of raw Double bit patterns changes with platform libm/FMA despite equivalent math.",
+      "blindSpot": "The baseline oracle is a transcribed cross-platform hash rather than same-process semantic comparison.",
+      "history": "Known and fixed in1590e1f on origin/claude/photo-editor-design-plan-8ahzmm, which is not contained in audited main99c3727. Currentmain log last relevant change4903db2 retains old test. Historical correction independently confirms this failure class.",
+      "evidence": [
+        "root baseline run",
+        "git show1590e1f"
+      ],
+      "direction": "Bring the same-process comparison onto main; do not treat this hash-only failure as proof of a rendering regression.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "fixed in newer Claude branch; current-main finding",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "source-confirmed",
+      "recommendation": "Bring the same-process comparison onto main; do not treat this hash-only failure as proof of a rendering regression.",
+      "testGap": "The baseline oracle is a transcribed cross-platform hash rather than same-process semantic comparison."
+    },
+    {
+      "id": "AI-12",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Basic Contrast clips highlights despite promising pinned endpoints",
+      "location": "Sources/LumenCore/Engine/ToneEngine.swift:491-502; Sources/LumenApp/BasicPanel.swift:483-488",
+      "trigger": "Contrast+100, otherwise neutral. Scene+3.5EV.",
+      "effect": "Tone maps+3.5EV→+5.6EV and display clips to1.0; atContrast0 that sample renders .902351linear. Contrast+50 already clips+4.5EV. Relaxation ends at±12EV rather than live displaywhite+5EV.",
+      "blindSpot": "Old endpoint tests use±12EV log-domain extremes, not the actual displayanchors; they prove the wrong endpoint.",
+      "history": "KnownA1-01, fixed on newerClaude branch by9bcac9f but not auditedmain.",
+      "evidence": [
+        "SmallProbe.swift",
+        "small-results.jsonl"
+      ],
+      "direction": "Use the existing branch's live-anchor contrast solve, then verify its authority/limiter tradeoffs.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "fixed in newer Claude branch; current-main finding",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Use the existing branch's live-anchor contrast solve, then verify its authority/limiter tradeoffs.",
+      "testGap": "Old endpoint tests use±12EV log-domain extremes, not the actual displayanchors; they prove the wrong endpoint."
+    },
+    {
+      "id": "AI-14",
+      "severity": "P2",
+      "confidence": "source-confirmed",
+      "title": "Grading wheel painted hue and engine hue use different color systems on main",
+      "location": "Sources/LumenApp/LumenControls.swift:1982-1984; Sources/LumenCore/Engine/GradeEngine.swift:213-216",
+      "trigger": "Choose a tint by the color under the grading wheel puck.",
+      "effect": "Wheelpaint usesSwiftUIColor(hue:HSVangle,saturation:.72,brightness:.8); engine interprets sameangle asOKLab a/b angle. These hue circles differ, so selected orange/blue tint does not match the color under the cursor.",
+      "blindSpot": "Engine hue-angle tests do not compare the SwiftUIwheel paint to the engine's color space.",
+      "history": "KnownB2-02; fixed onlatestClaude bysharedOKLCh ringcolor conversion. Source-confirmed currentmain stilloldHSB paint. Historical29.6°mean/50.3°max measurement was not rerun here, so not treated as fresh measured evidence.",
+      "evidence": [
+        "gitdiff main..latest LumenControls.swift",
+        "current wheelColors definition"
+      ],
+      "direction": "Bring existingOKLCh huepaint implementation and itsagreement test to main.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "fixed in newer Claude branch; current-main finding",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "source-confirmed",
+      "recommendation": "Bring existingOKLCh huepaint implementation and itsagreement test to main.",
+      "testGap": "Engine hue-angle tests do not compare the SwiftUIwheel paint to the engine's color space."
+    },
+    {
+      "id": "AI-15",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "RAW9 changes mutable nativeSize after downscaled decode, breaking Lumen's preview scale contract",
+      "location": "Sources/LumenPipeline/AppleRawSource.swift:93-101,241; Sources/LumenPipeline/PipelineRenderer.swift:519-524,1918",
+      "trigger": "On supplied A7401502, choose automatic decoder9, decode at target512 using target/nativeLongEdge, then request target2560 repeatedly through AppleRawSource.",
+      "effect": "After a512pxdecode, nativeLongEdge changes7008→3504. Next2560target requests scale.73059 and gets5120px; next gets2560px/native3504; subsequent cache hits return5120px while native metadata stays3504. Twice the intended decode longedge means4x pixel area, plus incorrect native metadata for downstream consumers. No timing claim. Fresh scale1 and actual native exports remain4672x7008; this is NOT demonstrated export resolution loss.",
+      "blindSpot": "Synthetic sources expose stable native dimensions. RAW8/7 nativeSize stays7008x4672 through alltestedscale/draftstates. The source reads a mutable platform filter property instead of caching original image dimensions.",
+      "history": "New macOS27/RAW9 integration reproduction. Root masks observations triggered the check; direct decoder and actual AppleRawSource probes isolated it. All3files original ImageIO/EXIF dimensions7008x4672; fullresolution stillavailable.",
+      "evidence": [
+        "RawSizeProbe.swift",
+        "RawStateProbe.swift",
+        "RawScaleOscillationProbe.swift",
+        "RawSourceStateProbe.swift",
+        "raw-size-results.json",
+        "raw-state-results.json",
+        "raw-scale-results.jsonl",
+        "raw-source-state-results.jsonl"
+      ],
+      "direction": "Capture immutable original dimensions before scaled decode and use that invariant for native metadata and scale planning. Test source metadata after thumbnail, draft, settled and cached decodes, alongside explicit decoder versions.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; AppleRawSource and PipelineRenderer unchanged",
+      "latestVerification": "Source diff only; newer branch not separately built. Original-size export confirmed by root's independent actual JPEG test.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Capture immutable original dimensions before scaled decode and use that invariant for native metadata and scale planning. Test source metadata after thumbnail, draft, settled and cached decodes, alongside explicit decoder versions.",
+      "testGap": "Synthetic sources expose stable native dimensions. RAW8/7 nativeSize stays7008x4672 through alltestedscale/draftstates. The source reads a mutable platform filter property instead of caching original image dimensions."
+    },
+    {
+      "id": "M03",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "blend contract",
+      "title": "Local curves ignore mask Brightness-only and Colour-only blend mode",
+      "primaryLocation": {
+        "file": "Sources/LumenPipeline/RenderGraph.swift",
+        "start": 1010,
+        "end": 1030
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Engine/ReferenceRenderer.swift:240",
+        "Sources/LumenApp/MaskPanel.swift:327"
+      ],
+      "trigger": "Non-neutral local channel curve in Colour-only or Brightness-only mask.",
+      "effect": "Curve changes both luminance and chroma regardless of selected mode.",
+      "evidence": {
+        "probe": "probe.swift / curve_blend_*",
+        "allThreeModesIdentical": true,
+        "beforeY": 0.207372913,
+        "afterY": 0.319357595,
+        "beforeRG": 1.666667,
+        "afterRG": 4.034906
+      },
+      "coverage": "CPU numerical reproduction plus GPU unconditional blendMask source trace.",
+      "historicalStatus": "No matching historical finding found.",
+      "branchStatus": "persists",
+      "testGap": "MaskBlendTests exercise main local stage, not applyLocalCurves.",
+      "suggestedAction": "Apply selected blend contract to local curve stage and test channel curves in each mode.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenPipeline/RenderGraph.swift:1010",
+      "latestStatus": "persists",
+      "evidenceScope": "CPU numerical reproduction plus GPU unconditional blendMask source trace.",
+      "recommendation": "Apply selected blend contract to local curve stage and test channel curves in each mode.",
+      "history": "No matching historical finding found."
+    },
+    {
+      "id": "M04",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "resolution mismatch",
+      "title": "Brush alpha depends on raster resolution, not just source-normalized stroke",
+      "primaryLocation": {
+        "file": "Sources/LumenCore/Image/MaskRaster.swift",
+        "start": 1438,
+        "end": 1452
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Image/MaskRaster.swift:1508",
+        "Sources/LumenApp/MaskPanel.swift:1691"
+      ],
+      "trigger": "Size .01, Feather50, Flow10, Ceiling80 horizontal stroke rendered at1024 and4096.",
+      "effect": "Export coverage/opacity materially stronger than preview. Minimum valid Size.002 can vanish on small images.",
+      "evidence": {
+        "probe": "control-sweep.swift / brush.*",
+        "linePeak256": 0.081768997,
+        "linePeak512": 0.258360714,
+        "linePeak1024": 0.439655721,
+        "linePeak4096": 0.633971453,
+        "minimumDot512": 0,
+        "minimumDot1024": 0.237618268,
+        "minimumDot4096": 1
+      },
+      "coverage": "Actual MaskRaster accumulatedBrushPlane at four resolutions; no UI input event simulation.",
+      "historicalStatus": "No matching historical finding found.",
+      "branchStatus": "persists",
+      "testGap": "Same-resolution accumulation tests do not assert cross-resolution alpha conservation.",
+      "suggestedAction": "Density-correct stamp spacing/resampling and subpixel coverage; test alpha at multiple output sizes.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenCore/Image/MaskRaster.swift:1438",
+      "latestStatus": "persists",
+      "evidenceScope": "Actual MaskRaster accumulatedBrushPlane at four resolutions; no UI input event simulation.",
+      "recommendation": "Density-correct stamp spacing/resampling and subpixel coverage; test alpha at multiple output sizes.",
+      "history": "No matching historical finding found."
+    },
+    {
+      "id": "M05",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "resolution mismatch",
+      "title": "Negative local Sharpness uses fixed 2.5-pixel blur",
+      "primaryLocation": {
+        "file": "Sources/LumenPipeline/RenderGraph.swift",
+        "start": 989,
+        "end": 994
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Engine/ReferenceRenderer.swift:376"
+      ],
+      "trigger": "Local Sharpness -100 on fixed normalized texture, preview versus high-resolution export.",
+      "effect": "Strong small-preview smoothing almost disappears at full resolution.",
+      "evidence": {
+        "probe": "probe.swift / negative_sharpness_*",
+        "cpuContrastRetention256": 0.1455098,
+        "cpuContrastRetention1024": 0.8865306,
+        "cpuContrastRetention4096": 0.9925015,
+        "gpuContrastRetention256": 0.1387341,
+        "gpuContrastRetention1024": 0.885203,
+        "gpuContrastRetention4096": 0.9911023
+      },
+      "coverage": "Executed CPU and actual GPU. Radius-vs-sigma hypothesis ruled out.",
+      "historicalStatus": "New adjacency to fixed global sharpening scaling.",
+      "branchStatus": "persists",
+      "testGap": "No normalized-scene resolution test for negative local Sharpness.",
+      "suggestedAction": "Use a defined frame-denominated blur scale and test it across preview/output resolutions.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenPipeline/RenderGraph.swift:989",
+      "latestStatus": "persists",
+      "evidenceScope": "Executed CPU and actual GPU. Radius-vs-sigma hypothesis ruled out.",
+      "recommendation": "Use a defined frame-denominated blur scale and test it across preview/output resolutions.",
+      "history": "New adjacency to fixed global sharpening scaling."
+    },
+    {
+      "id": "M06",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "geometry composition",
+      "title": "Vignette positioned incorrectly after off-centre crop and horizontal flip",
+      "primaryLocation": {
+        "file": "Sources/LumenPipeline/RenderGraph.swift",
+        "start": 1323,
+        "end": 1330
+      },
+      "relatedLocations": [
+        "Sources/LumenApp/CropPanel.swift:381"
+      ],
+      "trigger": "Crop x.1/y.1/w.35/h.7, Vignette -2 EV Feather75, then horizontal flip and UI crop reflection.",
+      "effect": "Vignette centre moves outside delivered crop; whole crop darkened instead of only edges.",
+      "evidence": {
+        "probe": "probe.swift / vignette_after_crop_flip",
+        "beforeCenter": 0.180000007,
+        "afterCenter": 0.0450000018,
+        "beforeMaximum": 0.180000007,
+        "afterMaximum": 0.0450000018
+      },
+      "coverage": "Actual GPU vignette followed by app applyGeometry on uniform source; uses same crop reflection as UI.",
+      "historicalStatus": "New flip consequence adjacent to historical GEO16 straighten mismatch.",
+      "branchStatus": "persists",
+      "testGap": "No combined asymmetric crop+flip+vignette uniform-field assertion.",
+      "suggestedAction": "Map effect coordinates through inverse geometry or apply vignette on final crop grid.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenPipeline/RenderGraph.swift:1323",
+      "latestStatus": "persists",
+      "evidenceScope": "Actual GPU vignette followed by app applyGeometry on uniform source; uses same crop reflection as UI.",
+      "recommendation": "Map effect coordinates through inverse geometry or apply vignette on final crop grid.",
+      "history": "New flip consequence adjacent to historical GEO16 straighten mismatch."
+    },
+    {
+      "id": "M07",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "control semantics",
+      "title": "Film Strength switches spatial effects on at full amplitude",
+      "primaryLocation": {
+        "file": "Sources/LumenCore/Engine/FilmLab.swift",
+        "start": 1585,
+        "end": 1587
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Engine/FilmLab.swift:1607",
+        "Sources/LumenCore/Engine/RenderPlan.swift:252"
+      ],
+      "trigger": "Portra default Strength0 ->1 ->100.",
+      "effect": "Tone blends continuously, but full grain and halation are activated at1 and not scaled down by Strength.",
+      "evidence": {
+        "probe": "probe.swift / film_strength_*",
+        "grain0": 0,
+        "grain1": 0.054,
+        "grain100": 0.054,
+        "halationRed1": 0.0175,
+        "halationRed100": 0.0175
+      },
+      "coverage": "Actual FilmChain scalar responses plus production spatial routing trace; grain appearance still depends on underlying picture density.",
+      "historicalStatus": "C1-02 still open, independently revalidated.",
+      "branchStatus": "persists",
+      "testGap": "Film tests establish tonal continuity, not whole-chain spatial continuity near zero.",
+      "suggestedAction": "Define strength scaling for spatial components and test0/1/50/100.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenCore/Engine/FilmLab.swift:1585",
+      "latestStatus": "persists",
+      "evidenceScope": "Actual FilmChain scalar responses plus production spatial routing trace; grain appearance still depends on underlying picture density.",
+      "recommendation": "Define strength scaling for spatial components and test0/1/50/100.",
+      "history": "C1-02 still open, independently revalidated."
+    },
+    {
+      "id": "M08",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "incorrect disabled state",
+      "title": "Display Transform disabled during partial film blend although still active",
+      "primaryLocation": {
+        "file": "Sources/LumenApp/LookPanel.swift",
+        "start": 1142,
+        "end": 1148
+      },
+      "relatedLocations": [
+        "Sources/LumenApp/LookPanel.swift:1117",
+        "Sources/LumenCore/Engine/FilmLab.swift:1524"
+      ],
+      "trigger": "Film Strength1...99.",
+      "effect": "Preset, Contrast, Skew, Hue keep and Black target controls cannot be adjusted although they still form the remaining base fraction of output.",
+      "evidence": {
+        "method": "Source trace plus existing FilmLabDisplayTransformTests proving partial base influence",
+        "baseFractionAtStrength1": 0.99
+      },
+      "coverage": "Source-confirmed; no new UI drag execution by this sub-audit.",
+      "historicalStatus": "C1-03 still open.",
+      "branchStatus": "persists; Contrast .log travel branch change is unrelated",
+      "testGap": "No UI predicate test comparing inert state to solved blend fraction.",
+      "suggestedAction": "Disable only for full replacement; describe partial blend honestly.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenApp/LookPanel.swift:1142",
+      "latestStatus": "persists; Contrast .log travel branch change is unrelated",
+      "evidenceScope": "Source-confirmed; no new UI drag execution by this sub-audit.",
+      "recommendation": "Disable only for full replacement; describe partial blend honestly.",
+      "history": "C1-03 still open."
+    },
+    {
+      "id": "M09",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "CPU/GPU divergence",
+      "title": "GPU halation gate materially under-produces low-highlight glow versus reference",
+      "primaryLocation": {
+        "file": "Sources/LumenPipeline/Kernels.swift",
+        "start": 434,
+        "end": 436
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Engine/FilmLab.swift:541"
+      ],
+      "trigger": "Moderately bright scene values .125...1 with halation active.",
+      "effect": "Reference expects glow where production GPU yields none or materially less.",
+      "evidence": {
+        "probe": "film-controls.swift / halation.gate.*",
+        "gpuReferenceRatioAt0_25": 0,
+        "gpuReferenceRatioAt0_5": 0.61216293,
+        "gpuReferenceRatioAt1": 0.75000005,
+        "gpuReferenceRatioAt4": 0.93750006
+      },
+      "coverage": "Actual GPU measured flat-field glow versus exact CPU profile energy, blur interior eliminates radius influence.",
+      "historicalStatus": "C1-01 still open. Separate historical sigma*3 error is fixed.",
+      "branchStatus": "persists",
+      "testGap": "Bright-block goldens with broad bounds hide low-highlight response disagreement.",
+      "suggestedAction": "Share energy gate or establish explicit approximation limits over low/high highlight range.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenPipeline/Kernels.swift:434",
+      "latestStatus": "persists",
+      "evidenceScope": "Actual GPU measured flat-field glow versus exact CPU profile energy, blur interior eliminates radius influence.",
+      "recommendation": "Share energy gate or establish explicit approximation limits over low/high highlight range.",
+      "history": "C1-01 still open. Separate historical sigma*3 error is fixed."
+    },
+    {
+      "id": "M10",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "creative model semantics",
+      "title": "Film Exposure does not affect halation onset",
+      "primaryLocation": {
+        "file": "Sources/LumenCore/Engine/FilmLab.swift",
+        "start": 1607,
+        "end": 1613
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Engine/FilmLab.swift:1526",
+        "Sources/LumenPipeline/RenderGraph.swift:1392"
+      ],
+      "trigger": "Film Exposure -2...3 with nonzero halation.",
+      "effect": "Tone sees exposure change but pre-film halation sees neither changed input nor threshold.",
+      "evidence": {
+        "probe": "film-controls.swift / filmExposure.halationParameters",
+        "lowClip": 1,
+        "highClip": 1,
+        "lowThreshold": 0.25,
+        "highThreshold": 0.25
+      },
+      "coverage": "Executed profile parameters plus stage-order source trace; no claim of measured film physics.",
+      "historicalStatus": "C1-07 still open.",
+      "branchStatus": "persists",
+      "testGap": "No exposure-equivalence test for film energy and halation source.",
+      "suggestedAction": "Tie threshold/input to film exposure or explicitly define effect as independent creative bloom.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenCore/Engine/FilmLab.swift:1607",
+      "latestStatus": "persists",
+      "evidenceScope": "Executed profile parameters plus stage-order source trace; no claim of measured film physics.",
+      "recommendation": "Tie threshold/input to film exposure or explicitly define effect as independent creative bloom.",
+      "history": "C1-07 still open."
+    },
+    {
+      "id": "M11",
+      "priority": "P2",
+      "confidence": "high",
+      "kind": "strength CPU/GPU divergence",
+      "title": "Mask Strength above100 scales Texture/Clarity only in GPU",
+      "primaryLocation": {
+        "file": "Sources/LumenCore/Image/DetailEngine.swift",
+        "start": 264,
+        "end": 264
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Image/DetailEngine.swift:343",
+        "Sources/LumenPipeline/RenderGraph.swift:680",
+        "Sources/LumenPipeline/RenderGraph.swift:743",
+        "Sources/LumenCore/Engine/ReferenceRenderer.swift:433"
+      ],
+      "trigger": "Texture100 or Clarity100, mask Strength100 ->200.",
+      "effect": "CPU clamps and does not move; GPU extrapolates. Absolute Kelvin also stops at100 despite blanket help.",
+      "evidence": {
+        "probe": "probe.swift / mask_strength_100_to_200_*",
+        "textureCpuMaxDelta": 0,
+        "textureGpuMaxDelta": 0.0115194768,
+        "clarityCpuMaxDelta": 0,
+        "clarityGpuMaxDelta": 0.0667252094
+      },
+      "coverage": "Actual CPU and GPU stages; Kelvin boundary measured separately.",
+      "historicalStatus": "New finding.",
+      "branchStatus": "persists",
+      "testGap": "Strength tests do not cover upper-half travel for these local operators.",
+      "suggestedAction": "Define common extrapolation/clamp contract, include group*member strength and absolute WB boundaries.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenCore/Image/DetailEngine.swift:264",
+      "latestStatus": "persists",
+      "evidenceScope": "Actual CPU and GPU stages; Kelvin boundary measured separately.",
+      "recommendation": "Define common extrapolation/clamp contract, include group*member strength and absolute WB boundaries.",
+      "history": "New finding."
+    },
+    {
+      "id": "M15",
+      "priority": "P2",
+      "confidence": "high-source-only",
+      "kind": "disclosed unsupported live control",
+      "title": "AI Amount enabled on rendered inputs without any denoise consumer",
+      "primaryLocation": {
+        "file": "Sources/LumenApp/DetailPanel.swift",
+        "start": 671,
+        "end": 695
+      },
+      "relatedLocations": [
+        "Sources/LumenPipeline/AppleRawSource.swift:317",
+        "Sources/LumenPipeline/ImageSource.swift:112",
+        "Sources/LumenCore/Image/DenoiseEngine.swift:1824"
+      ],
+      "trigger": "JPEG/PNG/TIFF input, choose AI stand-in, vary Amount.",
+      "effect": "Amount cannot denoise the rendered input; implicit Classic masters can be suppressed without replacement. Tooltip discloses limitation but row remains enabled.",
+      "evidence": {
+        "method": "Source consumer trace; only AppleRawSource consumes AppleStandIn NR amounts; rendered decoder ignores them"
+      },
+      "coverage": "Source-confirmed, dedicated rendered-file runtime consequence NOT executed. RAW Amount independently proved live on all three supplied ARWs.",
+      "historicalStatus": "Current disclosed gap, not an accusation of a hidden fake neural model. Manual Classic userSet coupling is fixed.",
+      "branchStatus": "persists",
+      "testGap": "No rendered-input mode/amount eligibility assertion tied to pipeline capability.",
+      "suggestedAction": "Gate/disable unsupported mode or add a real rendered-input operation.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P2",
+      "location": "Sources/LumenApp/DetailPanel.swift:671",
+      "latestStatus": "persists",
+      "evidenceScope": "Source-confirmed, dedicated rendered-file runtime consequence NOT executed. RAW Amount independently proved live on all three supplied ARWs.",
+      "recommendation": "Gate/disable unsupported mode or add a real rendered-input operation.",
+      "history": "Current disclosed gap, not an accusation of a hidden fake neural model. Manual Classic userSet coupling is fixed."
+    },
+    {
+      "id": "REL-06",
+      "title": "Replacing an original at its URL retains stale source pixels, preview and quick signature",
+      "priority": "P2",
+      "confidence": "high",
+      "evidenceLevel": "dynamic catalog and unchanged RenderCoordinator source cache",
+      "locations": [
+        {
+          "file": "Sources/LumenCore/Catalog/CatalogStore.swift",
+          "start": 1972,
+          "end": 1978
+        },
+        {
+          "file": "Sources/LumenApp/CatalogService.swift",
+          "start": 214,
+          "end": 214
+        },
+        {
+          "file": "Sources/LumenApp/RenderCoordinator.swift",
+          "start": 728,
+          "end": 751
+        },
+        {
+          "file": "Sources/LumenApp/RenderCoordinator.swift",
+          "start": 604,
+          "end": 610
+        }
+      ],
+      "trigger": "External file replacement/edit at a URL already scanned and decoded in the session.",
+      "effect": "Changed scan keeps old quickSig and previews; source object continues rendering original pixels/dimensions until explicit invalidation or eviction.",
+      "repro": {
+        "harness": "core_probe.swift; pipeline_probe.swift",
+        "case": "changed-original-keeps-cache-and-signature / cached-original-changed-on-disk",
+        "expected": "64x48 green pixels and updated identity",
+        "observed": "32x24 red sample unchanged until explicit invalidate; old signature and preview row survive rescan",
+        "rawLogs": [
+          "core-confirmed.log",
+          "pipeline-confirmed.log"
+        ]
+      },
+      "testBlindSpot": "Recipe-driven invalidation/eviction tests do not simulate a new source generation at one URL.",
+      "newVsKnown": "new",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Track source generation and invalidate all source-dependent catalog/cache layers when size/mtime/content changes.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P2",
+      "location": "Sources/LumenCore/Catalog/CatalogStore.swift:1972–1978; Sources/LumenApp/CatalogService.swift:214–214; Sources/LumenApp/RenderCoordinator.swift:728–751; Sources/LumenApp/RenderCoordinator.swift:604–610",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic catalog and unchanged RenderCoordinator source cache",
+      "testGap": "Recipe-driven invalidation/eviction tests do not simulate a new source generation at one URL.",
+      "history": "new"
+    },
+    {
+      "id": "REL-07",
+      "title": "Old developed preview receives a newer recipe fingerprint",
+      "priority": "P2",
+      "confidence": "high",
+      "evidenceLevel": "dynamic unchanged ThumbnailLoader, PreviewStore and CatalogService scheduling",
+      "locations": [
+        {
+          "file": "Sources/LumenApp/ThumbnailLoader.swift",
+          "start": 221,
+          "end": 231
+        },
+        {
+          "file": "Sources/LumenApp/PreviewStore.swift",
+          "start": 141,
+          "end": 160
+        },
+        {
+          "file": "Sources/LumenApp/PreviewStore.swift",
+          "start": 220,
+          "end": 223
+        }
+      ],
+      "trigger": "recordDeveloped queues old rendered pixels, then a newer recipe saves before its unstructured task queries current catalog state.",
+      "effect": "Old pixels are durably indexed as the new recipe and served as current.",
+      "repro": {
+        "harness": "preview_probe.swift",
+        "case": "oldImageServedAsCurrent",
+        "expected": "Old fingerprint or refused stale publication",
+        "observed": "Exposure-0 image stored under exposure-2 fingerprint xxh64:e4ce9920b7023b16; served as current"
+      },
+      "testBlindSpot": "Tests assert rung dimensions and fingerprint equality but not render-result provenance across async suspension.",
+      "newVsKnown": "new",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Carry exact source generation and recipe fingerprint from render request/result into preview recording; reject superseded publication.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P2",
+      "location": "Sources/LumenApp/ThumbnailLoader.swift:221–231; Sources/LumenApp/PreviewStore.swift:141–160; Sources/LumenApp/PreviewStore.swift:220–223",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic unchanged ThumbnailLoader, PreviewStore and CatalogService scheduling",
+      "testGap": "Tests assert rung dimensions and fingerprint equality but not render-result provenance across async suspension.",
+      "history": "new"
+    },
+    {
+      "id": "REL-08",
+      "title": "Catalog backup publishes final DB before blob backup can fail",
+      "priority": "P2",
+      "confidence": "high",
+      "evidenceLevel": "dynamic backup error injection and backup-alone restoration through real CatalogService",
+      "locations": [
+        {
+          "file": "Sources/LumenApp/CatalogService.swift",
+          "start": 1531,
+          "end": 1547
+        },
+        {
+          "file": "Sources/LumenCore/Catalog/CatalogStore.swift",
+          "start": 1555,
+          "end": 1561
+        }
+      ],
+      "trigger": "A stored brush blob is unreadable or its backup copy otherwise fails after DB snapshot completes.",
+      "effect": "Final .db remains restore-eligible although paired .blobs lacks payload; real recovery restores brush recipe reference with zero payloads and an empty mask. Scope: Backup-only restoration into fresh audit directory; no sidecar import first. A small available sidecar can independently rescue payloads. Live audit catalog and originals remain intact.",
+      "scopeLimit": "Backup-only restoration into fresh audit directory; no sidecar import first. A small available sidecar can independently rescue payloads. Live audit catalog and originals remain intact.",
+      "repro": {
+        "harness": "catalog_probe.swift",
+        "case": "failed-blob-backup-still-published / restore-incomplete-backup",
+        "expected": "No final snapshot eligible until entire set succeeds",
+        "observed": "Final .db restored with recipe brush reference, zero payloads; 128x128 mask sum 18.56348 before and 0 after",
+        "rawLog": "catalog-recovery-confirmed.log"
+      },
+      "testBlindSpot": "DB backup and blob backup tests do not fail the second step after DB publication.",
+      "newVsKnown": "new incomplete-publication failure beyond K-018",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Publish atomic complete snapshot bundles/manifests; reject incomplete candidates and clean failed unpublished sets.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P2",
+      "location": "Sources/LumenApp/CatalogService.swift:1531–1547; Sources/LumenCore/Catalog/CatalogStore.swift:1555–1561",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic backup error injection and backup-alone restoration through real CatalogService",
+      "testGap": "DB backup and blob backup tests do not fail the second step after DB publication.",
+      "history": "new incomplete-publication failure beyond K-018"
+    },
+    {
+      "id": "REL-09",
+      "title": "Sidecar write failure never invokes visible failure reporting",
+      "priority": "P2",
+      "confidence": "high",
+      "evidenceLevel": "dynamic unchanged CatalogService close/flush",
+      "locations": [
+        {
+          "file": "Sources/LumenApp/CatalogService.swift",
+          "start": 1239,
+          "end": 1260
+        },
+        {
+          "file": "Sources/LumenApp/CatalogService.swift",
+          "start": 1634,
+          "end": 1646
+        }
+      ],
+      "trigger": "Atomic sidecar write fails; in repro its expected path is an audit-owned directory.",
+      "effect": "Log-only retry occurs, no onFailure callback; final quit flush can fail without user knowing portable sidecar was not saved. Scope: Catalog save succeeds; no active DB edit loss claimed. Permissions/full disk analogous but not separately injected.",
+      "scopeLimit": "Catalog save succeeds; no active DB edit loss claimed. Permissions/full disk analogous but not separately injected.",
+      "repro": {
+        "harness": "catalog_probe.swift",
+        "case": "sidecar-write-failure-not-surfaced",
+        "expected": "Visible persistent failure / failed quit-flush warning",
+        "observed": "NSError logged, onFailureMessages=[], sidecar still directory"
+      },
+      "testBlindSpot": "Successful sidecar round trips do not cover UI error propagation or end-of-process retry impossibility.",
+      "newVsKnown": "new failure-visibility gap",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Persist and show failed sidecar-save state; surface final flush failure and allow retry.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P2",
+      "location": "Sources/LumenApp/CatalogService.swift:1239–1260; Sources/LumenApp/CatalogService.swift:1634–1646",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic unchanged CatalogService close/flush",
+      "testGap": "Successful sidecar round trips do not cover UI error propagation or end-of-process retry impossibility.",
+      "history": "new failure-visibility gap"
+    },
+    {
+      "id": "REL-10",
+      "title": "JPEG encoder writes 72 PPI despite requested 240 PPI",
+      "priority": "P2",
+      "confidence": "high observed mismatch; medium encoder precedence cause",
+      "evidenceLevel": "dynamic actual encode and ImageIO readback",
+      "locations": [
+        {
+          "file": "Sources/LumenPipeline/PipelineRenderer.swift",
+          "start": 1075,
+          "end": 1080
+        },
+        {
+          "file": "Sources/LumenPipeline/PipelineRenderer.swift",
+          "start": 1159,
+          "end": 1161
+        }
+      ],
+      "trigger": "Export synthetic JPEG source at 240 PPI, with either retained or stripped EXIF.",
+      "effect": "JPEG reads 72 PPI while HEIC/TIFF/PNG read 240; physical placement/print density is wrong, pixel count is unchanged.",
+      "repro": {
+        "harness": "metadata_probe.swift; inspect_metadata.swift",
+        "case": "density readback",
+        "expected": "240 PPI",
+        "observed": "JPEG 72 PPI including nested TIFF density; other formats 240"
+      },
+      "testBlindSpot": "Metadata dictionary tests do not reopen actual encoded file and assert its canonical/nested density.",
+      "newVsKnown": "known OUT-05 unverified area, now experimentally confirmed",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Reconcile nested density and encoder options; add real JPEG readback tests.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P2",
+      "location": "Sources/LumenPipeline/PipelineRenderer.swift:1075–1080; Sources/LumenPipeline/PipelineRenderer.swift:1159–1161",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic actual encode and ImageIO readback",
+      "testGap": "Metadata dictionary tests do not reopen actual encoded file and assert its canonical/nested density.",
+      "history": "known OUT-05 unverified area, now experimentally confirmed"
+    },
+    {
+      "id": "REL-11",
+      "title": "Supplied Contact metadata is absent in JPEG, HEIC, TIFF and PNG output",
+      "priority": "P2",
+      "confidence": "high",
+      "evidenceLevel": "dynamic actual encode plus property and metadata-tag readback",
+      "locations": [
+        {
+          "file": "Sources/LumenPipeline/PipelineRenderer.swift",
+          "start": 1061,
+          "end": 1073
+        }
+      ],
+      "trigger": "Enter contact and copyright and export supported formats.",
+      "effect": "Copyright survives; contact is missing in all tested outputs, including full JPEG/TIFF metadata tags. Scope: UI includes an unverified-metadata warning; this is unfinished/broken functionality, not concealed proof of full privacy compliance.",
+      "scopeLimit": "UI includes an unverified-metadata warning; this is unfinished/broken functionality, not concealed proof of full privacy compliance.",
+      "repro": {
+        "harness": "metadata_probe.swift; inspect_metadata.swift",
+        "case": "contact readback",
+        "expected": "Supplied contact available in delivered metadata",
+        "observed": "Absent from all 8 format/policy combinations"
+      },
+      "testBlindSpot": "Dictionary insertion with IPTCContact does not prove encoder serialization; no real readback assertion.",
+      "newVsKnown": "known OUT-05 unverified area, now experimentally confirmed",
+      "latestBranchStatus": "persists; source identical",
+      "recommendation": "Use format-supported contact/XMP representation with real round trips, or disable the field until implemented.",
+      "area": "reliability",
+      "areaLabel": "Reliability & delivery",
+      "severity": "P2",
+      "location": "Sources/LumenPipeline/PipelineRenderer.swift:1061–1073",
+      "latestStatus": "persists; source identical",
+      "evidenceScope": "dynamic actual encode plus property and metadata-tag readback",
+      "testGap": "Dictionary insertion with IPTCContact does not prove encoder serialization; no real readback assertion.",
+      "history": "known OUT-05 unverified area, now experimentally confirmed"
+    },
+    {
+      "id": "UX-02",
+      "severity": "P2",
+      "confidence": "source plus exact arithmetic replay; native gesture not verified",
+      "title": "Panel resizing accumulates the full gesture translation repeatedly",
+      "location": "Sources/LumenApp/ContentView.swift:79–87",
+      "trigger": "Drag the Develop column divider left while several onChanged events arrive.",
+      "effect": "The current, already modified width is reduced by cumulative drag.translation.width. From 380 pt, events −2,−4,−6,−8,−10 produce 410 instead of 390 pt; ten 1-pt-spaced events produce 435. The outcome depends on event count. Coordinate-based GUI dragging was unavailable in the audit tool, so this is not claimed as a live gesture reproduction.",
+      "evidence": [
+        "AppProbe.swift",
+        "app-probe-open.log"
+      ],
+      "latestStatus": "persists; same closure on latest branch",
+      "direction": "Capture the starting width and use a stable coordinate space; apply each cumulative translation to the start, not the current width.",
+      "area": "root",
+      "areaLabel": "Application & branches",
+      "evidenceScope": "source plus exact arithmetic replay; native gesture not verified",
+      "recommendation": "Capture the starting width and use a stable coordinate space; apply each cumulative translation to the start, not the current width.",
+      "testGap": "",
+      "history": ""
+    },
+    {
+      "id": "UX-03",
+      "severity": "P2",
+      "confidence": "source and native accessibility tree observed",
+      "title": "Custom editing sliders do not expose adjustable accessibility semantics",
+      "location": "Sources/LumenApp/LumenControls.swift:437–789,1218–1245",
+      "trigger": "Inspect Develop or local-mask editing with native accessibility APIs.",
+      "effect": "Tone and other sliders appear as merged static text, for example 'Tone Exposure 0.00 Contrast 0 …', without per-control slider roles or increment/decrement actions. The standard thumbnail-size slider is correctly exposed as settable float. Keyboard arrow handlers exist, but are not a substitute for each slider's accessible name/value/adjust action.",
+      "evidence": [
+        "UiAuditHost.swift",
+        "ui-observations.md"
+      ],
+      "latestStatus": "persists by source comparison; no slider accessibility modifiers added",
+      "direction": "Expose individual labelled adjustable elements and numeric values, then test VoiceOver navigation and value changes on a real build.",
+      "area": "root",
+      "areaLabel": "Application & branches",
+      "evidenceScope": "source and native accessibility tree observed",
+      "recommendation": "Expose individual labelled adjustable elements and numeric values, then test VoiceOver navigation and value changes on a real build.",
+      "testGap": "",
+      "history": ""
+    },
+    {
+      "id": "AI-09",
+      "severity": "P3",
+      "confidence": "reproduced",
+      "title": "Black target accepts values9–15 that render identically",
+      "location": "Sources/LumenApp/LookPanel.swift:1200-1207; Sources/LumenCore/Engine/DisplayTransform.swift:164-165",
+      "trigger": "Type12 or15 into Black target using its hard range0...15.",
+      "effect": "The initializer caps black at midGrey*.5=.09, so requests9,12,15 all resolve .09 and make identical output. The ordinary track stops9, but numeric entry permits another6 units without effect or an applied-value readout.",
+      "blindSpot": "Tests validate the transform's safety floor, not UI numeric hardRange agreement.",
+      "history": "Source-confirmed and direct-value reproduction at main, newly reported in this audit.",
+      "evidence": [
+        "FocusedProbe.swift",
+        "focused-results.jsonl"
+      ],
+      "direction": "Align entry bounds with the actual limit or display a bounded applied value.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Align entry bounds with the actual limit or display a bounded applied value.",
+      "testGap": "Tests validate the transform's safety floor, not UI numeric hardRange agreement."
+    },
+    {
+      "id": "AI-10",
+      "severity": "P3",
+      "confidence": "reproduced",
+      "title": "Geometric mixer band labels split common orange and green colors across neighboring controls",
+      "location": "Sources/LumenCore/Engine/ColorEngine.swift:95-115,560-597",
+      "trigger": "sRGB orange[1,.5,0] or puregreen[0,1,0], converted correctly to working Rec2020.",
+      "effect": "Orange maps49.70% Red/50.30% Orange; puregreen49.84% Yellow/50.16% Green. Label-based slider expectations therefore differ from what colors the eight equal-angleOKLCh sectors own; samecanonical partition drives B&W mix.",
+      "blindSpot": "Tests use band's mathematical centers to prove band authority. That cannot test whether named photographic colors belong primarily to the label users expect.",
+      "history": "Known open COLOR-01; reverified. Not a numerical defect in the partition: weights sum1, transitions are smooth, and the user can reshape extents.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Choose/document perceptual band centers or make range selection and visual membership the primary interaction.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "partially mitigated: names Green/Blue become Mint/Azure, underlying geometry unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Choose/document perceptual band centers or make range selection and visual membership the primary interaction.",
+      "testGap": "Tests use band's mathematical centers to prove band authority. That cannot test whether named photographic colors belong primarily to the label users expect."
+    },
+    {
+      "id": "AI-13",
+      "severity": "P3",
+      "confidence": "reproduced",
+      "title": "Wheel Luminance tooltip understates the actual scene exposure range by3x",
+      "location": "Sources/LumenApp/LumenControls.swift:1933-1935; Sources/LumenCore/Engine/GradeEngine.swift:233-246",
+      "trigger": "Global wheel Luminance±1 on neutral grey.",
+      "effect": "UI says up to half a stop each way. Actualneutral response is±1.5sceneEV because the0.5stop gain scales cube-root brightnessJ, then cubes back into light. Isolated globalwheel probes return±1.500000000000001EV.",
+      "blindSpot": "Engine explicitly documents the3x conversion, but UIhelp duplicates obsolete unit claim.",
+      "history": "Newly reported mismatch inthisaudit; remains latestClaude. Different from latestbranch's corrected wheel huepaint.",
+      "evidence": [
+        "SmallProbe.swift",
+        "small-results.jsonl"
+      ],
+      "direction": "Describe perceptualbrightness amount or give the actual scene-grey range; avoid calling it half a scene stop.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override.",
+      "area": "image",
+      "areaLabel": "Colour & RAW",
+      "evidenceScope": "reproduced",
+      "recommendation": "Describe perceptualbrightness amount or give the actual scene-grey range; avoid calling it half a scene stop.",
+      "testGap": "Engine explicitly documents the3x conversion, but UIhelp duplicates obsolete unit claim."
+    },
+    {
+      "id": "M12",
+      "priority": "P3",
+      "confidence": "high",
+      "kind": "accepted input cannot be represented",
+      "title": "Custom60:1 and1:60 crop locks silently resolve to other ratios",
+      "primaryLocation": {
+        "file": "Sources/LumenCore/Model/CropGeometry.swift",
+        "start": 296,
+        "end": 305
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Model/CropGeometry.swift:557",
+        "Sources/LumenApp/CropPanel.swift:695"
+      ],
+      "trigger": "Enter extreme accepted custom ratio on6000x4000 source.",
+      "effect": "UI lock states a ratio the minimum5%-dimension crop cannot satisfy.",
+      "evidence": {
+        "probe": "probe.swift / crop_requested_*",
+        "requested60Actual": 30,
+        "requested1over60Actual": 0.075,
+        "requested3Actual": 3
+      },
+      "coverage": "Executed actual CropGeometry.refit and displayedAspect; UI setter source trace.",
+      "historicalStatus": "w2/K-area custom-ratio finding still open.",
+      "branchStatus": "persists",
+      "testGap": "Accepted boundary ratios absent from common-ratio tests.",
+      "suggestedAction": "Constrain accepted ratio by geometry or allow the required crop extent.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P3",
+      "location": "Sources/LumenCore/Model/CropGeometry.swift:296",
+      "latestStatus": "persists",
+      "evidenceScope": "Executed actual CropGeometry.refit and displayedAspect; UI setter source trace.",
+      "recommendation": "Constrain accepted ratio by geometry or allow the required crop extent.",
+      "history": "w2/K-area custom-ratio finding still open."
+    },
+    {
+      "id": "M13",
+      "priority": "P3",
+      "confidence": "high",
+      "kind": "reversed help",
+      "title": "Ramp shape tooltip describes opposite direction from gamma formula",
+      "primaryLocation": {
+        "file": "Sources/LumenApp/MaskPanel.swift",
+        "start": 2094,
+        "end": 2098
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Image/MaskRaster.swift:416"
+      ],
+      "trigger": "Adjust Ramp shape below/above1 following help.",
+      "effect": "Higher gamma raises density, contrary to help's holds-back description.",
+      "evidence": {
+        "probe": "probe.swift / ramp_gamma",
+        "input": 0.5,
+        "gamma0_5": 0.25,
+        "gamma1": 0.5,
+        "gamma2": 0.70710678
+      },
+      "coverage": "Actual levels helper and current help text.",
+      "historicalStatus": "New finding.",
+      "branchStatus": "persists",
+      "testGap": "Numerical gamma tests are not tied to help direction.",
+      "suggestedAction": "Correct explanation to match chosen gamma contract.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P3",
+      "location": "Sources/LumenApp/MaskPanel.swift:2094",
+      "latestStatus": "persists",
+      "evidenceScope": "Actual levels helper and current help text.",
+      "recommendation": "Correct explanation to match chosen gamma contract.",
+      "history": "New finding."
+    },
+    {
+      "id": "M14",
+      "priority": "P3",
+      "confidence": "high",
+      "kind": "dead conditional controls",
+      "title": "Velvia exposes enabled Halation/Size/Redness despite zero-strength stage",
+      "primaryLocation": {
+        "file": "Sources/LumenApp/LookPanel.swift",
+        "start": 1339,
+        "end": 1380
+      },
+      "relatedLocations": [
+        "Sources/LumenCore/Engine/FilmLab.swift:343",
+        "Sources/LumenCore/Engine/FilmLab.swift:1574"
+      ],
+      "trigger": "Select Velvia50 and edit halation controls.",
+      "effect": "All three controls cannot affect pixels, with no conditional disabled state.",
+      "evidence": {
+        "probe": "film-controls.swift / halation.stock.lumen/velvia50",
+        "sliderHalation": 100,
+        "effectiveAmount": 0,
+        "redStrength": 0
+      },
+      "coverage": "Executed all six stock profiles and source-checked unconditional UI.",
+      "historicalStatus": "C1-08 still open; also affects newly exposed Size/Redness.",
+      "branchStatus": "persists",
+      "testGap": "No panel applicability predicate matched against stock identity.",
+      "suggestedAction": "Disable/explain or provide intentional creative override.",
+      "area": "masks",
+      "areaLabel": "Masks & spatial",
+      "severity": "P3",
+      "location": "Sources/LumenApp/LookPanel.swift:1339",
+      "latestStatus": "persists",
+      "evidenceScope": "Executed all six stock profiles and source-checked unconditional UI.",
+      "recommendation": "Disable/explain or provide intentional creative override.",
+      "history": "C1-08 still open; also affects newly exposed Size/Redness."
+    }
+  ],
+  "followups": [
+    {
+      "id": "UX-F01",
+      "title": "Typed slider values on focus loss",
+      "status": "source-risk, not promoted to confirmed defect",
+      "evidence": "LumenControls TextField commits only onSubmit, cancels onExitCommand, and has no textFocused onChange. Verify click-away and panel/photo switches with a real pointer-capable UI session."
+    },
+    {
+      "id": "UX-F02",
+      "title": "Polygon vertex drag cumulative delta",
+      "status": "source-risk from masks agent, not live-reproduced",
+      "evidence": "MaskCanvas.dragOutline uses current component.path then adds full pointer-start displacement on each onChanged. Contrast with stored origins in gradient/radial gestures."
+    }
+  ]
+}

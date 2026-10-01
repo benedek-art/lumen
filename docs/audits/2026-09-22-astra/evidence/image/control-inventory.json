@@ -1,0 +1,2120 @@
+{
+  "commit": "99c37272b42c211a04262ceb98cfb39355d1ab99",
+  "note": "One row per exposed control in this audit area, including non-slider range handles. Dynamic swatches/points share rows by control role; there can be up to8swatches and manycurvepoints. Source-audited does not claim exhaustive image-quality validation. Film/effects, masks-only additions, detail, geometry, export controls are owned by other audit areas.",
+  "count": 154,
+  "controls": [
+    {
+      "id": "IC-001",
+      "family": "White balance",
+      "name": "Temp",
+      "modelPath": "develop.raw.temp",
+      "ui": "Sources/LumenApp/BasicPanel.swift:222",
+      "engine": "Sources/LumenCore/Engine/WhiteBalanceEngine.swift:33",
+      "range": "2000...50000K, reciprocal track",
+      "semantics": "CAT16 adaptation from selected target illuminant to camera reference; reset restores per-image as-shot.",
+      "status": "Source audited; direction/inverse math covered by existing tests; actual default RAW decoder failure precedes this stage.",
+      "findings": [
+        "AI-01",
+        "AI-06"
+      ]
+    },
+    {
+      "id": "IC-002",
+      "family": "White balance",
+      "name": "Tint",
+      "modelPath": "develop.raw.tint",
+      "ui": "Sources/LumenApp/BasicPanel.swift:275",
+      "engine": "Sources/LumenCore/Engine/WhiteBalanceEngine.swift:33",
+      "range": "track ±150; numeric ±300",
+      "semantics": "Opponent green/magenta illuminant axis, with safety-limited magenta endpoint.",
+      "status": "Full-range pipette repro; manual negative hard range works.",
+      "findings": [
+        "AI-06"
+      ]
+    },
+    {
+      "id": "IC-003",
+      "family": "Basic tone",
+      "name": "Exposure",
+      "modelPath": "develop.tone.exposure",
+      "ui": "Sources/LumenApp/BasicPanel.swift:467",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "track±5; hard±10EV",
+      "semantics": "Exact linear multiplier2^EV, before tone/colour.",
+      "status": "Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-004",
+      "family": "Basic tone",
+      "name": "Contrast",
+      "modelPath": "develop.tone.contrast",
+      "ui": "Sources/LumenApp/BasicPanel.swift:476",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "±100",
+      "semantics": "Scene-EV slope0.4...1.6; relaxes to unity over|EV−pivot|4...12.",
+      "status": "Reproduced clipping despite UI claim.",
+      "findings": [
+        "AI-12"
+      ]
+    },
+    {
+      "id": "IC-005",
+      "family": "Basic tone",
+      "name": "Pivot",
+      "modelPath": "develop.tone.contrastPivot",
+      "ui": "Sources/LumenApp/BasicPanel.swift:490",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "±4EV",
+      "semantics": "Contrast's fixed scene-EV pivot; inert when contrast0.",
+      "status": "Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-006",
+      "family": "Basic tone",
+      "name": "Highlights",
+      "modelPath": "develop.tone.highlights",
+      "ui": "Sources/LumenApp/BasicPanel.swift:522",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "±100",
+      "semantics": "Upper shelf up to±2EV; negative moves may be eased.",
+      "status": "Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-007",
+      "family": "Basic tone",
+      "name": "Shadows",
+      "modelPath": "develop.tone.shadows",
+      "ui": "Sources/LumenApp/BasicPanel.swift:529",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "±100",
+      "semantics": "Lower shelf up to±2EV; positive moves may be eased.",
+      "status": "Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-008",
+      "family": "Basic tone",
+      "name": "Whites",
+      "modelPath": "develop.tone.whites",
+      "ui": "Sources/LumenApp/BasicPanel.swift:536",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "±100",
+      "semantics": "Moves white anchor±1.5EV and adds±1.3EV white shelf.",
+      "status": "Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-009",
+      "family": "Basic tone",
+      "name": "Blacks",
+      "modelPath": "develop.tone.blacks",
+      "ui": "Sources/LumenApp/BasicPanel.swift:544",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:428-606",
+      "range": "±100",
+      "semantics": "Moves black anchor±1.5EV and adds±2.2EV black shelf.",
+      "status": "Source audited; limiter has explicit same-half/sign coupling; existing monotonicity and direction tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-010",
+      "family": "Global color",
+      "name": "Vibrance",
+      "modelPath": "develop.color.vibrance",
+      "ui": "Sources/LumenApp/BasicPanel.swift:662",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1237-1388",
+      "range": "±100",
+      "semantics": "Chroma weighted toward muted colors, with lightness rolloff and skin protection.",
+      "status": "Source audited; existing reach/skin/density tests reviewed; no new isolated defect identified.",
+      "findings": []
+    },
+    {
+      "id": "IC-011",
+      "family": "Global color",
+      "name": "Saturation",
+      "modelPath": "develop.color.saturation",
+      "ui": "Sources/LumenApp/BasicPanel.swift:669",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1237-1388",
+      "range": "±100",
+      "semantics": "Brightness-corrected chroma scaling; negative endpoint reaches grey; positive blends additive and subtractive pushes.",
+      "status": "Exact vs GPU/table errors reproduced.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-012",
+      "family": "Global color",
+      "name": "Density",
+      "modelPath": "develop.color.density",
+      "ui": "Sources/LumenApp/BasicPanel.swift:682",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1237-1388",
+      "range": "0...100",
+      "semantics": "Blends the positive saturation move toward a subtractive per-channel gamma, then restores hue. Inert/disabled at saturation≤0.",
+      "status": "Source audited; existing reach/skin/density tests reviewed; no new isolated defect identified.",
+      "findings": []
+    },
+    {
+      "id": "IC-013",
+      "family": "Global color",
+      "name": "Protect Skin",
+      "modelPath": "develop.color.protectSkin",
+      "ui": "Sources/LumenApp/BasicPanel.swift:693",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1237-1388",
+      "range": "0...100",
+      "semantics": "Attenuates skin-color boosts using hue/lightness/chroma plausibility, not a face detector.",
+      "status": "Source audited; existing reach/skin/density tests reviewed; no new isolated defect identified.",
+      "findings": []
+    },
+    {
+      "id": "IC-014",
+      "family": "Zones",
+      "name": "Darks",
+      "modelPath": "develop.zones.dark.ev",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:135",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:512-568",
+      "range": "track±3; hard±5EV",
+      "semantics": "Raised-cosine blend of zone stop values on anchored scene axis.",
+      "status": "Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-015",
+      "family": "Zones",
+      "name": "Shadows",
+      "modelPath": "develop.zones.shadow.ev",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:135",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:512-568",
+      "range": "track±3; hard±5EV",
+      "semantics": "Raised-cosine blend of zone stop values on anchored scene axis.",
+      "status": "Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-016",
+      "family": "Zones",
+      "name": "Midtones",
+      "modelPath": "develop.zones.mid.ev",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:135",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:512-568",
+      "range": "track±3; hard±5EV",
+      "semantics": "Raised-cosine blend of zone stop values on anchored scene axis.",
+      "status": "Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-017",
+      "family": "Zones",
+      "name": "Lights",
+      "modelPath": "develop.zones.light.ev",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:135",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:512-568",
+      "range": "track±3; hard±5EV",
+      "semantics": "Raised-cosine blend of zone stop values on anchored scene axis.",
+      "status": "Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-018",
+      "family": "Zones",
+      "name": "Brights",
+      "modelPath": "develop.zones.bright.ev",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:135",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:512-568",
+      "range": "track±3; hard±5EV",
+      "semantics": "Raised-cosine blend of zone stop values on anchored scene axis.",
+      "status": "Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-019",
+      "family": "Zones",
+      "name": "Global",
+      "modelPath": "develop.zones.global.ev",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:164",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:512-568",
+      "range": "track±3; hard±5EV",
+      "semantics": "Flat stop offset across zone axis.",
+      "status": "Dark+2/+4 reproduces broad flattened LUT intervals; global does not itself create a reversal.",
+      "findings": []
+    },
+    {
+      "id": "IC-020",
+      "family": "Zones",
+      "name": "Pivot 1",
+      "modelPath": "develop.zones.pivots[0]",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:207",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:505-517",
+      "range": "0...1; UI min gap.02",
+      "semantics": "Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.",
+      "status": "Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-021",
+      "family": "Zones",
+      "name": "Pivot 2",
+      "modelPath": "develop.zones.pivots[1]",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:207",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:505-517",
+      "range": "0...1; UI min gap.02",
+      "semantics": "Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.",
+      "status": "Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-022",
+      "family": "Zones",
+      "name": "Pivot 3",
+      "modelPath": "develop.zones.pivots[2]",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:207",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:505-517",
+      "range": "0...1; UI min gap.02",
+      "semantics": "Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.",
+      "status": "Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-023",
+      "family": "Zones",
+      "name": "Pivot 4",
+      "modelPath": "develop.zones.pivots[3]",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:207",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:505-517",
+      "range": "0...1; UI min gap.02",
+      "semantics": "Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.",
+      "status": "Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-024",
+      "family": "Zones",
+      "name": "Pivot 5",
+      "modelPath": "develop.zones.pivots[4]",
+      "ui": "Sources/LumenApp/ZonesPanel.swift:207",
+      "engine": "Sources/LumenCore/Engine/ToneEngine.swift:505-517",
+      "range": "0...1; UI min gap.02",
+      "semantics": "Defines zone center; relative anchored axis means Whites/Blacks also move its scene-EV position.",
+      "status": "Source audited; user pivots constrained; imported numeric ordering is less strictly normalized by engine.",
+      "findings": [
+        "AI-07"
+      ]
+    },
+    {
+      "id": "IC-025",
+      "family": "Parametric curve",
+      "name": "Highlights",
+      "modelPath": "develop.curve.parametric.highlights",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:526",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:150-229",
+      "range": "±100",
+      "semantics": "Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.",
+      "status": "Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.",
+      "findings": [
+        "AI-05"
+      ]
+    },
+    {
+      "id": "IC-026",
+      "family": "Parametric curve",
+      "name": "Lights",
+      "modelPath": "develop.curve.parametric.lights",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:531",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:150-229",
+      "range": "±100",
+      "semantics": "Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.",
+      "status": "Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.",
+      "findings": [
+        "AI-05"
+      ]
+    },
+    {
+      "id": "IC-027",
+      "family": "Parametric curve",
+      "name": "Darks",
+      "modelPath": "develop.curve.parametric.darks",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:535",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:150-229",
+      "range": "±100",
+      "semantics": "Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.",
+      "status": "Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.",
+      "findings": [
+        "AI-05"
+      ]
+    },
+    {
+      "id": "IC-028",
+      "family": "Parametric curve",
+      "name": "Shadows",
+      "modelPath": "develop.curve.parametric.shadows",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:539",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:150-229",
+      "range": "±100",
+      "semantics": "Region bump times endpoint-pinning envelope; per-region amplitude and shared monotonic limiter.",
+      "status": "Source audited; existing endpoint/monotonicity tests reviewed; combinations change applied authority.",
+      "findings": [
+        "AI-05"
+      ]
+    },
+    {
+      "id": "IC-029",
+      "family": "Parametric curve",
+      "name": "Split 1",
+      "modelPath": "develop.curve.parametric.splits[0]",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:682",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:58-66",
+      "range": "0...1 ordered",
+      "semantics": "Moves region boundaries and therefore region centers and solved amplitude.",
+      "status": "Source audited; UI uses CurveEditing.sanitizedSplits; no new isolated defect.",
+      "findings": []
+    },
+    {
+      "id": "IC-030",
+      "family": "Parametric curve",
+      "name": "Split 2",
+      "modelPath": "develop.curve.parametric.splits[1]",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:682",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:58-66",
+      "range": "0...1 ordered",
+      "semantics": "Moves region boundaries and therefore region centers and solved amplitude.",
+      "status": "Source audited; UI uses CurveEditing.sanitizedSplits; no new isolated defect.",
+      "findings": []
+    },
+    {
+      "id": "IC-031",
+      "family": "Parametric curve",
+      "name": "Split 3",
+      "modelPath": "develop.curve.parametric.splits[2]",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:682",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:58-66",
+      "range": "0...1 ordered",
+      "semantics": "Moves region boundaries and therefore region centers and solved amplitude.",
+      "status": "Source audited; UI uses CurveEditing.sanitizedSplits; no new isolated defect.",
+      "findings": []
+    },
+    {
+      "id": "IC-032",
+      "family": "Point curves",
+      "name": "Master point",
+      "modelPath": "develop.curve.point",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:630-657",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:231-302",
+      "range": "0...1 point coordinates",
+      "semantics": "Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.",
+      "status": "Parametric composition handle mismatch reproduced.",
+      "findings": [
+        "AI-05"
+      ]
+    },
+    {
+      "id": "IC-033",
+      "family": "Point curves",
+      "name": "Luma",
+      "modelPath": "develop.curve.luma",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:630-657",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:231-302",
+      "range": "0...1 point coordinates",
+      "semantics": "Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.",
+      "status": "Lifted-black exact/GPU failure reproduced.",
+      "findings": [
+        "AI-04"
+      ]
+    },
+    {
+      "id": "IC-034",
+      "family": "Point curves",
+      "name": "Red",
+      "modelPath": "develop.curve.r",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:630-657",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:231-302",
+      "range": "0...1 point coordinates",
+      "semantics": "Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.",
+      "status": "Source audited; channel curves intentionally alter color; final per-channel clamp clips extremes.",
+      "findings": []
+    },
+    {
+      "id": "IC-035",
+      "family": "Point curves",
+      "name": "Green",
+      "modelPath": "develop.curve.g",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:630-657",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:231-302",
+      "range": "0...1 point coordinates",
+      "semantics": "Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.",
+      "status": "Source audited; channel curves intentionally alter color; final per-channel clamp clips extremes.",
+      "findings": []
+    },
+    {
+      "id": "IC-036",
+      "family": "Point curves",
+      "name": "Blue",
+      "modelPath": "develop.curve.b",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:630-657",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:231-302",
+      "range": "0...1 point coordinates",
+      "semantics": "Fritsch–Carlson no-overshoot segment interpolation in sRGB-encoded picture domain; endpoints editable.",
+      "status": "Source audited; channel curves intentionally alter color; final per-channel clamp clips extremes.",
+      "findings": []
+    },
+    {
+      "id": "IC-037",
+      "family": "Point curves",
+      "name": "Preserve Luminance",
+      "modelPath": "develop.curve.preserveLuminance",
+      "ui": "Sources/LumenApp/CurveEditorView.swift:582",
+      "engine": "Sources/LumenCore/Engine/CurveStack.swift:276-284",
+      "range": "boolean",
+      "semantics": "Master curve scales gamma-encoded RGB by weighted luminance ratio; preserves color ratios approximately until channel clamp.",
+      "status": "Source audited; test pins a specific unclipped midtone, not all highlights; name does not imply unchanged luminance.",
+      "findings": []
+    },
+    {
+      "id": "IC-038",
+      "family": "Mixer",
+      "name": "Red Hue",
+      "modelPath": "develop.mixer.bands[0].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-039",
+      "family": "Mixer",
+      "name": "Red Saturation",
+      "modelPath": "develop.mixer.bands[0].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-040",
+      "family": "Mixer",
+      "name": "Red Luminance",
+      "modelPath": "develop.mixer.bands[0].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-041",
+      "family": "Mixer range",
+      "name": "Red Core start",
+      "modelPath": "develop.mixer.bands[0].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-042",
+      "family": "Mixer range",
+      "name": "Red Core end",
+      "modelPath": "develop.mixer.bands[0].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-043",
+      "family": "Mixer range",
+      "name": "Red Feather start",
+      "modelPath": "develop.mixer.bands[0].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-044",
+      "family": "Mixer range",
+      "name": "Red Feather end",
+      "modelPath": "develop.mixer.bands[0].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-045",
+      "family": "Mixer",
+      "name": "Orange Hue",
+      "modelPath": "develop.mixer.bands[1].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-046",
+      "family": "Mixer",
+      "name": "Orange Saturation",
+      "modelPath": "develop.mixer.bands[1].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-047",
+      "family": "Mixer",
+      "name": "Orange Luminance",
+      "modelPath": "develop.mixer.bands[1].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-048",
+      "family": "Mixer range",
+      "name": "Orange Core start",
+      "modelPath": "develop.mixer.bands[1].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-049",
+      "family": "Mixer range",
+      "name": "Orange Core end",
+      "modelPath": "develop.mixer.bands[1].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-050",
+      "family": "Mixer range",
+      "name": "Orange Feather start",
+      "modelPath": "develop.mixer.bands[1].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-051",
+      "family": "Mixer range",
+      "name": "Orange Feather end",
+      "modelPath": "develop.mixer.bands[1].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-052",
+      "family": "Mixer",
+      "name": "Yellow Hue",
+      "modelPath": "develop.mixer.bands[2].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-053",
+      "family": "Mixer",
+      "name": "Yellow Saturation",
+      "modelPath": "develop.mixer.bands[2].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-054",
+      "family": "Mixer",
+      "name": "Yellow Luminance",
+      "modelPath": "develop.mixer.bands[2].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-055",
+      "family": "Mixer range",
+      "name": "Yellow Core start",
+      "modelPath": "develop.mixer.bands[2].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-056",
+      "family": "Mixer range",
+      "name": "Yellow Core end",
+      "modelPath": "develop.mixer.bands[2].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-057",
+      "family": "Mixer range",
+      "name": "Yellow Feather start",
+      "modelPath": "develop.mixer.bands[2].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-058",
+      "family": "Mixer range",
+      "name": "Yellow Feather end",
+      "modelPath": "develop.mixer.bands[2].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-059",
+      "family": "Mixer",
+      "name": "Green Hue",
+      "modelPath": "develop.mixer.bands[3].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-060",
+      "family": "Mixer",
+      "name": "Green Saturation",
+      "modelPath": "develop.mixer.bands[3].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-061",
+      "family": "Mixer",
+      "name": "Green Luminance",
+      "modelPath": "develop.mixer.bands[3].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-062",
+      "family": "Mixer range",
+      "name": "Green Core start",
+      "modelPath": "develop.mixer.bands[3].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-063",
+      "family": "Mixer range",
+      "name": "Green Core end",
+      "modelPath": "develop.mixer.bands[3].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-064",
+      "family": "Mixer range",
+      "name": "Green Feather start",
+      "modelPath": "develop.mixer.bands[3].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-065",
+      "family": "Mixer range",
+      "name": "Green Feather end",
+      "modelPath": "develop.mixer.bands[3].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-066",
+      "family": "Mixer",
+      "name": "Aqua Hue",
+      "modelPath": "develop.mixer.bands[4].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-067",
+      "family": "Mixer",
+      "name": "Aqua Saturation",
+      "modelPath": "develop.mixer.bands[4].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-068",
+      "family": "Mixer",
+      "name": "Aqua Luminance",
+      "modelPath": "develop.mixer.bands[4].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-069",
+      "family": "Mixer range",
+      "name": "Aqua Core start",
+      "modelPath": "develop.mixer.bands[4].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-070",
+      "family": "Mixer range",
+      "name": "Aqua Core end",
+      "modelPath": "develop.mixer.bands[4].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-071",
+      "family": "Mixer range",
+      "name": "Aqua Feather start",
+      "modelPath": "develop.mixer.bands[4].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-072",
+      "family": "Mixer range",
+      "name": "Aqua Feather end",
+      "modelPath": "develop.mixer.bands[4].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-073",
+      "family": "Mixer",
+      "name": "Blue Hue",
+      "modelPath": "develop.mixer.bands[5].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-074",
+      "family": "Mixer",
+      "name": "Blue Saturation",
+      "modelPath": "develop.mixer.bands[5].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-075",
+      "family": "Mixer",
+      "name": "Blue Luminance",
+      "modelPath": "develop.mixer.bands[5].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-076",
+      "family": "Mixer range",
+      "name": "Blue Core start",
+      "modelPath": "develop.mixer.bands[5].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-077",
+      "family": "Mixer range",
+      "name": "Blue Core end",
+      "modelPath": "develop.mixer.bands[5].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-078",
+      "family": "Mixer range",
+      "name": "Blue Feather start",
+      "modelPath": "develop.mixer.bands[5].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-079",
+      "family": "Mixer range",
+      "name": "Blue Feather end",
+      "modelPath": "develop.mixer.bands[5].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-080",
+      "family": "Mixer",
+      "name": "Purple Hue",
+      "modelPath": "develop.mixer.bands[6].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-081",
+      "family": "Mixer",
+      "name": "Purple Saturation",
+      "modelPath": "develop.mixer.bands[6].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-082",
+      "family": "Mixer",
+      "name": "Purple Luminance",
+      "modelPath": "develop.mixer.bands[6].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-083",
+      "family": "Mixer range",
+      "name": "Purple Core start",
+      "modelPath": "develop.mixer.bands[6].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-084",
+      "family": "Mixer range",
+      "name": "Purple Core end",
+      "modelPath": "develop.mixer.bands[6].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-085",
+      "family": "Mixer range",
+      "name": "Purple Feather start",
+      "modelPath": "develop.mixer.bands[6].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-086",
+      "family": "Mixer range",
+      "name": "Purple Feather end",
+      "modelPath": "develop.mixer.bands[6].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-087",
+      "family": "Mixer",
+      "name": "Magenta Hue",
+      "modelPath": "develop.mixer.bands[7].hue",
+      "ui": "Sources/LumenApp/ColorPanel.swift:162",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted hue rotation±45°.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-088",
+      "family": "Mixer",
+      "name": "Magenta Saturation",
+      "modelPath": "develop.mixer.bands[7].sat",
+      "ui": "Sources/LumenApp/ColorPanel.swift:168",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "Weighted chroma gain0...2, reduced near neutral.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-089",
+      "family": "Mixer",
+      "name": "Magenta Luminance",
+      "modelPath": "develop.mixer.bands[7].lum",
+      "ui": "Sources/LumenApp/ColorPanel.swift:173",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:975-1041",
+      "range": "±100",
+      "semantics": "OKLab lightness offset at fixed chroma; darkening can leave gamut.",
+      "status": "Every band binding/engine path source audited; label partition numerically probed; Aqua luminance and Red hue table error sampled.",
+      "findings": [
+        "AI-03",
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-090",
+      "family": "Mixer range",
+      "name": "Magenta Core start",
+      "modelPath": "develop.mixer.bands[7].core[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-091",
+      "family": "Mixer range",
+      "name": "Magenta Core end",
+      "modelPath": "develop.mixer.bands[7].core[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "5...44° half extent",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-092",
+      "family": "Mixer range",
+      "name": "Magenta Feather start",
+      "modelPath": "develop.mixer.bands[7].feather[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-093",
+      "family": "Mixer range",
+      "name": "Magenta Feather end",
+      "modelPath": "develop.mixer.bands[7].feather[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:228-253",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:518-548",
+      "range": "2...60°, effective reach floor27.5°",
+      "semantics": "Shapes a side of the band's core/feather; normalized overlapping weights sum1.",
+      "status": "Source audited; effective feather may exceed requested because minimum reach prevents gaps.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-094",
+      "family": "Mixer",
+      "name": "Even out hues",
+      "modelPath": "develop.mixer.uniformity",
+      "ui": "Sources/LumenApp/ColorPanel.swift:206",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:981-1032",
+      "range": "0...100",
+      "semantics": "Converges each pixel toward circularly blended per-band target hues; measured neutral-decode targets supplied in shipping plan.",
+      "status": "Targets now wired; no local mean in shipping path; target measured before user's WB/primaries and custom band edits.",
+      "findings": [
+        "AI-08"
+      ]
+    },
+    {
+      "id": "IC-095",
+      "family": "Point Color",
+      "name": "Hue",
+      "modelPath": "develop.pointColors[index].shift.h",
+      "ui": "Sources/LumenApp/ColorPanel.swift:430",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1058-1183",
+      "range": "±60°",
+      "semantics": "Gate-weighted hue rotation.",
+      "status": "Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.",
+      "findings": [
+        "AI-02",
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-096",
+      "family": "Point Color",
+      "name": "Saturation",
+      "modelPath": "develop.pointColors[index].shift.s",
+      "ui": "Sources/LumenApp/ColorPanel.swift:435",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1058-1183",
+      "range": "±100",
+      "semantics": "Selection-weighted chroma scaling.",
+      "status": "Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.",
+      "findings": [
+        "AI-02",
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-097",
+      "family": "Point Color",
+      "name": "Luminance",
+      "modelPath": "develop.pointColors[index].shift.l",
+      "ui": "Sources/LumenApp/ColorPanel.swift:439",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1058-1183",
+      "range": "±100",
+      "semantics": "Selection-weighted OKLab lightness offset at fixed chroma.",
+      "status": "Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.",
+      "findings": [
+        "AI-02",
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-098",
+      "family": "Point Color",
+      "name": "Range",
+      "modelPath": "develop.pointColors[index].range",
+      "ui": "Sources/LumenApp/ColorPanel.swift:443",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1058-1183",
+      "range": "0...100",
+      "semantics": "Scales shared L/C/h selection ellipsoid from55% to100% baseline width; zero is still finite support.",
+      "status": "Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.",
+      "findings": [
+        "AI-02",
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-099",
+      "family": "Point Color",
+      "name": "Variance",
+      "modelPath": "develop.pointColors[index].variance",
+      "ui": "Sources/LumenApp/ColorPanel.swift:449",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1058-1183",
+      "range": "±100",
+      "semantics": "Negative converges L/C/h to target; positive expands.",
+      "status": "Shared engine/control for up to8 swatches; picker-domain mismatch reproduced; variance spatial gap reproduced.",
+      "findings": [
+        "AI-02",
+        "AI-08"
+      ]
+    },
+    {
+      "id": "IC-100",
+      "family": "B&W mix",
+      "name": "Red",
+      "modelPath": "look.bw.bands[0]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-101",
+      "family": "B&W mix",
+      "name": "Orange",
+      "modelPath": "look.bw.bands[1]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-102",
+      "family": "B&W mix",
+      "name": "Yellow",
+      "modelPath": "look.bw.bands[2]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-103",
+      "family": "B&W mix",
+      "name": "Green",
+      "modelPath": "look.bw.bands[3]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-104",
+      "family": "B&W mix",
+      "name": "Aqua",
+      "modelPath": "look.bw.bands[4]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-105",
+      "family": "B&W mix",
+      "name": "Blue",
+      "modelPath": "look.bw.bands[5]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-106",
+      "family": "B&W mix",
+      "name": "Purple",
+      "modelPath": "look.bw.bands[6]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-107",
+      "family": "B&W mix",
+      "name": "Magenta",
+      "modelPath": "look.bw.bands[7]",
+      "ui": "Sources/LumenApp/ColorPanel.swift:696",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1392-1420",
+      "range": "±100",
+      "semantics": "Weighted gain on working luminance; canonical color membership captured before global saturation, protecting mix authority at Sat−100.",
+      "status": "Source audited; existing B&W sat/mix tests reviewed. Canonical band label limitation applies.",
+      "findings": [
+        "AI-10"
+      ]
+    },
+    {
+      "id": "IC-108",
+      "family": "B&W mix",
+      "name": "Treatment enabled",
+      "modelPath": "look.bw.enabled",
+      "ui": "Sources/LumenApp/ColorPanel.swift:663-719",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:1393",
+      "range": "boolean",
+      "semantics": "Activates grayscale conversion while preserving stored mix when off.",
+      "status": "Source audited; existing off-with-stored-mix tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-109",
+      "family": "Grading wheels",
+      "name": "Global Hue",
+      "modelPath": "look.wheels.global.hue",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...360°",
+      "semantics": "Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-110",
+      "family": "Grading wheels",
+      "name": "Global Saturation",
+      "modelPath": "look.wheels.global.sat",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...1 wheel radius",
+      "semantics": "Tint magnitude up to.15OKLab chroma.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-111",
+      "family": "Grading wheels",
+      "name": "Global Luminance",
+      "modelPath": "look.wheels.global.lum",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "−1...1",
+      "semantics": "Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-13"
+      ]
+    },
+    {
+      "id": "IC-112",
+      "family": "Grading wheels",
+      "name": "Shadows Hue",
+      "modelPath": "look.wheels.shadows.hue",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...360°",
+      "semantics": "Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-113",
+      "family": "Grading wheels",
+      "name": "Shadows Saturation",
+      "modelPath": "look.wheels.shadows.sat",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...1 wheel radius",
+      "semantics": "Tint magnitude up to.15OKLab chroma.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-114",
+      "family": "Grading wheels",
+      "name": "Shadows Luminance",
+      "modelPath": "look.wheels.shadows.lum",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "−1...1",
+      "semantics": "Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-13"
+      ]
+    },
+    {
+      "id": "IC-115",
+      "family": "Grading wheels",
+      "name": "Midtones Hue",
+      "modelPath": "look.wheels.mid.hue",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...360°",
+      "semantics": "Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-116",
+      "family": "Grading wheels",
+      "name": "Midtones Saturation",
+      "modelPath": "look.wheels.mid.sat",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...1 wheel radius",
+      "semantics": "Tint magnitude up to.15OKLab chroma.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-117",
+      "family": "Grading wheels",
+      "name": "Midtones Luminance",
+      "modelPath": "look.wheels.mid.lum",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "−1...1",
+      "semantics": "Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-13"
+      ]
+    },
+    {
+      "id": "IC-118",
+      "family": "Grading wheels",
+      "name": "Highlights Hue",
+      "modelPath": "look.wheels.high.hue",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...360°",
+      "semantics": "Direction of additive OKLab a/b tint; hue alone at saturation0 is inert.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-119",
+      "family": "Grading wheels",
+      "name": "Highlights Saturation",
+      "modelPath": "look.wheels.high.sat",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "0...1 wheel radius",
+      "semantics": "Tint magnitude up to.15OKLab chroma.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-120",
+      "family": "Grading wheels",
+      "name": "Highlights Luminance",
+      "modelPath": "look.wheels.high.lum",
+      "ui": "Sources/LumenApp/LookPanel.swift:877; Sources/LumenApp/LumenControls.swift:1799-1947",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:201-225,680-738",
+      "range": "−1...1",
+      "semantics": "Brightness J gain2^(0.5*value), realized neutral scene range±1.5EV, subject to zone/joint limits.",
+      "status": "Source audited; exact neutral wheel units reproduced; existing joint-slope invariants reviewed.",
+      "findings": [
+        "AI-13"
+      ]
+    },
+    {
+      "id": "IC-121",
+      "family": "Grading zones",
+      "name": "Blending",
+      "modelPath": "look.wheels.blending",
+      "ui": "Sources/LumenApp/LookPanel.swift:679",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:89-155",
+      "range": "0...100",
+      "semantics": "Widens crossfades up to an eased ceiling set by pivot distance; never mathematically hard zero.",
+      "status": "Source audited; partition-of-unity and blended limiter tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-122",
+      "family": "Grading zones",
+      "name": "Balance",
+      "modelPath": "look.wheels.balance",
+      "ui": "Sources/LumenApp/LookPanel.swift:685",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:89-155",
+      "range": "±100",
+      "semantics": "Shifts grading pivots by±2sceneEV.",
+      "status": "Source audited; partition-of-unity and blended limiter tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-123",
+      "family": "Grading zones",
+      "name": "Pivot 1",
+      "modelPath": "look.wheels.pivots[0]",
+      "ui": "Sources/LumenApp/LookPanel.swift:906",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:89-155",
+      "range": "0...1 ordered; gap.02",
+      "semantics": "Moves the shadow/mid or mid/high transition center.",
+      "status": "Source audited; defaults correspond to−4.38/.38EV under default−9/+5anchors.",
+      "findings": []
+    },
+    {
+      "id": "IC-124",
+      "family": "Grading zones",
+      "name": "Pivot 2",
+      "modelPath": "look.wheels.pivots[1]",
+      "ui": "Sources/LumenApp/LookPanel.swift:906",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:89-155",
+      "range": "0...1 ordered; gap.02",
+      "semantics": "Moves the shadow/mid or mid/high transition center.",
+      "status": "Source audited; defaults correspond to−4.38/.38EV under default−9/+5anchors.",
+      "findings": []
+    },
+    {
+      "id": "IC-125",
+      "family": "Color balance",
+      "name": "Hue shift",
+      "modelPath": "look.wheels.colorBalance.hueShift",
+      "ui": "Sources/LumenApp/LookPanel.swift:741",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1133-1140",
+      "range": "±180°",
+      "semantics": "Global OKLCh hue rotation at fixed L/C.",
+      "status": "Source audited; representative180° exact/table error probed.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-126",
+      "family": "Color balance",
+      "name": "Vibrance",
+      "modelPath": "look.wheels.colorBalance.vibrance",
+      "ui": "Sources/LumenApp/LookPanel.swift:748",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1146-1152",
+      "range": "±100",
+      "semantics": "Chroma multiply weighted toward low chroma; distinct from Basic vibrance (no skin protection, brightness rolloff).",
+      "status": "Source audited; inherited same grade cube limitations.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-127",
+      "family": "Color balance",
+      "name": "Chroma Global",
+      "modelPath": "look.wheels.colorBalance.chroma.global",
+      "ui": "Sources/LumenApp/LookPanel.swift:836",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C at fixed L/h; global and weighted zone contributions add.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-128",
+      "family": "Color balance",
+      "name": "Chroma Shadows",
+      "modelPath": "look.wheels.colorBalance.chroma.shadows",
+      "ui": "Sources/LumenApp/LookPanel.swift:840",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C at fixed L/h; global and weighted zone contributions add.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-129",
+      "family": "Color balance",
+      "name": "Chroma Midtones",
+      "modelPath": "look.wheels.colorBalance.chroma.mid",
+      "ui": "Sources/LumenApp/LookPanel.swift:844",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C at fixed L/h; global and weighted zone contributions add.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-130",
+      "family": "Color balance",
+      "name": "Chroma Highlights",
+      "modelPath": "look.wheels.colorBalance.chroma.high",
+      "ui": "Sources/LumenApp/LookPanel.swift:848",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C at fixed L/h; global and weighted zone contributions add.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-131",
+      "family": "Color balance",
+      "name": "Saturation Global",
+      "modelPath": "look.wheels.colorBalance.saturation.global",
+      "ui": "Sources/LumenApp/LookPanel.swift:836",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C/L at fixed modeled H-K brightness via quadratic solve.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-132",
+      "family": "Color balance",
+      "name": "Saturation Shadows",
+      "modelPath": "look.wheels.colorBalance.saturation.shadows",
+      "ui": "Sources/LumenApp/LookPanel.swift:840",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C/L at fixed modeled H-K brightness via quadratic solve.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-133",
+      "family": "Color balance",
+      "name": "Saturation Midtones",
+      "modelPath": "look.wheels.colorBalance.saturation.mid",
+      "ui": "Sources/LumenApp/LookPanel.swift:844",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C/L at fixed modeled H-K brightness via quadratic solve.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-134",
+      "family": "Color balance",
+      "name": "Saturation Highlights",
+      "modelPath": "look.wheels.colorBalance.saturation.high",
+      "ui": "Sources/LumenApp/LookPanel.swift:848",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales C/L at fixed modeled H-K brightness via quadratic solve.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-135",
+      "family": "Color balance",
+      "name": "Brilliance Global",
+      "modelPath": "look.wheels.colorBalance.brilliance.global",
+      "ui": "Sources/LumenApp/LookPanel.swift:836",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-136",
+      "family": "Color balance",
+      "name": "Brilliance Shadows",
+      "modelPath": "look.wheels.colorBalance.brilliance.shadows",
+      "ui": "Sources/LumenApp/LookPanel.swift:840",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-137",
+      "family": "Color balance",
+      "name": "Brilliance Midtones",
+      "modelPath": "look.wheels.colorBalance.brilliance.mid",
+      "ui": "Sources/LumenApp/LookPanel.swift:844",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-138",
+      "family": "Color balance",
+      "name": "Brilliance Highlights",
+      "modelPath": "look.wheels.colorBalance.brilliance.high",
+      "ui": "Sources/LumenApp/LookPanel.swift:848",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:1120-1218",
+      "range": "±100",
+      "semantics": "Scales H-K brightness at fixed C/L; zone and joint limiter prevent slope inversion.",
+      "status": "Source audited; global Saturation moderate/extreme cube errors tested; Brilliance/UI warns beyond±20.",
+      "findings": []
+    },
+    {
+      "id": "IC-139",
+      "family": "Printer lights",
+      "name": "Master",
+      "modelPath": "look.printerLights.master",
+      "ui": "Sources/LumenApp/LookPanel.swift:937-1019",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:637-660",
+      "range": "±48points",
+      "semantics": "12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.",
+      "status": "Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-140",
+      "family": "Printer lights",
+      "name": "Red",
+      "modelPath": "look.printerLights.r",
+      "ui": "Sources/LumenApp/LookPanel.swift:937-1019",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:637-660",
+      "range": "±24points",
+      "semantics": "12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.",
+      "status": "Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-141",
+      "family": "Printer lights",
+      "name": "Green",
+      "modelPath": "look.printerLights.g",
+      "ui": "Sources/LumenApp/LookPanel.swift:937-1019",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:637-660",
+      "range": "±24points",
+      "semantics": "12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.",
+      "status": "Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-142",
+      "family": "Printer lights",
+      "name": "Blue",
+      "modelPath": "look.printerLights.b",
+      "ui": "Sources/LumenApp/LookPanel.swift:937-1019",
+      "engine": "Sources/LumenCore/Engine/GradeEngine.swift:637-660",
+      "range": "±24points",
+      "semantics": "12points=1sceneEV. Channel gain2^((master+trim)/12), fused withWB/exposure.",
+      "status": "Source audited; algebra exact byconstruction; existing linear-stage tests reviewed.",
+      "findings": []
+    },
+    {
+      "id": "IC-143",
+      "family": "Primaries",
+      "name": "Red Hue",
+      "modelPath": "look.primaries.rHue",
+      "ui": "Sources/LumenApp/LookPanel.swift:1040",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Rotates primary chromaticity around white by±20°; matrix construction preserves neutral.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-144",
+      "family": "Primaries",
+      "name": "Red Purity",
+      "modelPath": "look.primaries.rPurity",
+      "ui": "Sources/LumenApp/LookPanel.swift:1042",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Scales primary distance from white by0.5...1.5 with chromaticity safety guard.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-145",
+      "family": "Primaries",
+      "name": "Green Hue",
+      "modelPath": "look.primaries.gHue",
+      "ui": "Sources/LumenApp/LookPanel.swift:1044",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Rotates primary chromaticity around white by±20°; matrix construction preserves neutral.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-146",
+      "family": "Primaries",
+      "name": "Green Purity",
+      "modelPath": "look.primaries.gPurity",
+      "ui": "Sources/LumenApp/LookPanel.swift:1046",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Scales primary distance from white by0.5...1.5 with chromaticity safety guard.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-147",
+      "family": "Primaries",
+      "name": "Blue Hue",
+      "modelPath": "look.primaries.bHue",
+      "ui": "Sources/LumenApp/LookPanel.swift:1048",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Rotates primary chromaticity around white by±20°; matrix construction preserves neutral.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-148",
+      "family": "Primaries",
+      "name": "Blue Purity",
+      "modelPath": "look.primaries.bPurity",
+      "ui": "Sources/LumenApp/LookPanel.swift:1050",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Scales primary distance from white by0.5...1.5 with chromaticity safety guard.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-149",
+      "family": "Primaries",
+      "name": "Shadow Tint",
+      "modelPath": "look.primaries.tintHue",
+      "ui": "Sources/LumenApp/LookPanel.swift:1052",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Shadow-windowed opponent offset, deliberately colors neutrals.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-150",
+      "family": "Primaries",
+      "name": "Tint Purity",
+      "modelPath": "look.primaries.tintPurity",
+      "ui": "Sources/LumenApp/LookPanel.swift:1054",
+      "engine": "Sources/LumenCore/Engine/ColorEngine.swift:863-957",
+      "range": "±100",
+      "semantics": "Shadow-windowed opponent offset, deliberately colors neutrals.",
+      "status": "Source audited; extreme combined-primary cube comparison sampled; limits can reduce effective reach.",
+      "findings": [
+        "AI-03"
+      ]
+    },
+    {
+      "id": "IC-151",
+      "family": "Display transform",
+      "name": "Contrast",
+      "modelPath": "look.render.contrast",
+      "ui": "Sources/LumenApp/LookPanel.swift:1173",
+      "engine": "Sources/LumenCore/Engine/DisplayTransform.swift:158-350",
+      "range": "0.1...10",
+      "semantics": "Display-forming toe/shoulder slope around fixed18%grey.",
+      "status": "Source audited; existing transform monotonicity/gamut tests reviewed; no new isolated defect.",
+      "findings": []
+    },
+    {
+      "id": "IC-152",
+      "family": "Display transform",
+      "name": "Skew",
+      "modelPath": "look.render.skew",
+      "ui": "Sources/LumenApp/LookPanel.swift:1182",
+      "engine": "Sources/LumenCore/Engine/DisplayTransform.swift:158-350",
+      "range": "±1",
+      "semantics": "Redistributes toe/shoulder shape under monotonic bounds.",
+      "status": "Source audited; existing transform monotonicity/gamut tests reviewed; no new isolated defect.",
+      "findings": []
+    },
+    {
+      "id": "IC-153",
+      "family": "Display transform",
+      "name": "Hue keep",
+      "modelPath": "look.render.huePreservation",
+      "ui": "Sources/LumenApp/LookPanel.swift:1191",
+      "engine": "Sources/LumenCore/Engine/DisplayTransform.swift:158-350",
+      "range": "0...100",
+      "semantics": "Mixes channel curve with RGB-ratio preservation; fades to per-channel in highlight shoulder.",
+      "status": "Source audited; existing transform monotonicity/gamut tests reviewed; no new isolated defect.",
+      "findings": []
+    },
+    {
+      "id": "IC-154",
+      "family": "Display transform",
+      "name": "Black target",
+      "modelPath": "look.render.blackTarget",
+      "ui": "Sources/LumenApp/LookPanel.swift:1200",
+      "engine": "Sources/LumenCore/Engine/DisplayTransform.swift:158-350",
+      "range": "track0...9; hard0...15",
+      "semantics": "Requested display-linear percent SDR white, actually capped9%.",
+      "status": "Accepted hard-range dead zone reproduced.",
+      "findings": [
+        "AI-09",
+        "AI-04"
+      ]
+    }
+  ]
+}

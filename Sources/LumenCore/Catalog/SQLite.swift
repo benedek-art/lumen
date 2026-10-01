@@ -52,7 +52,7 @@ public enum SQLiteError: Error, CustomStringConvertible {
     /// It lives here rather than at the call site because the `SQLITE_*` codes come
     /// from the C module, and this file is the only one in LumenCore that imports it.
     public var indicatesCorruptDatabase: Bool {
-        switch code {
+        switch code & 0xff {
         case SQLITE_CORRUPT, SQLITE_NOTADB, SQLITE_FORMAT: return true
         default: return false
         }
@@ -144,10 +144,11 @@ public final class SQLiteDatabase {
 
     public let path: String
 
-    public init(path: String) throws {
+    public init(path: String, readOnly: Bool = false) throws {
         self.path = path
         var raw: OpaquePointer?
-        let flags: Int32 = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        let flags: Int32 = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
+            | SQLITE_OPEN_FULLMUTEX
         let rc = sqlite3_open_v2(path, &raw, flags, nil)
         if rc != SQLITE_OK {
             var message = "unable to open database"
@@ -600,7 +601,7 @@ public final class SQLiteStatement {
 public final class SQLiteDatabase {
     public let path: String
 
-    public init(path: String) throws {
+    public init(path: String, readOnly: Bool = false) throws {
         self.path = path
         throw SQLiteError.unavailable
     }

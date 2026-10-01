@@ -1,0 +1,10 @@
+sandbox_extension_issue_file failed for /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/audit/app-probe: 1 (Operation not permitted)
+sandbox_extension_issue_file failed for /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/audit/app-probe-931BE1B3-0B0D-454A-97B0-1BA63A915634/photos: 1 (Operation not permitted)
+sandbox_extension_issue_file failed for /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/audit/app-probe-931BE1B3-0B0D-454A-97B0-1BA63A915634/photos: 1 (Operation not permitted)
+2026-09-22 15:18:40.821 app-probe[91979:3170016] Lumen catalog: backed up lumen-2026-09-22T22-18-40Z.db with 0 brush payload(s); pruned 0 old snapshot(s)
+UNDO closedFirst=false memory=0.0 gestureActive=true
+CATALOG_PATH /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/audit/app-probe-931BE1B3-0B0D-454A-97B0-1BA63A915634/catalog/lumen.db
+SIDECAR_PATH /Users/AUDIT_USER/Documents/Codex/2026-09-22/ca/work/audit/app-probe-931BE1B3-0B0D-454A-97B0-1BA63A915634/photos/test.png.xmp
+FINAL_MEMORY 0.0
+COLUMN_RESIZE five events to -10pt:actualWidth=410.0 expected=390
+COLUMN_RESIZE ten events to -10pt:actualWidth=435.0 expected=390

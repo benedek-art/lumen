@@ -644,9 +644,9 @@ final class MaskDependencyAdversarialTests: XCTestCase {
     /// frame ago — the walk follows the stale copy's components and hands back the stale
     /// copy, so a reference the photographer just added is not in the answer.
     ///
-    /// Nothing in the shipped app calls this function yet, so this is a note for
-    /// whatever wires it into a raster key rather than a live defect.
-    func testTheCacheWalkFollowsTheStaleCopyOfTheMaskItWasAskedAbout() {
+    /// The current root must win before the closure is used for a raster key or source
+    /// preparation. A previous test documented the stale answer instead of rejecting it.
+    func testTheCacheWalkFollowsTheCurrentMaskRatherThanItsStaleCopy() {
         let sky = Mask(id: "sky", name: "Sky", components: [radial(0.3)])
         let before = Mask(id: "b", name: "B", components: [radial(0.7)])
         var after = before
@@ -654,12 +654,11 @@ final class MaskDependencyAdversarialTests: XCTestCase {
 
         // The list is one edit behind, which is exactly the state a cache lookup is in.
         let stale = [sky, before]
-        XCTAssertEqual(MaskDependency.closure(of: after, in: stale).map(\.id), ["b"],
-                       "if this now says [sky, b] the walk has been fixed")
+        XCTAssertEqual(MaskDependency.closure(of: after, in: stale).map(\.id), ["sky", "b"],
+                       "the root's newly added reference must be followed")
         XCTAssertEqual(MaskDependency.closure(of: after, in: stale).map(\.components),
-                       [before.components],
-                       "the walk handed back the stale definition of the mask it was "
-                           + "asked about, so a key built on it cannot see the edit")
+                       [sky.components, after.components],
+                       "a key must contain the current root's selection")
 
         // With a current list it is right, which is why this is a latent shape rather
         // than a visible one.

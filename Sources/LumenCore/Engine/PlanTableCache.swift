@@ -117,7 +117,13 @@ public enum PlanTableCache {
     /// URL. Deriving the string separately at the second call site is how two spellings
     /// of one identity come to exist and the question quietly starts answering `false`
     /// for every photograph — so the cache that keys on it owns it.
-    public static func renderIdentity(for url: URL) -> String { url.absoluteString }
+    public static func renderIdentity(for url: URL) -> String {
+        // A draft may borrow a previous table only from this generation of the
+        // photograph, never from pixels replaced at the same path. Synthetic and
+        // unavailable sources retain their existing stable URL identity.
+        guard let source = SourceFileIdentity.read(url) else { return url.absoluteString }
+        return url.absoluteString + "|source=" + source.token
+    }
 
     public static func setRenderIdentity(_ identity: String) {
         lock.lock()

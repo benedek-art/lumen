@@ -244,6 +244,56 @@ public struct MetadataPolicy: Codable, Equatable, Sendable {
     public var copyright: String?
     public var contact: String?
 
+    /// The export sheet asks for one email address or website, not arbitrary prose.
+    /// Keep that distinction explicit so an encoder never guesses which IPTC field
+    /// may truthfully carry the photographer's text.
+    public enum ContactKind: Equatable, Sendable { case email, website }
+
+    public var contactKind: ContactKind? {
+        guard let value = contact?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty, !value.contains(where: { $0.isWhitespace }) else { return nil }
+        if !value.contains(where: { ":/?#;,<>\\\"()".contains($0) }) {
+            let parts = value.split(separator: "@", omittingEmptySubsequences: false)
+            if parts.count == 2, !parts[0].isEmpty,
+               !parts[0].hasPrefix("."), !parts[0].hasSuffix("."), !parts[0].contains(".."),
+               Self.isContactHost(String(parts[1])) { return .email }
+        }
+        let hasScheme = value.contains("://")
+        guard let url = URLComponents(string: hasScheme ? value : "https://" + value),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, Self.isContactHost(host, allowIPv6: true),
+              url.user == nil, url.password == nil,
+              hasScheme || host.contains(".") else { return nil }
+        return .website
+    }
+
+    private static func isContactHost(_ host: String, allowIPv6: Bool = false) -> Bool {
+        // URLComponents has already parsed an IPv6 literal. DNS labels below must
+        // not reject that valid URL, but an encoded @ must not become a website host.
+        if allowIPv6, host.hasPrefix("["), host.hasSuffix("]"), host.contains(":") { return true }
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        guard !name.isEmpty else { return false }
+        return name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
+            !label.isEmpty && !label.hasPrefix("-") && !label.hasSuffix("-")
+                && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+        }
+    }
+
+    public var contactValidationMessage: String? {
+        guard let contact, !contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              contactKind == nil else { return nil }
+        return "Contact must be one email address or an HTTP(S) website (for example, studio@example.com or example.com)."
+    }
+
+    public struct InvalidContact: Error, LocalizedError, Sendable {
+        public let message: String
+        public var errorDescription: String? { message }
+    }
+
+    public func validateContact() throws {
+        if let message = contactValidationMessage { throw InvalidContact(message: message) }
+    }
+
     public init(includeEXIF: Bool = true, includeCameraSerial: Bool = false,
                 includeGPS: Bool = false, includeKeywords: Bool = true,
                 copyright: String? = nil, contact: String? = nil) {

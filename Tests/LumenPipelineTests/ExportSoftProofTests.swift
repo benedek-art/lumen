@@ -45,12 +45,16 @@ final class ExportSoftProofTests: XCTestCase {
         // `.sceneLinearDecode` would put a decoder's label on them.
         let statisticsProvenance: RawStatistics.Provenance = .unspecified
         private let image: CIImage
+        var onDecode: (() -> Void)?
         init(_ image: CIImage) { self.image = image }
         var nativePixelSize: (width: Int, height: Int) {
             (Int(image.extent.width), Int(image.extent.height))
         }
         var nativeLongEdge: Double { Double(max(image.extent.width, image.extent.height)) }
-        func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage? { image }
+        func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage? {
+            onDecode?()
+            return image
+        }
         var captureMetadata: CaptureMetadata {
             CaptureMetadata(asShotTemperature: asShotTemperature, asShotTint: asShotTint,
                             decoderVersion: nil, pixelSize: nativePixelSize)
@@ -248,6 +252,41 @@ final class ExportSoftProofTests: XCTestCase {
     }
 
     // MARK: - Nothing is left half-written
+
+    func testDestinationCreatedDuringRenderIsNeverOverwritten() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-export-race-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("frame.jpg")
+        let sentinel = Data("another application's completed delivery".utf8)
+        let source = StubSource(ciImage(from: ImageBuffer(width: 8, height: 8) { _, _ in RGB(gray: 0.18) }))
+        source.onDecode = {
+            do { try sentinel.write(to: destination) }
+            catch { XCTFail("Could not inject concurrent delivery: \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertThrowsError(try PipelineRenderer().export(source: source, recipe: quietRecipe,
+            to: destination, using: ExportRecipe(name: "web")))
+        XCTAssertEqual(try Data(contentsOf: destination), sentinel)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["frame.jpg"])
+    }
+
+    func testIntentionalReplacementRequiresExplicitOptIn() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-export-replace-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("frame.jpg")
+        let old = Data("old delivery".utf8)
+        try old.write(to: destination)
+        let source = StubSource(ciImage(from: ImageBuffer(width: 8, height: 8) { _, _ in RGB(gray: 0.18) }))
+        _ = try PipelineRenderer().export(source: source, recipe: quietRecipe,
+            to: destination, using: ExportRecipe(name: "web"), allowOverwrite: true)
+        XCTAssertNotEqual(try Data(contentsOf: destination), old)
+        XCTAssertNotNil(CIImage(contentsOf: destination))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["frame.jpg"])
+    }
 
     /// The delivery lands under its own name and takes its scaffolding with it.
     ///

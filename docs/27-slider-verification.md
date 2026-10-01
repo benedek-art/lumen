@@ -62,10 +62,51 @@ variance-monotone above it.
 | `detail.capture.radius` | Stored and NOT applied (Richardson–Lucy has no caller); the panel says so in prose. Dossier item 9's wire-or-remove decision stands — a record would measure a control that is documented as not running. |
 | `denoise.amount` (AI mode) | Drives the decoder's denoise blend, macOS-only, same reason as capture amount. Mode/amount plumbing is contract-tested in LumenCore (`appleStandIn`). |
 | Masked adjustment sliders (`mask.*`) | Deferred with a plan: the runner needs mask-raster support to sweep a masked Exposure against an actual mask. The GLOBAL engines they scale are all recorded; what a mask record adds is the Amount scaling path and the raster, which is its own harness. |
-| Effects grain Amount/Size | Same recipe fields as `film.grain.*` (both panels bind `look.filmLab.grain`) — already recorded there; a second record would measure the same numbers twice. |
+| Effects grain Amount/Size (**stock branch only**) | Same recipe fields as `film.grain.*` — `EffectsPanel:263/:287` and `LookPanel:1394/:1401` bind the identical coalescing keys — already recorded there; a second record would measure the same numbers twice. |
+| ~~Effects grain, creative branch~~ | **THIS DISPOSITION WAS WRONG AND IS WITHDRAWN.** It read "both panels bind `look.filmLab.grain`". They do not. `EffectsPanel.swift:252` says so in a comment written to fix an earlier version of the same confusion: the stock rows bind `film.grain.*` and "the creative row twenty lines down used the identical string for a different field". `look.grain` is `CreativeGrain` — **amount, size AND roughness**, and `FilmGrain` has no roughness at all, so "measured twice" could never have covered it. Three image-affecting sliders were dispositioned out of this audit on a premise the source contradicts. They are now listed as OWED in `SliderEvidenceTests`. |
 | `geometry.angle`, crop, flips | Geometric transforms: authority-in-code-values is the wrong metric (a 1° rotation moves every pixel and changes no tone). Verified by `CropGeometry` tests instead. |
 | Export sheet sliders (quality, megapixels, resolution) | Output options, not image controls; verified by export tests. |
 | Curve point EDITOR drags | Not a slider; the pass-through contract covers the mapping, and the editor's gestures are UI-lane. |
+
+## 3b. What this table missed, found by asserting it (2026-09-04)
+
+`SliderEvidenceTests` (LumenCoreTests) reconciles the four enumerations of this surface
+that never agreed: `ControlIndex` (34 navigation topics), `ProofRegistry` (135 specs),
+`SliderInventory` (97 layout call sites), and this document. It reads the control keys the
+develop panels actually bind and fails when one has neither a record, a contract, nor a
+disposition.
+
+Its first run: **82 bound control keys — 64 with a proof record, 1 with a contract only,
+and 9 owed a record.** The nine, and what they measured once they had a spec and a sweep:
+
+| control | why it had no record | measured | floor |
+|---|---|---|---|
+| `look.grain.amount` | dispositioned out on a false premise, withdrawn above | 14.77 | 10 |
+| `look.grain.size` | same | 28.26 | 19 |
+| `look.grain.roughness` | same | 12.37 | 8 |
+| `film.halationSize` | a live slider on the halation kernel's radius; `film.halation` is recorded, its two shape controls never were | 16.20 | 11 |
+| `film.halationRedness` | the same kernel's bounce colour | 7.96 | 5 |
+| `render.contrast` | Display Transform override (`LookPanel:1173-1200`), never swept | 129.68 | 90 |
+| `render.skew` | same | 18.46 | 12 |
+| `render.hue` | same | 28.73 | 20 |
+| `render.black` | same | 84.61 | 59 |
+
+Floors at about 70% of measurement, which is this document's convention: a floor is there to
+catch a control losing its power, not to pin the number a particular tree happens to produce.
+`tone.contrast` is what that gap is for — its floor of 55 is what rejected an A1-01 fix that
+had dropped it to 54.83, and the reshape put it back to 68.38.
+
+Every one of them moves the picture, none is dead, and `look.grain.size` is the only
+non-monotone one — declared rather than asserted away, for the reason its spec gives: past
+the size where one grain cell spans more than the frame's detail, the pattern coarsens back
+toward flat, and changing size regenerates the field, so consecutive settings differ by
+decorrelation as much as by trend. That Roughness is monotone on the same frame with the
+same sweep is the evidence the reversal is the boundary and not the harness.
+
+The registry is 144 specs now, and every control key the panels bind is measured. A slider
+added from here on cannot join the unmeasured silently: the assertion fails until somebody
+says what is known about it. That is the mechanism this document lacked — it was prose, and
+prose does not fail.
 
 ## 4. What "accurate" still owes, ranked
 

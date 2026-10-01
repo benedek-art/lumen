@@ -198,7 +198,13 @@ public struct ZoneWindows: Sendable {
 
 /// One wheel compiled to what the pixel loop actually needs: an OKLab (a, b) translation
 /// and a lightness gain in stops. Computed once per engine, never per pixel.
-private struct WheelTint: Sendable {
+/// Internal rather than private so `WheelHueAgreementTests` can pin the one fact the
+/// grading wheel's PAINT now depends on: that `wheel.hue` is an OKLab hue angle, read
+/// here as `cos`/`sin` of degrees. The ring is drawn through `Lumen.hueColor` (OKLCh) so
+/// the colour under the cursor is the colour this produces (B2-02, which was 29.6° of
+/// mean error while the ring was painted in SwiftUI HSB). A convention with a test on one
+/// side and none on the other is how those two drifted apart in the first place.
+struct WheelTint: Sendable {
     let a: Double
     let b: Double
     let stops: Double
@@ -291,11 +297,29 @@ public struct GradeEngine: Sendable {
     /// single-tool recipe byte-identical.
     public let jointScale: Double
 
+    /// - Parameter forcingJointScale: substitutes a joint factor instead of solving for
+    ///   one. **Testing only, and it exists so a claim can be measured rather than
+    ///   recorded.**
+    ///
+    ///   `testEitherSideUntouchedRendersBitIdentically` asserts that a recipe using one of
+    ///   the two tools renders exactly as it did before the joint correction existed. That
+    ///   was checked against a hash of 71,136 renders written down as a constant — and a
+    ///   hash of raw `Double` bit patterns is not portable. The constant was recorded on
+    ///   Linux; on Apple Silicon the same code hashes differently, because FMA contraction
+    ///   and libm differ, so the test passed `engine-linux` and failed `test-fast` on the
+    ///   same commit. The engine was never wrong; the yardstick was.
+    ///
+    ///   Passing `1` here reconstructs the pre-fix engine exactly — `solveJointScale`'s
+    ///   result is the only thing this parameter displaces — so the test can render both
+    ///   engines in one process on one machine and compare them to each other. That is
+    ///   both portable and a stronger claim than the constant was: it measures the property
+    ///   instead of a number somebody transcribed.
     public init(wheels: GradingWheels,
                 printerLights: PrinterLights,
                 whiteAnchorEV: Double = 5.0,
                 blackAnchorEV: Double = -9.0,
-                context: OKLabTransform.Context = OKLabTransform.working) {
+                context: OKLabTransform.Context = OKLabTransform.working,
+                forcingJointScale: Double? = nil) {
         self.wheels = wheels
         self.printerLights = printerLights
         self.context = context
@@ -319,7 +343,7 @@ public struct GradeEngine: Sendable {
             windows: self.windows, shadows: sh.stops, mid: mid.stops, high: hi.stops)
         let brilliance = ColorBalanceGrid.solveBrillianceScale(
             axis: wheels.colorBalance.brilliance, windows: self.windows)
-        let joint = GradeEngine.solveJointScale(
+        let joint = forcingJointScale ?? GradeEngine.solveJointScale(
             windows: self.windows, shadows: sh.stops, mid: mid.stops, high: hi.stops,
             lumScale: lum, brilliance: wheels.colorBalance.brilliance,
             brillianceScale: brilliance)

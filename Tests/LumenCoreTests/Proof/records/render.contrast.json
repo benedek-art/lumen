@@ -1,0 +1,14 @@
+{
+  "authority" : 129.67891823317416,
+  "deadSteps" : 0,
+  "frame" : "neutralRamp",
+  "frontLoading" : 0.9642647612328983,
+  "givenBack" : 0,
+  "id" : "render.contrast",
+  "isMonotone" : true,
+  "meanSeparation" : 98.28794994024229,
+  "panel" : "Display Transform",
+  "smallestLiveStep" : 2.4791002285265904,
+  "travelHigh" : 10,
+  "travelLow" : 0.1
+}

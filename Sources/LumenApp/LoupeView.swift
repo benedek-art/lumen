@@ -65,6 +65,32 @@ final class LoupeViewport: ObservableObject {
 
     static let shared = LoupeViewport()
 
+    /// The zoom ratio. 0 means fit; otherwise a ratio like 1.0 for 1:1.
+    ///
+    /// IT LIVED ON `AppState` AND THAT WAS THE WHOLE OF "the zoom is slow and glitchy".
+    ///
+    /// `AppState` is an `@EnvironmentObject` in twenty-two view files and a `@StateObject`
+    /// on `LumenApp`, so a `@Published` write there invalidates the entire window AND the
+    /// `Scene` — all seven menus, rebuilt. `setZoom` wrote it once per gesture event,
+    /// unguarded. A pinch emits a high-rate stream, and this application has already
+    /// diagnosed and paid for that exact failure twice: `CommandState` was extracted for
+    /// it and `PanelLayout` was kept off `AppState` for it, both with the mechanism
+    /// written down. `CommandState`'s own words are the diagnosis of the owner's report:
+    ///
+    ///   "Once the main actor cannot finish two whole-window passes inside the gap
+    ///    between two mouse events, AppKit coalesces the events it has not delivered —
+    ///    and from that point the app stops SEEING positions rather than merely rendering
+    ///    fewer of them."
+    ///
+    /// That is why it felt like treacle rather than like a low frame rate, and it is why
+    /// it got worse the faster you moved. Filed as K-030, S2, open since the audit.
+    ///
+    /// Here, it invalidates `LoupeView` and nothing else — this object is `@ObservedObject`
+    /// in exactly one place. Zoom and pan are also one fact about one viewport and always
+    /// were; the split across two objects is what made an anchored zoom take two writes to
+    /// two owners.
+    @Published var zoom: Double = 0
+
     /// Pan offset in points, from the centred position. Clamped by the view against
     /// the drawn size, so it can never carry the image off screen.
     @Published var pan: CGSize = .zero
@@ -111,14 +137,17 @@ final class LoupeViewport: ObservableObject {
     /// True when the next zoom change should keep `lastCursor` pinned.
     var anchorNextZoomAtCursor: Bool = true
 
-    private init() {}
+    /// Internal rather than private so `ZoomBroadcastTests` can count publishes on a
+    /// fresh viewport instead of on `shared`, whose state one test would otherwise carry
+    /// into the next. `PanelLayout` opened the same door for the same reason.
+    init() {}
 
     // MARK: Zoom verbs (the keymap's entry points)
 
     /// Set an explicit ratio, keeping `point` (loupe-local points) under the pointer.
     /// Pass `nil` to zoom about the centre of the viewport.
     @MainActor
-    func setZoom(_ ratio: Double, at point: CGPoint?, in state: AppState) {
+    func setZoom(_ ratio: Double, at point: CGPoint?) {
         if let point {
             lastCursor = point
             anchorNextZoomAtCursor = true
@@ -126,67 +155,109 @@ final class LoupeViewport: ObservableObject {
             anchorNextZoomAtCursor = false
         }
         let clamped: Double = ZoomLadder.clamp(ratio)
+        // GUARDED, because the unguarded write was half the cost. `ZoomLadder.clamp`
+        // saturates at 16, so pinching past the ceiling re-published 16.0 for every
+        // event of the rest of the gesture — and pinching out below fit re-published 0
+        // AND `pan = .zero` — with nothing on screen moving either time. A gesture that
+        // has run out of room is exactly when the hand keeps going.
+        guard clamped != zoom else { return }
+        // THE HUD COULD NOT SEE A ZOOM, which is why "the zoom is slow" has been an
+        // adjective for three rounds. `noteInput` was called from exactly one place —
+        // the recipe-edit path's `touchedPixels` — so the instrument built to answer
+        // "is the app receiving my events or failing to draw them" was blind to the two
+        // gestures the owner reports as worst.
+        //
+        // With this, the HUD's `in/out` line finally means something during a pinch, and
+        // its own comment says how to read it: "the two being close and low is dropped
+        // input; `in` high and `out` low is the render." Those are different defects with
+        // different fixes, and no amount of reading this file distinguishes them.
+        //
+        // Free when the HUD is off — `noteInput` returns on `enabled` before it touches
+        // a clock.
+        LatencyHUD.shared.noteInput()
         if ZoomLadder.isFit(clamped) { pan = .zero }
-        state.zoomLevel = clamped
+        zoom = clamped
     }
 
     @MainActor
-    func setZoom(_ ratio: Double, in state: AppState) {
-        setZoom(ratio, at: lastCursor, in: state)
+    func setZoom(_ ratio: Double) {
+        setZoom(ratio, at: lastCursor)
     }
 
     /// `Space` and `Z`: fit ↔ 1:1, centred on the cursor (docs/12 §B15 defaults).
     ///
-    /// Space reaches this now. It used to set `state.zoomLevel` from the keymap
+    /// Space reaches this now. It used to set `zoom` from the keymap
     /// directly — `zoomLevel == 0 ? 1 : 0` — which is the same ratio and none of the
     /// anchoring, so the one key whose documentation promised "centred on the cursor"
     /// was the one key that zoomed about the middle of the window.
     @MainActor
-    func toggleZoom(at point: CGPoint?, in state: AppState) {
-        let target: Double = ZoomLadder.toggleTarget(from: state.zoomLevel)
+    func toggleZoom(at point: CGPoint?) {
+        let target: Double = ZoomLadder.toggleTarget(from: zoom)
         let anchor: CGPoint? = ZoomLadder.anchorsAtCursor(target: target)
             ? (point ?? lastCursor)
             : nil
-        setZoom(target, at: anchor, in: state)
+        setZoom(target, at: anchor)
     }
 
     @MainActor
-    func toggleZoom(in state: AppState) { toggleZoom(at: lastCursor, in: state) }
+    func toggleZoom() { toggleZoom(at: lastCursor) }
 
     /// Walks fit → 1:1 → 2:1 → fit.
     @MainActor
-    func cycleZoom(in state: AppState) {
-        let target: Double = ZoomLadder.cycleTarget(from: state.zoomLevel)
-        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil,
-                in: state)
+    func cycleZoom() {
+        let target: Double = ZoomLadder.cycleTarget(from: zoom)
+        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil)
     }
 
     @MainActor
-    func fit(in state: AppState) { setZoom(LoupeZoom.fit, at: nil, in: state) }
+    func fit() { setZoom(LoupeZoom.fit, at: nil) }
 
     @MainActor
-    func oneToOne(in state: AppState) { setZoom(LoupeZoom.oneToOne, at: lastCursor, in: state) }
+    func oneToOne() { setZoom(LoupeZoom.oneToOne, at: lastCursor) }
 
     @MainActor
-    func twoToOne(in state: AppState) { setZoom(LoupeZoom.twoToOne, at: lastCursor, in: state) }
+    func twoToOne() { setZoom(LoupeZoom.twoToOne, at: lastCursor) }
 
     @MainActor
-    func zoomIn(in state: AppState) {
-        setZoom(ZoomLadder.zoomInTarget(from: state.zoomLevel), at: lastCursor, in: state)
+    func zoomIn() {
+        setZoom(ZoomLadder.zoomInTarget(from: zoom), at: lastCursor)
     }
 
     @MainActor
-    func zoomOut(in state: AppState) {
-        guard !ZoomLadder.isFit(state.zoomLevel) else { return }
-        let target: Double = ZoomLadder.zoomOutTarget(from: state.zoomLevel)
-        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil,
-                in: state)
+    func zoomOut() {
+        guard !ZoomLadder.isFit(zoom) else { return }
+        let target: Double = ZoomLadder.zoomOutTarget(from: zoom)
+        setZoom(target, at: ZoomLadder.anchorsAtCursor(target: target) ? lastCursor : nil)
     }
 
     // MARK: Pan verbs
 
-    func panBy(_ delta: CGSize) {
-        pan = CGSize(width: pan.width + delta.width, height: pan.height + delta.height)
+    // `panBy` is gone. It was the delta-shaped verb, it wrote `pan` UNCLAMPED, and both
+    // of its callers immediately wrote `pan` again to clamp it — so the shape of the API
+    // was the reason every pan cost two publishes. Deleting it is what stops the pattern
+    // coming back: with only `panTo`, clamping is not something a caller can forget.
+
+    /// Move to an absolute offset, clamped, in ONE published write.
+    ///
+    /// Every scroll and arrow pan used to be two: `panBy` assigned `pan`, then the caller
+    /// assigned it again with the clamp applied. Two writes to a `@Published` in one
+    /// synchronous block is two invalidations, and the first one shows an unclamped value
+    /// — briefly, but it is drawn. The clamp belongs on the same side of the publish as
+    /// the arithmetic.
+    ///
+    /// It takes `x`/`y` rather than a `CGSize` so a caller cannot accidentally pass a
+    /// delta where an absolute offset is meant, which is the mistake `panBy` sitting
+    /// beside it would otherwise invite.
+    /// `@MainActor` because it stamps `LatencyHUD`, which is main-actor isolated. Every
+    /// caller is a gesture handler on the main actor already, so this costs nothing and
+    /// makes an isolation the type had been getting away with implicitly explicit.
+    @MainActor
+    func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
+        let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
+                                             container: container, drawn: drawn)
+        guard clamped != pan else { return }
+        LatencyHUD.shared.noteInput()
+        pan = clamped
     }
 
     func resetPan() { pan = .zero }
@@ -219,11 +290,11 @@ final class LoupeViewport: ObservableObject {
     /// dimensions, with the caveat that they need not equal `CIRAWFilter.nativeSize`.
     /// That is a change worth measuring on a Mac; this one is worth making now.
     @MainActor
-    func resetForNewPhoto(in state: AppState) {
+    func resetForNewPhoto() {
         // Through the verb, not by assignment: `setZoom` is where fit clears the pan
         // and where every other zoom source in the app already goes. `ZoomLadder`'s own
         // header is the story of what two ladders cost this project.
-        setZoom(LoupeZoom.fit, at: nil, in: state)
+        setZoom(LoupeZoom.fit, at: nil)
         lastCursor = nil
     }
 }
@@ -281,11 +352,46 @@ enum LoupeGeometry {
         return r.isFinite && r > 0 ? r : zoomLevel
     }
 
-    /// Pan clamped so the image edge can never be dragged past the viewport centre:
-    /// an axis that already fits is pinned to 0.
+    /// Pan clamped so ANY POINT OF THE PICTURE CAN BE BROUGHT TO THE CENTRE OF THE
+    /// VIEWPORT, and no further. An axis with nothing hidden stays centred.
+    ///
+    /// IT USED TO STOP EXACTLY HALF A VIEWPORT SHORT OF THAT, and the owner found it:
+    /// "I can only pan to the side of the image … sometimes I want to get really close to
+    /// the corners and I want to see things really up close to the corners."
+    ///
+    /// The old bound was `(drawn − container) / 2`, which is precisely the set of offsets
+    /// where the photograph still covers the whole viewport — at the limit its edge is
+    /// flush with the viewport's edge and one more point would show surround. Putting a
+    /// CORNER at the centre needs `drawn / 2`, because
+    ///
+    ///     screen(u) = container/2 + pan + (u − 0.5)·drawn
+    ///
+    /// and solving `screen(0) = container/2` gives `pan = drawn/2`. So the shortfall was
+    ///
+    ///     drawn/2 − (drawn/2 − container/2)  =  container/2
+    ///
+    /// — half a viewport per axis, a CONSTANT, independent of the zoom ratio and of the
+    /// image's size. Zooming further never helped, which is exactly what the report says:
+    /// the furthest a corner could travel was to the corner of the viewport, never inward.
+    ///
+    /// Nothing specified the old rule. `docs/12` says what gestures must exist and how
+    /// fast they must answer, and says nothing about how far the picture may be moved, in
+    /// either direction. It was an implementation choice, documented as an invariant, with
+    /// no test — `clampPan` had none at all until this change — and inherited by the
+    /// compare panes on the way through.
+    ///
+    /// "Any point to the centre" is the rule rather than "unbounded" because it is the
+    /// weakest rule that grants the ask: at the limit the corner pixel is under the
+    /// crosshair, which is what inspecting a corner means. Past it the photograph would
+    /// only be leaving the window.
+    ///
+    /// An axis that FITS still pins to 0. Nothing is hidden along it, so there is no
+    /// corner to reach, and letting it drift would let a slightly-zoomed panorama be
+    /// dragged vertically out of the frame — the drag gate is an OR across the two axes,
+    /// so one overflowing axis would otherwise unlock both.
     static func clampPan(_ pan: CGSize, container: CGSize, drawn: CGSize) -> CGSize {
-        let mx = Swift.max(0, (drawn.width - container.width) / 2)
-        let my = Swift.max(0, (drawn.height - container.height) / 2)
+        let mx = drawn.width > container.width ? drawn.width / 2 : 0
+        let my = drawn.height > container.height ? drawn.height / 2 : 0
         let x = pan.width.isFinite ? Swift.min(Swift.max(pan.width, -mx), mx) : 0
         let y = pan.height.isFinite ? Swift.min(Swift.max(pan.height, -my), my) : 0
         return CGSize(width: x, height: y)
@@ -337,6 +443,8 @@ final class PhotoRenderModel: ObservableObject {
 
     @Published private(set) var image: CGImage?
     @Published private(set) var imageURL: URL?
+    private(set) var previewIdentity: DevelopedPreviewIdentity?
+    private var imageSourceIdentity: SourceFileIdentity?
     /// Bumped whenever `image` is replaced — a cheap `Equatable` handle for `.task(id:)`
     /// since `CGImage` is not `Equatable`.
     @Published private(set) var revision: Int = 0
@@ -495,9 +603,12 @@ final class PhotoRenderModel: ObservableObject {
 
         // New photo: drop the previous photo's pixels rather than showing them under a
         // new filename, and give this one the instant embedded-preview path (Law 11).
-        if imageURL != url {
+        let requestedSourceIdentity = SourceFileIdentity.read(url)
+        if imageURL != url || (image != nil && imageSourceIdentity != requestedSourceIdentity) {
             image = nil
             imageURL = nil
+            previewIdentity = nil
+            imageSourceIdentity = nil
             isDraft = false
             usedEmbeddedPreview = false
             isUnreadable = false
@@ -517,6 +628,7 @@ final class PhotoRenderModel: ObservableObject {
                    url: url, maxPixel: ThumbnailLadder.loupeInstantPixels),
                let cg = preview.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 guard !Task.isCancelled else { return }
+                guard SourceFileIdentity.read(url) == requestedSourceIdentity else { return }
                 // Only into the void this task itself cleared. A superseded sibling's
                 // COMPLETED draft may legally land while the thumbnail loads (that is
                 // FrameDelivery's whole point), and the camera JPEG must not paint
@@ -526,6 +638,7 @@ final class PhotoRenderModel: ObservableObject {
                 guard imageURL == nil else { return }
                 image = cg
                 imageURL = url
+                imageSourceIdentity = requestedSourceIdentity
                 usedEmbeddedPreview = true
                 isDraft = true
                 revision &+= 1
@@ -898,6 +1011,8 @@ final class PhotoRenderModel: ObservableObject {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
         image = result.image
         imageURL = url
+        previewIdentity = result.previewIdentity
+        imageSourceIdentity = result.sourceIdentity
         isDraft = result.isDraft
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note
@@ -986,20 +1101,34 @@ struct LoupeView: View {
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
     @State private var panStart: CGSize?
-    /// Whether the current drag began at fit — decided once at the first event and
-    /// held for the whole gesture, so a scrub that has already zoomed keeps scrubbing
-    /// instead of turning into a pan mid-hold. Nil between gestures.
-    @State private var scrubFromFit: Bool?
+    /// The zoom value whose anchor `zoomAnchored` has already applied, so the `.onChange`
+    /// fallback does not apply it a second time. `panKeeping` is not idempotent — it
+    /// moves the pan by the difference between two drawn sizes — so running it twice for
+    /// one zoom change would double the correction and pull the picture off the anchor.
+    @State private var anchoredZoom: Double?
     /// The zoom the current pinch began at, so the gesture's total magnification
     /// multiplies one start value instead of compounding per event. Nil between
     /// gestures.
     @State private var pinchStartZoom: Double?
-    /// The region ask captured at the pinch's first event and held for the whole
-    /// gesture — nil is a REAL value here (a pinch begun at fit holds whole-frame),
-    /// which is why this is read only while `pinchStartZoom` is non-nil. Without the
-    /// hold, a continuous zoom re-quantizes the region per event and mints a render
-    /// key per grid line — the request storm `ZoomRegion.grid` exists to prevent.
-    @State private var pinchRegion: CGRect?
+    /// The zoom the canvas's LAYOUT and the render ask are pinned to while a
+    /// continuous zoom is in flight; nil means the layout is at the live zoom.
+    ///
+    /// While it holds, a zoom event moves `viewport.zoom` and NOTHING else: the plate
+    /// keeps the frame it already has, every overlay keeps its layout, the render key
+    /// does not move, and the difference between the held frame and the one the live
+    /// zoom asks for is a `scaleEffect` — one matrix, on the GPU. `ZoomLayoutHold`
+    /// (LumenCore, tested) has the reasoning and the scale arithmetic.
+    ///
+    /// Without it the first event of a pinch out of fit re-keys the render from the
+    /// container's bucket to the sensor's own long edge and starts a full demosaic of
+    /// a 33 MP file while the fingers are still moving.
+    @State private var zoomHoldBase: Double?
+    /// The region ask captured when the hold began, and held with it — nil is a REAL
+    /// value here (a hold begun at fit holds whole-frame), which is why it is read
+    /// only while `zoomHoldBase` is non-nil. Without the hold a continuous zoom
+    /// re-quantizes the region per event and mints a render key per grid line — the
+    /// request storm `ZoomRegion.grid` exists to prevent.
+    @State private var zoomHoldRegion: CGRect?
     @State private var sampler: PixelSampler?
 
     @Environment(\.displayScale) private var displayScale: CGFloat
@@ -1079,17 +1208,16 @@ struct LoupeView: View {
     var body: some View {
         GeometryReader { geometry in
             let container: CGSize = geometry.size
-            // The zoomed region ask — held STILL through both continuous zoom
-            // gestures. A pinch reads the rectangle captured at its first event; the
-            // scrub always began at fit, so its whole gesture is whole-frame. Panning
-            // is deliberately NOT held: a pan past the margin is exactly the moment a
-            // new region must be rendered, and `ZoomRegion.grid` keeps that from
-            // being every pan point.
-            let region: CGRect? = {
-                if pinchStartZoom != nil { return pinchRegion }
-                if scrubFromFit == true { return nil }
-                return requestedRegion(container: container)
-            }()
+            // The zoomed region ask — held STILL through a continuous zoom, which
+            // reads the rectangle captured when the hold began. Panning is
+            // deliberately NOT held: a pan past the margin is exactly the moment a new
+            // region must be rendered, and `ZoomRegion.grid` keeps that from being
+            // every pan point.
+            //
+            // (The scrub clause that was here went with the scrub. A drag pans now.)
+            let region: CGRect? = zoomHoldBase != nil
+                ? zoomHoldRegion
+                : requestedRegion(container: container)
             // WHAT THE PANEL ACTUALLY DRAWS, in device pixels, computed ONCE and given
             // to both passes. It used to be computed here for the draft and not at all
             // for the settle, and the two consequences were both expensive:
@@ -1110,7 +1238,7 @@ struct LoupeView: View {
             // pixel count does, so this cannot chase its own tail through the render.
             let drawnDevice: Double? = region == nil
                 ? model.image.map { cg in
-                    let d = drawnFull(forZoom: state.zoomLevel, image: cg,
+                    let d = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
                     return Double(Swift.max(d.width, d.height))
                         * Double(Swift.max(displayScale, 1))
@@ -1195,20 +1323,28 @@ struct LoupeView: View {
             // the verb. Above the gestures in the modifier order and below them in
             // routing: `hitTest` claims scroll events only, so the drag, the pinch and
             // the double-click reach SwiftUI exactly as they do today.
-            .lumenViewerScroll(zoomed: { state.zoomLevel > 0 }) { verb in
+            .lumenViewerScroll(zoomed: { viewport.zoom > 0 }) { verb in
                 applyScroll(verb, container: container)
             }
             .gesture(dragGesture(container: container))
             .simultaneousGesture(magnifyGesture(container: container))
-            // The way BACK. The scrub only zooms while the press is held and only
-            // from fit, so once a gesture ends zoomed there was no pointer verb that
-            // returned — "when I zoom in, I can't zoom out". Double-click is the
-            // inherited grammar for exactly that and costs nothing at fit, where it
-            // is deliberately inert (a stray double-click on a fitted frame must not
-            // become the click-to-zoom that was just removed).
-            .simultaneousGesture(TapGesture(count: 2).onEnded {
-                guard !ZoomLadder.isFit(state.zoomLevel) else { return }
-                viewport.fit(in: state)
+            // FIT ↔ 1:1, BOTH WAYS, WHERE YOU CLICKED — the owner's choice, and the
+            // inherited grammar from every viewer that has one.
+            //
+            // It only went one way before: `guard !isFit else { return }`, deliberately
+            // inert at fit so a stray double-click could not become the click-to-zoom
+            // that had been removed. That reasoning held while a press-drag zoomed from
+            // fit — there was already a pointer way IN, and this was only the way back.
+            // The drag pans now, so the way in went with it, and a half-toggle is the
+            // wrong half: the useful direction is "show me this at 1:1".
+            //
+            // `SpatialTapGesture` rather than `TapGesture` because `TapGesture` carries
+            // no location, and zooming to 1:1 about the middle of the window when the
+            // photographer double-clicked an eye is the same defect `Space` was fixed
+            // for. `toggleZoom(at:)` is the verb every other zoom source already uses,
+            // so the anchoring rule stays in one place.
+            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { value in
+                viewport.toggleZoom(at: value.location)
             })
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
@@ -1227,8 +1363,32 @@ struct LoupeView: View {
             .onChange(of: container) { _, newValue in
                 containerSize = newValue
             }
-            .onChange(of: state.zoomLevel) { oldValue, newValue in
+            .onChange(of: viewport.zoom) { oldValue, newValue in
+                // Already anchored inside the gesture's own event, in the same block as
+                // the zoom write. Applying it again would double the correction.
+                if anchoredZoom == newValue {
+                    anchoredZoom = nil
+                    return
+                }
                 applyZoomChange(from: oldValue, to: newValue, container: container)
+            }
+            // THE HOLD'S RELEASE, and the reason the hold can never stick. `.task(id:)`
+            // cancels and restarts whenever the zoom moves, so the sleep only ever
+            // COMPLETES after the zoom has been still for the quiet window — which is
+            // longer than any gap inside a gesture and shorter than a pause. A pinch
+            // does not wait for it (`magnifyGesture`'s `onEnded`); the wheel, which has
+            // no end, does.
+            //
+            // `try?` would be wrong here: a cancelled sleep throws, and swallowing that
+            // would end the hold on the very event that extended it.
+            .task(id: viewport.zoom) {
+                guard zoomHoldBase != nil else { return }
+                do {
+                    try await Task.sleep(nanoseconds: ZoomLayoutHold.quietNanoseconds)
+                } catch {
+                    return
+                }
+                endZoomHold()
             }
             // `.task`'s action is `@Sendable`, so it touches no main-actor state
             // directly: everything goes through the `@MainActor` methods below.
@@ -1251,7 +1411,7 @@ struct LoupeView: View {
                 // full read of the RAW per photograph and a second occupant of the
                 // render actor (docs/34). Measuring what is on screen is cheaper and
                 // describes the picture the photographer is actually looking at.
-                if let cg = model.image, !model.isDraft, model.imageURL == photo.id {
+                if !Task.isCancelled, let cg = model.image, !model.isDraft, model.imageURL == photo.id {
                     state.measureScopes(fromViewerFrame: cg, url: photo.id)
                     // And file it, so coming back to this photograph does not read the
                     // RAW again. Only a SETTLED frame is worth filing: a draft is the
@@ -1261,8 +1421,8 @@ struct LoupeView: View {
                     // Region frames are excluded by `!model.isDraft` alone not being
                     // enough — a zoomed settle covers a rectangle, not the frame — so
                     // the whole-frame test is explicit.
-                    if model.regionUnit == nil, !cropArmed {
-                        state.thumbnails.recordDeveloped(url: photo.id, image: cg)
+                    if model.regionUnit == nil, !cropArmed, let identity = model.previewIdentity {
+                        state.thumbnails.recordDeveloped(url: photo.id, image: cg, identity: identity)
                     }
                 }
                 await warmNextPhoto(longEdge: longEdge)
@@ -1317,10 +1477,25 @@ struct LoupeView: View {
         .focusEffectDisabled()
         .onMoveCommand { direction in handleMove(direction) }
         .onChange(of: photo.id) { _, _ in
-            viewport.resetForNewPhoto(in: state)
+            viewport.resetForNewPhoto()
             sampler = nil
+            // A hold describes ONE photograph's frame — `zoomHoldRegion` is a rectangle
+            // of it — so it cannot survive the photograph changing. `resetForNewPhoto`
+            // usually moves the zoom and the quiet task would collect it anyway; this is
+            // for the case where the new photograph opens at the same zoom and the task
+            // is therefore never restarted.
+            endZoomHold()
             warmNeighbours()
         }
+        // THE HOLD CANNOT OUTLIVE THE VIEW, and without this it could. The release is a
+        // `.task` sleep, and a task is cancelled when its view goes away — so leaving the
+        // loupe for the grid or the compare panes mid-gesture threw the sleep, caught the
+        // cancellation, and returned WITHOUT clearing the hold. Coming back to a
+        // still-standing hold would freeze `layoutZoom` at a stale value: the canvas laid
+        // out at one zoom and permanently scaled to another, the render ask frozen, and
+        // the region ask stuck on a rectangle of a frame no longer on screen. Nothing
+        // would release it, because releasing it is what did not happen.
+        .onDisappear { endZoomHold() }
     }
 
     /// Decode the photograph the owner is most likely to open next, while he is still
@@ -1405,7 +1580,7 @@ struct LoupeView: View {
                          draftLongEdge: DraftResolution.draftLongEdge(
                              settledLongEdge: longEdge,
                              fitLongEdge: LoupeView.draftLongEdge,
-                             zoomRatio: state.zoomLevel,
+                             zoomRatio: viewport.zoom,
                              drawnDeviceLongEdge: drawnDevice),
                          fullLongEdge: longEdge,
                          strokeSets: state.strokeSets(for: wanted),
@@ -1452,7 +1627,7 @@ struct LoupeView: View {
                                draftLongEdge: DraftResolution.draftLongEdge(
                                    settledLongEdge: longEdge,
                                    fitLongEdge: LoupeView.draftLongEdge,
-                                   zoomRatio: state.zoomLevel),
+                                   zoomRatio: viewport.zoom),
                                fullLongEdge: longEdge,
                                strokeSets: state.strokeSets(for: beforeRecipe))
         // DELIBERATELY NOT GIVEN THE SETTLE GUARD the compare panes just received.
@@ -1544,10 +1719,27 @@ struct LoupeView: View {
         // rendered, so they need no region arithmetic at all.
         let region: CGRect? = model.regionUnit
         let ratio: Double = effectiveRatio(image: cg, container: container)
-        let drawn: CGSize = drawnFull(forZoom: state.zoomLevel, image: cg,
+        // `drawn` is the extent the canvas is LAID OUT at — the held zoom's, which is
+        // the live zoom's whenever nothing is held. `live` is where the photograph
+        // actually is; `stretch` is the difference, worn as a `scaleEffect`.
+        //
+        // A `scaleEffect` about the centre of a centred frame is geometrically
+        // IDENTICAL to laying the frame out at the scaled size: both put the plate's
+        // centre at the container's centre plus `offset`, and both scale about it. So
+        // this is the same picture in the same place — drawn by transforming a layer
+        // instead of by re-laying-out and re-rasterizing a 33 MP plate per event.
+        let drawn: CGSize = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
+        let live: CGSize = zoomHoldBase == nil
+            ? drawn
+            : drawnFull(forZoom: viewport.zoom, image: cg, container: container)
+        // The pan is clamped against where the photograph IS, never against the held
+        // frame: holding must not shrink how far you may pan.
         let offset: CGSize = LoupeGeometry.clampPan(viewport.pan,
-                                                    container: container, drawn: drawn)
+                                                    container: container, drawn: live)
+        let stretch = CGFloat(ZoomLayoutHold.stretch(
+            base: Double(Swift.max(drawn.width, drawn.height)),
+            live: Double(Swift.max(live.width, live.height))))
 
         ZStack {
             imageLayer(cg: cg, ratio: ratio, drawn: drawn, region: region)
@@ -1646,6 +1838,7 @@ struct LoupeView: View {
             }
         }
         .frame(width: drawn.width, height: drawn.height)
+        .scaleEffect(stretch)
         .offset(offset)
         .frame(width: container.width, height: container.height)
         .clipped()
@@ -1832,7 +2025,7 @@ struct LoupeView: View {
     /// drawn ratio above 1 just as a 1:1 inspection does. See that type for the
     /// arithmetic; the short version is that a 1280 px draft in this pane was magnified
     /// 1.84× unsmoothed, and the ladder's cheaper rungs magnify 3.07× and 4.10×.
-    /// `zoomRatio` overrides `state.zoomLevel` for the resampling decision alone — the
+    /// `zoomRatio` overrides `viewport.zoom` for the resampling decision alone — the
     /// crop canvas passes fit, because it lays the plate out at fit whatever the zoom
     /// number still holds, and a stale 1:1 would pick the unsmoothed mode for a plate
     /// that is being scaled.
@@ -1843,7 +2036,7 @@ struct LoupeView: View {
                        zoomRatio: Double? = nil,
                        resamplingLongEdge: Int? = nil) -> some View {
         let resampling = ProxyResampling.mode(
-            zoomRatio: zoomRatio ?? state.zoomLevel,
+            zoomRatio: zoomRatio ?? layoutZoom,
             drawnRatio: ratio,
             renderedLongEdge: resamplingLongEdge ?? Swift.max(cg.width, cg.height),
             fullLongEdge: model.displayFullLongEdge)
@@ -1911,7 +2104,7 @@ struct LoupeView: View {
                 // still holds from before the tool came up — the badge reports what is
                 // on screen, not the number waiting for the tool to close.
                 LumenBadge(text: LoupeZoom.label(LoupeZoom.fit))
-            } else if state.zoomLevel >= 1, let cg = model.image,
+            } else if viewport.zoom >= 1, let cg = model.image,
                       effectiveRenderedLongEdge(cg)
                           < (model.displayFullLongEdge ?? Int.max) {
                 // The frame on screen has fewer pixels than the settle will deliver —
@@ -1920,9 +2113,9 @@ struct LoupeView: View {
                 // pixels ARE the sensor's and "1:1" is the whole claim. Judged by the
                 // full-frame EQUIVALENT extent: a native-sharp region is not a proxy,
                 // however few pixels its rectangle holds.
-                LumenBadge(text: "\(LoupeZoom.label(state.zoomLevel)) · PROXY \(cg.width)×\(cg.height)")
+                LumenBadge(text: "\(LoupeZoom.label(viewport.zoom)) · PROXY \(cg.width)×\(cg.height)")
             } else {
-                LumenBadge(text: LoupeZoom.label(state.zoomLevel))
+                LumenBadge(text: LoupeZoom.label(viewport.zoom))
             }
         }
         .allowsHitTesting(false)
@@ -1985,10 +2178,79 @@ struct LoupeView: View {
     }
 
     private func effectiveRatio(image: CGImage, container: CGSize) -> Double {
-        ratio(forZoom: state.zoomLevel, image: image, container: container)
+        ratio(forZoom: layoutZoom, image: image, container: container)
+    }
+
+    // MARK: The zoom hold
+
+    /// The zoom every LAYOUT and every RENDER ASK is denominated in: the held value
+    /// while a continuous zoom is in flight, the live one otherwise. Read by the
+    /// canvas's frame, the drawn-extent ask, the region ask and the resampling rule,
+    /// so all five agree on which frame is on screen.
+    ///
+    /// Pans, clamps and the anchor arithmetic read `viewport.zoom` directly instead:
+    /// they describe where the photograph actually IS, which the hold does not change.
+    private var layoutZoom: Double { zoomHoldBase ?? viewport.zoom }
+
+    /// Whether the canvas may hold its layout right now. Not while an overlay takes
+    /// gestures in the canvas's own coordinates — the mask handles, a neutral pick —
+    /// because a held layout is scaled and a scaled layout receives a drag at the
+    /// wrong place. The crop canvas honours neither zoom nor pan, so it is out too.
+    private var zoomHoldAllowed: Bool {
+        !cropArmed && !panel.layout.isMasking && state.pickTarget == nil
+    }
+
+    /// Ends the hold: the canvas re-states itself at the live zoom and one render is
+    /// asked for at the size now on screen. Called the instant a pinch ends, and
+    /// `ZoomLayoutHold.quietNanoseconds` after the last change of any other zoom.
+    @MainActor
+    private func endZoomHold() {
+        zoomHoldBase = nil
+        zoomHoldRegion = nil
     }
 
     /// Keeps the anchor point pinned across a zoom change, then re-clamps the pan.
+    /// Zoom AND re-anchor in one synchronous block, so one gesture event costs one
+    /// body pass instead of two.
+    ///
+    /// `setZoom` publishes `zoom`; `applyZoomChange` publishes `pan`. Routed through
+    /// `.onChange`, those land in two different turns: SwiftUI runs the body with the new
+    /// zoom and the OLD pan, THEN fires `onChange`, which corrects the pan and runs the
+    /// body again. Every pinch event therefore drew one visibly unanchored frame and paid
+    /// for two full layouts of the canvas and its five overlays — at trackpad event
+    /// rates, on a high-refresh display, that is the difference between tracking the hand
+    /// and lagging it.
+    ///
+    /// Two `@Published` writes on the SAME object inside one synchronous block coalesce
+    /// into a single invalidation, which is why this works and why zoom and pan being on
+    /// one object was the precondition for it.
+    ///
+    /// `anchoredZoom` tells the surviving `.onChange` that this value has already been
+    /// handled. The `.onChange` stays because the KEYMAP's zoom verbs (Z, Space, +, −)
+    /// come through `LoupeViewport` with no container to anchor against, and a keyboard
+    /// zoom is one event where a second pass costs nothing.
+    private func zoomAnchored(to ratio: Double, at point: CGPoint?, container: CGSize) {
+        let before = viewport.zoom
+        // Captured BEFORE the write, so a hold beginning here pins the ask that is
+        // already on screen and the gesture's first event re-renders nothing at all.
+        let beforeRegion: CGRect? = zoomHoldBase == nil
+            ? requestedRegion(container: container)
+            : nil
+        viewport.setZoom(ratio, at: point)
+        let after = viewport.zoom
+        // Nothing moved — pinching past the 16× cap, or a wheel notch inside the
+        // ladder's dead band. The hold is deliberately NOT begun on this path: it is
+        // released by the zoom changing again (see `body`'s quiet task), so one begun
+        // without a change would never be released.
+        guard after != before else { return }
+        if zoomHoldBase == nil, zoomHoldAllowed {
+            zoomHoldBase = before
+            zoomHoldRegion = beforeRegion
+        }
+        applyZoomChange(from: before, to: after, container: container)
+        anchoredZoom = after
+    }
+
     private func applyZoomChange(from oldValue: Double, to newValue: Double,
                                  container: CGSize) {
         guard let cg = model.image else {
@@ -2070,20 +2332,25 @@ struct LoupeView: View {
                 // there, unseen, until the tool was put away and the picture jumped.
                 guard !cropArmed else { return }
                 guard let cg = model.image else { return }
-                if scrubFromFit == nil {
-                    scrubFromFit = ZoomLadder.isFit(state.zoomLevel)
-                }
-                if scrubFromFit == true {
-                    // Anchored at the PRESS point, not the moving cursor: the place
-                    // the owner aimed at is the place the zoom grows around.
-                    let target = ContinuousZoom.scrubbed(
-                        startZoom: ZoomLadder.fit,
-                        fitRatio: trueFitZoom(image: cg, container: container),
-                        horizontalTravel: Double(value.translation.width))
-                    viewport.setZoom(target, at: value.startLocation, in: state)
-                    return
-                }
-                let drawn = drawnFull(forZoom: state.zoomLevel, image: cg,
+                // A DRAG PANS. Always, at every zoom, with no mode to be in.
+                //
+                // It used to decide once, on the first event, from whether the picture
+                // was at fit: a drag begun at fit was a scrubby ZOOM and could never
+                // become a pan, and a drag begun zoomed was a pan and could never zoom.
+                // Nothing on screen said which you would get — this viewer sets no
+                // cursor at all (`LumenHover.swift`: "zero NSCursor changes anywhere in
+                // the application") — so the same press did two unrelated things
+                // depending on state the photographer had to remember.
+                //
+                // The owner chose "wheel zooms, drag pans" against the alternatives, and
+                // that is also the Lightroom and Capture One reflex. The scrub is not
+                // replaced by anything: the wheel and the pinch both zoom continuously
+                // and both are discoverable, so it was a third way to do a thing that
+                // already had two, and the only one with no affordance.
+                //
+                // At fit the guard below stops the drag, because a picture with nothing
+                // hidden has nowhere to go — `clampPan` pins an axis that fits.
+                let drawn = drawnFull(forZoom: viewport.zoom, image: cg,
                                       container: container)
                 guard drawn.width > container.width || drawn.height > container.height else {
                     return
@@ -2095,7 +2362,6 @@ struct LoupeView: View {
                 viewport.pan = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
             }
             .onEnded { _ in
-                scrubFromFit = nil
                 panStart = nil
             }
     }
@@ -2110,23 +2376,20 @@ struct LoupeView: View {
                 // Same guard as the scrub above: the armed canvas is fit-only.
                 guard !cropArmed else { return }
                 guard let cg = model.image else { return }
-                let start = pinchStartZoom ?? state.zoomLevel
-                if pinchStartZoom == nil {
-                    // Capture the region ask BEFORE this event moves the zoom, so
-                    // it matches the key already rendered and the gesture's first
-                    // frame re-renders nothing. Held until `onEnded` — see `body`.
-                    pinchRegion = requestedRegion(container: container)
-                    pinchStartZoom = start
-                }
+                let start = pinchStartZoom ?? viewport.zoom
+                if pinchStartZoom == nil { pinchStartZoom = start }
                 let target = ContinuousZoom.pinched(
                     startZoom: start,
                     fitRatio: trueFitZoom(image: cg, container: container),
                     magnification: Double(value.magnification))
-                viewport.setZoom(target, at: value.startLocation, in: state)
+                zoomAnchored(to: target, at: value.startLocation, container: container)
             }
             .onEnded { _ in
                 pinchStartZoom = nil
-                pinchRegion = nil
+                // A pinch has a real end, so it does not wait out the quiet window the
+                // wheel has to: lift your fingers and the sharp render is already on
+                // its way.
+                endZoomHold()
             }
     }
 
@@ -2143,20 +2406,23 @@ struct LoupeView: View {
         case .zoom(let factor):
             guard let cg = model.image else { return }
             let target = ContinuousZoom.scrolled(
-                currentZoom: state.zoomLevel,
+                currentZoom: viewport.zoom,
                 fitRatio: trueFitZoom(image: cg, container: container),
                 factor: factor)
             // Under the pointer, like every other zoom this app has: the cursor is
             // where the photographer is looking, and `onContinuousHover` already
             // tracks it for exactly this.
-            viewport.setZoom(target, at: viewport.lastCursor, in: state)
+            zoomAnchored(to: target, at: viewport.lastCursor, container: container)
         case .pan(let dx, let dy):
-            viewport.panBy(CGSize(width: dx, height: dy))
+            // ONE WRITE, NOT TWO. `panBy` assigned `pan` and the clamp assigned it again,
+            // so every event of a trackpad flick published twice and re-bodied the view
+            // twice — the second time to correct a value the first had already shown.
+            // `panTo` does the arithmetic and the clamp before it publishes anything.
             let drawn: CGSize = model.image.map {
-                drawnFull(forZoom: state.zoomLevel, image: $0, container: container)
+                drawnFull(forZoom: viewport.zoom, image: $0, container: container)
             } ?? container
-            viewport.pan = LoupeGeometry.clampPan(viewport.pan,
-                                                  container: container, drawn: drawn)
+            viewport.panTo(x: viewport.pan.width + dx, y: viewport.pan.height + dy,
+                           container: container, drawn: drawn)
         case .ignore:
             break
         }
@@ -2169,19 +2435,21 @@ struct LoupeView: View {
         // While the crop tool is armed the canvas ignores zoom and pan, so the arrows
         // page the roll whatever `zoomLevel` happens to hold — panning a pan nothing
         // draws would make the keys read as dead.
-        if state.zoomLevel > 0 && !cropArmed {
+        if viewport.zoom > 0 && !cropArmed {
+            var dx: CGFloat = 0
+            var dy: CGFloat = 0
             switch direction {
-            case .left: viewport.panBy(CGSize(width: step, height: 0))
-            case .right: viewport.panBy(CGSize(width: -step, height: 0))
-            case .up: viewport.panBy(CGSize(width: 0, height: step))
-            case .down: viewport.panBy(CGSize(width: 0, height: -step))
-            @unknown default: break
+            case .left: dx = step
+            case .right: dx = -step
+            case .up: dy = step
+            case .down: dy = -step
+            @unknown default: return
             }
             let drawn: CGSize = model.image.map {
-                drawnFull(forZoom: state.zoomLevel, image: $0, container: containerSize)
+                drawnFull(forZoom: viewport.zoom, image: $0, container: containerSize)
             } ?? containerSize
-            viewport.pan = LoupeGeometry.clampPan(viewport.pan,
-                                                  container: containerSize, drawn: drawn)
+            viewport.panTo(x: viewport.pan.width + dx, y: viewport.pan.height + dy,
+                           container: containerSize, drawn: drawn)
             return
         }
         switch direction {
@@ -2205,7 +2473,7 @@ struct LoupeView: View {
     /// only the settle pays the native price, at rest.
     private func requestedLongEdge(container: CGSize,
                                    drawnDeviceLongEdge: Double? = nil) -> Int {
-        if state.zoomLevel > 0 {
+        if layoutZoom > 0 {
             // THE ASK IS THE DENOMINATION BASIS, one value — `zoomedFullBasis` also
             // feeds the pinch math and the fit-snap, so asking for anything else
             // would draw at one size and gesture at another.
@@ -2248,7 +2516,7 @@ struct LoupeView: View {
     /// must match, the mask canvas is gated conservatively with them, and the crop
     /// tool lays the canvas out its own way entirely.
     private var regionActive: Bool {
-        state.zoomLevel > 0
+        layoutZoom > 0
             && !cropArmed
             && state.clippingOverlay == nil
             && state.soloMaskOverlay == nil
@@ -2263,7 +2531,7 @@ struct LoupeView: View {
         guard regionActive, let cg = model.image, model.imageURL == photo.id else {
             return nil
         }
-        let drawn = drawnFull(forZoom: state.zoomLevel, image: cg, container: container)
+        let drawn = drawnFull(forZoom: layoutZoom, image: cg, container: container)
         let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
         return ZoomRegion.requestUnit(container: container, drawnFull: drawn, pan: pan)
     }
@@ -2371,7 +2639,7 @@ struct LoupeView: View {
         guard viewport.showReadout, let cg = model.image, let sampler else { return nil }
         // The FULL frame's drawn extent — the same one the canvas laid out with —
         // so the cursor's unit point is denominated in the photograph.
-        let drawn = drawnFull(forZoom: state.zoomLevel, image: cg, container: container)
+        let drawn = drawnFull(forZoom: viewport.zoom, image: cg, container: container)
         let pan = LoupeGeometry.clampPan(viewport.pan, container: container, drawn: drawn)
         guard let unit = LoupeGeometry.imageUnitPoint(point, container: container,
                                                       drawn: drawn, pan: pan) else {

@@ -417,10 +417,17 @@ struct HistogramView: View {
         }
     }
 
+    /// ONE CLAMP AND ONE STEP FOR EACH FIELD, WHEREVER IT IS WRITTEN FROM.
+    ///
+    /// This used to read `let limit = slider == .exposure ? 5 : 100` and clamp with no
+    /// snap — a second, hand-rolled write path into the same five recipe fields
+    /// `BasicPanel`'s sliders own, with the bounds copied and the step simply absent. A
+    /// drag here could leave Exposure at 0.374296…, which the slider that displays it can
+    /// neither produce nor return to. `Lumen.ToneRow` is the shared statement now.
     private func setTone(_ slider: Histogram.ZoneSlider, _ value: Double) {
         guard value.isFinite else { return }
-        let limit: Double = slider == .exposure ? 5 : 100
-        let clamped: Double = Swift.min(Swift.max(value, -limit), limit)
+        let clamped: Double = Lumen.ToneRow(rawValue: slider.rawValue)?.resolve(value)
+            ?? value
         state.updateRecipe(coalescingKey: "histogram.zone." + slider.rawValue) { recipe in
             switch slider {
             case .blacks: recipe.develop.tone.blacks = clamped

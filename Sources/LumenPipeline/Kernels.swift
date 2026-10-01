@@ -873,10 +873,13 @@ public enum KernelLibrary {
     /// left.
     static let vignetteSource = """
     kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
-                              vec2 invRadius, float ev, float feather,
+                              vec2 invRadius, vec3 axisX, vec3 axisY,
+                              float ev, float feather,
                               vec3 lumaWeights, float threshold,
                               float protection, float ditherEV) {
-        vec2 d = (destCoord() - centre) * invRadius;
+        vec3 sourcePoint = vec3(destCoord(), 1.0);
+        vec2 oriented = vec2(dot(axisX, sourcePoint), dot(axisY, sourcePoint));
+        vec2 d = (oriented - centre) * invRadius;
         float r = length(d);
         float t = smoothstep(1.0 - feather, 1.0, r);
         float lum = dot(image.rgb, lumaWeights);

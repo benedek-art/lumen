@@ -116,12 +116,13 @@ public enum MaskDependency {
     /// that names only the one mask therefore serves a raster from before the edit —
     /// in the loupe and, since the delivery bakes through the same cache, in the file.
     ///
-    /// `mask` leads whether or not it is in `masks`, so a mask being edited off the list
-    /// still keys on itself. Cycles produce a finite walk, as everywhere else here.
+    /// The supplied `mask` is authoritative for the root, even if `masks` holds an
+    /// older copy. Other targets resolve first-wins, exactly like the rasterizer.
+    /// Results retain stack order, with an off-list root first. Cycles are finite.
     public static func closure(of mask: Mask, in masks: [Mask]) -> [Mask] {
         var byID: [String: Mask] = [:]
         for m in masks where byID[m.id] == nil { byID[m.id] = m }
-        if byID[mask.id] == nil { byID[mask.id] = mask }
+        byID[mask.id] = mask
 
         var seen: Set<String> = [mask.id]
         var queue: [String] = [mask.id]
@@ -139,7 +140,10 @@ public enum MaskDependency {
 
         var out: [Mask] = []
         if !masks.contains(where: { $0.id == mask.id }) { out.append(mask) }
-        out.append(contentsOf: masks.filter { seen.contains($0.id) })
+        var emitted: Set<String> = []
+        for m in masks where seen.contains(m.id) && emitted.insert(m.id).inserted {
+            if let resolved = byID[m.id] { out.append(resolved) }
+        }
         return out
     }
 

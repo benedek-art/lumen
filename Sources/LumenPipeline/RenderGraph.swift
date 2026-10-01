@@ -171,7 +171,7 @@ public struct RenderGraph {
         if plan.vignetteEV != 0 {
             image = applyVignette(image, ev: plan.vignetteEV,
                                   feather: plan.vignetteFeather,
-                                  crop: plan.recipe.develop.geometry.crop)
+                                  geometry: plan.recipe.develop.geometry)
         }
         if let film = plan.filmChain, film.halationAmount > 0 {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
@@ -906,27 +906,27 @@ public struct RenderGraph {
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
                                                  longEdge: options.longEdge,
                                                  lutSize: options.lutSize)
-            // Normal keeps the two-argument kernel it always used, so the common case
-            // is bit-identical and pays nothing for a feature it is not using. The
-            // coefficients come off the working space rather than being written into
-            // the shader, so this cannot drift from `MaskAlgebra.blended`.
-            let composite: CIImage?
-            if mask.blend == .normal {
-                composite = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                extent: out.extent,
-                                                [out, adjusted, alpha])
-            } else {
-                let w = RGBColorSpace.rec2020.luminanceWeights
-                let mode: Float = mask.blend == .luminosity ? 1 : 2
-                composite = KernelLibrary.apply(KernelLibrary.blendMaskMode,
-                                                extent: out.extent,
-                                                [out, adjusted, alpha, mode,
-                                                 Float(w.r), Float(w.g), Float(w.b)])
-            }
-            guard let blended = composite else { continue }
+            guard let blended = Self.compositeLocal(base: out, adjusted: adjusted,
+                alpha: alpha, blend: mask.blend) else { continue }
             out = blended
         }
         return out
+    }
+
+    /// Both local taps obey one mask blend contract, before alpha interpolation.
+    /// S15b pixels remain display-linear Rec2020, so the same luminance coefficients
+    /// apply there as in S11. Normal retains the existing kernel unchanged.
+    private static func compositeLocal(base: CIImage, adjusted: CIImage,
+                                       alpha: CIImage, blend: MaskBlend) -> CIImage? {
+        if blend == .normal {
+            return KernelLibrary.apply(KernelLibrary.blendMask, extent: base.extent,
+                                       [base, adjusted, alpha])
+        }
+        let w = RGBColorSpace.rec2020.luminanceWeights
+        let mode: Float = blend == .luminosity ? 1 : 2
+        return KernelLibrary.apply(KernelLibrary.blendMaskMode, extent: base.extent,
+                                   [base, adjusted, alpha, mode,
+                                    Float(w.r), Float(w.g), Float(w.b)])
     }
 
     /// A mask's sub-recipe evaluated on the stage input. Local parameters are deltas
@@ -974,8 +974,8 @@ public struct RenderGraph {
         // cropped decomposition of its own. Without this the mask panel's Texture,
         // Clarity, Dehaze and Sharpness sliders moved and nothing happened.
         var localDetail = Detail()
-        localDetail.texture = a.texture * scale
-        localDetail.clarity = a.clarity * scale
+        localDetail.texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
+        localDetail.clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         localDetail.dehaze = a.dehaze * scale
         if localDetail.texture != 0 || localDetail.clarity != 0 || localDetail.dehaze != 0 {
             out = Self.applyPresence(out, detail: localDetail, longEdge: longEdge)
@@ -988,12 +988,41 @@ public struct RenderGraph {
                                     longEdge: longEdge)
         } else if sharpness < 0 {
             // Negative Sharpness is a softening; `applySharpen` clamps at zero.
-            let filter = CIFilter.gaussianBlur()
-            filter.inputImage = out.clampedToExtent()
-            filter.radius = Float(Num.clamp(-sharpness / 100, 0, 1) * 2.5)
-            out = filter.outputImage?.cropped(to: out.extent) ?? out
+            let sigma = SpatialOps.frameDenominatedSigma(
+                radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                longEdge: longEdge)
+            out = Self.applyLocalSoftening(out, sigma: sigma)
         }
         return out
+    }
+
+    /// Match the reference's discrete Gaussian at subpixel radii. Core Image's
+    /// Gaussian approximation over-softens this range (sigma .5 is visibly wider),
+    /// precisely where frame-denominated blur lands on a small preview. Nine taps
+    /// contain the reference's full 4-sigma support below one pixel; larger radii
+    /// keep the existing Gaussian and its established reference-resolution look.
+    private static func applyLocalSoftening(_ image: CIImage, sigma: Double) -> CIImage {
+        guard sigma > 0.05 else { return image }
+        if sigma < 1 {
+            let radius = Swift.max(Int(ceil(sigma * 4)), 1)
+            var weights = [CGFloat](repeating: 0, count: 9)
+            for i in -radius...radius {
+                weights[i + 4] = CGFloat(exp(-Double(i * i) / (2 * sigma * sigma)))
+            }
+            let total = weights.reduce(0, +)
+            weights = weights.map { $0 / total }
+            let vector = CIVector(values: weights, count: weights.count)
+            let horizontal = image.clampedToExtent().applyingFilter(
+                "CIConvolution9Horizontal", parameters: ["inputWeights": vector])
+                .cropped(to: image.extent)
+            return horizontal.clampedToExtent().applyingFilter(
+                "CIConvolution9Vertical", parameters: ["inputWeights": vector])
+                .cropped(to: image.extent)
+        }
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = image.clampedToExtent()
+        filter.radius = Float(sigma)
+        return filter.outputImage?.cropped(to: image.extent) ?? image
     }
 
     // MARK: - S15b local point curve
@@ -1024,9 +1053,8 @@ public struct RenderGraph {
             guard let curved = Self.throughShaper(out, { encoded in
                 ColorCube.filter(table, image: encoded)
             }) else { continue }
-            guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                    extent: out.extent,
-                                                    [out, curved, alpha])
+            guard let blended = Self.compositeLocal(base: out, adjusted: curved,
+                                                    alpha: alpha, blend: mask.blend)
             else { continue }
             out = blended
         }
@@ -1283,28 +1311,23 @@ public struct RenderGraph {
 
     // MARK: - S13 vignette and halation
 
-    /// `crop` is the recipe's crop, so the burn is centred on the rectangle the user
-    /// will actually see.
-    ///
-    /// This stage runs on the full decoded frame and `applyGeometry` crops afterwards,
-    /// so computing the ellipse from `image.extent` centred it on the SENSOR. On a
-    /// cropped photo the burn was off-centre with the wrong radius, and on an
-    /// off-centre crop it could sit almost entirely outside the visible frame — while
-    /// the panel note asserts the vignette "is masked to the crop rectangle, so it
-    /// stays post-crop by construction".
-    ///
-    /// Straighten is not accounted for: the crop rectangle is expressed on the
-    /// straightened frame while this stage still sees the source orientation, and the
-    /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
-    /// slightly off. That is a much smaller error than the one being fixed, and it is
-    /// listed in BUILDING.md rather than approximated with maths I cannot check here.
-    /// `dithered: false` exists for ONE caller: the banding golden renders an
+    /// Evaluate the crop's ellipse in the exact oriented coordinates used by delivery.
+    /// Pixels stay in source space here: vignette still precedes halation and picture
+    /// formation. Only its coordinate field is transformed, with no image resampling.
+    /// The full rectangle/rotation/flip comes from applyGeometry's shared definition.
+    /// `dithered: false` is test-only: the banding golden renders an
     /// undithered control in the same run and asserts the dither's improvement as a
     /// RATIO, because an absolute bar calibrated by simulating fp16 died on the real
     /// driver's materialization (both macOS lanes, same 0.0072 EV, deterministic).
     /// The shipping path never passes it.
-    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+    func applyVignette(_ image: CIImage, ev: Double, feather: Double,
                        crop: Crop, dithered: Bool = true) -> CIImage {
+        applyVignette(image, ev: ev, feather: feather, geometry: Geometry(crop: crop),
+                      dithered: dithered)
+    }
+
+    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+                       geometry: Geometry, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
         // The reference's clamp, and now literally the reference's OWN clamp rather
@@ -1320,16 +1343,19 @@ public struct RenderGraph {
                            DetailEngine.vignetteAmountRange.upperBound)
         guard ev != 0 else { return image }
 
-        var e = full
-        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
-           crop.w > 0, crop.h > 0 {
-            // Recipe crop is top-left-origin; Core Image extents are bottom-up.
-            e = CGRect(x: full.minX + CGFloat(crop.x) * full.width,
-                       y: full.minY + CGFloat(1 - crop.y - crop.h) * full.height,
-                       width: CGFloat(crop.w) * full.width,
-                       height: CGFloat(crop.h) * full.height)
-        }
+        let rects = PipelineRenderer.geometryRects(geometry, sourceSize: full.size)
+        // Core Image's final cropped image has integral pixel bounds. Align the
+        // ellipse with that delivered rectangle, not its fractional requested edge;
+        // otherwise a small/rotated crop shifts the brightening ramp by a pixel.
+        let e = rects.target.integral
         guard e.width > 0, e.height > 0 else { return image }
+        // Delivery first translates a nonzero source origin to zero, then applies
+        // this orientation. Rows act on the SOURCE coordinate, not a resampled image.
+        let t = rects.orientation
+        let axisX = CIVector(x: t.a, y: t.c,
+            z: t.tx - t.a * full.minX - t.c * full.minY)
+        let axisY = CIVector(x: t.b, y: t.d,
+            z: t.ty - t.b * full.minX - t.d * full.minY)
         let centre = CIVector(x: e.midX, y: e.midY)
         // PER AXIS, then scaled so the corner lands at r = 1 — level sets elliptical on
         // the crop's own proportions, which is what docs/06's Roundness 0 means and what
@@ -1372,7 +1398,8 @@ public struct RenderGraph {
         let noise = plate ?? image
         let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, noise, centre, inv, Float(ev), Float(feather),
+                                   [image, noise, centre, inv, axisX, axisY,
+                                    Float(ev), Float(feather),
                                     CIVector(x: weights.r, y: weights.g, z: weights.b),
                                     Float(threshold),
                                     Float(DetailEngine.vignetteHighlightProtection),

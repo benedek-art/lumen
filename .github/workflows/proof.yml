@@ -14,9 +14,24 @@ on:
   push:
     paths:
       - "Sources/LumenCore/**"
+      # THE TWO THAT WERE MISSING, and the gap they left. The sweep renders through
+      # `ReferenceRenderer`, which lives in LumenCore — so the paths list described where
+      # the RENDERER lives rather than where a control's behaviour can be changed from.
+      # `LumenPipeline` holds the shipping graph and every kernel; `LumenApp` holds the
+      # panels that decide what a slider writes and over what range. A change to either
+      # can move what a control does to a photograph, and neither fired this lane.
+      #
+      # Cheap to be wrong in this direction: the job is ~66-80 minutes but it is a
+      # separate workflow with its own concurrency group, so it costs a queued Linux
+      # runner and never blocks `ci.yml`.
+      - "Sources/LumenPipeline/**"
+      - "Sources/LumenApp/**"
       - "Tests/LumenCoreTests/Proof/**"
       - "scripts/install-linux-toolchain.sh"
       - ".github/workflows/proof.yml"
+  # GitHub only fires a schedule on the repository's DEFAULT branch, so this is inert
+  # while the work lives on `claude/photo-editor-design-plan-8ahzmm` — the paths trigger
+  # above is the one doing the guarding, which is why the two lines added to it matter.
   schedule:
     - cron: "30 2 * * *"
   workflow_dispatch:

@@ -279,8 +279,10 @@ final class ExportCancelAdversarialTests: XCTestCase {
                               + "the name a photographer will ship — \(line)")
             }
         }
-        XCTAssertTrue(write.contains("moveItem(at: partial, to: destination)"),
+        XCTAssertTrue(write.contains("renamex_np(from!, to!, flags)"),
                       "the delivery must arrive by a same-directory rename")
+        XCTAssertTrue(write.contains("RENAME_EXCL"),
+                      "default publication must atomically refuse a competing destination")
     }
 
     // MARK: - B. A stale click cannot cancel the next run

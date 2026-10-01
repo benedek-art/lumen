@@ -199,7 +199,7 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("3", command: true), "Crop workspace"),
             KeyRow(KeyBinding("4", command: true), "Grade workspace"),
             KeyRow(KeyBinding("5", command: true), "Deliver workspace"),
-            KeyRow(KeyBinding("o", command: true), "Open folder"),
+            KeyRow(KeyBinding("o", command: true), "Open photographs or a folder"),
             KeyRow(KeyBinding("i", command: true, shift: true), "Ingest from a card"),
             KeyRow(KeyBinding("z", command: true), "Undo"),
             KeyRow(KeyBinding("z", command: true, shift: true), "Redo"),

@@ -88,6 +88,7 @@ struct ViewerRenderKey: Equatable {
     /// keeps that from being every pan point, and the loupe holds it STICKY while a
     /// pinch is in flight so a continuous zoom does not mint a request per quantum.
     let regionUnit: CGRect?
+    var sourceRevision: Int = 0
 
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
     /// Reads the beside-the-recipe inputs from the one place they live.
@@ -102,7 +103,8 @@ struct ViewerRenderKey: Equatable {
                         matteKinds: state.maskMatteKinds(for: url),
                         showingUncropped: showingUncropped,
                         settleTick: state.settleTick,
-                        regionUnit: regionUnit)
+                        regionUnit: regionUnit,
+                        sourceRevision: state.sourceRevision)
     }
 }
 

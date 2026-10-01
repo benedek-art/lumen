@@ -58,6 +58,27 @@ public enum SliderScale: String, Sendable, Equatable, Codable, CaseIterable {
     /// whose span runs backwards. Requires a strictly positive range.
     case reciprocal
 
+    /// Position is proportional to log(value): equal drags anywhere on the track are
+    /// worth the same RATIO. Requires a strictly positive range.
+    ///
+    /// K-039, and it is the same shape of defect Temp had. The Render Contrast row is a
+    /// SLOPE — 1.0 is no contrast at all, and 2.0 is exactly as far from 1.0 as 0.5 is,
+    /// because one doubles a difference and the other halves it. On the linear 0.1…10
+    /// track it shipped with, the default of 1.5 sat at 14.1% and everything anyone
+    /// actually sets lived in the first ninth; on the log axis the default sits at 58.8%
+    /// and the working band straddles the middle of the track. docs/04-spec-tone.md:302
+    /// has specified "0.1–10.0, log-scaled" the whole time; this is the case that
+    /// sentence needed and did not have.
+    ///
+    /// The STEP stays in the value's own units, which is this file's rule for every
+    /// scale and is worth stating because a log axis makes the consequence visible: near
+    /// the bottom of the track a 0.05 step is half the value and takes real travel to
+    /// cross, near the top it is a twentieth of a percent and rounds away. That is the
+    /// correct behaviour for a ratio control — the coarseness is where the numbers are
+    /// genuinely far apart in ratio terms — and it is the same trade `reciprocal`
+    /// already makes for Temp.
+    case log
+
     /// Position coordinate for a value. Monotone increasing in `value`.
     public func axis(_ value: Double) -> Double {
         switch self {
@@ -66,6 +87,9 @@ public enum SliderScale: String, Sendable, Equatable, Codable, CaseIterable {
         case .reciprocal:
             guard value > 0, value.isFinite else { return -.infinity }
             return -1e6 / value
+        case .log:
+            guard value > 0, value.isFinite else { return -.infinity }
+            return Foundation.log(value)
         }
     }
 
@@ -77,6 +101,9 @@ public enum SliderScale: String, Sendable, Equatable, Codable, CaseIterable {
         case .reciprocal:
             guard a < 0, a.isFinite else { return .infinity }
             return -1e6 / a
+        case .log:
+            guard a.isFinite else { return a < 0 ? 0 : .infinity }
+            return Foundation.exp(a)
         }
     }
 
@@ -88,7 +115,7 @@ public enum SliderScale: String, Sendable, Equatable, Codable, CaseIterable {
         switch self {
         case .linear:
             return true
-        case .reciprocal:
+        case .reciprocal, .log:
             return lowerBound > 0 && upperBound > 0
         }
     }
