@@ -510,6 +510,9 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     /// What `{seq}` counts from (docs/11 §Naming: 1…999999). The first photo of the
     /// batch is this number; a template with no sequence token never reads it.
     public var sequenceStart: Int
+    /// What happens when the name is already taken on disk (docs/11 §Naming). Rename
+    /// is what every export did before the policy existed, and stays the default.
+    public var collision: ExportCollisionPolicy
 
     /// HDR: emit a gain map alongside the SDR base rendition.
     public var hdr: HDRSettings?
@@ -527,6 +530,7 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
                 watermark: Watermark? = nil,
                 filenameTemplate: String = "{name}", subfolder: String? = nil,
                 sequenceStart: Int = 1,
+                collision: ExportCollisionPolicy = .rename,
                 hdr: HDRSettings? = nil) {
         self.id = id
         self.name = name
@@ -545,6 +549,7 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.filenameTemplate = filenameTemplate
         self.subfolder = subfolder
         self.sequenceStart = sequenceStart
+        self.collision = collision
         self.hdr = hdr
     }
 
@@ -603,6 +608,8 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         subfolder = c.tolerant(String.self, forKey: .subfolder)
         sequenceStart = c.tolerant(Int.self, forKey: .sequenceStart,
                                    default: fallback.sequenceStart)
+        collision = c.tolerant(ExportCollisionPolicy.self, forKey: .collision,
+                               default: fallback.collision)
         hdr = c.tolerant(HDRSettings.self, forKey: .hdr)
     }
 
@@ -786,6 +793,67 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         // it is still not a reason to overwrite somebody's file. A name nothing else
         // will pick beats returning the one we know is taken.
         return candidate("-" + UUID().uuidString)
+    }
+
+    /// Where one file of the batch goes, under this recipe's collision policy.
+    ///
+    /// The policy governs ONE question — a file that was already on disk before this
+    /// run. A name an earlier job of THIS run claimed is always disambiguated, whatever
+    /// the policy says: two frames rendering to one name inside one batch is the
+    /// recursive-scan collision `disambiguated` was written for, and neither
+    /// "overwrite" (the second frame replaces the first, and the count lies) nor
+    /// "skip" (a frame the photographer selected is silently not delivered) is an
+    /// answer anyone chose by picking a policy about yesterday's files.
+    ///
+    /// Under `.rename` this is exactly `disambiguated(wanted) { claimed || exists }`,
+    /// the call the batch made before the policy existed.
+    public static func placement(for wanted: URL, policy: ExportCollisionPolicy,
+                                 claimedThisRun: (URL) -> Bool,
+                                 existsOnDisk: (URL) -> Bool) -> ExportPlacement {
+        let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) }
+        if claimedThisRun(wanted) {
+            return .write(disambiguated(wanted, isTaken: taken), replacing: false)
+        }
+        guard existsOnDisk(wanted) else { return .write(wanted, replacing: false) }
+        switch policy {
+        case .rename: return .write(disambiguated(wanted, isTaken: taken), replacing: false)
+        case .overwrite: return .write(wanted, replacing: true)
+        case .skip: return .skip(wanted)
+        }
+    }
+}
+
+/// docs/11 §Naming's collision control: rename / overwrite / skip, default rename.
+public enum ExportCollisionPolicy: String, Codable, Sendable, CaseIterable {
+    /// Append `-1`, `-2` … until the name is free. Nothing is ever replaced.
+    case rename
+    /// Replace the file that is there — the re-delivery of a corrected batch.
+    case overwrite
+    /// Leave the file that is there and do not write this one — resuming a delivery.
+    case skip
+
+    public var displayName: String {
+        switch self {
+        case .rename: return "Rename"
+        case .overwrite: return "Overwrite"
+        case .skip: return "Skip"
+        }
+    }
+}
+
+/// The answer `ExportRecipe.placement` gives for one file.
+public enum ExportPlacement: Equatable, Sendable {
+    /// Write here. `replacing` is the publish's `allowOverwrite`: true only when the
+    /// policy is `.overwrite` and the file was there before the run.
+    case write(URL, replacing: Bool)
+    /// Write nothing; this file is already there and the policy says leave it.
+    case skip(URL)
+
+    /// The path this placement reserves for the rest of the run.
+    public var url: URL {
+        switch self {
+        case .write(let url, _), .skip(let url): return url
+        }
     }
 }
 

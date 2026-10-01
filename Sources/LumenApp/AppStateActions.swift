@@ -315,6 +315,10 @@ extension AppState {
             // subfolders silently became one file.
             var claimed: Set<URL> = []
             var renamed = 0
+            // The collision policy's two other answers, counted so the status line can
+            // say what was left alone and what was replaced.
+            var skipped = 0
+            var replaced = 0
             var written = 0
             var stopped = false
             // A file that was written with a stage missing is not a failure and is not
@@ -354,33 +358,47 @@ extension AppState {
                     let wanted = Self.destination(directory: directory,
                                                   recipe: exportRecipe,
                                                   naming: recipeNaming)
-                    let destination = ExportRecipe.disambiguated(wanted) { candidate in
-                        claimed.contains(candidate)
-                            || FileManager.default.fileExists(atPath: candidate.path)
-                    }
-                    claimed.insert(destination)
-                    if destination != wanted { renamed += 1 }
-                    do {
-                        try FileManager.default.createDirectory(
-                            at: destination.deletingLastPathComponent(),
-                            withIntermediateDirectories: true)
-                        let missing = try await renderCoordinator.export(
-                            url: job.url, recipe: job.recipe, to: destination,
-                            exportRecipe: exportRecipe, strokeSets: job.strokes,
-                            softProof: proof)
-                        written += 1
-                        if !missing.isEmpty {
-                            reducedFiles += 1
-                            reducedKernels.formUnion(missing)
+                    // The recipe's collision policy decides about files that were
+                    // there before the run; a name this run already claimed is always
+                    // renamed (`ExportRecipe.placement` says why). Under the default,
+                    // Rename, this is the `disambiguated` call it replaced.
+                    let placement = ExportRecipe.placement(
+                        for: wanted, policy: exportRecipe.collision,
+                        claimedThisRun: { claimed.contains($0) },
+                        existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) })
+                    if case .skip = placement {
+                        // Not written and not a failure: the file the policy keeps is
+                        // already there. Not claimed either, so a second frame wanting
+                        // the same name is asked the same question, not renamed into a
+                        // duplicate of a delivery that exists.
+                        skipped += 1
+                    } else if case .write(let destination, let replacing) = placement {
+                        claimed.insert(destination)
+                        if destination != wanted { renamed += 1 }
+                        do {
+                            try FileManager.default.createDirectory(
+                                at: destination.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+                            let missing = try await renderCoordinator.export(
+                                url: job.url, recipe: job.recipe, to: destination,
+                                exportRecipe: exportRecipe, strokeSets: job.strokes,
+                                softProof: proof, allowOverwrite: replacing)
+                            written += 1
+                            if replacing { replaced += 1 }
+                            if !missing.isEmpty {
+                                reducedFiles += 1
+                                reducedKernels.formUnion(missing)
+                            }
+                        } catch {
+                            // WITH THE REASON when there is one a photographer can act on
+                            // (V6 note 2): a name that appeared during the export, a volume
+                            // that cannot publish without risking an overwrite, and a
+                            // refused contact all used to read as the same bare failure.
+                            let reason = ExclusivePublish.statusReason(for: error)
+                            failures.append(job.url.lastPathComponent + " → "
+                                                + exportRecipe.name
+                                                + (reason.map { ": " + $0 } ?? ""))
                         }
-                    } catch {
-                        // WITH THE REASON when there is one a photographer can act on
-                        // (V6 note 2): a name that appeared during the export, a volume
-                        // that cannot publish without risking an overwrite, and a
-                        // refused contact all used to read as the same bare failure.
-                        let reason = ExclusivePublish.statusReason(for: error)
-                        failures.append(job.url.lastPathComponent + " → " + exportRecipe.name
-                                            + (reason.map { ": " + $0 } ?? ""))
                     }
                     completed += 1
                     let progress = completed / total
@@ -402,8 +420,13 @@ extension AppState {
                 // Count what was actually written, not what was planned. The old
                 // message reported photos × recipes whatever happened, so a run that
                 // overwrote two of its own outputs still claimed every file.
-                let renamedNote = renamed == 0 ? ""
-                    : " (\(renamed) renamed to avoid overwriting)"
+                // The collision policy's other two answers ride the same note: a
+                // resumed delivery that skipped 180 files is not "Exported 20 files"
+                // with nothing else to say, and a replaced file should be counted.
+                let renamedNote = (renamed == 0 ? ""
+                    : " (\(renamed) renamed to avoid overwriting)")
+                    + (skipped == 0 ? "" : " (\(skipped) skipped, already there)")
+                    + (replaced == 0 ? "" : " (\(replaced) replaced)")
                 // Named, not counted: "2 reduced" tells a photographer nothing about
                 // what is missing from a file they are about to send to a client.
                 let reducedNote = reducedFiles == 0 ? ""

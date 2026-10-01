@@ -53,6 +53,11 @@ private let bitDepthOptions: [(value: Int, label: String)] =
 private let heifBitDepthOptions: [(value: Int, label: String)] =
     [(value: 8, label: "8-bit"), (value: 10, label: "10-bit")]
 
+/// docs/11 §Naming's collision control, in its own order: Rename (the default and what
+/// every export did before the control existed), Overwrite, Skip.
+private let collisionOptions: [(value: ExportCollisionPolicy, label: String)] =
+    ExportCollisionPolicy.allCases.map { (value: $0, label: $0.displayName) }
+
 private let mapScaleOptions: [(value: Double, label: String)] =
     [(value: 1.0, label: "Full"), (value: 0.5, label: "Half"),
      (value: 0.25, label: "Quarter")]
@@ -813,6 +818,11 @@ private struct ExportRecipeEditor: View {
                 ExportTextEntry(text: optionalText(\.subfolder), placeholder: "none",
                                 monospaced: true)
             }
+            ExportFieldRow("If it exists") {
+                LumenSegmented(options: collisionOptions, selection: $recipe.collision)
+                    .frame(maxWidth: 260)
+                    .help(collisionHelp)
+            }
             if usesSequence {
                 LumenSlider(title: "Start at", value: sequenceStartBinding,
                             range: 1...9999, hardRange: 1...999_999, defaultValue: 1,
@@ -840,6 +850,23 @@ private struct ExportRecipeEditor: View {
     }
 
     private var usesSequence: Bool { ExportNaming.usesSequence(recipe.filenameTemplate) }
+
+    /// What each answer does to a file that was in the folder before this export —
+    /// the only file the policy is about. Two frames of one batch that render to one
+    /// name are always told apart with -1, -2 …, whatever is chosen here.
+    private var collisionHelp: String {
+        switch recipe.collision {
+        case .rename:
+            return "A file already there is kept, and this one is written beside it "
+                + "as -1, -2 …"
+        case .overwrite:
+            return "A file already there is replaced, in one step, once the new file is "
+                + "complete. Two photos of this batch never replace each other."
+        case .skip:
+            return "A file already there is kept and this photo is not written — for "
+                + "finishing a delivery that was stopped part-way."
+        }
+    }
 
     private var sequenceStartBinding: Binding<Double> {
         let recipe = self.$recipe
