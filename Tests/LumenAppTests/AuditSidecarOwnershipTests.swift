@@ -93,6 +93,38 @@ final class AuditSidecarOwnershipTests: XCTestCase {
         XCTAssertTrue(notices.contains { $0.localizedCaseInsensitiveContains("ownership") })
     }
 
+    /// REL-02 regression: darktable writes NAME.NEF.xmp beside every RAW it opens. A
+    /// lone NEF whose Lumen edits are in its owned NAME.xmp must keep using that file.
+    func testDarktableQualifiedSidecarDoesNotDisplaceOwnedBareSidecar() throws {
+        let root = try scratch()
+        let nef = root.appendingPathComponent("frame.NEF")
+        try Data([1, 2, 3]).write(to: nef)
+        let catalog = root.appendingPathComponent("catalog")
+        let first = try CatalogService(directory: catalog)
+        let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [nef])[nef]?.catalogID)
+        var recipe = Recipe(); recipe.develop.tone.exposure = 2
+        first.saveRecipe(recipe, url: nef, catalogID: id)
+        first.close()
+        let bare = root.appendingPathComponent("frame.xmp")
+        XCTAssertEqual(XMPSidecar.parse(try Data(contentsOf: bare))?.sourceExtension, "nef")
+        let darktable = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"1\"/></rdf:RDF></x:xmpmeta>"
+        let foreign = root.appendingPathComponent("frame.NEF.xmp")
+        try Data(darktable.utf8).write(to: foreign)
+        CatalogService.forgetSiblings()
+        XCTAssertEqual(CatalogService.sidecarURL(for: nef), bare)
+        let second = try CatalogService(directory: catalog)
+        let reopened = second.registerAndLoad(folder: root, files: [nef])
+        XCTAssertEqual(reopened[nef]?.recipe?.develop.tone.exposure, 2)
+        recipe.develop.tone.exposure = -1
+        second.saveRecipe(recipe, url: nef, catalogID: id)
+        second.close()
+        XCTAssertEqual(try String(contentsOf: foreign, encoding: .utf8), darktable,
+                       "Lumen spliced into darktable's document")
+        let portable = try CatalogService(directory: root.appendingPathComponent("fresh"))
+        defer { portable.close() }
+        XCTAssertEqual(portable.registerAndLoad(folder: root, files: [nef])[nef]?.recipe?.develop.tone.exposure, -1)
+    }
+
     func testUnownedAdobeSidecarStillBelongsToNativeRawBesideDNG() throws {
         let root = try scratch()
         let a = root.appendingPathComponent("frame.DNG"), b = root.appendingPathComponent("frame.NEF")

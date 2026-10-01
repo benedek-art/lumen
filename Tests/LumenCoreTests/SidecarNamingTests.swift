@@ -91,4 +91,80 @@ final class SidecarNamingTests: XCTestCase {
             isRawName: isRawName)
         XCTAssertEqual(set, ["dng"])
     }
+
+    // MARK: - Ownership decides (REL-02 regression)
+
+    private func owned(_ ext: String) -> SidecarContent {
+        SidecarContent(recipeJSON: "{}", writeStamp: "2026-10-01T00:00:00Z", sourceExtension: ext)
+    }
+    /// What darktable leaves beside every RAW it opens: a rating, no Lumen fields.
+    private var darktable: SidecarContent { SidecarContent(rating: 2) }
+
+    private func resolve(_ name: String, bare: SidecarContent?, qualified: SidecarContent?,
+                         siblings: Set<String> = []) -> URL {
+        SidecarNaming.resolve(photo: file(name), isRaw: isRawName(name),
+                              bare: bare, qualified: qualified, rawSiblingExtensions: siblings)
+    }
+
+    /// THE REGRESSION: a lone NEF whose Lumen edits are in NAME.xmp (owner nef) must not
+    /// switch to darktable's NAME.NEF.xmp once darktable has opened the folder.
+    func testForeignQualifiedFileNeverDisplacesAnOwnedBareFile() {
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: owned("nef"), qualified: darktable),
+                       file("DSC_0001.xmp"),
+                       "darktable's NAME.NEF.xmp displaced Lumen's own NAME.xmp")
+        // Owner tags compare case-insensitively, as the extension does.
+        XCTAssertEqual(resolve("DSC_0001.nef", bare: owned("NEF"), qualified: darktable),
+                       file("DSC_0001.xmp"))
+        // Even in a collision, an owned bare file stays its owner's.
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: owned("nef"), qualified: darktable,
+                               siblings: ["cr3"]), file("DSC_0001.xmp"))
+    }
+
+    /// A legacy Lumen document (no owner tag) on a lone RAW also stays put: a foreign
+    /// qualified file is not a reason to leave it.
+    func testForeignQualifiedFileDoesNotDisplaceALegacyLoneBareFile() {
+        let legacy = SidecarContent(recipeJSON: "{}", writeStamp: "2026-08-01T00:00:00Z")
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: legacy, qualified: darktable),
+                       file("DSC_0001.xmp"))
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: nil, qualified: darktable),
+                       file("DSC_0001.xmp"))
+    }
+
+    /// The other half of the spec: a qualified file Lumen owns for this extension is
+    /// honoured when the bare one belongs to somebody else, and after that neighbour is
+    /// gone, so the frame never moves back.
+    func testOwnedQualifiedFileIsHonoured() {
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: owned("dng"), qualified: owned("nef"),
+                               siblings: ["dng"]), file("DSC_0001.NEF.xmp"))
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: owned("dng"), qualified: owned("nef")),
+                       file("DSC_0001.NEF.xmp"))
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: nil, qualified: owned("nef")),
+                       file("DSC_0001.NEF.xmp"))
+        // An older Lumen write to the qualified name, before owner tags existed.
+        let older = SidecarContent(recipeJSON: "{}", writeStamp: "2026-09-01T00:00:00Z")
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: nil, qualified: older),
+                       file("DSC_0001.NEF.xmp"))
+        // A bare file owned by another extension sends this frame to qualified even
+        // when nothing is there yet.
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: owned("dng"), qualified: nil),
+                       file("DSC_0001.NEF.xmp"))
+    }
+
+    /// K-015 is unchanged when no Lumen document decides: the NEF beside a DNG keeps
+    /// the bare (Adobe) file even if darktable wrote a qualified one, and an unowned
+    /// Lumen document in a collision is not assigned by Adobe's convention.
+    func testSeptemberCollisionRulesStillApplyWithoutOwnership() {
+        let adobe = SidecarContent(rating: 4)
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: adobe, qualified: darktable, siblings: ["dng"]),
+                       file("DSC_0001.xmp"))
+        XCTAssertEqual(resolve("DSC_0001.DNG", bare: adobe, qualified: nil, siblings: ["nef"]),
+                       file("DSC_0001.DNG.xmp"))
+        XCTAssertEqual(resolve("IMG_0042.NEF", bare: nil, qualified: nil, siblings: ["cr3"]),
+                       file("IMG_0042.NEF.xmp"))
+        let legacy = SidecarContent(recipeJSON: "{}")
+        XCTAssertEqual(resolve("DSC_0001.NEF", bare: legacy, qualified: nil, siblings: ["dng"]),
+                       file("DSC_0001.NEF.xmp"))
+        XCTAssertEqual(resolve("DSC_0001.JPG", bare: owned("jpg"), qualified: nil),
+                       file("DSC_0001.JPG.xmp"))
+    }
 }

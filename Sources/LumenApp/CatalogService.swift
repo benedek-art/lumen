@@ -1340,20 +1340,17 @@ final class CatalogService: @unchecked Sendable {
     static func sidecarURL(for photo: URL) -> URL {
         let qualified = photo.appendingPathExtension("xmp")
         guard PhotoFormats.isRaw(photo) else { return qualified }
-        // Once a photo has a qualified file, removing its neighbour cannot make it
-        // switch back to somebody else's bare file.
-        if FileManager.default.fileExists(atPath: qualified.path) { return qualified }
+        // Ownership decides, in LumenCore where it is tested: a foreign NAME.EXT.xmp
+        // (darktable's) never displaces a bare file Lumen owns for this extension.
         let bare = photo.deletingPathExtension().appendingPathExtension("xmp")
-        let content = (try? Data(contentsOf: bare)).flatMap { XMPSidecar.parse($0) }
-        if let owner = content?.sourceExtension {
-            return owner == photo.pathExtension.lowercased() ? bare : qualified
+        let bareContent = (try? Data(contentsOf: bare)).flatMap { XMPSidecar.parse($0) }
+        if bareContent?.sourceExtension?.lowercased() == photo.pathExtension.lowercased() {
+            return bare
         }
-        let siblings = rawSiblings(of: photo)
-        // Lumen itself writes DNG sidecars, unlike Adobe. An old Lumen document
-        // therefore cannot be assigned by Adobe's convention when a collision exists.
-        if !siblings.isEmpty, let content,
-           content.recipeJSON != nil || content.writeStamp != nil { return qualified }
-        return SidecarNaming.url(for: photo, isRaw: true, rawSiblingExtensions: siblings)
+        let qualifiedContent = (try? Data(contentsOf: qualified)).flatMap { XMPSidecar.parse($0) }
+        return SidecarNaming.resolve(photo: photo, isRaw: true,
+                                     bare: bareContent, qualified: qualifiedContent,
+                                     rawSiblingExtensions: rawSiblings(of: photo))
     }
 
     /// Backfill only ownership supported by BOTH the recorded recipe fingerprint
