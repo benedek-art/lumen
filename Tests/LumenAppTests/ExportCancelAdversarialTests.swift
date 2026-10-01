@@ -493,7 +493,8 @@ final class ExportCancelAdversarialTests: XCTestCase {
         let task = try XCTUnwrap(export.range(of: "Task {"))
         XCTAssertTrue(capture.lowerBound < task.lowerBound,
                       "the capture must happen on the main actor before the batch")
-        XCTAssertTrue(export.contains("softProof: proof)"),
+        // The argument, wherever it falls in the call: F6 added `allowOverwrite:` after it.
+        XCTAssertTrue(export.contains("softProof: proof)") || export.contains("softProof: proof,"),
                       "the captured value must actually reach the renderer")
 
         // The same accessor, not a parallel reading of `softProof`.

@@ -413,10 +413,11 @@ enum SliderInventory {
     /// slider and the only one written inside the control kit rather than at a panel's
     /// call site. Both of its geometries are in the table below now.
     ///
-    /// 97 → 102 when the October run added five and none of them came with a row: the
+    /// 97 → 102 when the October run added five and none of them came with a row, and
+    /// 102 → 103 for Visualize Spots' threshold, which landed after that census: the
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
     /// Amount, and the export sheet's sequence Start at.
-    static let callSiteCount = 102
+    static let callSiteCount = 103
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -662,6 +663,8 @@ enum SliderInventory {
         SliderSpec("Size", "HealCanvas.swift:595", .healBar, 2...400, step: 1),
         SliderSpec("Feather", "HealCanvas.swift:599", .healBar, 0...100, step: 1),
         SliderSpec("Opacity", "HealCanvas.swift:603", .healBar, 0...100, step: 1),
+        // Visualize Spots' threshold (F8): shown only while the dust view is on.
+        SliderSpec("Threshold", "HealCanvas.swift:586", .healBar, 0...100, step: 1),
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.
         // "Midtones" is the widest of the six names.
