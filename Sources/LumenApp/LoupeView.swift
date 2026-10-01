@@ -1188,22 +1188,20 @@ struct LoupeView: View {
     /// supplies one — which is the surface the owner reported the stretch on.
     @MainActor
     private func learnSourceOrientation(fullPixel: CGSize?, uncropped: Bool) {
-        guard uncropped,
+        guard let url = state.primarySelection?.id,
               let delivered = fullPixel ?? model.image.map({
                   CGSize(width: $0.width, height: $0.height) }),
               let reported = state.primaryFrameSize else { return }
-        state.noteFrameTransposed(
-            FrameOrientation.isTransposed(reported: reported, delivered: delivered))
+        state.noteFrameDelivered(url, reported: reported, delivered: delivered,
+                                 wholeFrame: uncropped)
     }
 
     /// True when the frame the renderer is delivering is the whole photograph, so its
-    /// extent may be compared with the reported size. `cropArmed` strips the crop AND
-    /// the angle (`renderRecipe`); otherwise an identity crop with no straighten is the
-    /// same guarantee.
+    /// extent may be compared with the reported size. The rule is LumenCore's
+    /// (`FrameOrientation.deliversWholeFrame`); `cropArmed` strips the crop AND the
+    /// angle (`renderRecipe`).
     private var deliveringWholeFrame: Bool {
-        if cropArmed { return true }
-        let geometry = recipe.develop.geometry
-        return geometry.crop == Crop() && geometry.angle == 0
+        FrameOrientation.deliversWholeFrame(recipe.develop.geometry, cropToolLive: cropArmed)
     }
 
     /// True while the crop tool is live on this surface: armed AND in its workspace —
