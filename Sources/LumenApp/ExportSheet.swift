@@ -53,6 +53,11 @@ private let bitDepthOptions: [(value: Int, label: String)] =
 private let heifBitDepthOptions: [(value: Int, label: String)] =
     [(value: 8, label: "8-bit"), (value: 10, label: "10-bit")]
 
+/// docs/11 §Naming's collision control, in its own order: Rename (the default and what
+/// every export did before the control existed), Overwrite, Skip.
+private let collisionOptions: [(value: ExportCollisionPolicy, label: String)] =
+    ExportCollisionPolicy.allCases.map { (value: $0, label: $0.displayName) }
+
 private let mapScaleOptions: [(value: Double, label: String)] =
     [(value: 1.0, label: "Full"), (value: 0.5, label: "Half"),
      (value: 0.25, label: "Quarter")]
@@ -224,6 +229,10 @@ struct ExportSheet: View {
             parts.append("10-bit")
         }
         parts.append(recipe.colorSpace.displayName)
+        // docs/11's "HDR badge on the recipe row", in this list's prose idiom.
+        if let hdr = recipe.hdr, recipe.hdrIsWritable {
+            parts.append(String(format: "HDR +%.1f EV", hdr.headroomEV))
+        }
         if recipe.resizeMode != .none {
             let unit = recipe.resizeMode == .megapixels ? "MP" : "px"
             parts.append("\(recipe.resizeMode.displayName) "
@@ -239,6 +248,8 @@ struct ExportSheet: View {
         if let id = selectedRecipeID, state.exportRecipes.contains(where: { $0.id == id }) {
             ExportRecipeEditor(recipe: recipeBinding(id: id),
                                previewSource: previewSourceURL,
+                               previewPhoto: targetPhotos.first,
+                               batchCount: targetPhotos.count,
                                previewIsPlaceholder: targetPhotos.isEmpty)
         } else {
             VStack(spacing: 6) {
@@ -522,6 +533,9 @@ private struct ExportRecipeRow: View {
 private struct ExportRecipeEditor: View {
     @Binding var recipe: ExportRecipe
     let previewSource: URL
+    let previewPhoto: PhotoItem?
+    /// How many photos the run will name — what the collapse warning counts.
+    let batchCount: Int
     let previewIsPlaceholder: Bool
 
     var body: some View {
@@ -808,6 +822,17 @@ private struct ExportRecipeEditor: View {
                 ExportTextEntry(text: optionalText(\.subfolder), placeholder: "none",
                                 monospaced: true)
             }
+            ExportFieldRow("If it exists") {
+                LumenSegmented(options: collisionOptions, selection: $recipe.collision)
+                    .frame(maxWidth: 260)
+                    .help(collisionHelp)
+            }
+            if usesSequence {
+                LumenSlider(title: "Start at", value: sequenceStartBinding,
+                            range: 1...9999, hardRange: 1...999_999, defaultValue: 1,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "The first photo of the batch gets this {seq} number.")
+            }
             ExportFieldRow("Preview") {
                 Text(filenamePreview)
                     .font(.lumenNumeric)
@@ -815,8 +840,57 @@ private struct ExportRecipeEditor: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let warning = namingWarning {
+                // The contact error's treatment: accent caption under the field it is
+                // about, so the warning is read before the run rather than discovered in
+                // the delivered folder (J3-08).
+                Text(warning)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ExportNote(namingNote)
         }
+    }
+
+    private var usesSequence: Bool { ExportNaming.usesSequence(recipe.filenameTemplate) }
+
+    /// What each answer does to a file that was in the folder before this export —
+    /// the only file the policy is about. Two frames of one batch that render to one
+    /// name are always told apart with -1, -2 …, whatever is chosen here.
+    private var collisionHelp: String {
+        switch recipe.collision {
+        case .rename:
+            return "A file already there is kept, and this one is written beside it "
+                + "as -1, -2 …"
+        case .overwrite:
+            return "A file already there is replaced, in one step, once the new file is "
+                + "complete. Two photos of this batch never replace each other."
+        case .skip:
+            return "A file already there is kept and this photo is not written — for "
+                + "finishing a delivery that was stopped part-way."
+        }
+    }
+
+    private var sequenceStartBinding: Binding<Double> {
+        let recipe = self.$recipe
+        return Binding(get: { Double(recipe.wrappedValue.sequenceStart) },
+                       set: { recipe.wrappedValue.sequenceStart = Int($0.rounded()) })
+    }
+
+    /// Unknown tokens first — they are certain — then a template that cannot tell the
+    /// photos of a batch apart.
+    private var namingWarning: String? {
+        let unknown = ExportNaming.unknownTokens(in: recipe.filenameTemplate)
+        if !unknown.isEmpty {
+            return "Not a token: " + unknown.map { "{" + $0 + "}" }.joined(separator: " ")
+                + " — it will appear in the file name as typed."
+        }
+        if batchCount > 1, !ExportNaming.identifiesEachPhoto(recipe.filenameTemplate) {
+            return "This name has no {name} or {seq}, so the \(batchCount) photos can share "
+                + "it; any that do are told apart only by -1, -2 … in selection order."
+        }
+        return nil
     }
 
     private var namingNote: String {
@@ -826,15 +900,19 @@ private struct ExportRecipeEditor: View {
         } else {
             note = "Preview is the real name for " + previewSource.lastPathComponent + ". "
         }
-        note += "Tokens implemented today: {name} {date} {recipe} {ext}. Anything else stays "
-        note += "visible in the name rather than being silently dropped, so a typo shows up "
-        note += "here instead of in the delivered folder."
+        note += "Tokens: " + ExportNaming.documentedTokens.joined(separator: " ") + ". "
+        note += "{date} and {time} are when the shutter fired, falling back to the file's "
+        note += "creation date; {seq} counts the batch from Start at, four digits wide "
+        note += "({seq:N} for N). Anything else stays visible in the name rather than being "
+        note += "silently dropped, so a typo shows up here instead of in the delivered folder."
         return note
     }
 
     private var filenamePreview: String {
-        let base = AppState.renderFilename(template: recipe.filenameTemplate,
-                                           source: previewSource, recipeName: recipe.name)
+        let naming = AppState.namingContext(
+            for: previewPhoto, source: previewSource, recipeName: recipe.name,
+            sequence: recipe.sequenceNumber(forPhotoAt: 0))
+        let base = AppState.renderFilename(template: recipe.filenameTemplate, naming: naming)
         let file = base + "." + recipe.format.fileExtension
         // Through the same sanitizer the exporter uses. Concatenating the raw string
         // here meant the preview showed `../../secrets/x.jpg` for a subfolder the
@@ -941,8 +1019,9 @@ private struct ExportRecipeEditor: View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "HDR gain map")
             LumenToggleRow(title: "Emit gain map", isOn: hdrEnabled,
-                           help: "Schema-reserved. The encoder writes no map yet, and "
-                               + "these settings do not change the exported file.")
+                           help: "Writes an ISO 21496-1 gain map beside the SDR picture, "
+                               + "so HDR displays show the highlights above white and "
+                               + "everything else shows the SDR picture unchanged.")
             if recipe.hdr != nil {
                 LumenSlider(title: "Headroom", value: hdrValue(\.headroomEV),
                             range: 0.5...4, defaultValue: 2, step: 0.1, decimals: 1,
@@ -955,26 +1034,26 @@ private struct ExportRecipeEditor: View {
                                help: "The SDR rendition is authored, never an automatic tone-map.")
                 ExportNote(hdrExplanation)
             } else {
-                ExportNote("\(recipe.format.rawValue.uppercased()) will be able to "
-                           + "carry a gain map. Today every export is a plain SDR file.")
+                ExportNote("Off: a plain SDR \(recipe.format.rawValue.uppercased()). On, "
+                           + "the same SDR picture carries a gain map.")
             }
         }
     }
 
     /// Says what will happen, not what was designed.
     ///
-    /// This used to report "HDR ceiling 2.0 EV above SDR white; map stored at 25%
-    /// resolution" for a file that had no map in it — and the setting it described was
-    /// actively harmful, because the raised ceiling reached the render and the 8-bit
-    /// encode then clipped everything above diffuse white. The settings are stored so
-    /// nothing migrates when the encoder lands; they no longer touch the render.
+    /// This used to report a map that was not in the file; then, honestly, that none
+    /// was written. Now one is, and the note says the three things a photographer
+    /// needs: the SDR picture is the one they graded, the ceiling is the headroom
+    /// slider, and the map's resolution is Core Image's choice, not the Map size row.
     private var hdrExplanation: String {
         let settings = recipe.hdr ?? HDRSettings()
-        return String(format: "Planned: %.1f EV of headroom above SDR white, map at "
-                      + "%.0f%% resolution. Not written yet — this export is a plain "
-                      + "SDR file either way, and turning this on no longer changes "
-                      + "its pixels.",
-                      settings.headroomEV, settings.mapScale * 100)
+        return String(format: "The file's main picture is the SDR export, pixel for pixel; "
+                      + "the gain map carries the HDR rendition, %.1f EV above SDR white — "
+                      + "what View ▸ HDR Preview shows on a display with that headroom. "
+                      + "Core Image chooses the map's resolution, so Map size is stored "
+                      + "but not applied.",
+                      settings.headroomEV)
     }
 
     private var hdrEnabled: Binding<Bool> {

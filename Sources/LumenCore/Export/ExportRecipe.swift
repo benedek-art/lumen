@@ -502,15 +502,17 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     public var metadata: MetadataPolicy
     public var watermark: Watermark?
 
-    /// Tokens implemented today, by `AppState.renderFilename`: {name} {date} {recipe}
-    /// {ext} — and the sheet's Naming note lists exactly these. This used to claim a
-    /// grammar "shared with the ingest renamer" including {seq:N} {time} {camera}
-    /// {lens} {iso}; the ingest renamer (`RenameTemplate`) is a separate
-    /// implementation with its own token set, and none of those five is read by the
-    /// export path. An unknown token stays visible in the delivered name rather than
-    /// being silently dropped.
+    /// Rendered by `ExportNaming.render`, whose `knownTokens` is the list and whose
+    /// header says which spellings it shares with the ingest renamer. An unknown token
+    /// stays visible in the delivered name rather than being silently dropped.
     public var filenameTemplate: String
     public var subfolder: String?
+    /// What `{seq}` counts from (docs/11 §Naming: 1…999999). The first photo of the
+    /// batch is this number; a template with no sequence token never reads it.
+    public var sequenceStart: Int
+    /// What happens when the name is already taken on disk (docs/11 §Naming). Rename
+    /// is what every export did before the policy existed, and stays the default.
+    public var collision: ExportCollisionPolicy
 
     /// HDR: emit a gain map alongside the SDR base rendition.
     public var hdr: HDRSettings?
@@ -527,6 +529,8 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
                 metadata: MetadataPolicy = MetadataPolicy(),
                 watermark: Watermark? = nil,
                 filenameTemplate: String = "{name}", subfolder: String? = nil,
+                sequenceStart: Int = 1,
+                collision: ExportCollisionPolicy = .rename,
                 hdr: HDRSettings? = nil) {
         self.id = id
         self.name = name
@@ -544,6 +548,8 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.watermark = watermark
         self.filenameTemplate = filenameTemplate
         self.subfolder = subfolder
+        self.sequenceStart = sequenceStart
+        self.collision = collision
         self.hdr = hdr
     }
 
@@ -600,7 +606,18 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         filenameTemplate = c.tolerant(String.self, forKey: .filenameTemplate,
                                       default: fallback.filenameTemplate)
         subfolder = c.tolerant(String.self, forKey: .subfolder)
+        sequenceStart = c.tolerant(Int.self, forKey: .sequenceStart,
+                                   default: fallback.sequenceStart)
+        collision = c.tolerant(ExportCollisionPolicy.self, forKey: .collision,
+                               default: fallback.collision)
         hdr = c.tolerant(HDRSettings.self, forKey: .hdr)
+    }
+
+    /// The `{seq}` value for the photo at 0-based `index` in the batch — the start
+    /// clamped to the range the sheet offers, so a stored 0 or a negative start cannot
+    /// render `-001`.
+    public func sequenceNumber(forPhotoAt index: Int) -> Int {
+        Swift.min(Swift.max(sequenceStart, 1), 999_999) + Swift.max(index, 0)
     }
 
     /// The depth the encoder will actually use.
@@ -777,6 +794,67 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         // will pick beats returning the one we know is taken.
         return candidate("-" + UUID().uuidString)
     }
+
+    /// Where one file of the batch goes, under this recipe's collision policy.
+    ///
+    /// The policy governs ONE question — a file that was already on disk before this
+    /// run. A name an earlier job of THIS run claimed is always disambiguated, whatever
+    /// the policy says: two frames rendering to one name inside one batch is the
+    /// recursive-scan collision `disambiguated` was written for, and neither
+    /// "overwrite" (the second frame replaces the first, and the count lies) nor
+    /// "skip" (a frame the photographer selected is silently not delivered) is an
+    /// answer anyone chose by picking a policy about yesterday's files.
+    ///
+    /// Under `.rename` this is exactly `disambiguated(wanted) { claimed || exists }`,
+    /// the call the batch made before the policy existed.
+    public static func placement(for wanted: URL, policy: ExportCollisionPolicy,
+                                 claimedThisRun: (URL) -> Bool,
+                                 existsOnDisk: (URL) -> Bool) -> ExportPlacement {
+        let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) }
+        if claimedThisRun(wanted) {
+            return .write(disambiguated(wanted, isTaken: taken), replacing: false)
+        }
+        guard existsOnDisk(wanted) else { return .write(wanted, replacing: false) }
+        switch policy {
+        case .rename: return .write(disambiguated(wanted, isTaken: taken), replacing: false)
+        case .overwrite: return .write(wanted, replacing: true)
+        case .skip: return .skip(wanted)
+        }
+    }
+}
+
+/// docs/11 §Naming's collision control: rename / overwrite / skip, default rename.
+public enum ExportCollisionPolicy: String, Codable, Sendable, CaseIterable {
+    /// Append `-1`, `-2` … until the name is free. Nothing is ever replaced.
+    case rename
+    /// Replace the file that is there — the re-delivery of a corrected batch.
+    case overwrite
+    /// Leave the file that is there and do not write this one — resuming a delivery.
+    case skip
+
+    public var displayName: String {
+        switch self {
+        case .rename: return "Rename"
+        case .overwrite: return "Overwrite"
+        case .skip: return "Skip"
+        }
+    }
+}
+
+/// The answer `ExportRecipe.placement` gives for one file.
+public enum ExportPlacement: Equatable, Sendable {
+    /// Write here. `replacing` is the publish's `allowOverwrite`: true only when the
+    /// policy is `.overwrite` and the file was there before the run.
+    case write(URL, replacing: Bool)
+    /// Write nothing; this file is already there and the policy says leave it.
+    case skip(URL)
+
+    /// The path this placement reserves for the rest of the run.
+    public var url: URL {
+        switch self {
+        case .write(let url, _), .skip(let url): return url
+        }
+    }
 }
 
 // MARK: - HDR
@@ -800,7 +878,7 @@ public struct HDRSettings: Codable, Equatable, Sendable {
     }
 
     /// Tolerant, per the note at the top of this file. This is the nested type most
-    /// likely to grow — the gain map it describes is half-written (`hdrIsWritable`) and
+    /// likely to grow — the gain map it describes is written by Core Image (`hdrIsWritable`) and
     /// the ISO 21496-1 fields it still needs are not invented yet — so it is the one
     /// whose next field would otherwise be the one that empties the preset list.
     public init(from decoder: Decoder) throws {
@@ -817,30 +895,30 @@ public struct HDRSettings: Codable, Equatable, Sendable {
 
 extension ExportRecipe {
 
-    /// Whether the encoder can actually store the extra range HDR asks for.
+    /// Whether this export writes a gain map: HDR settings on a container that can
+    /// carry one (HEIC, JPEG — docs/11 §HDR export).
     ///
-    /// False everywhere today, and stated here rather than assumed, because assuming it
-    /// made the HDR toggle produce a file strictly WORSE than leaving it off.
-    /// `renderHDRPair` and the whole `GainMap` relation are implemented and tested, but
-    /// nothing calls them: `export` renders once and `write` emits a single rendition
-    /// through `writeJPEG`/`HEIFRepresentation` with only a quality option. No second
-    /// image plane is ever attached.
+    /// This was `false` everywhere, and said so, because the encoder attached nothing:
+    /// `write` emitted one rendition with a quality option and no second image plane.
+    /// It is now `PipelineRenderer.write`'s own condition for handing Core Image the HDR
+    /// rendition (`CIImageRepresentationOption.hdrImage`, macOS 15), from which Core
+    /// Image computes and embeds the ISO 21496-1 gain map against the SDR primary —
+    /// Apple's WWDC24 strategy #3, the one docs/11 adopts.
     ///
-    /// What `hdr` DID reach was the render plan's `displayWhiteTarget`. At the default
-    /// +2 EV that is 400%, which puts the display transform's white at 4.0 and scales
-    /// the finish LUT to match — and then the result was encoded to 8 bits, so every
-    /// value above diffuse white clipped to 255. Ticking the box threw away all the
-    /// highlight roll-off the transform had just placed between 1.0 and 4.0.
-    ///
-    /// Writing it for real needs an auxiliary gain-map image attached through
-    /// `CGImageDestination` (ISO 21496-1), which is the piece that does not exist.
-    /// Until it does, HDR must not change the render, and the sheet must not claim a
-    /// map was stored.
-    public var hdrIsWritable: Bool { false }
+    /// What it must NOT do is raise the PRIMARY's white, which is the mistake this
+    /// property used to guard against: at +2 EV the transform's white goes to 4.0, and
+    /// an 8-bit primary encoded from that clips everything above diffuse white. The
+    /// primary is always the SDR rendition at display white 100 (`exportPlan` is given
+    /// no white target for it); the HDR rendition is a SECOND render at
+    /// `gainMapWhiteTargetPercent` that only ever reaches the encoder as the gain map's
+    /// source.
+    public var hdrIsWritable: Bool { hdr != nil && format.supportsGainMap }
 
-    /// The display white target the render should actually use — the HDR ceiling only
-    /// when there is somewhere to put it, and SDR otherwise.
-    public var renderWhiteTargetPercent: Double? {
+    /// The display white the HDR rendition renders at — `HDRSettings.whiteTargetPercent`,
+    /// the same expression the loupe's HDR preview renders at when the display covers
+    /// the content (`EDRPreview.whiteTarget`) — or nil when no map is written. The SDR
+    /// primary never reads this.
+    public var gainMapWhiteTargetPercent: Double? {
         guard let hdr, hdrIsWritable else { return nil }
         return hdr.whiteTargetPercent
     }

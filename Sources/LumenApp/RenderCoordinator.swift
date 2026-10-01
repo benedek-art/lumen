@@ -521,7 +521,8 @@ actor RenderCoordinator {
     func export(url: URL, recipe: Recipe, to destination: URL,
                 exportRecipe: ExportRecipe,
                 strokeSets: [String: BrushStrokeSet] = [:],
-                softProof: SoftProof? = nil) throws -> [String] {
+                softProof: SoftProof? = nil,
+                allowOverwrite: Bool = false) throws -> [String] {
         let source = try self.source(for: url)
         // Same reason as `renderFullSize`, and more so for a batch: two hundred files
         // through this call is two hundred native decodes, each one bounded by the trim
@@ -530,7 +531,11 @@ actor RenderCoordinator {
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.export(source: source, recipe: recipe, to: destination,
                                    using: exportRecipe, strokeSets: strokeSets,
-                                   softProof: softProof)
+                                   softProof: softProof,
+                                   // True only for a recipe whose collision policy is
+                                   // Overwrite, on a file that was there before the run
+                                   // (`ExportRecipe.placement`).
+                                   allowOverwrite: allowOverwrite)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.

@@ -105,6 +105,24 @@ public enum CaptureMetadataReader {
         return out
     }
 
+    /// When the shutter fired, as the camera's own wall clock — the six EXIF fields with
+    /// no zone applied, which is what a filename's `{date}` and `{time}` mean
+    /// (`ExportNaming`). `read` turns the same stamp into an instant for sorting; this
+    /// reads the same tags in the same order of preference.
+    public static func captureWallClock(url: URL) -> DateComponents? {
+        let options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary),
+              let properties = CGImageSourceCopyPropertiesAtIndex(
+                source, 0, options as CFDictionary) as? [CFString: Any]
+        else { return nil }
+        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+        let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+        let stamp = (exif[kCGImagePropertyExifDateTimeOriginal] as? String)
+            ?? (exif[kCGImagePropertyExifDateTimeDigitized] as? String)
+            ?? (tiff[kCGImagePropertyTIFFDateTime] as? String)
+        return stamp.flatMap(PhotoMetadata.parseEXIFDateComponents)
+    }
+
     /// Make and model joined the way a catalog shows a body, without the stutter.
     static func joinCamera(make: String?, model: String?) -> String? {
         guard let model, !model.isEmpty else { return make?.isEmpty == false ? make : nil }
