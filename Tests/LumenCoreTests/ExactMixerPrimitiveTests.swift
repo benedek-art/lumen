@@ -65,7 +65,7 @@ final class ExactMixerPrimitiveTests: XCTestCase {
     func testIdentityAndDisabledFamiliesRemainExactNoOps() throws {
         let input = RGB(-0.02, 0.5, 8)
         let neutral = RenderPlan(recipe: Recipe())
-        XCTAssertTrue(neutral.colorGradeIsIdentity)
+        XCTAssertTrue(neutral.colorStage.isIdentity && neutral.gradeIsIdentity)
         XCTAssertNil(primitive(Recipe()))
         var r = activeRecipe()
         var bw = BlackAndWhite()

@@ -98,6 +98,20 @@ enum PickTarget: Equatable, Sendable {
         }
     }
 
+    /// Which selection inside the colour stage a global pick feeds, so the renderer
+    /// can carry the sample through the stage as far as that selection reads (AI-02):
+    /// the Mixer's bands read after the primaries, swatch `i` after the primaries, the
+    /// Mixer and swatches `0..<i`. A NEW swatch is appended, so it reads after all of
+    /// the existing ones. Nil for the targets that do not sample the colour stage.
+    func colorSelectionTap(existingPointColors: Int) -> ColorEngine.SelectionTap? {
+        switch self {
+        case .mixerBand: return .mixerBand
+        case .newPointColor: return .pointColor(index: existingPointColors)
+        case .pointColor(index: let swatch): return .pointColor(index: swatch)
+        case .neutral, .maskSample, .maskPointColor: return nil
+        }
+    }
+
     /// What the status line says while the click is being waited for.
     var prompt: String {
         switch self {
@@ -3304,9 +3318,15 @@ final class AppState: ObservableObject {
                 if target.samplesTheMaskStage {
                     sample = await renderCoordinator.sampleMaskReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                } else {
+                } else if let tap = target.colorSelectionTap(
+                    existingPointColors: current.develop.pointColors.count) {
+                    // Through the colour stage as far as the selection reads (AI-02):
+                    // the stage input alone sits before the primaries and the Mixer.
                     sample = await renderCoordinator.samplePointColorReference(
-                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
+                        tap: tap)
+                } else {
+                    sample = nil
                 }
                 guard selectionStillOnPickedPhoto() else { return }
                 guard let sample else {

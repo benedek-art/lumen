@@ -328,15 +328,14 @@ final class MaskingTests: XCTestCase {
         //
         // `working` is what `RenderCoordinator.sampleWorking` returns: the decoded
         // pixel through the linear stage. `staged` is the local stage input, built
-        // here the way `ReferenceRenderer.render` builds it — S6, S7, then the
-        // colour+grade table. There is no S8 in that list because this recipe sets no
-        // presence, which is why three stages is the whole of it.
+        // here the way `ReferenceRenderer.render` builds it — S6, S7, then the exact
+        // colour stage and the grade table. There is no S8 in that list because this
+        // recipe sets no presence, which is why these stages are the whole of it.
         let working = plan.linear.matrix.apply(image[clicked.x, clicked.y])
         var stagedImage = image.map { plan.linear.matrix.apply($0) }
         stagedImage = ReferenceRenderer.applyTone(stagedImage, plan: plan,
                                                   longEdge: side, space: .rec2020)
-        let lut = plan.colorGradeLUT
-        stagedImage = stagedImage.map { LumenLog.decode(lut.sample(LumenLog.encode($0))) }
+        stagedImage = stagedImage.map { plan.colorGraded($0) }
         let staged = stagedImage[clicked.x, clicked.y]
 
         /// The picture with a colour-range mask built from `sample`, lifting two stops.

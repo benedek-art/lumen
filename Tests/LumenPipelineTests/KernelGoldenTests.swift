@@ -770,9 +770,14 @@ final class KernelGoldenTests: XCTestCase {
                            "a mask with contrast, temp, saturation and vibrance "
                                + "declared itself identity, so this test measures "
                                + "a two-point cube and proves nothing")
-            XCTAssertEqual(local.lut.size, size,
-                           "LocalPlan baked \(local.lut.size) when the render asked "
-                               + "for \(size)")
+            // Contrast and Temp live in the table before the exact colour stage; the
+            // colour stage itself has no table since AI-03, and this set has no hue,
+            // tint or grade for the table after it.
+            let pre = try XCTUnwrap(local.preLUT, "contrast and temp need the pre table")
+            XCTAssertEqual(pre.size, size,
+                           "LocalPlan baked \(pre.size) when the render asked for \(size)")
+            XCTAssertFalse(local.colorStage.isIdentity, "saturation and vibrance are live")
+            XCTAssertNil(local.postLUT)
         }
 
         // ---- The size reaches pixels through the graph that ships. ----

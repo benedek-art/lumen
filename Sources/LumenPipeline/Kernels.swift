@@ -1,16 +1,18 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: forty small kernels.
-// (A count that was "thirty-two" in three places while the registry held 33 — if you add
-// a kernel, grep for the number word and update all of them, or better, stop counting.)
+// The complete custom-shader surface of Lumen's render path: a few dozen small kernels.
+// (The count was written out here as a number word and went stale twice; the rosters
+// below and `KernelRosterTests` are the count now.)
 //
-// That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
-// function, so the engine evaluates it once in LumenCore's reference implementation
-// and bakes it into a lookup table that the stock colour-cube filter applies
-// (docs/14 §5, adapted: Core Image is used as a graph compiler, and the graph's
-// per-pixel colour work is one table fetch rather than nine hand-ported shaders).
-// What remains here is only what a table cannot express: the log shaper that makes an
-// unbounded scene fit a bounded table, image-by-image arithmetic for the guided
-// filter, mask compositing, grain, and the vignette's dependence on position.
+// Most colour-bearing stages are pure RGB→RGB functions, so the engine evaluates them
+// once in LumenCore's reference implementation and bakes them into lookup tables that
+// the stock colour-cube filter applies (docs/14 §5, adapted: Core Image is used as a
+// graph compiler). What remains here is what a table cannot express: the log shaper
+// that makes an unbounded scene fit a bounded table, image-by-image arithmetic for the
+// guided filter, mask compositing, grain, the vignette's dependence on position — and
+// the colour stage S9, which a table CAN express only badly: its hue- and
+// chroma-selective tools lost 30–50 code equivalents in a 33³/65³ cube (AI-03), so it
+// runs exactly as four colour kernels whose source and Swift twin live together in
+// `LumenCore/Engine/ExactColorStage.swift`.
 //
 // Every kernel has a Swift twin in LumenCore, and PipelineGoldenTests renders both to
 // compare them. A kernel that fails to compile leaves `KernelLibrary.isAvailable`
@@ -981,6 +983,42 @@ public enum KernelLibrary {
     }
     """
 
+    /// Trilinear lookup into a baked table at full float precision — what `CIColorCube`
+    /// does, minus its 8-bit storage (`ColorCube.filter` carries the measurement).
+    ///
+    /// `cube` is an RGBAf atlas of the LUT3D bytes: texel (r + g·n, b) holds entry
+    /// (r, g, b), with blue row 0 at the TOP of the atlas because that is where
+    /// `CIImage(bitmapData:)` puts a buffer's first row, so blue index b sits at
+    /// y = n − 1 − b. Texel centres are +0.5. The lower corner is clamped to n − 2 so
+    /// the upper one is always a real knot, and the input is clamped to the unit cube
+    /// exactly as `CIColorCube` clamps it. The twin is `LUT3D`'s trilinear form
+    /// (`ColorCubePrecisionTests` restates it).
+    static let cubeLookupSource = """
+    kernel vec4 lumenCubeLookup(sampler image, sampler cube, float n) {
+        vec4 s = sample(image, samplerCoord(image));
+        vec3 p = clamp(s.rgb, 0.0, 1.0) * (n - 1.0);
+        vec3 i0 = min(floor(p), vec3(n - 2.0));
+        vec3 f = p - i0;
+        float x0 = i0.r + i0.g * n + 0.5;
+        float x1 = x0 + n;
+        float y0 = n - 0.5 - i0.b;
+        float y1 = y0 - 1.0;
+        vec3 c000 = sample(cube, samplerTransform(cube, vec2(x0, y0))).rgb;
+        vec3 c100 = sample(cube, samplerTransform(cube, vec2(x0 + 1.0, y0))).rgb;
+        vec3 c010 = sample(cube, samplerTransform(cube, vec2(x1, y0))).rgb;
+        vec3 c110 = sample(cube, samplerTransform(cube, vec2(x1 + 1.0, y0))).rgb;
+        vec3 c001 = sample(cube, samplerTransform(cube, vec2(x0, y1))).rgb;
+        vec3 c101 = sample(cube, samplerTransform(cube, vec2(x0 + 1.0, y1))).rgb;
+        vec3 c011 = sample(cube, samplerTransform(cube, vec2(x1, y1))).rgb;
+        vec3 c111 = sample(cube, samplerTransform(cube, vec2(x1 + 1.0, y1))).rgb;
+        vec3 c00 = mix(c000, c100, f.r);
+        vec3 c10 = mix(c010, c110, f.r);
+        vec3 c01 = mix(c001, c101, f.r);
+        vec3 c11 = mix(c011, c111, f.r);
+        return vec4(mix(mix(c00, c10, f.g), mix(c01, c11, f.g), f.b), s.a);
+    }
+    """
+
     // MARK: - Compiled kernels
 
     public static let logEncode = make(logEncodeSource)
@@ -1022,6 +1060,27 @@ public enum KernelLibrary {
     public static let denoiseRemoved = make(denoiseRemovedSource)
     public static let mixChroma = make(mixChromaSource)
 
+    // S9, the colour stage, exactly (AI-03). Four colour kernels generated in LumenCore
+    // beside their Swift twins (`ExactColorStage`), so the two cannot drift apart
+    // silently; `RenderGraph.applyColorStage` chains them. The colour stage has no
+    // table to fall back to — that table was the defect — so these sit on the CORE
+    // roster: if one fails to compile the renderer takes the CPU reference path, which
+    // runs the twins, rather than a wrong picture.
+    public static let colourPrimaries = make(ExactColorKernelSource.primaries)
+    public static let colourMixer = make(ExactColorKernelSource.mixer)
+    public static let colourPoint = make(ExactColorKernelSource.point)
+    public static let colourFinish = make(ExactColorKernelSource.finish)
+
+    /// The compiled kernel for one pass of the exact colour stage.
+    public static func colourKernel(_ kind: ExactColorStage.Pass.Kernel) -> CIColorKernel? {
+        switch kind {
+        case .primaries: return colourPrimaries
+        case .mixer: return colourMixer
+        case .point: return colourPoint
+        case .finish: return colourFinish
+        }
+    }
+
     // The four that read a neighbourhood are GENERAL kernels. A colour kernel promises
     // to read only the pixel it is producing, and Core Image relies on that promise —
     // so a neighbourhood has to be asked for explicitly, with an ROI to match.
@@ -1032,6 +1091,9 @@ public enum KernelLibrary {
     // S5's two, general for the same reason: both sample away from the pixel they write.
     public static let spotBoundary = makeGeneral(spotBoundarySource)
     public static let spotApply = makeGeneral(spotApplySource)
+    // Every baked table's lookup (`ColorCube.filter`). General: it reads the atlas at
+    // computed coordinates, which a colour kernel may not do.
+    public static let cubeLookup = makeGeneral(cubeLookupSource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -1072,6 +1134,11 @@ public enum KernelLibrary {
             // the spots unrendered AND names itself in the preview's "Reduced" note,
             // rather than taking the whole GPU path down for photographs with no spots.
             ("spotBoundary", spotBoundary), ("spotApply", spotApply),
+            ("colourPrimaries", colourPrimaries), ("colourMixer", colourMixer),
+            ("colourPoint", colourPoint), ("colourFinish", colourFinish),
+            // Every table in the graph goes through it; without it the CPU path is the
+            // honest fallback, not `CIColorCube`'s 8-bit lookup.
+            ("cubeLookup", cubeLookup),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }
@@ -1220,7 +1287,32 @@ public enum ColorCube {
     /// The same wrap, over bytes that were copied once. Same dimension, same bytes, same
     /// filter, same place in the graph as `filter(_ lut:image:)` — the only difference is
     /// that the table is not re-copied.
+    ///
+    /// NOT `CIColorCube` any more. That filter is handed exactly the Float32 RGBA bytes
+    /// above, and still answered at 8-bit precision: macOS gpu-parity measured a lifted
+    /// black's finish-table value of 0.033596 coming back as exactly 9/255 (0.0352941),
+    /// and ~8.06/255 between two knots — the table stored or sampled to 1/255 inside the
+    /// filter. On a log-encoded table that is 24/255 of a stop (0.094 EV) per step, and
+    /// it sits under every table in the graph: grade, finish, tone gain, local and
+    /// dither. So the lookup is our own `KernelLibrary.cubeLookup`: the same trilinear
+    /// interpolation `CIColorCube` performs, over an RGBAf atlas image of the same bytes.
+    /// If that kernel did not compile the core roster has already sent the render to the
+    /// CPU path; the `CIColorCube` branch below is only reachable from a caller that
+    /// does not check, and it is the old behaviour rather than a wrong picture.
     public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
+        if let kernel = KernelLibrary.cubeLookup {
+            let n = cube.size
+            // Atlas: x = r + g·n, one row per blue index. `CIImage(bitmapData:)` puts the
+            // first row at the TOP of its extent (see `RenderGraph`'s grain anchoring),
+            // which the kernel accounts for. No colour space: these are numbers.
+            let atlas = CIImage(bitmapData: cube.data, bytesPerRow: n * n * 16,
+                                size: CGSize(width: n * n, height: n), format: .RGBAf,
+                                colorSpace: nil).samplingNearest()
+            let atlasExtent = atlas.extent
+            return kernel.apply(extent: image.extent,
+                                roiCallback: { index, rect in index == 0 ? rect : atlasExtent },
+                                arguments: [image, atlas, Float(n)])
+        }
         guard let filter = CIFilter(name: "CIColorCube") else { return nil }
         filter.setValue(image, forKey: kCIInputImageKey)
         filter.setValue(cube.size, forKey: "inputCubeDimension")

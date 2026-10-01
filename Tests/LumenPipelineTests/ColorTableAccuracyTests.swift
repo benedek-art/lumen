@@ -5,10 +5,11 @@ import XCTest
 @testable import LumenPipeline
 
 /// Accuracy against the intended operations, NOT parity with another sampled LUT.
-/// AI-03 remains unresolved. Only the four measured fidelity assertions below are
-/// expected failures; malformed inputs, unavailable/zero GPU output and nonfinite
-/// pixels are ordinary failures. Strict expected failures force revisiting this
-/// quarantine when a repair actually reaches the unchanged three-code bound.
+/// AI-03: these four assertions were strict expected failures (51.2/37.1 and 14.2/31.3
+/// codes) while the colour stage was baked into the colour/grade cube. The stage now
+/// runs exactly on the GPU (`ExactColorStage`, `RenderGraph.applyColorStage`) and only
+/// the grade stays in a table, so they are ordinary assertions under the unchanged
+/// three-code bound. Their CPU twin runs on Linux in `ColorTableAccuracyLinuxTests`.
 final class ColorTableAccuracyTests: XCTestCase {
     func testAquaLuminancePositiveInputAndOutput() throws {
         var recipe = Recipe()
@@ -61,12 +62,7 @@ final class ColorTableAccuracyTests: XCTestCase {
             let error = 255 * TransferFunction.srgb.encode(actual)
                 .maxAbsDifference(TransferFunction.srgb.encode(exact))
             print("COLOR_ACCURACY size=\(size) input=\(input) exact=\(exact) actual=\(actual) codeError=\(error)")
-            let options = XCTExpectedFailure.Options()
-            options.isStrict = true
-            XCTExpectFailure("Unresolved AI-03: \(size)-cube colour fidelity; see EXECUTION-04-colour-lut.md",
-                             options: options) {
-                XCTAssertLessThan(error, 3, "\(size)-cube: intended colour versus actual GPU")
-            }
+            XCTAssertLessThan(error, 3, "\(size)-cube: intended colour versus actual GPU")
         }
     }
 }
