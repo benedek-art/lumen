@@ -203,6 +203,46 @@ final class WorkspaceEntryTests: XCTestCase {
                       + "workspace is a control from a room you walked out of.")
     }
 
+    // MARK: Masking has one door IN
+
+    /// `setMasking(true)` is an entry verb in all but name, and the three-verb scan above
+    /// did not know it: `Keymap`'s `O` called it directly for months with this suite
+    /// green, and the picture lost its crop and straighten under a stranded rectangle
+    /// (KG-02). The way IN is `enterMasking` — the flag, the loupe and the crop tool put
+    /// away together — so the flag may be RAISED only there. Lowering it alone stays
+    /// legal everywhere: the way out is only the flag (Escape, the bar's back button).
+    ///
+    /// Per line rather than `contains` on one file, so a second door in a file that
+    /// already holds a legal one is still seen.
+    func testMaskingIsRaisedOnlyByTheEntryVerb() {
+        var raised: [String] = []
+        var offenders: [String] = []
+        for url in Self.appSources {
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text = Self.withoutComments(raw)
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let compact = line.replacingOccurrences(of: " ", with: "")
+                guard compact.contains(".setMasking(") else { continue }
+                if compact.contains(".setMasking(false)") { continue }
+                let site = "\(url.lastPathComponent): "
+                    + line.trimmingCharacters(in: .whitespaces)
+                if url.lastPathComponent == "WorkspaceEntry.swift"
+                    && compact.contains(".setMasking(true)") {
+                    raised.append(site)
+                } else {
+                    offenders.append(site)
+                }
+            }
+        }
+        XCTAssertEqual(raised.count, 1,
+                       "expected exactly one raise of the masking flag, inside "
+                           + "enterMasking; found: \(raised)")
+        XCTAssertTrue(offenders.isEmpty,
+                      "the masking flag is raised past AppState.enterMasking, so the "
+                          + "crop tool is not put away with it (KG-02's shape):\n"
+                          + offenders.joined(separator: "\n"))
+    }
+
     // MARK: Arriving at a section is not arriving in its workspace (K-029)
 
     /// ⌘K → "Lens Corrections" solos Lens and folds Crop, so arming the rectangle there
