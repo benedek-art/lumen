@@ -27,7 +27,9 @@ import Foundation
 public enum PreviewCache {
     /// Invalidate legacy rendered pixels after RAW decoder/color-basis corrections.
     /// Separate from recipe schema: the document did not change, its renderer did.
-    public static let renderingRevision = 6
+    /// 7: the colour stage (S9) left the colour/grade cube and runs exactly (AI-03), so
+    /// every stored preview of a photograph with a colour edit is a different picture.
+    public static let renderingRevision = 7
 
     /// Where payloads sit, relative to the cache directory (docs/15 §15.2).
     public static let directoryName = "previews"

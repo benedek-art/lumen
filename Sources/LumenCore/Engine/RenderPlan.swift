@@ -12,7 +12,8 @@
 // the documented stage order survives the optimization:
 //
 //   S6 linear matrix  →  S7 tone gain (needs the guided mask: spatial)
-//                     →  colourGrade LUT   (S9 + S10, log → log)
+//                     →  colour stage      (S9, EXACT: `ExactColorStage`, never a table)
+//                     →  grade LUT         (S10, log → log)
 //                     →  S8/S11/S12/S13    (presence, local, sharpen, vignette: spatial)
 //                     →  finish LUT        (S14 + S15, log → display-linear)
 //
@@ -50,9 +51,18 @@ public struct RenderPlan: Sendable {
     public let toneGainLUT: LUT1D
     public let toneIsIdentity: Bool
 
-    // MARK: Stages S9–S10 — colour and grade, log → log
-    public let colorGradeLUT: LUT3D
-    public let colorGradeIsIdentity: Bool
+    // MARK: Stage S9 — colour, exact
+    ///
+    /// The whole of `ColorEngine`, resolved for exact evaluation on both processors
+    /// (AI-03). It used to be baked into one cube with the grade, and a 33³/65³ lattice
+    /// over log RGB cannot hold the colour tools' chroma gates and band edges: 37–51
+    /// code equivalents on Aqua Luminance −100. Split by STAGE, never by recipe, so no
+    /// control crossing zero changes route — see `ExactColorStage`.
+    public let colorStage: ExactColorStage
+
+    // MARK: Stage S10 — grade, log → log
+    public let gradeLUT: LUT3D
+    public let gradeIsIdentity: Bool
 
     // MARK: Stages S14–S15 — picture formation and the curve, log → display-linear
     ///
@@ -200,44 +210,37 @@ public struct RenderPlan: Sendable {
             ? LUT1D(size: 2) { _ in 1 }
             : toneEngine.bakeGainLUT()
 
-        // ---- S9 + S10 --------------------------------------------------------
+        // ---- S9 ---------------------------------------------------------------
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
                                 color: develop.color, primaries: look.primaries,
                                 bw: look.bw, bandMeanHues: bandMeanHues)
-        let colorIdentity = color.isIdentity && grade.isIdentity
-        self.colorGradeIsIdentity = colorIdentity
-        if colorIdentity {
-            self.colorGradeLUT = LUT3D.identity(size: 2)
+        self.colorStage = color.exactStage
+
+        // ---- S10 --------------------------------------------------------------
+        self.gradeIsIdentity = grade.isIdentity
+        if grade.isIdentity {
+            self.gradeLUT = LUT3D.identity(size: 2)
         } else {
-            // Everything `color` and `grade` were built from, plus the anchors the
-            // grade reads. Miss anything here and the cache returns a table for a
-            // recipe the photographer is no longer editing.
+            // Everything `grade` was built from, plus the anchors it reads. Miss
+            // anything here and the cache returns a table for a recipe the
+            // photographer is no longer editing. The colour stage is NOT an input any
+            // more, and neither are the measured band hues: nothing in this table
+            // reads them, so a Mixer drag leaves it bit-identical and cached.
             let bake = {
                 LUT3D(size: lutSize) { encoded in
-                    let scene = LumenLog.decode(encoded)
-                    let out = grade.apply(color.apply(scene))
-                    return LumenLog.encode(out)
+                    LumenLog.encode(grade.apply(LumenLog.decode(encoded)))
                 }
             }
-            // The measured hues are a table input like any other: two photos with
-            // different skies bake different Uniformity fields, and a key without
-            // this part would hand photo B the table converged on photo A's blues —
-            // the Paste-Settings poisoning class, one cache over.
-            let huesPart = bandMeanHues.map {
-                $0.map(CanonicalJSON.canonicalNumber).joined(separator: ",")
-            } ?? "-"
             let key = PlanTableCache.key(
-                ["cg", "\(lutSize)", "\(space)", huesPart,
+                ["grade", "\(lutSize)", "\(space)",
                  CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
                  CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV)],
-                [develop.mixer, develop.pointColors, develop.color,
-                 look.primaries, look.bw, look.wheels, look.printerLights])
-            self.colorGradeLUT = key.map {
+                [look.wheels, look.printerLights])
+            self.gradeLUT = key.map {
                 allowStaleTables
-                    ? PlanTableCache.tableAllowingStale(.colorGrade, key: $0,
+                    ? PlanTableCache.tableAllowingStale(.grade, key: $0,
                                                         size: lutSize, build: bake)
-                    : PlanTableCache.table(.colorGrade, key: $0, size: lutSize,
-                                           build: bake)
+                    : PlanTableCache.table(.grade, key: $0, size: lutSize, build: bake)
             } ?? bake()
         }
 
@@ -564,14 +567,21 @@ public struct RenderPlan: Sendable {
             let lum = Swift.max(space.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
         }
-        if !colorGradeIsIdentity {
-            c = LumenLog.decode(colorGradeLUT.sample(LumenLog.encode(c)))
-        }
+        c = colorGraded(c)
         // The finish table already ENDS in display-linear — encode going in, nothing
         // coming out. Decoding here would exponentiate the table's own interpolation
         // error, which is exactly what it did until a golden caught it.
         let encoded = LumenLog.encode(c)
         return finishedColor(encoded: encoded)
+    }
+
+    /// S9 then S10 as both renderers evaluate them: the colour stage exactly, through
+    /// the twin of the GPU's colour kernels, then the grade through its table. Scene-
+    /// linear in, scene-linear out.
+    public func colorGraded(_ c: RGB) -> RGB {
+        let colored = colorStage.apply(c)
+        guard !gradeIsIdentity else { return colored }
+        return LumenLog.decode(gradeLUT.sample(LumenLog.encode(colored)))
     }
 
     /// The finish table plus the exact gamut flag, which is how both render paths
@@ -663,6 +673,6 @@ public struct RenderPlan: Sendable {
     /// True when the whole colour path is a no-op and the renderer can hand the
     /// decoded image straight to the display transform.
     public var isColorIdentity: Bool {
-        toneIsIdentity && colorGradeIsIdentity && linear.isIdentity
+        toneIsIdentity && colorStage.isIdentity && gradeIsIdentity && linear.isIdentity
     }
 }

@@ -104,11 +104,53 @@ public struct RenderGraph {
                                 options: Options) -> CIImage {
         var image = colorStageInput(input, plan: plan, options: options)
 
-        // S9 + S10 — colour and grade, as one table on the log axis.
-        if !plan.colorGradeIsIdentity {
+        // S9 — colour, exactly, every time (AI-03). Never a table and never chosen per
+        // recipe: a route that changed with the recipe is a discontinuity the moment a
+        // second control moves (EXECUTION-05).
+        image = Self.applyColorStage(image, plan.colorStage)
+
+        // S10 — the grade, as one table on the log axis.
+        if !plan.gradeIsIdentity {
             image = Self.throughShaper(image) { encoded in
-                ColorCube.filter(plan.colorGradeLUT, image: encoded)
+                ColorCube.filter(plan.gradeLUT, image: encoded)
             } ?? image
+        }
+        return image
+    }
+
+    /// The exact colour stage as a chain of colour kernels, in `stage.passes` order, on
+    /// the uniforms its CPU twin reads (`ExactColorStage`). `primaries` produces the
+    /// fixed pre-Mixer reference a swatch's Variance reads; `finish` receives the stage
+    /// input so a non-finite result falls back to it, as `ColorEngine.apply` does.
+    ///
+    /// No fallback to a table and no silently skipped pass: a kernel that will not
+    /// compile is on the core roster, which sends the whole render down the CPU path
+    /// before this is reached. If a pass still returns nil here the stage input is
+    /// returned UNCOLOURED rather than half-coloured — loud, and the same rule every
+    /// other stage in this graph follows.
+    static func applyColorStage(_ input: CIImage, _ stage: ExactColorStage) -> CIImage {
+        guard !stage.isIdentity else { return input }
+        var image = input
+        var reference = input
+        for pass in stage.passes {
+            var arguments: [Any] = [image]
+            switch pass.kernel {
+            case .primaries, .mixer:
+                break
+            case .point:
+                arguments.append(pass.readsReference ? reference : image)
+            case .finish:
+                arguments.append(input)
+            }
+            arguments += pass.uniforms.map {
+                CIVector(x: CGFloat($0.x), y: CGFloat($0.y), z: CGFloat($0.z),
+                         w: CGFloat($0.w))
+            }
+            guard let next = KernelLibrary.apply(KernelLibrary.colourKernel(pass.kernel),
+                                                 extent: input.extent, arguments)
+            else { return input }
+            image = next
+            if pass.kernel == .primaries { reference = image }
         }
         return image
     }
@@ -963,10 +1005,18 @@ public struct RenderGraph {
                                   globalColor: plan.recipe.develop.color,
                                   globalWheels: plan.recipe.look.wheels,
                                   balanced: plan.balancedNeutral)
-        if !localPlan.isIdentity {
-            out = throughShaper(out) { encoded in
-                ColorCube.filter(localPlan.lut, image: encoded)
-            } ?? out
+        // Three pieces, in the order the reference evaluates them: the tone/white
+        // balance table, the mask's colour stage EXACTLY (AI-03 — its swatches and
+        // Saturation are the same hue- and chroma-selective tools the global table
+        // could not hold), then the hue/tint/grade table. Each is skipped only when it
+        // is the identity, so a control crossing zero adds or removes one exact piece
+        // and never changes how the others are evaluated.
+        if let pre = localPlan.preLUT {
+            out = throughShaper(out) { encoded in ColorCube.filter(pre, image: encoded) } ?? out
+        }
+        out = applyColorStage(out, localPlan.colorStage)
+        if let post = localPlan.postLUT {
+            out = throughShaper(out) { encoded in ColorCube.filter(post, image: encoded) } ?? out
         }
 
         // The spatial half. It runs over the whole frame and `applyLocal` composites
@@ -1904,9 +1954,20 @@ struct LocalCurvePlan {
 
 // MARK: - Local adjustment table
 
-/// A mask's per-pixel colour work, baked the same way the global path is.
+/// A mask's per-pixel colour work: the same three-piece shape as the global path.
+///
+/// It was ONE table holding tone, white balance, the mask's `ColorEngine`, hue shift,
+/// tint and grade. The `ColorEngine` part is what AI-03 is about — a masked Point Colour
+/// or Saturation sampled through a cube has the same 30-to-50-code error the global one
+/// had — so it runs exactly between two tables: `preLUT` (tone gain, white balance) and
+/// `postLUT` (hue shift, colour tint, local grade), each nil when it is the identity.
+/// ALWAYS split, never only when the colour stage is live: fusing the two tables when
+/// it is off would be a route that changes with a control, which is exactly the
+/// discontinuity EXECUTION-05 measured.
 struct LocalPlan {
-    let lut: LUT3D
+    let preLUT: LUT3D?
+    let colorStage: ExactColorStage
+    let postLUT: LUT3D?
     let isIdentity: Bool
 
     /// `size` is the render's table size, not a default: an export bakes at
@@ -1940,7 +2001,10 @@ struct LocalPlan {
             && (adjust.wheels?.isNeutral ?? true)
         self.isIdentity = identity
         guard !identity else {
-            self.lut = LUT3D.identity(size: 2)
+            self.preLUT = nil
+            self.colorStage = ColorEngine(mixer: Mixer(), pointColors: [], color: ColorAdjust(),
+                                          primaries: Primaries(), bw: nil).exactStage
+            self.postLUT = nil
             return
         }
 
@@ -1990,12 +2054,17 @@ struct LocalPlan {
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
-        self.lut = LUT3D(size: size) { encoded in
+        // Same identity tests the reference uses (`ReferenceRenderer.applyLocalAdjust`).
+        self.preLUT = tone.isIdentity && balance.isIdentity ? nil : LUT3D(size: size) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            c = balance.apply(c)
-            c = colorEngine.apply(c)
+            return LumenLog.encode(balance.apply(c))
+        }
+        self.colorStage = colorEngine.exactStage
+        let tinted = tintColor != nil && tintStrength > 0
+        self.postLUT = hueShift == 0 && !tinted && localGrade == nil ? nil : LUT3D(size: size) { encoded in
+            var c = LumenLog.decode(encoded)
             if hueShift != 0 {
                 var lch = OKLabTransform.working.toLCh(c)
                 lch.h = Num.wrapHue(lch.h + hueShift)

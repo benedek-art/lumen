@@ -1,16 +1,18 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: thirty-three small kernels.
-// (A count that was "thirty-two" in three places while the registry held 33 — if you add
-// a kernel, grep for the number word and update all of them, or better, stop counting.)
+// The complete custom-shader surface of Lumen's render path: a few dozen small kernels.
+// (The count was written out here as a number word and went stale twice; the rosters
+// below and `KernelRosterTests` are the count now.)
 //
-// That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
-// function, so the engine evaluates it once in LumenCore's reference implementation
-// and bakes it into a lookup table that the stock colour-cube filter applies
-// (docs/14 §5, adapted: Core Image is used as a graph compiler, and the graph's
-// per-pixel colour work is one table fetch rather than nine hand-ported shaders).
-// What remains here is only what a table cannot express: the log shaper that makes an
-// unbounded scene fit a bounded table, image-by-image arithmetic for the guided
-// filter, mask compositing, grain, and the vignette's dependence on position.
+// Most colour-bearing stages are pure RGB→RGB functions, so the engine evaluates them
+// once in LumenCore's reference implementation and bakes them into lookup tables that
+// the stock colour-cube filter applies (docs/14 §5, adapted: Core Image is used as a
+// graph compiler). What remains here is what a table cannot express: the log shaper
+// that makes an unbounded scene fit a bounded table, image-by-image arithmetic for the
+// guided filter, mask compositing, grain, the vignette's dependence on position — and
+// the colour stage S9, which a table CAN express only badly: its hue- and
+// chroma-selective tools lost 30–50 code equivalents in a 33³/65³ cube (AI-03), so it
+// runs exactly as four colour kernels whose source and Swift twin live together in
+// `LumenCore/Engine/ExactColorStage.swift`.
 //
 // Every kernel has a Swift twin in LumenCore, and PipelineGoldenTests renders both to
 // compare them. A kernel that fails to compile leaves `KernelLibrary.isAvailable`
@@ -930,6 +932,27 @@ public enum KernelLibrary {
     public static let denoiseRemoved = make(denoiseRemovedSource)
     public static let mixChroma = make(mixChromaSource)
 
+    // S9, the colour stage, exactly (AI-03). Four colour kernels generated in LumenCore
+    // beside their Swift twins (`ExactColorStage`), so the two cannot drift apart
+    // silently; `RenderGraph.applyColorStage` chains them. The colour stage has no
+    // table to fall back to — that table was the defect — so these sit on the CORE
+    // roster: if one fails to compile the renderer takes the CPU reference path, which
+    // runs the twins, rather than a wrong picture.
+    public static let colourPrimaries = make(ExactColorKernelSource.primaries)
+    public static let colourMixer = make(ExactColorKernelSource.mixer)
+    public static let colourPoint = make(ExactColorKernelSource.point)
+    public static let colourFinish = make(ExactColorKernelSource.finish)
+
+    /// The compiled kernel for one pass of the exact colour stage.
+    public static func colourKernel(_ kind: ExactColorStage.Pass.Kernel) -> CIColorKernel? {
+        switch kind {
+        case .primaries: return colourPrimaries
+        case .mixer: return colourMixer
+        case .point: return colourPoint
+        case .finish: return colourFinish
+        }
+    }
+
     // The four that read a neighbourhood are GENERAL kernels. A colour kernel promises
     // to read only the pixel it is producing, and Core Image relies on that promise —
     // so a neighbourhood has to be asked for explicitly, with an ROI to match.
@@ -973,6 +996,8 @@ public enum KernelLibrary {
             ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
             ("denoiseRemoved", denoiseRemoved), ("mixChroma", mixChroma),
             ("hotPixel", hotPixel),
+            ("colourPrimaries", colourPrimaries), ("colourMixer", colourMixer),
+            ("colourPoint", colourPoint), ("colourFinish", colourFinish),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }
