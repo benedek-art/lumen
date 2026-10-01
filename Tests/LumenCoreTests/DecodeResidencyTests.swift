@@ -64,6 +64,91 @@ final class DecodeResidencyTests: XCTestCase {
                              DraftLadder.interactiveLongEdgeCeiling)
     }
 
+    // MARK: - pixelCount (W2/I3-03)
+
+    /// A size read out of a file is not trusted into an `Int`. Written against
+    /// `Int(value.rounded())` the first two assertions do not fail, they TRAP and take
+    /// the test process with them — which is exactly what the app did on a corrupt
+    /// header, at four of the five sites that read this number.
+    func testAFileDerivedSizeThatIsNotANumberIsZeroRatherThanATrap() {
+        XCTAssertEqual(DraftLadder.pixelCount(from: .nan), 0)
+        XCTAssertEqual(DraftLadder.pixelCount(from: .infinity), 0)
+        XCTAssertEqual(DraftLadder.pixelCount(from: -.infinity), 0)
+        XCTAssertEqual(DraftLadder.pixelCount(from: 1e300), 0,
+                       "finite but past Int's range traps too")
+        XCTAssertEqual(DraftLadder.pixelCount(from: -7008), 0)
+        XCTAssertEqual(DraftLadder.pixelCount(from: 0), 0)
+    }
+
+    /// Rounded, not truncated: one of the sites this replaced truncated and the
+    /// others rounded, so the same file had two native sizes.
+    func testARealSizeRoundsToTheNearestPixel() {
+        XCTAssertEqual(DraftLadder.pixelCount(from: 7008), 7008)
+        XCTAssertEqual(DraftLadder.pixelCount(from: 7008.6), 7009)
+        XCTAssertEqual(DraftLadder.pixelCount(from: 4671.4), 4671)
+    }
+
+    /// Every site that turns a FILE's size into an `Int` goes through the one guard.
+    ///
+    /// The guard above is a function; the defect was four call sites that did not call
+    /// it. This reads the code (comments stripped, so the explanation of the rule
+    /// cannot satisfy the check) and refuses a bare `Int(` over the three spellings a
+    /// file's size arrives in. Restore `Int(source.nativeLongEdge)` in
+    /// `RenderCoordinator.renderFullSize` and this goes red naming the line.
+    func testNoSiteConvertsAFileDerivedSizeWithoutTheGuard() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let files = ["Sources/LumenPipeline/AppleRawSource.swift",
+                     "Sources/LumenPipeline/ImageSource.swift",
+                     "Sources/LumenApp/RenderCoordinator.swift"]
+        // `Int(` whose argument (up to the matching close) mentions a file's own size.
+        let pattern = try NSRegularExpression(
+            pattern: #"\bInt\((?:[^()]|\([^()]*\))*(nativeLongEdge|nativeSize|originalNativeSize|size\.width|size\.height|image\.extent)"#)
+        var offenders: [String] = []
+        var scanned = 0
+        for file in files {
+            let text = try String(contentsOf: root.appendingPathComponent(file),
+                                  encoding: .utf8)
+            for (number, line) in Self.code(text).components(separatedBy: "\n").enumerated() {
+                scanned += 1
+                let range = NSRange(line.startIndex..., in: line)
+                if pattern.firstMatch(in: line, range: range) != nil {
+                    offenders.append("\(file):\(number + 1): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertGreaterThan(scanned, 500, "the scan read nothing; the paths moved")
+        XCTAssertEqual(offenders, [],
+                       "a file-derived size converted with a bare Int( — route it through "
+                           + "DraftLadder.pixelCount(from:)")
+    }
+
+    /// The source with every comment blanked and line breaks kept, so line numbers in a
+    /// failure still point at the file.
+    private static func code(_ source: String) -> String {
+        var out = ""
+        var index = source.startIndex
+        var inBlock = false
+        while index < source.endIndex {
+            let rest = source[index...]
+            if inBlock {
+                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2); continue }
+                if source[index] == "\n" { out.append("\n") }
+                index = source.index(after: index)
+                continue
+            }
+            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
+            if rest.hasPrefix("//") {
+                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
+                continue
+            }
+            out.append(source[index])
+            index = source.index(after: index)
+        }
+        return out
+    }
+
     // MARK: - mayHoldAsPixels
 
     /// The file the owner is actually working on: a 7008 × 4672 Sony ARW, half-float
