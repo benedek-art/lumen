@@ -3693,28 +3693,13 @@ final class AppState: ObservableObject {
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
+        // `Recipe.adoptingSettings` is the rule, in LumenCore where it is tested: the
+        // develop, the look less the one leaf that describes the target
+        // (`LookSubset.carriedRenderPreset` — four doors into a look, one decision),
+        // the masks WITH their folders, and the newer of the two version stamps, since
+        // the result now holds whatever the source could express (M-06).
         updateRecipe(label: "Paste Settings") { recipe in
-            recipe.develop = source.develop
-            // `.look` whole EXCEPT the one leaf in it that describes the target rather
-            // than the look. `LookSubset.carriedRenderPreset` is that rule, and it lives
-            // in LumenCore precisely because there are four doors into a look — this
-            // one, Paste Settings Without Masks, Paste Look, and `LookSubset.applied` —
-            // and a copy of the decision at each is how they drift. See that function's
-            // header: carrying `render.preset` across the tone-mapped boundary applies a
-            // second tone map (sRGB 32 goes to 13, 255 to 222) or clips two and a half
-            // stops, depending on direction.
-            // `own` is read BEFORE the assignment: after it, `recipe.look` IS
-            // `source.look` and the target's own preset is already gone.
-            let own = recipe.look.render.preset
-            recipe.look = source.look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
-            recipe.masks = source.masks
-            // The folders come with their masks. Without this line every pasted mask
-            // names a group the target photograph has not got, which `Recipe.effective`
-            // treats as ungrouped — so the edit survives and the organization silently
-            // does not, which is the kind of loss nobody notices until they go looking.
-            recipe.maskGroups = source.maskGroups
+            recipe = recipe.adoptingSettings(from: source, includingMasks: true)
         }
     }
 
@@ -3730,11 +3715,7 @@ final class AppState: ObservableObject {
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
-            recipe.develop = source.develop
-            let own = recipe.look.render.preset
-            recipe.look = source.look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
+            recipe = recipe.adoptingSettings(from: source, includingMasks: false)
         }
     }
 
