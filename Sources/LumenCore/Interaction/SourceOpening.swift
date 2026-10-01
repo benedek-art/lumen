@@ -72,4 +72,31 @@ public enum SourceOpening {
     public static func expansionOutcome(root: URL, found: [URL]) -> Plan? {
         found.isEmpty ? nil : .files(root: root, files: Set(found))
     }
+
+    /// What the launch reopens.
+    public enum Relaunch: Equatable, Sendable {
+        /// The last roll was a folder: reopen it.
+        case folder
+        /// The last roll was a picked set and these of its files are still there.
+        case files(Set<URL>)
+        /// The last roll was a picked set and NONE of it is left. Open nothing.
+        case nothing
+    }
+
+    /// - Parameters:
+    ///   - remembered: the paths of the last picked set, or empty when the last roll
+    ///     was a plain folder.
+    ///   - exists: the filesystem's answer for a path.
+    ///
+    /// A remembered selection whose every file is gone used to fall through to "no
+    /// restriction", which opened the remembered ROOT unrestricted (V7 D6). That root is
+    /// the common parent of the picked files, so for two frames from `~/Desktop` and
+    /// `~/Downloads` it is the home folder, and for frames on two volumes it is `/`:
+    /// a launch would recursively scan and register all of it. A selection that is gone
+    /// opens nothing.
+    public static func relaunch(remembered: [String], exists: (String) -> Bool) -> Relaunch {
+        guard !remembered.isEmpty else { return .folder }
+        let surviving = Set(remembered.filter(exists).map { URL(fileURLWithPath: $0) })
+        return surviving.isEmpty ? .nothing : .files(surviving)
+    }
 }

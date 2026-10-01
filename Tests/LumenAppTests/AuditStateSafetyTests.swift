@@ -171,6 +171,33 @@ final class AuditStateSafetyTests: XCTestCase {
         }
     }
 
+    /// V7 D6: a remembered picked set whose files are all gone must not reopen as an
+    /// unrestricted scan of their common parent (which can be ~ or /).
+    @MainActor
+    func testRelaunchWithEveryPickedFileGoneOpensNothing() async throws {
+        try await withState(quitInBody: true) { state, root in
+            let a = root.appendingPathComponent("day1/a.png")
+            let b = root.appendingPathComponent("day2/b.png")
+            let bystander = root.appendingPathComponent("elsewhere/c.png")
+            try png(a); try png(b); try png(bystander)
+            state.openSources([a, b])
+            try await scanned(state)
+            XCTAssertEqual(state.allPhotos.count, 2)
+            state.prepareToQuit()
+
+            try FileManager.default.removeItem(at: a)
+            try FileManager.default.removeItem(at: b)
+            let relaunched = AppState(catalogDirectory: { root.appendingPathComponent("catalog2") },
+                                      previewDirectory: { root.appendingPathComponent("previews2") })
+            defer { relaunched.prepareToQuit() }
+            relaunched.reopenLastFolder()
+            XCTAssertNil(relaunched.folderURL,
+                         "the vanished selection reopened as a scan of its root")
+            XCTAssertFalse(relaunched.isScanning)
+            XCTAssertEqual(relaunched.statusMessage, AppState.pickedSetGoneMessage)
+        }
+    }
+
     /// V7 D7: a dropped web link, or a folder with nothing Lumen opens in it plus a
     /// stray file, must not replace the open roll or be remembered for the next launch.
     @MainActor

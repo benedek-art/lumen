@@ -2743,10 +2743,24 @@ final class AppState: ObservableObject {
         // folder — otherwise choosing six frames and relaunching would present the
         // three thousand they were chosen out of.
         let remembered = UserDefaults.standard.stringArray(forKey: Self.lastFolderFilesKey) ?? []
-        let files = Set(remembered.map { URL(fileURLWithPath: $0) })
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-        openFolder(url, restrictedTo: files.isEmpty ? nil : Set(files))
+        // `SourceOpening.relaunch` (LumenCore, tested) decides. A remembered selection
+        // with nothing left must NOT become "no restriction": the remembered folder is
+        // the picked files' common parent, which can be the home folder or `/` (V7 D6).
+        switch SourceOpening.relaunch(remembered: remembered,
+                                      exists: { FileManager.default.fileExists(atPath: $0) }) {
+        case .folder:
+            openFolder(url)
+        case .files(let files):
+            openFolder(url, restrictedTo: files)
+        case .nothing:
+            // The empty state, and a line saying why. The memory is kept rather than
+            // cleared: the files may be on a volume that is not mounted yet.
+            statusMessage = Self.pickedSetGoneMessage
+        }
     }
+
+    static let pickedSetGoneMessage =
+        "The photographs open last time are no longer there — choose what to open"
 
     /// The chosen files, when the last roll was an explicit set rather than a folder.
     ///

@@ -68,6 +68,42 @@ final class SourceOpeningTests: XCTestCase {
         XCTAssertNil(SourceOpening.commonParent(of: [], isDirectory: { _ in false }))
     }
 
+    // MARK: - Relaunch (V7 D6)
+
+    func testAFolderRollReopensAsTheFolder() {
+        XCTAssertEqual(SourceOpening.relaunch(remembered: [], exists: { _ in true }), .folder)
+    }
+
+    func testAPickedSetReopensAsWhatIsLeftOfIt() {
+        let kept = "/Users/me/Desktop/a.NEF", gone = "/Users/me/Downloads/b.NEF"
+        XCTAssertEqual(SourceOpening.relaunch(remembered: [kept, gone], exists: { $0 == kept }),
+                       .files([URL(fileURLWithPath: kept)]))
+    }
+
+    /// The defect: every remembered file gone fell through to "no restriction", and the
+    /// remembered root — the picked files' common parent, here the home folder — was
+    /// scanned whole.
+    func testAPickedSetThatIsAllGoneOpensNothing() {
+        let picked = ["/Users/me/Desktop/a.NEF", "/Users/me/Downloads/b.NEF"]
+        XCTAssertEqual(SourceOpening.relaunch(remembered: picked, exists: { _ in false }),
+                       .nothing,
+                       "a vanished selection must never become an unrestricted scan of its root")
+    }
+
+    func testReopenLastFolderActsOnTheRelaunchDecision() throws {
+        let code = try ShellSource.code("Sources/LumenApp/AppState.swift")
+        let reopen = try XCTUnwrap(ShellSource.body(after: "func reopenLastFolder()", in: code),
+                                   "reopenLastFolder is gone or renamed; re-point this pin")
+        let flat = ShellSource.squashed(reopen)
+        XCTAssertTrue(flat.contains("SourceOpening.relaunch(remembered: remembered"))
+        XCTAssertFalse(flat.contains("files.isEmpty ? nil"),
+                       "the fall-through to an unrestricted open is back")
+        let start = try XCTUnwrap(flat.range(of: "case .nothing:"))
+        let rest = String(flat[start.upperBound...])
+        XCTAssertFalse(rest.prefix(while: { $0 != "}" }).contains("openFolder("),
+                       "a vanished selection must open nothing")
+    }
+
     // MARK: - The app acts on the plan
 
     /// `openSources` routes through the plan, refuses `.nothing` without touching the
