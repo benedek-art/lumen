@@ -543,8 +543,10 @@ final class MaskDependencyAdversarialTests: XCTestCase {
     ///
     /// Colliding ids are re-issued on paste (`Recipe.appendingMasks`), so this is a
     /// hand-edited sidecar or a future writer, not an everyday path. Which row a
-    /// THIRD mask's `maskRef: "dup"` means stays first-wins everywhere; whether such
-    /// ids should be repaired on load is an owner decision, not something this pins.
+    /// THIRD mask's `maskRef: "dup"` means stays first-wins everywhere. Decoding now
+    /// renames a later duplicate where that changes no picture (`MaskIdentityRepair`,
+    /// `MaskIdentityRepairTests`); this case builds the recipe in memory, so it still
+    /// exercises the collision itself.
     func testTwoMasksCarryingOneIdentityBothHaveTheirDependenciesFetched() {
         var subject = Mask(id: "src", name: "Subject",
                            components: [matteComponent(.aiSubject)])

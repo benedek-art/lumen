@@ -29,6 +29,9 @@ final class KeyDispatcher {
 
     private weak var state: AppState?
     private var monitor: Any?
+    /// `flagsChanged`, kept apart from the key monitor so `handle` never sees an event
+    /// that has no characters. Feeds `ModifierKeys`.
+    private var flagsMonitor: Any?
     /// Set while a hold-key gesture is active, so key-up can undo what key-down did.
     private var holdActive: Character?
 
@@ -44,18 +47,29 @@ final class KeyDispatcher {
                 self.handle(event) ? nil : event
             }
         }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
+            ModifierKeys.shared.update(event.modifierFlags)
+            return event
+        }
     }
 
     func uninstall() {
         if let monitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+        }
         monitor = nil
+        flagsMonitor = nil
     }
 
     deinit {
         if let monitor {
             NSEvent.removeMonitor(monitor)
+        }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
         }
     }
 

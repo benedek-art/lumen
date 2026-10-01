@@ -273,7 +273,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
     "CVPixelBufferUnlockBaseAddress", "CVPixelBufferLockFlags",
-    "CVPixelBufferCreate",
+    "CVPixelBufferCreate", "CVPixelBufferCreateWithBytes",
     # Metal
     "MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLPixelFormat",
     "MTLCreateSystemDefaultDevice",

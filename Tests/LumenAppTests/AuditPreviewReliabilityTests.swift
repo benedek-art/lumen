@@ -44,6 +44,63 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertNotEqual(red, green)
     }
 
+    func testBrowsingAndPrefetchDoNotForgetRendererStateOnlyAReplacementDoes() async throws {
+        // Every source-cache miss used to call forgetMattes, which cleared every
+        // photo's mask rasters and brush planes: a first open, a neighbour prefetch and
+        // a re-acquisition after the twelve-entry LRU all threw the edited photo's
+        // seconds of brush settle away.
+        let root = try scratch()
+        let edited = root.appendingPathComponent("edited.png")
+        try write(pixels(width: 32, height: 24), to: edited)
+        var neighbours: [URL] = []
+        for i in 0..<14 {
+            let url = root.appendingPathComponent("neighbour-\(i).png")
+            try write(pixels(width: 32, height: 24, green: i.isMultiple(of: 2)), to: url)
+            neighbours.append(url)
+        }
+        let coordinator = RenderCoordinator()
+        _ = await coordinator.nativeSize(for: edited)
+        _ = await coordinator.nativeSize(for: neighbours[0])
+        await coordinator.warmDecode(url: neighbours[1], recipe: Recipe(), longEdge: 32)
+        var forgotten = await coordinator.sourceReplacementsForgotten
+        XCTAssertEqual(forgotten, 0, "first opens and prefetch are not replacements")
+        // Push the edited file out of the source LRU and bring it back unchanged.
+        for url in neighbours { _ = await coordinator.nativeSize(for: url) }
+        _ = await coordinator.nativeSize(for: edited)
+        forgotten = await coordinator.sourceReplacementsForgotten
+        XCTAssertEqual(forgotten, 0, "an LRU re-acquisition of unchanged bytes is not a replacement")
+        // Now actually replace it under the same path.
+        try write(pixels(width: 64, height: 48, green: true), to: edited)
+        let after = await coordinator.nativeSize(for: edited)
+        XCTAssertEqual(after?.width, 64)
+        forgotten = await coordinator.sourceReplacementsForgotten
+        XCTAssertEqual(forgotten, 1, "a same-path replacement must still forget")
+    }
+
+    func testAMattePassThatCannotReadTheOriginalSaysSoInsteadOfWorking() async throws {
+        // F5-09: "not attempted, not pending" was always WORKING, and a pass that cannot
+        // build its source attempts nothing — so the panel said "Computing" forever.
+        let root = try scratch()
+        var recipe = Recipe()
+        recipe.masks = [Mask(id: "subject",
+                             components: [MaskComponent(op: .add, kind: .aiSubject)])]
+        let coordinator = RenderCoordinator()
+        let gone = await coordinator.ensureMattes(url: root.appendingPathComponent("gone.png"),
+                                                  recipe: recipe)
+        XCTAssertTrue(gone.sourceUnavailable, "a missing original must be reported")
+        XCTAssertTrue(gone.attempted.isEmpty)
+        let readable = root.appendingPathComponent("here.png")
+        try write(pixels(width: 64, height: 48), to: readable)
+        let here = await coordinator.ensureMattes(url: readable, recipe: recipe)
+        XCTAssertFalse(here.sourceUnavailable, "a readable original is not unavailable")
+        XCTAssertFalse(here.attempted.isEmpty, "and the pass actually ran")
+        var none = Recipe()
+        none.masks = [Mask(id: "radial", components: [MaskComponent(op: .add, kind: .radial)])]
+        let idle = await coordinator.ensureMattes(url: root.appendingPathComponent("gone.png"),
+                                                  recipe: none)
+        XCTAssertFalse(idle.sourceUnavailable, "a pass with nothing to make reads nothing")
+    }
+
     func testRapidSameByteSizeImageReplacementWithRestoredMTimeRefreshesPixels() async throws {
         let root = try scratch()
         let url = root.appendingPathComponent("source.tif")

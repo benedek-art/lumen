@@ -774,6 +774,10 @@ final class AppState: ObservableObject {
     /// replaced from its answer on every pass and dropped when it says a file was
     /// evicted; nothing here decides on its own that a pass can be skipped.
     private var attemptedMattes: [URL: Set<String>] = [:]
+    /// Files whose last matte pass could not read the original. Published because
+    /// nothing else that changes with it is: a pass that cannot run changes neither
+    /// the available nor the attempted set, so the panel would never re-body to say so.
+    @Published private(set) var unreadableMatteSources: Set<URL> = []
     private var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
@@ -791,6 +795,8 @@ final class AppState: ObservableObject {
         case notFound
         /// Needs a Core ML model that is not bundled.
         case needsModel
+        /// Vision has nothing to look at: the original could not be read or decoded.
+        case unavailable
     }
 
     func matteStatus(for kind: MaskKind) -> MatteStatus {
@@ -805,8 +811,11 @@ final class AppState: ObservableObject {
             // NOTHING FOUND about a kind added after the pass ran — a specific,
             // actionable error message about a request that was never issued, which is
             // worse than a vague one.
-            return (attemptedMattes[url] ?? []).contains(kind.rawValue)
-                ? .notFound : .working
+            if (attemptedMattes[url] ?? []).contains(kind.rawValue) { return .notFound }
+            // Not attempted and not pending used to mean WORKING unconditionally, and a
+            // pass that cannot run is never pending and never attempts anything — so
+            // an original on an ejected volume said "Computing" forever (F5-09).
+            return unreadableMatteSources.contains(url) ? .unavailable : .working
         }
     }
 
@@ -883,6 +892,10 @@ final class AppState: ObservableObject {
             }
         }
         attemptedMattes[url] = pass.attempted
+        if pass.sourceUnavailable != unreadableMatteSources.contains(url) {
+            if pass.sourceUnavailable { unreadableMatteSources.insert(url) }
+            else { unreadableMatteSources.remove(url) }
+        }
         let before = availableMattes[url]
         if pass.available.isEmpty {
             if before != nil { availableMattes.removeValue(forKey: url) }
@@ -1024,19 +1037,14 @@ final class AppState: ObservableObject {
             maskThumbnailKey = nil
             return
         }
-        // The masks themselves, minus their names — renaming a mask must not re-render
-        // ninety-six pixels — plus everything the mask SOURCE is a function of, which is
-        // what `PipelineRenderer.maskSourceFingerprint` already knows how to state.
-        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
-            .map(CanonicalJSON.serialize) ?? UUID().uuidString
-        let key = [photo.id.absoluteString, shape,
-                   PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-"]
-            .joined(separator: "|")
+        let strokes = strokeSets(for: recipe)
+        let key = Self.maskThumbnailKey(url: photo.id, recipe: recipe,
+                                        sourceIdentity: SourceFileIdentity.read(photo.id),
+                                        strokeSets: strokes)
         guard key != maskThumbnailKey else { return }
         maskThumbnailKey = key
 
         let ids = recipe.masks.map(\.id)
-        let strokes = strokeSets(for: recipe)
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
             guard let self else { return }
@@ -1068,6 +1076,30 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
             self.maskThumbnails = built
         }
+    }
+
+    /// What a set of mask thumbnails is a picture OF.
+    ///
+    /// The masks themselves, minus their names — renaming a mask must not re-render
+    /// ninety-six pixels — plus everything the mask SOURCE is a function of, which is
+    /// what `PipelineRenderer.maskSourceFingerprint` already knows how to state. And two
+    /// terms that key used to lack: the FILE's identity, because a photograph replaced at
+    /// the same path keeps its url and its recipe while every picture-dependent mask
+    /// selects something else; and which stroke sets are actually LOADED, because a
+    /// brush mask drawn before its blob arrived is an empty picture of a mask that is
+    /// not empty, and the blob arriving changes nothing else in the key.
+    nonisolated static func maskThumbnailKey(url: URL, recipe: Recipe,
+                                             sourceIdentity: SourceFileIdentity?,
+                                             strokeSets: [String: BrushStrokeSet]) -> String {
+        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
+            .map(CanonicalJSON.serialize) ?? UUID().uuidString
+        let refs = Set(recipe.masks.flatMap { $0.components.compactMap(\.strokesRef) })
+        let loaded = refs.sorted()
+            .map { "\($0):\(strokeSets[$0]?.strokes.count ?? -1)" }
+            .joined(separator: ",")
+        return [url.absoluteString, sourceIdentity?.token ?? "?", shape,
+                PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-", loaded]
+            .joined(separator: "|")
     }
 
     /// An alpha plane as a grey image a row can draw.
@@ -2538,6 +2570,10 @@ final class AppState: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 for (ref, set) in resolved { self.strokeCache[ref] = set }
+                // The rows' pictures of a brush mask drawn before its strokes arrived
+                // are empty; the thumbnail key now carries stroke availability, so
+                // this re-renders exactly when an arrival matters.
+                self.refreshMaskThumbnails()
             }
         }
     }
@@ -2905,6 +2941,9 @@ final class AppState: ObservableObject {
         recipes = loaded
         allPhotos = items
         sourceRevision &+= 1
+        // A rescan is where a same-path replacement is noticed. The thumbnail key
+        // carries the file's identity, so this costs nothing unless the bytes changed.
+        refreshMaskThumbnails()
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
         // unread for as long as both have existed.
