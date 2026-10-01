@@ -456,10 +456,10 @@ enum SliderInventory {
                    step: 0.1, decimals: 1),
 
         // Curve — the four parametric regions, all one shape.
-        SliderSpec("Highlights", "CurveEditorView.swift:528", .developTop, -100...100, step: 1),
-        SliderSpec("Lights", "CurveEditorView.swift:533", .developTop, -100...100, step: 1),
-        SliderSpec("Darks", "CurveEditorView.swift:537", .developTop, -100...100, step: 1),
-        SliderSpec("Shadows", "CurveEditorView.swift:541", .developTop, -100...100, step: 1),
+        SliderSpec("Highlights", "CurveEditorView.swift:625", .developTop, -100...100, step: 1),
+        SliderSpec("Lights", "CurveEditorView.swift:630", .developTop, -100...100, step: 1),
+        SliderSpec("Darks", "CurveEditorView.swift:634", .developTop, -100...100, step: 1),
+        SliderSpec("Shadows", "CurveEditorView.swift:638", .developTop, -100...100, step: 1),
 
         // Detail — capture sharpening, manual sharpening.
         SliderSpec("Amount", "DetailPanel.swift:213", .developTop, 0...150, step: 1),
@@ -471,7 +471,7 @@ enum SliderInventory {
         SliderSpec("Halo Damping", "DetailPanel.swift:378", .developTop, 0...100, step: 1),
         // Noise Reduction — all of it inside a `DevelopDisclosure`.
         SliderSpec("Luminance", "DetailPanel.swift:537", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Detail", "DetailPanel.swift:588", .developDisclosure, 0...100,
+        SliderSpec("Detail", "DetailPanel.swift:589", .developDisclosure, 0...100,
                    step: 1, indented: true),
         SliderSpec("Contrast", "DetailPanel.swift:598", .developDisclosure, 0...100,
                    step: 1, indented: true),
@@ -480,8 +480,8 @@ enum SliderInventory {
                    step: 1, indented: true),
         SliderSpec("Smoothness", "DetailPanel.swift:636", .developDisclosure, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Hot Pixels", "DetailPanel.swift:647", .developDisclosure, 0...100, step: 1),
-        SliderSpec("Amount", "DetailPanel.swift:683", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Hot Pixels", "DetailPanel.swift:648", .developDisclosure, 0...100, step: 1),
+        SliderSpec("Amount", "DetailPanel.swift:684", .developDisclosure, 0...100, step: 1),
 
         // Effects — vignette, grain, retouch.
         SliderSpec("Amount", "EffectsPanel.swift:131", .developTop, -4...2,
@@ -632,9 +632,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2069 (LookPanel.swift:972)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2087 (LookPanel.swift:972)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2069 (MaskPanel.swift:3008)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2087 (MaskPanel.swift:3008)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.
