@@ -713,14 +713,23 @@ public struct FilmGrainProfile: Sendable {
     /// One measured departure from the model, for honesty. The premise is three
     /// INDEPENDENT unit-variance fields; the shipped plates are not quite that.
     /// `plateSeed(channel:)` separates the three seeds by adding a golden-ratio
-    /// constant, and the fields come back correlated at r ≈ 0.088 / 0.044 / −0.040
-    /// (16 384 samples, so the first is real and not sampling noise), and a bilinearly
-    /// sampled plate does not carry exactly the plate's variance — 1.025 / 1.023 /
-    /// 0.982 at a 2560 px render. So the luminance is held to a few percent rather than
-    /// exactly. The residual seed correlation is worth its own look — three
-    /// "independent" dye layers that agree 9% of the time are less independent than the
-    /// model this file is written around — but it makes the defect being fixed here
-    /// SMALLER, not larger, and it is a plate-generator question.
+    /// constant, and the shipped plates come back correlated at r ≈ 0.088 / 0.046 /
+    /// −0.038, and a bilinearly sampled plate does not carry exactly the plate's
+    /// variance — 1.025 / 1.023 / 0.982 at a 2560 px render. So the luminance is held to
+    /// a few percent rather than exactly.
+    ///
+    /// THE CORRELATION IS SAMPLING NOISE, NOT STRUCTURE, and this comment used to say
+    /// the opposite ("16 384 samples, so the first is real"). The 16 384 pixels are not
+    /// 16 384 independent samples: the plate's coarsest octave is a lattice of about
+    /// 8 × 8 cells and carries most of its variance, so the effective sample count is
+    /// about 100 and the null distribution of r has σ ≈ 0.11. Measured over 200 draws
+    /// each: plates from UNRELATED random seeds give mean r −0.013, σ 0.106, with 35%
+    /// of pairs at |r| ≥ 0.088; plates from `plateSeed` offsets of random bases give
+    /// mean −0.00005, σ 0.112, 40.5% at |r| ≥ 0.088. The offset scheme adds no
+    /// correlation; the shipped plate is one fixed draw whose r happens to be +0.088
+    /// (N-005, retired in the October 2026 verification, V5). Choosing a different
+    /// `defaultPlateSeed` for a smaller r would move every grain golden and proof
+    /// record for a cosmetic number, and is not done.
     public var noiseMixWeights: (luma: Double, own: Double) {
         let x: Double = Num.clamp(chroma, 0, 1)
         // Three independent unit fields sum to variance 3; three identical ones to 9.
