@@ -81,7 +81,16 @@ final class CatalogService: @unchecked Sendable {
     private var sidecarsClosed = false
     /// One actionable notice per photo/outage, reset after a successful write.
     private var reportedSidecarFailures: Set<URL> = []
+    /// Sidecars owed since a quit whose final flush failed, keyed by photo path, and
+    /// mirrored into `meta` (`UnsavedSidecarRecord.metaKey`) so the debt survives the
+    /// process. Guarded by `sidecarLock`.
+    private var unsavedSidecars: [String: UnsavedSidecarRecord] = [:]
     private let sidecarLock = NSLock()
+
+    /// Set at open when the last quit left sidecars unwritten. Read once after
+    /// construction, like `recovery.notice`: it is delivered synchronously, because the
+    /// `onFailure` hop that should have carried it at quit never ran.
+    private(set) var unsavedSidecarNotice: String?
 
     /// Which backfill call is the CURRENT one. A folder switch starts a new pass and
     /// the old one — thousands of file opens on the serial maintenance lane, ahead of
@@ -154,6 +163,74 @@ final class CatalogService: @unchecked Sendable {
         // the quit-path snapshot above exists for.
         backupQueue.asyncAfter(deadline: .now() + Self.openBackupDelay) { [weak self] in
             self?.backUp(force: false)
+        }
+
+        // REL-09, the quit half: what the last quit could not write is owed now.
+        let owed = UnsavedSidecarRecord.decode(
+            try? store.metaValue(UnsavedSidecarRecord.metaKey))
+        if !owed.isEmpty {
+            unsavedSidecarNotice = UnsavedSidecarRecord.notice(for: owed)
+            NSLog("Lumen catalog: %@", unsavedSidecarNotice ?? "")
+            for record in owed { unsavedSidecars[record.photoPath] = record }
+            queue.async { [weak self] in self?.requeueUnsavedSidecars(owed) }
+        }
+    }
+
+    /// Rebuild the owed fields from the CATALOG, the newer truth by now, and queue them.
+    /// Runs on `queue`. A record that cannot be rebuilt (the photo is gone from the
+    /// catalog) is reported once and dropped, so it does not nag every launch.
+    private func requeueUnsavedSidecars(_ records: [UnsavedSidecarRecord]) {
+        var dropped = false
+        for record in records {
+            let url = URL(fileURLWithPath: record.photoPath)
+            let stated = record.statedFields
+            guard let id = record.photoID, let row = try? store.photo(id: id) else {
+                report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt: "
+                       + "the photo is no longer in the catalog.")
+                sidecarLock.lock()
+                unsavedSidecars[record.photoPath] = nil
+                sidecarLock.unlock()
+                dropped = true
+                continue
+            }
+            var recipeFields: (json: String, fingerprint: String, version: Int)?
+            var strokes: String?? = nil
+            if !stated.isDisjoint(with: [.recipe, .strokes]),
+               let recipe = try? store.currentRecipe(photoID: id),
+               let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
+               let fingerprint = try? RecipeFingerprint.fingerprint(recipe) {
+                if stated.contains(.recipe) {
+                    recipeFields = (json, fingerprint,
+                                    Swift.min(recipe.pipelineVersion, currentPipelineVersion))
+                }
+                if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
+            }
+            let flag: SidecarFlag?
+            switch row.flag {
+            case .pick: flag = stated.contains(.flag) ? .pick : nil
+            case .reject: flag = stated.contains(.flag) ? .reject : nil
+            case .unflagged: flag = stated.contains(.flag) ? SidecarFlag.none : nil
+            }
+            enqueueSidecar(for: url, photoID: id,
+                           rating: stated.contains(.rating) ? row.rating : nil,
+                           flag: flag,
+                           label: stated.contains(.label) ? .some(row.label) : nil,
+                           recipe: recipeFields, strokes: strokes)
+        }
+        if dropped { persistUnsavedSidecars() }
+    }
+
+    /// Mirror `unsavedSidecars` into `meta`. Runs on `queue`; reads the map at the time
+    /// it runs, so an earlier-scheduled call can never overwrite a later state.
+    private func persistUnsavedSidecars() {
+        sidecarLock.lock()
+        let value = UnsavedSidecarRecord.encode(Array(unsavedSidecars.values))
+        sidecarLock.unlock()
+        do {
+            try store.setMetaValue(UnsavedSidecarRecord.metaKey, value)
+        } catch {
+            NSLog("Lumen catalog: could not record unsaved sidecars — %@",
+                  String(describing: error))
         }
     }
 
@@ -736,32 +813,36 @@ final class CatalogService: @unchecked Sendable {
             // the file stays there. The catalog and — since K-018 — the blob backup are
             // the copies that actually carry a painting this size; the sidecar's job is
             // to carry what it can and never to destroy what it cannot.
-            let strokes: String??
-            switch BrushStrokeSidecar.decision(for: recipe, blob: {
-                self.blobs.strokeSet(for: $0)
-            }) {
-            case .none:
-                strokes = .some(nil)
-            case .payload(let p):
-                strokes = .some(p)
-            case .tooLarge(let characters):
-                strokes = nil
-                NSLog("Lumen catalog: %@'s brush painting is %d characters, past the "
-                      + "%d the sidecar can carry — the sidecar keeps its previous copy "
-                      + "and the catalog holds the current one",
-                      url.lastPathComponent, characters,
-                      BrushStrokeSidecar.payloadLimit)
-                self.onFailure?(
-                    "\(url.lastPathComponent) has more brush strokes than a sidecar can "
-                    + "hold, so its .xmp keeps an earlier copy. The catalog and its "
-                    + "backups have the current painting.")
-            }
+            let strokes = self.sidecarStrokes(for: recipe, url: url)
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint,
                                          Swift.min(recipe.pipelineVersion,
                                                    currentPipelineVersion)),
                                 strokes: strokes)
         }
+    }
+
+    /// What a sidecar write says about brush strokes for `recipe`; see `saveRecipe`.
+    private func sidecarStrokes(for recipe: Recipe, url: URL) -> String?? {
+        switch BrushStrokeSidecar.decision(for: recipe, blob: {
+            self.blobs.strokeSet(for: $0)
+        }) {
+        case .none:
+            return .some(nil)
+        case .payload(let p):
+            return .some(p)
+        case .tooLarge(let characters):
+            NSLog("Lumen catalog: %@'s brush painting is %d characters, past the "
+                  + "%d the sidecar can carry — the sidecar keeps its previous copy "
+                  + "and the catalog holds the current one",
+                  url.lastPathComponent, characters,
+                  BrushStrokeSidecar.payloadLimit)
+            onFailure?(
+                "\(url.lastPathComponent) has more brush strokes than a sidecar can "
+                + "hold, so its .xmp keeps an earlier copy. The catalog and its "
+                + "backups have the current painting.")
+        }
+        return nil
     }
 
     // MARK: - Queries
@@ -1272,7 +1353,11 @@ final class CatalogService: @unchecked Sendable {
                 try Data(text.utf8).write(to: path, options: .atomic)
                 sidecarLock.lock()
                 reportedSidecarFailures.remove(url)
+                let settled = unsavedSidecars.removeValue(forKey: url.path) != nil
                 sidecarLock.unlock()
+                if settled {
+                    queue.async { [weak self] in self?.persistUnsavedSidecars() }
+                }
                 // And record the mtime we just gave it. This is half of what makes
                 // §15.5 rule 1 answerable: without a stamp taken on OUR writes, the very
                 // next scan sees a file newer than nothing and has to guess. `photoID`
@@ -1800,7 +1885,12 @@ final class CatalogService: @unchecked Sendable {
         onFailure?(message)
     }
 
-    func close() {
+    /// - Returns: the sidecar file names the final flush could not write. They are also
+    ///   recorded in the catalog before it closes and surfaced at the next launch
+    ///   (`unsavedSidecarNotice`), because a failure reported through `onFailure` here
+    ///   is a hop to a main actor that never runs again.
+    @discardableResult
+    func close() -> [String] {
         // Drain first, THEN flush. `saveCullingState` and `saveRecipe` are `queue.async`
         // and call `enqueueSidecar` at the END of their work, so on a backlogged queue —
         // a metadata backfill is the usual cause — a rating pressed just before quitting
@@ -1809,11 +1899,27 @@ final class CatalogService: @unchecked Sendable {
         // store, and the app terminated with the edit in the catalog and no sidecar. The
         // sidecar is the recovery copy, so the one edit most likely to be lost was the
         // last one made.
-        queue.sync {
+        let unsaved: [String] = queue.sync {
             flushSidecars()
             sidecarLock.lock()
             sidecarsClosed = true
+            // What is still pending after the final flush is exactly what failed: the
+            // flush re-queues failures and nothing else can enqueue past this point.
+            for (url, entry) in pendingSidecars {
+                let record = UnsavedSidecarRecord(photoPath: url.path, photoID: entry.photoID,
+                                                  stated: entry.stated)
+                unsavedSidecars[url.path] = unsavedSidecars[url.path].map { $0.merged(with: record) }
+                    ?? record
+            }
+            let names = pendingSidecars.keys.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
             sidecarLock.unlock()
+            persistUnsavedSidecars()
+            return names
+        }
+        if !unsaved.isEmpty {
+            NSLog("Lumen catalog: quitting with %d portable sidecar(s) unsaved (%@); the "
+                  + "catalog has the edits and the next launch writes them again",
+                  unsaved.count, unsaved.joined(separator: ", "))
         }
         // J1-04: the restore path that exists and works used to have, on a typical
         // install, zero inputs — `backup()`'s only caller was a menu item nobody is
@@ -1827,6 +1933,7 @@ final class CatalogService: @unchecked Sendable {
         // writes goes through the store.
         backUpAtQuitIfAffordable()
         queue.sync { store.close() }
+        return unsaved
     }
 }
 

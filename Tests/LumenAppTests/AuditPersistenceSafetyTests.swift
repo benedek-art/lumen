@@ -49,6 +49,43 @@ final class AuditPersistenceSafetyTests: XCTestCase {
         XCTAssertEqual(notices.count, 2)
     }
 
+    /// REL-09, the quit half: an edit followed by quit inside the debounce, with the
+    /// sidecar path unwritable. The failure cannot be shown at quit (the status hop
+    /// never runs), so it is recorded and surfaced, synchronously, at the next open,
+    /// and the sidecar is written from the catalog once the path is writable.
+    func testQuitFlushFailureIsSurfacedAtNextLaunchAndRewrittenFromCatalog() throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("quit.JPG")
+        try Data([1, 2, 3]).write(to: photo)
+        let sidecar = photo.appendingPathExtension("xmp")
+        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
+        let catalog = root.appendingPathComponent("catalog")
+        let first = try CatalogService(directory: catalog)
+        let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        var recipe = Recipe()
+        recipe.develop.tone.exposure = 3
+        first.saveRecipe(recipe, url: photo, catalogID: id)
+        var item = PhotoItem(id: photo)
+        item.catalogID = id
+        item.rating = 4
+        first.saveCullingState(item, labelChanged: false)
+        XCTAssertEqual(first.close(), ["quit.JPG.xmp"], "close must say what it could not write")
+
+        let second = try CatalogService(directory: catalog)
+        let notice = try XCTUnwrap(second.unsavedSidecarNotice, "REL-09: the quit failure was dropped")
+        XCTAssertTrue(notice.contains("quit.JPG"))
+        try FileManager.default.removeItem(at: sidecar)
+        second.close()
+        let content = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: sidecar)))
+        let json = try XCTUnwrap(content.recipeJSON)
+        XCTAssertEqual(try CanonicalJSON.decodeRecipe(from: Data(json.utf8)).develop.tone.exposure, 3)
+        XCTAssertEqual(content.rating, 4)
+
+        let third = try CatalogService(directory: catalog)
+        defer { third.close() }
+        XCTAssertNil(third.unsavedSidecarNotice, "a written sidecar is no longer owed")
+    }
+
     func testBlobCopyFailureDoesNotPublishAnIncompleteBackup() throws {
         let root = try scratch()
         let catalog = root.appendingPathComponent("catalog")

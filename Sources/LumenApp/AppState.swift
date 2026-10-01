@@ -2578,6 +2578,14 @@ final class AppState: ObservableObject {
             // thing left is to say so. A healthy catalog has no notice and stays silent.
             catalogStatus = service.recovery.notice
             if let notice = service.recovery.notice { statusMessage = notice }
+            // The last quit's sidecar failures, which could not be shown at quit: the
+            // status hop never runs after `applicationWillTerminate` returns.
+            if let unsaved = service.unsavedSidecarNotice {
+                let combined = [service.recovery.notice, unsaved].compactMap { $0 }
+                    .joined(separator: " ")
+                catalogStatus = combined
+                statusMessage = combined
+            }
         } catch {
             catalog = nil
             catalogStatus = "Catalog unavailable — edits live in memory this session "
@@ -3773,7 +3781,11 @@ final class AppState: ObservableObject {
         // docs/10 §10.10: the photographer never hears about this — no menu item, no
         // confirmation, no "Optimize Catalog" ritual.
         previews?.prune()
-        catalog?.close()
+        // Synchronous: nothing dispatched from here runs again. `close` logs what it
+        // could not write and records it in the catalog for the next launch's notice.
+        if let unsaved = catalog?.close(), !unsaved.isEmpty {
+            statusMessage = "Sidecars not saved: " + unsaved.joined(separator: ", ")
+        }
     }
 
     /// A consistent snapshot of the catalog, via `VACUUM INTO`.
