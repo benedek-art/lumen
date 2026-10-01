@@ -402,6 +402,11 @@ private struct LumenCommands: Commands {
                     .disabled(!state.hasCopiedSettings)
                     Button("Paste Masks") { state.pasteMasks() }
                         .disabled(!state.hasCopiedMasks)
+                    // Spot removal is local work on one photograph's blemishes, so the
+                    // two whole-recipe pastes leave it behind unless this is ticked —
+                    // LR's sync default, as a checkable item rather than a dialog for the
+                    // reason the comment above gives. See `RetouchPaste`.
+                    Toggle("Paste Includes Spot Removal", isOn: $commands.pasteIncludesRetouch)
                 }
                 // A SECOND GROUP because a builder takes ten children and Cut made this
                 // one eleven. Split where the divider already was rather than at the

@@ -807,6 +807,37 @@ actor RenderCoordinator {
                                            sourceHeight: found.sourceHeight)
     }
 
+    /// The distinct sources `/` cycles through for an existing spot, best first
+    /// (`SpotSourceSearch.rankedSources`), searched in the same S5 input
+    /// `healAutoSource` uses — so the first of them is the source a click would pick.
+    func healSourceCandidates(url: URL, recipe: Recipe, spot: HealSpot,
+                              priorSpots: [HealSpot]) -> [(x: Double, y: Double)] {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                    spot: spot, priorSpots: priorSpots)
+        else { return [] }
+        return SpotSourceSearch.rankedSources(for: spot, in: found.buffer,
+                                              window: found.window,
+                                              sourceWidth: found.sourceWidth,
+                                              sourceHeight: found.sourceHeight)
+    }
+
+    /// The source offset for a new painted heal stroke (`StrokeSourceSearch`), searched
+    /// in the S5 input through the spots and the strokes before it. Nil when nothing
+    /// fits — the caller then keeps its provisional offset.
+    func healStrokeAutoOffset(url: URL, recipe: Recipe, stroke: BrushStroke,
+                              priorStrokes: [BrushStroke]) -> (dx: Double, dy: Double)? {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healStrokeSearchBuffer(source: source, recipe: recipe,
+                                                          stroke: stroke,
+                                                          priorStrokes: priorStrokes)
+        else { return nil }
+        return StrokeSourceSearch.autoOffset(for: stroke, in: found.buffer,
+                                             window: found.window,
+                                             sourceWidth: found.sourceWidth,
+                                             sourceHeight: found.sourceHeight)
+    }
+
     /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
     /// `ColorEngine.apply` compares a global Point Colour swatch against. The global
     /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,

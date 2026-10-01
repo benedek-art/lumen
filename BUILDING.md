@@ -639,7 +639,8 @@ changed the picture.
   end — `Heal.spots` inline in the recipe (version 3, see `supportedPipelineVersion`),
   S5 in both renderers (`SpotRetouch`, `RenderGraph.applySpots`), auto source by
   `SpotSourceSearch`, and the `Q` tool on the loupe. `strokesRef`/`count` (painted heal)
-  are still unread, as above.
+  were still unread then; since stream F8-heal2 they hold painted heal strokes
+  (`StrokeHeal`, `RenderGraph.applyHealStrokes`), in the brush blob store.
 - **Speed Edit (D44) is not implemented.** Correctly absent from the keyboard reference,
   so nobody is sent looking for it.
 - **The eyedropper is wired; what it feeds is not all verified.** The probe is

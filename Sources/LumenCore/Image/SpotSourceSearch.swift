@@ -143,10 +143,23 @@ public enum SpotSourceSearch {
                 if best == nil || score < best!.score { best = (dx, dy, score) }
             }
         }
-        guard var current = best else { return nil }
+        guard let start = best else { return nil }
+        let current = refine(start, scorer: scorer, radius: radius)
+        return (centerX + current.dx, centerY + current.dy)
+    }
 
-        // Pattern search: try the eight neighbours at `step`, move to the best that
-        // improves, halve the step when none does. Bounded, deterministic.
+    /// Pattern search: try the eight neighbours at `step`, move to the best that
+    /// improves, halve the step when none does. Bounded, deterministic.
+    static func refine(_ start: (dx: Double, dy: Double, score: Double), scorer: Scorer,
+                       radius: Double) -> (dx: Double, dy: Double, score: Double) {
+        refine(start, radius: radius) { scorer.score(dx: $0, dy: $1) }
+    }
+
+    /// The same search over any score — `StrokeHeal`'s tube scorer uses it.
+    static func refine(_ start: (dx: Double, dy: Double, score: Double), radius: Double,
+                       score scoreAt: (Double, Double) -> Double?)
+        -> (dx: Double, dy: Double, score: Double) {
+        var current = start
         var step = radius * 0.5
         var iterations = 0
         while step >= 0.125 && iterations < 400 {
@@ -155,14 +168,112 @@ public enum SpotSourceSearch {
             for (ox, oy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
                              (1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
                 let dx = current.dx + ox * step, dy = current.dy + oy * step
-                guard let score = scorer.score(dx: dx, dy: dy),
+                guard let score = scoreAt(dx, dy),
                       score < current.score else { continue }
                 current = (dx, dy, score)
                 improved = true
             }
             if !improved { step *= 0.5 }
         }
-        return (centerX + current.dx, centerY + current.dy)
+        return current
+    }
+
+    // MARK: Re-picking — `/` (docs/09 §Heal / Clone, LR's binding)
+
+    /// How many distinct sources `/` cycles through before it comes back to the first.
+    public static let alternativeCount = 6
+
+    /// The best `limit` DISTINCT sources, best first, in `image`'s own pixels.
+    ///
+    /// The first is exactly `bestSource`'s answer: the candidates are ranked by the same
+    /// score (ties to the earlier candidate, as `bestSource`'s strict `<` resolves them)
+    /// and each is refined by the same pattern search. Later entries are the next-best
+    /// candidates whose refined position is at least one radius from every entry before
+    /// them — two candidates that refine into the same texture are one choice, and a
+    /// re-pick that moved the source by a pixel would look like a key that did nothing.
+    public static func rankedSources(in image: ImageBuffer, centerX: Double, centerY: Double,
+                                     radius: Double, mode: HealMode,
+                                     limit: Int = alternativeCount) -> [(x: Double, y: Double)] {
+        guard limit > 0, radius.isFinite, centerX.isFinite, centerY.isFinite, radius > 0 else {
+            return []
+        }
+        let encoded = image.map { LumenLog.encode($0) }
+        let scorer = Scorer(image: encoded, cx: centerX, cy: centerY, radius: radius,
+                            heal: mode == .heal)
+        var candidates: [(index: Int, dx: Double, dy: Double, score: Double)] = []
+        for distance in candidateDistances {
+            for k in 0..<candidateDirections {
+                let theta = 2 * Double.pi * Double(k) / Double(candidateDirections)
+                let dx = cos(theta) * distance * radius
+                let dy = sin(theta) * distance * radius
+                guard let score = scorer.score(dx: dx, dy: dy) else { continue }
+                candidates.append((candidates.count, dx, dy, score))
+            }
+        }
+        candidates.sort { $0.score < $1.score || ($0.score == $1.score && $0.index < $1.index) }
+
+        var picked: [(dx: Double, dy: Double, score: Double)] = []
+        func isDistinct(_ dx: Double, _ dy: Double) -> Bool {
+            picked.allSatisfy { hypot($0.dx - dx, $0.dy - dy) >= radius }
+        }
+        for candidate in candidates {
+            guard picked.count < limit else { break }
+            // A candidate that already sits on a pick would refine into it.
+            guard isDistinct(candidate.dx, candidate.dy) else { continue }
+            let refined = refine((candidate.dx, candidate.dy, candidate.score),
+                                 scorer: scorer, radius: radius)
+            guard isDistinct(refined.dx, refined.dy) else { continue }
+            picked.append(refined)
+        }
+        return picked.map { (centerX + $0.dx, centerY + $0.dy) }
+    }
+
+    /// `rankedSources` for a spot, searched in a window of the source frame (see
+    /// `autoSource(for:in:window:sourceWidth:sourceHeight:)`), in source-normalized
+    /// coordinates.
+    public static func rankedSources(for spot: HealSpot, in buffer: ImageBuffer,
+                                     window: Window, sourceWidth: Int, sourceHeight: Int,
+                                     limit: Int = alternativeCount) -> [(x: Double, y: Double)] {
+        let w = Double(sourceWidth), h = Double(sourceHeight)
+        let toBufferX = Double(buffer.width) / Double(window.width)
+        let toBufferY = Double(buffer.height) / Double(window.height)
+        let radius = Swift.max(
+            Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
+                      HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
+        let cx = (spot.x * w - Double(window.x)) * toBufferX
+        let cy = (spot.y * h - Double(window.y)) * toBufferY
+        return rankedSources(in: buffer, centerX: cx, centerY: cy,
+                             radius: radius * Swift.min(toBufferX, toBufferY),
+                             mode: spot.mode, limit: limit).map {
+            (($0.x / toBufferX + Double(window.x)) / w,
+             ($0.y / toBufferY + Double(window.y)) / h)
+        }
+    }
+
+    /// What `/` moves `spot`'s source to: the candidate AFTER the one it sits on now,
+    /// wrapping to the best — so pressing it repeatedly walks every alternative and comes
+    /// back. A source the photographer dragged somewhere that is none of the candidates
+    /// goes to the best one, which is what "re-pick" means when nothing was picked.
+    ///
+    /// Stateless on purpose: which alternative a spot is on is read off the spot itself
+    /// (within half a radius, in source pixels), so the cycle survives undo, a relaunch
+    /// and a second window with nothing remembered anywhere. Nil when there are no
+    /// candidates at all.
+    public static func nextSource(for spot: HealSpot, candidates: [(x: Double, y: Double)],
+                                  sourceWidth: Int,
+                                  sourceHeight: Int) -> (x: Double, y: Double)? {
+        guard !candidates.isEmpty else { return nil }
+        let w = Double(sourceWidth), h = Double(sourceHeight)
+        let radius = Swift.max(
+            Num.clamp(spot.radius, HealSpot.radiusRange.lowerBound,
+                      HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
+        let tolerance = 0.5 * radius
+        let current = candidates.firstIndex { candidate in
+            hypot((candidate.x - spot.sourceX) * w, (candidate.y - spot.sourceY) * h)
+                <= tolerance
+        }
+        guard let current else { return candidates[0] }
+        return candidates[(current + 1) % candidates.count]
     }
 
     /// The scoring, with the destination's side measured once.

@@ -2579,6 +2579,10 @@ final class AppState: ObservableObject {
                 out[ref] = set
             }
         }
+        // And the painted heal strokes' set, which S5 reads out of the same map.
+        if let ref = BrushStrokes.healReference(in: recipe), let set = strokeCache[ref] {
+            out[ref] = set
+        }
         return out
     }
 
@@ -2646,10 +2650,11 @@ final class AppState: ObservableObject {
     /// can appear that this session did not write.
     func loadStrokeSets(for recipe: Recipe) {
         guard let blobs = catalog?.blobs else { return }
-        let missing = recipe.masks
+        let missing = (recipe.masks
             .flatMap(\.components)
             .filter { $0.kind == .brush }
             .compactMap(\.strokesRef)
+            + [BrushStrokes.healReference(in: recipe)].compactMap { $0 })
             .filter { strokeCache[$0] == nil }
         guard !missing.isEmpty else { return }
 
@@ -4102,15 +4107,28 @@ final class AppState: ObservableObject {
         copiedRecipe = recipe(for: photo)
     }
 
+    /// Whether Paste Settings carries Heal and Clone spots and heal strokes. OFF by
+    /// default (`RetouchPaste`): a spot is a position on one photograph's blemish, and
+    /// pasted across a shoot it lands on unrelated content in every other frame — LR's
+    /// sync leaves Spot Removal unchecked for the same reason. Session state, an
+    /// explicit opt-in, read by both whole-recipe paste commands. It LIVES on
+    /// `commands` because the Edit menu's checkable item is its only control and the
+    /// menu observes that object and not this one.
+    var pasteIncludesRetouch: Bool { commands.pasteIncludesRetouch }
+
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
         // `Recipe.adoptingSettings` is the rule, in LumenCore where it is tested: the
         // develop, the look less the one leaf that describes the target
         // (`LookSubset.carriedRenderPreset` — four doors into a look, one decision),
-        // the masks WITH their folders, and the newer of the two version stamps, since
-        // the result now holds whatever the source could express (M-06).
+        // the masks WITH their folders, the target's own spots and strokes unless the
+        // photographer opted in (`pasteIncludesRetouch`), and the newer of the two
+        // version stamps, since the result now holds whatever the source could
+        // express (M-06) — less the spot vocabulary when the spots stayed behind.
+        let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings") { recipe in
-            recipe = recipe.adoptingSettings(from: source, includingMasks: true)
+            recipe = recipe.adoptingSettings(from: source, includingMasks: true,
+                                            includingRetouch: retouch)
         }
     }
 
@@ -4125,8 +4143,10 @@ final class AppState: ObservableObject {
     /// nine times out of ten. Two commands cost nothing and ask nothing.
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
+        let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
-            recipe = recipe.adoptingSettings(from: source, includingMasks: false)
+            recipe = recipe.adoptingSettings(from: source, includingMasks: false,
+                                            includingRetouch: retouch)
         }
     }
 

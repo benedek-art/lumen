@@ -138,11 +138,11 @@ extension WorkspaceSection {
         // panel has no spot controls, so a dot it could not explain — and a Reset beside
         // it that silently deleted every spot on the photograph — would be the panel
         // lying about what it holds. Spots are removed with ⌫ in the Heal tool, or by the
-        // whole-photo Reset. The reserved painted-heal fields keep their old membership.
-        var healSansSpots = develop.heal
-        healSansSpots.spots = []
+        // whole-photo Reset. Painted heal STROKES (`strokesRef`/`count`) followed them
+        // out once `StrokeHeal` began rendering them, for the same reason: no `develop
+        // .heal` field is an Effects edit any more.
         if look.vignette != 0 || look.vignetteFeather != Look.vignetteFeatherDefault
-            || healSansSpots != Heal() || grainIsModified {
+            || grainIsModified {
             out.insert(.effects)
         }
 
@@ -263,8 +263,8 @@ extension WorkspaceSection {
         case .effects:
             recipe.look.vignette = 0
             recipe.look.vignetteFeather = Look.vignetteFeatherDefault
-            // Spots survive an Effects reset — see `nonDefault`.
-            recipe.develop.heal = Heal(spots: recipe.develop.heal.spots)
+            // Retouching — spots and painted heal strokes — survives an Effects reset;
+            // see `nonDefault`.
             // The creative grain goes back to its own defaults — Amount 0, Size and
             // Roughness at their middles — and it goes back whether or not it is the
             // grain currently on screen. A Reset that cleared only the visible half

@@ -27,7 +27,8 @@ public let currentPipelineVersion = 2
 
 /// The newest recipe vocabulary this build can READ, RENDER AND WRITE BACK without loss.
 ///
-/// 3 — `develop.heal.spots` (circular Heal and Clone spots, docs/09). Kept apart from
+/// 3 — `develop.heal.spots` (circular Heal and Clone spots, docs/09) and the painted heal
+/// strokes `develop.heal.strokesRef` names (`StrokeHeal`). Kept apart from
 /// `currentPipelineVersion` on purpose, and the separation is what makes this bump cost
 /// nothing for a photograph that has no spots:
 ///
@@ -87,7 +88,9 @@ public struct Recipe: Codable, Equatable, Sendable {
     /// and a recipe without spots keeps exactly what it said, so nothing about a
     /// spot-less photograph moves.
     public static func statedVersion(_ version: Int, develop: Develop) -> Int {
-        guard !develop.heal.spots.isEmpty else { return version }
+        guard !develop.heal.spots.isEmpty || develop.heal.strokesRef != nil else {
+            return version
+        }
         return Swift.max(version, healSpotsPipelineVersion)
     }
 
@@ -286,9 +289,8 @@ public struct Recipe: Codable, Equatable, Sendable {
         // longer a tripwire but a requirement: `heal.spots` is read by both renderers
         // (`SpotRetouch`, `RenderGraph.applySpots`), so a spot moved or added must move
         // `recipe_fp`, or the cache hands back the picture from before the spot.
-        // `strokesRef`/`count` are still unread — the painted-heal half is not built —
-        // and ride along in the projection at the cost of a miss when a sidecar
-        // happens to carry them.
+        // `strokesRef` is read too now (painted heal, `StrokeHeal`), and being a
+        // content address it moves `recipe_fp` exactly when the strokes do.
         return copy
     }
 
@@ -1592,7 +1594,8 @@ public struct Defringe: Codable, Equatable, Sendable {
 ///
 /// Two storage forms, for two shapes of data. Painted heal STROKES are vectors that can
 /// run to thousands of points, so they belong in content-addressed blobs (docs/15 §15.4
-/// rule 4) — `strokesRef` and `count`, reserved and not yet written by anything. A
+/// rule 4) — `strokesRef` (a `BrushStrokeSet` whose strokes carry `retouch`, rendered by
+/// `StrokeHeal`) and `count`, the number of strokes in it. A
 /// circular SPOT is seven numbers, smaller than the blob reference that would point at
 /// it, so spots live inline: they ride the recipe JSON into the catalog row, the
 /// fingerprint and the `.xmp` with no second persistence path to keep in step.

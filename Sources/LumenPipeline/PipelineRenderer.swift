@@ -1537,7 +1537,7 @@ public final class PipelineRenderer {
                            aiMattes: [String: Plane],
                            deferGrain: Bool = false,
                            maskRasterCeiling: CGFloat? = nil) -> RenderGraph {
-        var graph = RenderGraph()
+        var graph = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
         let extent = decoded.extent
 
         // This used to `guard !draft else { return graph }` — so during every drag,
@@ -1878,10 +1878,13 @@ public final class PipelineRenderer {
         // The mask is sampling the picture's LUMINANCE and COLOUR, and the spatial
         // stages move neither meaningfully at this size. Skipping them keeps this to
         // one cheap pass — under its own name now that `draft` no longer gates stages.
-        let staged = RenderGraph().localStageInput(
-            small, plan: plan,
-            options: RenderGraph.Options(longEdge: Swift.max(width, height),
-                                         maskSource: true))
+        // With the painted heal strokes, as the render's S5 has them: a band selects
+        // the photograph without the blemish the photographer removed.
+        let staged = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
+            .localStageInput(
+                small, plan: plan,
+                options: RenderGraph.Options(longEdge: Swift.max(width, height),
+                                             maskSource: true))
         return Self.buffer(from: staged, context: context)
     }
 
@@ -2331,15 +2334,41 @@ public final class PipelineRenderer {
                                  priorSpots: [HealSpot])
         -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
             sourceWidth: Int, sourceHeight: Int)? {
+        healSearchBuffer(source: source, recipe: recipe,
+                         window: { SpotSourceSearch.window(for: spot, sourceWidth: $0,
+                                                           sourceHeight: $1) },
+                         priorSpots: priorSpots, priorStrokes: [])
+    }
+
+    /// The same picture for a new painted heal STROKE: the decode through every spot and
+    /// the strokes before it — what the stroke will sample when it renders (spots
+    /// first, then strokes in draw order) — cut to `StrokeSourceSearch.window`.
+    public func healStrokeSearchBuffer(source: any ImageSource, recipe: Recipe,
+                                       stroke: BrushStroke, priorStrokes: [BrushStroke])
+        -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
+            sourceWidth: Int, sourceHeight: Int)? {
+        healSearchBuffer(source: source, recipe: recipe,
+                         window: { StrokeSourceSearch.window(for: stroke, sourceWidth: $0,
+                                                             sourceHeight: $1) },
+                         priorSpots: recipe.develop.heal.spots, priorStrokes: priorStrokes)
+    }
+
+    private func healSearchBuffer(source: any ImageSource, recipe: Recipe,
+                                  window windowFor: (Int, Int) -> SpotSourceSearch.Window,
+                                  priorSpots: [HealSpot], priorStrokes: [BrushStroke])
+        -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
+            sourceWidth: Int, sourceHeight: Int)? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
         Self.stampRenderIdentity(source)
         let extent = decoded.extent
         guard !extent.isInfinite, extent.width >= 1, extent.height >= 1 else { return nil }
         let width = Int(extent.width.rounded()), height = Int(extent.height.rounded())
-        let window = SpotSourceSearch.window(for: spot, sourceWidth: width,
-                                             sourceHeight: height)
-        let staged = RenderGraph.applySpots(decoded, spots: priorSpots)
+        let window = windowFor(width, height)
+        var staged = RenderGraph.applySpots(decoded, spots: priorSpots)
+        if !priorStrokes.isEmpty {
+            staged = RenderGraph.applyHealStrokes(staged, strokes: priorStrokes)
+        }
         // The window is top-down; Core Image is bottom-up.
         let rect = CGRect(x: extent.minX + CGFloat(window.x),
                           y: extent.minY + extent.height

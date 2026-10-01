@@ -1898,6 +1898,17 @@ struct LoupeView: View {
                     .frame(width: drawn.width, height: drawn.height)
             }
 
+            // VISUALIZE SPOTS, under the Heal tool's circles (they come later in this
+            // stack) so the spots stay findable on the dust view. Gated on the same
+            // conditions as the canvas, and named in `samplerNeeded` and `regionActive`
+            // for the reasons peaking and the clipping overlay are: without the first
+            // the `let sampler` never binds, and without the second the sampler holds a
+            // zoomed region that this view would stretch over the whole frame.
+            if healVisualizing, let sampler {
+                SpotVisualizationView(sampler: sampler, threshold: healTool.visualizeThreshold)
+                    .frame(width: drawn.width, height: drawn.height)
+            }
+
             // No crop overlay here: while the tool is armed, `content` routes to
             // `cropCanvas` below and this canvas is never built.
 
@@ -1951,8 +1962,24 @@ struct LoupeView: View {
                            geometry: recipe.develop.geometry,
                            spots: recipe.develop.heal.spots,
                            selectedID: healTool.selectedSpotID,
+                           // From memory only, as everything in a body must be.
+                           // The whole set, unfiltered, so an index here is an index
+                           // into the blob `deleteSelectedSpot` rewrites.
+                           strokes: recipe.develop.heal.strokesRef
+                               .flatMap { state.strokeSets(for: recipe)[$0]?.strokes } ?? [],
+                           selectedStroke: healTool.selectedStrokeIndex,
+                           brush: healTool.brush,
+                           brushSize: healTool.radius * 2,
+                           paint: { points in state.addHealStroke(points: points) },
+                           selectStroke: { index in
+                               HealTool.shared.selectedStrokeIndex = index
+                               HealTool.shared.selectedSpotID = nil
+                           },
                            add: { x, y in state.addSpot(sourceX: x, sourceY: y) },
-                           select: { id in HealTool.shared.selectedSpotID = id },
+                           select: { id in
+                               HealTool.shared.selectedSpotID = id
+                               HealTool.shared.selectedStrokeIndex = nil
+                           },
                            drag: { spot, _ in
                                state.updateSpot(id: spot.id,
                                                 coalescingKey: "heal.drag.\(spot.id)",
@@ -2740,8 +2767,15 @@ struct LoupeView: View {
             && !cropArmed
             && state.clippingOverlay == nil
             && state.soloMaskOverlay == nil
+            && !healVisualizing
             && !panel.layout.isMasking
             && !needsBeforeRender
+    }
+
+    /// The Heal tool's dust view is up: armed, switched on, and on the canvas the heal
+    /// circles are drawn on (not masking, not cropping).
+    private var healVisualizing: Bool {
+        healTool.armed && healTool.visualize && !panel.layout.isMasking && !cropArmed
     }
 
     /// The zoomed region ask for the current viewport, or nil for whole-frame.
@@ -2831,6 +2865,8 @@ struct LoupeView: View {
             // is correct — which is why it is named here rather than left to the
             // reader to infer from the `let`.
             || state.focusPeaking.isOn
+            // The Heal tool's Visualize Spots view reads it the same way.
+            || healVisualizing
     }
 
     private struct SamplerKey: Equatable {

@@ -316,8 +316,15 @@ final class SpotRetouchTests: XCTestCase {
         r.develop.heal = Heal(strokesRef: "blob:xxh64:0000000000000001", count: 3)
         let json = try CanonicalJSON.canonicalRecipeJSON(r)
         XCTAssertFalse(json.contains("spots"), json)
-        XCTAssertEqual(r.pipelineVersion, currentPipelineVersion,
-                       "a recipe without spots must not claim the newer vocabulary")
+        // Painted heal strokes are rendered now (`StrokeHeal`), so a recipe naming a
+        // stroke blob uses the retouch vocabulary an older build cannot render, and
+        // states it — the spots' rule, for the same reason.
+        XCTAssertEqual(r.pipelineVersion, healSpotsPipelineVersion,
+                       "a recipe with heal strokes must claim the retouch vocabulary")
+        var plain = Recipe()
+        plain.develop.tone.exposure = 0.5
+        XCTAssertEqual(plain.pipelineVersion, currentPipelineVersion,
+                       "a recipe without retouching must not claim the newer vocabulary")
     }
 
     func testSpotsRoundTripThroughTheRecipeAndTheSidecar() throws {
@@ -472,7 +479,13 @@ final class SpotSectionTests: XCTestCase {
         WorkspaceSection.effects.reset(&recipe)
         XCTAssertEqual(recipe.develop.heal.spots.count, 1,
                        "resetting vignette and grain deleted the photograph's healing")
-        XCTAssertEqual(recipe.develop.heal.count, 0)
+        // Painted heal strokes render now, so they survive it too.
+        XCTAssertEqual(recipe.develop.heal.count, 2,
+                       "resetting vignette and grain deleted the painted heal strokes")
         XCTAssertEqual(recipe.look.vignette, 0)
+        recipe.develop.heal.spots = []
+        XCTAssertFalse(WorkspaceSection.nonDefault(in: recipe, softProofEnabled: false)
+                        .contains(.effects),
+                       "a heal stroke lit the Effects dot, whose panel has no stroke in it")
     }
 }

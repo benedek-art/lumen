@@ -83,8 +83,18 @@ public struct RenderGraph {
     /// store to, and the one `ReferenceRenderer.Inputs` defaults to, so both renderers
     /// resolve the same cube for the same ref. Tests hand in their own.
     public var creativeLUTs: CreativeLUTLibrary = .shared
+    /// The painted heal strokes S5 renders after the spots (`StrokeHeal`), resolved out
+    /// of the stroke sets by whoever builds this graph — the recipe holds only their
+    /// blob reference. Empty means none, or the blob is not to hand yet.
+    public var healStrokes: [BrushStroke] = []
 
     public init() {}
+
+    /// A graph that will render `recipe`'s painted heal strokes from `strokeSets`.
+    public init(healStrokesOf recipe: Recipe, strokeSets: [String: BrushStrokeSet]) {
+        self.healStrokes = StrokeHeal.strokes(for: recipe.develop.heal,
+                                              strokeSets: strokeSets)
+    }
 
     // MARK: - The chain
 
@@ -190,6 +200,10 @@ public struct RenderGraph {
         let spots = plan.recipe.develop.heal.spots
         if !spots.isEmpty {
             image = Self.applySpots(image, spots: spots)
+        }
+        // Then the painted heal strokes, in draw order — the reference's order.
+        if !healStrokes.isEmpty {
+            image = Self.applyHealStrokes(image, strokes: healStrokes)
         }
 
         // S6 — one fused matrix: white balance, exposure, printer lights.
@@ -520,6 +534,110 @@ public struct RenderGraph {
                   arguments: [clamped, rim, centre, borrowed, Float(spot.radius),
                               Float(spot.rin), Float(spot.opacity),
                               Float(spot.heal ? 1 : 0), Float(h), Float(ox), Float(oy)])
+        else { return nil }
+        return applied.composited(over: image)
+    }
+
+    /// Painted heal strokes, in draw order — the twin of `StrokeHeal.apply`, resolved
+    /// by the same `StrokeHeal.resolve`. Per stroke: the CPU-rasterized tube alpha, the
+    /// rim (Heal only) as one kernel over a `count`x1 extent, then the stroke over its
+    /// own box, laid over the picture.
+    public static func applyHealStrokes(_ image: CIImage, strokes: [BrushStroke]) -> CIImage {
+        let extent = image.extent
+        guard !extent.isInfinite, !extent.isEmpty, extent.width >= 1, extent.height >= 1,
+              KernelLibrary.strokeRetouchAvailable else { return image }
+        let width = Int(extent.width.rounded())
+        let height = Int(extent.height.rounded())
+        var current = image
+        for stroke in strokes {
+            guard let resolved = StrokeHeal.resolve(stroke, width: width, height: height)
+            else { continue }
+            current = applyHealStroke(current, resolved, extent: extent) ?? current
+        }
+        return current
+    }
+
+    /// A row of RGBAf texels as an image over `0..<count` x `0..<1`. Float data with no
+    /// colour space: the numbers go in as numbers.
+    static func texelRow(_ texels: [Float], count: Int) -> CIImage {
+        let data = texels.withUnsafeBufferPointer { Data(buffer: $0) }
+        return CIImage(bitmapData: data, bytesPerRow: count * 4 * MemoryLayout<Float>.size,
+                       size: CGSize(width: count, height: 1), format: .RGBAf, colorSpace: nil)
+    }
+
+    static func applyHealStroke(_ image: CIImage, _ g: StrokeHeal.StrokeGeometry,
+                                extent: CGRect) -> CIImage? {
+        let h = Double(extent.height)
+        let ox = Double(extent.minX), oy = Double(extent.minY)
+        func ciRect(_ minX: Double, _ minY: Double, _ maxX: Double, _ maxY: Double) -> CGRect {
+            CGRect(x: ox + minX, y: oy + h - maxY, width: maxX - minX, height: maxY - minY)
+        }
+        let box = ciRect(Double(g.minX), Double(g.minY), Double(g.maxX), Double(g.maxY))
+
+        // The tube's alpha, top-down rows like every plane, placed over the box.
+        let alphaValues = StrokeHeal.alphaPlane(g)
+        let alphaData = alphaValues.withUnsafeBufferPointer { Data(buffer: $0) }
+        let alpha = CIImage(bitmapData: alphaData,
+                            bytesPerRow: g.width * MemoryLayout<Float>.size,
+                            size: CGSize(width: g.width, height: g.height),
+                            format: .Rf, colorSpace: nil)
+            .transformed(by: CGAffineTransform(translationX: box.minX, y: box.minY))
+
+        let count = g.rim.count
+        let rows = Swift.max(count, 1)
+        var positions = [Float](repeating: 0, count: rows * 4)
+        var steps = [Float](repeating: 0, count: rows * 4)
+        for k in 0..<count {
+            let xHi = floor(g.rim[k].x / 16), yHi = floor(g.rim[k].y / 16)
+            positions[k * 4] = Float(xHi)
+            positions[k * 4 + 1] = Float(g.rim[k].x - 16 * xHi)
+            positions[k * 4 + 2] = Float(yHi)
+            positions[k * 4 + 3] = Float(g.rim[k].y - 16 * yHi)
+            steps[k * 4] = Float(g.rimSteps[k].x)
+            steps[k * 4 + 1] = Float(g.rimSteps[k].y)
+            steps[k * 4 + 3] = 1
+        }
+        let rimExtent = CGRect(x: 0, y: 0, width: rows, height: 1)
+        let positionImage = texelRow(positions, count: rows)
+        let stepImage = texelRow(steps, count: rows)
+
+        let clamped = image.clampedToExtent()
+        let offset = CIVector(x: g.dx, y: g.dy)
+        // Everything a rim sample or a borrowed pixel can reach, in Core Image's frame.
+        let reach = g.radius + 2
+        let around = ciRect(Double(g.minX) - reach, Double(g.minY) - reach,
+                            Double(g.maxX) + reach, Double(g.maxY) + reach)
+        let borrowed = around.offsetBy(dx: CGFloat(g.dx), dy: CGFloat(-g.dy))
+
+        let rim: CIImage
+        if g.heal && count > 0 {
+            guard let kernel = KernelLibrary.strokeBoundary,
+                  let built = kernel.apply(
+                      extent: rimExtent,
+                      roiCallback: { index, _ in index == 0 ? around.union(borrowed) : rimExtent },
+                      arguments: [clamped, positionImage, stepImage, offset,
+                                  Float(h), Float(ox), Float(oy)])
+            else { return nil }
+            rim = built
+        } else {
+            rim = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: rimExtent)
+        }
+
+        let dx = CGFloat(g.dx), dy = CGFloat(-g.dy)
+        guard let kernel = KernelLibrary.strokeApply,
+              let applied = kernel.apply(
+                  extent: box,
+                  roiCallback: { index, rect in
+                      switch index {
+                      case 0: return rect.union(rect.offsetBy(dx: dx, dy: dy))
+                          .insetBy(dx: -2, dy: -2)
+                      case 3: return rect
+                      default: return rimExtent
+                      }
+                  },
+                  arguments: [clamped, rim, positionImage, alpha, offset,
+                              Float(g.radius), Float(count), Float(g.heal ? 1 : 0),
+                              Float(h), Float(ox), Float(oy)])
         else { return nil }
         return applied.composited(over: image)
     }

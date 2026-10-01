@@ -64,6 +64,12 @@ final class CommandState: ObservableObject {
     /// The Debug menu's toggle reads its own title from this.
     @Published private(set) var showLatencyHUD: Bool = false
 
+    /// The Edit menu's "Paste Includes Spot Removal". Unlike the mirrors above this one
+    /// is OWNED here — the menu item is its only control, so the menu's own observed
+    /// object is the one place it can live and redraw its check mark. Off by default;
+    /// `AppState.pasteIncludesRetouch` reads it.
+    @Published var pasteIncludesRetouch: Bool = false
+
     var canUndo: Bool { undoLabel != nil }
     var canRedo: Bool { redoLabel != nil }
 
