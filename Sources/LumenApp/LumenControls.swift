@@ -1625,6 +1625,19 @@ struct LumenSectionHeader: View {
                 .disabled(!actionEnabled)
                 .lumenClickCursor(actionEnabled)
                 .help(actionHelp ?? "")
+                // A DISABLED BUTTON DOES NOT CONSUME ITS CLICK (V7 D1). The click falls
+                // through to the row's own `.onTapGesture { toggle() }`, so pressing the
+                // greyed tray glyph on Albums (no target album) or Stack (fewer than two
+                // selected) folded the section instead of doing nothing. A clear,
+                // hit-testable layer with its own empty tap claims the click while the
+                // verb is disabled; the innermost tap gesture wins over the row's.
+                .overlay {
+                    if !actionEnabled {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {}
+                    }
+                }
             }
             if let onReset, isModified {
                 // Reset appears on hover (design audit step 3, and Lightroom's own
