@@ -698,9 +698,14 @@ struct DetailPanel: View {
     /// modifier's ternary, verbatim.
     private var aiAmountHelp: String {
         if isRenderedFile {
+            // Not "Classic is the engine that runs", which this said and which is
+            // false in this mode: `ISODefaults.classic(for:)` zeroes every Classic
+            // master the photographer did not set by hand (E1-02), so a legacy AI
+            // recipe on a rendered file is denoised by Hot Pixels alone.
             return "The stand-in is part of the raw decode, which this file does not "
-                + "go through, so Amount changes nothing here. Classic is the engine "
-                + "that runs."
+                + "go through, so Amount changes nothing here. In this mode Classic "
+                + "keeps only Hot Pixels and the levels you set by hand: choose "
+                + "Classic to denoise this file."
         }
         return "No model ships yet: Amount drives the raw decoder's own noise "
             + "reduction, and because that is part of the decode, each step "

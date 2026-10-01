@@ -115,10 +115,12 @@ public struct NoiseProfile: Sendable, Equatable {
     public static let estimatorBins: Int = 16
 
     /// The estimator takes the 10th percentile of block variances inside each signal bin as
-    /// "this bin's flat-region variance". Under pure noise the block variance is χ²-
-    /// distributed with 63 degrees of freedom, whose 10th percentile sits at ≈0.78 of the
-    /// true variance, so the percentile is divided back out by this factor.
-    public static let flatBlockCorrection: Double = 1.0 / 0.78
+    /// "this bin's flat-region variance". Under pure noise the block's residual variance
+    /// (after the plane fit below takes three parameters out of 64 samples) is χ²-
+    /// distributed with 61 degrees of freedom, whose 10th percentile sits at ≈0.776 of
+    /// the true variance (Wilson–Hilferty), so the percentile is divided back out by
+    /// this factor.
+    public static let flatBlockCorrection: Double = 1.0 / 0.776
 
     /// Estimate `(a, b)` from one plane's own local variance-vs-mean statistics — the
     /// "unknown (camera, ISO) pair" path of docs/07 §2.4, which measures on first encounter
@@ -126,7 +128,15 @@ public struct NoiseProfile: Sendable, Equatable {
     ///
     /// Estimator, in full:
     ///  1. Tile the plane into non-overlapping 8×8 blocks; for each, take the sample mean μ
-    ///     and the unbiased sample variance v.
+    ///     and the variance v of the residual about the block's least-squares PLANE
+    ///     (μ + gx·dx + gy·dy), unbiased over its 61 degrees of freedom.
+    ///
+    ///     The plane is E1-03's fix. This took the plain sample variance, so a scene's own
+    ///     smooth slope inside a block was fitted as shot noise: on the proof ramp
+    ///     (0.18·2^(−3+5v), about 11% across eight rows) plus noise from a known profile
+    ///     it recovered σ(0.18) at 1.34× the truth, and across the frame's other axis
+    ///     1.59×. A slope is not noise at any scale, and a plane removes it exactly.
+    ///     Texture still raises a block's variance; step 2 is what handles that.
     ///  2. Bucket the blocks into 16 bins by μ across the observed range. Texture only ever
     ///     *raises* a block's variance, so within a bin the low-variance blocks are the flat
     ///     ones: take the 10th percentile of v as the bin's noise variance and undo the
@@ -152,23 +162,38 @@ public struct NoiseProfile: Sendable, Equatable {
         variances.reserveCapacity(bx * by)
 
         let n = Double(block * block)
+        // Offsets from the block centre, so the two slope regressors are orthogonal to
+        // the mean and to each other and the least-squares plane is three dot products.
+        let centre = Double(block - 1) / 2
+        var sumOffsetSquared = 0.0
+        for k in 0..<block { sumOffsetSquared += (Double(k) - centre) * (Double(k) - centre) }
+        let sumDX2 = sumOffsetSquared * Double(block)   // Σ over the block of dx²
         for j in 0..<by {
             let y0 = j * block
             for i in 0..<bx {
                 let x0 = i * block
                 var s = 0.0
                 var s2 = 0.0
+                var sx = 0.0
+                var sy = 0.0
                 for y in y0..<(y0 + block) {
                     let row = y * w
+                    let dy = Double(y - y0) - centre
                     for x in x0..<(x0 + block) {
                         let v = Double(plane.values[row + x])
                         let f = v.isFinite ? v : 0
                         s += f
                         s2 += f * f
+                        sx += f * (Double(x - x0) - centre)
+                        sy += f * dy
                     }
                 }
                 let m = s / n
-                let variance = Swift.max((s2 - n * m * m) / (n - 1), 0)
+                // Residual sum of squares about the plane: the spread about the mean,
+                // less what each fitted slope explains (gx·Σf·dx = (Σf·dx)²/Σdx²).
+                let explained = (sx * sx + sy * sy) / sumDX2
+                let residual = s2 - n * m * m - explained
+                let variance = Swift.max(residual / (n - 3), 0)
                 means.append(m)
                 variances.append(variance)
             }

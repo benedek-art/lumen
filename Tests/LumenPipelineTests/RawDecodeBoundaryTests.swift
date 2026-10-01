@@ -48,6 +48,18 @@ final class RawDecodeBoundaryTests: XCTestCase {
         }
     }
 
+    /// AI-01's residual gap. The boundary was chosen by `rawValue == "9"`, and Apple
+    /// spells DNG decoders with a suffix (`version8DNG` is "8.dng"), so a RAW9 DNG
+    /// decoder "9.dng" skipped it. Built from the platform type itself, so this goes red
+    /// if the predicate reverts to comparing the spelling.
+    func testTheRaw9BoundaryIsChosenByDecoderNumberNotSpelling() {
+        XCTAssertTrue(AppleRawSource.needsRaw9Boundary(CIRAWDecoderVersion(rawValue: "9")))
+        XCTAssertTrue(AppleRawSource.needsRaw9Boundary(CIRAWDecoderVersion(rawValue: "9.dng")),
+                      "A DNG RAW9 decoder must be evaluated through the colour boundary")
+        XCTAssertFalse(AppleRawSource.needsRaw9Boundary(CIRAWDecoderVersion(rawValue: "8")))
+        XCTAssertFalse(AppleRawSource.needsRaw9Boundary(CIRAWDecoderVersion(rawValue: "8.dng")))
+    }
+
     func testRequiredRaw9BoundaryDeclinesInvalidAndOverBudgetImages() throws {
         let working = try XCTUnwrap(DecodeMaterializer.workingSpace)
         let colour = try XCTUnwrap(CIColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1,
