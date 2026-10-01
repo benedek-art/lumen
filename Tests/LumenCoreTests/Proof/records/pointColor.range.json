@@ -1,15 +1,15 @@
 {
-  "authority" : 53.04692326235383,
+  "authority" : 56.23951542975671,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.6839412351078867,
+  "frontLoading" : 0.7282476256053243,
   "givenBack" : 0,
-  "hueRotation" : 23.618488831674142,
+  "hueRotation" : 27.201269543162766,
   "id" : "pointColor.range",
   "isMonotone" : true,
-  "meanSeparation" : 1.6839649514967703,
+  "meanSeparation" : 1.6680137103526087,
   "panel" : "Point Colour",
-  "smallestLiveStep" : 0.970551184813047,
+  "smallestLiveStep" : 0.9504719923063192,
   "travelHigh" : 100,
   "travelLow" : 0
 }

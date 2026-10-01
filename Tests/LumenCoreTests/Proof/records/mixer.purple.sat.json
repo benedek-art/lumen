@@ -1,15 +1,15 @@
 {
-  "authority" : 75.1036993312184,
+  "authority" : 76.78109169628651,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.6270269217316896,
+  "frontLoading" : 0.6282908282239194,
   "givenBack" : 0,
-  "hueRotation" : 6.912648999846169,
+  "hueRotation" : 1.4476309829796605,
   "id" : "mixer.purple.sat",
   "isMonotone" : true,
-  "meanSeparation" : 4.370268112211242,
+  "meanSeparation" : 4.429597879937757,
   "panel" : "Colour Mixer",
-  "smallestLiveStep" : 2.7758868073680105,
+  "smallestLiveStep" : 2.791193630208653,
   "travelHigh" : 100,
   "travelLow" : -100
 }
