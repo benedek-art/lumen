@@ -98,3 +98,37 @@ final class PSFEstimateTests: XCTestCase {
                        "σ \(sigma) on texture reported as \(estimate)")
     }
 }
+
+/// `DetailEngine.captureSharpen` and the on switch (W2/E2-07).
+///
+/// `CaptureSharpen.strengthFraction` exists so the two readers of the toggle cannot
+/// disagree: the RAW decoder once recomputed `100 / 100 == 1` with `auto == false` and
+/// rendered capture sharpening at full strength while the panel said it was off. The
+/// reference engine kept its own copy of that expression, guarded on `auto || radius !=
+/// nil`, so a recipe carrying the toggle off and a radius left over from another build
+/// sharpened at full strength here. Unwired today; this is what keeps "wire it" from
+/// landing the inverted-off bug a second time.
+final class CaptureSharpenSwitchTests: XCTestCase {
+
+    /// A soft edge with something to deconvolve.
+    private func softEdge() -> ImageBuffer {
+        ImageBuffer(width: 48, height: 24) { u, _ in
+            let t = 1 / (1 + exp(-(u * 48 - 24) / 1.2))
+            return RGB(gray: 0.05 + 0.4 * t)
+        }
+    }
+
+    func testTheToggleOffIsTheIdentityWhateverRadiusTheRecipeCarries() {
+        let frame = softEdge()
+        let off = DetailEngine.captureSharpen(frame, CaptureSharpen(auto: false, radius: 1.2))
+        XCTAssertEqual(off.pixels, frame.pixels,
+                       "capture sharpening rendered with its toggle off")
+    }
+
+    /// The positive control, so the identity above is not the function doing nothing.
+    func testTheToggleOnSharpens() {
+        let frame = softEdge()
+        let on = DetailEngine.captureSharpen(frame, CaptureSharpen(auto: true, radius: 1.2))
+        XCTAssertNotEqual(on.pixels, frame.pixels)
+    }
+}

@@ -502,7 +502,14 @@ public struct DetailEngine: Sendable {
     /// pipeline-level inputs this pure function does not receive.
     public static func captureSharpen(_ image: ImageBuffer, _ params: CaptureSharpen,
                                       space: RGBColorSpace = .rec2020) -> ImageBuffer {
-        guard params.auto || params.radius != nil else { return image }
+        // The strength comes from `CaptureSharpen.strengthFraction`, the ONE mapping both
+        // readers share, and `auto` is its on switch. This function used to re-derive it
+        // — `auto || radius != nil` to run, `(amount ?? 100) / 100` to scale — which is
+        // the exact expression `AppleRawSource` had to have removed: with the toggle off
+        // and a radius left over from another build's recipe it sharpened at full
+        // strength while the panel said capture sharpening was off (W2/E2-07).
+        let strength = params.strengthFraction
+        guard strength > 0 else { return image }
         let w = image.width
         let h = image.height
 
@@ -513,8 +520,6 @@ public struct DetailEngine: Sendable {
         } else {
             sigma = SpatialOps.estimatePSFSigma(lum)
         }
-        let strength = Num.clamp((params.amount ?? 100) / 100, 0, CaptureSharpen.maxStrength)
-        guard strength > 0 else { return image }
 
         // docs/06 §11.1: 8 iterations by default.
         let sharpened = SpatialOps.richardsonLucy(lum, sigma: sigma, iterations: 8)
