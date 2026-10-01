@@ -594,7 +594,17 @@ public struct RenderGraph {
     // MARK: - S8 presence
 
     func applyPresence(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
-        Self.applyPresence(image, detail: plan.detail, longEdge: options.longEdge)
+        // The GLOBAL controls are ±100, and the reference clamps them there
+        // (`DetailEngine.applyTexture/applyClarity` through `scaledPresenceAmount`).
+        // This passed a hand-edited sidecar's ±250 straight through, so the two
+        // renderers disagreed on any value outside the slider's range. The static
+        // below stays unclamped on purpose: the local stage hands it a mask's
+        // Strength-scaled amount, which may legitimately reach ±200. Dehaze clamps
+        // inside `applyDehaze` on both paths already.
+        var detail = plan.detail
+        detail.texture = DetailEngine.scaledPresenceAmount(detail.texture)
+        detail.clarity = DetailEngine.scaledPresenceAmount(detail.clarity)
+        return Self.applyPresence(image, detail: detail, longEdge: options.longEdge)
     }
 
     /// Presence over an explicit `Detail`, so the local stage can run the same code on
