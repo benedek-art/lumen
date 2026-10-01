@@ -700,12 +700,17 @@ actor RenderCoordinator {
     /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
     /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
     /// queue item 5).
+    ///
+    /// `tap` names the selection the pick feeds — a Mixer band, or swatch `i` — and the
+    /// renderer carries the sample through the colour stage as far as that selection
+    /// reads (AI-02): the stage input alone is before the primaries and the Mixer.
     func samplePointColorReference(url: URL, recipe: Recipe,
-                                   sourceX: Double, sourceY: Double) -> RGB? {
+                                   sourceX: Double, sourceY: Double,
+                                   tap: ColorEngine.SelectionTap) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
-                                                          sourceY: sourceY),
+                                                          sourceY: sourceY, tap: tap),
               sample.isFinite
         else { return nil }
         return sample

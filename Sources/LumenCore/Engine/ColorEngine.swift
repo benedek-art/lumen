@@ -576,6 +576,43 @@ public struct ColorEngine: Sendable {
         return ExactColorStage(resolved)
     }
 
+    // MARK: - What a picker must sample (AI-02)
+
+    /// Which selection a colour picker is feeding.
+    public enum SelectionTap: Equatable, Sendable {
+        /// The Mixer's band picker: band membership is read after the primaries remap
+        /// and Shadows Tint.
+        case mixerBand
+        /// Point Colour swatch `index` (the next index when adding one). A swatch
+        /// compares the pixel after the primaries, the Mixer, and every swatch BEFORE
+        /// it in creation order.
+        case pointColor(index: Int)
+    }
+
+    /// The value the selection behind `tap` actually compares, given the colour stage's
+    /// input `c` — what a picker has to store for the swatch to select the pixel that
+    /// was clicked.
+    ///
+    /// AI-02. The picker stored the stage INPUT while `applySwatch` compared the pixel
+    /// after the primaries and the Mixer, so with Red Mixer Hue +100 a red picked and
+    /// pulled to Saturation −100 kept 0.1198 of its 0.12 chroma at Range 0: the swatch
+    /// sat a whole band away from the colour it was meant to be. This is the same
+    /// sequence `apply` runs, stopped where the selection reads: never a second copy of
+    /// the stage order.
+    public func selectionInput(_ c: RGB, for tap: SelectionTap) -> RGB {
+        guard c.isFinite else { return c }
+        let primed = applyPrimaries(c)
+        guard case .pointColor(let index) = tap else { return primed }
+        var out = applyMixer(primed, localMean: primed)
+        // The swatches that precede `index` in the RECIPE, compiled the same way the
+        // render compiles them, so a dead swatch before it is skipped exactly as the
+        // render skips it.
+        let earlier = Self.compiledSwatches(Array(pointColors.prefix(Swift.max(index, 0))),
+                                            context: context)
+        for s in earlier { out = applySwatch(s, to: out, localMean: primed) }
+        return out
+    }
+
     // MARK: - Band geometry (the four ring handles, D13)
 
     /// One band's four ring handles, resolved to degrees and already sanitized.
