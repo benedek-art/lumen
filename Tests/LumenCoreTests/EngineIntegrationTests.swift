@@ -965,8 +965,16 @@ final class EngineIntegrationTests: XCTestCase {
         for stock in FilmStock.all {
             let chain = FilmChain(FilmChain.defaultRecipe(for: stock), displayWhite: 1.0)
             let out = chain.apply(RGB(gray: 0.18))
-            XCTAssertEqual(out.g, 0.18, accuracy: 0.01,
-                           "\(stock.name) did not anchor mid-grey")
+            // ALL THREE CHANNELS, and to the solve's own tolerance (C1-10 / FILM-24).
+            // This asserted `out.g` at ±0.01, so a red or blue regression — a coupler
+            // or tint edit that pulls grey warm, or a `solveGains` that stopped
+            // solving one channel — rendered a cast on grey and stayed green.
+            // `solveGains` anchors each channel inside 1e-6; 1e-4 leaves the LUT-free
+            // `apply` room and nothing else.
+            for (i, name) in ["red", "green", "blue"].enumerated() {
+                XCTAssertEqual(out[i], 0.18, accuracy: 1e-4,
+                               "\(stock.name) did not anchor mid-grey in \(name): \(out)")
+            }
         }
     }
 
