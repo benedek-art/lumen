@@ -1547,7 +1547,7 @@ struct LoupeView: View {
     @MainActor
     private func warmNeighbours() {
         state.thumbnails.prefetch(around: photo.id,
-                                  in: state.photos,
+                                  in: state.photos, revision: state.rollRevision,
                                   size: ThumbnailLadder.loupeInstantPixels,
                                   surface: .loupe)
     }
@@ -1955,20 +1955,17 @@ struct LoupeView: View {
     /// (docs/31 #10). The Angle slider's binding in `CropPanel` does the same, so all
     /// three hands turn the same mechanism; the shared coalescing key keeps any of
     /// them one undo step.
+    ///
+    /// PER TARGET (S-11 / KG-01): with several photographs selected each carries its
+    /// own crop through the angle against its OWN frame (`AppState.framingFrame`), and
+    /// one whose frame is not known is left alone. The delivered image stands in for
+    /// the primary's frame only until its decoded size lands, as it always did.
     private func applyRotation(_ angle: Double) {
-        let source: CGSize = sourceFrameSize
-            ?? model.image.map { CGSize(width: $0.width, height: $0.height) }
-            ?? .zero
-        state.updateRecipe(coalescingKey: "straighten") { recipe in
-            if source.width > 0, source.height > 0 {
-                recipe.develop.geometry.crop = CropGeometry.reangled(
-                    recipe.develop.geometry.crop,
-                    sourceWidth: Double(source.width),
-                    sourceHeight: Double(source.height),
-                    from: recipe.develop.geometry.angle, to: angle)
-            }
-            recipe.develop.geometry.angle = angle
+        let delivered = model.image.flatMap {
+            BatchFraming.Frame(width: Double($0.width), height: Double($0.height))
         }
+        CropSection.applyFraming(.angle(angle), key: "straighten", state: state,
+                                 primaryFallback: delivered)
     }
 
     /// The image itself, honouring the before/after presentation that shares this
@@ -2717,7 +2714,13 @@ struct LoupeView: View {
         return Binding(
             get: { state.recipe(for: photo).develop.geometry.crop },
             set: { newValue in
-                state.updateRecipe(coalescingKey: "crop") { recipe in
+                // THIS PHOTOGRAPH ONLY (S-11 / KG-01). The rectangle is dragged on one
+                // picture, as fractions of that picture's usable frame; stamped on the
+                // rest of a multi-selection it was a different pixel shape on every
+                // frame of another aspect, its padlock still reading locked. Framing by
+                // hand is a per-photograph gesture — the argument `CropTool.revert`
+                // already makes — so the drag writes the photograph it is drawn on.
+                state.updateRecipe(coalescingKey: "crop", targets: [photo]) { _, recipe in
                     recipe.develop.geometry.crop = newValue
                 }
             }

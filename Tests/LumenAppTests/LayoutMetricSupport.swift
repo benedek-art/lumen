@@ -632,9 +632,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2001 (LookPanel.swift:877)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2069 (LookPanel.swift:877)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2001 (MaskPanel.swift:3008)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2069 (MaskPanel.swift:3008)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.

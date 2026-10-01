@@ -577,4 +577,48 @@ extension CropGeometry {
         guard let ratio, ratio.isFinite, ratio >= 1.0 / 60, ratio <= 60 else { return nil }
         return ratio
     }
+
+    /// The pixel ratios a crop of THIS frame can actually hold, at this angle.
+    ///
+    /// M12. The typed bounds above are a typo guard, not a geometry: a crop may not be
+    /// thinner than `minimumCropFraction` of the usable frame on either axis, so the
+    /// widest rectangle there is is the whole width by 5 % of the height, and the
+    /// tallest the reverse. On a 6000 × 4000 frame that is 30:1 and 1:13.3 — so `60:1`
+    /// passed the parser, padlocked, and wrote a 30:1 rectangle, and `1:60` wrote
+    /// 0.075. The lock said one ratio and the picture held another.
+    public static func achievableAspects(sourceWidth: Double, sourceHeight: Double,
+                                         degrees: Double) -> ClosedRange<Double>? {
+        let usable = usableSize(width: sourceWidth, height: sourceHeight, degrees: degrees)
+        guard usable.width > 0, usable.height > 0,
+              usable.width.isFinite, usable.height.isFinite else { return nil }
+        let frameAspect = usable.width / usable.height
+        return (minimumCropFraction * frameAspect)...(frameAspect / minimumCropFraction)
+    }
+
+    /// Whether `aspect` is a ratio a crop of this frame can hold — the gate every ratio
+    /// write goes through, so the padlock never names a shape the rectangle is not.
+    /// A relative hair of slack at each end, so a bound reached by arithmetic (30:1
+    /// typed on a 3:2 frame) is not refused over the last bit of a division.
+    public static func canHold(aspect: Double, sourceWidth: Double, sourceHeight: Double,
+                               degrees: Double) -> Bool {
+        guard aspect.isFinite, aspect > 0,
+              let range = achievableAspects(sourceWidth: sourceWidth,
+                                            sourceHeight: sourceHeight,
+                                            degrees: degrees) else { return false }
+        let slack = 1e-9
+        return aspect >= range.lowerBound * (1 - slack)
+            && aspect <= range.upperBound * (1 + slack)
+    }
+
+    /// A typed ratio, accepted only if THIS frame can hold it: the parser's own bounds
+    /// and then `canHold`. The custom field's Set button and its commit both read this,
+    /// so an entry the frame cannot represent is declined rather than quietly written
+    /// as some other ratio.
+    public static func aspect(fromText text: String, sourceWidth: Double,
+                              sourceHeight: Double, degrees: Double) -> Double? {
+        guard let ratio = aspect(fromText: text),
+              canHold(aspect: ratio, sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                      degrees: degrees) else { return nil }
+        return ratio
+    }
 }
