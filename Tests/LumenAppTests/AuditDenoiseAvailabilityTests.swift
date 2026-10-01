@@ -20,10 +20,8 @@ final class AuditDenoiseAvailabilityTests: XCTestCase {
     func testLegacyAiRecipeRemainsVisibleButItsAmountIsDisabledAndExplained() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        let panel = try String(contentsOf: root.appendingPathComponent("Sources/LumenApp/DetailPanel.swift"), encoding: .utf8)
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        let panel = blankingComments(in: try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/DetailPanel.swift"), encoding: .utf8))
         let ai = try XCTUnwrap(panel.components(separatedBy: "case .ai:").last)
         XCTAssertTrue(ai.contains(".disabled(!denoiseAvailability.supportsAmount)"))
         XCTAssertTrue(ai.contains("Saved AI settings are retained, but the stand-in is RAW-only. Choose Classic to denoise this rendered file."))

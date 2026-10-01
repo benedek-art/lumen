@@ -168,8 +168,11 @@ acceptable), and Hot Pixels exists.
   `k·σ` (slider maps inversely to k) and replaces them with a median of neighbors. In v1 this runs on
   the post-RAW-stage image (Apple's own despeckle runs upstream); with the v2 RawSource it moves to the
   CFA domain where hot pixels actually live, before demosaic can smear them into crosses.
-- Milestone-1 stopgap: `CIRAWFilter`'s built-in luminance/color NR properties stand in until this stage
-  ships (docs/16-roadmap.md).
+- Milestone-1 stopgap, retired: `CIRAWFilter`'s built-in luminance/color NR properties stood in
+  until this stage shipped (docs/16-roadmap.md). Tier 1 now runs on the GPU in the interactive and
+  export renders (`RenderGraph.applyDenoise`, golden-tested against `ClassicalDenoise.apply`), and the
+  decoder's own NR is set to zero under Off and Classic (`Denoise.appleStandIn`). It drives only the
+  AI mode, as Tier 2's stand-in until a model ships.
 
 **How it feels.** Ordinary live sliders under the D45 slider contract: preview-resolution response
 within the one-frame budget (≤16.7 ms), full-resolution refinement ≤200 ms, NLM quality pass only at

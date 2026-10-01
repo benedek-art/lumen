@@ -56,7 +56,10 @@ let package = Package(
             // The evidence sheets are OUTPUT, not input: the proof run writes them for a
             // human to look at (docs/20), they are gitignored, and SwiftPM would
             // otherwise warn once per PNG about files it does not know what to do with.
-            exclude: ["Proof/evidence"],
+            // The records are read from the source tree through `#filePath`
+            // (`ProofRecordStore`), never from the bundle, so they are excluded too —
+            // otherwise every build warns about 144 unhandled JSON files.
+            exclude: ["Proof/evidence", "Proof/records"],
             resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

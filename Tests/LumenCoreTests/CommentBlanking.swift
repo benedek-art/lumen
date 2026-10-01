@@ -1,7 +1,8 @@
 // The one comment stripper for source-scanning tests. This file is duplicated
-// byte-for-byte as Tests/LumenAppTests/CommentBlanking.swift, because test targets
-// cannot share a source file without a new package target; `CommentBlankingTests`
-// (LumenCoreTests, so it runs on Linux) fails if the two copies ever differ.
+// byte-for-byte as Tests/LumenAppTests/CommentBlanking.swift and
+// Tests/LumenPipelineTests/CommentBlanking.swift, because test targets cannot share a
+// source file without a new package target; `CommentBlankingTests` (LumenCoreTests, so
+// it runs on Linux) fails if the copies ever differ.
 //
 // Why it exists. Twenty-one test files carried their own copy of a stripper that
 // walked `//` and `/*` with no idea of string literals, so `URL(string: "https://…")`

@@ -457,6 +457,9 @@ final class AppState: ObservableObject {
 
     private var maskOverlayGeneration: Int = 0
     private var maskOverlayTask: Task<Void, Never>?
+    /// What the overlay was last asked to rasterize FROM, beyond the recipe — see
+    /// `maskOverlaySourceKey`. Nil while no overlay is up.
+    private var maskOverlaySource: String?
 
     /// Rebuild it for the mask the panel is showing. Superseded by generation, like
     /// every other background render here, so a fast sequence of edits does not land
@@ -479,10 +482,15 @@ final class AppState: ObservableObject {
             // event of every drag — to set nil to nil, re-bodying the window for a
             // change that had not happened.
             if maskOverlayAlpha != nil { maskOverlayAlpha = nil }
+            maskOverlaySource = nil
             return
         }
         let recipe = recipe(for: photo)
         let strokes = strokeSets(for: recipe)
+        maskOverlaySource = Self.maskOverlaySourceKey(url: photo.id, maskID: maskID,
+                                                      recipe: recipe,
+                                                      sourceIdentity: SourceFileIdentity.read(photo.id),
+                                                      strokeSets: strokes)
         // IS A GESTURE RUNNING? Answered by the clock rather than by a flag, because
         // there is no one flag to read: a radial dragged on the CANVAS, an Edge slider
         // dragged in the panel and a brush stroke all arrive here as an ordinary edit,
@@ -529,6 +537,40 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled, self.maskOverlayGeneration == generation else { return }
             self.maskOverlayAlpha = raster
         }
+    }
+
+    /// Rebuild the overlay only if what it is a picture OF changed outside the recipe.
+    ///
+    /// Every edit already calls `refreshMaskOverlay`; two things that change the
+    /// overlay's picture are not edits and called nothing, so the overlay kept showing
+    /// the old selection until the next edit or selection change (the staleness 151d6d5
+    /// fixed for the mask thumbnails): a photograph REPLACED at the same path, which a
+    /// rescan notices, and a brush mask's stroke blob ARRIVING after the overlay was
+    /// first rasterized without it. Both triggers call this; an unchanged file and
+    /// unchanged strokes produce the same key, so neither costs a raster.
+    func refreshMaskOverlayIfSourceChanged() {
+        guard let maskID = soloMaskOverlay, let photo = primarySelection else { return }
+        let recipe = recipe(for: photo)
+        let key = Self.maskOverlaySourceKey(url: photo.id, maskID: maskID, recipe: recipe,
+                                            sourceIdentity: SourceFileIdentity.read(photo.id),
+                                            strokeSets: strokeSets(for: recipe))
+        guard key != maskOverlaySource else { return }
+        refreshMaskOverlay()
+    }
+
+    /// The overlay's inputs that are not the recipe: the file's identity and which
+    /// referenced stroke sets are loaded (-1 when not), for the shown mask of the shown
+    /// photograph. The same two terms `maskThumbnailKey` carries, for the same reasons;
+    /// the recipe is left out because every recipe edit refreshes the overlay anyway.
+    nonisolated static func maskOverlaySourceKey(url: URL, maskID: String, recipe: Recipe,
+                                                 sourceIdentity: SourceFileIdentity?,
+                                                 strokeSets: [String: BrushStrokeSet]) -> String {
+        let refs = Set(recipe.masks.flatMap { $0.components.compactMap(\.strokesRef) })
+        let loaded = refs.sorted()
+            .map { "\($0):\(strokeSets[$0]?.strokes.count ?? -1)" }
+            .joined(separator: ",")
+        return [url.absoluteString, maskID, sourceIdentity?.token ?? "?", loaded]
+            .joined(separator: "|")
     }
 
     /// When the overlay was last asked to rebuild, so a drag can be told from an edit.
@@ -2450,8 +2492,10 @@ final class AppState: ObservableObject {
                 for (ref, set) in resolved { self.strokeCache[ref] = set }
                 // The rows' pictures of a brush mask drawn before its strokes arrived
                 // are empty; the thumbnail key now carries stroke availability, so
-                // this re-renders exactly when an arrival matters.
+                // this re-renders exactly when an arrival matters. The overlay is the
+                // same picture at loupe size, keyed the same way.
                 self.refreshMaskThumbnails()
+                self.refreshMaskOverlayIfSourceChanged()
             }
         }
     }
@@ -2858,7 +2902,9 @@ final class AppState: ObservableObject {
         sourceRevision &+= 1
         // A rescan is where a same-path replacement is noticed. The thumbnail key
         // carries the file's identity, so this costs nothing unless the bytes changed.
+        // The overlay's source key carries it too.
         refreshMaskThumbnails()
+        refreshMaskOverlayIfSourceChanged()
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
         // unread for as long as both have existed.

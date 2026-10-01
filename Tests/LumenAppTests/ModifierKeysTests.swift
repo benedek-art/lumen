@@ -28,11 +28,8 @@ final class ModifierKeysTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         func code(_ file: String) throws -> String {
-            try String(contentsOf: root.appendingPathComponent("Sources/LumenApp/\(file)"),
-                       encoding: .utf8)
-                .split(separator: "\n", omittingEmptySubsequences: false)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
+            blankingComments(in: try String(
+                contentsOf: root.appendingPathComponent("Sources/LumenApp/\(file)"), encoding: .utf8))
         }
         let keymap = try code("Keymap.swift")
         XCTAssertTrue(keymap.contains("matching: [.flagsChanged]"))

@@ -456,6 +456,19 @@ final class ExportPresetToleranceTests: XCTestCase {
 /// That is the shape the finding actually describes, and it survived the first fix. The
 /// reviewer who wrote the tests above found it by reading the caller rather than the
 /// decoder, which is the only place it is visible.
+/// The watchdog test's result, written on a global queue and read after the wait. A
+/// captured `var` mutated there is a Swift 6 error, so it is a locked box.
+private final class DecodedList: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [ExportRecipe]?
+    func store(_ list: [ExportRecipe]?) {
+        lock.lock(); stored = list; lock.unlock()
+    }
+    var value: [ExportRecipe]? {
+        lock.lock(); defer { lock.unlock() }; return stored
+    }
+}
+
 final class ExportPresetListDecodeTests: XCTestCase {
 
     private func recipes(_ names: [String]) -> [ExportRecipe] {
@@ -488,9 +501,9 @@ final class ExportPresetListDecodeTests: XCTestCase {
         let blob = try data(tree)
 
         let done = expectation(description: "decodeList returns")
-        var out: [ExportRecipe]?
+        let decoded = DecodedList()
         DispatchQueue.global().async {
-            out = ExportRecipe.decodeList(blob)
+            decoded.store(ExportRecipe.decodeList(blob))
             done.fulfill()
         }
         // Two seconds is four orders of magnitude over the real cost; anything that
@@ -502,7 +515,7 @@ final class ExportPresetListDecodeTests: XCTestCase {
                        + "SUCCEEDS — a skip that can fail consumes nothing and the loop "
                        + "spins. A stored blob with one bad element would hang the app "
                        + "on launch, which is worse than the defect this function fixes.")
-        XCTAssertEqual(out?.count, 2)
+        XCTAssertEqual(decoded.value?.count, 2)
     }
 
     func testOneUnreadableElementCostsOnlyItself() throws {

@@ -101,15 +101,18 @@ final class CommentBlankingTests: XCTestCase {
         assertOffsetsSurvive(raw, out)
     }
 
-    /// The App target's copy must be this one: targets cannot share a source file, and a
-    /// copy that drifted would quietly reintroduce exactly what this file retires.
-    func testTheAppTargetCopyIsIdentical() throws {
+    /// The App and Pipeline targets' copies must be this one: targets cannot share a
+    /// source file, and a copy that drifted would quietly reintroduce exactly what this
+    /// file retires.
+    func testTheOtherTargetsCopiesAreIdentical() throws {
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let core = try String(contentsOf: here.appendingPathComponent("CommentBlanking.swift"),
                               encoding: .utf8)
-        let app = try String(contentsOf: here.deletingLastPathComponent()
-            .appendingPathComponent("LumenAppTests/CommentBlanking.swift"), encoding: .utf8)
-        XCTAssertEqual(core, app)
+        for target in ["LumenAppTests", "LumenPipelineTests"] {
+            let copy = try String(contentsOf: here.deletingLastPathComponent()
+                .appendingPathComponent("\(target)/CommentBlanking.swift"), encoding: .utf8)
+            XCTAssertEqual(core, copy, "\(target)/CommentBlanking.swift drifted")
+        }
     }
 
     /// No test file may grow a private stripper again. A file that blanks comments for
@@ -135,5 +138,26 @@ final class CommentBlankingTests: XCTestCase {
             }
         }
         XCTAssertEqual(offenders, [], "use blankingComments(in:) instead")
+    }
+
+    /// The other half-measure: dropping only lines that START with `//`. A trailing
+    /// `// …` or a `/* … */` survives it and reads as code, so a needle written in a
+    /// comment beside the line it guards passes a `contains` for the code that is gone.
+    func testNoTestFileDropsOnlyWholeLineComments() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let fm = FileManager.default
+        // Escaped so this file does not carry the signature it looks for.
+        let signature = "{ !$0.trimmingCharacters(in: .whitespaces).hasPrefix(\"\u{2F}\u{2F}\") }"
+        var offenders: [String] = []
+        for target in ["LumenCoreTests", "LumenAppTests", "LumenPipelineTests"] {
+            let dir = tests.appendingPathComponent(target)
+            guard let walk = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walk where url.pathExtension == "swift" {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                if text.contains(signature) { offenders.append("\(target)/\(url.lastPathComponent)") }
+            }
+        }
+        XCTAssertEqual(offenders.sorted(), [], "use blankingComments(in:) instead")
     }
 }

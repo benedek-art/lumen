@@ -209,13 +209,12 @@ final class MaskKeyTests: XCTestCase {
         return try String(contentsOf: root.appendingPathComponent(name), encoding: .utf8)
     }
 
-    /// Whole-line comments only. Enough to keep a paragraph ABOUT `RGBAf` from reading
-    /// as a use of it, and it cannot mangle a line of code the way a general stripper
-    /// can — the kernel sources are string literals, and `//` inside one is still text.
+    /// Every Swift comment blanked, trailing and block ones included, so a paragraph
+    /// ABOUT `RGBAf` cannot read as a use of it. The shared stripper copies string
+    /// literals through whole, so the kernel sources — which are literals — are still
+    /// scanned as written, their own `//` lines included.
     private static func stripComments(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        blankingComments(in: text)
     }
 
     /// A declaration's body: from its opening line to the first line that closes at the

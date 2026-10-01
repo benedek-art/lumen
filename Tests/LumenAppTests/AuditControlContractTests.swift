@@ -16,10 +16,8 @@ final class AuditControlContractTests: XCTestCase {
     private func source(_ file: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        return try String(contentsOf: root.appendingPathComponent("Sources/LumenApp/\(file)"),
-                          encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
+        return blankingComments(in: try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/\(file)"), encoding: .utf8))
     }
 
     func testBlackTargetTypingCannotExceedEngineCeiling() throws {

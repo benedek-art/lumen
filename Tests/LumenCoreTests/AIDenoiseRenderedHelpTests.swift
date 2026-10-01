@@ -27,14 +27,16 @@ final class AIDenoiseRenderedHelpTests: XCTestCase {
             .deletingLastPathComponent()   // LumenCoreTests
             .deletingLastPathComponent()   // Tests
             .deletingLastPathComponent()   // <package>
-        let panel = try String(contentsOf: root.appendingPathComponent(
-            "Sources/LumenApp/DetailPanel.swift"), encoding: .utf8)
+        let panel = blankingComments(in: try String(contentsOf: root.appendingPathComponent(
+            "Sources/LumenApp/DetailPanel.swift"), encoding: .utf8))
         let help = try XCTUnwrap(panel.components(separatedBy: "private var aiAmountHelp: String {").last)
         let rendered = try XCTUnwrap(help.components(separatedBy: "if isRenderedFile {").dropFirst().first)
         let branch = try XCTUnwrap(rendered.components(separatedBy: "\n        }").first)
-        // Code only: the fix's own comment quotes the old sentence.
+        // Code only: the fix's own comment quotes the old sentence. Comments are blanked
+        // above, trailing ones included; the lines they leave empty are dropped so the
+        // continuation join below still meets one string piece after another.
         let strings = branch.split(separator: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .joined(separator: "\n")
         XCTAssertTrue(strings.contains("return \"The stand-in is part of the raw decode"),
                       "The rendered-file branch of aiAmountHelp moved; move this scan with it")
