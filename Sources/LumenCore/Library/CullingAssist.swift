@@ -120,20 +120,23 @@ extension Plane {
         return Plane(width: x1 - x0, height: y1 - y0, values: v)
     }
 
-    private struct Tap { let index: Int; let weight: Float }
+    private struct AreaTap {
+        let index: Int
+        let weight: Float
+    }
 
-    private static func areaWeights(source: Int, destination: Int) -> [[Tap]] {
+    private static func areaWeights(source: Int, destination: Int) -> [[AreaTap]] {
         let scale = Double(source) / Double(destination)
-        var result: [[Tap]] = []
+        var result: [[AreaTap]] = []
         result.reserveCapacity(destination)
         for d in 0..<destination {
             let start = Double(d) * scale
             let end = Double(d + 1) * scale
-            var taps: [Tap] = []
+            var taps: [AreaTap] = []
             var s = Int(start.rounded(.down))
             while Double(s) < end && s < source {
                 let overlap = min(end, Double(s + 1)) - max(start, Double(s))
-                if overlap > 1e-9 { taps.append(Tap(index: s, weight: Float(overlap / scale))) }
+                if overlap > 1e-9 { taps.append(AreaTap(index: s, weight: Float(overlap / scale))) }
                 s += 1
             }
             result.append(taps)
@@ -578,7 +581,7 @@ public enum EyeOpenness {
     /// of its axes; it uses every point rather than the six of the classic EAR, and it does
     /// not care how the head is rolled. Points are in image pixels (NOT a face box's
     /// normalised coordinates, whose x and y scales differ). Nil for a degenerate outline.
-    public static func aspectRatio(_ contour: [(x: Double, y: Double)]) -> Double? {
+    public static func axisRatio(of contour: [(x: Double, y: Double)]) -> Double? {
         guard contour.count >= 4 else { return nil }
         var width = 0.0
         for i in 0..<contour.count {
@@ -619,5 +622,88 @@ public enum EyeOpenness {
         case let (nil, r?): return r
         default: return nil
         }
+    }
+}
+
+// MARK: - What the grid shows
+
+/// The attention dot's state for one frame (docs/10 §10.2 "Attention dot": a pointer to
+/// evidence, never a verdict).
+///
+/// Derived from the SAME thresholds the evidence chips query with, so a dot on a cell and
+/// the chip that lists it cannot disagree: lighting "Soft focus" shows exactly the cells
+/// that carry a soft-focus dot. Unscored frames have no attention at all — the dot is
+/// silence until there is evidence, never a guess.
+public struct CullingAttention: Equatable, Sendable {
+    public var sharpness: Double?
+    public var softFocus: Bool
+    public var eyesClosed: Bool
+    /// Frames in this frame's burst, nil when it is not in one.
+    public var burstSize: Int?
+    /// 1-based place in the burst's evidence order (sharpest first).
+    public var burstRank: Int?
+
+    public init(sharpness: Double?, softFocus: Bool, eyesClosed: Bool,
+                burstSize: Int? = nil, burstRank: Int? = nil) {
+        self.sharpness = sharpness
+        self.softFocus = softFocus
+        self.eyesClosed = eyesClosed
+        self.burstSize = burstSize
+        self.burstRank = burstRank
+    }
+
+    /// Whether the cell draws the dot. Burst membership alone is not attention: a burst
+    /// is a grouping, and every frame of a 9 fps sequence wearing a dot would be the
+    /// grid shouting.
+    public var needsAttention: Bool { softFocus || eyesClosed }
+
+    /// The hover text: the number behind the dot ("show me why, let me decide").
+    public var explanation: String {
+        var parts: [String] = []
+        if softFocus, let sharpness {
+            parts.append("Soft focus — sharpness \(Int((sharpness * 100).rounded())) of 100")
+        }
+        if eyesClosed { parts.append("A face reads with eyes closed") }
+        if let burstSize, let burstRank {
+            parts.append("Burst of \(burstSize), \(CullingAttention.ordinal(burstRank)) "
+                         + "sharpest")
+        }
+        parts.append("Evidence, not a verdict")
+        return parts.joined(separator: ". ")
+    }
+
+    private static func ordinal(_ n: Int) -> String {
+        let suffix: String
+        switch (n % 10, n % 100) {
+        case (_, 11...13): suffix = "th"
+        case (1, _): suffix = "st"
+        case (2, _): suffix = "nd"
+        case (3, _): suffix = "rd"
+        default: suffix = "th"
+        }
+        return "\(n)\(suffix)"
+    }
+
+    /// Every scored frame's attention, keyed by photo id.
+    ///
+    /// `softFocusThreshold` is the query's (`PhotoQuery.softFocusThreshold`) and the
+    /// comparison is the predicate's (`sharpness < threshold`, NULL never soft);
+    /// `closedEyes` is the set the closed-eyes chip returns. Same numbers, same answer.
+    public static func evidence(scores: [FrameScoreRow], closedEyes: Set<Int64>,
+                                softFocusThreshold: Double = PhotoQuery().softFocusThreshold)
+        -> [Int64: CullingAttention] {
+        var burstSizes: [Int64: Int] = [:]
+        for row in scores { if let burst = row.burstID { burstSizes[burst, default: 0] += 1 } }
+        var result: [Int64: CullingAttention] = [:]
+        result.reserveCapacity(scores.count)
+        for row in scores {
+            let soft = row.sharpness.map { $0 < softFocusThreshold } ?? false
+            result[row.photoID] = CullingAttention(
+                sharpness: row.sharpness, softFocus: soft,
+                eyesClosed: closedEyes.contains(row.photoID),
+                burstSize: row.burstID.flatMap { burstSizes[$0] },
+                burstRank: row.burstID == nil ? nil : row.burstRank)
+        }
+        return result
     }
 }

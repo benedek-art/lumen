@@ -346,6 +346,53 @@ final class CullingEvidenceCatalogTests: XCTestCase {
                      "a frame 99 s later is not in the burst")
     }
 
+    // MARK: - The grid's dot agrees with the chips
+
+    /// The attention dot is derived from the same thresholds and the same rows as the
+    /// chips, so the cells that wear a soft-focus dot are exactly the cells the
+    /// soft-focus chip lists, and likewise for closed eyes. Burst membership alone draws
+    /// no dot.
+    func testTheAttentionDotMarksExactlyWhatTheChipsList() throws {
+        let store = try makeStore()
+        defer { store.close() }
+        let folderID = try evidenceFixture(store)
+        var closedQuery = PhotoQuery()
+        closedQuery.closedEyes = true
+        let closed = Set(try store.photos(matching: closedQuery, folderID: folderID).map(\.id))
+        let attention = CullingAttention.evidence(scores: try store.frameScores(folderID: folderID),
+                                                  closedEyes: closed)
+
+        func chip(_ mutate: (inout LibraryFilter) -> Void) throws -> Set<Int64> {
+            var filter = LibraryFilter()
+            mutate(&filter)
+            let query = filter.query(sortKey: .filename, ascending: true, albumID: nil)
+            return Set(try store.photos(matching: query, folderID: folderID).map(\.id))
+        }
+        XCTAssertEqual(Set(attention.filter { $0.value.softFocus }.keys),
+                       try chip { $0.softFocus = true })
+        XCTAssertEqual(Set(attention.filter { $0.value.eyesClosed }.keys),
+                       try chip { $0.closedEyes = true })
+
+        let rows = try store.photos(folderID: folderID)
+        let unscored = try XCTUnwrap(rows.first { $0.filename == "DSC0002.ARW" }?.id)
+        XCTAssertNil(attention[unscored], "an unmeasured frame wears no dot")
+        let burstSharp = try XCTUnwrap(rows.first { $0.filename == "DSC0004.ARW" }?.id)
+        XCTAssertEqual(attention[burstSharp]?.burstSize, 2)
+        XCTAssertEqual(attention[burstSharp]?.burstRank, 1)
+        let sharpAlone = try XCTUnwrap(rows.first { $0.filename == "DSC0000.ARW" }?.id)
+        XCTAssertEqual(attention[sharpAlone]?.needsAttention, false)
+    }
+
+    func testTheDotsHoverTextIsTheNumberBehindIt() {
+        let a = CullingAttention(sharpness: 0.214, softFocus: true, eyesClosed: false,
+                                 burstSize: 6, burstRank: 2)
+        XCTAssertEqual(a.explanation, "Soft focus — sharpness 21 of 100. Burst of 6, "
+                       + "2nd sharpest. Evidence, not a verdict")
+        let inBurstOnly = CullingAttention(sharpness: 0.9, softFocus: false,
+                                           eyesClosed: false, burstSize: 3, burstRank: 1)
+        XCTAssertFalse(inBurstOnly.needsAttention, "a burst is a grouping, not a warning")
+    }
+
     /// The pass writes evidence tables only: grouping never touches the photographer's
     /// flags or stacks (D37).
     func testThePassWritesNoFlagAndNoStack() throws {

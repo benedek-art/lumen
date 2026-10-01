@@ -374,13 +374,13 @@ final class CullingAssistTests: XCTestCase {
 
     func testTheAspectRatioOfAnEyeOutlineIsItsAxisRatioAtAnyRoll() throws {
         for rotation in [0.0, 0.3, 1.2, -0.7] {
-            let ratio = try XCTUnwrap(EyeOpenness.aspectRatio(
+            let ratio = try XCTUnwrap(EyeOpenness.axisRatio(of: 
                 ellipse(a: 20, b: 7, rotation: rotation, points: 64)))
             XCTAssertEqual(ratio, 0.35, accuracy: 0.01, "roll \(rotation)")
         }
-        let shut = try XCTUnwrap(EyeOpenness.aspectRatio(ellipse(a: 20, b: 0.5)))
+        let shut = try XCTUnwrap(EyeOpenness.axisRatio(of: ellipse(a: 20, b: 0.5)))
         XCTAssertLessThan(shut, 0.05)
-        XCTAssertNil(EyeOpenness.aspectRatio([(0, 0), (1, 1)]))
+        XCTAssertNil(EyeOpenness.axisRatio(of: [(0, 0), (1, 1)]))
     }
 
     func testOpennessMapsTheRatioOntoZeroToOne() {
