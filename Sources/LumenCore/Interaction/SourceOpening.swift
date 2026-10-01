@@ -100,3 +100,33 @@ public enum SourceOpening {
         return surviving.isEmpty ? .nothing : .files(surviving)
     }
 }
+
+/// Finder opens that arrive before there is anywhere to deliver them.
+///
+/// "Open With ▸ Lumen" on an app that is not running delivers `application(_:open:)`
+/// during launch, before the window's `.onAppear` has handed the delegate its state.
+/// The delegate used to call `state?.openSources(urls)` on nil, dropping the files
+/// silently, and the launch then reopened the PREVIOUS folder instead (V7 D8). Opens
+/// that arrive early are held here and handed over, in order, when the state attaches.
+public struct LaunchOpenQueue: Equatable, Sendable {
+    public private(set) var pending: [URL] = []
+    public private(set) var isReady = false
+
+    public init() {}
+
+    /// An open arrived. Returns what to open NOW: the URLs when the state is attached,
+    /// nothing while they are being held for it.
+    public mutating func receive(_ urls: [URL]) -> [URL] {
+        if isReady { return urls }
+        pending.append(contentsOf: urls)
+        return []
+    }
+
+    /// The state is attached. Returns everything held, once; later opens pass straight
+    /// through `receive`.
+    public mutating func attach() -> [URL] {
+        isReady = true
+        defer { pending = [] }
+        return pending
+    }
+}

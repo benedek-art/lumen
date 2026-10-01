@@ -104,6 +104,23 @@ final class SourceOpeningTests: XCTestCase {
                        "a vanished selection must open nothing")
     }
 
+    // MARK: - Opens that arrive before the state (V7 D8)
+
+    func testOpensBeforeTheStateAreHeldThenHandedOverOnceInOrder() {
+        var queue = LaunchOpenQueue()
+        let a = file("/shoot/a.NEF"), b = file("/shoot/b.NEF"), c = file("/shoot/c.NEF")
+        XCTAssertEqual(queue.receive([a]), [], "nothing can be opened before the state exists")
+        XCTAssertEqual(queue.receive([b]), [])
+        XCTAssertEqual(queue.attach(), [a, b], "a cold-launch open was lost")
+        XCTAssertEqual(queue.attach(), [], "held opens are handed over once")
+        XCTAssertEqual(queue.receive([c]), [c], "once attached, opens pass straight through")
+    }
+
+    func testNoEarlyOpensMeansNothingHeld() {
+        var queue = LaunchOpenQueue()
+        XCTAssertEqual(queue.attach(), [])
+    }
+
     // MARK: - The app acts on the plan
 
     /// `openSources` routes through the plan, refuses `.nothing` without touching the

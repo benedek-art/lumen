@@ -59,8 +59,45 @@ final class FrontDoorTests: XCTestCase {
         let app = try text("Sources/LumenApp/LumenApp.swift")
         XCTAssertTrue(app.contains("func application(_ application: NSApplication, open urls: [URL])"),
                       "the only hook the system delivers a Finder open to")
-        XCTAssertTrue(app.contains("state?.openSources(urls)"),
+        XCTAssertTrue(app.contains("state?.openSources(now)"),
                       "and it must go through the same verb as every other door")
+    }
+
+    /// V7 D8: on a cold launch Finder delivers the open before the window has handed the
+    /// delegate its state. The delegate holds those opens (`LaunchOpenQueue`), and the
+    /// window's onAppear opens them INSTEAD of reopening the last folder.
+    func testAColdLaunchOpenIsHeldUntilTheStateExists() throws {
+        let app = try ShellSource.code("Sources/LumenApp/LumenApp.swift")
+        let open = try XCTUnwrap(
+            ShellSource.body(after: "func application(_ application: NSApplication, open urls: [URL])",
+                             in: app))
+        let flatOpen = ShellSource.squashed(open)
+        guard let held = flatOpen.range(of: "launchOpens.receive(urls)"),
+              let delivered = flatOpen.range(of: "state?.openSources(now)") else {
+            return XCTFail("the Finder open must pass through the launch queue: \(flatOpen)")
+        }
+        XCTAssertLessThan(held.lowerBound, delivered.lowerBound)
+
+        let attach = try XCTUnwrap(ShellSource.body(after: "func attach(_ state: AppState) -> [URL]",
+                                                    in: app))
+        let flatAttach = ShellSource.squashed(attach)
+        XCTAssertTrue(flatAttach.contains("self.state = state"))
+        XCTAssertTrue(flatAttach.contains("launchOpens.attach()"))
+
+        let appear = try XCTUnwrap(ShellSource.body(after: ".onAppear", in: app))
+        let flatAppear = ShellSource.squashed(appear)
+        XCTAssertFalse(flatAppear.contains("delegate.state = state"),
+                       "assigning the state directly skips the held opens")
+        guard let attached = flatAppear.range(of: "let launchedWith = delegate.attach(state)"),
+              let branch = flatAppear.range(of: "if launchedWith.isEmpty"),
+              let reopen = flatAppear.range(of: "state.reopenLastFolder()"),
+              let opened = flatAppear.range(of: "state.openSources(launchedWith)") else {
+            return XCTFail("onAppear must attach, then open the held files or else reopen: \(flatAppear)")
+        }
+        XCTAssertLessThan(attached.lowerBound, branch.lowerBound)
+        XCTAssertLessThan(branch.lowerBound, reopen.lowerBound)
+        XCTAssertLessThan(reopen.lowerBound, opened.lowerBound,
+                          "the reopen belongs to the empty branch, the held open to the else")
     }
 
     /// A drop anywhere in the window.

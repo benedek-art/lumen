@@ -38,10 +38,28 @@ final class LumenAppDelegate: NSObject, NSApplicationDelegate {
     /// `openSources` is the same verb the Open panel and the window drop go through, so
     /// a folder, a handful of frames, or a mix of both behaves identically however it
     /// arrives.
+    ///
+    /// A COLD LAUNCH DELIVERS THIS BEFORE THERE IS A STATE (V7 D8). "Open With ▸ Lumen"
+    /// on an app that is not running calls this during launch, before the window's
+    /// `.onAppear` has run `attach`; `state?` was nil and the files were dropped
+    /// silently, after which the launch reopened the PREVIOUS folder instead. Early
+    /// opens are held in `LaunchOpenQueue` (LumenCore, tested) and handed over by
+    /// `attach`, in place of the reopen.
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated {
-            state?.openSources(urls)
+            let now = launchOpens.receive(urls)
+            guard !now.isEmpty else { return }
+            state?.openSources(now)
         }
+    }
+
+    private var launchOpens = LaunchOpenQueue()
+
+    /// The window's state exists. Returns the Finder opens that arrived before it did,
+    /// once; empty when there were none.
+    func attach(_ state: AppState) -> [URL] {
+        self.state = state
+        return launchOpens.attach()
     }
 }
 
@@ -84,11 +102,17 @@ struct LumenApp: App {
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)
                 .onAppear {
-                    delegate.state = state
-                    // The owner's first Mac session started at the empty state and
-                    // so has every launch since; a daily driver reopens where you
-                    // left off. Quiet no-op when the bookmark is gone or revoked.
-                    state.reopenLastFolder()
+                    // Files handed over by Finder during launch win over the reopen:
+                    // the photographer asked for THOSE, this launch.
+                    let launchedWith = delegate.attach(state)
+                    if launchedWith.isEmpty {
+                        // The owner's first Mac session started at the empty state and
+                        // so has every launch since; a daily driver reopens where you
+                        // left off. Quiet no-op when the bookmark is gone or revoked.
+                        state.reopenLastFolder()
+                    } else {
+                        state.openSources(launchedWith)
+                    }
                     // The ship-to-self loop's last mile: an installed CI build
                     // replaces itself from the rolling dev release. Delayed so the
                     // launch render wins the disk and the network first; silent
