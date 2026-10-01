@@ -133,11 +133,11 @@ final class ExportDeliveryReadbackTests: XCTestCase {
                 plainContainer, 0, kCGImageAuxiliaryDataTypeISOGainMap),
                          "\(format): a recipe without HDR settings grew a gain map")
 
-            let hdrPeak = try hdrPeak(hdrURL)
+            let withMap = try hdrPeak(hdrURL)
             let plainPeak = try hdrPeak(plainURL)
-            print("GAINMAP \(format) peak hdr=\(hdrPeak) plain=\(plainPeak)")
+            print("GAINMAP \(format) peak hdr=\(withMap) plain=\(plainPeak)")
             XCTAssertLessThanOrEqual(plainPeak, 1.02, "\(format): the plain file is SDR")
-            XCTAssertGreaterThan(hdrPeak, 1.5,
+            XCTAssertGreaterThan(withMap, 1.5,
                                  "\(format): the gain map adds no headroom above SDR white")
 
             // The deliberate SDR picture: the primary is the plain export. One code of

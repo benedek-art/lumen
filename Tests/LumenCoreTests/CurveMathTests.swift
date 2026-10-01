@@ -321,9 +321,9 @@ final class CurveMathTests: XCTestCase {
                       "the drawn controls are not the composite handles")
         XCTAssertTrue(source.contains("CurveEditing.hitIndex(\n            plottedPoints"),
                       "the hit test is not run against the handles that are drawn")
-        XCTAssertEqual(source.components(separatedBy: "storedX(").count - 1, 3,
-                       "storedX must be declared once and used by both point-writing "
-                       + "gestures (place and drag)")
+        XCTAssertEqual(source.components(separatedBy: "storedX(").count - 1, 4,
+                       "storedX must be declared once and used by all three point-writing "
+                       + "paths (place, drag, and the VoiceOver adjust action)")
     }
 
     /// S-05: a deletion records under `CurveEditing.deletionCoalescingKey` (none), not

@@ -379,7 +379,7 @@ struct PhotoCell: View {
     private func attentionDot(_ attention: CullingAttention) -> some View {
         Circle()
             .fill(Color.white.opacity(0.9))
-            .overlay(Circle().strokeBorder(Color.black.opacity(0.5), lineWidth: 1))
+            .overlay(Circle().strokeBorder(Lumen.hudFill, lineWidth: 1))
             .frame(width: 7, height: 7)
             .padding(5)
             .help(attention.explanation)

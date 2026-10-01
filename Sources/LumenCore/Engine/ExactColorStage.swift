@@ -498,7 +498,13 @@ enum ExactColorTwin {
         let weight = smoothstep(0, 0.02, source.y)
         guard weight > 0 else { return blended }
         let hue = wrapHue(moved.z + hueDelta(moved.z, source.z) * weight)
-        let held = toRGB(lab(F3(moved.x, moved.y, hue)), u)
+        // As a DELTA between two round trips, for the reason `chromaScale` is one: in
+        // Float32 `toRGB(lab(moved))` is ~1e-7 off `blended`, and since the B1-05 hold
+        // eases in from chroma 0 a neutral (whose round-trip chroma is ~1e-7, not 0)
+        // takes this path — so a grey moved with Density by the round trip's error.
+        let turned = toRGB(lab(F3(moved.x, moved.y, hue)), u)
+        let unturned = toRGB(lab(moved), u)
+        let held = blended + (turned - unturned)
         return finite(held) ? held : blended
     }
 
@@ -852,7 +858,10 @@ public enum ExactColorKernelSource {
                                 if (weight > 0.0) {
                                     float hue = lumenWrap(ml.z + lumenHueDelta(ml.z, sl.z) * weight);
                                     vec3 held = lumenLab(vec3(ml.x, ml.y, hue));
-                                    \(toRGB("held", into: "heldRGB"))
+                                    \(toRGB("held", into: "turnedRGB"))
+                                    vec3 unheld = lumenLab(ml);
+                                    \(toRGB("unheld", into: "unturnedRGB"))
+                                    vec3 heldRGB = blended + (turnedRGB - unturnedRGB);
                                     if (lumenFinite(heldRGB)) { res = heldRGB; }
                                 }
                             }

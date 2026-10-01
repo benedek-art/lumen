@@ -684,17 +684,12 @@ private struct Sidebar: View {
     @ViewBuilder
     private func albumRow(_ album: CollectionItem) -> some View {
         if renamingAlbumID == album.id {
-            TextField(album.name, text: $albumRenameDraft)
-                .textFieldStyle(.plain)
-                .font(.lumenBody)
-                .foregroundStyle(Lumen.primaryText)
-                .padding(.horizontal, 6)
-                .frame(height: Lumen.rowHeight)
-                .onSubmit {
-                    renamingAlbumID = nil
-                    state.renameCollection(album.id, to: albumRenameDraft)
-                }
-                .onExitCommand { renamingAlbumID = nil }
+            SidebarRenameField(placeholder: album.name, text: $albumRenameDraft,
+                               commit: {
+                                   renamingAlbumID = nil
+                                   state.renameCollection(album.id, to: albumRenameDraft)
+                               },
+                               cancel: { renamingAlbumID = nil })
         } else if pendingDeleteAlbumID == album.id {
             HStack(spacing: 6) {
                 Text("Delete \u{201C}\(album.name)\u{201D}?")

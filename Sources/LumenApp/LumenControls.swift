@@ -2323,6 +2323,27 @@ struct LumenBadge: View {
 /// The focus binding is required rather than optional. A field that can be focused only
 /// sometimes is two components wearing one name, and the caller that has no chord for
 /// it simply declares a `@FocusState` nothing reads.
+/// A sidebar row turned into its own name for editing: Return commits, Escape cancels.
+/// A component for the same reason `SidebarEntryField` is one — a bare `TextField` in the
+/// sidebar is the copy that drifts (`DesignSystemTests.testTheSidebarHasNoHandRolledEntryField`).
+struct SidebarRenameField: View {
+    let placeholder: String
+    @Binding var text: String
+    let commit: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.lumenBody)
+            .foregroundStyle(Lumen.primaryText)
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+            .onSubmit(commit)
+            .onExitCommand(perform: cancel)
+    }
+}
+
 struct SidebarEntryField: View {
     let placeholder: String
     /// What the plus button's tooltip says it will do. Its own parameter rather than
