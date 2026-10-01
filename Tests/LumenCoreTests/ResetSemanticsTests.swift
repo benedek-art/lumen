@@ -300,6 +300,54 @@ final class ResetSemanticsTests: XCTestCase {
                        + "JPEG, and the predicate has to tell them apart")
     }
 
+    // MARK: - The viewer's before rendition (W2/H1-02)
+
+    /// A cropped, straightened, flipped edit with a grade on it.
+    private func framedEdit() -> Recipe {
+        var edit = Recipe()
+        edit.develop.geometry.crop = Crop(x: 0.2, y: 0.1, w: 0.5, h: 0.75)
+        edit.develop.geometry.angle = 3.5
+        edit.develop.geometry.flipH = true
+        edit.develop.geometry.lens.profile = !Recipe().develop.geometry.lens.profile
+        edit.develop.tone.exposure = 1.2
+        edit.look.render.preset = "Punchy"
+        return edit
+    }
+
+    /// THE DEFECT: the before plate is drawn into the edit's box, so it must be the
+    /// edit's shape. Built as `Recipe(pipelineVersion:)` it was the uncropped,
+    /// unstraightened sensor frame — a 3:2 picture stretched into a 1:1 crop.
+    func testTheBeforeRenditionIsFramedLikeTheEdit() {
+        let edit = framedEdit()
+        let before = Recipe.beforeRendition(of: edit, from: unknownISORaw)
+        XCTAssertEqual(before.develop.geometry.crop, edit.develop.geometry.crop)
+        XCTAssertEqual(before.develop.geometry.angle, edit.develop.geometry.angle)
+        XCTAssertEqual(before.develop.geometry.flipH, edit.develop.geometry.flipH)
+        XCTAssertEqual(before.pipelineVersion, edit.pipelineVersion)
+    }
+
+    /// And it is the file AS IMPORTED, not the type's default: a JPEG's before is on
+    /// the Linear transform (a bare `Recipe()` lays a second tone map on it), a raw's
+    /// before carries its own ISO's denoise, and nothing the edit did travels — not the
+    /// grade, not the lens correction.
+    func testTheBeforeRenditionIsTheFileAsImportedApartFromTheFraming() {
+        let edit = framedEdit()
+        let jpeg = Recipe.beforeRendition(of: edit, from: renderedFile)
+        XCTAssertEqual(jpeg.look.render.preset, LookSubset.linearPresetName)
+        XCTAssertEqual(jpeg.develop.tone, Recipe.asImported(from: renderedFile).develop.tone)
+        XCTAssertEqual(jpeg.develop.geometry.lens,
+                       Recipe.asImported(from: renderedFile).develop.geometry.lens,
+                       "the lens correction is part of what the edit did")
+
+        let raw = Recipe.SourceFile(isRendered: false, iso: 12800)
+        var expected = Recipe.asImported(from: raw)
+        expected.develop.geometry.crop = edit.develop.geometry.crop
+        expected.develop.geometry.angle = edit.develop.geometry.angle
+        expected.develop.geometry.flipH = edit.develop.geometry.flipH
+        expected.pipelineVersion = edit.pipelineVersion
+        XCTAssertEqual(Recipe.beforeRendition(of: edit, from: raw), expected)
+    }
+
     // MARK: - One Noise Reduction row (W2/E1-01, K-028)
 
     /// A frame edited away from its ISO default on every denoise field, with both

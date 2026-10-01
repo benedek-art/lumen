@@ -122,6 +122,31 @@ extension Recipe {
         self = Recipe.asImported(from: file)
     }
 
+    /// The recipe the viewer's BEFORE rendition is rendered with (`\`, `Y`, `⇧Y`).
+    ///
+    /// "Before" is this file as imported — not a bare `Recipe()`, which is the TYPE's
+    /// default and on a JPEG is a second tone map (the K-027 / D1-01 mechanism, arriving
+    /// through the comparison view) — framed the way the edit is framed: the crop, the
+    /// straighten, the flip and the upright travel from the edit, so the two renditions
+    /// are the same shape and show the same part of the scene.
+    ///
+    /// The framing has to travel because the viewer draws both renditions into ONE
+    /// drawn extent, sized from the edit. A before rendered uncropped came back at the
+    /// sensor's aspect and was stretched into the edit's box on every cropped or
+    /// straightened photograph — a 3:2 frame squashed into a 1:1 crop, faces narrowed,
+    /// and in split view two halves of one picture disagreeing about geometry across
+    /// the divider (W2/H1-02). The lens profile does NOT travel: it is a correction,
+    /// i.e. part of what the edit did, and the comparison exists to show that.
+    public static func beforeRendition(of edit: Recipe, from file: SourceFile) -> Recipe {
+        var before = Recipe.asImported(from: file)
+        before.pipelineVersion = edit.pipelineVersion
+        before.develop.geometry.crop = edit.develop.geometry.crop
+        before.develop.geometry.angle = edit.develop.geometry.angle
+        before.develop.geometry.flipH = edit.develop.geometry.flipH
+        before.develop.geometry.upright = edit.develop.geometry.upright
+        return before
+    }
+
     /// One row of the Noise Reduction panel, as the thing its double-click resets.
     public enum DenoiseRow: String, CaseIterable, Sendable {
         case luma, lumaDetail, lumaContrast, chroma, colorDetail, colorSmoothness

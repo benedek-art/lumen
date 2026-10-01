@@ -1197,9 +1197,14 @@ struct LoupeView: View {
         return stripped
     }
 
-    /// "Before" is just another recipe through the same pipeline (docs/12 §B8): the
-    /// import default, i.e. an empty recipe at this photo's pipeline version.
-    private var beforeRecipe: Recipe { Recipe(pipelineVersion: recipe.pipelineVersion) }
+    /// "Before" is just another recipe through the same pipeline (docs/12 §B8): this
+    /// file as imported, framed the way the edit is — see `Recipe.beforeRendition`.
+    /// From `renderRecipe`, so while the crop tool is armed both renditions are the
+    /// whole frame together.
+    private var beforeRecipe: Recipe {
+        Recipe.beforeRendition(of: renderRecipe, from: Recipe.SourceFile(
+            isRendered: PhotoFormats.isRendered(photo.id), iso: photo.iso))
+    }
 
     private var needsBeforeRender: Bool {
         state.showBefore || viewport.beforeMode.showsPair
