@@ -163,4 +163,56 @@ final class BrushResolutionTests: XCTestCase {
         bad += failures(Self.minimumSoftLine, at: fitAndExport)
         XCTAssertEqual(bad, [], bad.joined(separator: "\n"))
     }
+
+    // MARK: - S-10: the fold runs on one shared fine grid
+
+    /// The whole claim: paint, erase, and Add / Subtract / Intersect of thin components,
+    /// at the draft proxy, the fit view and the export.
+    func testThinStrokesAndTheirAlgebraSelectTheSameRegionAtEveryResolution() {
+        var bad: [String] = []
+        for c in Self.thinCases { bad += failures(c, at: Self.resolutions) }
+        XCTAssertEqual(bad, [], bad.joined(separator: "\n"))
+    }
+
+    /// The cost half of the contract. The fine grid is paid only by a mask holding a
+    /// stroke under `brushFineRadiusPx`; an ordinary brush folds at the size it was
+    /// asked for, so its pixels and its settle cost are what they were. And it never
+    /// grows past the interactive ceiling, which is also what `BrushPlaneCache` holds.
+    func testTheFineGridIsOnlyPaidForAStrokeThatNeedsIt() {
+        func factor(_ size: Double, _ w: Int, _ h: Int) -> Int {
+            let c = Self.single("f", [Self.line(0.5, size: size)])
+            return MaskRaster.brushSupersample(mask: c.mask, strokeSets: c.sets,
+                                               size: (width: w, height: h))
+        }
+        XCTAssertEqual(factor(0.05, 1024, 683), 1, "the default brush at the draft proxy")
+        XCTAssertEqual(factor(0.006, 1024, 683), 1, "a 3 px radius needs no fine grid")
+        XCTAssertEqual(factor(0.002, 6000, 4000), 1, "an export is fine already")
+        XCTAssertEqual(factor(0.002, 2048, 1365), 2, "the slider minimum at a 2048 fit")
+        XCTAssertEqual(factor(0.002, 1600, 1067), 2)
+        XCTAssertEqual(factor(0.002, 1024, 683), 3)
+        XCTAssertEqual(factor(0.002, 512, 341), 4)
+        XCTAssertEqual(factor(0.002, 2560, 1707), 1, "capped by the interactive ceiling")
+        XCTAssertEqual(factor(0.002, 96, 64), MaskRaster.brushSupersampleLimit)
+        for long in stride(from: 64, through: 6000, by: 97) {
+            let f = factor(0.002, long, long * 2 / 3)
+            XCTAssertLessThanOrEqual(f * long,
+                                     Swift.max(DraftLadder.interactiveLongEdgeCeiling, long))
+        }
+    }
+
+    /// What the renderer's held planes rest on: a brush plane handed in at the fold
+    /// size is the one the fold reads. A marked plane, so a fold that ignored it and
+    /// repainted could not pass.
+    func testAHeldPlaneAtTheFoldSizeIsTheOneTheFoldReads() {
+        let c = Self.minimumLine
+        let size = Self.resolutions[0]
+        let fold = MaskRaster.brushFoldSize(mask: c.mask, strokeSets: c.sets, size: size)
+        XCTAssertGreaterThan(fold.width, size.width, "the fixture must need the fine grid")
+        let marked = Plane(width: fold.width, height: fold.height, fill: 0.5)
+        let alpha = MaskRaster.combine(mask: c.mask, size: size, strokeSets: c.sets,
+                                       brushPlanes: [c.mask.id: marked])
+        XCTAssertEqual(alpha.width, size.width)
+        XCTAssertEqual(Double(alpha.values.min() ?? 0), 0.5, accuracy: 1e-6)
+        XCTAssertEqual(Double(alpha.values.max() ?? 0), 0.5, accuracy: 1e-6)
+    }
 }
