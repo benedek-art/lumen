@@ -254,6 +254,12 @@ final class KeyDispatcher {
             // Q again puts it away. `toggleHealTool` carries the entry contract — out of
             // masking, crop rectangle away — so this key holds none of its own.
             state.toggleHealTool()
+        case "/":
+            // `/` RE-PICKS THE SELECTED SPOT'S SOURCE (docs/09 §Heal / Clone, LR's
+            // binding): the next-best distinct candidate, cycling. Only while the Heal
+            // tool is armed — outside it the key is nobody's, and falls through.
+            guard HealTool.shared.armed else { return false }
+            state.repickSelectedSpotSource()
         case "m":
             // M IS A ROUND TRIP, and it has to be, because it is the only key that both
             // enters and leaves. The column becomes the mask editor and the workspace

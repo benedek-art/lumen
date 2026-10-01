@@ -162,6 +162,11 @@ public enum KeyGrammar {
             KeyRow(keys: "Q",
                    action: "Heal tool: click a blemish to heal it, drag a spot's circle or "
                        + "its source; again to put it away"),
+            // docs/09's and LR's re-roll. Bare and only live while the Heal tool is
+            // armed; everywhere else the dispatcher lets it fall through.
+            KeyRow(keys: "/",
+                   action: "While healing: re-pick the selected spot's source — the next "
+                       + "best, round to the first again"),
             KeyRow(keys: "⇧S", action: "Soft proof through the destination space"),
             KeyRow(keys: "\\", action: "Before / after, full frame"),
             KeyRow(keys: "Y", action: "Before / after, side by side"),
@@ -260,7 +265,7 @@ public enum KeyGrammar {
         // Flags, ratings, labels
         "p", "x", "u", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-",
         // Editing and panels
-        "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f", "q",
+        "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f", "q", "/",
         // Zoom and thumbnail size
         "z", "=", "+", "[", "]",
     ]

@@ -755,6 +755,21 @@ actor RenderCoordinator {
                                            sourceHeight: found.sourceHeight)
     }
 
+    /// The distinct sources `/` cycles through for an existing spot, best first
+    /// (`SpotSourceSearch.rankedSources`), searched in the same S5 input
+    /// `healAutoSource` uses — so the first of them is the source a click would pick.
+    func healSourceCandidates(url: URL, recipe: Recipe, spot: HealSpot,
+                              priorSpots: [HealSpot]) -> [(x: Double, y: Double)] {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                    spot: spot, priorSpots: priorSpots)
+        else { return [] }
+        return SpotSourceSearch.rankedSources(for: spot, in: found.buffer,
+                                              window: found.window,
+                                              sourceWidth: found.sourceWidth,
+                                              sourceHeight: found.sourceHeight)
+    }
+
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double) -> RGB? {
         guard let source = try? self.source(for: url),

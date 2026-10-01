@@ -6,6 +6,7 @@
 //   click          a new spot at the pointer — Heal or Clone, at the bar's size,
 //                  feather and opacity — with its source chosen by `SpotSourceSearch`
 //   drag a circle  the solid one moves the spot, the dashed one moves its source
+//   /              re-picks the selected spot's source: the next-best, cycling
 //   ⌫              deletes the selected spot
 //
 // What a press MEANS is `SpotHandles`, in LumenCore where it is tested; this file draws
@@ -127,6 +128,39 @@ extension AppState {
         }
     }
 
+    /// `/` while healing: move the selected spot's source to the next-best distinct
+    /// candidate, cycling (`SpotSourceSearch.nextSource`). Which alternative the spot is
+    /// on is read off the spot itself, so nothing here remembers a position in the cycle.
+    /// The search reads the picture through the spots BEFORE this one, as its render does.
+    func repickSelectedSpotSource() {
+        let tool = HealTool.shared
+        guard let id = tool.selectedSpotID, let photo = primarySelection else { return }
+        let current = recipe(for: photo)
+        let spots = current.develop.heal.spots
+        guard let index = spots.firstIndex(where: { $0.id == id }) else { return }
+        let spot = spots[index]
+        let prior = Array(spots[..<index])
+        let size = sourceFrameSize ?? CGSize(width: 1, height: 1)
+        let width = Int(size.width.rounded()), height = Int(size.height.rounded())
+        let url = photo.id
+        Task {
+            let candidates = await renderCoordinator.healSourceCandidates(
+                url: url, recipe: current, spot: spot, priorSpots: prior)
+            guard primarySelection?.id == url,
+                  let next = SpotSourceSearch.nextSource(for: spot, candidates: candidates,
+                                                         sourceWidth: width,
+                                                         sourceHeight: height)
+            else { return }
+            updateSpot(id: id, coalescingKey: nil, label: "Re-pick Source") { live in
+                // Only if the source is still where the search started from: a drag
+                // that landed while it ran is the photographer's answer, not ours.
+                guard live.sourceX == spot.sourceX, live.sourceY == spot.sourceY else { return }
+                live.sourceX = next.x
+                live.sourceY = next.y
+            }
+        }
+    }
+
     /// `⌫` while healing.
     func deleteSelectedSpot() {
         let tool = HealTool.shared
@@ -176,8 +210,8 @@ struct HealCanvas: View {
         .gesture(press)
         .lumenPickCursor(true)
         .help("Click a blemish to heal it. Drag the solid circle to move the spot, the "
-              + "dashed one to choose where it borrows from. ⌫ deletes the selected "
-              + "spot; Q or Esc puts the tool away.")
+              + "dashed one to choose where it borrows from; / re-picks it. ⌫ deletes "
+              + "the selected spot; Q or Esc puts the tool away.")
     }
 
     private var press: some Gesture {
