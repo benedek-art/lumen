@@ -326,16 +326,6 @@ final class IngestAdversarialTests: XCTestCase {
     /// stranger's file. The frame is already on the volume under its `-1` name; a
     /// second run must recognise it rather than land it again.
     func testReIngestAfterADisambiguationDoesNotDuplicateTheFrame() throws {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
-        #else
-        return
-        #endif
         let one = try frame("SAME0001.RAF", size: 700, seed: 11)
         let folder = primary.appendingPathComponent("2026", isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -356,6 +346,34 @@ final class IngestAdversarialTests: XCTestCase {
         XCTAssertEqual(landedNames.count, 2,
                        "after two runs of a one-frame card the volume holds "
                        + "\(landedNames): " + second.summary)
+        XCTAssertEqual(second.bytesCopied, 0, second.summary)
+        XCTAssertEqual(second.alreadyPresent.first?.destination,
+                       folder.appendingPathComponent("SAME0001-1.RAF"), second.summary)
+        XCTAssertEqual(second.renamed.count, 0,
+                       "nothing was written, so nothing was renamed: " + second.summary)
+        XCTAssertTrue(second.allVerified, second.summary)
+        XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("SAME0001.RAF")),
+                       Data([UInt8](repeating: 200, count: 40)),
+                       "the stranger's file was touched")
+    }
+
+    /// Re-ingest of a card with two identical twins that a first run had to split
+    /// into `wedding` and `wedding-1`. Each twin must find ITS file again — and the
+    /// walk must not let both twins settle on the first file because the bytes match.
+    func testReIngestOfDisambiguatedTwinsFindsEachTwinsOwnFile() throws {
+        let a = try frame("RTWN0001.RAF", size: 500, seed: 23)
+        let b = card.appendingPathComponent("RTWN0002.RAF", isDirectory: false)
+        try fm.copyItem(at: a, to: b)
+        let first = VerifiedCopyDriver(chunkSize: 64).run(try plan([a, b], renameTemplate: "{job}"))
+        XCTAssertTrue(first.allVerified, first.summary)
+        let second = VerifiedCopyDriver(chunkSize: 64).run(try plan([a, b], renameTemplate: "{job}"))
+        XCTAssertEqual(filesUnder(primary), ["2026/wedding-1.RAF", "2026/wedding.RAF"],
+                       second.summary)
+        XCTAssertEqual(second.alreadyPresent.count, 2, second.summary)
+        XCTAssertEqual(Set(second.alreadyPresent.map(\.destination.lastPathComponent)),
+                       ["wedding.RAF", "wedding-1.RAF"], second.summary)
+        XCTAssertFalse(second.twoFramesShareOneFile, second.summary)
+        XCTAssertTrue(second.allVerified, second.summary)
         XCTAssertEqual(second.bytesCopied, 0, second.summary)
     }
 
@@ -527,16 +545,6 @@ final class IngestAdversarialTests: XCTestCase {
     /// Each further re-ingest of a card whose frame had to be renamed once adds
     /// another whole copy of it.
     func testEveryReIngestOfARenamedFrameAddsAnotherCopy() throws {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
-        #else
-        return
-        #endif
         let one = try frame("GROW0001.RAF", size: 600, seed: 81)
         let folder = primary.appendingPathComponent("2026", isDirectory: true)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)

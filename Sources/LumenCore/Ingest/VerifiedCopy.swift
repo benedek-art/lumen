@@ -228,7 +228,16 @@ public struct IngestReport: Sendable {
     }
 
     public var failures: [IngestFileResult] { results.filter { $0.failure != nil } }
-    public var renamed: [IngestFileResult] { results.filter(\.wasRenamed) }
+    /// Frames THIS run wrote under a name other than the planned one. A frame found
+    /// already on disk under an earlier run's disambiguated name was not renamed now —
+    /// nothing was written — so it is counted as already present, not here.
+    public var renamed: [IngestFileResult] {
+        results.filter {
+            guard $0.wasRenamed else { return false }
+            if case .alreadyPresent = $0.outcome { return false }
+            return true
+        }
+    }
     public var alreadyPresent: [IngestFileResult] {
         results.filter { if case .alreadyPresent = $0.outcome { return true } else { return false } }
     }
@@ -517,22 +526,46 @@ public struct VerifiedCopyDriver: Sendable {
                 // the same name. The bytes decide, never the name — and never for a
                 // file this run already wrote for another frame on the card, which is
                 // that frame's copy however alike the bytes are (S-01).
-                if !claimedByAnotherFrame(destination.url),
-                   let existing = try? IngestFileDigest.digest(of: destination.url,
-                                                               chunkSize: chunkSize),
-                   let mine = digestOfSource(), existing == mine {
-                    guard mine.byteCount == copy.byteCount else {
-                        results.append(verdict(destination.url, destination.url, destination.role,
-                            .failed(.shortRead(expected: copy.byteCount, read: mine.byteCount))))
+                //
+                // The search walks the same disambiguation chain a landing would
+                // (`name`, `name-1`, `name-2`, …) and stops at the first slot that is
+                // either free or this frame. An earlier run that had to step round a
+                // stranger's file left this frame at `name-1`; without the walk every
+                // re-ingest found the stranger, stepped round it again and added
+                // `name-2`, `name-3`, … (S-04). A slot is this frame only if it is not
+                // claimed by another frame of this run, is the size the source is,
+                // and hashes to the source's digest — so the walk costs a stat per
+                // stranger and a hash only for a same-sized candidate.
+                var earlierCopy: URL?
+                var earlierDigest: IngestDigest?
+                func holdsThisFrame(_ candidate: URL) -> Bool {
+                    guard !claimedByAnotherFrame(candidate),
+                          let mine = digestOfSource(),
+                          let size = try? candidate.resourceValues(forKeys: [.fileSizeKey])
+                              .fileSize,
+                          Int64(size) == mine.byteCount,
+                          let existing = try? IngestFileDigest.digest(of: candidate,
+                                                                      chunkSize: chunkSize),
+                          existing == mine else { return false }
+                    earlierCopy = candidate
+                    earlierDigest = existing
+                    return true
+                }
+                let free = ExportRecipe.disambiguated(destination.url) { candidate in
+                    fm.fileExists(atPath: candidate.path) && !holdsThisFrame(candidate)
+                }
+                if let earlierCopy, let earlierDigest {
+                    guard earlierDigest.byteCount == copy.byteCount else {
+                        results.append(verdict(destination.url, earlierCopy, destination.role,
+                            .failed(.shortRead(expected: copy.byteCount,
+                                               read: earlierDigest.byteCount))))
                         continue
                     }
-                    results.append(verdict(destination.url, destination.url, destination.role,
-                                           .alreadyPresent(existing)))
+                    results.append(verdict(destination.url, earlierCopy, destination.role,
+                                           .alreadyPresent(earlierDigest)))
                     continue
                 }
-                landing = ExportRecipe.disambiguated(destination.url) {
-                    fm.fileExists(atPath: $0.path)
-                }
+                landing = free
             }
 
             // Hidden and suffixed, in the destination directory rather than a temp
