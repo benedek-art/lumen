@@ -349,9 +349,9 @@ public struct RenderGraph {
     ///
     /// The user's cube is uploaded as the file defines it and fetched once per pixel; it
     /// is never re-baked into a second table, so the only gap to the reference is the
-    /// fetch itself (Core Image's cube filter interpolates trilinearly where
-    /// `LUT3D.sample` is tetrahedral — the same gap every plan table here carries, and
-    /// `CreativeLUTParityTests` measures it). The display tap's encode and decode are
+    /// fetch itself (`ColorCube.filter` — `KernelLibrary.cubeLookup`, float — interpolates
+    /// trilinearly where `LUT3D.sample` is tetrahedral; the same gap every plan table
+    /// here carries, and `CreativeLUTParityTests` measures it). The display tap's encode and decode are
     /// the stock sRGB tone-curve filters: the IEC 61966-2-1 curve, the one
     /// `TransferFunction.srgb` is.
     ///
