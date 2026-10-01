@@ -468,8 +468,7 @@ final class IngestAdversarialTests: XCTestCase {
         let bad = card.appendingPathComponent("ISO00002.RAF", isDirectory: false)
         try Data([UInt8](repeating: 1, count: 100)).write(to: bad)
         let c = try frame("ISO00003.RAF", size: 2_500, seed: 53)
-        var sources = [try source(a), try source(bad), try source(c)]
-        _ = sources
+        let sources = [try source(a), try source(bad), try source(c)]
         let plan = IngestPlanner.plan(sources: sources,
                                       destinations: bothVolumes(),
                                       folderTemplate: "{year}", renameTemplate: nil,

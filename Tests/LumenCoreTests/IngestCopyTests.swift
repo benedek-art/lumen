@@ -16,6 +16,7 @@
 //     bug this application can have, because the evidence gets formatted afterwards;
 //   · a destination that already holds a different file is never overwritten.
 
+import Foundation
 import XCTest
 @testable import LumenCore
 
@@ -31,6 +32,20 @@ private struct LyingReadback: IngestReadback {
         let honest = try IngestFileDigest.digest(of: url, chunkSize: chunkSize)
         guard url.lastPathComponent.contains(liesAbout) else { return honest }
         return IngestDigest(hex: "dead0000beef0000", byteCount: honest.byteCount)
+    }
+}
+
+/// Progress events, collected through the driver's `@Sendable` callback. A captured
+/// `var` array mutated there is a Swift 6 error; the driver calls back on its own
+/// thread, so the log is locked.
+private final class SeenProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [IngestProgress] = []
+    func append(_ event: IngestProgress) {
+        lock.lock(); events.append(event); lock.unlock()
+    }
+    var last: IngestProgress? {
+        lock.lock(); defer { lock.unlock() }; return events.last
     }
 }
 
@@ -172,7 +187,7 @@ final class IngestCopyTests: XCTestCase {
         let plan = try plan([one, two], roots: bothVolumes())
         XCTAssertEqual(plan.copies.count, 2)
 
-        var seen: [IngestProgress] = []
+        let seen = SeenProgress()
         let driver = VerifiedCopyDriver(chunkSize: 512)
         let report = driver.run(plan) { seen.append($0) }
 

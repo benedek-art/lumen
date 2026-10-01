@@ -110,7 +110,7 @@ final class RollCursorTests: XCTestCase {
         let ids: [URL] = []
         var cursor = RollCursor()
         XCTAssertNil(cursor.index(of: URL(fileURLWithPath: "/a.arw"),
-                                  inRollOf: 0, revision: 0) { _ in
+                                  inRollOf: ids.count, revision: 0) { _ in
             XCTFail("read an identity out of an empty roll")
             return URL(fileURLWithPath: "/never")
         })

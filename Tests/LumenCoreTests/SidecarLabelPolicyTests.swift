@@ -10,7 +10,7 @@ final class SidecarLabelPolicyTests: XCTestCase {
     /// holds `.none`; the photographer presses `2`. Nothing about the label changed, so
     /// the write must not mention it.
     func testARatingKeystrokeLeavesALabelThisBuildCannotNameAlone() {
-        XCTAssertNil(SidecarLabelPolicy.write(appLabel: nil, labelChanged: false),
+        XCTAssertNil(SidecarLabelPolicy.write(appLabel: nil, labelChanged: false) as Any?,
                      "a flag or rating keystroke asserted `.some(nil)` for the label, "
                      + "and XMPMerge owns `xmp:Label`, so pressing a rating deleted "
                      + "another tool's label from the file")
@@ -19,7 +19,7 @@ final class SidecarLabelPolicyTests: XCTestCase {
     /// Clearing a label the photographer CAN see is a decision, and must persist.
     func testClearingALabelStillClearsIt() {
         let written = SidecarLabelPolicy.write(appLabel: nil, labelChanged: true)
-        XCTAssertNotNil(written, "a cleared label must reach the file")
+        XCTAssertNotNil(written as Any?, "a cleared label must reach the file")
         XCTAssertEqual(written ?? "unset", String?.none,
                        "clearing writes `.some(nil)` — the element is removed")
     }
@@ -33,6 +33,6 @@ final class SidecarLabelPolicyTests: XCTestCase {
 
     /// An empty string is not a label; it is the absence of one wearing a name.
     func testAnEmptyNameIsTreatedAsNoLabel() {
-        XCTAssertNil(SidecarLabelPolicy.write(appLabel: "", labelChanged: false))
+        XCTAssertNil(SidecarLabelPolicy.write(appLabel: "", labelChanged: false) as Any?)
     }
 }

@@ -138,7 +138,6 @@ final class DenoiseTests: XCTestCase {
     func testLuminanceDetailRaisesTheThresholdAndKeepsMoreNoise() {
         let profile = NoiseProfile.forISO(3200)
         let noisy = noisyField(level: 0.18, profile: profile)
-        let base = basisSigma(noisy).luma
 
         var previous = 0.0
         for detail in [0.0, 50.0, 100.0] {
