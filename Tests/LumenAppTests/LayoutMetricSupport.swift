@@ -495,19 +495,19 @@ enum SliderInventory {
         SliderSpec("Roughness", "EffectsPanel.swift:333", .developTop, 0...100, step: 1),
 
         // Export sheet — a fixed-width host, so no resize can rescue it.
-        SliderSpec("Quality", "ExportSheet.swift:577", .exportSheet, 0...100, step: 1),
-        SliderSpec("Megapixels", "ExportSheet.swift:722", .exportSheet, 0.5...100,
+        SliderSpec("Quality", "ExportSheet.swift:591", .exportSheet, 0...100, step: 1),
+        SliderSpec("Megapixels", "ExportSheet.swift:736", .exportSheet, 0.5...100,
                    hard: 0.1...500, step: 0.5, decimals: 1),
-        SliderSpec("Pixels", "ExportSheet.swift:726", .exportSheet, 320...8000,
+        SliderSpec("Pixels", "ExportSheet.swift:740", .exportSheet, 320...8000,
                    hard: 16...30000, step: 8),
-        SliderSpec("Resolution", "ExportSheet.swift:734", .exportSheet, 72...600,
+        SliderSpec("Resolution", "ExportSheet.swift:748", .exportSheet, 72...600,
                    hard: 1...2400, step: 1),
-        SliderSpec("Opacity", "ExportSheet.swift:899", .exportSheet, 0...100, step: 1),
-        SliderSpec("Size", "ExportSheet.swift:902", .exportSheet, 0.5...20,
+        SliderSpec("Opacity", "ExportSheet.swift:977", .exportSheet, 0...100, step: 1),
+        SliderSpec("Size", "ExportSheet.swift:980", .exportSheet, 0.5...20,
                    step: 0.1, decimals: 1),
-        SliderSpec("Inset", "ExportSheet.swift:905", .exportSheet, 0...20,
+        SliderSpec("Inset", "ExportSheet.swift:983", .exportSheet, 0...20,
                    step: 0.1, decimals: 1),
-        SliderSpec("Headroom", "ExportSheet.swift:947", .exportSheet, 0.5...4,
+        SliderSpec("Headroom", "ExportSheet.swift:1026", .exportSheet, 0.5...4,
                    step: 0.1, decimals: 1),
 
         // Look — grade, primaries, transform, film lab, grain.
