@@ -400,7 +400,12 @@ struct ColorPanel: View {
                     .background(
                         RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                             .fill(pickIsArmed ? Lumen.fillColor.opacity(0.35) : Color.clear))
-                    .disabled(!pickIsArmed && swatches.count >= ColorPanel.maxSwatches)
+                    // Dead with no photograph, like the mixer's pill below (B3-09): the
+                    // pick resolves only on the loupe's photograph, so arming it with
+                    // none left "Click the colour to work on." on screen with nothing
+                    // to click. An ARMED button stays live — pressing it is the cancel.
+                    .disabled(!pickIsArmed && (swatches.count >= ColorPanel.maxSwatches
+                                               || state.primarySelection == nil))
                     .lumenClickCursor()
                     .help(pickHelp)
 
@@ -574,7 +579,8 @@ struct ColorPanel: View {
             state.cancelPick()
             return
         }
-        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches
+        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches,
+              state.primarySelection != nil
         else { return }
         state.beginPick(.newPointColor)
     }
