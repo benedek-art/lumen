@@ -397,8 +397,11 @@ actor RenderCoordinator {
                                 regionUnit: regionUnit,
                                 fullPixelSize: fullPixelSize,
                                 decodeMilliseconds: decodeMilliseconds,
-                                previewIdentity: !draft && region == nil && !showingUncropped
-                                    && softProof == nil && note == nil
+                                previewIdentity: Self.mayBecomeDevelopedPreview(
+                                    draft: draft, region: region,
+                                    showingUncropped: showingUncropped,
+                                    softProofing: softProof != nil, note: note,
+                                    mattesPending: !missingMatteKinds(url: url, recipe: recipe).isEmpty)
                                     ? (try? RecipeFingerprint.fingerprint(recipe)).map {
                                         DevelopedPreviewIdentity(source: sourceIdentity, recipeFingerprint: $0)
                                     } : nil,
@@ -486,6 +489,21 @@ actor RenderCoordinator {
         record(evicted: renderer.storeMattes(
             VisionMattes.generate(image: picture, kinds: missing),
             requested: Set(missing.map { $0.rawValue }), for: source.url))
+    }
+
+    /// Whether a delivered frame depicts the recipe exactly enough to be filed as the
+    /// photo's developed preview under that recipe's fingerprint.
+    ///
+    /// `mattesPending` is the one that was missing. A settle rendered before the
+    /// Subject or People matte this recipe needs has been generated draws that mask
+    /// selecting nothing, yet carries the final recipe's fingerprint, so it could be
+    /// stored and served as the developed picture until the recipe next changed.
+    static func mayBecomeDevelopedPreview(draft: Bool, region: CGRect?,
+                                          showingUncropped: Bool,
+                                          softProofing: Bool, note: String?,
+                                          mattesPending: Bool) -> Bool {
+        !draft && region == nil && !showingUncropped && !softProofing && note == nil
+            && !mattesPending
     }
 
     /// The kinds this recipe wants that no pass has looked for yet on this file.
