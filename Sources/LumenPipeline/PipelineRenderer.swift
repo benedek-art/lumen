@@ -644,6 +644,146 @@ public final class PipelineRenderer {
                                decodeMilliseconds: decodeMs)
     }
 
+    // MARK: - EDR preview
+
+    /// The suffix that keeps the EDR pass's colour tables apart from the SDR frame's
+    /// in `PlanTableCache`'s stale door.
+    ///
+    /// The door lends a draft "the newest table THIS photograph rendered with", and
+    /// the finish table's key includes the display white. With the HDR preview on, the
+    /// viewer renders each frame twice — SDR (every instrument reads it) and EDR (the
+    /// screen shows it) — so under one identity the next SDR draft could borrow the
+    /// EDR pass's 400% table, and the EDR draft the SDR pass's 100% one: each frame
+    /// would be the other rendition's picture formation. A separate identity makes
+    /// each pass stale only against itself. `EDRPreviewRenderTests` holds the SDR
+    /// draft that follows an EDR pass to the bytes it has with no EDR pass at all.
+    static let edrIdentitySuffix = "|edr"
+
+    /// The plan the HDR preview renders through: `previewPlan` with the display white
+    /// target the viewport chose (`EDRPreview.whiteTarget` — the gain-map export's own
+    /// `HDRSettings.whiteTargetPercent` when the display can show it), stamped under
+    /// its own cache identity. Everything else — interactive table size, the viewing
+    /// proof, stale-while-bake on drafts, the measured band hues — is the SDR
+    /// preview's, so the two passes are one picture at two peaks.
+    func edrPreviewPlan(source: any ImageSource, recipe: Recipe, draft: Bool,
+                        softProof: SoftProof?, displayWhiteTarget: Double) -> RenderPlan {
+        // Measured before the stamp, so nothing between the stamp and the plan can move
+        // the identity the plan's tables are filed under.
+        let hues = ColorEngine.needsMeasuredBandHues(recipe.develop.mixer)
+            ? measuredBandMeanHues(source: source) : nil
+        PlanTableCache.setRenderIdentity(
+            PlanTableCache.renderIdentity(for: source.url) + Self.edrIdentitySuffix)
+        // Back to the photograph's own identity once the plan exists: the tables are
+        // requested inside `RenderPlan.init` (a deferred bake records the identity at
+        // request time), and any later plan built without a stamp of its own must not
+        // inherit the EDR one.
+        defer { Self.stampRenderIdentity(source) }
+        return RenderPlan(recipe: recipe,
+                          asShotKelvin: source.asShotTemperature,
+                          asShotTint: source.asShotTint,
+                          displayWhiteTarget: displayWhiteTarget,
+                          lutSize: LUT3D.interactiveSize,
+                          captureISO: source.captureMetadata.iso,
+                          softProof: softProof,
+                          allowStaleTables: draft,
+                          bandMeanHues: hues)
+    }
+
+    /// The colour space the EDR frame is delivered in: linear, extended range, sRGB
+    /// primaries — 1.0 is SDR white and the headroom is the values above it. It is
+    /// also what `EDRImageView`'s `CAMetalLayer` is tagged with, so nothing between
+    /// the two re-encodes it.
+    public static var edrColorSpace: CGColorSpace? {
+        CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+    }
+
+    /// The HDR preview's frame: the same graph, geometry and region as
+    /// `renderPreviewDelivery`, at `displayWhiteTarget`, rasterized as half-float
+    /// extended-linear sRGB instead of 8-bit sRGB — so the values above 1.0 the
+    /// transform placed there reach the screen instead of clipping at the encoder.
+    ///
+    /// No dither: the 8-bit dither exists to break quantization banding at 8 bits,
+    /// and half-float has none to break. The gain-map export's HDR rendition
+    /// (`renderHDRPair`) carries none either.
+    ///
+    /// A SEPARATE FUNCTION, deliberately, rather than a flag on
+    /// `renderPreviewDelivery`: the SDR frame every instrument reads, and every frame
+    /// with the HDR preview off, goes through code this change does not touch. The
+    /// region arithmetic below is that function's, line for line; the caller drops
+    /// the EDR frame unless its `regionUnit` and `fullPixelSize` come back equal to
+    /// the SDR frame's, so a drift between the two copies costs the HDR preview and
+    /// never misplaces a picture.
+    public func renderPreviewEDR(source: any ImageSource, recipe: Recipe,
+                                 maxLongEdge: Int, draft: Bool,
+                                 coarseDecode: Bool,
+                                 showingUncropped: Bool = false,
+                                 strokeSets: [String: BrushStrokeSet] = [:],
+                                 softProof: SoftProof? = nil,
+                                 region: CGRect? = nil,
+                                 displayWhiteTarget: Double) throws -> PreviewDelivery {
+        let native = source.nativeLongEdge
+        let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
+        let decodeStarted = DispatchTime.now().uptimeNanoseconds
+        guard let decoded = source.decode(recipe: recipe, draft: coarseDecode,
+                                          scaleFactor: scale) else {
+            throw RenderError.decodeFailed
+        }
+        let decodeMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1e6
+        let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let plan = edrPreviewPlan(source: source, recipe: recipe, draft: draft,
+                                  softProof: softProof,
+                                  displayWhiteTarget: displayWhiteTarget)
+        let graph = makeGraph(plan: plan, decoded: decoded,
+                              sourceURL: source.url,
+                              allowStaleRasters: draft,
+                              strokeSets: strokeSets,
+                              aiMattes: mattes[source.url]?.planes ?? [:],
+                              maskRasterCeiling:
+                                  CGFloat(DraftLadder.interactiveLongEdgeCeiling))
+        var image = graph.build(decoded, plan: plan,
+                                options: RenderGraph.Options(longEdge: longEdge,
+                                                             noiseScale: scale * scale))
+        image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
+                                   skipCrop: showingUncropped)
+
+        let fullExtent: CGRect = image.extent
+        var rasterRect: CGRect = fullExtent
+        var deliveredUnit: CGRect?
+        let extentUsable: Bool = !fullExtent.isInfinite
+            && fullExtent.minX.isFinite && fullExtent.minY.isFinite
+            && fullExtent.width.isFinite && fullExtent.height.isFinite
+            && fullExtent.width >= 1 && fullExtent.height >= 1
+        if let region, extentUsable, region.width > 0, region.height > 0 {
+            let asked = CGRect(
+                x: fullExtent.minX + region.minX * fullExtent.width,
+                y: fullExtent.minY + (1 - region.maxY) * fullExtent.height,
+                width: region.width * fullExtent.width,
+                height: region.height * fullExtent.height)
+            let integral = asked.integral.intersection(fullExtent)
+            if integral.width >= 1, integral.height >= 1,
+               integral != fullExtent.integral {
+                rasterRect = integral
+                deliveredUnit = CGRect(
+                    x: (integral.minX - fullExtent.minX) / fullExtent.width,
+                    y: 1 - (integral.maxY - fullExtent.minY) / fullExtent.height,
+                    width: integral.width / fullExtent.width,
+                    height: integral.height / fullExtent.height)
+            }
+        }
+        guard let space = Self.edrColorSpace,
+              let cgImage = context.createCGImage(image, from: rasterRect,
+                                                  format: .RGBAh, colorSpace: space)
+        else {
+            throw RenderError.renderFailed
+        }
+        let fullPixelSize: CGSize = extentUsable
+            ? CGSize(width: fullExtent.width, height: fullExtent.height)
+            : CGSize(width: cgImage.width, height: cgImage.height)
+        return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
+                               fullPixelSize: fullPixelSize,
+                               decodeMilliseconds: decodeMs)
+    }
+
     // MARK: - Export
 
     /// Writes the file and returns the names of the kernels that were NOT available,

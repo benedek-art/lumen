@@ -1103,7 +1103,8 @@ struct LookPanel: View {
                                        for: photo.id, iso: photo.iso).look.render
                                } },
                                topRhythm: innerRhythm)
-                .help(FilmDisplayTransformAvailability.transformHelp)
+                .help(FilmDisplayTransformAvailability.blendHelp(
+                    for: state.currentRecipe.look.filmLab))
 
             if only != nil || transformExpanded {
                 // Ghosted, not hidden. The values are still the recipe's, they still
@@ -1330,7 +1331,8 @@ struct LookPanel: View {
                                         set: { $0.amount = Num.clamp($1, 0, 100) }),
                         range: 0...100, defaultValue: 100, step: 1, decimals: 0,
                         bipolar: false)
-                .help(FilmDisplayTransformAvailability.transformHelp)
+                .help(FilmDisplayTransformAvailability.blendHelp(
+                    for: state.currentRecipe.look.filmLab))
             LumenSlider(title: "Film Exposure",
                         value: bindFilm("film.exposure",
                                         get: { $0.exposure },
@@ -1341,7 +1343,11 @@ struct LookPanel: View {
                                         get: { $0.pushPull },
                                         set: { $0.pushPull = Num.clamp($1, -1, 2) }),
                         range: -1...2, defaultValue: 0, step: 0.25, decimals: 2)
-            if !halationSupported {
+            // A KNOWN stock with no halation response. An unknown stock also leaves
+            // `halationSupported` false (no stock, no strengths), but that photo is
+            // not on a stock without halation — it is on no stock at all, and the
+            // caption at the foot of this section says so (NEW-V5-2).
+            if stock != nil && !halationSupported {
                 Text("This stock has no halation response.")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)

@@ -88,6 +88,23 @@ final class FilmDisplayTransformAvailabilityTests: XCTestCase {
         }
     }
 
+    /// NEW-V5-3: no film, or a stock this build does not ship, builds no chain — so
+    /// there is no blend for the help to describe. Every shipped stock at every
+    /// Strength does get it, since below 100 it explains why the rows are live and at
+    /// 100 why they are not.
+    func testBlendHelpAppearsOnlyWhenAFilmIsLoaded() {
+        XCTAssertEqual(FilmDisplayTransformAvailability.blendHelp(for: nil), "")
+        XCTAssertEqual(FilmDisplayTransformAvailability.blendHelp(
+            for: FilmLab(stock: "unknown-stock-for-availability-test", amount: 50)), "")
+        for stock in FilmStock.all {
+            for amount in [0.0, 1, 50, 100] {
+                XCTAssertEqual(FilmDisplayTransformAvailability.blendHelp(
+                    for: FilmLab(stock: stock.id, amount: amount)),
+                    FilmDisplayTransformAvailability.transformHelp, stock.id)
+            }
+        }
+    }
+
     func testUIUsesThePureAvailabilityForBadgeDisablingAndAccurateHelp() throws {
         let raw = try LayoutSource.read("Sources/LumenApp/LookPanel.swift")
         let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
@@ -103,8 +120,12 @@ final class FilmDisplayTransformAvailabilityTests: XCTestCase {
         XCTAssertTrue(source.contains("badge: replacingStockName"))
         XCTAssertTrue(source.contains("guard let stock = replacingStock else { return nil }"))
         XCTAssertTrue(source.contains("help: FilmDisplayTransformAvailability.stockHelp"))
-        XCTAssertEqual(source.components(separatedBy: ".help(FilmDisplayTransformAvailability.transformHelp)").count - 1, 2,
+        // Both sites through `blendHelp(for:)`, and none on the bare string: the bare
+        // string on the header told a photo with no film about a film blend (NEW-V5-3).
+        XCTAssertEqual(source.components(separatedBy: ".help(FilmDisplayTransformAvailability.blendHelp(\n                    for: state.currentRecipe.look.filmLab))").count - 1, 2,
                        "the transform header and Film Strength must both explain the blend")
+        XCTAssertFalse(source.contains(".help(FilmDisplayTransformAvailability.transformHelp)"),
+                       "the blend help is attached unconditionally again")
         XCTAssertFalse(source.contains("Loading a stock replaces the Display Transform"))
         XCTAssertTrue(FilmDisplayTransformAvailability.transformHelp.contains("Below 100%"))
         XCTAssertTrue(FilmDisplayTransformAvailability.transformHelp.contains("lower Strength to edit it"))

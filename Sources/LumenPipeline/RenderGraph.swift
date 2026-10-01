@@ -1636,16 +1636,23 @@ public struct RenderGraph {
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
         let profile = film.halation(longEdgePixels: longEdge)
         guard profile.strengths.maxComponent > 0 else { return image }
+        // The reference's gate, evaluated in the shader — not a pedestal standing in
+        // for it (M09: the pedestal rendered 0.61 of the reference's glow at E = 0.5
+        // and none at all two stops under the clip).
         guard let energy = KernelLibrary.apply(
-            KernelLibrary.highlightEnergy, extent: image.extent,
-            [image, Float(profile.threshold), Float(profile.boost)])
+            KernelLibrary.halationEnergy, extent: image.extent,
+            [image, Float(profile.clipLevel), Float(HalationProfile.protectEV),
+             Float(HalationProfile.boostRange)])
         else { return image }
 
         // Three bounces at geometrically spaced radii, decaying by half each time —
         // the film base is not a single-scale scatterer.
+        // The reference's accumulation (N-006): the raw dyadic shape here, and the
+        // normalization in `profile.fieldGain` below, so the glow is `strengths` times
+        // a unit-sum field whatever the bounce count.
         var glow: CIImage?
-        var weight = 1.0
-        for sigma in profile.sigmasInPixels where sigma > 0 {
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
+        where sigma > 0 {
             // Through the shared helper, which is the whole point of the fix recorded
             // in `gaussianBlur`'s own header: `CIGaussianBlur.radius` IS the standard
             // deviation, measured on the runner. This stage kept its own copy of the
@@ -1666,10 +1673,9 @@ public struct RenderGraph {
             } else {
                 glow = scaled
             }
-            weight *= profile.decay
         }
         guard let field = glow else { return image }
-        let s = profile.strengths
+        let s = profile.fieldGain
         return KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
                                    [image, field, CIVector(x: s.r, y: s.g, z: s.b)])
             ?? image

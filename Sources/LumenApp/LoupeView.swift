@@ -115,6 +115,18 @@ final class LoupeViewport: ObservableObject {
     /// True while the straighten ruler is armed. It disarms itself when the drag ends,
     /// so it reads as a tool you fire rather than a mode you have to remember to leave.
     @Published var showStraighten: Bool = false
+    /// The HDR preview (View ▸ HDR Preview): the loupe shows the gain-map export's HDR
+    /// rendition through an EDR layer, at the display's headroom (`EDRPreview`).
+    /// A viewing mode, never part of a recipe, and off at every launch — the SDR loupe
+    /// is the default this slice leaves untouched. Write it through
+    /// `toggleHDRPreview`, which also starts and stops the headroom watch.
+    @Published private(set) var hdrPreview: Bool = false
+
+    @MainActor
+    func toggleHDRPreview() {
+        hdrPreview.toggle()
+        EDRDisplay.shared.setActive(hdrPreview)
+    }
     /// A `let`, for the reason `maskOverlayOpacity` below is one: nothing anywhere sets
     /// it. Four reads gate the on-image cursor readout and the pixel sampler; there is no
     /// key, no menu item and no control that writes it, so the `@Published var` was a
@@ -443,6 +455,11 @@ final class PhotoRenderModel: ObservableObject {
 
     @Published private(set) var image: CGImage?
     @Published private(set) var imageURL: URL?
+    /// The HDR preview's half-float frame of the request `image` came from
+    /// (`RenderResult.edrImage`), or nil. Replaced in the same `apply` as `image`,
+    /// never on its own, so the two always describe one request — and `edrFrame(for:)`
+    /// hands it out only against that very `image`.
+    @Published private(set) var edrImage: CGImage?
     private(set) var previewIdentity: DevelopedPreviewIdentity?
     private var imageSourceIdentity: SourceFileIdentity?
     /// Bumped whenever `image` is replaced — a cheap `Equatable` handle for `.task(id:)`
@@ -588,6 +605,9 @@ final class PhotoRenderModel: ObservableObject {
               /// sharpness floor (`DraftLadder.sharpnessFloor`). Nil where the caller
               /// cannot say, which leaves the ladder exactly as it was.
               drawnDeviceLongEdge: Double? = nil,
+              /// The HDR preview's display white (`EDRPreview.whiteTarget`), or nil —
+              /// the default, and every caller but the loupe's edit — for SDR only.
+              edrWhiteTarget: Double? = nil,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
@@ -606,6 +626,7 @@ final class PhotoRenderModel: ObservableObject {
         let requestedSourceIdentity = SourceFileIdentity.read(url)
         if imageURL != url || (image != nil && imageSourceIdentity != requestedSourceIdentity) {
             image = nil
+            edrImage = nil
             imageURL = nil
             previewIdentity = nil
             imageSourceIdentity = nil
@@ -637,6 +658,7 @@ final class PhotoRenderModel: ObservableObject {
                 // photo-bounce.
                 guard imageURL == nil else { return }
                 image = cg
+                edrImage = nil
                 imageURL = url
                 imageSourceIdentity = requestedSourceIdentity
                 usedEmbeddedPreview = true
@@ -740,7 +762,8 @@ final class PhotoRenderModel: ObservableObject {
                                                  strokeSets: strokeSets,
                                                  showingUncropped: showingUncropped,
                                                  softProof: softProof,
-                                                 region: region)
+                                                 region: region,
+                                                 edrWhiteTarget: edrWhiteTarget)
             // Delivery BEFORE the cancellation check, deliberately — FrameDelivery in
             // LumenCore is the law and holds the arithmetic. During a drag every event
             // cancels this task and starts the next one, so "apply only if still
@@ -916,7 +939,8 @@ final class PhotoRenderModel: ObservableObject {
                                                   strokeSets: strokeSets,
                                                   showingUncropped: showingUncropped,
                                                   softProof: softProof,
-                                                  region: region)
+                                                  region: region,
+                                                  edrWhiteTarget: edrWhiteTarget)
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url, recipe: recipe)
@@ -1006,10 +1030,19 @@ final class PhotoRenderModel: ObservableObject {
         }
     }
 
+    /// The EDR frame to draw in place of `cg`, when `cg` is the frame this model is
+    /// showing and the request that produced it carried one. Identity, not equality:
+    /// any other image — a before plate, a stale capture — gets nil and draws SDR.
+    func edrFrame(for cg: CGImage) -> CGImage? {
+        guard let edrImage, let image, image === cg else { return nil }
+        return edrImage
+    }
+
     @MainActor
     private func apply(_ result: RenderResult, url: URL, recipe: Recipe) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
         image = result.image
+        edrImage = result.edrImage
         imageURL = url
         previewIdentity = result.previewIdentity
         imageSourceIdentity = result.sourceIdentity
@@ -1099,6 +1132,10 @@ struct LoupeView: View {
     @ObservedObject private var panel: PanelLayout = PanelLayout.shared
     /// The Heal tool: whether its canvas and bar are up, and which spot is selected.
     @ObservedObject private var healTool: HealTool = HealTool.shared
+    /// The screen's EDR headroom, for the HDR preview. Publishes only when the headroom
+    /// moves by an eighth of a stop or the display gains or loses HDR altogether, and
+    /// only while the preview is on (`EDRDisplay.setActive`).
+    @ObservedObject private var edrDisplay: EDRDisplay = EDRDisplay.shared
 
     @State private var containerSize: CGSize = .zero
     @State private var cursor: CGPoint?
@@ -1415,7 +1452,8 @@ struct LoupeView: View {
             .task(id: ViewerRenderKey.current(url: photo.id, recipe: renderRecipe,
                                               longEdge: longEdge, state: state,
                                               showingUncropped: cropArmed,
-                                              regionUnit: region)) {
+                                              regionUnit: region,
+                                              edrWhiteTarget: edrWhiteTarget)) {
                 await renderCurrent(longEdge: longEdge, region: region,
                                     drawnDevice: drawnDevice)
                 // `load` returns when the settle has landed (or been deliberately
@@ -1619,6 +1657,10 @@ struct LoupeView: View {
                          // agree on it.
                          region: region,
                          drawnDeviceLongEdge: drawnDevice,
+                         // The HDR preview's white target — the same value the task
+                         // key carries, read in the same body pass. Nil with the
+                         // preview off, which leaves this request exactly as it was.
+                         edrWhiteTarget: edrWhiteTarget,
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.
@@ -1694,6 +1736,45 @@ struct LoupeView: View {
         return beforeModel.image
     }
 
+    // MARK: HDR preview
+
+    /// The display white the loupe's EDR pass renders at, or nil for the SDR loupe.
+    /// `EDRPreview.whiteTarget` decides; this adds the two things only the view knows.
+    /// The crop canvas turns its plate with a SwiftUI `rotationEffect`, which the EDR
+    /// layer does not follow (see `EDRViewport.swift`), so framing stays SDR. And a Mac
+    /// with no Metal device has nothing to draw an EDR frame with.
+    private var edrWhiteTarget: Double? {
+        guard !cropArmed, EDRImageView.isSupported else { return nil }
+        return EDRPreview.whiteTarget(
+            enabled: viewport.hdrPreview,
+            content: EDRPreview.contentSettings(from: state.exportRecipes),
+            currentComponentValue: edrDisplay.current,
+            potentialComponentValue: edrDisplay.potential)
+    }
+
+    /// What the headroom badge says. Off while cropping, where the preview stands
+    /// down; "SDR display" on a Mac that cannot draw the EDR frame at all.
+    private var edrStatus: EDRPreview.Status {
+        guard viewport.hdrPreview, !cropArmed else { return .off }
+        guard EDRImageView.isSupported else { return .sdrDisplay }
+        return EDRPreview.status(
+            enabled: true,
+            content: EDRPreview.contentSettings(from: state.exportRecipes),
+            currentComponentValue: edrDisplay.current,
+            potentialComponentValue: edrDisplay.potential)
+    }
+
+    /// The EDR frame to draw for the edit's plate in the ordinary canvas, or nil. Only
+    /// where the plate is the AFTER picture alone: the split and the `\` flip show a
+    /// before plate, which is rendered SDR, and half an EDR picture beside half an SDR
+    /// one would be a comparison of renditions rather than of edits.
+    private func edrPlateImage(for cg: CGImage) -> CGImage? {
+        guard viewport.hdrPreview, edrWhiteTarget != nil else { return nil }
+        if viewport.beforeMode == .split, beforeImage != nil { return nil }
+        if state.showBefore, beforeImage != nil { return nil }
+        return model.edrFrame(for: cg)
+    }
+
     /// The mask component the on-image canvas should edit, if any. Nil whenever the
     /// selection is stale — a mask deleted from under the canvas must make it inert,
     /// not make it index into nothing.
@@ -1758,8 +1839,14 @@ struct LoupeView: View {
             base: Double(Swift.max(drawn.width, drawn.height)),
             live: Double(Swift.max(live.width, live.height))))
 
+        // The HDR preview's frame, when it replaces the edit's plate (`edrPlateImage`).
+        // The plate becomes a transparent stand-in of the same size, and the EDR layer
+        // behind the whole stack draws the pixels at the same rectangle.
+        let edr: CGImage? = edrPlateImage(for: cg)
+
         ZStack {
-            imageLayer(cg: cg, ratio: ratio, drawn: drawn, region: region)
+            imageLayer(cg: cg, ratio: ratio, drawn: drawn, region: region,
+                       edrStandIn: edr != nil)
 
             if let mode = state.clippingOverlay, let sampler {
                 ClippingOverlayView(sampler: sampler, mode: mode)
@@ -1905,7 +1992,50 @@ struct LoupeView: View {
         .scaleEffect(stretch)
         .offset(offset)
         .frame(width: container.width, height: container.height)
+        .background {
+            // Container-sized, and placed by arithmetic rather than by the transforms
+            // above: `EDRPreview.plateRect` is `.scaleEffect(stretch).offset(offset)`
+            // of the drawn frame, written out, so the layer never depends on SwiftUI
+            // transforming or clipping a hosted AppKit view.
+            if let edr {
+                EDRImageView(image: edr,
+                             placement: EDRPreview.plateRect(container: container,
+                                                             drawn: drawn,
+                                                             stretch: Double(stretch),
+                                                             offset: offset,
+                                                             region: region),
+                             nearest: edrNearest(cg, ratio: ratio, drawn: drawn,
+                                                 region: region),
+                             exposureEV: state.inspectionHold.map { InspectionHolds.ev($0) } ?? 0)
+                    .frame(width: container.width, height: container.height)
+                    .allowsHitTesting(false)
+            }
+        }
         .clipped()
+    }
+
+    /// The SDR plate's resampling rule (`plate`, `afterPlate`), asked for the EDR
+    /// frame: whether magnified pixels should stay square.
+    private func edrNearest(_ cg: CGImage, ratio: Double, drawn: CGSize,
+                            region: CGRect?) -> Bool {
+        let resampling: ProxyResampling
+        if let region {
+            resampling = ProxyResampling.mode(
+                zoomRatio: layoutZoom,
+                drawnRatio: Double(Swift.max(drawn.width * region.width,
+                                             drawn.height * region.height))
+                    * Double(Swift.max(displayScale, 1))
+                    / Double(Swift.max(Swift.max(cg.width, cg.height), 1)),
+                renderedLongEdge: effectiveRenderedLongEdge(cg),
+                fullLongEdge: model.displayFullLongEdge)
+        } else {
+            resampling = ProxyResampling.mode(
+                zoomRatio: layoutZoom,
+                drawnRatio: ratio,
+                renderedLongEdge: Swift.max(cg.width, cg.height),
+                fullLongEdge: model.displayFullLongEdge)
+        }
+        return resampling == .none
     }
 
     /// Breathing room while the crop tool is armed: the usable frame is fitted into the
@@ -2030,7 +2160,8 @@ struct LoupeView: View {
     /// canvas's geometry (flip and split; the two-pane modes are handled upstream).
     @ViewBuilder
     private func imageLayer(cg: CGImage, ratio: Double, drawn: CGSize,
-                            region: CGRect? = nil) -> some View {
+                            region: CGRect? = nil,
+                            edrStandIn: Bool = false) -> some View {
         // The BEFORE plates are always whole-frame — `regionActive` turns the region
         // ask off with any before mode up, and `beforeModel` is never handed one —
         // so they draw at the full extent directly. Only the EDIT's plate can be a
@@ -2046,9 +2177,35 @@ struct LoupeView: View {
             .frame(width: drawn.width, height: drawn.height)
         } else if state.showBefore, let before = beforeImage {
             plate(before, ratio: ratio, drawn: drawn)
+        } else if edrStandIn {
+            edrStandInPlate(drawn: drawn, region: region)
         } else {
             afterPlate(cg, ratio: ratio, drawn: drawn, region: region)
         }
+    }
+
+    /// Where the edit's plate would be, empty: the EDR layer behind the canvas draws
+    /// the pixels there. Same size and offset as `afterPlate`'s, so every overlay laid
+    /// out against the plate is unmoved, and the same diffuse-white anchor `plate`
+    /// draws in assessment mode, which belongs to the frame rather than to its pixels.
+    private func edrStandInPlate(drawn: CGSize, region: CGRect?) -> some View {
+        var size: CGSize = drawn
+        var centre: CGSize = .zero
+        if let region {
+            size = CGSize(width: drawn.width * region.width,
+                          height: drawn.height * region.height)
+            centre = CGSize(width: (region.midX - 0.5) * drawn.width,
+                            height: (region.midY - 0.5) * drawn.height)
+        }
+        return Color.clear
+            .frame(width: size.width, height: size.height)
+            .overlay(
+                Rectangle()
+                    .strokeBorder(
+                        ViewingConditions.showsWhiteAnchor(assessment: state.assessmentMode)
+                            ? Color.white : Color.clear,
+                        lineWidth: 2))
+            .offset(x: centre.width, y: centre.height)
     }
 
     /// The edit's plate, region-aware: whole-frame pixels fill the drawn extent as
@@ -2159,6 +2316,11 @@ struct LoupeView: View {
             }
             if let mode = state.clippingOverlay {
                 LumenBadge(text: "CLIPPING · \(mode.rawValue.uppercased())")
+            }
+            // The HDR preview's headroom: what the EDR pass was rendered at against
+            // what the gain-map export encodes, or why there is no EDR pass at all.
+            if let hdr = edrStatus.label {
+                LumenBadge(text: hdr)
             }
             if cropArmed {
                 // The armed canvas is fit-only (`cropCanvas`), whatever `zoomLevel`

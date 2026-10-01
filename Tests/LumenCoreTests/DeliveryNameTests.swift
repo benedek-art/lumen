@@ -145,7 +145,17 @@ final class ModeEntryTests: XCTestCase {
     func testTheArmedPredicateCannotBeTrueWhileMasking() throws {
         let source = Self.stripped(try Self.appSource("LoupeView.swift"))
         let atAt = try XCTUnwrap(source.range(of: "private var cropArmed: Bool")).upperBound
-        let body = String(source[atAt...].prefix(300))
+        // The brace-matched body, not a character window: comments are blanked to spaces
+        // of the same length, so the four lines explaining this clause pushed it past a
+        // 300-character window once the shared blanker replaced the deleting stripper.
+        let open = try XCTUnwrap(source[atAt...].firstIndex(of: "{"))
+        var depth = 0
+        var close = open
+        for index in source[open...].indices {
+            if source[index] == "{" { depth += 1 }
+            if source[index] == "}" { depth -= 1; if depth == 0 { close = index; break } }
+        }
+        let body = String(source[open...close])
         XCTAssertTrue(body.contains("!panel.layout.isMasking"),
                       "cropArmed must exclude masking; it is the predicate the overlay, "
                       + "the render request and the panel all share")

@@ -105,6 +105,13 @@ should make without deciding which document is right.
 
 - `N-005` `plateSeed(channel:)`'s three "independent" fields correlate at
   r ≈ 0.088 / 0.044 / −0.040 over 16 384 samples.
+  **Retired, October 2026 (V5, P6): not a defect.** The 16 384 pixels are not
+  independent samples — the plate's coarsest octave is an ~8 × 8 lattice that carries
+  most of the variance, so the effective N is about 100 and r's null σ is ≈ 0.11.
+  Unrelated random seeds give σ 0.106 with 35% of pairs at |r| ≥ 0.088; `plateSeed`
+  offsets give σ 0.112 with 40.5%. The 0.088 is one draw from that null distribution.
+  The comment in `FilmGrainProfile.noiseMixWeights` is corrected; the seed is not
+  changed (that would move every grain golden and proof record).
 - `N-006` `HalationProfile.normalizedWeights` exists and neither renderer uses it, so
   Halation Amount is scaled by the raw bounce sum 1.75. The two paths agree, so it is a
   calibration question and not a parity break.
