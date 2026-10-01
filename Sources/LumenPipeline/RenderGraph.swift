@@ -535,7 +535,10 @@ public struct RenderGraph {
                               Float(spot.rin), Float(spot.opacity),
                               Float(spot.heal ? 1 : 0), Float(h), Float(ox), Float(oy)])
         else { return nil }
-        return applied.composited(over: image)
+        // Cropped to the box before it is laid over the picture. The kernel is clear
+        // outside its disc, and the crop makes that true of everything Core Image might
+        // read outside the box as well: see `KernelLibrary.spotApplySource`.
+        return applied.cropped(to: box).composited(over: image)
     }
 
     /// Painted heal strokes, in draw order — the twin of `StrokeHeal.apply`, resolved

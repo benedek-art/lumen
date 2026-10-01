@@ -948,6 +948,19 @@ public enum KernelLibrary {
     /// One spot over its bounding box: the borrowed pixel, plus — for Heal — the
     /// discrete Poisson integral of the rim, mixed in through the feathered alpha.
     /// `heal` is 1 or 0; a Clone never reads the rim image.
+    ///
+    /// CLEAR WHERE THE SPOT DOES NOT REACH, and that is the contract, not a shortcut.
+    /// The `extent` a general kernel is applied over is its domain of definition: a
+    /// promise that outside it the image is clear, which Core Image takes on trust and
+    /// does not enforce. It evaluates the kernel over a margin around the extent, keeps
+    /// the result as a texture, and the `composited(over:)` that lays the spot on the
+    /// picture reads that texture clamp-to-edge across the whole frame. The first version
+    /// returned the opaque input pixel wherever alpha was 0, so the margin's opaque ring
+    /// was smeared over every pixel of the photograph (macOS lane: 63,358 pixels outside
+    /// the box moved, each one equal to the nearest pixel of the box's one-pixel margin).
+    /// A clear pixel composites to the picture's own bytes: `S + D·(1 − 0)` is `D`
+    /// exactly. `RenderGraph.applySpot` also crops to the box, so the promise is kept
+    /// twice.
     static let spotApplySource = """
     kernel vec4 lumenSpotApply(sampler src, sampler rim, vec2 c, vec2 s, float radius,
                                float rin, float opacity, float heal,
@@ -964,9 +977,10 @@ public enum KernelLibrary {
             float t = clamp((rho - rin) / max(1.0 - rin, 1e-12), 0.0, 1.0);
             a = opacity * (1.0 - t * t * (3.0 - 2.0 * t));
         }
+        if (a <= 0.0) { return vec4(0.0); }
         vec2 sp = p + (s - c);
         vec3 fill = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
-        if (heal > 0.5 && a > 0.0) {
+        if (heal > 0.5) {
             float arc = 6.283185307179586 / \(SpotRetouch.boundarySamples).0;
             vec3 acc = vec3(0.0);
             float total = 0.0;
