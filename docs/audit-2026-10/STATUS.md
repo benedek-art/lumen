@@ -40,18 +40,21 @@ flush). The 29 unreviewed 4–6 September commits had nine defects (V7), now fix
 | F5 culling | sharpness score, bursts, closed eyes; filters + grid dot. |
 | R1/R2 | adversarial re-audits; four weak tests and two merge breakages caught and fixed. |
 
-## NOT on trunk at close (branches kept locally, reports inside them)
-- **P5 colour (AI-03, AI-02, float cube lookup)** — `worktree-agent-aa91835df5f0c7bd3`. Conflicts
-  with three landings in RenderCoordinator / PreviewCache / Kernels; an integration agent was
-  working on it at close. Moves all 50 colour proof records: land, then dispatch `proof.yml`
-  with `record_proofs` and commit the artifact.
-- **F8 heal second slice** — `worktree-agent-ac34044782a712106` (conflicts in AppState, RenderGraph, README).
-- **R2's catalog clamp variant** — `d91abfe` on `worktree-agent-acd084c346e07dc47`; trunk carries an
-  equivalent clamp (`min(recipe.pipelineVersion, supportedPipelineVersion)`); R2's sidecar-stamp
-  note in CatalogService is still open.
-- **Q2 docs refresh** — `worktree-agent-a06da12c9166cc51d` (README conflict).
-- Streams still running at close: F6 output/gain-map writer, F7 library, P19 panel honesty,
-  P20 RAW corpus, Q1/Q3–Q7.
+## Landed after the first close
+P5 colour (AI-03, AI-02, float cube lookup; via Q7's integration, renderingRevision 8, and the
+50 colour-stage proof records re-recorded on Linux in 36ce8fa) · F6 output (gain-map HDR
+export, naming tokens, collision policy) · F7 library (albums, keyword sync/hierarchy/synonyms,
+smart albums) · P19 panel readouts · P20 no-decoder RAWs refused · Q3 mask picker stage ·
+Q4 ExactMixer removed · Q5 raw_stats invalidation · Q6 missing-LUT preview key.
+
+## NOT on trunk (local branches only; lost if the container is reclaimed)
+- **F8 heal second slice** — `worktree-agent-ac34044782a712106`: `/` re-pick, Visualize Spots,
+  brushed heal, Paste Settings excludes spots by default. Conflicts in AppState (P13's
+  `adoptingSettings`), RenderCoordinator, Kernels, RenderGraph and README need a careful merge.
+- **Q2 docs refresh** — `worktree-agent-a06da12c9166cc51d`, superseded in part by later landings.
+- **K-056** (first open of a card in one block) — specced in `streams/P21-geomopen.md`, not built.
+- **RAW corpus lane** still red: Leica Monochrom renders black (likely NaN as-shot neutral; fix
+  specced in `streams/P20-corpus.md`) and the neutral-patch check on two files.
 
 ## Container caveat
 Branches named `worktree-agent-*` exist only in this container. Anything not on
