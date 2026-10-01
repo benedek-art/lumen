@@ -460,11 +460,15 @@ the vocabulary version it was written in (docs/14 §3: "a named look is the look
 plus its `pipelineVersion`"). Same serialization discipline as a recipe: canonical, sparse,
 sorted keys, fixed float formatting.
 
-**Whole, with no exceptions inside the subtree.** `look.lut` travels with a look even though no
-stage renders it, because the alternative is a second dead-field decision to unwind on the day a
-LUT stage lands, and because a LUT is the most look-shaped thing in the format. `Recipe.render
-Identity` strips it for an unrelated reason — that projection answers "do these two recipes
-produce the same pixels", and what a photographer's saved look remembers is a different question.
+**Whole, with no exceptions inside the subtree.** `look.lut` travels with a look — a LUT is the
+most look-shaped thing in the format — and since the LUT stage landed (`CreativeLUTStage`, docs/14
+§2.3's two taps) it renders and is part of `Recipe.renderIdentity` (Amount 0 and the label
+excepted). A look applied part of the way dials the LUT's own Amount rather than swapping cubes.
+The cube itself is not in the look or the recipe: `look.lut.ref` is `blob:xxh64:<hash>` of the
+`.cube` file's bytes, which live in the catalog's blob store beside the brush strokes and are
+copied by the same catalog backup. The reference's four keys (`ref`, `name`, `tap`, `amount`)
+are the ones every `pipelineVersion` 2 build decodes, so a LUT recipe survives an older build's
+sidecar write whole; a fifth key needs a version bump (M-01).
 
 **Nothing outside it travels.** Not `develop` (white balance is derived from one camera's as-shot
 neutral, exposure and tone are one frame's light, geometry is one frame's crop), and not `masks`

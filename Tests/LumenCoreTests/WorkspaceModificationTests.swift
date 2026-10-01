@@ -82,8 +82,9 @@ final class WorkspaceModificationTests: XCTestCase {
         XCTAssertFalse(WorkspaceSection.nonDefault(in: recipe).contains(.exportRecipes))
     }
 
-    /// The stored-but-unapplied LUT still counts: it is something the photographer set,
-    /// and a dot that ignored it would be the panel disagreeing with the sidecar.
+    /// A creative LUT counts, including one whose bytes are not on this machine and so
+    /// renders nothing: it is something the photographer set, and a dot that ignored it
+    /// would be the panel disagreeing with the sidecar.
     func testAStoredLUTLightsLooksEvenThoughNothingAppliesIt() {
         var recipe = Recipe()
         recipe.look.lut = LUTReference(ref: "blob:xxh64:abc", name: "kodak")

@@ -118,6 +118,10 @@ final class CatalogService: @unchecked Sendable {
         self.directory = directory
         self.blobs = try BlobStore(
             directory: directory.appendingPathComponent("blobs", isDirectory: true))
+        // Creative LUTs live on the same shelf as the brush strokes; both renderers read
+        // them through the shared library, which reads them from here.
+        let lutShelf = self.blobs
+        CreativeLUTLibrary.shared.attach { ref in lutShelf.data(for: ref) }
 
         // docs/15 §15.8: `PRAGMA quick_check` on every open, and on failure a restore
         // from the newest backup that passes, with a notice AFTER the fact.

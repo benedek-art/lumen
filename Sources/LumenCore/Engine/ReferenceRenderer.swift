@@ -21,13 +21,19 @@ public enum ReferenceRenderer {
         public var strokeSets: [String: BrushStrokeSet]
         public var aiMattes: [String: Plane]
         public var grainSeed: UInt64
+        /// Where `look.lut`'s cube is read from. The shared shelf by default, which is
+        /// the one the app attaches its blob store to and the one the GPU graph reads,
+        /// so a fallback render finds the same cube the graph did.
+        public var luts: CreativeLUTLibrary
 
         public init(strokeSets: [String: BrushStrokeSet] = [:],
                     aiMattes: [String: Plane] = [:],
-                    grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed) {
+                    grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed,
+                    luts: CreativeLUTLibrary = .shared) {
             self.strokeSets = strokeSets
             self.aiMattes = aiMattes
             self.grainSeed = grainSeed
+            self.luts = luts
         }
     }
 
@@ -125,6 +131,18 @@ public enum ReferenceRenderer {
             image = applyHalation(image, film: film, longEdge: longEdge)
         }
 
+        // The creative LUT, resolved once for both of its taps. Nil — no LUT, Amount 0,
+        // or bytes this machine does not hold — skips both positions outright, which is
+        // what keeps every recipe without one on exactly the code it ran before.
+        let creativeLUT = CreativeLUTStage(reference: plan.recipe.look.lut,
+                                           library: inputs.luts)
+
+        // Log-interpreted LUT: the last scene-referred stage, on the fixed `LumenLog`
+        // encoding, so the transform below forms the picture from its output.
+        if let lut = creativeLUT, lut.tap == .log {
+            image = image.map(lut.apply)
+        }
+
         // S14 + S15 — picture formation and the curve. The table ends in
         // display-linear, so this stage encodes going in and does not decode coming
         // out; the graph's `throughShaperToDisplay` is the same asymmetry.
@@ -149,6 +167,13 @@ public enum ReferenceRenderer {
         // output lives.
         if !alphas.isEmpty {
             image = applyLocalCurves(image, alphas: alphas, plan: plan, space: space)
+        }
+
+        // Display-interpreted LUT (docs/14 §2.3): S15, on the formed picture, after the
+        // local curve tap and before the grain — the grain is laid down after the
+        // export's resize, so this is the one position preview and export share.
+        if let lut = creativeLUT, lut.tap == .display {
+            image = image.map(lut.apply)
         }
 
         // Grain lives inside picture formation, in the density domain.
