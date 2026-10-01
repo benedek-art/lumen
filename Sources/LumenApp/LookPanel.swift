@@ -1103,7 +1103,8 @@ struct LookPanel: View {
                                        for: photo.id, iso: photo.iso).look.render
                                } },
                                topRhythm: innerRhythm)
-                .help(FilmDisplayTransformAvailability.transformHelp)
+                .help(FilmDisplayTransformAvailability.blendHelp(
+                    for: state.currentRecipe.look.filmLab))
 
             if only != nil || transformExpanded {
                 // Ghosted, not hidden. The values are still the recipe's, they still
@@ -1330,7 +1331,8 @@ struct LookPanel: View {
                                         set: { $0.amount = Num.clamp($1, 0, 100) }),
                         range: 0...100, defaultValue: 100, step: 1, decimals: 0,
                         bipolar: false)
-                .help(FilmDisplayTransformAvailability.transformHelp)
+                .help(FilmDisplayTransformAvailability.blendHelp(
+                    for: state.currentRecipe.look.filmLab))
             LumenSlider(title: "Film Exposure",
                         value: bindFilm("film.exposure",
                                         get: { $0.exposure },
