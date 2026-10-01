@@ -557,7 +557,10 @@ final class AppState: ObservableObject {
         }
     }
     @Published var selection: Set<URL> = [] {
-        didSet { selectedPhotosCache = nil }
+        didSet {
+            selectedPhotosCache = nil
+            if selection != oldValue { refreshSelectionFrames() }
+        }
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
@@ -635,6 +638,49 @@ final class AppState: ObservableObject {
     func noteFrameTransposed(_ transposed: Bool) {
         guard primaryFrameTransposed != transposed else { return }
         primaryFrameTransposed = transposed
+    }
+
+    /// The catalog's frame for each selected photograph, for the framing writes that fan
+    /// out over a multi-selection (S-11 / KG-01). Read when the selection changes; a
+    /// photograph missing from it has its framing left alone rather than computed
+    /// against some other photograph's frame.
+    private var selectionFrames: [URL: BatchFraming.Frame] = [:]
+    private var selectionFramesGeneration: UInt64 = 0
+
+    private func refreshSelectionFrames() {
+        selectionFramesGeneration &+= 1
+        let generation = selectionFramesGeneration
+        let ids = selectedPhotos.compactMap { photo in photo.catalogID.map { (photo.id, $0) } }
+        guard let catalog, ids.count > 1 else {
+            selectionFrames = [:]
+            return
+        }
+        Task { [weak self] in
+            let frames = await catalog.frames(photoIDs: ids.map(\.1))
+            guard let self, self.selectionFramesGeneration == generation else { return }
+            var byURL: [URL: BatchFraming.Frame] = [:]
+            for (url, id) in ids { if let frame = frames[id] { byURL[url] = frame } }
+            self.selectionFrames = byURL
+        }
+    }
+
+    /// The frame a framing write should be computed against for ONE target.
+    ///
+    /// The primary's is the decoded, orientation-reconciled `sourceFrameSize`, exactly
+    /// as before; until that lands, the catalog's, then the caller's own fallback (the
+    /// crop panel's assumed 3:2, the loupe's delivered image). Every other target gets
+    /// its OWN catalog frame or nil — never the primary's, which is the defect.
+    func framingFrame(for photo: PhotoItem,
+                      primaryFallback: BatchFraming.Frame? = nil) -> BatchFraming.Frame? {
+        if photo.id == primarySelection?.id {
+            if let size = sourceFrameSize,
+               let frame = BatchFraming.Frame(width: Double(size.width),
+                                              height: Double(size.height)) {
+                return frame
+            }
+            return selectionFrames[photo.id] ?? primaryFallback
+        }
+        return selectionFrames[photo.id]
     }
 
     var primaryFrameAspect: Double? {

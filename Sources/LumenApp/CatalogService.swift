@@ -873,6 +873,23 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// Each photograph's frame as the crop arithmetic needs it — stored extent turned by
+    /// its EXIF orientation — for a multi-selection's framing writes (S-11 / KG-01).
+    /// A photo with no metadata row yet is simply absent, and its framing is left alone.
+    func frames(photoIDs: [Int64]) async -> [Int64: BatchFraming.Frame] {
+        await onQueue("frame read", fallback: [:]) { store in
+            var out: [Int64: BatchFraming.Frame] = [:]
+            for id in photoIDs {
+                guard let row = try store.photo(id: id),
+                      let frame = BatchFraming.catalogFrame(width: row.width, height: row.height,
+                                                     exifOrientation: row.orientation)
+                else { continue }
+                out[id] = frame
+            }
+            return out
+        }
+    }
+
     /// Filter and sort in SQL rather than in Swift, which is what keeps a
     /// 100,000-frame archive responsive — and what makes the eight sort orders that
     /// need capture time, camera, ISO or aspect possible at all.
