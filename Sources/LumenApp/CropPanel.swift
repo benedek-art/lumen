@@ -471,6 +471,7 @@ struct CropSection: View {
                 ForEach(cropAspects) { aspect in
                     if let ratio = aspect.ratio {
                         Button(aspect.name) { applyAspect(ratio) }
+                            .disabled(!canHold(ratio))
                     } else {
                         // "Original" is the way BACK, not another ratio — see
                         // `restoreOriginal()`.
@@ -480,7 +481,10 @@ struct CropSection: View {
                 if !tool.recentCustomAspects.isEmpty {
                     Divider()
                     ForEach(tool.recentCustomAspects, id: \.self) { ratio in
+                        // Remembered from another frame, so it may be a shape this
+                        // one cannot hold (M12) — offered, but not as a live choice.
                         Button(Self.name(forRatio: ratio)) { applyAspect(ratio) }
+                            .disabled(!canHold(ratio))
                     }
                 }
                 Divider()
@@ -544,7 +548,7 @@ struct CropSection: View {
                 .onSubmit { commitCustomRatio() }
             Button("Set") { commitCustomRatio() }
                 .font(.lumenCaption)
-                .disabled(CropGeometry.aspect(fromText: customRatio) == nil)
+                .disabled(typedRatio == nil)
         }
         .frame(height: Lumen.rowHeight)
     }
@@ -694,6 +698,9 @@ struct CropSection: View {
     /// the centre and the scale, and is the same call for all nine entries.
     private func applyAspect(_ ratio: Double) {
         guard let size = frameSizeForCrop, let photoID, ratio > 0 else { return }
+        // No lock on a shape the frame cannot hold (M12): the padlock would name one
+        // ratio while the rectangle, floored at 5 % of an edge, held another.
+        guard canHold(ratio) else { return }
         tool.setLock(ratio, for: photoID)
         binder.edit("geometry.crop.aspect") { recipe in
             recipe.develop.geometry.crop = CropGeometry.refit(
@@ -719,8 +726,26 @@ struct CropSection: View {
         }
     }
 
+    /// The custom field's entry, accepted only if THIS frame can hold it at this angle
+    /// (M12): `60:1` passes the typo guard but a crop of a 3:2 frame bottoms out at
+    /// 30:1, and writing it anyway padlocked a ratio the rectangle did not have.
+    private var typedRatio: Double? {
+        guard let size = frameSizeForCrop else { return nil }
+        return CropGeometry.aspect(fromText: customRatio, sourceWidth: size.width,
+                                   sourceHeight: size.height,
+                                   degrees: recipe.develop.geometry.angle)
+    }
+
+    /// Whether the primary's frame can hold `ratio` — the gate the menu's entries read.
+    private func canHold(_ ratio: Double) -> Bool {
+        guard let size = frameSizeForCrop else { return false }
+        return CropGeometry.canHold(aspect: ratio, sourceWidth: size.width,
+                                    sourceHeight: size.height,
+                                    degrees: recipe.develop.geometry.angle)
+    }
+
     private func commitCustomRatio() {
-        guard let ratio = CropGeometry.aspect(fromText: customRatio) else { return }
+        guard let ratio = typedRatio else { return }
         tool.rememberCustom(ratio)
         applyAspect(ratio)
         showsCustomField = false
