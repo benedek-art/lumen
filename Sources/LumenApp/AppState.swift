@@ -2165,10 +2165,13 @@ final class AppState: ObservableObject {
 
     func addKeyword(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ids = editTargets.compactMap(\.catalogID)
+        let targets = editTargets.compactMap { item in
+            item.catalogID.map { (id: $0, url: item.id) }
+        }
+        let ids = targets.map { $0.id }
         guard let catalog, !trimmed.isEmpty, !ids.isEmpty else { return }
         Task { [weak self] in
-            await catalog.addKeyword(trimmed, photoIDs: ids)
+            await catalog.addKeyword(trimmed, targets: targets)
             guard let self else { return }
             self.statusMessage = "Keyworded \(ids.count) photo"
                 + (ids.count == 1 ? "" : "s") + " \"\(trimmed)\""
@@ -2181,10 +2184,12 @@ final class AppState: ObservableObject {
     }
 
     func removeKeyword(_ name: String) {
-        let ids = editTargets.compactMap(\.catalogID)
-        guard let catalog, !ids.isEmpty else { return }
+        let targets = editTargets.compactMap { item in
+            item.catalogID.map { (id: $0, url: item.id) }
+        }
+        guard let catalog, !targets.isEmpty else { return }
         Task { [weak self] in
-            await catalog.removeKeyword(name, photoIDs: ids)
+            await catalog.removeKeyword(name, targets: targets)
             guard let self else { return }
             self.refreshLibrarySections()
             if !self.filter.keywords.isEmpty { self.refreshLibraryQuery() }

@@ -35,8 +35,13 @@ public enum XMPMerge {
     }
 
     /// The properties Lumen writes, and therefore the only ones it may remove.
-    static func owns(_ name: String) -> Bool {
+    ///
+    /// `dc:subject` only when `subject` says this write is stating keywords: the bag is
+    /// shared with every tool that keywords, and a write that has nothing to say about
+    /// keywords must leave it exactly as it found it.
+    static func owns(_ name: String, subject: Bool = false) -> Bool {
         if name == "xmp:Rating" || name == "xmp:Label" { return true }
+        if subject && name == "dc:subject" { return true }
         return name.hasPrefix("lumen:")
     }
 
@@ -46,14 +51,17 @@ public enum XMPMerge {
     /// Returns nil when `original` has no `rdf:Description` to edit or is malformed
     /// enough that the tag scan runs off the end — the signal to leave the file alone.
     public static func merge(into original: String, fields: String,
-                             lumenNamespace: String) -> String? {
+                             lumenNamespace: String, ownsSubject: Bool = false) -> String? {
         var chars = Array(original)
         guard indexOfDescription(chars, from: 0) != nil else { return nil }
-        guard let stripped = stripOwnedAttributes(chars) else { return nil }
+        guard let stripped = stripOwnedAttributes(chars, subject: ownsSubject) else {
+            return nil
+        }
         chars = stripped
-        guard let cleaned = stripOwnedElements(chars) else { return nil }
+        guard let cleaned = stripOwnedElements(chars, subject: ownsSubject) else { return nil }
         chars = cleaned
-        guard let namespaced = ensureNamespaces(chars, lumenNamespace: lumenNamespace) else {
+        guard let namespaced = ensureNamespaces(chars, lumenNamespace: lumenNamespace,
+                                                dublinCore: ownsSubject) else {
             return nil
         }
         chars = namespaced
@@ -203,7 +211,7 @@ public enum XMPMerge {
     /// Drop Lumen-owned attributes from EVERY `rdf:Description` open tag. Adobe splits
     /// a sidecar into several Description blocks by namespace, so the rating Lumen is
     /// replacing is not necessarily in the first one.
-    static func stripOwnedAttributes(_ c: [Character]) -> [Character]? {
+    static func stripOwnedAttributes(_ c: [Character], subject: Bool = false) -> [Character]? {
         var out = ""
         var i = 0
         while true {
@@ -216,7 +224,7 @@ public enum XMPMerge {
             let innerEnd = selfClosing ? end - 2 : end - 1
             guard innerEnd > open + 1 else { return nil }
             let (name, attrs) = splitAttributes(Array(c[(open + 1)..<innerEnd]))
-            let kept = attrs.filter { !owns($0.0) }
+            let kept = attrs.filter { !owns($0.0, subject: subject) }
             out += String(c[i..<open])
             if kept.count == attrs.count {
                 out += String(c[open..<end])
@@ -232,7 +240,7 @@ public enum XMPMerge {
 
     /// Remove Lumen-owned child elements document-wide, along with whatever value
     /// structure they carry (`rdf:Alt`, `rdf:Bag`, nested `rdf:li`).
-    static func stripOwnedElements(_ input: [Character]) -> [Character]? {
+    static func stripOwnedElements(_ input: [Character], subject: Bool = false) -> [Character]? {
         var c = input
         var guardCount = 0
         while true {
@@ -244,7 +252,7 @@ public enum XMPMerge {
             var found: (Int, String)? = nil
             var i = 0
             while i < c.count {
-                if c[i] == "<", let name = elementName(c, at: i), owns(name) {
+                if c[i] == "<", let name = elementName(c, at: i), owns(name, subject: subject) {
                     found = (i, name)
                     break
                 }
@@ -300,7 +308,8 @@ public enum XMPMerge {
     /// A foreign sidecar may never have declared `xmp:` or `lumen:`. Writing a prefixed
     /// element with no binding produces a document no parser will read back — including
     /// Lumen's own, on the next launch.
-    static func ensureNamespaces(_ c: [Character], lumenNamespace: String) -> [Character]? {
+    static func ensureNamespaces(_ c: [Character], lumenNamespace: String,
+                                 dublinCore: Bool = false) -> [Character]? {
         guard let open = indexOfDescription(c, from: 0),
               let end = tagEnd(c, from: open) else { return nil }
         let selfClosing = isSelfClosing(c, open: open, end: end)
@@ -314,6 +323,12 @@ public enum XMPMerge {
         }
         if !have.contains("xmlns:lumen") {
             attrs.append(("xmlns:lumen", "\"" + lumenNamespace + "\""))
+        }
+        // Declared here even when another Description or the root already binds it:
+        // a redundant binding to the same URI is legal XML, and a missing one makes
+        // the spliced `dc:subject` unreadable to every parser, Lumen's included.
+        if dublinCore && !have.contains("xmlns:dc") {
+            attrs.append(("xmlns:dc", "\"http://purl.org/dc/elements/1.1/\""))
         }
         // Against `original`, not against `have` — a document with a duplicated
         // attribute would make the Set smaller than the list and rewrite every time.
