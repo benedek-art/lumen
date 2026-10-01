@@ -521,6 +521,19 @@ extension RawParams {
     public static func needsRaw9ColourBoundary(_ identifier: String) -> Bool {
         decoderNumber(identifier) == raw9DecoderNumber
     }
+
+    /// Whether `CIRAWFilter` selected a RAW decoder for the file at all.
+    ///
+    /// Every RAW decoder Apple ships carries a number ("6", "8.dng", "9"). When the
+    /// filter has none for a file it still opens it, reports an empty default and
+    /// `supportedDecoderVersions == ["None"]`, and its `outputImage` is whatever ImageIO
+    /// makes of the container: for the corpus's Phase One P65+ IIQ that is IFD0, a
+    /// 296 x 220 8-bit RGB thumbnail, which Lumen then edited and exported as the
+    /// photograph with no decoder pin. A decode with no decoder number is not a RAW
+    /// decode and is refused at open, like any other file the filter cannot read.
+    public static func selectsRawDecoder(_ identifier: String) -> Bool {
+        decoderNumber(identifier) != nil
+    }
 }
 
 /// The six-slider tone contract (D6): identical names/ranges to Lightroom Classic.
