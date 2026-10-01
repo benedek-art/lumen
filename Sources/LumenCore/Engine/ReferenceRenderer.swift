@@ -489,9 +489,12 @@ public enum ReferenceRenderer {
 
         let energy = image.map { profile.highlightEnergy($0) }
         var glow = ImageBuffer(width: image.width, height: image.height)
-        var weight = 1.0
         var contributed = false
-        for sigma in profile.sigmasInPixels where sigma > 0 {
+        // The raw dyadic SHAPE, with the normalization in `combine`'s `fieldGain`
+        // (N-006): the glow is `strength` times a unit-sum field, and the f32 field
+        // accumulates exactly as it always has.
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
+        where sigma > 0 {
             let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
             for y in 0..<glow.height {
                 for x in 0..<glow.width {
@@ -499,7 +502,6 @@ public enum ReferenceRenderer {
                 }
             }
             contributed = true
-            weight *= profile.decay
         }
         guard contributed else { return image }
 
