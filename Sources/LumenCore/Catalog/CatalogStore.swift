@@ -433,6 +433,18 @@ public enum PhotoFacet: String, Sendable, CaseIterable {
     }
 }
 
+/// One grid position: the photo and the one other field the grid's caller keeps.
+/// See `CatalogStore.photoOrder(matching:folderID:)`.
+public struct PhotoOrderRow: Equatable, Sendable {
+    public var id: Int64
+    public var iso: Int?
+
+    public init(id: Int64, iso: Int?) {
+        self.id = id
+        self.iso = iso
+    }
+}
+
 /// One value of a metadata chip and how many photos carry it — the live counts docs/10
 /// §10.8 asks for ("Sony A7 IV (1,203)").
 public struct FacetValue: Equatable, Sendable {
@@ -3672,28 +3684,51 @@ public final class CatalogStore {
     /// interpolated fragments are compile-time constants chosen by an enum.
     public func photos(matching query: PhotoQuery,
                        folderID: Int64? = nil) throws -> [PhotoRow] {
-        let built = buildPhotoQuery(query, folderID: folderID, countOnly: false)
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows(built.sql, built.parameters, CatalogStore.decodePhoto)
+    }
+
+    /// The grid's ORDER — each row's id and ISO, nothing else — for the query
+    /// `photos(matching:)` runs, in exactly its order.
+    ///
+    /// `AppState.refreshLibraryQuery` re-runs the grid query on every chip, every sort
+    /// change and every cull decision under a filter or a rating sort, and keeps two
+    /// fields of each row: the id (to order the roll) and the ISO (to backfill the
+    /// develop panel). Asking for all 31 columns made SQLite's sorter carry every one
+    /// of them through the ORDER BY and made Swift build a `PhotoRow` with five strings
+    /// per frame. Same WHERE, same ORDER BY with its `photo.id` tiebreak, so the order
+    /// is the same total order; `CatalogQueryCostTests` compares the two over every
+    /// sort key.
+    public func photoOrder(matching query: PhotoQuery,
+                           folderID: Int64? = nil) throws -> [PhotoOrderRow] {
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .order)
+        return try allRows(built.sql, built.parameters) {
+            PhotoOrderRow(id: $0.int(0), iso: $0.optionalIntValue(1))
+        }
     }
 
     /// Live chip counts ride the same predicates and the same indexes.
     public func countPhotos(matching query: PhotoQuery,
                             folderID: Int64? = nil) throws -> Int {
-        let built = buildPhotoQuery(query, folderID: folderID, countOnly: true)
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .count)
         return Int((try db.scalarInt(built.sql, built.parameters)) ?? 0)
     }
 
     /// The `EXPLAIN QUERY PLAN` rows for a query — the CI assertion surface that keeps
     /// every UI-visible query index-backed (§15.2).
     public func queryPlan(for query: PhotoQuery, folderID: Int64? = nil) throws -> [String] {
-        let built = buildPhotoQuery(query, folderID: folderID, countOnly: false)
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows("EXPLAIN QUERY PLAN " + built.sql, built.parameters) {
             $0.string(3) ?? ""
         }
     }
 
+    /// What a grid statement selects. The predicates and the order are the same for
+    /// all three; only the projection differs.
+    private enum PhotoProjection { case rows, order, count }
+
     private func buildPhotoQuery(_ query: PhotoQuery, folderID: Int64?,
-                                 countOnly: Bool)
+                                 projection: PhotoProjection)
         -> (sql: String, parameters: [SQLiteValue]) {
 
         var parameters: [SQLiteValue] = []
@@ -3889,9 +3924,13 @@ public final class CatalogStore {
             }
         }
 
-        var sql = countOnly
-            ? "SELECT COUNT(*) FROM photo"
-            : "SELECT \(CatalogStore.photoColumns) FROM photo"
+        let countOnly = projection == .count
+        var sql: String
+        switch projection {
+        case .rows: sql = "SELECT \(CatalogStore.photoColumns) FROM photo"
+        case .order: sql = "SELECT photo.id, photo.iso FROM photo"
+        case .count: sql = "SELECT COUNT(*) FROM photo"
+        }
         for join in joins { sql += "\n" + join }
         if !clauses.isEmpty { sql += "\nWHERE " + clauses.joined(separator: " AND ") }
 
@@ -4598,6 +4637,10 @@ public final class CatalogStore {
 
     public func photos(matching query: PhotoQuery,
                        folderID: Int64? = nil) throws -> [PhotoRow] {
+        throw CatalogError.unavailable
+    }
+    public func photoOrder(matching query: PhotoQuery,
+                           folderID: Int64? = nil) throws -> [PhotoOrderRow] {
         throw CatalogError.unavailable
     }
     public func countPhotos(matching query: PhotoQuery,

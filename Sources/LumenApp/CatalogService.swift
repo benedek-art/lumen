@@ -883,6 +883,15 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// The same query, answering only what the grid keeps: each row's id, in order,
+    /// and its ISO. See `CatalogStore.photoOrder(matching:folderID:)` for the cost.
+    func photoOrder(matching query: PhotoQuery, folderPath: String?) async -> [PhotoOrderRow] {
+        await onQueue("grid order query", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.photoOrder(matching: query, folderID: folderID)
+        }
+    }
+
     // MARK: - Raw-truth statistics
 
     /// The cached scene-linear measurement for a photograph, or nil when there is none

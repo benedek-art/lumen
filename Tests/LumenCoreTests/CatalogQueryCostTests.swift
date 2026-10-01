@@ -128,5 +128,50 @@ final class CatalogQueryCostTests: XCTestCase {
         XCTAssertFalse(plan.contains { $0.contains("CORRELATED") },
                        "a correlated EXISTS runs once per photo in scope: \(plan)")
     }
+
+    /// Every sort key, both directions, with and without a filter: the narrow order is
+    /// the wide one's ids, in the wide one's order, with the wide one's ISO.
+    func testThePhotoOrderIsTheGridQuerysOrder() throws {
+        let (store, folderID, _) = try seeded()
+        var filters: [PhotoQuery] = [PhotoQuery()]
+        var picks = PhotoQuery(); picks.flags = [.pick]; filters.append(picks)
+        var tagged = PhotoQuery(); tagged.keywords = ["kw1"]; tagged.rating = 1
+        filters.append(tagged)
+        var compared = 0
+        for base in filters {
+            for key in PhotoQuery.SortKey.allCases {
+                for ascending in [true, false] {
+                    var q = base
+                    q.sortKey = key
+                    q.ascending = ascending
+                    let wide = try store.photos(matching: q, folderID: folderID)
+                    let narrow = try store.photoOrder(matching: q, folderID: folderID)
+                    XCTAssertEqual(narrow.map(\.id), wide.map(\.id), "\(key) asc=\(ascending)")
+                    XCTAssertEqual(narrow.map(\.iso), wide.map(\.iso), "\(key) asc=\(ascending)")
+                    XCTAssertFalse(wide.isEmpty)
+                    compared += 1
+                }
+            }
+        }
+        XCTAssertEqual(compared, filters.count * PhotoQuery.SortKey.allCases.count * 2)
+    }
+
+    /// The call-site half, scanned with comments stripped: the grid refresh must ask for
+    /// the order, not for whole rows it throws away.
+    func testTheGridRefreshAsksForTheOrderNotWholeRows() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenApp/AppState.swift")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let code = text.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? String(line)
+        }.joined(separator: "\n")
+        guard let start = code.range(of: "func refreshLibraryQuery()") else {
+            return XCTFail("refreshLibraryQuery moved — move this scan with it")
+        }
+        let body = String(code[start.upperBound...].prefix(2_500))
+        XCTAssertTrue(body.contains("catalog.photoOrder(matching:"))
+        XCTAssertFalse(body.contains("catalog.photos(matching:"))
+    }
 }
 #endif
