@@ -215,13 +215,15 @@ struct CurveEditorView: View {
     /// default-valued `CurveSet`: the difference is invisible in the render — the
     /// second tap skips an identity curve — and visible in the panel, where
     /// "modified" has to mean modified.
-    private func editCurve(_ key: String, _ body: @escaping (inout CurveSet) -> Void) {
-        CurveEditorView.edit(state, target: target, key: key, body)
+    private func editCurve(_ key: String?, label: String? = nil,
+                           _ body: @escaping (inout CurveSet) -> Void) {
+        CurveEditorView.edit(state, target: target, key: key, label: label, body)
     }
 
-    static func edit(_ state: AppState, target: Target, key: String,
+    static func edit(_ state: AppState, target: Target, key: String?,
+                     label: String? = nil,
                      _ body: @escaping (inout CurveSet) -> Void) {
-        state.updateRecipe(coalescingKey: key) { document in
+        state.updateRecipe(coalescingKey: key, label: label) { document in
             switch target {
             case .global:
                 body(&document.develop.curve)
@@ -669,10 +671,10 @@ struct CurveEditorView: View {
     ///
     /// An identity curve is stored as nil so it costs the render nothing — the same rule
     /// `editCurve` applies one level up for a mask's whole `CurveSet`.
-    private func commitPoints(_ points: [[Double]], key: String) {
+    private func commitPoints(_ points: [[Double]], key: String?, label: String? = nil) {
         guard let keyPath = pointsKeyPath, points.count >= 2 else { return }
         let identity: Bool = CurveEditing.isIdentity(points)
-        editCurve(key) { set in
+        editCurve(key, label: label) { set in
             set[keyPath: keyPath] = identity ? nil : points
         }
     }
@@ -923,12 +925,13 @@ struct CurveEditorView: View {
     /// horizontal line, and nothing but Flatten undoes it — which throws away every other
     /// point the photographer placed.
     ///
-    /// A distinct key from `pointKey`, so a delete is its own undo step rather than
-    /// folding into the drag that preceded it.
+    /// No key at all (S-05): a deletion is a discrete action, so it is its own undo
+    /// step — not folded into the drag before it, and not into another deletion that
+    /// happens to land on the same index. See `CurveEditing.deletionCoalescingKey`.
     private func deletePoint(at index: Int) {
         guard let remaining = CurveEditing.deleting(currentPoints, at: index) else { return }
-        commitPoints(remaining,
-                     key: keyPrefix + "delete." + channel.rawValue + ".\(index)")
+        commitPoints(remaining, key: CurveEditing.deletionCoalescingKey,
+                     label: CurveEditing.deletionLabel)
     }
 
     // MARK: Drawing

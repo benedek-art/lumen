@@ -320,6 +320,17 @@ final class CurveMathTests: XCTestCase {
                        + "gestures (place and drag)")
     }
 
+    /// S-05: a deletion records under `CurveEditing.deletionCoalescingKey` (none), not
+    /// under an index-carrying key two deletions at one slot would share.
+    func testTheCurveEditorRecordsADeletionAsADiscreteStep() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertTrue(source.contains("key: CurveEditing.deletionCoalescingKey"),
+                      "deletePoint no longer records under the discrete deletion key")
+        XCTAssertFalse(source.contains("\"delete.\""),
+                       "an index-carrying delete key is back: two deletions at one "
+                       + "index fold into one undo step")
+    }
+
     func testTheCurveEditorDoesNotKeyEveryPointOfAChannelTogether() throws {
         let source = try Self.appSource("CurveEditorView.swift")
         XCTAssertFalse(source.contains("keyPrefix + channel.rawValue)"),

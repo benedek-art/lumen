@@ -489,27 +489,50 @@ final class CurveAdversarialTests: XCTestCase {
     }
 
     /// Two SEPARATE deletions landing on the same index must not fold into one step —
-    /// this is the same defect class the point key was split to fix. The editor's key
-    /// is `<prefix>delete.<channel>.<index>`; deleting index 1 twice removes two
-    /// different points under one key.
+    /// the same defect class the point key was split to fix (S-05). The editor keyed a
+    /// deletion `<prefix>delete.<channel>.<index>`, so deleting index 1 twice removed
+    /// two different points under one key.
+    ///
+    /// Replayed as the editor does it: `CurveEditing.deleting` makes each edit, each
+    /// records under `CurveEditing.deletionCoalescingKey` — the constant the editor
+    /// passes — and the fold decision is `HistoryCoalescing`, the rule `HistoryStack`
+    /// calls. Each ⌥-click is its own gesture, so the epochs differ. The stack itself
+    /// is macOS-only; `CurveDeletionHistoryTests` drives it there with undo.
     func testTwoDeletionsAtOneIndexAreTwoUndoSteps() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("The delete key carries the index, and deleting index 1 twice reuses it, so two deletions fold into one undo step — K-038 left behind in the delete path. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         let url = Set([URL(fileURLWithPath: "/photo.dng")])
-        let first = "curve.delete.point.1"
-        let second = "curve.delete.point.1"
-        XCTAssertFalse(HistoryCoalescing.shouldCoalesce(
-            openKey: first, openURLs: url, key: second, urls: url,
-            sinceLastEdit: 0.3, window: 1.2),
-            "two ⌥-clicks removing two different points folded into ONE undo step")
+        var curve: [[Double]] = [[0, 0], [0.25, 0.2], [0.5, 0.55], [0.75, 0.8], [1, 1]]
+        var steps: [(key: String?, epoch: Int, after: [[Double]])] = []
+        for epoch in [7, 8] {
+            guard let next = CurveEditing.deleting(curve, at: 1) else {
+                return XCTFail("index 1 of \(curve) is deletable")
+            }
+            if let open = steps.last,
+               HistoryCoalescing.shouldCoalesce(
+                   openKey: open.key, openURLs: url,
+                   key: CurveEditing.deletionCoalescingKey, urls: url,
+                   sinceLastEdit: 0.3, window: 1.2,
+                   openEpoch: open.epoch, epoch: epoch) {
+                steps[steps.count - 1].after = next
+            } else {
+                steps.append((CurveEditing.deletionCoalescingKey, epoch, next))
+            }
+            curve = next
+        }
+        XCTAssertEqual(steps.count, 2,
+                       "two ⌥-clicks removing two different points folded into ONE "
+                       + "undo step")
+        XCTAssertEqual(steps.first?.after.count, 4, "one undo must bring back one point")
+    }
+
+    /// A deletion is discrete, but the drag-out that ends in one is still ONE gesture:
+    /// sharing the drag's epoch folds the deletion into that drag's step.
+    func testADragOutToDeleteIsStillOneStepWithItsDrag() {
+        let url = Set([URL(fileURLWithPath: "/photo.dng")])
+        let drag = CurveEditing.pointCoalescingKey(prefix: "curve.", channel: "point",
+                                                   index: 2)
+        XCTAssertTrue(HistoryCoalescing.shouldCoalesce(
+            openKey: drag, openURLs: url, key: CurveEditing.deletionCoalescingKey,
+            urls: url, sinceLastEdit: 0.05, window: 1.2, openEpoch: 3, epoch: 3))
     }
 
     /// A drag of one point and a drag of the point that inherits its index after a
@@ -518,7 +541,7 @@ final class CurveAdversarialTests: XCTestCase {
         let url = Set([URL(fileURLWithPath: "/photo.dng")])
         let dragBefore = CurveEditing.pointCoalescingKey(prefix: "curve.",
                                                          channel: "point", index: 2)
-        let deleteKey = "curve.delete.point.1"
+        let deleteKey = CurveEditing.deletionCoalescingKey
         let dragAfter = CurveEditing.pointCoalescingKey(prefix: "curve.",
                                                         channel: "point", index: 2)
         // the delete between them is what has to break the chain
