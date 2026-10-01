@@ -7,7 +7,10 @@
 //                  feather and opacity — with its source chosen by `SpotSourceSearch`
 //   drag a circle  the solid one moves the spot, the dashed one moves its source
 //   /              re-picks the selected spot's source: the next-best, cycling
-//   ⌫              deletes the selected spot
+//   Brush mode     a drag paints a heal STROKE, healed along its length from one
+//                  offset `StrokeSourceSearch` picks (a click is a dab); in Spot mode
+//                  a click on a stroke selects it
+//   ⌫              deletes the selected spot or stroke
 //
 // What a press MEANS is `SpotHandles`, in LumenCore where it is tested; this file draws
 // and routes. Every write goes through `AppState.updateRecipe` with the PRIMARY photo as
@@ -47,6 +50,11 @@ final class HealTool: ObservableObject {
     /// session state, never in the recipe, never rendered.
     @Published var visualize: Bool = false
     @Published var visualizeThreshold: Double = SpotVisualization.defaultThreshold
+    /// Brush mode: a drag on clear space paints a heal stroke instead of doing nothing.
+    @Published var brush: Bool = false
+    /// The selected painted stroke, by its index in the heal stroke set. Exclusive with
+    /// `selectedSpotID` — one thing is selected, so ⌫ has one meaning.
+    @Published var selectedStrokeIndex: Int?
 }
 
 // MARK: - Verbs
@@ -103,6 +111,7 @@ extension AppState {
             recipe.develop.heal.spots.append(placed)
         }
         tool.selectedSpotID = spot.id
+        tool.selectedStrokeIndex = nil
 
         let url = photo.id
         let current = recipe(for: photo)
@@ -166,9 +175,95 @@ extension AppState {
         }
     }
 
-    /// `⌫` while healing.
+    /// The painted heal strokes on the primary photograph, from the session's blob cache
+    /// (and the blob store on a miss — see `strokeSet(ref:)`).
+    var primaryHealStrokes: [BrushStroke] {
+        guard let photo = primarySelection else { return [] }
+        return strokeSet(ref: recipe(for: photo).develop.heal.strokesRef)?.strokes ?? []
+    }
+
+    /// Write `set` as the primary photograph's heal strokes: bytes to the blob store
+    /// FIRST, then the reference into the recipe — `MaskCanvas.apply`'s order, for its
+    /// reason (a `strokesRef` with no bytes behind it renders nothing, forever, and
+    /// looks exactly like one that works). An empty set clears the reference.
+    @discardableResult
+    func writeHealStrokes(_ set: BrushStrokeSet, coalescingKey: String?, label: String,
+                          on photo: PhotoItem) -> Bool {
+        guard !set.strokes.isEmpty else {
+            updateRecipe(coalescingKey: coalescingKey, label: label, targets: [photo]) { _, r in
+                r.develop.heal.strokesRef = nil
+                r.develop.heal.count = 0
+            }
+            return true
+        }
+        guard let payload = try? set.encode(),
+              let stored = try? catalog?.blobs.store(payload),
+              stored == BrushStrokeSet.blobRef(for: payload) else {
+            statusMessage = "Could not save that heal stroke — the photo is unchanged"
+            return false
+        }
+        remember(set, ref: stored)
+        updateRecipe(coalescingKey: coalescingKey, label: label, targets: [photo]) { _, r in
+            r.develop.heal.strokesRef = stored
+            r.develop.heal.count = set.strokes.count
+        }
+        return true
+    }
+
+    /// A painted heal stroke, in source-normalized points. It lands at once with a
+    /// provisional offset beside it; the search then replaces the offset in the same
+    /// undo step, unless the stroke was changed or removed meanwhile.
+    func addHealStroke(points: [BrushPoint]) {
+        guard let photo = primarySelection, !points.isEmpty else { return }
+        let tool = HealTool.shared
+        let size = sourceFrameSize ?? CGSize(width: 1, height: 1)
+        let width = Int(size.width.rounded()), height = Int(size.height.rounded())
+        let diameter = tool.radius * 2
+        let provisional = StrokeHandles.provisionalOffset(points: points, size: diameter,
+                                                          sourceWidth: width,
+                                                          sourceHeight: height)
+        let stroke = BrushStroke(points: points, size: diameter, feather: tool.feather,
+                                 density: tool.opacity,
+                                 retouch: StrokeRetouch(mode: tool.mode, dx: provisional.dx,
+                                                        dy: provisional.dy))
+        let prior = primaryHealStrokes
+        var set = BrushStrokeSet(strokes: prior)
+        set.strokes.append(stroke)
+        let key = "heal.stroke.\(UUID().uuidString)"
+        guard writeHealStrokes(set, coalescingKey: key, label: "Heal Stroke", on: photo)
+        else { return }
+        tool.selectedSpotID = nil
+        tool.selectedStrokeIndex = set.strokes.count - 1
+
+        let url = photo.id
+        let current = recipe(for: photo)
+        Task {
+            let found = await renderCoordinator.healStrokeAutoOffset(
+                url: url, recipe: current, stroke: stroke, priorStrokes: prior)
+            guard let found, primarySelection?.id == url else { return }
+            // Only onto the stroke as it was placed: same index, same points, the
+            // provisional offset untouched.
+            var live = BrushStrokeSet(strokes: primaryHealStrokes)
+            let index = prior.count
+            guard live.strokes.indices.contains(index), live.strokes[index] == stroke
+            else { return }
+            live.strokes[index].retouch?.dx = found.dx
+            live.strokes[index].retouch?.dy = found.dy
+            writeHealStrokes(live, coalescingKey: key, label: "Heal Stroke", on: photo)
+        }
+    }
+
+    /// `⌫` while healing: the selected stroke, else the selected spot.
     func deleteSelectedSpot() {
         let tool = HealTool.shared
+        if let index = tool.selectedStrokeIndex, let photo = primarySelection {
+            var set = BrushStrokeSet(strokes: primaryHealStrokes)
+            tool.selectedStrokeIndex = nil
+            guard set.strokes.indices.contains(index) else { return }
+            set.strokes.remove(at: index)
+            writeHealStrokes(set, coalescingKey: nil, label: "Delete Heal Stroke", on: photo)
+            return
+        }
         guard let id = tool.selectedSpotID, let photo = primarySelection else { return }
         updateRecipe(label: "Delete Spot", targets: [photo]) { _, recipe in
             recipe.develop.heal.spots.removeAll { $0.id == id }
@@ -185,6 +280,14 @@ struct HealCanvas: View {
     let geometry: Geometry
     let spots: [HealSpot]
     let selectedID: String?
+    /// The painted heal strokes, and Brush mode's state.
+    var strokes: [BrushStroke] = []
+    var selectedStroke: Int? = nil
+    var brush: Bool = false
+    /// The diameter a new stroke is painted at, fraction of the long edge.
+    var brushSize: Double = HealSpot.defaultRadius * 2
+    var paint: ([BrushPoint]) -> Void = { _ in }
+    var selectStroke: (Int?) -> Void = { _ in }
     let add: (Double, Double) -> Void
     let select: (String?) -> Void
     /// The spot as the drag has it now; `finished` on the last event.
@@ -200,6 +303,9 @@ struct HealCanvas: View {
 
     @State private var grab: Grab?
     @State private var pressed: Bool = false
+    /// The stroke being painted, source-normalized, and when it started.
+    @State private var painting: [BrushPoint] = []
+    @State private var paintStarted: Date?
 
     /// The grab tolerance in view points — `MaskHandles`' size, so every handle on the
     /// photograph is the same target.
@@ -207,6 +313,14 @@ struct HealCanvas: View {
 
     var body: some View {
         Canvas { context, _ in
+            for (index, stroke) in strokes.enumerated() where stroke.retouch != nil {
+                draw(&context, stroke, selected: index == selectedStroke)
+            }
+            if !painting.isEmpty {
+                draw(&context, BrushStroke(points: painting, size: brushSize,
+                                           retouch: StrokeRetouch(dx: 0, dy: 0)),
+                     selected: true, live: true)
+            }
             for spot in spots {
                 draw(&context, spot, selected: spot.id == selectedID)
             }
@@ -236,7 +350,26 @@ struct HealCanvas: View {
                         sliderGestureChanged(true)
                     } else {
                         grab = nil
+                        if brush {
+                            paintStarted = Date()
+                            painting = [BrushPoint(x: Double(n.x), y: Double(n.y))]
+                        }
                     }
+                }
+                if brush, grab == nil, let started = paintStarted {
+                    let n = normalized(value.location)
+                    let t = Int(Date().timeIntervalSince(started) * 1000)
+                    // A new sample per quarter of a radius of travel: enough for the
+                    // resampler, and a long stroke stays a small blob.
+                    if let last = painting.last {
+                        let size = sourcePixels
+                        let edge = Double(Swift.max(size.w, size.h))
+                        let moved = hypot((Double(n.x) - last.x) * Double(size.w),
+                                          (Double(n.y) - last.y) * Double(size.h))
+                        guard moved >= Swift.max(brushSize * edge / 8, 0.5) else { return }
+                    }
+                    painting.append(BrushPoint(x: Double(n.x), y: Double(n.y), t: t))
+                    return
                 }
                 guard let grab else { return }
                 let now = normalized(value.location)
@@ -248,6 +381,8 @@ struct HealCanvas: View {
                 defer {
                     grab = nil
                     pressed = false
+                    painting = []
+                    paintStarted = nil
                 }
                 if let grab {
                     let now = normalized(value.location)
@@ -257,12 +392,32 @@ struct HealCanvas: View {
                     sliderGestureChanged(false)
                     return
                 }
-                // A click on clear space places a spot; a drag across it does nothing,
-                // so a photographer reaching to pan does not litter the frame.
                 let travel = hypot(value.location.x - value.startLocation.x,
                                    value.location.y - value.startLocation.y)
-                guard travel < 4 else { return }
                 let n = normalized(value.startLocation)
+                // Brush mode: the drag WAS a stroke, and a click is a dab.
+                if brush {
+                    let end = normalized(value.location)
+                    var points = painting
+                    if travel >= 4 {
+                        points.append(BrushPoint(x: Double(end.x), y: Double(end.y)))
+                    }
+                    guard n.x >= 0, n.x <= 1, n.y >= 0, n.y <= 1, !points.isEmpty
+                    else { return }
+                    paint(points)
+                    return
+                }
+                // A click on a painted stroke selects it.
+                if travel < 4, let index = StrokeHandles.hit(
+                    x: Double(n.x), y: Double(n.y), strokes: strokes,
+                    sourceWidth: sourcePixels.w, sourceHeight: sourcePixels.h,
+                    minimumGrab: minimumGrabPixels) {
+                    selectStroke(index)
+                    return
+                }
+                // A click on clear space places a spot; a drag across it does nothing,
+                // so a photographer reaching to pan does not litter the frame.
+                guard travel < 4 else { return }
                 guard n.x >= 0, n.x <= 1, n.y >= 0, n.y <= 1 else { return }
                 add(Double(n.x), Double(n.y))
             }
@@ -295,6 +450,43 @@ struct HealCanvas: View {
                        with: .color(Color.black.opacity(0.45)), lineWidth: width + 1.5)
         context.stroke(Path(ellipseIn: sourceRect), with: .color(ink),
                        style: StrokeStyle(lineWidth: width, dash: [4, 3]))
+    }
+
+    /// A painted stroke: its tube as a wide translucent line, its source as a dashed
+    /// centreline beside it.
+    private func draw(_ context: inout GraphicsContext, _ stroke: BrushStroke,
+                      selected: Bool, live: Bool = false) {
+        guard let first = stroke.points.first, let retouch = stroke.retouch else { return }
+        let size = sourcePixels
+        let edge = Double(Swift.max(size.w, size.h))
+        let a = viewPoint(first.x, first.y)
+        let b = viewPoint(first.x + stroke.size / 2 * edge / Double(size.w), first.y)
+        let width = Swift.max(hypot(b.x - a.x, b.y - a.y) * 2, 2)
+        var line = Path()
+        var source = Path()
+        for (i, p) in stroke.points.enumerated() {
+            let v = viewPoint(p.x, p.y)
+            let s = viewPoint(p.x + retouch.dx, p.y + retouch.dy)
+            if i == 0 {
+                line.move(to: v)
+                source.move(to: s)
+            } else {
+                line.addLine(to: v)
+                source.addLine(to: s)
+            }
+        }
+        if stroke.points.count == 1 {
+            line.addLine(to: a)
+            source.addLine(to: viewPoint(first.x + retouch.dx, first.y + retouch.dy))
+        }
+        let round = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+        context.stroke(line, with: .color(Color.white.opacity(selected ? 0.32 : 0.18)),
+                       style: round)
+        guard !live else { return }
+        context.stroke(source, with: .color(Color.black.opacity(0.45)),
+                       style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+        context.stroke(source, with: .color(Color.white.opacity(selected ? 0.95 : 0.6)),
+                       style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 3]))
     }
 
     // MARK: Coordinates — `MaskCanvas`'s, through the same inverse geometry
@@ -362,10 +554,13 @@ struct HealToolBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(selected == nil ? "Heal — new spots" : "Heal — selected spot")
+                Text(selected == nil
+                     ? (tool.selectedStrokeIndex != nil ? "Heal — selected stroke"
+                                                        : "Heal — new spots")
+                     : "Heal — selected spot")
                     .font(.lumenCaptionStrong)
                 Spacer(minLength: 0)
-                if selected != nil {
+                if selected != nil || tool.selectedStrokeIndex != nil {
                     Button("Delete") { state.deleteSelectedSpot() }
                         .buttonStyle(.plain)
                         .font(.lumenCaption)
@@ -376,6 +571,11 @@ struct HealToolBar: View {
                     .font(.lumenCaption)
                     .help("Put the Heal tool away (Q or Esc)")
             }
+            LumenSegmented(options: [(value: false, label: "Spot"),
+                                     (value: true, label: "Brush")],
+                           selection: $tool.brush)
+                .help("Spot: click a blemish. Brush: paint along a scratch, a hair or a "
+                      + "wire, healed along its length.")
             HStack(spacing: 6) {
                 LumenCheckbox(isOn: $tool.visualize)
                 Text("Visualize Spots").font(.lumenCaption)

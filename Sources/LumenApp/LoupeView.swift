@@ -1860,8 +1860,24 @@ struct LoupeView: View {
                            geometry: recipe.develop.geometry,
                            spots: recipe.develop.heal.spots,
                            selectedID: healTool.selectedSpotID,
+                           // From memory only, as everything in a body must be.
+                           // The whole set, unfiltered, so an index here is an index
+                           // into the blob `deleteSelectedSpot` rewrites.
+                           strokes: recipe.develop.heal.strokesRef
+                               .flatMap { state.strokeSets(for: recipe)[$0]?.strokes } ?? [],
+                           selectedStroke: healTool.selectedStrokeIndex,
+                           brush: healTool.brush,
+                           brushSize: healTool.radius * 2,
+                           paint: { points in state.addHealStroke(points: points) },
+                           selectStroke: { index in
+                               HealTool.shared.selectedStrokeIndex = index
+                               HealTool.shared.selectedSpotID = nil
+                           },
                            add: { x, y in state.addSpot(sourceX: x, sourceY: y) },
-                           select: { id in HealTool.shared.selectedSpotID = id },
+                           select: { id in
+                               HealTool.shared.selectedSpotID = id
+                               HealTool.shared.selectedStrokeIndex = nil
+                           },
                            drag: { spot, _ in
                                state.updateSpot(id: spot.id,
                                                 coalescingKey: "heal.drag.\(spot.id)",

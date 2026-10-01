@@ -82,6 +82,9 @@ public struct BrushStroke: Codable, Equatable, Sendable {
     public var erase: Bool
     /// Per-stamp OKLab color-similarity gate against the stamp-center sample (§8.2 "Automask").
     public var automask: Bool
+    /// Set on a PAINTED HEAL stroke (`Heal.strokesRef`, `StrokeHeal`) and nil on every
+    /// mask stroke. Omitted from the encoding when nil, so no mask blob changes a byte.
+    public var retouch: StrokeRetouch?
 
     /// Default size: 5% of the long edge — a stand-in for §8.2's 200 px default, which
     /// is a screen measurement and therefore not expressible in the stored unit.
@@ -93,7 +96,8 @@ public struct BrushStroke: Codable, Equatable, Sendable {
                 flow: Double = 100,
                 density: Double = 100,
                 erase: Bool = false,
-                automask: Bool = false) {
+                automask: Bool = false,
+                retouch: StrokeRetouch? = nil) {
         self.points = points
         self.size = size
         self.feather = feather
@@ -101,10 +105,11 @@ public struct BrushStroke: Codable, Equatable, Sendable {
         self.density = density
         self.erase = erase
         self.automask = automask
+        self.retouch = retouch
     }
 
     private enum CodingKeys: String, CodingKey {
-        case points, size, feather, flow, density, erase, automask
+        case points, size, feather, flow, density, erase, automask, retouch
     }
 
     /// Every scalar has a default, so a truncated or older blob decodes rather than
@@ -119,6 +124,7 @@ public struct BrushStroke: Codable, Equatable, Sendable {
         self.density = try c.decodeIfPresent(Double.self, forKey: .density) ?? 100
         self.erase = try c.decodeIfPresent(Bool.self, forKey: .erase) ?? false
         self.automask = try c.decodeIfPresent(Bool.self, forKey: .automask) ?? false
+        self.retouch = try c.decodeIfPresent(StrokeRetouch.self, forKey: .retouch)
     }
 
     /// Sparse encode (docs/15 rule 2): the two flags only appear when set.
@@ -131,6 +137,36 @@ public struct BrushStroke: Codable, Equatable, Sendable {
         try c.encode(density, forKey: .density)
         if erase { try c.encode(erase, forKey: .erase) }
         if automask { try c.encode(automask, forKey: .automask) }
+        try c.encodeIfPresent(retouch, forKey: .retouch)
+    }
+}
+
+/// What a painted heal stroke does along its length (docs/09 §Heal / Clone: "Strokes
+/// are stored as vector paths in source coordinates"). The stroke's own `size` and
+/// `feather` shape it, and its `density` is its opacity; this adds the two things a
+/// mask stroke has no use for — the mode and where the pixels are borrowed from.
+public struct StrokeRetouch: Codable, Equatable, Sendable {
+    public var mode: HealMode
+    /// The source offset, applied to every point of the stroke: x as a fraction of the
+    /// source width, y of its height (y down) — `HealSpot`'s convention, so a stroke and
+    /// a spot borrow from the same place for the same numbers.
+    public var dx: Double
+    public var dy: Double
+
+    public init(mode: HealMode = .heal, dx: Double, dy: Double) {
+        self.mode = mode
+        self.dx = dx
+        self.dy = dy
+    }
+
+    private enum CodingKeys: String, CodingKey { case mode, dx, dy }
+
+    /// Tolerant per RecipeDecoding.swift: constants, never another field.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.mode = try c.decodeIfPresent(HealMode.self, forKey: .mode) ?? .heal
+        self.dx = try c.decodeIfPresent(Double.self, forKey: .dx) ?? 0
+        self.dy = try c.decodeIfPresent(Double.self, forKey: .dy) ?? 0
     }
 }
 
@@ -292,6 +328,12 @@ public enum BrushStrokeSidecar {
                 guard !set.strokes.isEmpty else { continue }
                 sets[ref] = set
             }
+        }
+        // The painted heal strokes ride the same payload: they are the same kind of
+        // blob, lost the same way with the catalog, and restored by the same reader.
+        if let ref = BrushStrokes.healReference(in: recipe), sets[ref] == nil,
+           let set = blob(ref), !set.strokes.isEmpty {
+            sets[ref] = set
         }
         guard !sets.isEmpty else { return nil }
         let encoder = JSONEncoder()

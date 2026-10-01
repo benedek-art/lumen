@@ -1,5 +1,5 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: forty small kernels.
+// The complete custom-shader surface of Lumen's render path: forty-two small kernels.
 // (A count that was "thirty-two" in three places while the registry held 33 — if you add
 // a kernel, grep for the number word and update all of them, or better, stop counting.)
 //
@@ -962,6 +962,67 @@ public enum KernelLibrary {
     }
     """
 
+    // MARK: S5 retouch — painted heal strokes (`StrokeHeal` is the twin)
+    //
+    // The tube's shape arrives as an ALPHA image the CPU rasterized from geometry
+    // alone (`StrokeHeal.alphaPlane`), so the two renderers share one definition of it.
+    // The rim arrives as a `rim count`x1 POSITION image, each texel (x_hi, x_lo, y_hi,
+    // y_lo) with x = 16·hi + lo in the reference's top-down pixels — split so that a
+    // half-float intermediate still places a sample to under a hundredth of a pixel —
+    // and a matching STEP image (the sub-sample step, (sx, sy, 0, 1)). Loops run to the
+    // shared maximum and break at `count`, the form every kernel compiler accepts.
+
+    /// The rim differences: one output pixel per rim sample, `I_dst − I_src` averaged
+    /// over `StrokeHeal.subsamples` points along the rim.
+    static let strokeBoundarySource = """
+    kernel vec4 lumenStrokeBoundary(sampler src, sampler pos, sampler stp, vec2 offset,
+                                    float h, float ox, float oy) {
+        float k = floor(destCoord().x);
+        vec4 e = sample(pos, samplerTransform(pos, vec2(k + 0.5, 0.5)));
+        vec2 hop = sample(stp, samplerTransform(stp, vec2(k + 0.5, 0.5))).xy;
+        vec2 p = vec2(e.x * 16.0 + e.y, e.z * 16.0 + e.w);
+        vec3 acc = vec3(0.0);
+        for (int j = 0; j < \(StrokeHeal.subsamples); j++) {
+            vec2 q = p + (float(j) - \((StrokeHeal.subsamples - 1) / 2).0) * hop;
+            vec2 s = q + offset;
+            vec3 dv = sample(src, samplerTransform(src, vec2(ox + q.x, oy + h - q.y))).rgb;
+            vec3 sv = sample(src, samplerTransform(src, vec2(ox + s.x, oy + h - s.y))).rgb;
+            acc += dv - sv;
+        }
+        return vec4(acc / \(StrokeHeal.subsamples).0, 1.0);
+    }
+    """
+
+    /// One stroke over its bounding box: the borrowed pixel plus — for Heal — the
+    /// inverse-square mean of the rim differences, mixed in through the tube's alpha.
+    static let strokeApplySource = """
+    kernel vec4 lumenStrokeApply(sampler src, sampler rim, sampler pos, sampler alpha,
+                                 vec2 offset, float radius, float count, float heal,
+                                 float h, float ox, float oy) {
+        vec2 dc = destCoord();
+        vec4 base = sample(src, samplerTransform(src, dc));
+        float a = sample(alpha, samplerTransform(alpha, dc)).r;
+        vec2 p = vec2(dc.x - ox, h - (dc.y - oy));
+        vec2 sp = p + offset;
+        vec3 fill = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+        if (heal > 0.5 && a > 0.0) {
+            vec3 acc = vec3(0.0);
+            float total = 0.0;
+            float scale = 1.0 / (radius * radius);
+            for (int k = 0; k < \(StrokeHeal.maxBoundarySamples); k++) {
+                if (float(k) >= count) { break; }
+                vec4 e = sample(pos, samplerTransform(pos, vec2(float(k) + 0.5, 0.5)));
+                vec2 d = p - vec2(e.x * 16.0 + e.y, e.z * 16.0 + e.w);
+                float w = 1.0 / max(dot(d, d) * scale, 1e-6);
+                acc += w * sample(rim, samplerTransform(rim, vec2(float(k) + 0.5, 0.5))).rgb;
+                total += w;
+            }
+            if (total > 0.0) { fill += acc / total; }
+        }
+        return vec4(mix(base.rgb, fill, a), base.a);
+    }
+    """
+
     // MARK: - Compiled kernels
 
     public static let logEncode = make(logEncodeSource)
@@ -1012,6 +1073,8 @@ public enum KernelLibrary {
     // S5's two, general for the same reason: both sample away from the pixel they write.
     public static let spotBoundary = makeGeneral(spotBoundarySource)
     public static let spotApply = makeGeneral(spotApplySource)
+    public static let strokeBoundary = makeGeneral(strokeBoundarySource)
+    public static let strokeApply = makeGeneral(strokeApplySource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -1052,12 +1115,18 @@ public enum KernelLibrary {
             // the spots unrendered AND names itself in the preview's "Reduced" note,
             // rather than taking the whole GPU path down for photographs with no spots.
             ("spotBoundary", spotBoundary), ("spotApply", spotApply),
+            ("strokeBoundary", strokeBoundary), ("strokeApply", strokeApply),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }
 
     /// The kernels S5 needs. Retouch degrades as a whole: half a heal is a wrong picture.
     public static var retouchAvailable: Bool { spotBoundary != nil && spotApply != nil }
+
+    /// The kernels painted heal strokes need, as a pair for the same reason.
+    public static var strokeRetouchAvailable: Bool {
+        strokeBoundary != nil && strokeApply != nil
+    }
 
     /// The kernels S3 needs. Denoise degrades as a whole rather than in pieces: half a
     /// wavelet shrinkage is not a gentler denoise, it is a wrong picture.

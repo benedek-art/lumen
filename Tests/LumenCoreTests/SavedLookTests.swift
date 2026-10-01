@@ -269,7 +269,10 @@ final class SavedLookTests: XCTestCase {
         let target = Recipe(pipelineVersion: 2,
                             develop: SavedLookTests.loadedDevelop())
         let result = look.applied(to: target)
-        XCTAssertEqual(result.pipelineVersion, 2,
+        // The target's OWN stated version — the loaded develop carries a painted-heal
+        // stroke blob, which states the retouch vocabulary (3) since strokes render.
+        XCTAssertGreaterThan(target.pipelineVersion, look.pipelineVersion)
+        XCTAssertEqual(result.pipelineVersion, target.pipelineVersion,
                        "a slice that speaks for the Look layer restamped the whole "
                        + "document, including a develop layer it never touched")
         XCTAssertEqual(result.look.vignette, -0.5)

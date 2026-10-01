@@ -2284,6 +2284,10 @@ final class AppState: ObservableObject {
                 out[ref] = set
             }
         }
+        // And the painted heal strokes' set, which S5 reads out of the same map.
+        if let ref = BrushStrokes.healReference(in: recipe), let set = strokeCache[ref] {
+            out[ref] = set
+        }
         return out
     }
 
@@ -2351,10 +2355,11 @@ final class AppState: ObservableObject {
     /// can appear that this session did not write.
     func loadStrokeSets(for recipe: Recipe) {
         guard let blobs = catalog?.blobs else { return }
-        let missing = recipe.masks
+        let missing = (recipe.masks
             .flatMap(\.components)
             .filter { $0.kind == .brush }
             .compactMap(\.strokesRef)
+            + [BrushStrokes.healReference(in: recipe)].compactMap { $0 })
             .filter { strokeCache[$0] == nil }
         guard !missing.isEmpty else { return }
 

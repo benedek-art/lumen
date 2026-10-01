@@ -47,6 +47,14 @@ public enum ReferenceRenderer {
         if !spots.isEmpty {
             image = SpotRetouch.apply(image, spots: spots)
         }
+        // Then the painted heal strokes, in draw order (`StrokeHeal`), resolved through
+        // the same stroke sets the brush masks read. Spots first, strokes second, on
+        // both renderers: a fixed order so a stroke can borrow from a spotted patch.
+        let healStrokes = StrokeHeal.strokes(for: plan.recipe.develop.heal,
+                                             strokeSets: inputs.strokeSets)
+        if !healStrokes.isEmpty {
+            image = StrokeHeal.apply(image, strokes: healStrokes)
+        }
 
         // S6 — the fused linear matrix.
         if !plan.linear.isIdentity {

@@ -770,6 +770,22 @@ actor RenderCoordinator {
                                               sourceHeight: found.sourceHeight)
     }
 
+    /// The source offset for a new painted heal stroke (`StrokeSourceSearch`), searched
+    /// in the S5 input through the spots and the strokes before it. Nil when nothing
+    /// fits — the caller then keeps its provisional offset.
+    func healStrokeAutoOffset(url: URL, recipe: Recipe, stroke: BrushStroke,
+                              priorStrokes: [BrushStroke]) -> (dx: Double, dy: Double)? {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healStrokeSearchBuffer(source: source, recipe: recipe,
+                                                          stroke: stroke,
+                                                          priorStrokes: priorStrokes)
+        else { return nil }
+        return StrokeSourceSearch.autoOffset(for: stroke, in: found.buffer,
+                                             window: found.window,
+                                             sourceWidth: found.sourceWidth,
+                                             sourceHeight: found.sourceHeight)
+    }
+
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double) -> RGB? {
         guard let source = try? self.source(for: url),

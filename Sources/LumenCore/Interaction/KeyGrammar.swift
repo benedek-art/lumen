@@ -124,7 +124,7 @@ public enum KeyGrammar {
             KeyRow(keys: "X", action: "Reject"),
             KeyRow(keys: "U", action: "Unflag"),
             KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask; "
-                  + "while healing, delete the selected spot"),
+                  + "while healing, delete the selected spot or stroke"),
             KeyRow(keys: "1–5", action: "Rating"),
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
