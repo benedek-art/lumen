@@ -444,6 +444,26 @@ public enum MaskHandles {
         }
     }
 
+    /// Whether a press that landed on ANOTHER mask's pin, while a mask you paint or
+    /// trace is selected, turned out to be a stroke after all (audit F1-05).
+    ///
+    /// For the two gradients `outranksPin` settles it at the press, because their
+    /// handles are where the hand is aimed. A brush or a lasso has no handle: the whole
+    /// frame is its target, and pins sit on every radial centre and gradient midpoint
+    /// in the picture. So the pin used to win every press within 11 pt of one, and a
+    /// stroke begun there was thrown away while the selection jumped to the other mask —
+    /// the photographer's NEXT stroke then landed on the wrong mask entirely.
+    ///
+    /// The press is a CANDIDATE instead: a click (travel under `minimumDrawTravel`, the
+    /// same line every other click/drag decision here uses) still selects the pin; a
+    /// drag is the stroke it looks like. Every other kind keeps the press-wins rule.
+    public static func pinYieldsToStroke(kind: MaskKind, from: CGPoint, to: CGPoint) -> Bool {
+        switch kind {
+        case .brush, .polygon: return drawsShape(from: from, to: to)
+        default: return false
+        }
+    }
+
     // MARK: - Turning a gradient
 
     /// The two endpoints after a rotate drag: both swung about `pivot` by the angle the

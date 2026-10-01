@@ -534,4 +534,22 @@ final class MaskHandlesTests: XCTestCase {
                           "a deliberate drag must not have to clear a grab radius "
                           + "before it draws anything")
     }
+
+    // F1-05: a brush or lasso stroke begun within 11 pt of another mask's pin was
+    // discarded and the selection jumped. A drag now paints; a click still selects.
+    func testAStrokeBegunOnAPinPaintsAndAClickStillSelects() {
+        let pin = CGPoint(x: 200, y: 150)
+        let dragged = CGPoint(x: 220, y: 150)
+        let clicked = CGPoint(x: 201, y: 151)
+        for kind in [MaskKind.brush, .polygon] {
+            XCTAssertTrue(MaskHandles.pinYieldsToStroke(kind: kind, from: pin, to: dragged),
+                          "\(kind): 20 pt of travel from a pin is a stroke")
+            XCTAssertFalse(MaskHandles.pinYieldsToStroke(kind: kind, from: pin, to: clicked),
+                           "\(kind): a click on a pin still selects its mask")
+        }
+        for kind in [MaskKind.radial, .linear, .similarity, .colorRange] {
+            XCTAssertFalse(MaskHandles.pinYieldsToStroke(kind: kind, from: pin, to: dragged),
+                           "\(kind): the press-wins rule is outranksPin's, unchanged")
+        }
+    }
 }
