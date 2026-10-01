@@ -32,8 +32,9 @@
 # docs/audit-2026-09/w6/raw-corpus-plan.md — read §9 before reading a failure.
 name: RAW corpus
 on:
-  # Dispatch, plus this file's own path, and NOTHING else — deliberately, and the two
-  # halves of that pull against each other.
+  # Dispatch, this file's own path, and the handful of files that ARE the decode path
+  # this lane exists to check — and nothing wider, deliberately; the two halves of that
+  # pull against each other.
   #
   # This repository has been burned twice by dispatch-only lanes. `gpu-parity.yml`'s
   # header records that its predecessor "was NEVER dispatched: not once in the project's
@@ -50,9 +51,23 @@ on:
   # the plan names the exact condition for widening it: three consecutive green dispatched
   # runs with the evidence sheet read by a human, and R-5's and R-7's thresholds re-set
   # from those measurements. Then `Sources/LumenPipeline/**` joins the paths.
+  #
+  # The narrow exception, added because a lane that triggers only on itself never sees
+  # the change it guards: the decoder wrapper, the test that consumes the corpus, the
+  # two suites that pin the decode boundary's contract in synthetic form, and the
+  # manifest. The manifest is the heredoc in THIS file today (so the first path covers
+  # it); the RawCorpus/ path is where the step below says it moves, listed now so the
+  # move cannot silently drop the trigger. This lane runs only `RawCorpusTests`: a
+  # change to the two boundary suites re-runs the real-file corpus beside it; it does
+  # not run those suites here (the macOS test lanes do).
   push:
     paths:
       - ".github/workflows/raw-corpus.yml"
+      - "Sources/LumenPipeline/AppleRawSource.swift"
+      - "Tests/LumenPipelineTests/RawCorpusTests.swift"
+      - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
+      - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
+      - "Tests/LumenPipelineTests/RawCorpus/**"
   workflow_dispatch:
 
 # One run per branch. Same reasoning as every other macOS lane here: the runners are
