@@ -203,7 +203,7 @@ final class SidecarReseedTests: XCTestCase {
 final class SidecarNewerFormatTests: XCTestCase {
 
     func testThisBuildDeclinesToStateARecipeItCannotRepresent() {
-        let newer = currentPipelineVersion + 1
+        let newer = supportedPipelineVersion + 1
         let all: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes]
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: newer),
                        [.rating, .flag, .label, .strokes],
@@ -212,7 +212,7 @@ final class SidecarNewerFormatTests: XCTestCase {
 
     func testAnOlderOrEqualDocumentIsWrittenNormally() {
         let all: SidecarStatedFields = [.rating, .recipe]
-        XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: currentPipelineVersion),
+        XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: supportedPipelineVersion),
                        all, "this build's own format is not a newer one")
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: 1), all,
                        "and an OLDER document is exactly what this build is for")
@@ -222,7 +222,7 @@ final class SidecarNewerFormatTests: XCTestCase {
     /// downgrade this pins is the real one: a recipe decoded by this build, reduced to
     /// the keys it knows, on its way back to a file that had more.
     func testANewerBuildsRecipeSurvivesARatingKeystroke() throws {
-        let newer = currentPipelineVersion + 1
+        let newer = supportedPipelineVersion + 1
         let theirs = XMPSidecar.serialize(
             SidecarContent(rating: 0, flag: .none, label: nil,
                            pipelineVersion: newer,

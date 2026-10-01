@@ -204,7 +204,7 @@ final class CatalogService: @unchecked Sendable {
                let fingerprint = try? RecipeFingerprint.fingerprint(recipe) {
                 if stated.contains(.recipe) {
                     recipeFields = (json, fingerprint,
-                                    Swift.min(recipe.pipelineVersion, currentPipelineVersion))
+                                    Swift.min(recipe.pipelineVersion, supportedPipelineVersion))
                 }
                 if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
             }
@@ -820,7 +820,7 @@ final class CatalogService: @unchecked Sendable {
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint,
                                          Swift.min(recipe.pipelineVersion,
-                                                   currentPipelineVersion)),
+                                                   supportedPipelineVersion)),
                                 strokes: strokes)
         }
     }
@@ -1279,7 +1279,7 @@ final class CatalogService: @unchecked Sendable {
                               + "build implements %d — its recipe is left exactly as it "
                               + "is; the rating, flag and label still go in",
                               path.lastPathComponent, fresh.pipelineVersion,
-                              currentPipelineVersion)
+                              supportedPipelineVersion)
                     }
                     content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
                 }
@@ -1421,7 +1421,7 @@ final class CatalogService: @unchecked Sendable {
                 return (try? store.currentRecipeFingerprint(photoID: row.id)) == fingerprint
             }
             if candidates.count == 1, content.parsedCleanly,
-               content.pipelineVersion <= currentPipelineVersion,
+               content.pipelineVersion <= supportedPipelineVersion,
                let original = String(data: data, encoding: .utf8) {
                 content.sourceExtension = URL(fileURLWithPath: candidates[0].filename).pathExtension.lowercased()
                 if let updated = XMPSidecar.update(original, with: content) {

@@ -131,11 +131,11 @@ final class CatalogTests: XCTestCase {
         // `currentPipelineVersion`; this one now clamps what it writes to its own
         // (K-020), precisely so a carried-forward future version cannot be re-stamped,
         // so calling `saveRecipe` with a v+1 recipe no longer simulates a newer writer.
-        var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        var newer = Recipe(pipelineVersion: supportedPipelineVersion + 1)
         newer.develop.tone.exposure = 2.0
         try store.saveRecipe(newer, photoID: photo, isCurrent: true)
         try store.debugExecute(
-            "UPDATE edit SET pipeline_version = \(currentPipelineVersion + 1) "
+            "UPDATE edit SET pipeline_version = \(supportedPipelineVersion + 1) "
             + "WHERE photo_id = \(photo);")
         let newerFP = try RecipeFingerprint.fingerprint(newer)
 
@@ -150,7 +150,7 @@ final class CatalogTests: XCTestCase {
         guard let preserved = edits.first(where: { $0.kind == .version }) else {
             return XCTFail("no preserved version row: \(edits.map(\.kind))")
         }
-        XCTAssertEqual(preserved.pipelineVersion, currentPipelineVersion + 1)
+        XCTAssertEqual(preserved.pipelineVersion, supportedPipelineVersion + 1)
         XCTAssertEqual(preserved.recipeFP, newerFP,
                        "the preserved row's recipe is not the newer build's bytes")
         XCTAssertFalse(preserved.isCurrent)
@@ -182,11 +182,11 @@ final class CatalogTests: XCTestCase {
         let (_, ids) = try seed(store, count: 1)
         guard let photo = ids.first else { return XCTFail("no photo") }
 
-        var newer = Recipe(pipelineVersion: currentPipelineVersion + 1)
+        var newer = Recipe(pipelineVersion: supportedPipelineVersion + 1)
         newer.develop.tone.exposure = 2.0
         try store.saveRecipe(newer, photoID: photo, isCurrent: true)
         try store.debugExecute(
-            "UPDATE edit SET pipeline_version = \(currentPipelineVersion + 1) "
+            "UPDATE edit SET pipeline_version = \(supportedPipelineVersion + 1) "
             + "WHERE photo_id = \(photo);")
         let newerFP = try RecipeFingerprint.fingerprint(newer)
 
@@ -211,7 +211,7 @@ final class CatalogTests: XCTestCase {
         guard let working = edits.first(where: { $0.kind == .working }) else {
             return XCTFail("no fresh working row")
         }
-        XCTAssertEqual(working.pipelineVersion, currentPipelineVersion,
+        XCTAssertEqual(working.pipelineVersion, supportedPipelineVersion,
                        "this build wrote a row claiming a version it does not implement")
 
         var again = carried
