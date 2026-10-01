@@ -563,9 +563,13 @@ struct IngestSheet: View {
         if stopRequested { return "Stopping — the frame in flight is being discarded" }
         guard let progress = runProgress else { return "Starting…" }
         let name = progress.currentFile.map { " · " + $0 } ?? ""
+        // The bytes beside the bar are the bar's own measure — how far through the
+        // card — and a frame that failed says so here rather than only at the end
+        // (S-03): the bar fills on a finished run whether or not every frame landed.
+        let failed = progress.filesFailed > 0 ? " · \(progress.filesFailed) failed" : ""
         return "\(progress.filesCompleted) of \(progress.filesTotal) frames · "
-            + ingestByteString(progress.bytesCopied) + " of "
-            + ingestByteString(progress.bytesTotal) + name
+            + ingestByteString(progress.bytesProcessed) + " of "
+            + ingestByteString(progress.bytesTotal) + failed + name
     }
 
     private var canStart: Bool {

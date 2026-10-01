@@ -60,6 +60,14 @@ public final class IngestCancellation: @unchecked Sendable {
 
 /// What the copy has done so far. Reported after every chunk, so a 400 MB frame moves
 /// the bar rather than sitting still for four seconds.
+///
+/// Two byte counters, because they answer two questions (S-03). `bytesProcessed` is how
+/// far through the card the run has got — every frame finished, landed or not, plus the
+/// one in flight — and is what the bar fills by: a run that has dealt with every frame
+/// is finished, and the bar says so. `bytesCopied` is what has actually landed on a
+/// destination, plus the frame in flight; a frame that failed everywhere, was already
+/// on disk, or had nowhere to go adds nothing to it. Whether a finished run SUCCEEDED
+/// is never the bar's to say: `filesFailed` and the report's summary name the failures.
 public struct IngestProgress: Sendable, Equatable {
     public var filesCompleted: Int
     public var filesTotal: Int
@@ -68,19 +76,26 @@ public struct IngestProgress: Sendable, Equatable {
     /// The file being read right now, by name — the path is not what a photographer
     /// watching a card drain is reading.
     public var currentFile: String?
+    public var bytesProcessed: Int64
+    /// Frames finished so far with at least one destination failed.
+    public var filesFailed: Int
 
     public init(filesCompleted: Int, filesTotal: Int, bytesCopied: Int64,
-                bytesTotal: Int64, currentFile: String?) {
+                bytesTotal: Int64, currentFile: String?,
+                bytesProcessed: Int64? = nil, filesFailed: Int = 0) {
         self.filesCompleted = filesCompleted
         self.filesTotal = filesTotal
         self.bytesCopied = bytesCopied
         self.bytesTotal = bytesTotal
         self.currentFile = currentFile
+        self.bytesProcessed = bytesProcessed ?? bytesCopied
+        self.filesFailed = filesFailed
     }
 
-    /// 0…1, by bytes where there are any and by file count otherwise.
+    /// 0…1 through the card, by bytes where there are any and by file count otherwise.
+    /// Reaches 1 when every frame has been dealt with, whatever happened to it.
     public var fraction: Double {
-        if bytesTotal > 0 { return min(1, Double(bytesCopied) / Double(bytesTotal)) }
+        if bytesTotal > 0 { return min(1, Double(bytesProcessed) / Double(bytesTotal)) }
         guard filesTotal > 0 else { return 0 }
         return min(1, Double(filesCompleted) / Double(filesTotal))
     }
@@ -183,16 +198,33 @@ public struct IngestReport: Sendable {
     public var wasCancelled: Bool
     public var filesAttempted: Int
     public var filesPlanned: Int
+    /// The card bytes of every frame that landed on at least one destination — not of
+    /// frames that were already there, failed everywhere, or had nowhere to go.
     public var bytesCopied: Int64
+    /// Frames with at least one destination, every one of which is proven (verified or
+    /// already present). The only count a sentence may call "ingested".
+    public var framesVerified: Int
+    /// Frames with at least one destination, every one of which landed or was already
+    /// there — verified or not. Equal to `framesVerified` whenever verification is on.
+    public var framesLanded: Int
 
+    /// `framesVerified` / `framesLanded` default to a count over `results` grouped by
+    /// source, for a report built by hand; the driver passes the per-plan counts, which
+    /// also know about frames that had no destination at all.
     public init(results: [IngestFileResult], refusals: [String], wasCancelled: Bool,
-                filesAttempted: Int, filesPlanned: Int, bytesCopied: Int64) {
+                filesAttempted: Int, filesPlanned: Int, bytesCopied: Int64,
+                framesVerified: Int? = nil, framesLanded: Int? = nil) {
         self.results = results
         self.refusals = refusals
         self.wasCancelled = wasCancelled
         self.filesAttempted = filesAttempted
         self.filesPlanned = filesPlanned
         self.bytesCopied = bytesCopied
+        let bySource = Dictionary(grouping: results, by: \.source).values
+        self.framesVerified = framesVerified
+            ?? bySource.filter { $0.allSatisfy(\.isProven) }.count
+        self.framesLanded = framesLanded
+            ?? bySource.filter { $0.allSatisfy { $0.failure == nil } }.count
     }
 
     public var failures: [IngestFileResult] { results.filter { $0.failure != nil } }
@@ -207,6 +239,7 @@ public struct IngestReport: Sendable {
         !wasCancelled
             && refusals.isEmpty
             && filesAttempted == filesPlanned
+            && framesVerified == filesPlanned
             && !results.isEmpty
             && results.allSatisfy(\.isProven)
             && !twoFramesShareOneFile
@@ -233,24 +266,38 @@ public struct IngestReport: Sendable {
     /// whether the card is safe to reuse, and a status line that cannot count does not
     /// invite trust in the count.
     public var summary: String {
-        let attemptedWord = filesAttempted == 1 ? "frame" : "frames"
+        let attemptedWord = framesLanded == 1 ? "frame" : "frames"
         let plannedWord = filesPlanned == 1 ? "frame" : "frames"
         var sentence: String
+        // Name the first failure. "2 failed" leaves a photographer with no way to tell
+        // a full disk from a card going bad, and that is the whole decision.
+        let firstFailure = failures.first.map {
+            "\(failures.count) failed — " + $0.label + ": " + ($0.failure?.message ?? "")
+        }
         if wasCancelled {
             sentence = "Stopped after \(filesAttempted) of \(filesPlanned) \(plannedWord) — "
                 + "nothing was left half-written."
+            // A stop does not erase what went wrong before it (S-03).
+            if let firstFailure { sentence += " Before the stop, " + firstFailure }
         } else if filesAttempted == 0 && failures.isEmpty {
             sentence = "Nothing was copied."
         } else if failures.isEmpty {
-            sentence = "Ingested \(filesAttempted) \(attemptedWord)"
-                + (allVerified ? ", every copy verified." : ", UNVERIFIED.")
+            if framesLanded == filesAttempted {
+                sentence = "Ingested \(framesLanded) \(attemptedWord)"
+            } else {
+                // Frames with no destination at all: attempted, never written.
+                sentence = "Ingested \(framesLanded) of \(filesPlanned) \(plannedWord) — "
+                    + "\(filesAttempted - framesLanded) had nowhere to go"
+            }
+            sentence += allVerified ? ", every copy verified." : ", UNVERIFIED."
         } else {
-            // Name the first failure. "2 failed" leaves a photographer with no way to
-            // tell a full disk from a card going bad, and that is the whole decision.
-            let first = failures[0]
-            sentence = "Ingested \(filesAttempted) of \(filesPlanned) \(plannedWord) — "
-                + "\(failures.count) failed — " + first.label + ": "
-                + (first.failure?.message ?? "")
+            // "Ingested" counts only frames proven on every destination — a frame that
+            // failed is not ingested because it was attempted (S-03).
+            sentence = "Ingested \(framesVerified) of \(filesPlanned) \(plannedWord) — "
+                + (firstFailure ?? "")
+            if framesLanded > framesVerified {
+                sentence += " · \(framesLanded - framesVerified) copied without verification"
+            }
         }
         if !alreadyPresent.isEmpty {
             sentence += " · \(alreadyPresent.count) already on disk"
@@ -313,7 +360,14 @@ public struct VerifiedCopyDriver: Sendable {
                     progress: (@Sendable (IngestProgress) -> Void)? = nil) -> IngestReport {
         var results: [IngestFileResult] = []
         var attempted = 0
+        // Landed bytes and processed bytes are different numbers (S-03): see
+        // `IngestProgress`. Only a frame that reached at least one destination this run
+        // adds to `bytesCopied`.
         var bytesCopied: Int64 = 0
+        var bytesProcessed: Int64 = 0
+        var framesVerified = 0
+        var framesLanded = 0
+        var framesFailed = 0
         var cancelled = false
         let total = plan.totalBytes
         // Which source frame each destination file stands for in THIS run (S-01). A
@@ -325,16 +379,18 @@ public struct VerifiedCopyDriver: Sendable {
         for copy in plan.copies {
             if cancellation.isCancelled { cancelled = true; break }
             let name = copy.source.lastPathComponent
-            progress?(IngestProgress(filesCompleted: attempted, filesTotal: plan.copies.count,
-                                     bytesCopied: bytesCopied, bytesTotal: total,
-                                     currentFile: name))
+            func report(copied: Int64, processed: Int64) {
+                progress?(IngestProgress(filesCompleted: attempted,
+                                         filesTotal: plan.copies.count,
+                                         bytesCopied: copied, bytesTotal: total,
+                                         currentFile: name, bytesProcessed: processed,
+                                         filesFailed: framesFailed))
+            }
+            report(copied: bytesCopied, processed: bytesProcessed)
             var readSoFar: Int64 = 0
             let outcome = perform(copy, cancellation: cancellation, claims: &claims) { chunk in
                 readSoFar += chunk
-                progress?(IngestProgress(filesCompleted: attempted,
-                                         filesTotal: plan.copies.count,
-                                         bytesCopied: bytesCopied + readSoFar,
-                                         bytesTotal: total, currentFile: name))
+                report(copied: bytesCopied + readSoFar, processed: bytesProcessed + readSoFar)
             }
             results.append(contentsOf: outcome.results)
             if outcome.cancelled {
@@ -342,15 +398,27 @@ public struct VerifiedCopyDriver: Sendable {
                 break
             }
             attempted += 1
-            bytesCopied += copy.byteCount
-            progress?(IngestProgress(filesCompleted: attempted, filesTotal: plan.copies.count,
-                                     bytesCopied: bytesCopied, bytesTotal: total,
-                                     currentFile: name))
+            bytesProcessed += copy.byteCount
+            let verdicts = outcome.results
+            let landedSomewhere = verdicts.contains {
+                switch $0.outcome {
+                case .verified, .copied: return true
+                case .alreadyPresent, .failed: return false
+                }
+            }
+            if landedSomewhere { bytesCopied += copy.byteCount }
+            if verdicts.contains(where: { $0.failure != nil }) { framesFailed += 1 }
+            let everyDestination = !copy.destinations.isEmpty
+                && verdicts.count == copy.destinations.count
+            if everyDestination && verdicts.allSatisfy(\.isProven) { framesVerified += 1 }
+            if everyDestination && verdicts.allSatisfy({ $0.failure == nil }) { framesLanded += 1 }
+            report(copied: bytesCopied, processed: bytesProcessed)
         }
 
         return IngestReport(results: results, refusals: plan.refusals,
                             wasCancelled: cancelled, filesAttempted: attempted,
-                            filesPlanned: plan.copies.count, bytesCopied: bytesCopied)
+                            filesPlanned: plan.copies.count, bytesCopied: bytesCopied,
+                            framesVerified: framesVerified, framesLanded: framesLanded)
     }
 
     // MARK: - One frame
