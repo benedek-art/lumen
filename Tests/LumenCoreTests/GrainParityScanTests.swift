@@ -294,7 +294,7 @@ final class GrainParityScanTests: XCTestCase {
                 named.append(span.name)
             }
         }
-        XCTAssertEqual(Set(named).subtracting(Self.plateNamesThatAreNotGrainBuilders),
+        XCTAssertEqual(named.filter { !Self.plateNamesThatAreNotGrainBuilders.contains($0) },
                        ["grainPlate"],
                        "the pipeline declares \(named.sorted()) — one grain plate "
                            + "builder, plus whatever is listed in "

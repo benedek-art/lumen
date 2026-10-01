@@ -448,6 +448,12 @@ final class AccuracyProbeTests: XCTestCase {
             let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
                 / Double(cubes)
             print(String(format: "BAKECOST tone cube %d^3: %6.2f ms per bake", size, ms))
+            // A timing alone cannot fail. This pins that the timed call baked the cube
+            // it was asked for, so the number is the cost of real work.
+            let cube = plan.toneGainCube(size: size)
+            XCTAssertEqual(cube.size, size, "the timed bake ignored the requested size")
+            XCTAssertEqual(cube.data.count, size * size * size * 4)
+            XCTAssertTrue(cube.data.allSatisfy(\.isFinite))
         }
     }
 

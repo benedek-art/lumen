@@ -117,25 +117,7 @@ final class DeliveryNameTests: XCTestCase {
     }
 
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2) }
-                else { index = source.index(after: index) }
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }
 
@@ -177,23 +159,6 @@ final class ModeEntryTests: XCTestCase {
     }
 
     private static func stripped(_ source: String) -> String {
-        var out = ""
-        var i = source.startIndex
-        var block = false
-        while i < source.endIndex {
-            let rest = source[i...]
-            if block {
-                if rest.hasPrefix("*/") { block = false; i = source.index(i, offsetBy: 2) }
-                else { i = source.index(after: i) }
-                continue
-            }
-            if rest.hasPrefix("/*") { block = true; i = source.index(i, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while i < source.endIndex, source[i] != "\n" { i = source.index(after: i) }
-                continue
-            }
-            out.append(source[i]); i = source.index(after: i)
-        }
-        return out
+        blankingComments(in: source)
     }
 }
