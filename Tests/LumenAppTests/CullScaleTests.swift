@@ -265,7 +265,7 @@ final class CullScaleTests: XCTestCase {
         let ids = (0..<64).map { URL(fileURLWithPath: "/roll/DSC\($0).arw") }
         var cursor = RollCursor()
         for id in ids {
-            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] },
+            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] },
                            ids.firstIndex(of: id))
         }
         XCTAssertEqual(cursor.rebuilds, 1)

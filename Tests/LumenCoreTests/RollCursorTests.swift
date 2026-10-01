@@ -32,7 +32,7 @@ final class RollCursorTests: XCTestCase {
         let ids = roll(2000)
         var cursor = RollCursor()
         for (expected, id) in ids.enumerated() {
-            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] }, expected)
+            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] }, expected)
         }
         XCTAssertEqual(cursor.rebuilds, 1,
                        "2,000 keystrokes over an unchanged roll rebuilt the index "
@@ -45,10 +45,10 @@ final class RollCursorTests: XCTestCase {
         let ids = roll(500)
         var cursor = RollCursor()
         for step in stride(from: 0, to: 500, by: 7) {
-            _ = cursor.index(of: ids[step], inRollOf: ids.count) { ids[$0] }
+            _ = cursor.index(of: ids[step], inRollOf: ids.count, revision: 0) { ids[$0] }
         }
         for step in stride(from: 499, through: 0, by: -13) {
-            _ = cursor.index(of: ids[step], inRollOf: ids.count) { ids[$0] }
+            _ = cursor.index(of: ids[step], inRollOf: ids.count, revision: 0) { ids[$0] }
         }
         XCTAssertEqual(cursor.rebuilds, 1)
     }
@@ -63,14 +63,14 @@ final class RollCursorTests: XCTestCase {
         // photograph that is no longer there.
         var ids = roll(6)
         var cursor = RollCursor()
-        XCTAssertEqual(cursor.index(of: ids[4], inRollOf: ids.count) { ids[$0] }, 4)
+        XCTAssertEqual(cursor.index(of: ids[4], inRollOf: ids.count, revision: 0) { ids[$0] }, 4)
 
         ids.reverse()
-        XCTAssertEqual(cursor.index(of: ids[4], inRollOf: ids.count) { ids[$0] }, 4,
+        XCTAssertEqual(cursor.index(of: ids[4], inRollOf: ids.count, revision: 0) { ids[$0] }, 4,
                        "the memo answered about the roll it was built from, not the "
                            + "roll it was handed")
         for (expected, id) in ids.enumerated() {
-            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] }, expected)
+            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] }, expected)
         }
     }
 
@@ -83,7 +83,7 @@ final class RollCursorTests: XCTestCase {
 
         func check(_ note: String) {
             for id in ids + [outsider] {
-                XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] },
+                XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] },
                                ids.firstIndex(of: id),
                                "\(note): \(id.lastPathComponent)")
             }
@@ -103,14 +103,14 @@ final class RollCursorTests: XCTestCase {
         let ids = roll(10)
         var cursor = RollCursor()
         XCTAssertNil(cursor.index(of: URL(fileURLWithPath: "/elsewhere/x.arw"),
-                                  inRollOf: ids.count) { ids[$0] })
+                                  inRollOf: ids.count, revision: 0) { ids[$0] })
     }
 
     func testAnEmptyRollAnswersNilWithoutReadingAnIdentity() {
         let ids: [URL] = []
         var cursor = RollCursor()
         XCTAssertNil(cursor.index(of: URL(fileURLWithPath: "/a.arw"),
-                                  inRollOf: 0) { _ in
+                                  inRollOf: 0, revision: 0) { _ in
             XCTFail("read an identity out of an empty roll")
             return URL(fileURLWithPath: "/never")
         })
@@ -123,8 +123,8 @@ final class RollCursorTests: XCTestCase {
         let b = URL(fileURLWithPath: "/roll/b.arw")
         let ids = [a, b, a, b]
         var cursor = RollCursor()
-        XCTAssertEqual(cursor.index(of: a, inRollOf: ids.count) { ids[$0] }, 0)
-        XCTAssertEqual(cursor.index(of: b, inRollOf: ids.count) { ids[$0] }, 1)
+        XCTAssertEqual(cursor.index(of: a, inRollOf: ids.count, revision: 0) { ids[$0] }, 0)
+        XCTAssertEqual(cursor.index(of: b, inRollOf: ids.count, revision: 0) { ids[$0] }, 1)
     }
 
     func testAShorteningRollNeverAnswersPastItsOwnEnd() {
@@ -134,11 +134,11 @@ final class RollCursorTests: XCTestCase {
         var ids = roll(40)
         var cursor = RollCursor()
         let last = ids[39]
-        XCTAssertEqual(cursor.index(of: last, inRollOf: ids.count) { ids[$0] }, 39)
+        XCTAssertEqual(cursor.index(of: last, inRollOf: ids.count, revision: 0) { ids[$0] }, 39)
         ids = Array(ids.prefix(5))
-        XCTAssertNil(cursor.index(of: last, inRollOf: ids.count) { ids[$0] })
+        XCTAssertNil(cursor.index(of: last, inRollOf: ids.count, revision: 0) { ids[$0] })
         for i in ids.indices {
-            XCTAssertEqual(cursor.index(of: ids[i], inRollOf: ids.count) { ids[$0] }, i)
+            XCTAssertEqual(cursor.index(of: ids[i], inRollOf: ids.count, revision: 0) { ids[$0] }, i)
         }
     }
 }

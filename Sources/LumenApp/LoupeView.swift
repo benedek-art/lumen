@@ -1541,7 +1541,7 @@ struct LoupeView: View {
     @MainActor
     private func warmNeighbours() {
         state.thumbnails.prefetch(around: photo.id,
-                                  in: state.photos,
+                                  in: state.photos, revision: state.rollRevision,
                                   size: ThumbnailLadder.loupeInstantPixels,
                                   surface: .loupe)
     }

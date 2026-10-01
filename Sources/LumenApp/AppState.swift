@@ -1915,17 +1915,22 @@ final class AppState: ObservableObject {
     /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
     /// an approximation of what those calls did — it is the same comparison, memoised.
     /// `RollCursor` verifies its own answer against the roll it is handed (the length
-    /// matches and the photograph is still standing at the remembered index) before it
-    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
-    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
-    /// that cannot be checked in constant time.
+    /// matches and the photograph is still standing at the remembered index) AND
+    /// against `rollRevision`, which changes every time `photos` is rebuilt — the
+    /// verification alone could not tell the first copy of a duplicated URL from a later
+    /// one, so the answer depended on the cursor's history (S-08).
     private var rollCursor = RollCursor()
+
+    /// Bumped each time `photos` is rebuilt, which is the only way the roll's contents
+    /// change. Every `RollCursor` over this roll keys its memo on it.
+    private(set) var rollRevision: UInt64 = 0
 
     /// The index of `photo` in the roll as it stands, or nil when the roll no longer
     /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
     func rollIndex(of photo: PhotoItem) -> Int? {
         let list = photos
-        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+        return rollCursor.index(of: photo.id, inRollOf: list.count,
+                                revision: rollRevision) { list[$0].id }
     }
 
     func invalidatePhotoCache() {
@@ -1993,6 +1998,7 @@ final class AppState: ObservableObject {
         if let photoCache { return photoCache }
         let built = buildPhotos()
         photoCache = built
+        rollRevision &+= 1
         return built
     }
 
