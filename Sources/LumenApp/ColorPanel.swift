@@ -278,7 +278,7 @@ struct ColorPanel: View {
                          },
                          onResetArc: { resetArc(index) })
 
-            MixerBandRibbon(weights: ColorPanel.ribbonWeights(arcs),
+            MixerBandRibbon(weights: ColorPanel.ribbon(arcs),
                             colors: ColorPanel.bandSwatchColors,
                             selected: index,
                             allBands: allBands)
@@ -1030,6 +1030,19 @@ struct ColorPanel: View {
             out.append(ColorEngine.bandWeights(hue: hue, arcs: arcs))
         }
         return out
+    }
+
+    /// `ribbonWeights`, remembered against the arcs it was computed from (B3-04).
+    ///
+    /// Still a function of the live arcs — a handle move is a new key and recomputes —
+    /// but the panel re-bodies on EVERY mouse event of ANY slider drag in the column
+    /// (`EditRevision`), and the arcs move only when a ring handle does. Without this an
+    /// Exposure drag with the Colour section open paid 97 membership evaluations per
+    /// event to redraw a ribbon that had not changed.
+    static let ribbonMemo = LastValueMemo<[ColorEngine.BandArc], [[Double]]>()
+
+    static func ribbon(_ arcs: [ColorEngine.BandArc]) -> [[Double]] {
+        ribbonMemo.value(for: arcs, compute: ribbonWeights)
     }
 
     /// Two finite values from a wire array that a decoded file could have made anything.
