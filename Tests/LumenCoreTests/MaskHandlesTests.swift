@@ -535,6 +535,50 @@ final class MaskHandlesTests: XCTestCase {
                           + "before it draws anything")
     }
 
+    // F1-04: ⇧ on a rim resize keeps the ellipse's ratio (it used to snap to a circle),
+    // and ⌥ holds the opposite rim (it was never read).
+    func testShiftKeepsTheRatioAndOptionHoldsTheOppositeRim() {
+        let clamp: (Double) -> Double = { Swift.min(Swift.max($0, 0.002), 2) }
+        let plain = MaskHandles.resizedRadii([0.3, 0.1], axis: 0, moved: 0.15, side: 1,
+                                             keepAspect: false, fromOppositeRim: false,
+                                             clamp: clamp)
+        XCTAssertEqual(plain.radii[0], 0.45, accuracy: 1e-12)
+        XCTAssertEqual(plain.radii[1], 0.1, accuracy: 1e-12)
+        XCTAssertEqual(plain.centreShift, 0)
+
+        let shifted = MaskHandles.resizedRadii([0.3, 0.1], axis: 0, moved: 0.15, side: 1,
+                                               keepAspect: true, fromOppositeRim: false,
+                                               clamp: clamp)
+        XCTAssertEqual(shifted.radii[0] / shifted.radii[1], 3, accuracy: 1e-9,
+                       "⇧ keeps a 3:1 ellipse 3:1")
+        XCTAssertEqual(shifted.radii[0], 0.45, accuracy: 1e-12)
+
+        for side in [-1.0, 1] {
+            for axis in [0, 1] {
+                let origin = [0.3, 0.2]
+                let option = MaskHandles.resizedRadii(origin, axis: axis, moved: 0.1, side: side,
+                                                      keepAspect: false, fromOppositeRim: true,
+                                                      clamp: clamp)
+                // The opposite rim sits at −side·r from the centre; it must not move.
+                let before = -side * origin[axis]
+                let after = option.centreShift - side * option.radii[axis]
+                XCTAssertEqual(after, before, accuracy: 1e-12, "axis \(axis) side \(side)")
+                // And the grabbed rim followed the pointer's 0.1 of travel.
+                let grabbedBefore = side * origin[axis]
+                let grabbedAfter = option.centreShift + side * option.radii[axis]
+                XCTAssertEqual(abs(grabbedAfter - grabbedBefore), 0.1, accuracy: 1e-12)
+                XCTAssertEqual(option.radii[1 - axis], origin[1 - axis])
+            }
+        }
+
+        // At the floor, the centre does not keep travelling past the radius.
+        let floored = MaskHandles.resizedRadii([0.01, 0.1], axis: 0, moved: -0.5, side: 1,
+                                               keepAspect: false, fromOppositeRim: true,
+                                               clamp: clamp)
+        XCTAssertEqual(floored.radii[0], 0.002)
+        XCTAssertEqual(floored.centreShift, 0.002 - 0.01, accuracy: 1e-12)
+    }
+
     // F1-05: a brush or lasso stroke begun within 11 pt of another mask's pin was
     // discarded and the selection jumped. A drag now paints; a click still selects.
     func testAStrokeBegunOnAPinPaintsAndAClickStillSelects() {

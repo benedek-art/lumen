@@ -1125,15 +1125,25 @@ struct MaskCanvas: View {
                                       rotation: rotation)
             let local = localVector(from: nextCentre, to: value.location,
                                     rotation: rotation)
-            if grab == .resizeMajor {
-                let moved = abs(local.x) - abs(atPress.x)
-                nextRadii[0] = MaskCanvas.radius(nextRadii[0] + moved)
-            } else {
-                let moved = abs(local.y) - abs(atPress.y)
-                nextRadii[1] = MaskCanvas.radius(nextRadii[1] + moved)
-            }
-            if isShiftDown {
-                nextRadii = roundedRadii(nextRadii, drivenByX: grab == .resizeMajor)
+            // ⇧ keeps the ellipse's own ratio and ⌥ holds the opposite rim — LR's two
+            // resize modifiers, in `MaskHandles.resizedRadii` (F1-04). ⇧ used to snap
+            // to a circle here, which is ⇧'s meaning on CREATE and still is there.
+            let axis = grab == .resizeMajor ? 0 : 1
+            let moved = axis == 0 ? abs(local.x) - abs(atPress.x)
+                                  : abs(local.y) - abs(atPress.y)
+            let resized = MaskHandles.resizedRadii(
+                nextRadii, axis: axis, moved: moved,
+                side: axis == 0 ? atPress.x : atPress.y,
+                keepAspect: isShiftDown, fromOppositeRim: isOptionDown,
+                clamp: MaskCanvas.radius)
+            nextRadii = resized.radii
+            if resized.centreShift != 0 {
+                let size = sourcePixels
+                let d = MaskRaster.radialOffset(
+                    axis == 0 ? (x: resized.centreShift, y: 0) : (x: 0, y: resized.centreShift),
+                    rotation: rotation, width: size.w, height: size.h)
+                nextCentre = [MaskCanvas.coord(nextCentre[0] + d.x),
+                              MaskCanvas.coord(nextCentre[1] + d.y)]
             }
         case .create:
             // Only reached when the press landed clear of the ellipse, or with ⌘ down.
