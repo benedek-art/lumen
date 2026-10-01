@@ -355,6 +355,14 @@ public final class AppleRawSource: ImageSource {
             image = filter.outputImage
         }
         guard let image else { return nil }
+        // R-2: refused, or a usable picture; there is no third state. On a file it cannot
+        // read (an X3F, a 512-byte header stub) `CIRAWFilter` opens with `nativeSize`
+        // 0 x 0 and returns a NON-nil `outputImage` whose extent is `CGRect.null`.
+        // Checking for nil alone passed that to the graph. Refuse it here, before it is
+        // cached, through the same nil every other refusal takes.
+        guard RawDecodeAcceptance.accepts(extent: image.extent,
+                                          nativeSize: originalNativeSize)
+        else { return nil }
         // RAW9 needs a REAL colour boundary before any downstream evaluation. On
         // macOS27, the same Sony RAW is correct in extended-linear sRGB but severely
         // cyan when its lazy decode is evaluated by a Rec2020 working context.
