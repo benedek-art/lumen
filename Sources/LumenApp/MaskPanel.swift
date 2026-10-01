@@ -60,6 +60,10 @@ struct MaskPanel: View {
     /// size/feather/flow/density/flags into the blob as it is drawn, so the panel and the
     /// canvas share one store rather than inventing a component field.
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
+    /// Observed for the INVALIDATION only: ⌥ re-titles Add as Intersect, and without a
+    /// change signal the title waited for some unrelated re-body (F4-03). The value is
+    /// still read from the poll in `intersecting`, at the moment the body runs.
+    @ObservedObject private var modifiers: ModifierKeys = ModifierKeys.shared
 
     /// Whether this panel draws its own "Masks" section header.
     ///
@@ -1350,11 +1354,10 @@ struct MaskPanel: View {
             // construction; `opFor` and `opLabel` are the two spellings of that one
             // value and they cannot come apart.
             //
-            // THE OTHER HALF IS NOT FIXED HERE. Nothing invalidates this view when a
-            // modifier changes — there is no `flagsChanged` monitor in the app — so the
-            // label can still be STALE until something else re-bodies the panel. That
-            // needs a published flag on `AppState`, fed by one monitor beside `Keymap`'s.
-            // What this closes is the disagreement; what is left is the delay.
+            // AND THE LABEL IS NOT STALE: `modifiers` (`ModifierKeys`, fed by the
+            // `flagsChanged` monitor `Keymap.install` registers) re-bodies this view
+            // when ⌥ goes up or down, so the title follows the key rather than waiting
+            // for some unrelated edit to redraw the panel.
             let modifiesToIntersect = intersecting
             HStack(spacing: 4) {
                 kindMenu(label: MaskPanel.opLabel(intersecting: modifiesToIntersect),
@@ -3345,9 +3348,8 @@ struct MaskPanel: View {
     ///
     /// `componentRows` now reads the modifier once per evaluation and passes that one
     /// value through both of these, so the label and the press are the same answer by
-    /// construction. The other half — that the label can be STALE, because no
-    /// `flagsChanged` monitor invalidates the view — needs a published flag on
-    /// `AppState` and is not this file's to fix.
+    /// construction. The other half — that the label was STALE, because nothing
+    /// invalidated the view when ⌥ changed — is `ModifierKeys`, observed above.
     static func opFor(intersecting: Bool) -> MaskOp { intersecting ? .intersect : .add }
 
     /// What that button is titled, from the same value, so the two cannot disagree.
