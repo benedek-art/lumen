@@ -145,7 +145,7 @@ enum PickTarget: Equatable, Sendable {
         switch self {
         case .mixerBand: return .mixerBand
         case .newPointColor: return .pointColor(index: existingPointColors)
-        case .pointColor(let index): return .pointColor(index: index)
+        case .pointColor(index: let swatch): return .pointColor(index: swatch)
         case .neutral, .maskSample, .maskPointColor: return nil
         }
     }

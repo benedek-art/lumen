@@ -437,7 +437,15 @@ enum ExactColorTwin {
         let C = reference > 1e-12 ? satCompress(base * g) * base / reference : base * g
         let f = hkFactor(C, l.z, kBr)
         let L = f == 0 ? J : J / f
-        let out = toRGB(lab(F3(L, C, l.z)), u)
+        // As a DELTA between two round trips, not the round trip itself. The two are
+        // equal in exact arithmetic (`toRGB(lab(l)) == c`), but in Float32 the round
+        // trip is ~1e-7 off, and Density blends this against `subtractive`, which is
+        // exact on a neutral — so a grey moved with Density at the round trip's error.
+        // The delta cancels it: a colour whose chroma does not change comes back as
+        // itself, bit for bit, as it does in `ColorEngine`'s Double arithmetic.
+        let moved = toRGB(lab(F3(L, C, l.z)), u)
+        let unmoved = toRGB(lab(l), u)
+        let out = c + (moved - unmoved)
         return finite(out) ? out : c
     }
 
@@ -786,7 +794,10 @@ public enum ExactColorKernelSource {
                             float f = lumenHK(CC, cl.z, kBr);
                             float LL = f == 0.0 ? J : J / f;
                             vec3 mapped = lumenLab(vec3(LL, CC, cl.z));
-                            \(toRGB("mapped", into: "scaled"))
+                            \(toRGB("mapped", into: "moved"))
+                            vec3 kept = lumenLab(cl);
+                            \(toRGB("kept", into: "unmoved"))
+                            vec3 scaled = \(input) + (moved - unmoved);
                             if (lumenFinite(scaled)) { \(name) = scaled; }
                         }
                     }
