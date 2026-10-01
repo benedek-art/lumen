@@ -218,11 +218,19 @@ final class CatalogService: @unchecked Sendable {
             case .reject: flag = stated.contains(.flag) ? .reject : nil
             case .unflagged: flag = stated.contains(.flag) ? SidecarFlag.none : nil
             }
+            // Keywords come back as additions only: the record names the field, not
+            // the delta, and the catalog's list is the newer truth. A removal that was
+            // still owed when Lumen quit is the one thing this cannot replay.
+            var keywordEdit: SidecarKeywordEdit?
+            if stated.contains(.keywords), let words = try? store.keywords(photoID: id) {
+                keywordEdit = SidecarKeywordEdit(added: words)
+            }
             enqueueSidecar(for: url, photoID: id,
                            rating: stated.contains(.rating) ? row.rating : nil,
                            flag: flag,
                            label: stated.contains(.label) ? .some(row.label) : nil,
-                           recipe: recipeFields, strokes: strokes)
+                           recipe: recipeFields, strokes: strokes,
+                           keywordEdit: keywordEdit)
         }
         if dropped { persistUnsavedSidecars() }
     }
@@ -364,10 +372,14 @@ final class CatalogService: @unchecked Sendable {
                         sidecarLock.lock()
                         let unflushed = pendingSidecars[file] != nil
                         sidecarLock.unlock()
+                        // Read ONCE. The merge and the stroke restore each read the
+                        // file for themselves; the keyword import below would have
+                        // made it three reads per photograph per folder open.
+                        let sidecar = Self.readSidecar(for: file)
                         let resolution = Self.merge(row: row, recipe: recipe,
                                                     recipeFingerprint: fingerprint,
                                                     hasUnflushedEdits: unflushed,
-                                                    file: file)
+                                                    file: file, sidecar: sidecar)
                         // Before anything reads the recovered recipe: put the sidecar's
                         // brush strokes back into the blob store, so a `strokesRef` in
                         // it resolves to a painting rather than to nothing. Run for
@@ -375,7 +387,8 @@ final class CatalogService: @unchecked Sendable {
                         // that kept its own recipe can still be missing the blob a
                         // shared sidecar carries, which is the "copied the photos and
                         // the .xmp files to a new machine" case.
-                        Self.restoreStrokes(from: file, blobs: blobs)
+                        Self.restoreStrokes(from: sidecar, blobs: blobs)
+                        Self.importKeywords(from: sidecar, photoID: row.id, store: store)
                         // A sidecar fills in where the catalog is silent — and until
                         // now it filled in ONLY the copy handed to the grid. Membership
                         // and ordering are SQL-backed (the whole filter bar compiles to
@@ -743,7 +756,7 @@ final class CatalogService: @unchecked Sendable {
     /// and the enum mapping.
     private static func merge(row: PhotoRow, recipe: Recipe?,
                               recipeFingerprint: String?, hasUnflushedEdits: Bool,
-                              file: URL) -> SidecarMerge.Resolution {
+                              file: URL, sidecar: SidecarContent?) -> SidecarMerge.Resolution {
         SidecarMerge.resolve(
             catalog: SidecarMerge.State(
                 rating: row.rating,
@@ -756,7 +769,7 @@ final class CatalogService: @unchecked Sendable {
                     ? recipeFingerprint : nil,
                 sidecarMTime: row.sidecarMTime,
                 hasUnflushedEdits: hasUnflushedEdits),
-            sidecar: readSidecar(for: file),
+            sidecar: sidecar,
             sidecarMTime: modificationTime(of: sidecarURL(for: file)))
     }
 
@@ -771,8 +784,8 @@ final class CatalogService: @unchecked Sendable {
     /// already dropped any entry whose key does not address its own bytes, so writing an
     /// existing blob writes identical bytes. Failures are logged, never thrown — a blob
     /// that will not write costs one mask, not the folder open.
-    private static func restoreStrokes(from file: URL, blobs: BlobStore) {
-        guard let payload = readSidecar(for: file)?.strokesPayload else { return }
+    private static func restoreStrokes(from sidecar: SidecarContent?, blobs: BlobStore) {
+        guard let payload = sidecar?.strokesPayload else { return }
         for (ref, set) in BrushStrokeSidecar.decode(payload) {
             guard blobs.strokeSet(for: ref) == nil else { continue }
             do {
@@ -785,6 +798,29 @@ final class CatalogService: @unchecked Sendable {
                 NSLog("Lumen catalog: could not restore a sidecar stroke set — %@",
                       String(describing: error))
             }
+        }
+    }
+
+    /// Take the sidecar's keywords into the catalog — the ones it does not have yet,
+    /// and only those (`SidecarKeywordImport`: additive, never a removal). This is the
+    /// reading half of docs/15 §15.5's `dc:subject`: a folder keyworded in Lightroom,
+    /// or a catalog rebuilt from sidecars, arrives with its keywords. No catalog read
+    /// at all for a sidecar without a bag, which is nearly every photograph.
+    private static func importKeywords(from sidecar: SidecarContent?, photoID: Int64,
+                                       store: CatalogStore) {
+        guard let words = sidecar?.keywords, !words.isEmpty else { return }
+        do {
+            // Against the catalog's LEAVES: the sidecar is flat, and "Iceland" in it is
+            // the "Places > Iceland" the catalog already has.
+            let missing = SidecarKeywordImport.missing(
+                fromCatalog: try store.keywords(photoID: photoID).map(KeywordPath.leaf),
+                sidecar: words)
+            for word in missing {
+                _ = try store.addKeyword(word, photoIDs: [photoID])
+            }
+        } catch {
+            NSLog("Lumen catalog: could not import sidecar keywords — %@",
+                  String(describing: error))
         }
     }
 
@@ -1125,10 +1161,29 @@ final class CatalogService: @unchecked Sendable {
     /// Albums with their membership counts, which is what the sidebar shows. Counted
     /// through the same query builder the grid uses, so an album row and the grid it
     /// opens can never report different numbers.
-    func collections() async -> [CollectionItem] {
+    ///
+    /// A smart album has no members; its number is its saved filter run over the open
+    /// folder — the grid it produces when clicked, which is the invariant every other
+    /// count in this column keeps.
+    func collections(folderPath: String?) async -> [CollectionItem] {
         await onQueue("album list", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
             var out: [CollectionItem] = []
             for album in try store.collections() {
+                if album.kind == CollectionRow.smartKind {
+                    let filter = album.query.flatMap { LibraryFilter(savedJSON: $0) }
+                    var count = 0
+                    if let filter {
+                        count = try store.countPhotos(
+                            matching: filter.query(sortKey: .captureTime, ascending: true,
+                                                   albumID: nil),
+                            folderID: folderID)
+                    }
+                    out.append(CollectionItem(id: album.id, name: album.name, count: count,
+                                              isTarget: false, isSmart: true,
+                                              filter: filter))
+                    continue
+                }
                 var query = PhotoQuery()
                 query.albumID = album.id
                 let count = try store.countPhotos(matching: query)
@@ -1136,6 +1191,20 @@ final class CatalogService: @unchecked Sendable {
                                           count: count, isTarget: album.isTarget))
             }
             return out
+        }
+    }
+
+    func createSmartCollection(name: String, query: String) async -> Int64? {
+        await onQueue("smart album creation", fallback: nil) { (store: CatalogStore) -> Int64? in
+            try store.createCollection(name: name, kind: CollectionRow.smartKind,
+                                       query: query, pinned: true)
+        }
+    }
+
+    func updateSmartCollection(_ albumID: Int64, query: String) async -> Bool {
+        await onQueue("smart album update", fallback: false) {
+            try $0.updateCollectionQuery(id: albumID, query: query)
+            return true
         }
     }
 
@@ -1164,6 +1233,20 @@ final class CatalogService: @unchecked Sendable {
     func removeFromCollection(_ albumID: Int64, photoIDs: [Int64]) async {
         await onQueue("album membership", fallback: ()) {
             try $0.removeFromCollection(albumID, photoIDs: photoIDs)
+        }
+    }
+
+    /// False for a blank name (nothing written) or a failed write; the caller says so.
+    func renameCollection(_ albumID: Int64, to name: String) async -> Bool {
+        await onQueue("album rename", fallback: false) {
+            try $0.renameCollection(id: albumID, to: name)
+        }
+    }
+
+    func deleteCollection(_ albumID: Int64) async -> Bool {
+        await onQueue("album deletion", fallback: false) {
+            try $0.deleteCollection(id: albumID)
+            return true
         }
     }
 
@@ -1209,15 +1292,57 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("keyword list", fallback: []) { try $0.allKeywords() }
     }
 
-    func addKeyword(_ name: String, photoIDs: [Int64]) async {
-        await onQueue("keyword write", fallback: ()) {
-            _ = try $0.addKeyword(name, photoIDs: photoIDs)
+    /// Keyword the photographs, in the catalog AND in each one's sidecar.
+    ///
+    /// The sidecar half used to be absent: keywords lived only in `photo_keyword`, so
+    /// docs/15 §15.1's "recovered from sidecars" was false for them and a lost catalog
+    /// took every keyword with it. The write is a delta (`SidecarKeywordEdit`) applied
+    /// to the file's own `dc:subject` at flush time, so keywords another tool put there
+    /// survive.
+    func addKeyword(_ name: String, targets: [(id: Int64, url: URL)]) async {
+        let ids = targets.map { $0.id }
+        // On the catalog's queue, after the row write, like every other sidecar
+        // enqueue in this file: a sidecar is never told something the catalog was not.
+        await onQueue("keyword write", fallback: ()) { [self] store in
+            let keywordID = try store.addKeyword(name, photoIDs: ids)
+            // The sidecar's `dc:subject` is flat: it gets the keyword's own name — not
+            // the "Places > Iceland" path that was typed, and not a synonym that was
+            // typed for it, but the keyword that was actually tagged.
+            let word = try store.keywordName(id: keywordID) ?? KeywordPath.leaf(name)
+            for target in targets {
+                self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
+                                    label: nil, recipe: nil,
+                                    keywordEdit: SidecarKeywordEdit(added: [word]))
+            }
         }
     }
 
-    func removeKeyword(_ name: String, photoIDs: [Int64]) async {
-        await onQueue("keyword write", fallback: ()) {
-            try $0.removeKeyword(name, photoIDs: photoIDs)
+    func removeKeyword(_ name: String, targets: [(id: Int64, url: URL)]) async {
+        let ids = targets.map { $0.id }
+        // On the catalog's queue, after the row write, like every other sidecar
+        // enqueue in this file: a sidecar is never told something the catalog was not.
+        await onQueue("keyword write", fallback: ()) { [self] store in
+            try store.removeKeyword(name, photoIDs: ids)
+            for target in targets {
+                self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
+                                    label: nil, recipe: nil,
+                                    keywordEdit: SidecarKeywordEdit(
+                                        removed: [KeywordPath.leaf(name)]))
+            }
+        }
+    }
+
+    /// Stack the open folder's bursts; the number of stacks made, nil on failure.
+    func stackBursts(folderPath: String) async -> Int? {
+        await onQueue("burst stacking", fallback: nil) { (store: CatalogStore) -> Int? in
+            guard let folder = try store.folder(path: folderPath) else { return 0 }
+            return try store.stackBursts(folderID: folder.id).count
+        }
+    }
+
+    func addSynonym(_ synonym: String, toKeyword keyword: String) async -> Bool {
+        await onQueue("keyword synonym", fallback: false) {
+            try $0.addSynonym(synonym, toKeyword: keyword)
         }
     }
 
@@ -1299,7 +1424,8 @@ final class CatalogService: @unchecked Sendable {
                                 flag: SidecarFlag? = nil,
                                 label: String??,
                                 recipe: (json: String, fingerprint: String, version: Int)?,
-                                strokes: String?? = nil) {
+                                strokes: String?? = nil,
+                                keywordEdit: SidecarKeywordEdit? = nil) {
         sidecarLock.lock()
         guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let queued = pendingSidecars[url]
@@ -1317,6 +1443,14 @@ final class CatalogService: @unchecked Sendable {
         // brush masking, so drop the key". Collapsing them would leave a stale painting
         // in the sidecar of a photograph whose brush masks had all been deleted.
         if let strokes { content.strokesPayload = strokes }
+        // Composed onto whatever edit is already queued, in time order, and applied to
+        // the queued copy of the bag so a sidecar that does not exist yet is authored
+        // with it. An existing document gets the delta re-applied to its own bag at
+        // flush time (`XMPSidecar.reseed`).
+        if let keywordEdit {
+            content.keywords = keywordEdit.apply(to: content.keywords ?? [])
+            content.keywordEdit = content.keywordEdit.then(keywordEdit)
+        }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
         content.sourceExtension = url.pathExtension.lowercased()
 
@@ -1331,6 +1465,7 @@ final class CatalogService: @unchecked Sendable {
         if label != nil { stated.insert(.label) }
         if recipe != nil { stated.insert(.recipe) }
         if strokes != nil { stated.insert(.strokes) }
+        if keywordEdit != nil { stated.insert(.keywords) }
 
         pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content,
                                 stated: stated)

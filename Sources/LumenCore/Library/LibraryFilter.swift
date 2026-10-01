@@ -346,3 +346,100 @@ public struct LibraryFilter: Equatable, Sendable {
         return parts.joined(separator: matchAny ? "  or  " : "  and  ")
     }
 }
+
+// MARK: - Saved filters (smart albums)
+
+/// A filter-bar state as text, for `album.query` (docs/10 §10.8: "smart albums ARE
+/// saved queries — one engine, two entry points", D39).
+///
+/// The column has existed since the base schema with nothing writing it: `kind` was
+/// always 'manual'. The bar's state is a value type with sets in it, so it gets a
+/// canonical spelling here — every set sorted, keys sorted — and the same filter
+/// always saves as the same bytes.
+extension LibraryFilter {
+
+    /// The format version written into every saved filter. A reader that meets a
+    /// newer one refuses it rather than dropping the criteria it cannot name: a smart
+    /// album that silently lost a chip would show MORE photographs than it was saved
+    /// to show, under the same name.
+    public static let savedFormatVersion = 1
+
+    private struct Saved: Codable {
+        var v: Int
+        var flags: [Int]?
+        var minRating: Int?
+        var labels: [String]?
+        var unlabeled: Bool?
+        var text: String?
+        var rawOnly: Bool?
+        var edited: Bool?
+        var cameras: [String]?
+        var lenses: [String]?
+        var iso: [String]?
+        var stack: String?
+        var keywords: [String]?
+        var any: Bool?
+    }
+
+    /// Canonical JSON. Only lit criteria are written, so a filter saved before a
+    /// criterion existed and one saved after with it off are the same document.
+    public func savedJSON() -> String {
+        var saved = Saved(v: Self.savedFormatVersion)
+        if !flags.isEmpty { saved.flags = flags.map(\.rawValue).sorted() }
+        if minRating > 0 { saved.minRating = minRating }
+        if !labels.isEmpty { saved.labels = labels.map(\.rawValue).sorted() }
+        if includeUnlabeled { saved.unlabeled = true }
+        if !text.isEmpty { saved.text = text }
+        if rawOnly { saved.rawOnly = true }
+        saved.edited = edited
+        if !cameras.isEmpty { saved.cameras = cameras.sorted() }
+        if !lenses.isEmpty { saved.lenses = lenses.sorted() }
+        if !isoBands.isEmpty {
+            saved.iso = ISOBand.allCases.filter { isoBands.contains($0) }.map(\.rawValue)
+        }
+        if stackState != .any { saved.stack = stackState.rawValue }
+        if !keywords.isEmpty { saved.keywords = keywords.sorted() }
+        if matchAny { saved.any = true }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        guard let data = try? encoder.encode(saved),
+              let json = String(data: data, encoding: .utf8) else { return "{}" }
+        return json
+    }
+
+    /// The filter a saved document describes, or nil when it cannot be read whole:
+    /// malformed, from a newer format, or naming a value this build does not have.
+    /// All-or-nothing for the same reason the version is checked — a partial read
+    /// widens the album.
+    public init?(savedJSON json: String) {
+        guard let saved = try? JSONDecoder().decode(Saved.self, from: Data(json.utf8)),
+              saved.v <= Self.savedFormatVersion else { return nil }
+        var filter = LibraryFilter()
+        for raw in saved.flags ?? [] {
+            guard let flag = PhotoFlag(rawValue: raw) else { return nil }
+            filter.flags.insert(flag)
+        }
+        filter.minRating = Swift.min(Swift.max(saved.minRating ?? 0, 0), 5)
+        for raw in saved.labels ?? [] {
+            guard let label = ColorLabel(rawValue: raw) else { return nil }
+            filter.labels.insert(label)
+        }
+        filter.includeUnlabeled = saved.unlabeled ?? false
+        filter.text = saved.text ?? ""
+        filter.rawOnly = saved.rawOnly ?? false
+        filter.edited = saved.edited
+        filter.cameras = Set(saved.cameras ?? [])
+        filter.lenses = Set(saved.lenses ?? [])
+        for raw in saved.iso ?? [] {
+            guard let band = ISOBand(rawValue: raw) else { return nil }
+            filter.isoBands.insert(band)
+        }
+        if let raw = saved.stack {
+            guard let state = StackFilter(rawValue: raw) else { return nil }
+            filter.stackState = state
+        }
+        filter.keywords = Set(saved.keywords ?? [])
+        filter.matchAny = saved.any ?? false
+        self = filter
+    }
+}

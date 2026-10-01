@@ -482,6 +482,10 @@ private struct LumenCommands: Commands {
                     Button("Unstack") { state.unstackSelection() }
                         .keyboardShortcut("g", modifiers: [.command, .shift])
                         .disabled(!commands.hasCatalog)
+                    // No chord: a whole-folder regrouping is a deliberate, once-a-shoot
+                    // act, and the cull keys are the scarce resource.
+                    Button("Stack Bursts in Folder") { state.stackBursts() }
+                        .disabled(!commands.hasCatalog)
                     // ⇧⌘K MEANS "LET ME TYPE A KEYWORD" — it applies nothing, it puts the
                     // cursor in the field. So the menu has to do two things the sidebar's
                     // own button never had to: show the column, because the chord is now

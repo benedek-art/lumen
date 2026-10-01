@@ -337,7 +337,20 @@ private struct Sidebar: View {
     @EnvironmentObject var state: AppState
 
     @State private var newAlbumName: String = ""
+    /// The album whose name is being edited in place, and the draft. Return commits,
+    /// Escape puts the row back — the saved-look browser's rename, so a photographer
+    /// who has renamed a look has already learned this one.
+    @State private var renamingAlbumID: Int64?
+    @State private var albumRenameDraft: String = ""
+    /// The album whose Delete was chosen and not yet confirmed. The confirmation is the
+    /// row itself, as in the look browser: it names what goes, Keep is first.
+    @State private var pendingDeleteAlbumID: Int64?
     @State private var newKeyword: String = ""
+    /// The keyword a synonym is being typed for, and the draft — one inline field under
+    /// the keyword list, opened from the keyword's context menu.
+    @State private var synonymKeyword: String?
+    @State private var synonymDraft: String = ""
+    @FocusState private var synonymFieldFocused: Bool
     @FocusState private var keywordFieldFocused: Bool
     /// The album field's own focus. Nothing asks for it today — ⇧⌘K is the keyword
     /// field's chord and there is no album equivalent — but `SidebarEntryField` takes
@@ -644,19 +657,18 @@ private struct Sidebar: View {
             }
 
             ForEach(state.collections) { album in
-                sourceRow(title: album.name, count: album.count,
-                          isSelected: state.selectedCollectionID == album.id,
-                          isTarget: album.isTarget,
-                          help: album.isTarget
-                              ? "Show \(album.name) — the target album, where B adds"
-                              : "Show \(album.name)") {
-                    state.selectedCollectionID = album.id
-                }
-                .contextMenu {
-                    Button("Make Target Album") { state.setTargetCollection(album.id) }
-                    Button("Remove Selection from \(album.name)") {
-                        state.removeSelectionFromCollection(album.id)
-                    }
+                albumRow(album)
+            }
+
+            // The bar, kept. Only while it says something and the catalog can run it:
+            // a smart album saved from the in-memory fallback would name chips the
+            // fallback never applied.
+            if state.filter.isActive && state.isLibraryQueryLive {
+                SidebarVerb(title: "Save Filter as Smart Album",
+                            systemImage: "line.3.horizontal.decrease.circle",
+                            help: "Keep the current filter in this column; clicking it "
+                                + "puts the filter back in the bar") {
+                    state.saveFilterAsSmartCollection()
                 }
             }
 
@@ -664,6 +676,102 @@ private struct Sidebar: View {
                               actionHelp: "Create the album (Return)",
                               text: $newAlbumName,
                               focus: $albumFieldFocused, submit: createAlbum)
+        }
+    }
+
+    /// One album: its source row, or — while it is being renamed or deleted — the field
+    /// or the confirmation in its place.
+    @ViewBuilder
+    private func albumRow(_ album: CollectionItem) -> some View {
+        if renamingAlbumID == album.id {
+            TextField(album.name, text: $albumRenameDraft)
+                .textFieldStyle(.plain)
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.primaryText)
+                .padding(.horizontal, 6)
+                .frame(height: Lumen.rowHeight)
+                .onSubmit {
+                    renamingAlbumID = nil
+                    state.renameCollection(album.id, to: albumRenameDraft)
+                }
+                .onExitCommand { renamingAlbumID = nil }
+        } else if pendingDeleteAlbumID == album.id {
+            HStack(spacing: 6) {
+                Text("Delete \u{201C}\(album.name)\u{201D}?")
+                    .font(.lumenBody)
+                    .foregroundStyle(Lumen.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { pendingDeleteAlbumID = nil } label: {
+                    Text("Keep").font(.lumenCaptionStrong)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.secondaryText)
+                .help("Leave \"\(album.name)\" in the sidebar.")
+                Button {
+                    pendingDeleteAlbumID = nil
+                    state.deleteCollection(album.id)
+                } label: {
+                    Text("Delete").font(.lumenCaptionStrong)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Lumen.accent)
+                // Said before the write: albums are not in the edit history, so this
+                // is not undoable — and the photographs are not what it deletes.
+                .help("Delete the album. Its photographs stay in their folders; "
+                      + "only the grouping goes, and it cannot be undone.")
+            }
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+        } else if album.isSmart {
+            sourceRow(title: album.name, count: album.count, isSelected: false,
+                      isTarget: false, symbol: "line.3.horizontal.decrease.circle",
+                      help: album.filter == nil
+                          ? "Saved by a newer Lumen — this one cannot read it"
+                          : "Smart album: put its filter in the bar. The count is this "
+                              + "folder's") {
+                state.applySmartCollection(album)
+            }
+            .contextMenu {
+                Button("Update to Current Filter") { state.updateSmartCollection(album) }
+                    .disabled(!state.filter.isActive)
+                Divider()
+                Button("Rename…") {
+                    pendingDeleteAlbumID = nil
+                    albumRenameDraft = album.name
+                    renamingAlbumID = album.id
+                }
+                Button("Delete Smart Album…") {
+                    renamingAlbumID = nil
+                    pendingDeleteAlbumID = album.id
+                }
+            }
+        } else {
+            sourceRow(title: album.name, count: album.count,
+                      isSelected: state.selectedCollectionID == album.id,
+                      isTarget: album.isTarget,
+                      help: album.isTarget
+                          ? "Show \(album.name) — the target album, where B adds"
+                          : "Show \(album.name)") {
+                state.selectedCollectionID = album.id
+            }
+            .contextMenu {
+                Button("Make Target Album") { state.setTargetCollection(album.id) }
+                Button("Remove Selection from \(album.name)") {
+                    state.removeSelectionFromCollection(album.id)
+                }
+                Divider()
+                Button("Rename…") {
+                    pendingDeleteAlbumID = nil
+                    albumRenameDraft = album.name
+                    renamingAlbumID = album.id
+                }
+                Button("Delete Album…") {
+                    renamingAlbumID = nil
+                    pendingDeleteAlbumID = album.id
+                }
+            }
         }
     }
 
@@ -723,7 +831,8 @@ private struct Sidebar: View {
     private var keywordEntry: some View {
         VStack(alignment: .leading, spacing: 4) {
             SidebarEntryField(placeholder: "Add keyword",
-                              actionHelp: "Add the keyword to the selection (Return)",
+                              actionHelp: "Add the keyword to the selection (Return). "
+                                  + "Type Parent > Child to file it in a hierarchy",
                               text: $newKeyword,
                               focus: $keywordFieldFocused, submit: addKeyword)
 
@@ -777,7 +886,25 @@ private struct Sidebar: View {
                         .foregroundStyle(Lumen.secondaryText)
                         .help("Remove \(word) from the selection")
                     }
+                    .contextMenu {
+                        Button("Add Synonym…") {
+                            synonymDraft = ""
+                            synonymKeyword = word
+                            synonymFieldFocused = true
+                        }
+                    }
                 }
+            }
+            if let target = synonymKeyword {
+                SidebarEntryField(placeholder: "Synonym for \(KeywordPath.leaf(target))",
+                                  actionHelp: "Searching or filtering for this word finds "
+                                      + "\(target) (Return)",
+                                  text: $synonymDraft,
+                                  focus: $synonymFieldFocused) {
+                    state.addSynonym(synonymDraft, toKeyword: target)
+                    synonymKeyword = nil
+                }
+                .onExitCommand { synonymKeyword = nil }
             }
         }
     }
@@ -914,12 +1041,12 @@ private struct Sidebar: View {
     /// decision — "Row pitch: 24 pt, one pitch everywhere" — and this row was the
     /// divergence, at 11 pt of text plus 2 of padding.
     private func sourceRow(title: String, count: Int, isSelected: Bool,
-                           isTarget: Bool, help: String? = nil,
+                           isTarget: Bool, symbol: String? = nil, help: String? = nil,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                if isTarget {
-                    Image(systemName: "target")
+                if let glyph = isTarget ? "target" : symbol {
+                    Image(systemName: glyph)
                         .font(.lumenGlyphCaption)
                         .foregroundStyle(isSelected ? Lumen.primaryText : Lumen.secondaryText)
                 }

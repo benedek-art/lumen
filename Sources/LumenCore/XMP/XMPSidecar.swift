@@ -46,6 +46,23 @@ public struct SidecarContent: Equatable, Sendable {
     /// Portable ownership of a same-basename RAW sidecar. The extension rather
     /// than the filename survives renaming a photo and its XMP together.
     public var sourceExtension: String?
+    /// The document's `dc:subject` bag — the keywords every XMP-aware tool reads and
+    /// writes. nil when the document has no `dc:subject` at all.
+    ///
+    /// Keywords used to live only in the catalog, so the §15.1 promise that a lost
+    /// catalog costs bookkeeping and never work was false for every keyword a
+    /// photographer had typed, and a folder keyworded in Lightroom arrived in Lumen
+    /// with none of them.
+    public var keywords: [String]?
+    /// The keyword change this write carries, as a delta rather than a list.
+    ///
+    /// NOT SERIALIZED. A delta because `dc:subject` is shared with every other tool
+    /// that touches the file: writing the catalog's list over it would delete a
+    /// keyword Lightroom added after the last scan, and writing the union would make
+    /// a keyword removed in Lumen impossible to remove. Applying "these went, these
+    /// came" to the bag as it is on disk at flush time does neither. Non-empty is
+    /// also what entitles a write to own `dc:subject` at all — see `XMPSidecar.update`.
+    public var keywordEdit: SidecarKeywordEdit = SidecarKeywordEdit()
 
     /// WHETHER THE WHOLE DOCUMENT PARSED, and it is a safety interlock rather than a
     /// diagnostic.
@@ -111,6 +128,94 @@ public struct SidecarStatedFields: OptionSet, Equatable, Sendable {
     /// fingerprint from one build over a recipe from another is worse than either.
     public static let recipe = SidecarStatedFields(rawValue: 1 << 3)
     public static let strokes = SidecarStatedFields(rawValue: 1 << 4)
+    /// The `dc:subject` bag, as `SidecarContent.keywordEdit` describes.
+    public static let keywords = SidecarStatedFields(rawValue: 1 << 5)
+}
+
+/// A keyword change, as the two sets it is made of.
+///
+/// Composes in time order: a keyword added and then removed before the flush is a
+/// removal, and removed-then-added is an addition — the later word wins, which is
+/// what the photographer saw last in the sidebar.
+public struct SidecarKeywordEdit: Equatable, Sendable {
+    public private(set) var added: Set<String> = []
+    public private(set) var removed: Set<String> = []
+
+    public init() {}
+
+    public init(added: [String] = [], removed: [String] = []) {
+        for word in removed { remove(word) }
+        for word in added { add(word) }
+    }
+
+    public var isEmpty: Bool { added.isEmpty && removed.isEmpty }
+
+    public mutating func add(_ word: String) {
+        let w = Self.normalized(word)
+        guard !w.isEmpty else { return }
+        removed.remove(w)
+        added.insert(w)
+    }
+
+    public mutating func remove(_ word: String) {
+        let w = Self.normalized(word)
+        guard !w.isEmpty else { return }
+        added.remove(w)
+        removed.insert(w)
+    }
+
+    /// `self` followed by `later`.
+    public func then(_ later: SidecarKeywordEdit) -> SidecarKeywordEdit {
+        var out = self
+        for word in later.removed { out.remove(word) }
+        for word in later.added { out.add(word) }
+        return out
+    }
+
+    /// The bag after this edit. Existing order is kept — another tool's ordering is
+    /// its own business — removed words go, and new words are appended in sorted
+    /// order so the same edit always writes the same bytes. A word already present is
+    /// not duplicated, and duplicates already in the bag are folded.
+    public func apply(to existing: [String]) -> [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        for word in existing {
+            let w = Self.normalized(word)
+            guard !w.isEmpty, !removed.contains(w), seen.insert(w).inserted else { continue }
+            out.append(w)
+        }
+        for word in added.sorted() where seen.insert(word).inserted {
+            out.append(word)
+        }
+        return out
+    }
+
+    static func normalized(_ word: String) -> String {
+        word.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// What a scan takes from a sidecar's keywords into the catalog.
+public enum SidecarKeywordImport {
+    /// The sidecar's keywords the catalog does not have yet, in the sidecar's order.
+    ///
+    /// ADDITIVE ONLY, deliberately. A keyword present in the catalog and absent from
+    /// the sidecar is either one this build added and has not flushed yet, or one
+    /// another tool removed — and the scan cannot tell those apart. Removing would
+    /// lose the first; keeping costs the second a re-removal. The conservative
+    /// direction is the one that loses no work.
+    public static func missing(fromCatalog catalog: [String],
+                               sidecar: [String]?) -> [String] {
+        guard let sidecar else { return [] }
+        var have = Set(catalog.map(SidecarKeywordEdit.normalized))
+        var out: [String] = []
+        for word in sidecar {
+            let w = SidecarKeywordEdit.normalized(word)
+            guard !w.isEmpty, have.insert(w).inserted else { continue }
+            out.append(w)
+        }
+        return out
+    }
 }
 
 extension XMPSidecar {
@@ -140,6 +245,15 @@ extension XMPSidecar {
             out.pipelineVersion = stated.pipelineVersion
         }
         if fields.contains(.strokes) { out.strokesPayload = stated.strokesPayload }
+        // The delta, applied to the bag as it is on disk NOW — not to the copy taken
+        // at the keystroke — so a keyword another tool added during the debounce
+        // survives this write.
+        if fields.contains(.keywords) {
+            out.keywords = stated.keywordEdit.apply(to: fresh.keywords ?? [])
+            out.keywordEdit = stated.keywordEdit
+        } else {
+            out.keywordEdit = SidecarKeywordEdit()
+        }
         out.writeStamp = stated.writeStamp
         out.sourceExtension = stated.sourceExtension ?? fresh.sourceExtension
         return out
@@ -462,20 +576,30 @@ public enum XMPSidecar {
     /// on an existing file is a whole-file replace, and that is how a folder of
     /// Lightroom-processed RAWs lost every develop setting and keyword to a single
     /// press of a rating key.
+    ///
+    /// `dc:subject` is owned by this write only when it carries a keyword edit. Every
+    /// other write leaves the bag byte-for-byte as another tool wrote it.
     public static func update(_ original: String, with content: SidecarContent) -> String? {
-        XMPMerge.merge(into: original, fields: fieldLines(content),
-                       lumenNamespace: lumenNamespace)
+        let ownsKeywords = !content.keywordEdit.isEmpty
+        return XMPMerge.merge(into: original,
+                              fields: fieldLines(content, keywords: ownsKeywords),
+                              lumenNamespace: lumenNamespace,
+                              ownsSubject: ownsKeywords)
     }
 
     public static func serialize(_ content: SidecarContent) -> String {
-        """
+        // The `dc:` binding only when there is a bag to bind: a sidecar without
+        // keywords stays byte-identical to what every earlier build wrote.
+        let dublinCore = (content.keywords?.isEmpty == false)
+            ? "\n    xmlns:dc=\"http://purl.org/dc/elements/1.1/\"" : ""
+        return """
         <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
         <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Lumen">
          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
           <rdf:Description rdf:about=""
-            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+            xmlns:xmp="http://ns.adobe.com/xap/1.0/"\(dublinCore)
             xmlns:lumen="\(lumenNamespace)">
-        \(fieldLines(content))  </rdf:Description>
+        \(fieldLines(content, keywords: true))  </rdf:Description>
          </rdf:RDF>
         </x:xmpmeta>
         <?xpacket end="w"?>
@@ -485,7 +609,7 @@ public enum XMPSidecar {
     /// The child elements Lumen owns, one per line, escaped and ready to splice.
     /// Shared by `serialize` and `update` so a fresh document and an updated one can
     /// never disagree about what Lumen writes.
-    static func fieldLines(_ content: SidecarContent) -> String {
+    static func fieldLines(_ content: SidecarContent, keywords: Bool = false) -> String {
         var fields = ""
         // NOT −1 FOR A REJECT, deliberately, and `testFlagAndRatingSurviveEachOther`
         // is the contract: `lumen:flag` exists precisely so a photograph can be four
@@ -501,6 +625,15 @@ public enum XMPSidecar {
         }
         if let label = content.label {
             fields += "   <xmp:Label>\(escapeXML(label))</xmp:Label>\n"
+        }
+        // An empty bag is written as no element: `dc:subject` with no `rdf:li` is
+        // legal and means the same, but some readers treat it as a parse error.
+        if keywords, let words = content.keywords, !words.isEmpty {
+            fields += "   <dc:subject>\n    <rdf:Bag>\n"
+            for word in words {
+                fields += "     <rdf:li>\(escapeXML(word))</rdf:li>\n"
+            }
+            fields += "    </rdf:Bag>\n   </dc:subject>\n"
         }
         fields += "   <lumen:pipelineVersion>\(content.pipelineVersion)</lumen:pipelineVersion>\n"
         if let fp = content.recipeFingerprint {
@@ -581,6 +714,10 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     var sawAnyField = false
     private var currentElement: String?
     private var buffer = ""
+    /// Inside `dc:subject`, and inside one of its `rdf:li` items.
+    private var inSubject = false
+    private var inSubjectItem = false
+    private var subjectItem = ""
 
     private static let interesting: Set<String> = [
         "xmp:Rating", "xmp:Label", "lumen:flag",
@@ -601,6 +738,17 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
         for (key, value) in attributeDict where Self.interesting.contains(key) {
             absorb(key, value)
         }
+        if elementName == "dc:subject" {
+            inSubject = true
+            sawAnyField = true
+            if content.keywords == nil { content.keywords = [] }
+            return
+        }
+        if inSubject && elementName == "rdf:li" {
+            inSubjectItem = true
+            subjectItem = ""
+            return
+        }
         if Self.interesting.contains(elementName) {
             currentElement = elementName
             buffer = ""
@@ -608,11 +756,22 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if inSubjectItem { subjectItem += string }
         if currentElement != nil { buffer += string }
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
+        if inSubjectItem && elementName == "rdf:li" {
+            inSubjectItem = false
+            let word = subjectItem.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !word.isEmpty { content.keywords?.append(word) }
+            return
+        }
+        if inSubject && elementName == "dc:subject" {
+            inSubject = false
+            return
+        }
         guard elementName == currentElement else { return }
         absorb(elementName, buffer)
         currentElement = nil

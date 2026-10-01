@@ -252,6 +252,11 @@ struct CollectionItem: Identifiable, Equatable, Sendable {
     var name: String
     var count: Int
     var isTarget: Bool
+    /// A smart album: a saved filter rather than a membership list (D39).
+    var isSmart: Bool = false
+    /// The saved filter, or nil for a manual album — and for a smart album this build
+    /// cannot read whole (a newer format), which the sidebar says rather than guessing.
+    var filter: LibraryFilter? = nil
 }
 
 /// One value a metadata chip offers — a keyword, a camera body — and how many photos
@@ -2239,7 +2244,7 @@ final class AppState: ObservableObject {
             return
         }
         Task { [weak self] in
-            let albums = await catalog.collections()
+            let albums = await catalog.collections(folderPath: folder.path)
             let keywords = await catalog.allKeywords()
             let cameras = await catalog.facets(.camera, folderPath: folder.path)
             let lenses = await catalog.facets(.lens, folderPath: folder.path)
@@ -2325,6 +2330,95 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Open a smart album: its saved filter goes into the bar, over the whole open
+    /// folder. The bar is then the editor (docs/10 §10.8: "Edit — reopens the bar
+    /// populated"), and "Update to Current Filter" saves it back.
+    func applySmartCollection(_ album: CollectionItem) {
+        guard let saved = album.filter else {
+            statusMessage = "\"\(album.name)\" was saved by a newer Lumen and cannot "
+                + "be opened by this one"
+            return
+        }
+        selectedCollectionID = nil
+        filter = saved
+        statusMessage = "\(album.name): " + saved.sentence(catalogLive: isLibraryQueryLive)
+    }
+
+    /// Save the bar as a smart album, named for what it asks — rename it after.
+    func saveFilterAsSmartCollection() {
+        guard let catalog, filter.isActive else { return }
+        let words = filter.sentence(catalogLive: true)
+            .replacingOccurrences(of: "  ", with: " ")
+        let name = words.count > 60 ? String(words.prefix(59)) + "…" : words
+        let query = filter.savedJSON()
+        Task { [weak self] in
+            let id = await catalog.createSmartCollection(name: name, query: query)
+            guard let self else { return }
+            self.statusMessage = id == nil
+                ? "Could not save the filter as a smart album"
+                : "Saved smart album \"\(name)\" — right-click it to rename"
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Save the bar over an existing smart album.
+    func updateSmartCollection(_ album: CollectionItem) {
+        guard let catalog, filter.isActive else { return }
+        let query = filter.savedJSON()
+        Task { [weak self] in
+            let saved = await catalog.updateSmartCollection(album.id, query: query)
+            guard let self else { return }
+            self.statusMessage = saved
+                ? "\"\(album.name)\" now asks: " + self.filter.sentence(catalogLive: true)
+                : "Could not update \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Rename an album from the sidebar. An unchanged or blank name writes nothing.
+    func renameCollection(_ albumID: Int64, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog,
+              let album = collections.first(where: { $0.id == albumID }),
+              album.name != trimmed else { return }
+        guard !trimmed.isEmpty else {
+            statusMessage = "An album needs a name — \"\(album.name)\" was kept"
+            return
+        }
+        Task { [weak self] in
+            let renamed = await catalog.renameCollection(albumID, to: trimmed)
+            guard let self else { return }
+            self.statusMessage = renamed
+                ? "Renamed \"\(album.name)\" to \"\(trimmed)\""
+                : "Could not rename \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Delete an album. The photographs are not touched; if the grid was showing the
+    /// album it goes back to the whole folder rather than to an empty source.
+    func deleteCollection(_ albumID: Int64) {
+        guard let catalog,
+              let album = collections.first(where: { $0.id == albumID }) else { return }
+        Task { [weak self] in
+            let deleted = await catalog.deleteCollection(albumID)
+            guard let self else { return }
+            if deleted, self.selectedCollectionID == albumID {
+                self.selectedCollectionID = nil
+            }
+            if !deleted {
+                self.statusMessage = "Could not delete \"\(album.name)\""
+            } else if album.isSmart {
+                self.statusMessage = "Deleted smart album \"\(album.name)\" — no "
+                    + "photograph was touched"
+            } else {
+                self.statusMessage = "Deleted album \"\(album.name)\" — its \(album.count) photo"
+                    + (album.count == 1 ? " is" : "s are") + " still in their folders"
+            }
+            self.refreshLibrarySections()
+        }
+    }
+
     func removeSelectionFromCollection(_ albumID: Int64) {
         let ids = editTargets.compactMap(\.catalogID)
         guard let catalog, !ids.isEmpty else { return }
@@ -2338,10 +2432,13 @@ final class AppState: ObservableObject {
 
     func addKeyword(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ids = editTargets.compactMap(\.catalogID)
+        let targets = editTargets.compactMap { item in
+            item.catalogID.map { (id: $0, url: item.id) }
+        }
+        let ids = targets.map { $0.id }
         guard let catalog, !trimmed.isEmpty, !ids.isEmpty else { return }
         Task { [weak self] in
-            await catalog.addKeyword(trimmed, photoIDs: ids)
+            await catalog.addKeyword(trimmed, targets: targets)
             guard let self else { return }
             self.statusMessage = "Keyworded \(ids.count) photo"
                 + (ids.count == 1 ? "" : "s") + " \"\(trimmed)\""
@@ -2353,11 +2450,28 @@ final class AppState: ObservableObject {
         }
     }
 
-    func removeKeyword(_ name: String) {
-        let ids = editTargets.compactMap(\.catalogID)
-        guard let catalog, !ids.isEmpty else { return }
+    /// Another word for a keyword: searching for it, filtering by it and typing it all
+    /// reach the keyword itself.
+    func addSynonym(_ synonym: String, toKeyword keyword: String) {
+        let word = synonym.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog, !word.isEmpty else { return }
         Task { [weak self] in
-            await catalog.removeKeyword(name, photoIDs: ids)
+            let added = await catalog.addSynonym(word, toKeyword: keyword)
+            guard let self else { return }
+            self.statusMessage = added
+                ? "\"\(word)\" now finds \(keyword)"
+                : "\"\(word)\" was not added — it is blank or already \(keyword)'s name"
+            self.refreshLibrarySections()
+        }
+    }
+
+    func removeKeyword(_ name: String) {
+        let targets = editTargets.compactMap { item in
+            item.catalogID.map { (id: $0, url: item.id) }
+        }
+        guard let catalog, !targets.isEmpty else { return }
+        Task { [weak self] in
+            await catalog.removeKeyword(name, targets: targets)
             guard let self else { return }
             self.refreshLibrarySections()
             if !self.filter.keywords.isEmpty { self.refreshLibraryQuery() }
@@ -2384,6 +2498,27 @@ final class AppState: ObservableObject {
     }
 
     /// `⇧⌘G` — the grouping goes, the photographs stay.
+    /// Stack every burst in the open folder by capture time — frames from one body no
+    /// more than two seconds apart. A command, not a default: the spec's rule also asks
+    /// for a similarity check this build does not run, so a fast series of different
+    /// compositions can land in one stack, and ⇧⌘G undoes any of them.
+    func stackBursts() {
+        guard let catalog, let folder = folderURL else { return }
+        Task { [weak self] in
+            let made = await catalog.stackBursts(folderPath: folder.path)
+            guard let self else { return }
+            switch made {
+            case nil: self.statusMessage = "Could not stack the bursts in this folder"
+            case 0?: self.statusMessage = "No unstacked bursts in this folder — frames "
+                + "need capture times less than two seconds apart"
+            case let n?: self.statusMessage = "Stacked \(n) burst" + (n == 1 ? "" : "s")
+                + " — show one frame each with the Collapsed stacks filter"
+            }
+            self.refreshPrimaryLibraryDetail()
+            self.refreshLibraryQuery()
+        }
+    }
+
     func unstackSelection() {
         guard let catalog, let stack = primaryStack else {
             statusMessage = "That photo is not in a stack"
