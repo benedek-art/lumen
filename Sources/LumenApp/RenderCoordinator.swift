@@ -80,6 +80,17 @@ actor RenderCoordinator {
     private let renderer = PipelineRenderer()
     private var sources: [URL: any ImageSource] = [:]
     private var sourceIdentities: [URL: SourceFileIdentity] = [:]
+    /// The identity each file had when a source was last built from it, KEPT PAST the
+    /// source LRU's eviction. It is what tells a real replacement (bytes changed under
+    /// the path) from a first open, a neighbour prefetch, or a re-acquisition after the
+    /// twelve-entry LRU dropped it — only the first of those invalidates anything the
+    /// renderer derived from the picture. One stat token per file browsed: a few hundred
+    /// bytes per thousand photographs, against seconds of brush settle per
+    /// unnecessary forget.
+    private var knownIdentities: [URL: SourceFileIdentity] = [:]
+    /// How many times `source(for:)` judged a file replaced and forgot what the
+    /// renderer held for it. Read by tests; a neighbour prefetch must not move it.
+    private(set) var sourceReplacementsForgotten = 0
     private var latestGeneration: UInt64 = 0
 
     /// Bounded so a fast scroll through a folder cannot pin a hundred decoded RAWs in
@@ -624,6 +635,7 @@ actor RenderCoordinator {
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
         sourceIdentities.removeValue(forKey: url)
+        knownIdentities.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
         // The matte was computed from this file's pixels, so it goes with them — and
         // anyone holding a copy of the ledger hears about it the same way they hear
@@ -761,14 +773,24 @@ actor RenderCoordinator {
             return cached
         }
         // The source-object LRU is smaller than some renderer caches. A source
-        // reacquired after eviction must not inherit an older URL's measured hues,
-        // mattes or source-dependent mask rasters either.
-        let hadMattes = !renderer.attemptedMatteKinds(for: url).isEmpty
+        // reacquired after its FILE CHANGED must not inherit the old bytes' measured
+        // hues, mattes or picture-dependent mask rasters. A miss alone is not that: a
+        // first open, a neighbour prefetch and a re-acquisition after the LRU dropped
+        // an unchanged file all land here too, and forgetting on those discarded every
+        // photo's mask rasters (and, for a while, every brush plane) on each step of
+        // browsing. `knownIdentities` outlives the LRU so the two can be told apart.
+        let previous = sourceIdentities[url] ?? knownIdentities[url]
+        let replaced = previous != nil && previous != identity
         sources.removeValue(forKey: url)
         sourceIdentities.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
-        renderer.forgetMattes(for: url)
-        if hadMattes { evictedMattes.insert(url) }
+        if replaced {
+            let hadMattes = !renderer.attemptedMatteKinds(for: url).isEmpty
+            knownIdentities.removeValue(forKey: url)
+            renderer.forgetMattes(for: url)
+            sourceReplacementsForgotten += 1
+            if hadMattes { evictedMattes.insert(url) }
+        }
         let created: any ImageSource = PhotoFormats.isRendered(url)
             ? try RenderedImageSource(url: url)
             : try AppleRawSource(url: url)
@@ -777,6 +799,7 @@ actor RenderCoordinator {
         }
         sources[url] = created
         sourceIdentities[url] = identity
+        knownIdentities[url] = identity
         sourceOrder.append(url)
         while sourceOrder.count > Self.sourceCacheLimit, let oldest = sourceOrder.first {
             sourceOrder.removeFirst()

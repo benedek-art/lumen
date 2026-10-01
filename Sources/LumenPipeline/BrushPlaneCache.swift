@@ -105,6 +105,9 @@ final class BrushPlaneCache {
     private struct Entry {
         var strokes: [BrushStroke]
         var plane: Plane
+        /// `"-"` for a plane that is pure geometry; anything else means it sampled the
+        /// picture (Automask) and is only as good as the pixels it sampled.
+        var sourceKey: String
     }
 
     private let lock = NSLock()
@@ -186,7 +189,7 @@ final class BrushPlaneCache {
 
         let plane = MaskRaster.accumulatedBrushPlane(strokes: set, size: size,
                                                      source: source, resuming: resume)
-        store(key: key, strokes: set.strokes, plane: plane)
+        store(key: key, strokes: set.strokes, plane: plane, sourceKey: sourceKey)
         return plane
     }
 
@@ -197,8 +200,23 @@ final class BrushPlaneCache {
         lock.unlock()
     }
 
-    private func store(key: String, strokes: [BrushStroke], plane: Plane) {
-        let entry = Entry(strokes: strokes, plane: plane)
+    /// Drop every plane that sampled a picture, keep every plane that did not.
+    ///
+    /// What a source replacement actually invalidates. A brush without Automask is
+    /// geometry — the same strokes paint the same plane over any pixels — and it is the
+    /// expensive half of this cache (a cold 60-stroke repaint is ~8.5 s at a 2560 settle
+    /// on the measuring container, header above). `clear()` here used to run on every
+    /// source-cache miss, first opens and neighbour prefetch included, and threw that
+    /// work away for a photograph nobody had replaced.
+    func clearPictureDependent() {
+        lock.lock()
+        entries.removeAll { $0.entry.sourceKey != "-" }
+        settled.removeAll { $0.entry.sourceKey != "-" }
+        lock.unlock()
+    }
+
+    private func store(key: String, strokes: [BrushStroke], plane: Plane, sourceKey: String) {
+        let entry = Entry(strokes: strokes, plane: plane, sourceKey: sourceKey)
         let long = Swift.max(plane.width, plane.height)
         if long <= PipelineRenderer.maskRasterLongEdge {
             lock.lock()
