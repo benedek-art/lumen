@@ -3725,10 +3725,21 @@ final class AppState: ObservableObject {
 
     func copySettings() { copiedRecipe = primarySelection.map(recipe(for:)) }
 
+    /// Whether Paste Settings carries Heal and Clone spots and heal strokes. OFF by
+    /// default (`RetouchPaste`): a spot is a position on one photograph's blemish, and
+    /// pasted across a shoot it lands on unrelated content in every other frame — LR's
+    /// sync leaves Spot Removal unchecked for the same reason. Session state, an
+    /// explicit opt-in, read by both whole-recipe paste commands. It LIVES on
+    /// `commands` because the Edit menu's checkable item is its only control and the
+    /// menu observes that object and not this one.
+    var pasteIncludesRetouch: Bool { commands.pasteIncludesRetouch }
+
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
+        let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings") { recipe in
-            recipe.develop = source.develop
+            recipe.develop = RetouchPaste.develop(source.develop, onto: recipe.develop,
+                                                  includingRetouch: retouch)
             // `.look` whole EXCEPT the one leaf in it that describes the target rather
             // than the look. `LookSubset.carriedRenderPreset` is that rule, and it lives
             // in LumenCore precisely because there are four doors into a look — this
@@ -3763,8 +3774,10 @@ final class AppState: ObservableObject {
     /// nine times out of ten. Two commands cost nothing and ask nothing.
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
+        let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
-            recipe.develop = source.develop
+            recipe.develop = RetouchPaste.develop(source.develop, onto: recipe.develop,
+                                                  includingRetouch: retouch)
             let own = recipe.look.render.preset
             recipe.look = source.look
             recipe.look.render.preset =
