@@ -34,6 +34,16 @@
    "name": "blackAndWhiteKeptButOff",
    "canonical": "{\"look\":{\"bw\":{\"bands\":[0,0,0,0,-40,-65,0,0],\"enabled\":false}},\"pipelineVersion\":2}",
    "fingerprint": "xxh64:fd50cceee634dfb4"
+  },
+  {
+   "name": "lutNoStageReads",
+   "canonical": "{\"look\":{\"lut\":{\"amount\":100,\"name\":\"Kodachrome\",\"ref\":\"blob:xxh64:0123456789abcdef\",\"tap\":\"display\"}},\"pipelineVersion\":2}",
+   "fingerprint": "xxh64:fd50cceee634dfb4"
+  },
+  {
+   "name": "grainAtAmountZero",
+   "canonical": "{\"look\":{\"grain\":{\"amount\":0,\"roughness\":50,\"size\":90}},\"pipelineVersion\":2}",
+   "fingerprint": "xxh64:fd50cceee634dfb4"
   }
  ]
 }
