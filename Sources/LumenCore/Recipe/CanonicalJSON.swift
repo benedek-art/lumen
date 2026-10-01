@@ -64,8 +64,46 @@ public enum CanonicalJSON {
 
     /// Encode any Encodable into a JSONValue tree.
     public static func tree<T: Encodable>(of value: T) throws -> JSONValue {
+        treeBuilds.increment()
         let data = try JSONEncoder().encode(value)
         return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+
+    /// How many trees `tree(of:)` has built since launch. A meter, not a mechanism: it
+    /// is how a test proves a caller stopped re-encoding something it already had —
+    /// the defaults baseline below, a plan key whose inputs did not move — without
+    /// timing anything on a shared machine.
+    static let treeBuilds = Counter()
+
+    /// A lock-guarded tally, readable from tests.
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func increment() { lock.lock(); count += 1; lock.unlock() }
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    }
+
+    /// The trees every sparse form is measured against, built ONCE.
+    ///
+    /// `canonicalRecipeJSON` used to encode a fresh `Recipe()` on every call and then
+    /// throw it away, and so did `decodeRecipe`; the default recipe is a constant, so
+    /// its tree is too. Measured on a release build, the baseline was 0.83 ms of a
+    /// 2.16 ms `canonicalRecipeJSON` (38%) — paid on every recipe save, by every
+    /// `RecipeFingerprint.fingerprint` (the settle frame's developed-preview identity)
+    /// and once more per sidecar merge. Nil only if the default cannot be encoded,
+    /// which the callers then report by encoding it again and throwing, exactly as
+    /// before.
+    private static let recipeDefaultsTree: JSONValue? = try? tree(of: Recipe())
+    private static let lookDefaultsTree: JSONValue? = try? tree(of: LookSubset())
+
+    static func recipeDefaults() throws -> JSONValue {
+        if let cached = recipeDefaultsTree { return cached }
+        return try tree(of: Recipe())
+    }
+
+    static func lookDefaults() throws -> JSONValue {
+        if let cached = lookDefaultsTree { return cached }
+        return try tree(of: LookSubset())
     }
 
     /// The canonical serialized form of a tree: sorted keys, fixed number formatting,
@@ -103,7 +141,7 @@ public enum CanonicalJSON {
     /// and stored in the catalog's `edit.recipe` column.
     public static func canonicalRecipeJSON(_ recipe: Recipe) throws -> String {
         let full = try tree(of: recipe)
-        let defaults = try tree(of: Recipe())
+        let defaults = try recipeDefaults()
         var sparsed = sparse(full, defaults: defaults)
         // pipelineVersion always serializes, sparse or not: readers must know how to render.
         if case .object(var obj) = sparsed {
@@ -125,7 +163,7 @@ public enum CanonicalJSON {
     /// indistinguishable from one saved at version 1 the moment the version moves.
     public static func canonicalLookJSON(_ subset: LookSubset) throws -> String {
         let full = try tree(of: subset)
-        let defaults = try tree(of: LookSubset())
+        let defaults = try lookDefaults()
         var sparsed = sparse(full, defaults: defaults)
         if case .object(var obj) = sparsed {
             obj["pipelineVersion"] = .number(Double(subset.pipelineVersion))
@@ -140,7 +178,7 @@ public enum CanonicalJSON {
     /// forward-compatibility posture recipes take.
     public static func decodeLookSubset(from json: Data) throws -> LookSubset {
         let sparseTree = try JSONDecoder().decode(JSONValue.self, from: json)
-        let defaults = try tree(of: LookSubset())
+        let defaults = try lookDefaults()
         let merged = merge(defaults: defaults, overlay: sparseTree)
         let data = Data(serialize(merged).utf8)
         return try JSONDecoder().decode(LookSubset.self, from: data)
@@ -150,7 +188,7 @@ public enum CanonicalJSON {
     /// unknown keys are ignored — forward compatibility for free.
     public static func decodeRecipe(from json: Data) throws -> Recipe {
         let sparseTree = try JSONDecoder().decode(JSONValue.self, from: json)
-        let defaults = try tree(of: Recipe())
+        let defaults = try recipeDefaults()
         let merged = merge(defaults: defaults, overlay: sparseTree)
         let data = Data(serialize(merged).utf8)
         return try JSONDecoder().decode(Recipe.self, from: data)
