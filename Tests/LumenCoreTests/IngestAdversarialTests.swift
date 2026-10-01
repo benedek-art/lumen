@@ -598,16 +598,6 @@ final class IngestAdversarialTests: XCTestCase {
     /// Two destination roots that are two names for one directory. The photographer is
     /// told they have a primary and a backup; both land in the same place.
     func testTwoRootsThatAreOneDirectoryAreNotReportedAsTwoCopies() throws {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
-        #else
-        return
-        #endif
         let link = root.appendingPathComponent("backup-link", isDirectory: true)
         try fm.createSymbolicLink(at: link, withDestinationURL: primary)
         let roots = [IngestDestinationRoot(url: primary, role: .primary),
@@ -619,6 +609,29 @@ final class IngestAdversarialTests: XCTestCase {
                        "one volume holds \(landed) for a one-frame card: " + report.summary)
         XCTAssertFalse(report.allVerified,
                        "a backup that is the primary reported: " + report.summary)
+        try assertLandedMatchesSource(one, primary.appendingPathComponent("2026/LNK00001.RAF"),
+                                      "the primary copy")
+        let backupVerdict = report.results.first { $0.role == .backup }
+        XCTAssertEqual(backupVerdict?.failure, .aliasedDestination(of: .primary),
+                       "the aliased backup was not named as such: " + report.summary)
+        XCTAssertTrue(report.summary.contains("same folder as the primary"), report.summary)
+    }
+
+    /// The alias check is a directory identity, not a string compare: distinct sibling
+    /// directories stay two destinations, and the identity sees through a symlink even
+    /// to a root that does not exist yet beneath it.
+    func testDirectoryIdentityTellsAliasesFromSiblings() throws {
+        let link = root.appendingPathComponent("alias", isDirectory: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: primary)
+        XCTAssertTrue(IngestLocation.sameDirectory(primary, link))
+        XCTAssertTrue(IngestLocation.sameDirectory(
+            primary.appendingPathComponent("2027/new", isDirectory: true),
+            link.appendingPathComponent("2027/new", isDirectory: true)),
+            "a not-yet-created folder under a symlinked root is still the same folder")
+        XCTAssertFalse(IngestLocation.sameDirectory(primary, backup))
+        XCTAssertFalse(IngestLocation.sameDirectory(
+            primary.appendingPathComponent("2027", isDirectory: true),
+            backup.appendingPathComponent("2027", isDirectory: true)))
     }
 
     /// The sentence a photographer reads when a frame failed.

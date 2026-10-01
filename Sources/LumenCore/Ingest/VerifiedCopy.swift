@@ -95,6 +95,10 @@ public enum IngestCopyFailure: Sendable, Equatable {
     /// error — a clean premature EOF. Distinct from `verificationMismatch` because
     /// nothing disagreed: the copy matched the read exactly, and the read was short.
     case shortRead(expected: Int64, read: Int64)
+    /// This destination is the same directory as another destination of the same frame
+    /// (a symlink, a bind mount, the same share mounted twice). Nothing was written to
+    /// it: a file there would be a second name for the first copy, not a second copy.
+    case aliasedDestination(of: IngestDestinationRole)
 
     /// The sentence the sheet shows. Never "something went wrong": the difference
     /// between a full disk and a card going bad is the whole of what the photographer
@@ -110,6 +114,9 @@ public enum IngestCopyFailure: Sendable, Equatable {
         case .shortRead(let expected, let read):
             return "the source ended early — the card said \(expected) bytes and only "
                 + "\(read) arrived, so nothing was written"
+        case .aliasedDestination(let other):
+            return "is the same folder as the \(other.rawValue) destination, so it would "
+                + "not be a second copy — nothing was written there"
         case .verificationMismatch(let expected, let found):
             return "the copy does not match the source — source \(expected), copy "
                 + "\(found) — so the copy was deleted"
@@ -379,6 +386,10 @@ public struct VerifiedCopyDriver: Sendable {
         }
 
         var writers: [Writer] = []
+        // Which directory each of this frame's destinations really is (S-02). Two roots
+        // that are one folder under two spellings would otherwise each "verify" a copy,
+        // and the run would claim a redundancy the photographer does not have.
+        var directoriesWritten: [String: IngestDestinationRole] = [:]
         for destination in copy.destinations {
             let folder = destination.url.deletingLastPathComponent()
             do {
@@ -388,6 +399,13 @@ public struct VerifiedCopyDriver: Sendable {
                                        .failed(.unwritableDestination(error.localizedDescription))))
                 continue
             }
+            let directory = IngestLocation.directoryIdentity(of: folder)
+            if let first = directoriesWritten[directory] {
+                results.append(verdict(destination.url, destination.url, destination.role,
+                                       .failed(.aliasedDestination(of: first))))
+                continue
+            }
+            directoriesWritten[directory] = destination.role
 
             var landing = destination.url
             if fm.fileExists(atPath: destination.url.path) {

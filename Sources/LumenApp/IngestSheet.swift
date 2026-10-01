@@ -89,8 +89,9 @@ struct VerifiedCopyIngestDriver: IngestDriver {
         }
         var roots = [IngestDestinationRoot(url: request.primaryDestination, role: .primary)]
         if let backup = request.backupDestination {
-            guard backup.standardizedFileURL != request.primaryDestination.standardizedFileURL
-            else {
+            // Directory identity, not spelling (S-02): a backup chosen through a symlink
+            // or a second mount of the same share is the primary under another name.
+            guard !IngestLocation.sameDirectory(backup, request.primaryDestination) else {
                 return .refused("Nothing was copied: the backup destination is the primary "
                                 + "destination. A second copy has to be a second volume.")
             }
