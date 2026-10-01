@@ -116,10 +116,10 @@ public enum FrameOrientation {
 
         private enum Evidence: Equatable, Sendable {
             case catalog(Bool)
-            case delivery(Bool)
+            case delivered(Bool)
 
             var transposed: Bool {
-                switch self { case .catalog(let t), .delivery(let t): return t }
+                switch self { case .catalog(let t), .delivered(let t): return t }
             }
         }
 
@@ -146,7 +146,7 @@ public enum FrameOrientation {
             guard wholeFrame, Self.usable(reported), Self.usable(delivered) else {
                 return false
             }
-            let next = Evidence.delivery(FrameOrientation.isTransposed(reported: reported,
+            let next = Evidence.delivered(FrameOrientation.isTransposed(reported: reported,
                                                                        delivered: delivered))
             guard answers[url] != next else { return false }
             let changed = answers[url]?.transposed != next.transposed
@@ -159,7 +159,7 @@ public enum FrameOrientation {
         @discardableResult
         public mutating func learn(_ url: URL, reported: CGSize,
                                    catalog: BatchFraming.Frame) -> Bool {
-            if case .delivery = answers[url] { return false }
+            if case .delivered = answers[url] { return false }
             guard Self.usable(reported) else { return false }
             let frame = CGSize(width: catalog.width, height: catalog.height)
             let next = Evidence.catalog(FrameOrientation.isTransposed(reported: reported,

@@ -127,26 +127,7 @@ final class DecodeResidencyTests: XCTestCase {
     /// The source with every comment blanked and line breaks kept, so line numbers in a
     /// failure still point at the file.
     private static func code(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2); continue }
-                if source[index] == "\n" { out.append("\n") }
-                index = source.index(after: index)
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 
     // MARK: - mayHoldAsPixels
