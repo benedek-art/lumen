@@ -23,7 +23,7 @@ them anyway and marks them out of scope instead of implementing them.
 | Hierarchical keywords ↔ `lr:hierarchicalSubject` | MISSING | MISSING (sidecar stays flat; leaf names round-trip onto the existing hierarchy) | — |
 | Rating/flag/label/recipe XMP sync both ways | BUILT | BUILT | `SidecarMerge`, `XMPMerge` |
 | Stacks: manual stack/unstack/collapse/promote | BUILT | BUILT | — |
-| Auto-stack bursts (§10.2) | MISSING | **PARTIAL** — capture-gap half as an explicit command (uncommitted at report time, see below) | — |
+| Auto-stack bursts (§10.2) | MISSING | **PARTIAL** — capture-gap half as an explicit command | 5246cb7 |
 | Metadata editing: rating/flag/label batch | BUILT | BUILT | `setRating(_:photoIDs:)` etc. |
 | Metadata editing: title/caption/copyright/job | MISSING (no columns except `job`, no UI for `job`) | MISSING | — |
 | Search grammar: chips, OR within / All-Any across, FTS text | BUILT | BUILT (+ keyword closure) | `LibraryFilter`, `buildPhotoQuery` |
@@ -44,7 +44,7 @@ them anyway and marks them out of scope instead of implementing them.
 | Keywords ↔ XMP dc:subject | FIXED | 3ab2585 | SidecarKeywordTests 11; parse + delta substituted out → 8/11 red; ownership substituted out → 5/11 red. SidecarKeywordRoundTripTests (macOS lane) source-verified. `xmp.json` fixture bytes unchanged | none |
 | Smart albums | FIXED | 49888cb | SavedLibraryFilterTests 4 + SmartAlbumCatalogTests 1; codec line/version/unknown-label substituted → 3/4 red. Mirror guard fails if `LibraryFilter` gains an unsaved field | none |
 | Keyword hierarchy + synonyms + migration 4 | FIXED | ef1a782 | KeywordHierarchyTests 6 (+KeywordPathTests 1) incl. v1 and v3 catalogs written with the old DDL/migrations; fold/closure/reindex substituted → 5/6 red | none |
-| Stack bursts by capture time | NOT COMMITTED at report time (code + tests in tree: `BurstGrouping.swift`, `BurstGroupingTests.swift`, `CatalogStore.stackBursts`, menu "Stack Bursts in Folder"). LumenCore tests green (9) and red under mutation (2/4, 1/1 with 5 assertions); the surface check had not finished. Committed after this report only if it exits 0 — see the final hand-back | — | — | none |
+| Stack bursts by capture time | PARTIAL (capture-gap half, as a command; FeaturePrint half not built) | 5246cb7 | BurstGroupingTests 4 + BurstStackingCatalogTests 1; chain/body/not-in-stack substituted → 2/4 and 1/1 (5 assertions) red. Menu item source-verified; surface check exit 0 | none |
 
 No rendering code touched: no proof record moves.
 
