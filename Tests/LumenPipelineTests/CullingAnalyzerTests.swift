@@ -25,7 +25,11 @@ final class CullingAnalyzerTests: XCTestCase {
     }
 
     /// A 1800 x 1200 JPEG of a checker-and-discs scene, optionally blurred by drawing it
-    /// at a quarter size and scaling it back up with interpolation.
+    /// at a sixth of the size and scaling it back up with interpolation. The checker is
+    /// what the sharpness scorer reads; the discs are what the perceptual hash reads —
+    /// the 60 x 40 checker alone averages to a flat grey at the hash's 32 x 32, and a
+    /// hash of a flat picture is noise (28 bits apart on CI). `CullingAssistTests` pins
+    /// the same geometry on Linux.
     private func writeJPEG(named name: String, soft: Bool) throws -> URL {
         let width = 1800, height = 1200
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
@@ -42,6 +46,14 @@ final class CullingAnalyzerTests: XCTestCase {
                     context.fill(CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell,
                                         width: cell, height: cell))
                 }
+            }
+            let discs: [(CGFloat, CGFloat, CGFloat, CGFloat)] =
+                [(0.30, 0.40, 0.18, 0.10), (0.72, 0.62, 0.14, 0.92), (0.55, 0.20, 0.08, 0.20)]
+            for (x, y, radius, grey) in discs {
+                let r = radius * CGFloat(w)
+                context.setFillColor(CGColor(red: grey, green: grey, blue: grey, alpha: 1))
+                context.fillEllipse(in: CGRect(x: x * CGFloat(w) - r, y: y * CGFloat(h) - r,
+                                               width: 2 * r, height: 2 * r))
             }
             return try XCTUnwrap(context.makeImage())
         }
@@ -82,6 +94,13 @@ final class CullingAnalyzerTests: XCTestCase {
         let soft = CullingAnalyzer.analyze(url: try writeJPEG(named: "b.jpg", soft: true),
                                            photoID: 2, detectFaces: false).score
         XCTAssertGreaterThan(try XCTUnwrap(sharp.sharpness), try XCTUnwrap(soft.sharpness))
+        // The fixture is a picture to the hash at all: its 32 x 32 is not flat.
+        let decoded = try XCTUnwrap(
+            CullingAnalyzer.decodePreview(url: root.appendingPathComponent("a.jpg")))
+        let seen = try XCTUnwrap(CullingAnalyzer.luma(of: decoded))
+            .resampled(width: PerceptualHash.side, height: PerceptualHash.side).values
+        XCTAssertGreaterThan(Double(seen.max()! - seen.min()!), 0.4,
+                             "the hash's 32 x 32 is flat: nothing in the fixture is in its band")
         XCTAssertLessThanOrEqual(PerceptualHash.distance(try XCTUnwrap(sharp.perceptualHash),
                                                          try XCTUnwrap(soft.perceptualHash)),
                                  BurstGrouper.maxHashDistance)

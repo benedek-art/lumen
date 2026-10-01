@@ -298,6 +298,56 @@ final class CullingAssistTests: XCTestCase {
             PerceptualHash.hash(Self.noisy(Self.render(width: 768), sigma: 0.02))), 6, "noise")
     }
 
+    /// The picture `CullingAnalyzerTests` (macOS) writes to JPEG, in the same geometry: a
+    /// 60 × 40 checker of 0.45/0.70 cells plus three large discs, 1800 × 1200, its soft
+    /// copy drawn at a sixth of the size and scaled back up, both brought to the analyzer's
+    /// 1536 px decode edge. y runs up, as Core Graphics draws.
+    static func analyzerScene(soft: Bool, discs: Bool) -> Plane {
+        func draw(_ w: Int, _ h: Int) -> Plane {
+            Plane(width: w, height: h) { u, v in
+                let x = u * Double(w), y = (1 - v) * Double(h)
+                let cell = Double(w) / 60
+                var value = (Int(x / cell) + Int(y / cell)).isMultiple(of: 2) ? 0.7 : 0.45
+                guard discs else { return value }
+                for disc in [(0.30, 0.40, 0.18, 0.10), (0.72, 0.62, 0.14, 0.92),
+                             (0.55, 0.20, 0.08, 0.20)] {
+                    let dx = x - disc.0 * Double(w), dy = y - disc.1 * Double(h)
+                    let r = disc.2 * Double(w)
+                    if dx * dx + dy * dy < r * r { value = disc.3 }
+                }
+                return value
+            }
+        }
+        var image = draw(1800, 1200)
+        if soft {
+            let small = draw(300, 200)
+            image = Plane(width: 1800, height: 1200) { u, v in
+                small.bilinear(u * 300, v * 200)
+            }
+        }
+        return image.resampled(width: 1536, height: 1024)
+    }
+
+    /// A frame and its soft copy are one picture to the burst grouper — when the picture
+    /// has something in the hash's band. The 60 × 40 checker alone is all above it: at the
+    /// hash's 32 × 32 it averages to a flat 0.57…0.58, every AC coefficient is moiré
+    /// against a median of 0, and the 63 bits are noise — 12 apart here, 18 through a
+    /// supersampled render, 28 on macOS through JPEG and ImageIO. So the case pins both:
+    /// the 32 × 32 image the hash reads keeps most of the scene's 0.10…0.92 span (the
+    /// fixture is a picture to the hash at all), and the soft copy lands inside the
+    /// grouper's distance.
+    func testASoftCopyOfTheAnalyzerSceneHashesAsTheSamePicture() {
+        let sharpScene = Self.analyzerScene(soft: false, discs: true)
+        let seen = sharpScene.resampled(width: PerceptualHash.side,
+                                        height: PerceptualHash.side).values
+        XCTAssertGreaterThan(Double(seen.max()! - seen.min()!), 0.4,
+                             "the hash's 32 × 32 is flat: nothing in the fixture is in its band")
+        let sharp = PerceptualHash.hash(sharpScene)
+        let soft = PerceptualHash.hash(Self.analyzerScene(soft: true, discs: true))
+        XCTAssertLessThanOrEqual(PerceptualHash.distance(sharp, soft),
+                                 BurstGrouper.maxHashDistance)
+    }
+
     func testTheHashSeparatesDifferentPictures() {
         let base = PerceptualHash.hash(Self.render(width: 768))
         // The same elements, recomposed: a large pan.
