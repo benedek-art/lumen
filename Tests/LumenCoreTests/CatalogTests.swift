@@ -1578,6 +1578,49 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// A file replaced at the same path is a different exposure: its clipping numbers
+    /// describe a sensor readout that is no longer on disk. The scan that invalidates its
+    /// previews, artifacts and culling evidence must take the measurement too, on both
+    /// change signals — a size/mtime change, and an identity-token suspicion confirmed
+    /// by a differing quick signature (REL-06). An unchanged rescan keeps it.
+    func testReplacingTheSourceFileTakesItsMeasurementWithIt() throws {
+        let store = try makeStore()
+        defer { store.close() }
+        let folderID = try store.registerFolder(path: "/Volumes/Shoots/2026-10-01")
+        let original = [
+            ScannedFile(filename: "A.ARW", fileSize: 40_000_000, fileMTime: 1_700_000_000,
+                        quickSig: "sig-A", ext: "arw", sourceIdentity: "7:1:1700000000:0:1700000000:0"),
+            ScannedFile(filename: "B.ARW", fileSize: 40_000_001, fileMTime: 1_700_000_000,
+                        quickSig: "sig-B", ext: "arw", sourceIdentity: "7:2:1700000000:0:1700000000:0"),
+            ScannedFile(filename: "C.ARW", fileSize: 40_000_002, fileMTime: 1_700_000_000,
+                        quickSig: "sig-C", ext: "arw", sourceIdentity: "7:3:1700000000:0:1700000000:0"),
+        ]
+        _ = try store.scan(folderID: folderID, files: original)
+        let ids = try original.map {
+            try XCTUnwrap(store.photo(folderID: folderID, filename: $0.filename)?.id)
+        }
+        for id in ids { try store.recordRawStatistics(measurement(), photoID: id) }
+
+        // A: rewritten at a new size. B: same size and second, new identity token, and
+        // a quick signature that confirms the change. C: untouched.
+        var resized = original[0]; resized.fileSize = 41_000_000; resized.fileMTime = 1_700_000_500
+        var rewritten = original[1]; rewritten.quickSig = nil
+        rewritten.sourceIdentity = "7:9:1700000000:0:1700000012:0"
+        let result = try store.scan(folderID: folderID, files: [resized, rewritten, original[2]],
+                                    signature: { _ in "sig-B2" })
+        XCTAssertEqual(Set(result.changed), [ids[0], ids[1]])
+
+        XCTAssertNil(try store.rawStatisticsClippedJSON(photoID: ids[0]),
+                     "the replaced file kept the old file's clipping statistics")
+        XCTAssertNil(try store.rawStatisticsClippedJSON(photoID: ids[1]),
+                     "a same-size rewrite confirmed by signature kept the old statistics")
+        XCTAssertNotNil(try store.rawStatistics(photoID: ids[2], provenance: .sceneLinearDecode),
+                        "an unchanged file lost its measurement on rescan")
+        XCTAssertEqual(try store.photosMissingRawStatistics(folderID: folderID),
+                       [ids[0], ids[1]],
+                       "the replaced files must be back in the background worker's queue")
+    }
+
     func testACorruptBlobReadsAsMissingRatherThanThrowing() throws {
         // cache.db is disposable and self-healing (D52). A truncated or garbage blob is
         // a recompute, never an error the user sees.

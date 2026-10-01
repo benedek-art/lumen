@@ -2263,6 +2263,10 @@ public final class CatalogStore {
                     result.invalidatedPreviews += try self.previews(photoID: row.id)
                     try self.db.run("DELETE FROM cache.preview WHERE photo_id = ?;", [.integer(row.id)])
                     try self.db.run("DELETE FROM cache.artifact WHERE photo_id = ?;", [.integer(row.id)])
+                    // The clipping statistics were read off the OLD file's sensor data;
+                    // keeping them would caption the new exposure with the old one's
+                    // clipped percentages until the analyzer revision next changed.
+                    try self.db.run("DELETE FROM cache.raw_stats WHERE photo_id = ?;", [.integer(row.id)])
                     // The culling evidence was measured on the OLD file's preview; a
                     // sharpness score and a hash describing a picture that is no longer
                     // there would keep sorting and grouping it as that picture.

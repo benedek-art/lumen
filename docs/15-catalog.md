@@ -309,8 +309,15 @@ CREATE TABLE frame_score (
   photo_id INTEGER PRIMARY KEY,
   sharpness REAL, junk INTEGER NOT NULL DEFAULT 0, -- black-frame/gross-exposure bits
   aesthetic REAL, is_utility INTEGER,              -- macOS 15 aesthetics API; sort-only
-  analyzer_rev INTEGER NOT NULL, computed_at INTEGER NOT NULL
+  analyzer_rev INTEGER NOT NULL, computed_at INTEGER NOT NULL,
+  -- cache migration 3 (ADD COLUMN; rows written before it read NULL here):
+  noise REAL,                                      -- noise sigma at the analysis scale
+  phash INTEGER,                                   -- 64-bit DCT perceptual hash, as its bit pattern
+  analysed_edge INTEGER,                           -- long edge, px, the pass measured at
+  burst_id INTEGER, burst_rank INTEGER             -- first frame's photo id; 1-based, sharpest first
 );
+CREATE INDEX frame_score_sharpness ON frame_score(sharpness);          -- sort + soft-focus chip
+CREATE INDEX frame_score_burst     ON frame_score(burst_id, burst_rank); -- burst chip
 CREATE TABLE face (                                -- per-face evidence for the crop strip
   id INTEGER PRIMARY KEY,
   photo_id INTEGER NOT NULL,
