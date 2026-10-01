@@ -1003,12 +1003,13 @@ public final class CatalogStore {
 
     /// Schema version this build understands. Base DDL (`CatalogSchema.lumenDDL`) is
     /// version 1; everything after it is a migration below.
-    public static let latestSchemaVersion: Int = 3
+    public static let latestSchemaVersion: Int = 4
 
     /// Gap-closing migration for `lumen.db` (brief 02 §2.3, G5–G15, G17–G26, G31).
     public static let migrations: [CatalogMigration] = [
         CatalogMigration(version: 2, sql: CatalogStore.lumenMigration2),
         CatalogMigration(version: 3, sql: CatalogStore.lumenMigration3),
+        CatalogMigration(version: 4, sql: CatalogStore.lumenMigration4),
     ]
 
     /// Gap-closing migration for `cache.db` (G1–G4, G19, G28, G29).
@@ -1127,6 +1128,50 @@ public final class CatalogStore {
     CREATE UNIQUE INDEX IF NOT EXISTS look_identity
       ON look(kind, COALESCE(grp, ''), name);
     CREATE INDEX IF NOT EXISTS look_kind ON look(kind, name);
+    """
+
+    /// Keyword hierarchy and synonyms (docs/10 §10.8, docs/15 §15.3).
+    ///
+    /// `keyword.parent_id` has been in the base DDL with nothing writing it, and the
+    /// table had no identity: `addKeyword` looked a name up with `LIMIT 1` and a
+    /// full scan. A hierarchy needs "this name under this parent" to be one row, so
+    /// that becomes a UNIQUE index — after folding any rows that already break it onto
+    /// the oldest, with their photographs. In order: a child of a duplicate parent
+    /// moves to the surviving parent; every membership moves to its keyword's
+    /// survivor (INSERT OR IGNORE, so a photo tagged twice keeps one row); then the
+    /// orphaned memberships and keyword rows go. Exact names, case and all: two
+    /// spellings a photographer typed are two keywords until they say otherwise.
+    ///
+    /// `keyword_synonym` is new. NULL parents fold together via COALESCE, for the
+    /// reason `look_identity` records: SQLite treats NULLs as distinct in UNIQUE.
+    private static let lumenMigration4: String = """
+    UPDATE keyword SET parent_id = (
+      SELECT MIN(s.id) FROM keyword s, keyword p
+       WHERE p.id = keyword.parent_id AND s.name = p.name
+         AND COALESCE(s.parent_id, 0) = COALESCE(p.parent_id, 0))
+     WHERE parent_id IS NOT NULL;
+
+    INSERT OR IGNORE INTO photo_keyword (photo_id, keyword_id)
+      SELECT pk.photo_id,
+             (SELECT MIN(s.id) FROM keyword s
+               WHERE s.name = k.name AND COALESCE(s.parent_id, 0) = COALESCE(k.parent_id, 0))
+        FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id;
+    DELETE FROM photo_keyword WHERE keyword_id NOT IN (
+      SELECT MIN(id) FROM keyword GROUP BY COALESCE(parent_id, 0), name);
+    DELETE FROM keyword WHERE id NOT IN (
+      SELECT MIN(id) FROM keyword GROUP BY COALESCE(parent_id, 0), name);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS keyword_identity
+      ON keyword(COALESCE(parent_id, 0), name);
+    CREATE INDEX IF NOT EXISTS keyword_name   ON keyword(name);
+    CREATE INDEX IF NOT EXISTS keyword_parent ON keyword(parent_id);
+
+    CREATE TABLE IF NOT EXISTS keyword_synonym (
+      keyword_id INTEGER NOT NULL REFERENCES keyword(id),
+      synonym    TEXT NOT NULL,
+      PRIMARY KEY (keyword_id, synonym)
+    );
+    CREATE INDEX IF NOT EXISTS keyword_synonym_word ON keyword_synonym(synonym);
     """
 
     private static let cacheMigration2: String = """
@@ -3064,18 +3109,22 @@ public final class CatalogStore {
         }
     }
 
+    // MARK: - Keywords
+
+    /// Keyword photographs. `name` is what the photographer typed: a plain keyword, or
+    /// a path from the root in `KeywordPath`'s spelling ("Places > Iceland").
+    ///
+    /// A plain name that already exists ANYWHERE in the hierarchy is that keyword — a
+    /// root one first — so typing "Iceland" after building "Places > Iceland" tags the
+    /// one keyword rather than growing a second, and a sidecar's flat `dc:subject`
+    /// lands back on the keyword it came from. A plain name that is a synonym tags the
+    /// keyword it is a synonym of. Only an unknown name creates a root keyword.
     @discardableResult
     public func addKeyword(_ name: String, photoIDs: [Int64]) throws -> Int64 {
-        try db.transaction {
-            var keywordID = try self.db.scalarInt(
-                "SELECT id FROM keyword WHERE name = ? LIMIT 1;", [.text(name)])
-            if keywordID == nil {
-                try self.db.run("INSERT INTO keyword (name) VALUES (?);", [.text(name)])
-                keywordID = self.db.lastInsertRowID
-            }
-            guard let id = keywordID else {
-                throw CatalogError.notFound("keyword \(name) after insert")
-            }
+        let path = KeywordPath.parse(name)
+        guard !path.isEmpty else { throw CatalogError.invalid("an empty keyword") }
+        return try db.transaction {
+            let id = try self.resolveKeyword(path, create: true)!
             let statement = try self.db.prepare(
                 "INSERT OR IGNORE INTO photo_keyword (photo_id, keyword_id) VALUES (?, ?);")
             for photoID in photoIDs {
@@ -3090,11 +3139,71 @@ public final class CatalogStore {
         }
     }
 
+    /// The keyword a typed path names, creating the missing tail when asked.
+    private func resolveKeyword(_ path: [String], create: Bool) throws -> Int64? {
+        if path.count == 1 {
+            let name = path[0]
+            if let id = try db.scalarInt("""
+            SELECT id FROM keyword WHERE name = ?
+             ORDER BY parent_id IS NOT NULL, id LIMIT 1;
+            """, [.text(name)]) { return id }
+            if let id = try db.scalarInt("""
+            SELECT keyword_id FROM keyword_synonym WHERE synonym = ?
+             ORDER BY keyword_id LIMIT 1;
+            """, [.text(name)]) { return id }
+            guard create else { return nil }
+            try db.run("INSERT INTO keyword (name) VALUES (?);", [.text(name)])
+            return db.lastInsertRowID
+        }
+        var parent: Int64? = nil
+        for component in path {
+            let found: Int64?
+            if let parent {
+                found = try db.scalarInt(
+                    "SELECT id FROM keyword WHERE parent_id = ? AND name = ?;",
+                    [.integer(parent), .text(component)])
+            } else {
+                found = try db.scalarInt(
+                    "SELECT id FROM keyword WHERE parent_id IS NULL AND name = ?;",
+                    [.text(component)])
+            }
+            if let found { parent = found; continue }
+            guard create else { return nil }
+            try db.run("INSERT INTO keyword (parent_id, name) VALUES (?, ?);",
+                       [.optionalInteger(parent), .text(component)])
+            parent = db.lastInsertRowID
+        }
+        return parent
+    }
+
+    /// A keyword's own name, without its ancestors — what a sidecar's flat
+    /// `dc:subject` carries for it.
+    public func keywordName(id: Int64) throws -> String? {
+        try db.scalarText("SELECT name FROM keyword WHERE id = ?;", [.integer(id)])
+    }
+
+    /// The display path of one keyword, root first ("Places > Iceland").
+    private func keywordPath(id: Int64) throws -> String {
+        let names = try allRows("""
+        WITH RECURSIVE up(id, name, parent_id, depth) AS (
+          SELECT id, name, parent_id, 0 FROM keyword WHERE id = ?
+          UNION ALL
+          SELECT k.id, k.name, k.parent_id, up.depth + 1
+            FROM keyword k JOIN up ON k.id = up.parent_id
+           WHERE up.depth < 64
+        )
+        SELECT name FROM up ORDER BY depth DESC;
+        """, [.integer(id)]) { $0.string(0) ?? "" }
+        return KeywordPath.display(names)
+    }
+
+    /// The keywords on one photo, each as its display path — a root keyword is its bare
+    /// name, a nested one reads "Places > Iceland". The sidebar shows these and hands
+    /// them back to `removeKeyword`, which resolves the same spelling exactly.
     public func keywords(photoID: Int64) throws -> [String] {
-        try allRows("SELECT k.name FROM photo_keyword pk "
-                    + "JOIN keyword k ON k.id = pk.keyword_id "
-                    + "WHERE pk.photo_id = ? ORDER BY k.name;",
-                    [.integer(photoID)], { $0.string(0) ?? "" })
+        let ids = try allRows("SELECT keyword_id FROM photo_keyword WHERE photo_id = ?;",
+                              [.integer(photoID)]) { $0.int(0) }
+        return try ids.map { try keywordPath(id: $0) }.sorted()
     }
 
     /// Every keyword in the catalog with how many photos carry it.
@@ -3105,34 +3214,109 @@ public final class CatalogStore {
     /// used to show these numbers next to a chip that queries one folder, and they were
     /// out by two orders of magnitude on any catalog with more than one shoot in it.
     /// The bar's keyword counts come from `facetCounts(for:)` now; this is the
-    /// vocabulary only.
+    /// vocabulary only. Values are display paths; the count is the keyword's own
+    /// photographs, not its children's.
     public func allKeywords() throws -> [FacetValue] {
+        // One statement for the whole vocabulary, paths built root-down, rather than a
+        // walk up from every keyword: this runs on every folder open.
         try allRows("""
-        SELECT k.name, COUNT(pk.photo_id) FROM keyword k
-          LEFT JOIN photo_keyword pk ON pk.keyword_id = k.id
-         GROUP BY k.id ORDER BY k.name;
+        WITH RECURSIVE path(id, display) AS (
+          SELECT id, name FROM keyword WHERE parent_id IS NULL
+          UNION ALL
+          SELECT k.id, path.display || ' \(KeywordPath.separator) ' || k.name
+            FROM keyword k JOIN path ON k.parent_id = path.id
+        )
+        SELECT path.display,
+               (SELECT COUNT(*) FROM photo_keyword pk WHERE pk.keyword_id = path.id)
+          FROM path ORDER BY path.display;
         """, []) { FacetValue(value: $0.string(0) ?? "", count: Int($0.int(1))) }
     }
 
     /// Detaches a keyword from photos without deleting the keyword itself: a shoot
     /// vocabulary is worth keeping even when the last photo using a term is untagged.
+    ///
+    /// `name` is a display path as `keywords(photoID:)` gives it, or a plain name. A
+    /// plain name detaches every keyword of that name from these photos — the one the
+    /// photographer sees is the one on the photo, whatever branch it sits on.
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         if photoIDs.isEmpty { return }
+        let path = KeywordPath.parse(name)
+        guard !path.isEmpty else { return }
         try db.transaction {
-            guard let keywordID = try self.db.scalarInt(
-                "SELECT id FROM keyword WHERE name = ? LIMIT 1;", [.text(name)])
-            else { return }
+            var ids: [Int64] = []
+            if path.count == 1 {
+                ids = try self.allRows("SELECT id FROM keyword WHERE name = ?;",
+                                       [.text(path[0])]) { $0.int(0) }
+            } else if let id = try self.resolveKeyword(path, create: false) {
+                ids = [id]
+            }
+            guard !ids.isEmpty else { return }
             let statement = try self.db.prepare(
                 "DELETE FROM photo_keyword WHERE photo_id = ? AND keyword_id = ?;")
             for photoID in photoIDs {
-                statement.reset()
-                try statement.bind(1, photoID)
-                try statement.bind(2, keywordID)
-                try statement.run()
+                for keywordID in ids {
+                    statement.reset()
+                    try statement.bind(1, photoID)
+                    try statement.bind(2, keywordID)
+                    try statement.run()
+                }
             }
             statement.reset()
             for photoID in photoIDs { self.reindexText(photoID: photoID) }
         }
+    }
+
+    // MARK: Synonyms
+
+    /// Another word for a keyword (migration 4). Searching for it finds the keyword's
+    /// photographs, the keyword chip matches it, and typing it as a keyword tags the
+    /// keyword itself rather than minting a near-duplicate — Lightroom's synonyms.
+    /// Returns false for a blank synonym, for one that is the keyword's own name, and
+    /// for a keyword that does not exist.
+    @discardableResult
+    public func addSynonym(_ synonym: String, toKeyword keyword: String) throws -> Bool {
+        let word = synonym.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { return false }
+        return try db.transaction {
+            guard let id = try self.resolveKeyword(KeywordPath.parse(keyword), create: false),
+                  try self.db.scalarText("SELECT name FROM keyword WHERE id = ?;",
+                                         [.integer(id)]) != word else { return false }
+            try self.db.run("""
+            INSERT OR IGNORE INTO keyword_synonym (keyword_id, synonym) VALUES (?, ?);
+            """, [.integer(id), .text(word)])
+            try self.reindexPhotos(underKeyword: id)
+            return true
+        }
+    }
+
+    public func removeSynonym(_ synonym: String, fromKeyword keyword: String) throws {
+        try db.transaction {
+            guard let id = try self.resolveKeyword(KeywordPath.parse(keyword),
+                                                   create: false) else { return }
+            try self.db.run("DELETE FROM keyword_synonym WHERE keyword_id = ? AND synonym = ?;",
+                            [.integer(id), .text(synonym)])
+            try self.reindexPhotos(underKeyword: id)
+        }
+    }
+
+    public func synonyms(ofKeyword keyword: String) throws -> [String] {
+        guard let id = try resolveKeyword(KeywordPath.parse(keyword), create: false) else {
+            return []
+        }
+        return try allRows("SELECT synonym FROM keyword_synonym WHERE keyword_id = ? "
+                           + "ORDER BY synonym;", [.integer(id)]) { $0.string(0) ?? "" }
+    }
+
+    /// Re-index every photograph tagged with this keyword or anything below it: their
+    /// searchable text carries the keyword's synonyms and ancestors.
+    private func reindexPhotos(underKeyword id: Int64) throws {
+        let photos = try allRows("""
+        WITH RECURSIVE down(id) AS (
+          SELECT ? UNION SELECT k.id FROM keyword k JOIN down ON k.parent_id = down.id
+        )
+        SELECT DISTINCT pk.photo_id FROM photo_keyword pk JOIN down ON pk.keyword_id = down.id;
+        """, [.integer(id)]) { $0.int(0) }
+        for photo in photos { reindexText(photoID: photo) }
     }
 
     // MARK: - Stacks
@@ -3354,7 +3538,7 @@ public final class CatalogStore {
         JOIN photo_keyword pk ON pk.keyword_id = k.id
         JOIN photo ON photo.id = pk.photo_id
         \(scope)
-        GROUP BY k.id
+        GROUP BY k.name
         ORDER BY COUNT(DISTINCT photo.id) DESC, k.name
         LIMIT ?;
         """, parameters) { $0.string(0) ?? "" }
@@ -3860,12 +4044,24 @@ public final class CatalogStore {
             parameters.append(.integer(range.upperBound))
         }
         if !query.keywords.isEmpty {
+            // A chip names a keyword by its leaf. It matches that keyword, any keyword
+            // it is a synonym of, and everything filed below either — "Iceland" finds
+            // the frames tagged "Reykjavik" under it, which is the point of filing it
+            // there. Uncorrelated, so SQLite evaluates the closure once per query.
+            let leaves = query.keywords.map { KeywordPath.leaf($0) }
+            let marks = CatalogStore.placeholders(leaves.count)
             criteria.append("""
-            EXISTS (SELECT 1 FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
-                     WHERE pk.photo_id = photo.id
-                       AND k.name IN (\(CatalogStore.placeholders(query.keywords.count))))
+            EXISTS (SELECT 1 FROM photo_keyword pk
+                     WHERE pk.photo_id = photo.id AND pk.keyword_id IN (
+                       WITH RECURSIVE chosen(id) AS (
+                         SELECT id FROM keyword WHERE name IN (\(marks))
+                         UNION SELECT keyword_id FROM keyword_synonym WHERE synonym IN (\(marks))
+                         UNION SELECT k.id FROM keyword k JOIN chosen ON k.parent_id = chosen.id
+                       )
+                       SELECT id FROM chosen))
             """)
-            for keyword in query.keywords { parameters.append(.text(keyword)) }
+            for keyword in leaves { parameters.append(.text(keyword)) }
+            for keyword in leaves { parameters.append(.text(keyword)) }
         }
 
         switch query.stackState {
@@ -3931,11 +4127,20 @@ public final class CatalogStore {
                 (photo.filename LIKE ? OR photo.ext LIKE ? OR photo.camera LIKE ?
                  OR photo.lens LIKE ? OR photo.job LIKE ?
                  OR EXISTS (SELECT 1 FROM photo_keyword pk
-                              JOIN keyword k ON k.id = pk.keyword_id
-                             WHERE pk.photo_id = photo.id AND k.name LIKE ?))
+                             WHERE pk.photo_id = photo.id AND pk.keyword_id IN (
+                               WITH RECURSIVE hit(id) AS (
+                                 SELECT id FROM keyword WHERE name LIKE ?
+                                 UNION SELECT keyword_id FROM keyword_synonym
+                                        WHERE synonym LIKE ?
+                                 UNION SELECT k.id FROM keyword k
+                                         JOIN hit ON k.parent_id = hit.id
+                               )
+                               SELECT id FROM hit)))
                 """)
                 let pattern = "%" + text + "%"
-                for _ in 0..<6 { parameters.append(.text(pattern)) }
+                // Five columns, then a keyword's name and its synonyms — the same
+                // words, ancestors included, that the FTS row indexes.
+                for _ in 0..<7 { parameters.append(.text(pattern)) }
             }
         }
 
@@ -4079,15 +4284,38 @@ public final class CatalogStore {
         try db.transaction {
             _ = try self.db.run("DELETE FROM cache.photo_fts;")
             _ = try self.db.run("""
+            WITH RECURSIVE \(CatalogStore.keywordTermsCTE(onePhoto: false))
             INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
             SELECT p.id, p.filename, COALESCE(p.ext, ''),
                    COALESCE(p.camera, ''), COALESCE(p.lens, ''), COALESCE(p.job, ''),
-                   COALESCE((SELECT group_concat(k.name, ' ')
-                               FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
-                              WHERE pk.photo_id = p.id), '')
+                   COALESCE((SELECT group_concat(term, ' ') FROM terms t
+                              WHERE t.photo_id = p.id), '')
               FROM main.photo p;
             """)
         }
+    }
+
+    /// The searchable keyword words of a photograph: each keyword's own name, every
+    /// ancestor's name and every synonym of either. One spelling for the per-photo
+    /// re-index and the wholesale rebuild, so the two cannot index different words.
+    /// `onePhoto` binds the photo id as the statement's first parameter.
+    private static func keywordTermsCTE(onePhoto: Bool) -> String {
+        """
+        up(photo_id, id, name, parent_id, depth) AS (
+          SELECT pk.photo_id, k.id, k.name, k.parent_id, 0
+            FROM main.photo_keyword pk JOIN main.keyword k ON k.id = pk.keyword_id
+          \(onePhoto ? "WHERE pk.photo_id = ?" : "")
+          UNION
+          SELECT up.photo_id, k.id, k.name, k.parent_id, up.depth + 1
+            FROM main.keyword k JOIN up ON k.id = up.parent_id
+           WHERE up.depth < 64
+        ),
+        terms(photo_id, term) AS (
+          SELECT photo_id, name FROM up
+          UNION
+          SELECT up.photo_id, s.synonym FROM main.keyword_synonym s JOIN up ON s.keyword_id = up.id
+        )
+        """
     }
 
     /// NEVER THROWS. The text index is DERIVED DATA — every row in it is recomputable
@@ -4113,7 +4341,10 @@ public final class CatalogStore {
                      statement.string(2) ?? "", statement.string(3) ?? "",
                      statement.string(4) ?? "")
                 }) else { return }
-            let keywordList = try keywords(photoID: photoID).joined(separator: " ")
+            let keywordList = try db.scalarText("""
+            WITH RECURSIVE \(CatalogStore.keywordTermsCTE(onePhoto: true))
+            SELECT COALESCE(group_concat(term, ' '), '') FROM terms;
+            """, [.integer(photoID)]) ?? ""
             try db.run("DELETE FROM cache.photo_fts WHERE rowid = ?;", [.integer(photoID)])
             try db.run("""
             INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
@@ -4325,7 +4556,7 @@ public final class CatalogStore {
 
 public final class CatalogStore {
 
-    public static let latestSchemaVersion: Int = 3
+    public static let latestSchemaVersion: Int = 4
     public static let migrations: [CatalogMigration] = []
     public static let cacheMigrations: [CatalogMigration] = []
 
@@ -4582,6 +4813,17 @@ public final class CatalogStore {
     }
     public func keywords(photoID: Int64) throws -> [String] { throw CatalogError.unavailable }
     public func allKeywords() throws -> [FacetValue] { throw CatalogError.unavailable }
+    public func keywordName(id: Int64) throws -> String? { throw CatalogError.unavailable }
+    @discardableResult
+    public func addSynonym(_ synonym: String, toKeyword keyword: String) throws -> Bool {
+        throw CatalogError.unavailable
+    }
+    public func removeSynonym(_ synonym: String, fromKeyword keyword: String) throws {
+        throw CatalogError.unavailable
+    }
+    public func synonyms(ofKeyword keyword: String) throws -> [String] {
+        throw CatalogError.unavailable
+    }
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         throw CatalogError.unavailable
     }

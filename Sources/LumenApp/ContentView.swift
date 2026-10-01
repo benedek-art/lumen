@@ -346,6 +346,11 @@ private struct Sidebar: View {
     /// row itself, as in the look browser: it names what goes, Keep is first.
     @State private var pendingDeleteAlbumID: Int64?
     @State private var newKeyword: String = ""
+    /// The keyword a synonym is being typed for, and the draft — one inline field under
+    /// the keyword list, opened from the keyword's context menu.
+    @State private var synonymKeyword: String?
+    @State private var synonymDraft: String = ""
+    @FocusState private var synonymFieldFocused: Bool
     @FocusState private var keywordFieldFocused: Bool
     /// The album field's own focus. Nothing asks for it today — ⇧⌘K is the keyword
     /// field's chord and there is no album equivalent — but `SidebarEntryField` takes
@@ -826,7 +831,8 @@ private struct Sidebar: View {
     private var keywordEntry: some View {
         VStack(alignment: .leading, spacing: 4) {
             SidebarEntryField(placeholder: "Add keyword",
-                              actionHelp: "Add the keyword to the selection (Return)",
+                              actionHelp: "Add the keyword to the selection (Return). "
+                                  + "Type Parent > Child to file it in a hierarchy",
                               text: $newKeyword,
                               focus: $keywordFieldFocused, submit: addKeyword)
 
@@ -880,7 +886,25 @@ private struct Sidebar: View {
                         .foregroundStyle(Lumen.secondaryText)
                         .help("Remove \(word) from the selection")
                     }
+                    .contextMenu {
+                        Button("Add Synonym…") {
+                            synonymDraft = ""
+                            synonymKeyword = word
+                            synonymFieldFocused = true
+                        }
+                    }
                 }
+            }
+            if let target = synonymKeyword {
+                SidebarEntryField(placeholder: "Synonym for \(KeywordPath.leaf(target))",
+                                  actionHelp: "Searching or filtering for this word finds "
+                                      + "\(target) (Return)",
+                                  text: $synonymDraft,
+                                  focus: $synonymFieldFocused) {
+                    state.addSynonym(synonymDraft, toKeyword: target)
+                    synonymKeyword = nil
+                }
+                .onExitCommand { synonymKeyword = nil }
             }
         }
     }

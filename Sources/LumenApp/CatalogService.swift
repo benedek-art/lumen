@@ -666,8 +666,11 @@ final class CatalogService: @unchecked Sendable {
                                        store: CatalogStore) {
         guard let words = sidecar?.keywords, !words.isEmpty else { return }
         do {
+            // Against the catalog's LEAVES: the sidecar is flat, and "Iceland" in it is
+            // the "Places > Iceland" the catalog already has.
             let missing = SidecarKeywordImport.missing(
-                fromCatalog: try store.keywords(photoID: photoID), sidecar: words)
+                fromCatalog: try store.keywords(photoID: photoID).map(KeywordPath.leaf),
+                sidecar: words)
             for word in missing {
                 _ = try store.addKeyword(word, photoIDs: [photoID])
             }
@@ -1148,11 +1151,15 @@ final class CatalogService: @unchecked Sendable {
         // On the catalog's queue, after the row write, like every other sidecar
         // enqueue in this file: a sidecar is never told something the catalog was not.
         await onQueue("keyword write", fallback: ()) { [self] store in
-            _ = try store.addKeyword(name, photoIDs: ids)
+            let keywordID = try store.addKeyword(name, photoIDs: ids)
+            // The sidecar's `dc:subject` is flat: it gets the keyword's own name — not
+            // the "Places > Iceland" path that was typed, and not a synonym that was
+            // typed for it, but the keyword that was actually tagged.
+            let word = try store.keywordName(id: keywordID) ?? KeywordPath.leaf(name)
             for target in targets {
                 self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
                                     label: nil, recipe: nil,
-                                    keywordEdit: SidecarKeywordEdit(added: [name]))
+                                    keywordEdit: SidecarKeywordEdit(added: [word]))
             }
         }
     }
@@ -1166,8 +1173,15 @@ final class CatalogService: @unchecked Sendable {
             for target in targets {
                 self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
                                     label: nil, recipe: nil,
-                                    keywordEdit: SidecarKeywordEdit(removed: [name]))
+                                    keywordEdit: SidecarKeywordEdit(
+                                        removed: [KeywordPath.leaf(name)]))
             }
+        }
+    }
+
+    func addSynonym(_ synonym: String, toKeyword keyword: String) async -> Bool {
+        await onQueue("keyword synonym", fallback: false) {
+            try $0.addSynonym(synonym, toKeyword: keyword)
         }
     }
 

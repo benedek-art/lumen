@@ -246,7 +246,10 @@ final class SavedLookCatalogTests: XCTestCase {
 
         let raw = try SQLiteDatabase(path: directory.appendingPathComponent("lumen.db").path)
         defer { raw.close() }
-        XCTAssertEqual(try raw.userVersion(), 3, "the catalog is not at schema 3")
+        // At least 3, the migration that created the index — and exactly this build's
+        // latest, so a catalog that stopped migrating partway still fails here.
+        XCTAssertGreaterThanOrEqual(try raw.userVersion(), 3, "the catalog is not at schema 3")
+        XCTAssertEqual(try raw.userVersion(), CatalogStore.latestSchemaVersion)
         let sql = try raw.scalarText(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'look_identity';")
         guard let sql else { return XCTFail("look_identity index is missing") }

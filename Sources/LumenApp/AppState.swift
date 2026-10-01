@@ -2290,6 +2290,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Another word for a keyword: searching for it, filtering by it and typing it all
+    /// reach the keyword itself.
+    func addSynonym(_ synonym: String, toKeyword keyword: String) {
+        let word = synonym.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog, !word.isEmpty else { return }
+        Task { [weak self] in
+            let added = await catalog.addSynonym(word, toKeyword: keyword)
+            guard let self else { return }
+            self.statusMessage = added
+                ? "\"\(word)\" now finds \(keyword)"
+                : "\"\(word)\" was not added — it is blank or already \(keyword)'s name"
+            self.refreshLibrarySections()
+        }
+    }
+
     func removeKeyword(_ name: String) {
         let targets = editTargets.compactMap { item in
             item.catalogID.map { (id: $0, url: item.id) }
