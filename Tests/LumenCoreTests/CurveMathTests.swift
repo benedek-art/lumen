@@ -268,10 +268,16 @@ final class CurveMathTests: XCTestCase {
         let bands: [Double] = [420, 0, 0, 0, 0, 0, 0, 0]
         XCTAssertEqual(GroupMove.allowed(bands, requested: 10,
                                          lower: -100, upper: 100), 0)
-        XCTAssertEqual(GroupMove.moved(bands, by: -10, lower: -100, upper: 100),
-                       [100, -10, -10, -10, -10, -10, -10, -10],
-                       "the elementwise clamp is what pulls a hostile value back into "
-                       + "range once the row is touched")
+        // S-06: the first touch makes the set legal — 420 is clamped to its rail, which
+        // is what the row shows — and THEN moves it rigidly. The old answer here,
+        // [100, −10, …], clipped the out-of-range member mid-move: not rigid, and the
+        // way back was frozen at the rail.
+        let down = GroupMove.moved(bands, by: -10, lower: -100, upper: 100)
+        XCTAssertEqual(down, [90, -10, -10, -10, -10, -10, -10, -10],
+                       "a hostile value is pulled into range on first touch and then "
+                       + "moves with its set")
+        XCTAssertEqual(GroupMove.moved(down, by: 10, lower: -100, upper: 100),
+                       [100, 0, 0, 0, 0, 0, 0, 0], "and the way back is open")
     }
 
     func testTheMeanIsTheRowsRestingValue() {

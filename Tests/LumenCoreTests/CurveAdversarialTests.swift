@@ -259,18 +259,24 @@ final class CurveAdversarialTests: XCTestCase {
 
     // MARK: - GroupMove
 
-    /// To a rail and back must be the original array, bit for bit.
-    func testGroupMoveToARailAndBackIsBitForBit() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("Same ulp drift, stated as the bit-for-bit promise the header makes and the code does not keep. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
+    // S-06 — what these assert, and what they deliberately do not.
+    //
+    // They used to demand a group move be BIT-EXACT: a round trip returning the same
+    // doubles, every member shifted by the identical double. IEEE 754 cannot do that in
+    // general (`v + d − d` is not `v`), and the measured miss is a few ulps of a ±100
+    // slider — ≈1e−14, against a 0.05 display step. Demanding it would mislabel
+    // round-off as an image error. The contract `GroupMove.moved` states instead:
+    //
+    //   · from a legal set, a move is rigid and reversible to 1e-12 — which still fails
+    //     loudly on any real squeeze (the old per-band clamp missed by 50 units, a rail
+    //     clipping one member misses by at least the 0.01 grid these sets live on);
+    //   · zero is the one value where an ulp is visible — the Reset dot lights on
+    //     `!= 0` — so zero comes home EXACTLY;
+    //   · an illegal set (out of range, non-finite) is made legal on first touch,
+    //     coherently with what the row displays, and from then on is an ordinary set.
+
+    /// To a rail and back restores the set: within round-off everywhere, exactly at 0.
+    func testGroupMoveToARailAndBackRestoresTheSet() {
         var rng = SplitMix64(seed: 0x0123456789ABCDEF)
         var failures: [String] = []
         for _ in 0..<20000 {
@@ -284,20 +290,19 @@ final class CurveAdversarialTests: XCTestCase {
                                                 lower: -100, upper: 100)
                 let out = GroupMove.moved(values, by: request, lower: -100, upper: 100)
                 let back = GroupMove.moved(out, by: -applied, lower: -100, upper: 100)
-                for i in values.indices where back[i] != values[i] {
-                    let err = abs(back[i] - values[i])
-                    failures.append("round trip off by \(err): \(values[i]) -> "
-                                    + "\(back[i]) [\(values) by \(request), "
-                                    + "applied \(applied)]")
-                }
-                // rigid: every pairwise difference survives
                 for i in values.indices {
-                    let a = out[i] - values[i]
-                    let b = out[0] - values[0]
-                    if abs(a - b) > 1e-9 {
-                        failures.append("not rigid: \(values) by \(request) -> \(out)")
-                        break
+                    let err = abs(back[i] - values[i])
+                    if err > 1e-12 || (values[i] == 0 && back[i] != 0) {
+                        failures.append("round trip off by \(err): \(values[i]) -> "
+                                        + "\(back[i]) [\(values) by \(request), "
+                                        + "applied \(applied)]")
                     }
+                }
+                // rigid: every member moved by the same amount
+                for i in values.indices
+                where abs((out[i] - values[i]) - (out[0] - values[0])) > 1e-12 {
+                    failures.append("not rigid: \(values) by \(request) -> \(out)")
+                    break
                 }
             }
         }
@@ -306,18 +311,8 @@ final class CurveAdversarialTests: XCTestCase {
     }
 
     /// Rigidity on its own, for values that start inside the rails: every pairwise
-    /// difference must survive a group move exactly.
+    /// difference survives a group move to round-off.
     func testGroupMoveIsRigidForEveryInRangeSet() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("GroupMove's round trip is off by ulps on ordinary in-range sets, and ColorPanel's modified check is an exact != 0, so a band dragged out and back lights the Reset dot forever. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         var rng = SplitMix64(seed: 0x5EED5EED5EED5EED)
         var failures: [String] = []
         for _ in 0..<200000 {
@@ -329,7 +324,7 @@ final class CurveAdversarialTests: XCTestCase {
             let request = Double(Int(rng.next() % 100001) - 50000) / 100.0
             let out = GroupMove.moved(values, by: request, lower: -100, upper: 100)
             let shift = out[0] - values[0]
-            for i in values.indices where out[i] - values[i] != shift {
+            for i in values.indices where abs((out[i] - values[i]) - shift) > 1e-12 {
                 failures.append("\(values) by \(request) -> \(out): member \(i) "
                                 + "shifted \(out[i] - values[i]) not \(shift)")
             }
@@ -340,18 +335,9 @@ final class CurveAdversarialTests: XCTestCase {
 
     /// The mixer's Reset dot lights on `!= 0`. A band that starts at exactly 0 and is
     /// dragged out and back must come home to exactly 0, or the panel reports the photo
-    /// as modified for the rest of its life.
+    /// as modified for the rest of its life. This one stays EXACT: it is the case the
+    /// audit measured coming home as −7.1e−15.
     func testAZeroBandComesHomeToExactlyZero() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A group move is `value + shift`, and the way back is `- shift`: in IEEE754 that round trip is not the identity, so a band that starts at exactly 0 can come home at ~7e-15 and light the section's Reset dot forever. This is a FINDING, recorded rather than silenced — the fix is for the drag to carry the values it started from rather than re-deriving them, which is a change to the gesture and not to `GroupMove`. The test runs and prints its real worst case on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         var rng = SplitMix64(seed: 0x1BADB0021BADB002)
         var worst = 0.0
         var witness = ""
@@ -365,7 +351,7 @@ final class CurveAdversarialTests: XCTestCase {
                                             lower: -100, upper: 100)
             let out = GroupMove.moved(values, by: request, lower: -100, upper: 100)
             let back = GroupMove.moved(out, by: -applied, lower: -100, upper: 100)
-            if back[0] != 0 && abs(back[0]) > worst {
+            if back[0] != 0 && abs(back[0]) >= worst {
                 worst = abs(back[0])
                 witness = "0 came back as \(back[0]) after \(values) by \(request)"
             }
@@ -384,72 +370,72 @@ final class CurveAdversarialTests: XCTestCase {
         XCTAssertEqual(GroupMove.moved(down, by: 60, lower: -100, upper: 100), values)
     }
 
-    /// Values spread wider than the whole range, and values already outside it: the
-    /// stated contract is that a move is a rigid translation and that a hostile sidecar
-    /// can be dragged back into range rather than freezing the row.
+    /// A member already outside the range — only a foreign sidecar can write one. The
+    /// first touch clamps it to its rail (what the row then shows), and from there the
+    /// move is an ordinary rigid, reversible translation.
     func testGroupMoveOnValuesOutsideTheRange() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("The trailing elementwise clamp clips an out-of-range member on the way, so the translation is not rigid and not reversible — B3-01 itself, on the out-of-range path. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
-        // one value past the ceiling: dragging DOWN is allowed, so the result had
-        // better still be a rigid translation.
         let values: [Double] = [150, 0]
+        let legal = GroupMove.legal(values, lower: -100, upper: 100)
+        XCTAssertEqual(legal, [100, 0], "out of range is clamped to the rail")
         let down = GroupMove.moved(values, by: -10, lower: -100, upper: 100)
-        XCTAssertEqual(down[0] - down[1], values[0] - values[1], accuracy: 1e-9,
-                       "moved(\(values), by: -10) = \(down): the spread changed from "
-                       + "\(values[0] - values[1]) to \(down[0] - down[1])")
+        XCTAssertEqual(down[0] - down[1], legal[0] - legal[1], accuracy: 1e-12,
+                       "moved(\(values), by: -10) = \(down): the spread of the set the "
+                       + "row shows changed from \(legal[0] - legal[1]) to "
+                       + "\(down[0] - down[1])")
+        XCTAssertEqual(GroupMove.mean(down), GroupMove.mean(legal) - 10, accuracy: 1e-12,
+                       "the row's number did not move by what the drag asked")
         let back = GroupMove.moved(down, by: 10, lower: -100, upper: 100)
-        XCTAssertEqual(back, values, "\(values) -> \(down) -> \(back) is not reversible")
+        XCTAssertEqual(back, legal, "\(legal) -> \(down) -> \(back) is not reversible")
     }
 
-    /// A spread wider than the range, straddling both rails.
+    /// A spread wider than the range, straddling both rails: the first touch brings it
+    /// into range — not left outside it with every drag silently refused. Once legal
+    /// its spread IS the range, so it has nowhere to translate, which is true of the
+    /// legal set `[-100, 100]` too.
     func testGroupMoveOnASpreadWiderThanTheRange() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A set straddling both rails is frozen in both directions with no indication why, against a comment promising it can be dragged back. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         let values: [Double] = [-150, 150]
-        let up = GroupMove.allowed(values, requested: 10, lower: -100, upper: 100)
-        let down = GroupMove.allowed(values, requested: -10, lower: -100, upper: 100)
-        XCTAssertFalse(up == 0 && down == 0,
-                       "\(values) is frozen in BOTH directions (up \(up), down \(down)) "
-                       + "— the row cannot be dragged back into range")
+        for request in [10.0, -10.0] {
+            let out = GroupMove.moved(values, by: request, lower: -100, upper: 100)
+            XCTAssertEqual(out, [-100, 100],
+                           "\(values) by \(request) -> \(out): an out-of-range set must "
+                           + "come back legal, not untouched")
+        }
     }
 
     /// `mean` is what the row DISPLAYS and `moved` is what the row DOES. They must agree
-    /// about which sets are live: a set the row shows a number for must be draggable.
+    /// about which sets are live: a set the row shows a number for must be draggable,
+    /// and the drag must move that number by what was asked. NaN is latent — JSON
+    /// cannot carry it and the recipe decoder refuses it (below) — but the two halves
+    /// read it the same way regardless.
     func testMeanAndMovedAgreeAboutWhichSetsAreLive() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("mean treats NaN as 0 and shows a number while allowed refuses every drag. Latent: no decoder in the tree admits NaN. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         let withNaN: [Double] = [10, Double.nan, -10, 0, 0, 0, 0, 0]
         let shown = GroupMove.mean(withNaN)
         XCTAssertTrue(shown.isFinite, "premise: the row displays \(shown)")
+        XCTAssertEqual(GroupMove.mean(GroupMove.legal(withNaN, lower: -100, upper: 100)),
+                       shown, "the row's number is the legal set's mean")
         let moved = GroupMove.moved(withNaN, by: 5, lower: -100, upper: 100)
         let headroom = GroupMove.allowed(withNaN, requested: 5, lower: -100, upper: 100)
-        XCTAssertNotEqual(moved, withNaN,
-                          "the row displays \(shown) but every drag is refused: "
-                          + "allowed() = \(headroom)")
+        XCTAssertTrue(moved.allSatisfy(\.isFinite),
+                      "the row displays \(shown) but the drag kept a NaN: \(moved)")
+        XCTAssertEqual(GroupMove.mean(moved), shown + 5, accuracy: 1e-12,
+                       "the row displays \(shown) but the drag did not move it by 5: "
+                       + "\(moved), allowed() on the raw set = \(headroom)")
+    }
+
+    /// NaN is refused where it would enter: the recipe decoder. A sidecar carrying one
+    /// in a mixer band does not decode, while the same document with a number does —
+    /// so the refusal is about the NaN, not the shape.
+    func testANaNMixerBandIsRefusedOnDecode() throws {
+        func json(_ hue: String) -> Data {
+            Data("{\"develop\":{\"mixer\":{\"bands\":[{\"hue\":\(hue),\"sat\":0,\"lum\":0}]}}}"
+                .utf8)
+        }
+        let ok = try CanonicalJSON.decodeRecipe(from: json("12.5"))
+        XCTAssertEqual(ok.develop.mixer.bands.first?.hue, 12.5, "premise: the shape decodes")
+        for poison in ["NaN", "nan", "Infinity", "-Infinity", "1e400"] {
+            XCTAssertThrowsError(try CanonicalJSON.decodeRecipe(from: json(poison)),
+                                 "a mixer band of \(poison) decoded")
+        }
     }
 
     func testMeanOnAnEmptySetAndAnAllNaNSet() {
