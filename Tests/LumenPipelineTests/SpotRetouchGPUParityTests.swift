@@ -133,6 +133,49 @@ final class SpotRetouchGPUParityTests: XCTestCase {
                        input.pixels)
     }
 
+    /// Inside the box as well: every pixel no spot's alpha reaches — the box's corners,
+    /// and everything outside it — is the input's own bytes, in every case at every size.
+    /// The first macOS run found the kernel's opaque margin smeared over the whole frame
+    /// (a general kernel's extent is a promise of clear outside it, not a crop);
+    /// `SpotRetouchCoreImageModelTests` holds the trace. Counted, not asserted per pixel,
+    /// so a regression reports once per case rather than sixty thousand times.
+    func testPixelsNoSpotReachesAreTheInputsOwnBytes() throws {
+        try XCTSkipUnless(KernelLibrary.retouchAvailable, "covered by the compile test")
+        for size in sizes {
+            let input = scene(size.w, size.h)
+            for (name, spots) in cases() {
+                let gpu = try XCTUnwrap(readBack(RenderGraph.applySpots(ciImage(input),
+                                                                       spots: spots),
+                                                 width: size.w, height: size.h))
+                let geometry = spots.compactMap {
+                    SpotRetouch.resolve($0, width: size.w, height: size.h)
+                }
+                XCTAssertEqual(geometry.count, spots.count)
+                var checked = 0, moved = 0
+                var first: (Int, Int)?
+                for y in 0..<size.h {
+                    for x in 0..<size.w {
+                        let reached = geometry.contains { s in
+                            let qx = (Double(x) + 0.5 - s.cx) / s.radius
+                            let qy = (Double(y) + 0.5 - s.cy) / s.radius
+                            return SpotRetouch.alpha(rho: (qx * qx + qy * qy).squareRoot(),
+                                                     rin: s.rin, opacity: s.opacity) > 0
+                        }
+                        guard !reached else { continue }
+                        checked += 1
+                        if gpu[x, y] != input[x, y] {
+                            moved += 1
+                            if first == nil { first = (x, y) }
+                        }
+                    }
+                }
+                XCTAssertGreaterThan(checked, size.w * size.h / 2)
+                XCTAssertEqual(moved, 0, "\(name) @\(size.w)x\(size.h): \(moved) pixels no "
+                                   + "spot reaches moved, first at \(String(describing: first))")
+            }
+        }
+    }
+
     /// S5 sits before S6 in the graph, as in the reference: the colour-stage input of a
     /// recipe with a spot is the colour-stage input, without the spot, of the retouched
     /// picture. (`maskSource` so S3 does not run, which would put a stage between them on
