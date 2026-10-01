@@ -2010,6 +2010,11 @@ struct MaskPanel: View {
                 ? "Vision found no person in this frame. Try a brush, or Subject."
                 : "Vision found no clear subject in this frame. Try a brush, or a "
                     + "Colour Pick on what you meant."
+        case .unavailable:
+            badge = "ORIGINAL UNREADABLE"
+            text = "Vision works from the original file, and it cannot be read — "
+                + "a disconnected drive, or a file this Mac cannot decode. The mask "
+                + "selects nothing until the original is back."
         case .needsModel:
             // The badge is the whole message. Every kind that reaches this case has
             // left the picker (`visionKinds`, `rangeKinds`), so the only way to be
@@ -2026,7 +2031,8 @@ struct MaskPanel: View {
         return HStack(spacing: 6) {
             if !badge.isEmpty {
                 LumenBadge(text: badge,
-                           emphasized: status == .needsModel || status == .notFound)
+                           emphasized: status == .needsModel || status == .notFound
+                               || status == .unavailable)
             }
             Text(text)
                 .font(.lumenCaption).foregroundStyle(Lumen.secondaryText)

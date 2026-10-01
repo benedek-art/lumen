@@ -774,6 +774,10 @@ final class AppState: ObservableObject {
     /// replaced from its answer on every pass and dropped when it says a file was
     /// evicted; nothing here decides on its own that a pass can be skipped.
     private var attemptedMattes: [URL: Set<String>] = [:]
+    /// Files whose last matte pass could not read the original. Published because
+    /// nothing else that changes with it is: a pass that cannot run changes neither
+    /// the available nor the attempted set, so the panel would never re-body to say so.
+    @Published private(set) var unreadableMatteSources: Set<URL> = []
     private var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
@@ -791,6 +795,8 @@ final class AppState: ObservableObject {
         case notFound
         /// Needs a Core ML model that is not bundled.
         case needsModel
+        /// Vision has nothing to look at: the original could not be read or decoded.
+        case unavailable
     }
 
     func matteStatus(for kind: MaskKind) -> MatteStatus {
@@ -805,8 +811,11 @@ final class AppState: ObservableObject {
             // NOTHING FOUND about a kind added after the pass ran — a specific,
             // actionable error message about a request that was never issued, which is
             // worse than a vague one.
-            return (attemptedMattes[url] ?? []).contains(kind.rawValue)
-                ? .notFound : .working
+            if (attemptedMattes[url] ?? []).contains(kind.rawValue) { return .notFound }
+            // Not attempted and not pending used to mean WORKING unconditionally, and a
+            // pass that cannot run is never pending and never attempts anything — so
+            // an original on an ejected volume said "Computing" forever (F5-09).
+            return unreadableMatteSources.contains(url) ? .unavailable : .working
         }
     }
 
@@ -883,6 +892,10 @@ final class AppState: ObservableObject {
             }
         }
         attemptedMattes[url] = pass.attempted
+        if pass.sourceUnavailable != unreadableMatteSources.contains(url) {
+            if pass.sourceUnavailable { unreadableMatteSources.insert(url) }
+            else { unreadableMatteSources.remove(url) }
+        }
         let before = availableMattes[url]
         if pass.available.isEmpty {
             if before != nil { availableMattes.removeValue(forKey: url) }

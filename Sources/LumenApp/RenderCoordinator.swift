@@ -73,6 +73,11 @@ struct MattePass: Sendable {
     /// Files whose mattes are gone. Any entry a caller holds for one of these is now a
     /// lie and must be dropped, not refreshed.
     let evicted: [URL]
+    /// The pass had kinds to produce and could not run, because the original could not
+    /// be read or decoded. Without it "not attempted, not pending" could only mean
+    /// WORKING, and the panel said "Computing on this Mac" forever about a file on an
+    /// ejected volume (audit F5-09).
+    var sourceUnavailable: Bool = false
 }
 
 actor RenderCoordinator {
@@ -563,19 +568,24 @@ actor RenderCoordinator {
     /// fast path costs.
     func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
         let missing = missingMatteKinds(url: url, recipe: recipe)
-        if !missing.isEmpty,
-           let source = try? self.source(for: url),
-           let picture = renderer.matteSourceImage(source: source) {
-            let produced = await VisionMatteWorker.shared.mattes(image: picture,
-                                                                kinds: missing)
-            record(evicted: renderer.storeMattes(
-                produced, requested: Set(missing.map { $0.rawValue }), for: url))
+        var unavailable = false
+        if !missing.isEmpty {
+            if let source = try? self.source(for: url),
+               let picture = renderer.matteSourceImage(source: source) {
+                let produced = await VisionMatteWorker.shared.mattes(image: picture,
+                                                                    kinds: missing)
+                record(evicted: renderer.storeMattes(
+                    produced, requested: Set(missing.map { $0.rawValue }), for: url))
+            } else {
+                unavailable = true
+            }
         }
         let dropped = evictedMattes.subtracting([url])
         evictedMattes.removeAll()
         return MattePass(available: renderer.matteKinds(for: url),
                          attempted: renderer.attemptedMatteKinds(for: url),
-                         evicted: Array(dropped))
+                         evicted: Array(dropped),
+                         sourceUnavailable: unavailable)
     }
 
     /// Decode a photograph nobody has asked for yet, so that when they do, the file is

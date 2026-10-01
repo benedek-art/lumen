@@ -77,6 +77,30 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertEqual(forgotten, 1, "a same-path replacement must still forget")
     }
 
+    func testAMattePassThatCannotReadTheOriginalSaysSoInsteadOfWorking() async throws {
+        // F5-09: "not attempted, not pending" was always WORKING, and a pass that cannot
+        // build its source attempts nothing — so the panel said "Computing" forever.
+        let root = try scratch()
+        var recipe = Recipe()
+        recipe.masks = [Mask(id: "subject",
+                             components: [MaskComponent(op: .add, kind: .aiSubject)])]
+        let coordinator = RenderCoordinator()
+        let gone = await coordinator.ensureMattes(url: root.appendingPathComponent("gone.png"),
+                                                  recipe: recipe)
+        XCTAssertTrue(gone.sourceUnavailable, "a missing original must be reported")
+        XCTAssertTrue(gone.attempted.isEmpty)
+        let readable = root.appendingPathComponent("here.png")
+        try write(pixels(width: 64, height: 48), to: readable)
+        let here = await coordinator.ensureMattes(url: readable, recipe: recipe)
+        XCTAssertFalse(here.sourceUnavailable, "a readable original is not unavailable")
+        XCTAssertFalse(here.attempted.isEmpty, "and the pass actually ran")
+        var none = Recipe()
+        none.masks = [Mask(id: "radial", components: [MaskComponent(op: .add, kind: .radial)])]
+        let idle = await coordinator.ensureMattes(url: root.appendingPathComponent("gone.png"),
+                                                  recipe: none)
+        XCTAssertFalse(idle.sourceUnavailable, "a pass with nothing to make reads nothing")
+    }
+
     func testRapidSameByteSizeImageReplacementWithRestoredMTimeRefreshesPixels() async throws {
         let root = try scratch()
         let url = root.appendingPathComponent("source.tif")
