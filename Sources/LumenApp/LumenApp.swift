@@ -300,6 +300,13 @@ private struct LumenCommands: Commands {
                             state.toggleAssessmentMode()
                         }
                         .keyboardShortcut("b", modifiers: [.command])
+                        // The loupe's HDR preview (docs/11 §"The EDR editing
+                        // viewport"). A toggle with no key and a fixed title: its state
+                        // is `LoupeViewport`'s, which this scene does not observe, so
+                        // the loupe's own HDR badge is what says it is on. docs/11
+                        // gives the SDR-proof direction ⌥H; which way round the key
+                        // should read is the owner's call, not this slice's.
+                        Button("HDR Preview") { LoupeViewport.shared.toggleHDRPreview() }
                     }
                 }
             }

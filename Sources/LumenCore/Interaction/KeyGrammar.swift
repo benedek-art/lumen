@@ -116,14 +116,15 @@ public enum KeyGrammar {
                   + "the cursor in the loupe"),
             KeyRow(keys: "Esc",
                    action: "Leave what you are inside — a focused slider, then masking, "
-                       + "then the crop tool (putting its framing back), then back to "
-                       + "the grid"),
+                       + "then the Heal tool, then the crop tool (putting its framing "
+                       + "back), then back to the grid"),
         ]),
         KeyGroup(title: "Culling", rows: [
             KeyRow(keys: "P", action: "Pick"),
             KeyRow(keys: "X", action: "Reject"),
             KeyRow(keys: "U", action: "Unflag"),
-            KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask"),
+            KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask; "
+                  + "while healing, delete the selected spot"),
             KeyRow(keys: "1–5", action: "Rating"),
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
@@ -156,6 +157,11 @@ public enum KeyGrammar {
             // presses of a key the dispatcher already claims, told apart by the
             // interval between them (`CropTool.noteArming`).
             KeyRow(keys: "R R", action: "Reset the crop and stay in the tool"),
+            // docs/12 §12.3's `Q`, unclaimed until the retouch stage existed. Bare, so it
+            // is a dispatcher key and `dispatchedKeys` carries it.
+            KeyRow(keys: "Q",
+                   action: "Heal tool: click a blemish to heal it, drag a spot's circle or "
+                       + "its source; again to put it away"),
             KeyRow(keys: "⇧S", action: "Soft proof through the destination space"),
             KeyRow(keys: "\\", action: "Before / after, full frame"),
             KeyRow(keys: "Y", action: "Before / after, side by side"),
@@ -254,7 +260,7 @@ public enum KeyGrammar {
         // Flags, ratings, labels
         "p", "x", "u", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-",
         // Editing and panels
-        "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f",
+        "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f", "q",
         // Zoom and thumbnail size
         "z", "=", "+", "[", "]",
     ]

@@ -2370,11 +2370,11 @@ public final class CatalogStore {
         // claiming semantics this build does not have — and the next older build to
         // open the catalog would then demote a row that is, in fact, its own.
         //
-        // `min`, not `currentPipelineVersion` outright: an OLDER recipe must keep
+        // `min`, not `supportedPipelineVersion` outright: an OLDER recipe must keep
         // reporting its own age, which is what migrations read and what
         // `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` pins.
         let storedPipelineVersion = Swift.min(recipe.pipelineVersion,
-                                              currentPipelineVersion)
+                                              supportedPipelineVersion)
 
         return try db.transaction {
             if isCurrent {
@@ -2416,7 +2416,7 @@ public final class CatalogStore {
             if let id = editID,
                let rowVersion = try self.db.scalarInt(
                    "SELECT pipeline_version FROM edit WHERE id = ?;", [.integer(id)]),
-               rowVersion > Int64(currentPipelineVersion) {
+               rowVersion > Int64(supportedPipelineVersion) {
                 try self.db.run("""
                 UPDATE edit SET kind = 'version', is_current = 0,
                   name = COALESCE(name, ?) WHERE id = ?;

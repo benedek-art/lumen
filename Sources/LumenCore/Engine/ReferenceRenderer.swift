@@ -38,6 +38,16 @@ public enum ReferenceRenderer {
         var image = input
         let longEdge = Swift.max(image.width, image.height)
 
+        // S5 — retouch: heal and clone spots, on the scene-linear decode, so every
+        // stage below sees the retouched picture (docs/14 §2.1 rule 3). The input has
+        // been through S3 upstream of this call, which is where S5 sits. Guarded on the
+        // list rather than left to `apply`'s loop so a recipe without spots does not
+        // even pass through it.
+        let spots = plan.recipe.develop.heal.spots
+        if !spots.isEmpty {
+            image = SpotRetouch.apply(image, spots: spots)
+        }
+
         // S6 — the fused linear matrix.
         if !plan.linear.isIdentity {
             let matrix = plan.linear.matrix
@@ -489,9 +499,12 @@ public enum ReferenceRenderer {
 
         let energy = image.map { profile.highlightEnergy($0) }
         var glow = ImageBuffer(width: image.width, height: image.height)
-        var weight = 1.0
         var contributed = false
-        for sigma in profile.sigmasInPixels where sigma > 0 {
+        // The raw dyadic SHAPE, with the normalization in `combine`'s `fieldGain`
+        // (N-006): the glow is `strength` times a unit-sum field, and the f32 field
+        // accumulates exactly as it always has.
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
+        where sigma > 0 {
             let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
             for y in 0..<glow.height {
                 for x in 0..<glow.width {
@@ -499,7 +512,6 @@ public enum ReferenceRenderer {
                 }
             }
             contributed = true
-            weight *= profile.decay
         }
         guard contributed else { return image }
 

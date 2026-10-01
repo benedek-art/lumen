@@ -302,7 +302,10 @@ final class AppState: ObservableObject {
         }
     }
     @Published var selection: Set<URL> = [] {
-        didSet { selectedPhotosCache = nil }
+        didSet {
+            selectedPhotosCache = nil
+            if selection != oldValue { refreshSelectionFrames() }
+        }
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
@@ -380,6 +383,49 @@ final class AppState: ObservableObject {
     func noteFrameTransposed(_ transposed: Bool) {
         guard primaryFrameTransposed != transposed else { return }
         primaryFrameTransposed = transposed
+    }
+
+    /// The catalog's frame for each selected photograph, for the framing writes that fan
+    /// out over a multi-selection (S-11 / KG-01). Read when the selection changes; a
+    /// photograph missing from it has its framing left alone rather than computed
+    /// against some other photograph's frame.
+    private var selectionFrames: [URL: BatchFraming.Frame] = [:]
+    private var selectionFramesGeneration: UInt64 = 0
+
+    private func refreshSelectionFrames() {
+        selectionFramesGeneration &+= 1
+        let generation = selectionFramesGeneration
+        let ids = selectedPhotos.compactMap { photo in photo.catalogID.map { (photo.id, $0) } }
+        guard let catalog, ids.count > 1 else {
+            selectionFrames = [:]
+            return
+        }
+        Task { [weak self] in
+            let frames = await catalog.frames(photoIDs: ids.map(\.1))
+            guard let self, self.selectionFramesGeneration == generation else { return }
+            var byURL: [URL: BatchFraming.Frame] = [:]
+            for (url, id) in ids { if let frame = frames[id] { byURL[url] = frame } }
+            self.selectionFrames = byURL
+        }
+    }
+
+    /// The frame a framing write should be computed against for ONE target.
+    ///
+    /// The primary's is the decoded, orientation-reconciled `sourceFrameSize`, exactly
+    /// as before; until that lands, the catalog's, then the caller's own fallback (the
+    /// crop panel's assumed 3:2, the loupe's delivered image). Every other target gets
+    /// its OWN catalog frame or nil — never the primary's, which is the defect.
+    func framingFrame(for photo: PhotoItem,
+                      primaryFallback: BatchFraming.Frame? = nil) -> BatchFraming.Frame? {
+        if photo.id == primarySelection?.id {
+            if let size = sourceFrameSize,
+               let frame = BatchFraming.Frame(width: Double(size.width),
+                                              height: Double(size.height)) {
+                return frame
+            }
+            return selectionFrames[photo.id] ?? primaryFallback
+        }
+        return selectionFrames[photo.id]
     }
 
     var primaryFrameAspect: Double? {
@@ -1692,17 +1738,22 @@ final class AppState: ObservableObject {
     /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
     /// an approximation of what those calls did — it is the same comparison, memoised.
     /// `RollCursor` verifies its own answer against the roll it is handed (the length
-    /// matches and the photograph is still standing at the remembered index) before it
-    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
-    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
-    /// that cannot be checked in constant time.
+    /// matches and the photograph is still standing at the remembered index) AND
+    /// against `rollRevision`, which changes every time `photos` is rebuilt — the
+    /// verification alone could not tell the first copy of a duplicated URL from a later
+    /// one, so the answer depended on the cursor's history (S-08).
     private var rollCursor = RollCursor()
+
+    /// Bumped each time `photos` is rebuilt, which is the only way the roll's contents
+    /// change. Every `RollCursor` over this roll keys its memo on it.
+    private(set) var rollRevision: UInt64 = 0
 
     /// The index of `photo` in the roll as it stands, or nil when the roll no longer
     /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
     func rollIndex(of photo: PhotoItem) -> Int? {
         let list = photos
-        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+        return rollCursor.index(of: photo.id, inRollOf: list.count,
+                                revision: rollRevision) { list[$0].id }
     }
 
     func invalidatePhotoCache() {
@@ -1771,6 +1822,7 @@ final class AppState: ObservableObject {
         if let photoCache { return photoCache }
         let built = buildPhotos()
         photoCache = built
+        rollRevision &+= 1
         return built
     }
 
