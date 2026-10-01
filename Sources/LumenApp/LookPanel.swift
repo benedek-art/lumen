@@ -177,6 +177,7 @@ struct LookPanel: View {
             // attached to one — and because the alternative, rendering it nowhere,
             // silently deletes a control the tab strip had.
             if renders(.looks) {
+                lutSection
                 transformSection
             }
             if renders(.filmLab) {
@@ -189,6 +190,100 @@ struct LookPanel: View {
     /// asked for the whole panel, which is the tab's own behaviour.
     private func renders(_ section: WorkspaceSection) -> Bool {
         only == nil || only == section
+    }
+
+    // MARK: - Creative LUT
+
+    /// A user `.cube` on this photograph's look: choose one, set how much of it lands,
+    /// take it off. The rendering is `CreativeLUTStage`; the bytes are in the catalog's
+    /// blob store under the file's own hash, and the recipe carries only that hash.
+    ///
+    /// THE HEADER'S OWN VERB IS THE CHOOSER (`LumenSectionHeader.onAction`), the shape
+    /// the sources sidebar settled: the entry point is in the lead row, always visible,
+    /// and with no LUT on the photograph the header is the whole section — no empty-state
+    /// sentence underneath it. Remove is a word on the LUT's own row rather than only the
+    /// hover Reset, because taking a look off is a decision, not a correction.
+    ///
+    /// Interpretation is the spec's second control (docs/05 "LUT import"): the space the
+    /// cube expects, which is also where it runs — after the display transform for a
+    /// display LUT, before it for a log one. Display is the default because almost every
+    /// LUT in circulation is authored on an SDR picture.
+    private var lutSection: some View {
+        let lut = state.currentRecipe.look.lut
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
+            LumenSectionHeader(title: "Creative LUT",
+                               isExpanded: nil,
+                               isModified: lut != nil,
+                               onReset: { removeLUT() },
+                               resetHelp: "Take the LUT off this photograph",
+                               onAction: { state.chooseCreativeLUT() },
+                               actionHelp: lut == nil
+                                   ? "Choose a 3-D .cube LUT for this look"
+                                   : "Replace this LUT with another .cube file",
+                               topRhythm: innerRhythm)
+            if let lut {
+                HStack(spacing: 6) {
+                    Text(lut.name.isEmpty ? "Unnamed LUT" : lut.name)
+                        .font(.lumenBody)
+                        .foregroundStyle(Lumen.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Button { removeLUT() } label: {
+                        Text("Remove").font(.lumenCaptionStrong)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .help("Take the LUT off this photograph. The file stays in the "
+                          + "catalog, so Undo brings it straight back.")
+                }
+                .frame(height: Lumen.rowHeight)
+
+                LumenSegmented(options: [(value: LUTReference.Tap.display, label: "Display"),
+                                         (value: LUTReference.Tap.log, label: "Log")],
+                               selection: lutTapBinding)
+                    .help("The space this LUT expects. Display: an sRGB picture, applied "
+                          + "after the display transform — what most LUTs are made for. "
+                          + "Log: Lumen's fixed log encoding of the scene, applied before "
+                          + "the transform.")
+
+                LumenSlider(title: "Amount", value: lutAmountBinding,
+                            range: 0...100, hardRange: nil,
+                            defaultValue: 100, step: 1, decimals: 0, bipolar: false,
+                            help: "How much of the LUT lands — 100 is the file as it was "
+                                + "made, 0 is the picture without it. A LUT is a baked "
+                                + "rendition: it does not get Film Lab's exposure "
+                                + "latitude; for that, use a stock.")
+            }
+        }
+    }
+
+    private func removeLUT() {
+        state.updateRecipe(label: "Remove LUT") { $0.look.lut = nil }
+    }
+
+    /// Amount, through the optional slot. A write with no LUT present is dropped rather
+    /// than inventing a reference with nothing to reference.
+    private var lutAmountBinding: Binding<Double> {
+        let state = self.state
+        return Binding(
+            get: { state.currentRecipe.look.lut?.amount ?? 100 },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: "look.lut.amount") { recipe in
+                    recipe.look.lut?.amount = newValue
+                }
+            })
+    }
+
+    private var lutTapBinding: Binding<LUTReference.Tap> {
+        let state = self.state
+        return Binding(
+            get: { state.currentRecipe.look.lut?.tap ?? .display },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: "look.lut.tap") { recipe in
+                    recipe.look.lut?.tap = newValue
+                }
+            })
     }
 
     // MARK: - Saved looks
