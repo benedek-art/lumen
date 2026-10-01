@@ -1242,18 +1242,28 @@ public final class PipelineRenderer {
             // makes checking and publication ONE filesystem operation, including a
             // destination created by another process while we encoded. Replacement
             // requires an explicit opt-in; normal batch exports never opt in.
-            let flags = allowOverwrite ? UInt32(0) : UInt32(RENAME_EXCL)
-            let result = partial.withUnsafeFileSystemRepresentation { from in
-                destination.withUnsafeFileSystemRepresentation { to in
-                    renamex_np(from!, to!, flags)
+            //
+            // RENAME_EXCL is only promised on APFS and HFS+. On exFAT/FAT cards, SMB
+            // and NFS it can answer ENOTSUP or EINVAL, and that used to fail every
+            // export to them. `ExclusivePublish` (LumenCore, tested with injected
+            // ENOTSUP) falls back on exactly those answers to a hard link, then to an
+            // O_EXCL claim of the name — both refuse an existing file just as
+            // RENAME_EXCL does. Its error carries the reason, which the batch's status
+            // line names.
+            let flags = UInt32(RENAME_EXCL)
+            let calls = ExclusivePublish.Syscalls(renameExclusive: { partial, destination in
+                let result = partial.withUnsafeFileSystemRepresentation { from in
+                    destination.withUnsafeFileSystemRepresentation { to in
+                        renamex_np(from!, to!, flags)
+                    }
                 }
-            }
-            guard result == 0 else {
-                throw RenderError.writeFailed(destination)
-            }
+                return result == 0 ? 0 : errno
+            })
+            try ExclusivePublish.publish(partial, as: destination,
+                                         allowOverwrite: allowOverwrite, using: calls)
         } catch {
             try? FileManager.default.removeItem(at: partial)
-            throw RenderError.writeFailed(destination)
+            throw error
         }
     }
 

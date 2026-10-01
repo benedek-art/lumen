@@ -44,10 +44,18 @@
 // the yardstick was. It went unseen for three commits because `test-fast` was being killed
 // at its 15-minute ceiling and a timed-out job is reported as `cancelled`, not `failure`.
 //
-// Rendering both engines in one process removes the portability problem and makes the
-// claim stronger at the same time: it measures the property rather than a number somebody
-// transcribed. The commit that introduced the constant said this property was "verified" —
-// it was verified on Linux only, and that is the whole of what went wrong.
+// Rendering both engines in one process removes the portability problem. It does NOT make
+// the claim stronger, and this comment used to say it did. Say exactly what it pins:
+// `forcingJointScale: 1` renders `(…) * lumScale * 1`, which is bit-equal to the shipping
+// render whenever `jointScale == 1.0`, and the loop inside the test already asserts
+// `jointScale == 1.0` at accuracy 0 for all 312 recipes. So the hash comparison can only
+// fail when that assertion has already failed. What survives is the property that
+// matters — "the joint factor is exactly 1 on every single-tool recipe", which is what
+// Astra AI-11 asks for in this same-process form — and not a pin of the tree before
+// 4903db2: a change elsewhere in the grade that moved every single-tool render would move
+// both hashes together and pass. The commit that introduced the constant said this
+// property was "verified" — it was verified on Linux only, and that is the whole of what
+// went wrong with the constant.
 
 import XCTest
 @testable import LumenCore
@@ -305,7 +313,10 @@ final class GradeJointLimiterTests: XCTestCase {
         }
         // The PRE-FIX engine, rebuilt in this process on this machine rather than
         // recalled from a constant. `forcingJointScale: 1` displaces exactly one value —
-        // `solveJointScale`'s result — so this IS the tree before the correction existed.
+        // `solveJointScale`'s result — so this is the joint step as it was before the
+        // correction existed, on today's tree. It agrees with the in-loop
+        // `jointScale == 1.0` assertion by construction (see the file header); it does
+        // not, and cannot, notice a change elsewhere that moves both renders together.
         let preFix = Self.identityHash(recipes, probes: Self.probes(),
                                        forcingJointScale: 1)
         XCTAssertEqual(hash, preFix,

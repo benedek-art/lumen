@@ -1343,7 +1343,13 @@ struct LoupeView: View {
             // photographer double-clicked an eye is the same defect `Space` was fixed
             // for. `toggleZoom(at:)` is the verb every other zoom source already uses,
             // so the anchoring rule stays in one place.
+            //
+            // GATED like the other three (V7 D3). It was the only viewer gesture with no
+            // guard, so under an armed Crop it zoomed a canvas that ignores zoom, and
+            // during masking or a pick a quick second click toggled the zoom under the
+            // tool. `ViewerGestureGate` (LumenCore, tested) holds the rule.
             .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { value in
+                guard gestureGate.doubleClickZoom else { return }
                 viewport.toggleZoom(at: value.location)
             })
             .onContinuousHover(coordinateSpace: .local) { phase in
@@ -1541,7 +1547,7 @@ struct LoupeView: View {
     @MainActor
     private func warmNeighbours() {
         state.thumbnails.prefetch(around: photo.id,
-                                  in: state.photos,
+                                  in: state.photos, revision: state.rollRevision,
                                   size: ThumbnailLadder.loupeInstantPixels,
                                   surface: .loupe)
     }
@@ -1949,20 +1955,17 @@ struct LoupeView: View {
     /// (docs/31 #10). The Angle slider's binding in `CropPanel` does the same, so all
     /// three hands turn the same mechanism; the shared coalescing key keeps any of
     /// them one undo step.
+    ///
+    /// PER TARGET (S-11 / KG-01): with several photographs selected each carries its
+    /// own crop through the angle against its OWN frame (`AppState.framingFrame`), and
+    /// one whose frame is not known is left alone. The delivered image stands in for
+    /// the primary's frame only until its decoded size lands, as it always did.
     private func applyRotation(_ angle: Double) {
-        let source: CGSize = sourceFrameSize
-            ?? model.image.map { CGSize(width: $0.width, height: $0.height) }
-            ?? .zero
-        state.updateRecipe(coalescingKey: "straighten") { recipe in
-            if source.width > 0, source.height > 0 {
-                recipe.develop.geometry.crop = CropGeometry.reangled(
-                    recipe.develop.geometry.crop,
-                    sourceWidth: Double(source.width),
-                    sourceHeight: Double(source.height),
-                    from: recipe.develop.geometry.angle, to: angle)
-            }
-            recipe.develop.geometry.angle = angle
+        let delivered = model.image.flatMap {
+            BatchFraming.Frame(width: Double($0.width), height: Double($0.height))
         }
+        CropSection.applyFraming(.angle(angle), key: "straighten", state: state,
+                                 primaryFallback: delivered)
     }
 
     /// The image itself, honouring the before/after presentation that shares this
@@ -2200,6 +2203,14 @@ struct LoupeView: View {
         !cropArmed && !panel.layout.isMasking && state.pickTarget == nil
     }
 
+    /// What the four pointer gestures may do right now — one rule, in LumenCore, so the
+    /// drag, the pinch, the wheel and the double-click cannot drift apart again.
+    private var gestureGate: ViewerGestureGate {
+        ViewerGestureGate(cropArmed: cropArmed,
+                          masking: panel.layout.isMasking,
+                          picking: state.pickTarget != nil)
+    }
+
     /// Ends the hold: the canvas re-states itself at the live zoom and one render is
     /// asked for at the size now on screen. Called the instant a pinch ends, and
     /// `ZoomLayoutHold.quietNanoseconds` after the last change of any other zoom.
@@ -2330,7 +2341,7 @@ struct LoupeView: View {
                 // The crop canvas ignores zoom and pan, so a drag that fell past the
                 // overlay must not scrub `zoomLevel` invisibly — the number would sit
                 // there, unseen, until the tool was put away and the picture jumped.
-                guard !cropArmed else { return }
+                guard gestureGate.continuous else { return }
                 guard let cg = model.image else { return }
                 // A DRAG PANS. Always, at every zoom, with no mode to be in.
                 //
@@ -2374,7 +2385,7 @@ struct LoupeView: View {
         MagnifyGesture()
             .onChanged { value in
                 // Same guard as the scrub above: the armed canvas is fit-only.
-                guard !cropArmed else { return }
+                guard gestureGate.continuous else { return }
                 guard let cg = model.image else { return }
                 let start = pinchStartZoom ?? viewport.zoom
                 if pinchStartZoom == nil { pinchStartZoom = start }
@@ -2401,7 +2412,7 @@ struct LoupeView: View {
     private func applyScroll(_ verb: ViewerScroll.Verb, container: CGSize) {
         // The crop canvas ignores zoom and pan (`cropCanvas`), so a scroll over it
         // must not move either invisibly — the same guard the scrub and the pinch use.
-        guard !cropArmed else { return }
+        guard gestureGate.continuous else { return }
         switch verb {
         case .zoom(let factor):
             guard let cg = model.image else { return }
@@ -2703,7 +2714,13 @@ struct LoupeView: View {
         return Binding(
             get: { state.recipe(for: photo).develop.geometry.crop },
             set: { newValue in
-                state.updateRecipe(coalescingKey: "crop") { recipe in
+                // THIS PHOTOGRAPH ONLY (S-11 / KG-01). The rectangle is dragged on one
+                // picture, as fractions of that picture's usable frame; stamped on the
+                // rest of a multi-selection it was a different pixel shape on every
+                // frame of another aspect, its padlock still reading locked. Framing by
+                // hand is a per-photograph gesture — the argument `CropTool.revert`
+                // already makes — so the drag writes the photograph it is drawn on.
+                state.updateRecipe(coalescingKey: "crop", targets: [photo]) { _, recipe in
                     recipe.develop.geometry.crop = newValue
                 }
             }

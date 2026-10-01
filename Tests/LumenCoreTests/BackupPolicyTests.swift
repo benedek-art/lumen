@@ -243,6 +243,9 @@ final class BackupPolicyTests: XCTestCase {
         XCTAssertEqual(Set(plan.retained).union(plan.victims), Set(names),
                        "\(label): a name went missing from the plan",
                        file: file, line: line)
+        XCTAssertEqual(plan.retained.count + plan.victims.count, Set(names).count,
+                       "\(label): a name is both kept and deleted, or listed twice",
+                       file: file, line: line)
 
         if names.isEmpty {
             XCTAssertTrue(plan.retained.isEmpty, "\(label)", file: file, line: line)

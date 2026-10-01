@@ -560,23 +560,7 @@ final class ExportPresetListDecodeTests: XCTestCase {
             .deletingLastPathComponent().appendingPathComponent("Sources/LumenApp")
         var src = try String(contentsOf: root.appendingPathComponent("AppState.swift"),
                              encoding: .utf8)
-        // comment strip
-        var out = ""; var i = src.startIndex; var block = false
-        while i < src.endIndex {
-            let rest = src[i...]
-            if block {
-                if rest.hasPrefix("*/") { block = false; i = src.index(i, offsetBy: 2) }
-                else { i = src.index(after: i) }
-                continue
-            }
-            if rest.hasPrefix("/*") { block = true; i = src.index(i, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while i < src.endIndex, src[i] != "\n" { i = src.index(after: i) }
-                continue
-            }
-            out.append(src[i]); i = src.index(after: i)
-        }
-        src = out
+        src = blankingComments(in: src)
 
         XCTAssertTrue(src.contains("ExportRecipe.decodeList("),
                       "loadExportRecipes must decode element by element; an atomic array "

@@ -518,6 +518,7 @@ final class CatalogTests: XCTestCase {
         let matched = try store.photos(matching: disjoint, folderID: folderID).map(\.id)
         XCTAssertEqual(Set(matched), Set([ids[0], ids[3], ids[2]]),
                        "disjoint ISO bands did not stay disjoint")
+        XCTAssertEqual(matched.count, 3, "an OR of two bands returned a photo twice")
         XCTAssertFalse(matched.contains(ids[1]),
                        "ISO 6400 sits in the gap between the two lit bands and was "
                            + "returned anyway — the bands were collapsed to their span")
@@ -693,8 +694,8 @@ final class CatalogTests: XCTestCase {
                                (photoID: ids[2], metadata: PhotoMetadata(camera: "Leica Q3"))])
         var leica = PhotoQuery()
         leica.text = "leica"
-        XCTAssertEqual(Set(try store.photos(matching: leica, folderID: folderID).map(\.id)),
-                       Set([ids[1], ids[2]]),
+        XCTAssertEqual(try store.photos(matching: leica, folderID: folderID).map(\.id).sorted(),
+                       [ids[1], ids[2]].sorted(),
                        "the batch metadata writer left the text index behind")
 
         // And the row it replaced must be gone: re-indexing has to be a replace, not

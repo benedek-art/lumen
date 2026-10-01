@@ -351,6 +351,9 @@ private struct Sidebar: View {
     /// rather than `keywordEntry` because this struct already has a `keywordEntry`
     /// view below.
     @ObservedObject private var keywordRequests = KeywordEntry.shared
+    /// ⇧⌘K asked for the caret while the section was CLOSED, so the field it wants is
+    /// not mounted yet. Consumed by the field's own `.onAppear` (V7 D2).
+    @State private var keywordFocusPending = false
 
     // Expansion is `@AppStorage`, deliberately, and never a published field on
     // `AppState` (docs/28 §5.5): it persists for free and it invalidates this column
@@ -688,16 +691,32 @@ private struct Sidebar: View {
             // pins in `LumenApp.swift`.
             if keywordsExpanded {
                 keywordEntry
+                    // THE CARET LANDS AFTER THE FIELD EXISTS (V7 D2). Opening the
+                    // section and focusing the field in one update wrote `@FocusState`
+                    // for a TextField that was not mounted yet, and such a write is
+                    // commonly dropped: ⇧⌘K on the closed section (it ships closed)
+                    // opened it with no caret. The request is parked until the field
+                    // appears, and the focus is set on the next runloop turn, once the
+                    // field is in the window.
+                    .onAppear {
+                        guard keywordFocusPending else { return }
+                        keywordFocusPending = false
+                        DispatchQueue.main.async { keywordFieldFocused = true }
+                    }
                 keywords
             }
         }
         // ⇧⌘K asked for the cursor. The Scene has already shown this column; opening
-        // the section is this view's half of the job, because `keywordEntry` is drawn
-        // whether or not the section is expanded but a collapsed section is a strange
-        // place to land a caret.
+        // the section is this view's half of the job, because the field lives inside
+        // the fold and a collapsed section is a strange place to land a caret.
         .onChange(of: keywordRequests.requests) { _, _ in
-            keywordsExpanded = true
-            keywordFieldFocused = true
+            if keywordsExpanded {
+                // Already mounted: the caret can land now.
+                keywordFieldFocused = true
+            } else {
+                keywordFocusPending = true
+                keywordsExpanded = true
+            }
         }
     }
 

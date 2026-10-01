@@ -302,7 +302,10 @@ final class AppState: ObservableObject {
         }
     }
     @Published var selection: Set<URL> = [] {
-        didSet { selectedPhotosCache = nil }
+        didSet {
+            selectedPhotosCache = nil
+            if selection != oldValue { refreshSelectionFrames() }
+        }
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
@@ -380,6 +383,49 @@ final class AppState: ObservableObject {
     func noteFrameTransposed(_ transposed: Bool) {
         guard primaryFrameTransposed != transposed else { return }
         primaryFrameTransposed = transposed
+    }
+
+    /// The catalog's frame for each selected photograph, for the framing writes that fan
+    /// out over a multi-selection (S-11 / KG-01). Read when the selection changes; a
+    /// photograph missing from it has its framing left alone rather than computed
+    /// against some other photograph's frame.
+    private var selectionFrames: [URL: BatchFraming.Frame] = [:]
+    private var selectionFramesGeneration: UInt64 = 0
+
+    private func refreshSelectionFrames() {
+        selectionFramesGeneration &+= 1
+        let generation = selectionFramesGeneration
+        let ids = selectedPhotos.compactMap { photo in photo.catalogID.map { (photo.id, $0) } }
+        guard let catalog, ids.count > 1 else {
+            selectionFrames = [:]
+            return
+        }
+        Task { [weak self] in
+            let frames = await catalog.frames(photoIDs: ids.map(\.1))
+            guard let self, self.selectionFramesGeneration == generation else { return }
+            var byURL: [URL: BatchFraming.Frame] = [:]
+            for (url, id) in ids { if let frame = frames[id] { byURL[url] = frame } }
+            self.selectionFrames = byURL
+        }
+    }
+
+    /// The frame a framing write should be computed against for ONE target.
+    ///
+    /// The primary's is the decoded, orientation-reconciled `sourceFrameSize`, exactly
+    /// as before; until that lands, the catalog's, then the caller's own fallback (the
+    /// crop panel's assumed 3:2, the loupe's delivered image). Every other target gets
+    /// its OWN catalog frame or nil — never the primary's, which is the defect.
+    func framingFrame(for photo: PhotoItem,
+                      primaryFallback: BatchFraming.Frame? = nil) -> BatchFraming.Frame? {
+        if photo.id == primarySelection?.id {
+            if let size = sourceFrameSize,
+               let frame = BatchFraming.Frame(width: Double(size.width),
+                                              height: Double(size.height)) {
+                return frame
+            }
+            return selectionFrames[photo.id] ?? primaryFallback
+        }
+        return selectionFrames[photo.id]
     }
 
     var primaryFrameAspect: Double? {
@@ -1692,17 +1738,22 @@ final class AppState: ObservableObject {
     /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
     /// an approximation of what those calls did — it is the same comparison, memoised.
     /// `RollCursor` verifies its own answer against the roll it is handed (the length
-    /// matches and the photograph is still standing at the remembered index) before it
-    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
-    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
-    /// that cannot be checked in constant time.
+    /// matches and the photograph is still standing at the remembered index) AND
+    /// against `rollRevision`, which changes every time `photos` is rebuilt — the
+    /// verification alone could not tell the first copy of a duplicated URL from a later
+    /// one, so the answer depended on the cursor's history (S-08).
     private var rollCursor = RollCursor()
+
+    /// Bumped each time `photos` is rebuilt, which is the only way the roll's contents
+    /// change. Every `RollCursor` over this roll keys its memo on it.
+    private(set) var rollRevision: UInt64 = 0
 
     /// The index of `photo` in the roll as it stands, or nil when the roll no longer
     /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
     func rollIndex(of photo: PhotoItem) -> Int? {
         let list = photos
-        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+        return rollCursor.index(of: photo.id, inRollOf: list.count,
+                                revision: rollRevision) { list[$0].id }
     }
 
     func invalidatePhotoCache() {
@@ -1771,6 +1822,7 @@ final class AppState: ObservableObject {
         if let photoCache { return photoCache }
         let built = buildPhotos()
         photoCache = built
+        rollRevision &+= 1
         return built
     }
 
@@ -2430,23 +2482,66 @@ final class AppState: ObservableObject {
     /// very common word — the surface checker caught the collision immediately, which is
     /// the cheapest possible moment to learn it.
     func openSources(_ urls: [URL]) {
-        let directories = urls.filter { Self.isDirectory($0) }
-        let files = urls.filter { !Self.isDirectory($0) }
-
-        // The overwhelmingly common case, and the one that behaves exactly as before.
-        if directories.count == 1, files.isEmpty {
-            openFolder(directories[0])
-            return
+        // `SourceOpening` (LumenCore, tested) decides; this acts. Only file URLs of a
+        // type Lumen opens, or directories, count — a dropped web link or a stray
+        // `.txt` is not a source (V7 D7).
+        switch SourceOpening.plan(urls, extensions: Self.browsableExtensions,
+                                  isDirectory: { Self.isDirectory($0) }) {
+        case .nothing:
+            // NOTHING TO OPEN LEAVES THE ROLL ALONE. This guard existed and was lost
+            // when expansion moved off the main actor (b8d6d4f); without it a web link
+            // closed the open folder, opened an empty roll at the link's path, and
+            // remembered that for the next launch.
+            statusMessage = Self.nothingToOpenMessage
+        case .folder(let folder):
+            // The overwhelmingly common case, and the one that behaves exactly as before.
+            openFolder(folder)
+        case .files(let root, let files):
+            openFolder(root, restrictedTo: files)
+        case .expand(let root, let sources):
+            // A directory among the sources is expanded OFF the main actor — on the main
+            // thread it is the freeze `scan`'s own header exists to prevent ("a card with
+            // 5,000 frames must not freeze the window while it is enumerated"). And the
+            // roll on screen is not touched until the walk has said there is something
+            // to open: an empty answer keeps the open folder and says so, instead of
+            // replacing it with nothing.
+            let extensions = Self.browsableExtensions
+            let generation = scanGeneration
+            statusMessage = "Scanning…"
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let found = Self.expand(sources, extensions: extensions)
+                await MainActor.run {
+                    // Another open started meanwhile: that one is what the user wants.
+                    guard let self, self.scanGeneration == generation else { return }
+                    guard case .files(let expandedRoot, let files)? =
+                            SourceOpening.expansionOutcome(root: root, found: found) else {
+                        self.statusMessage = Self.nothingToOpenMessage
+                        return
+                    }
+                    self.openFolder(expandedRoot, restrictedTo: files)
+                }
+            }
         }
-        guard !urls.isEmpty else { return }
-        guard let root = Self.commonParent(of: urls) else { return }
-        // The chosen list is handed on WHOLE — directories included — and expanded off
-        // the main actor. Expanding here would have been a synchronous recursive
-        // enumeration on the main thread, which is the freeze `scan`'s own header exists
-        // to prevent: "a card with 5,000 frames must not freeze the window while it is
-        // enumerated". Choosing a folder alongside a few loose frames is exactly the
-        // case that would have hit it.
-        openFolder(root, restrictedTo: Set(urls))
+    }
+
+    static let nothingToOpenMessage = "Nothing there Lumen can open"
+
+    /// Every photograph a set of sources names: a file as itself (when Lumen opens its
+    /// type), a directory as everything under it. Sorted the way a scan sorts, so the
+    /// grid's initial order does not depend on which door the photographs came through.
+    nonisolated static func expand(_ sources: Set<URL>, extensions: Set<String>) -> [URL] {
+        var explicit: Set<URL> = []
+        for source in sources {
+            if isDirectory(source) {
+                explicit.formUnion(scan(url: source, extensions: extensions))
+            } else if extensions.contains(source.pathExtension.lowercased()) {
+                explicit.insert(source)
+            }
+        }
+        return explicit.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                == .orderedAscending
+        }
     }
 
     nonisolated static func isDirectory(_ url: URL) -> Bool {
@@ -2456,21 +2551,7 @@ final class AppState: ObservableObject {
     /// The deepest directory that contains every one of them. Nil only for an empty
     /// list — two paths on different volumes still share `/`.
     nonisolated static func commonParent(of urls: [URL]) -> URL? {
-        guard let first = urls.first else { return nil }
-        var common = (isDirectory(first) ? first : first.deletingLastPathComponent())
-            .standardizedFileURL.pathComponents
-        for url in urls.dropFirst() {
-            let parts = (isDirectory(url) ? url : url.deletingLastPathComponent())
-                .standardizedFileURL.pathComponents
-            var shared: [String] = []
-            for (a, b) in zip(common, parts) {
-                guard a == b else { break }
-                shared.append(a)
-            }
-            common = shared
-        }
-        guard !common.isEmpty else { return nil }
-        return URL(fileURLWithPath: NSString.path(withComponents: common), isDirectory: true)
+        SourceOpening.commonParent(of: urls, isDirectory: { isDirectory($0) })
     }
 
     // MARK: Reopening the last folder
@@ -2509,10 +2590,24 @@ final class AppState: ObservableObject {
         // folder — otherwise choosing six frames and relaunching would present the
         // three thousand they were chosen out of.
         let remembered = UserDefaults.standard.stringArray(forKey: Self.lastFolderFilesKey) ?? []
-        let files = Set(remembered.map { URL(fileURLWithPath: $0) })
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-        openFolder(url, restrictedTo: files.isEmpty ? nil : Set(files))
+        // `SourceOpening.relaunch` (LumenCore, tested) decides. A remembered selection
+        // with nothing left must NOT become "no restriction": the remembered folder is
+        // the picked files' common parent, which can be the home folder or `/` (V7 D6).
+        switch SourceOpening.relaunch(remembered: remembered,
+                                      exists: { FileManager.default.fileExists(atPath: $0) }) {
+        case .folder:
+            openFolder(url)
+        case .files(let files):
+            openFolder(url, restrictedTo: files)
+        case .nothing:
+            // The empty state, and a line saying why. The memory is kept rather than
+            // cleared: the files may be on a volume that is not mounted yet.
+            statusMessage = Self.pickedSetGoneMessage
+        }
     }
+
+    static let pickedSetGoneMessage =
+        "The photographs open last time are no longer there — choose what to open"
 
     /// The chosen files, when the last roll was an explicit set rather than a folder.
     ///
@@ -2585,20 +2680,8 @@ final class AppState: ObservableObject {
             // "this folder and those three from next door" is one roll. Sorted the way a
             // scan sorts, so the grid's initial order does not depend on which door the
             // photographs came through.
-            let found: [URL] = restriction.map { chosen in
-                var explicit: Set<URL> = []
-                for source in chosen {
-                    if Self.isDirectory(source) {
-                        explicit.formUnion(Self.scan(url: source, extensions: extensions))
-                    } else if extensions.contains(source.pathExtension.lowercased()) {
-                        explicit.insert(source)
-                    }
-                }
-                return explicit.sorted {
-                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
-                        == .orderedAscending
-                }
-            } ?? Self.scan(url: url, extensions: extensions)
+            let found: [URL] = restriction.map { Self.expand($0, extensions: extensions) }
+                ?? Self.scan(url: url, extensions: extensions)
             // Registration is thousands of SQL round-trips and a sidecar read per
             // file. It stays out here, on this thread: it used to run inside the
             // main-actor hop, which stopped the run loop for the whole of a 5,000

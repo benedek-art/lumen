@@ -452,11 +452,44 @@ public struct ClassicalDenoise: Sendable {
 
     // MARK: Named constants (the calibration surface, docs/07 §12.6)
 
-    /// 5 levels ⇒ 31 px support at the deepest band, the top of the 4–5 band the 24 px S3
-    /// halo allows (docs/07 §12.3).
+    /// 5 levels: the deepest band's own B3 step reaches 32 px, and the stack as a whole
+    /// reaches `receptiveField(levels: 5)` = 79 px once the hot-pixel pass and the blotch
+    /// filter are counted (docs/07 §12.3).
     public static let defaultLevels: Int = 5
     /// Hardest level count the engine will honour, so a bad caller cannot blow the halo.
     public static let maximumLevels: Int = 6
+
+    /// How far, in pixels, one output pixel of `apply` reads from its input — the halo a
+    /// tile of this stage needs for its valid region to equal the untiled frame.
+    ///
+    /// Counted along the longest dependency chain, which both paths share (the GPU
+    /// stage's `roiCallback`s add up to the same number):
+    ///
+    ///  - the hot-pixel pass, a 3×3 neighbourhood: 1;
+    ///  - the à-trous stack: level `j` smooths with a five-tap B3 row whose taps sit
+    ///    `2^j` apart, so it reaches `2·2^j`, and level `j` smooths level `j−1`'s output.
+    ///    Summed over `levels` bands: `2^(levels+1) − 2` — 62 at five levels. The edge
+    ///    maps the shrinkage reads run beside the stack, not after it, so they count
+    ///    only when they reach further (three radius-1 box passes and a central
+    ///    difference: 4, which only a one-level stack does not cover);
+    ///  - the blotch pass, a guided filter: one box of `blotchRadius` to form the
+    ///    coefficients and a second to average them, so `2·blotchRadius` — 16.
+    ///
+    /// It was declared as 24 px in docs/14 §6.3 (and as `TilePlan.classicOverlap`)
+    /// from the deepest band's support alone, which is a third of the real reach. On a
+    /// structured ISO 6400 frame a 24 px apron moved seam pixels by 1.6e-5 (small: the
+    /// reconstruction is exact whatever a band's border sees, and only the shrunk part
+    /// of a coarse band depends on it), where this apron reproduces the frame exactly —
+    /// `testTilingTheStageOnItsOwnApronReproducesTheWholeFrame`.
+    /// `levels` is clamped the way `SpatialOps.atrousWavelet` clamps it.
+    public static func receptiveField(levels: Int) -> Int {
+        let l = Swift.min(Swift.max(levels, 1), 10)
+        let hotPixel = 1
+        let atrous = (1 << (l + 1)) - 2
+        let edge = SpatialOps.boxRadiiForGaussian(sigma: edgeBlurSigma).reduce(0, +) + 1
+        let blotch = 2 * blotchRadius
+        return hotPixel + Swift.max(atrous, edge) + blotch
+    }
 
     /// The `noiseScale` (= s² for a decode at linear scale s) at or below which the
     /// classical bands stop running — see `scaled(noiseScale:)` for the argument and
@@ -1583,9 +1616,12 @@ public struct TilePlan: Sendable {
     /// measured compile + throughput test settles it. Overlap is S2's declared 32 px halo.
     public static let aiTile: Int = 768
     public static let aiOverlap: Int = 32
-    /// S3 defaults: docs/14's 2048 px classical export tiles with the declared 24 px halo.
+    /// S3 defaults: docs/14's 2048 px classical export tiles, with the halo the stage
+    /// actually reaches. It was a declared 24 px, a third of that reach; derived now, so
+    /// a change to the stack's depth or the blotch radius moves the apron with it.
     public static let classicTile: Int = 2048
-    public static let classicOverlap: Int = 24
+    public static let classicOverlap: Int =
+        ClassicalDenoise.receptiveField(levels: ClassicalDenoise.defaultLevels)
 
     public init(width: Int, height: Int, tile: Int, overlap: Int) {
         self.width = Swift.max(width, 0)

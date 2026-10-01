@@ -122,6 +122,9 @@ struct FilmstripView: View {
 
     var body: some View {
         let photos = state.photos
+        // Read AFTER `photos`, whose getter is what bumps it: the pair has to describe
+        // one roll, or the prefetch memo is keyed on a revision its array is not (S-08).
+        let rollRevision = state.rollRevision
         let spacing = Self.spacing
         let padding = Self.padding
         let pixels = Self.pixels
@@ -161,7 +164,7 @@ struct FilmstripView: View {
                     // The roll itself, not a fresh array of its URLs — see the grid's
                     // `onChange` for what that projection cost per key repeat.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos, size: pixels,
+                                              in: photos, revision: rollRevision, size: pixels,
                                               surface: stripSurface)
                 }
                 .onChange(of: state.primarySelection?.id) { _, id in
@@ -200,7 +203,7 @@ struct FilmstripView: View {
                             }
                         }
                     }
-                    state.thumbnails.prefetch(around: id, in: photos,
+                    state.thumbnails.prefetch(around: id, in: photos, revision: rollRevision,
                                               size: pixels, surface: stripSurface)
                 }
             }

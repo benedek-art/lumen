@@ -366,7 +366,13 @@ extension AppState {
                             reducedKernels.formUnion(missing)
                         }
                     } catch {
-                        failures.append(job.url.lastPathComponent + " → " + exportRecipe.name)
+                        // WITH THE REASON when there is one a photographer can act on
+                        // (V6 note 2): a name that appeared during the export, a volume
+                        // that cannot publish without risking an overwrite, and a
+                        // refused contact all used to read as the same bare failure.
+                        let reason = ExclusivePublish.statusReason(for: error)
+                        failures.append(job.url.lastPathComponent + " → " + exportRecipe.name
+                                            + (reason.map { ": " + $0 } ?? ""))
                     }
                     completed += 1
                     let progress = completed / total

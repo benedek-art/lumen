@@ -204,5 +204,71 @@ final class AuditStateSafetyTests: XCTestCase {
             XCTAssertEqual(afterFullScan?.count, 1, "A complete scan must still notice actual deletion")
         }
     }
+
+    /// V7 D6: a remembered picked set whose files are all gone must not reopen as an
+    /// unrestricted scan of their common parent (which can be ~ or /).
+    @MainActor
+    func testRelaunchWithEveryPickedFileGoneOpensNothing() async throws {
+        try await withState(quitInBody: true) { state, root in
+            let a = root.appendingPathComponent("day1/a.png")
+            let b = root.appendingPathComponent("day2/b.png")
+            let bystander = root.appendingPathComponent("elsewhere/c.png")
+            try png(a); try png(b); try png(bystander)
+            state.openSources([a, b])
+            try await scanned(state)
+            XCTAssertEqual(state.allPhotos.count, 2)
+            state.prepareToQuit()
+
+            try FileManager.default.removeItem(at: a)
+            try FileManager.default.removeItem(at: b)
+            let relaunched = AppState(catalogDirectory: { root.appendingPathComponent("catalog2") },
+                                      previewDirectory: { root.appendingPathComponent("previews2") })
+            defer { relaunched.prepareToQuit() }
+            relaunched.reopenLastFolder()
+            XCTAssertNil(relaunched.folderURL,
+                         "the vanished selection reopened as a scan of its root")
+            XCTAssertFalse(relaunched.isScanning)
+            XCTAssertEqual(relaunched.statusMessage, AppState.pickedSetGoneMessage)
+        }
+    }
+
+    /// V7 D7: a dropped web link, or a folder with nothing Lumen opens in it plus a
+    /// stray file, must not replace the open roll or be remembered for the next launch.
+    @MainActor
+    func testNothingOpenableLeavesTheOpenRollAndTheMemoryAlone() async throws {
+        try await withState { state, root in
+            let folder = root.appendingPathComponent("photos")
+            try png(folder.appendingPathComponent("a.png"))
+            state.openFolder(folder)
+            try await scanned(state)
+            let remembered = UserDefaults.standard.data(forKey: "lumen.lastFolder.bookmark")
+
+            state.openSources([try XCTUnwrap(URL(string: "https://example.com/y"))])
+            XCTAssertEqual(state.folderURL, folder, "a web link replaced the open folder")
+            XCTAssertEqual(state.statusMessage, AppState.nothingToOpenMessage)
+
+            // Two directories with no photographs in them, beside a file Lumen does not
+            // open: only the off-main walk can say they are empty, and it must say so
+            // without having replaced the roll first. (ONE folder on its own is still
+            // the plain folder open it always was, empty or not.)
+            let empty = root.appendingPathComponent("empty")
+            let alsoEmpty = root.appendingPathComponent("also-empty")
+            for directory in [empty, alsoEmpty] {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
+            let notes = root.appendingPathComponent("notes.txt")
+            try Data("x".utf8).write(to: notes)
+            state.statusMessage = ""
+            state.openSources([empty, alsoEmpty, notes])
+            for _ in 0..<500 where state.statusMessage != AppState.nothingToOpenMessage {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTAssertEqual(state.statusMessage, AppState.nothingToOpenMessage)
+            XCTAssertEqual(state.folderURL, folder, "an empty expansion replaced the open folder")
+            XCTAssertEqual(state.allPhotos.count, 1)
+            XCTAssertEqual(UserDefaults.standard.data(forKey: "lumen.lastFolder.bookmark"), remembered,
+                           "a refused open was remembered for the next launch")
+        }
+    }
 }
 #endif
