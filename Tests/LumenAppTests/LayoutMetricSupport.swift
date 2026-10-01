@@ -193,7 +193,7 @@ enum PanelChain {
     /// readout column — `.padding(.leading, valueWidth + 6)` inside a
     /// `diameter + 2 × (valueWidth + 6)` frame — which means the groove comes out
     /// exactly as wide as the wheel is, by construction rather than by eye. 150 is the
-    /// diameter `LookPanel.swift:788` asks for.
+    /// diameter `LookPanel.swift:800` asks for.
     static let gradeWheelDiameter: CGFloat = 150
     /// The same bar in the mask panel's compact four-up, which cannot pay the
     /// counterweight (two captioned bars would overrun a 272 pt column), so the row sits
@@ -430,26 +430,26 @@ enum SliderInventory {
         SliderSpec("Shadows", "BasicPanel.swift:529", .developTop, -100...100, step: 1),
         SliderSpec("Whites", "BasicPanel.swift:536", .developTop, -100...100, step: 1),
         SliderSpec("Blacks", "BasicPanel.swift:544", .developTop, -100...100, step: 1),
-        SliderSpec("Texture", "BasicPanel.swift:566", .developTop, -100...100, step: 1),
-        SliderSpec("Clarity", "BasicPanel.swift:582", .developTop, -100...100, step: 1),
-        SliderSpec("Dehaze", "BasicPanel.swift:589", .developTop, -100...100, step: 1),
-        SliderSpec("Vibrance", "BasicPanel.swift:662", .developTop, -100...100, step: 1),
-        SliderSpec("Saturation", "BasicPanel.swift:669", .developTop, -100...100, step: 1),
-        SliderSpec("Density", "BasicPanel.swift:682", .developTop, 0...100, step: 1),
-        SliderSpec("Protect Skin", "BasicPanel.swift:693", .developTop, 0...100, step: 1),
+        SliderSpec("Texture", "BasicPanel.swift:579", .developTop, -100...100, step: 1),
+        SliderSpec("Clarity", "BasicPanel.swift:595", .developTop, -100...100, step: 1),
+        SliderSpec("Dehaze", "BasicPanel.swift:602", .developTop, -100...100, step: 1),
+        SliderSpec("Vibrance", "BasicPanel.swift:675", .developTop, -100...100, step: 1),
+        SliderSpec("Saturation", "BasicPanel.swift:682", .developTop, -100...100, step: 1),
+        SliderSpec("Density", "BasicPanel.swift:695", .developTop, 0...100, step: 1),
+        SliderSpec("Protect Skin", "BasicPanel.swift:706", .developTop, 0...100, step: 1),
 
         // Colour — mixer, point colour, black and white.
         SliderSpec("Hue", "ColorPanel.swift:162", .developTop, -100...100, step: 1),
         SliderSpec("Saturation", "ColorPanel.swift:168", .developTop, -100...100, step: 1),
         SliderSpec("Luminance", "ColorPanel.swift:173", .developTop, -100...100, step: 1),
         SliderSpec("Even out hues", "ColorPanel.swift:206", .developTop, 0...100, step: 1),
-        SliderSpec("Hue", "ColorPanel.swift:435", .developTop, -60...60, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:440", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:444", .developTop, -100...100, step: 1),
-        SliderSpec("Range", "ColorPanel.swift:448", .developTop, 0...100, step: 1),
-        SliderSpec("Variance", "ColorPanel.swift:454", .developTop, -100...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:443", .developTop, -60...60, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:448", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:452", .developTop, -100...100, step: 1),
+        SliderSpec("Range", "ColorPanel.swift:456", .developTop, 0...100, step: 1),
+        SliderSpec("Variance", "ColorPanel.swift:462", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:702", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:718", .developTop, -100...100, step: 1),
 
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:356", .developTop, -45...45,
@@ -517,41 +517,41 @@ enum SliderInventory {
         // and only the row was missing. That is the tripwire's blind spot, found
         // by an audit of this instrument rather than by the instrument.
         SliderSpec("Amount", "LookPanel.swift:385", .developTop, 0...100, step: 1),
-        SliderSpec("Blending", "LookPanel.swift:774", .developTop, 0...100, step: 1),
-        SliderSpec("Balance", "LookPanel.swift:780", .developTop, -100...100, step: 1),
-        SliderSpec("Hue shift", "LookPanel.swift:836", .developTop, -180...180, step: 1),
-        SliderSpec("Vibrance", "LookPanel.swift:843", .developTop, -100...100, step: 1),
-        SliderSpec("Global", "LookPanel.swift:931", .developTop, -100...100, step: 1),
-        SliderSpec("Shadows", "LookPanel.swift:935", .developTop, -100...100, step: 1),
-        SliderSpec("Midtones", "LookPanel.swift:939", .developTop, -100...100, step: 1),
-        SliderSpec("Highlights", "LookPanel.swift:943", .developTop, -100...100, step: 1),
-        SliderSpec("Red Hue", "LookPanel.swift:1135", .developTop, -100...100, step: 1),
-        SliderSpec("Red Purity", "LookPanel.swift:1137", .developTop, -100...100, step: 1),
-        SliderSpec("Green Hue", "LookPanel.swift:1139", .developTop, -100...100, step: 1),
-        SliderSpec("Green Purity", "LookPanel.swift:1141", .developTop, -100...100, step: 1),
-        SliderSpec("Blue Hue", "LookPanel.swift:1143", .developTop, -100...100, step: 1),
-        SliderSpec("Blue Purity", "LookPanel.swift:1145", .developTop, -100...100, step: 1),
-        SliderSpec("Shadow Tint", "LookPanel.swift:1147", .developTop, -100...100, step: 1),
-        SliderSpec("Tint Purity", "LookPanel.swift:1149", .developTop, -100...100, step: 1),
-        SliderSpec("Contrast", "LookPanel.swift:1263", .developTop, 0.1...10,
+        SliderSpec("Blending", "LookPanel.swift:786", .developTop, 0...100, step: 1),
+        SliderSpec("Balance", "LookPanel.swift:792", .developTop, -100...100, step: 1),
+        SliderSpec("Hue shift", "LookPanel.swift:857", .developTop, -180...180, step: 1),
+        SliderSpec("Vibrance", "LookPanel.swift:864", .developTop, -100...100, step: 1),
+        SliderSpec("Global", "LookPanel.swift:952", .developTop, -100...100, step: 1),
+        SliderSpec("Shadows", "LookPanel.swift:956", .developTop, -100...100, step: 1),
+        SliderSpec("Midtones", "LookPanel.swift:960", .developTop, -100...100, step: 1),
+        SliderSpec("Highlights", "LookPanel.swift:964", .developTop, -100...100, step: 1),
+        SliderSpec("Red Hue", "LookPanel.swift:1156", .developTop, -100...100, step: 1),
+        SliderSpec("Red Purity", "LookPanel.swift:1158", .developTop, -100...100, step: 1),
+        SliderSpec("Green Hue", "LookPanel.swift:1160", .developTop, -100...100, step: 1),
+        SliderSpec("Green Purity", "LookPanel.swift:1162", .developTop, -100...100, step: 1),
+        SliderSpec("Blue Hue", "LookPanel.swift:1164", .developTop, -100...100, step: 1),
+        SliderSpec("Blue Purity", "LookPanel.swift:1166", .developTop, -100...100, step: 1),
+        SliderSpec("Shadow Tint", "LookPanel.swift:1168", .developTop, -100...100, step: 1),
+        SliderSpec("Tint Purity", "LookPanel.swift:1170", .developTop, -100...100, step: 1),
+        SliderSpec("Contrast", "LookPanel.swift:1284", .developTop, 0.1...10,
                    step: 0.05, decimals: 2),
-        SliderSpec("Skew", "LookPanel.swift:1281", .developTop, -1...1,
+        SliderSpec("Skew", "LookPanel.swift:1302", .developTop, -1...1,
                    step: 0.01, decimals: 2),
-        SliderSpec("Hue keep", "LookPanel.swift:1290", .developTop, 0...100, step: 1),
-        SliderSpec("Black target", "LookPanel.swift:1299", .developTop, 0...9,
+        SliderSpec("Hue keep", "LookPanel.swift:1311", .developTop, 0...100, step: 1),
+        SliderSpec("Black target", "LookPanel.swift:1320", .developTop, 0...9,
                    hard: 0...9, step: 0.01, decimals: 2),
-        SliderSpec("Strength", "LookPanel.swift:1423", .developTop, 0...100, step: 1),
-        SliderSpec("Film Exposure", "LookPanel.swift:1431", .developTop, -2...3,
+        SliderSpec("Strength", "LookPanel.swift:1444", .developTop, 0...100, step: 1),
+        SliderSpec("Film Exposure", "LookPanel.swift:1452", .developTop, -2...3,
                    step: 0.25, decimals: 2),
-        SliderSpec("Push / Pull", "LookPanel.swift:1436", .developTop, -1...2,
+        SliderSpec("Push / Pull", "LookPanel.swift:1457", .developTop, -1...2,
                    step: 0.25, decimals: 2),
-        SliderSpec("Halation", "LookPanel.swift:1450", .developTop, 0...100, step: 1),
-        SliderSpec("Halo Size", "LookPanel.swift:1466", .developTop, 0.5...2.0,
+        SliderSpec("Halation", "LookPanel.swift:1471", .developTop, 0...100, step: 1),
+        SliderSpec("Halo Size", "LookPanel.swift:1487", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2, indented: true),
-        SliderSpec("Halo Redness", "LookPanel.swift:1483", .developTop, 0...100,
+        SliderSpec("Halo Redness", "LookPanel.swift:1504", .developTop, 0...100,
                    step: 1, indented: true),
-        SliderSpec("Grain", "LookPanel.swift:1508", .developTop, 0...100, step: 1),
-        SliderSpec("Grain size", "LookPanel.swift:1515", .developTop, 0.5...2.0,
+        SliderSpec("Grain", "LookPanel.swift:1529", .developTop, 0...100, step: 1),
+        SliderSpec("Grain size", "LookPanel.swift:1536", .developTop, 0.5...2.0,
                    step: 0.05, decimals: 2),
 
         // Masks — the develop column half: what the mask DOES.
@@ -632,7 +632,7 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2087 (LookPanel.swift:972)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2087 (LookPanel.swift:993)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
         SliderSpec("", "LumenControls.swift:2087 (MaskPanel.swift:3008)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
@@ -654,9 +654,9 @@ enum SliderInventory {
         // citation — is the register row itself, so the two sites named a sentence and
         // each other. A row whose citation has drifted still measures a real geometry,
         // so the suite stayed green while naming the wrong line to whoever went looking.
-        SliderSpec("Midtones", "ZonesPanel.swift:135", .developDisclosure, -3...3,
+        SliderSpec("Midtones", "ZonesPanel.swift:150", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
-        SliderSpec("Global", "ZonesPanel.swift:164", .developDisclosure, -3...3,
+        SliderSpec("Global", "ZonesPanel.swift:179", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
     ]
 }
