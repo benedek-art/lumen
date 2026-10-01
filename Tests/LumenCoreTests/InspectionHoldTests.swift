@@ -190,6 +190,33 @@ final class InspectionHoldTests: XCTestCase {
                            + "that replaced it")
     }
 
+    /// Every surface that shows a hold draws it on EVERY photograph plate (W2/H1-06).
+    /// `BeforeAfterPair` — the `Y` / `⌥Y` panes — was the one plate drawn without
+    /// `InspectionGain`, so the badge announced a −2 EV inspection over a picture that
+    /// had not moved. Read from the code, comments blanked: the struct's body must
+    /// apply the gain and the loupe must hand it the hold. Remove either and this fails.
+    func testTheTwoPaneBeforeAfterAppliesTheHoldToItsPlates() throws {
+        let root = RawTruthProvenanceTests.repositoryRoot
+        let overlays = RawTruthProvenanceTests.withoutComments(try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/ViewerOverlays.swift"),
+            encoding: .utf8))
+        let start = try XCTUnwrap(overlays.range(of: "struct BeforeAfterPair"),
+                                  "BeforeAfterPair moved; point this scan at it")
+        let rest = overlays[start.upperBound...]
+        let end = rest.range(of: "\nstruct ")?.lowerBound ?? rest.endIndex
+        let body = rest[..<end]
+        XCTAssertTrue(body.contains("InspectionGain.displayed("),
+                      "the two-pane before/after draws its plates without the hold")
+
+        let loupe = RawTruthProvenanceTests.withoutComments(try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/LoupeView.swift"),
+            encoding: .utf8))
+        let call = try XCTUnwrap(loupe.range(of: "BeforeAfterPair("))
+        let arguments = loupe[call.upperBound...].prefix(240)
+        XCTAssertTrue(arguments.contains("hold: state.inspectionHold"),
+                      "the loupe builds the pair without handing it the hold")
+    }
+
     func testTheKeyboardReferenceDescribesTheSplit() {
         // The Help sheet may not still say these keys are thumbnail size, because in
         // three of four views they are not.

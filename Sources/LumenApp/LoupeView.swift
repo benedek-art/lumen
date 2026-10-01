@@ -1661,7 +1661,8 @@ struct LoupeView: View {
             } else if viewport.beforeMode.isTwoPane, let before = beforeImage {
                 // Two-pane compare fits each side in its own half: pan and zoom belong
                 // to the split view, which shares one set of tiles.
-                BeforeAfterPair(mode: viewport.beforeMode, before: before, after: cg)
+                BeforeAfterPair(mode: viewport.beforeMode, before: before, after: cg,
+                                hold: state.inspectionHold)
                     .frame(width: container.width, height: container.height)
             } else {
                 canvas(cg: cg, container: container)

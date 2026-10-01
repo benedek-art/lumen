@@ -156,6 +156,11 @@ struct BeforeAfterPair: View {
     let mode: BeforeAfterMode
     let before: CGImage
     let after: CGImage
+    /// The `[` / `]` inspection hold, applied to BOTH panes. These were the one pair of
+    /// photograph plates in the app drawn without it, so in `Y` / `⌥Y` the badge said
+    /// "HIGHLIGHT INSPECT −2 EV" over a picture that had not moved (W2/H1-06) — a
+    /// momentary inspection announcing a change it did not make.
+    var hold: InspectionHold? = nil
 
     var body: some View {
         Group {
@@ -177,7 +182,8 @@ struct BeforeAfterPair: View {
     private func pane(_ image: CGImage, label: String) -> some View {
         ZStack(alignment: .bottomLeading) {
             Lumen.viewerBackground
-            Image(decorative: image, scale: 1, orientation: .up)
+            Image(decorative: InspectionGain.displayed(image, hold: hold),
+                  scale: 1, orientation: .up)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
