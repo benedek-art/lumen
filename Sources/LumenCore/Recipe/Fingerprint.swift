@@ -126,6 +126,41 @@ public enum RecipeFingerprint {
             try CanonicalJSON.canonicalRecipeJSON(recipe.renderIdentity))
     }
 
+    /// What `previewFingerprint` appends when the recipe's LUT is hashed into
+    /// `recipe_fp` but its cube is not on this machine.
+    public static let lutMissingSuffix = "+lut-missing"
+
+    /// The key a RENDERED PICTURE is filed under — the preview cache's `recipe_fp`
+    /// column and the developed-preview identity — as opposed to the recipe's own
+    /// identity above.
+    ///
+    /// The two differ in exactly one case. A LUT whose blob is not on this machine
+    /// (a sidecar from another catalog, a restore still to come) is hashed into the
+    /// recipe — the recipe DOES ask for it — but `CreativeLUTStage` resolves to nil
+    /// and the picture renders without it. Filing that picture under the plain
+    /// fingerprint would make it the cached answer for the LUT picture too, and it
+    /// would still be served after the blob arrived. So availability goes into the
+    /// picture's key, not into the recipe's: `recipe_fp` stays what the recipe says
+    /// (sidecar merge and edit history compare it), and the cube's arrival moves the
+    /// preview key back to the plain fingerprint, which no stale row is filed under.
+    public static func previewFingerprint(_ recipe: Recipe,
+                                          library: CreativeLUTLibrary = .shared) throws -> String {
+        previewFingerprint(recipeFingerprint: try fingerprint(recipe), recipe: recipe,
+                           library: library)
+    }
+
+    /// The same, for a caller that already holds the recipe's `recipe_fp`.
+    public static func previewFingerprint(recipeFingerprint: String, recipe: Recipe?,
+                                          library: CreativeLUTLibrary = .shared) -> String {
+        guard let lut = recipe?.look.lut,
+              // The same rule `Recipe.renderIdentity` strips by: a reference that is
+              // not hashed renders as no LUT on every machine, so nothing is missing.
+              !lut.ref.isEmpty, lut.amount > 0,
+              CreativeLUTStage(reference: lut, library: library) == nil
+        else { return recipeFingerprint }
+        return recipeFingerprint + lutMissingSuffix
+    }
+
     /// Fingerprint of the recipe exactly as stored, cosmetics included. For anything
     /// that needs to notice a rename — a sync or a change log — rather than a render
     /// cache, which must not.

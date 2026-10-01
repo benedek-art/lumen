@@ -1714,7 +1714,11 @@ final class CatalogService: @unchecked Sendable {
     }
 
     private static func previewFingerprint(store: CatalogStore, photoID: Int64) throws -> String {
-        let fingerprint = try store.currentRecipeFingerprint(photoID: photoID)
+        // The PICTURE's key, not the recipe's: a LUT this machine lacks is part of
+        // `recipe_fp` but not of the rendered pixels (`RecipeFingerprint
+        // .previewFingerprint`), and a preview filed under the plain fingerprint would
+        // outlive the blob's arrival.
+        let fingerprint = try store.currentPreviewFingerprint(photoID: photoID)
         guard fingerprint.isEmpty, let row = try store.photo(id: photoID) else { return fingerprint }
         // An unsaved import still has a concrete rendered recipe (ISO defaults and
         // rendered-file linear tone), not an empty recipe fingerprint.

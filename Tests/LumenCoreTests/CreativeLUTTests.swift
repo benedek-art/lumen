@@ -344,4 +344,74 @@ final class CreativeLUTTests: XCTestCase {
             .filter { $0.hasSuffix(".blob") }
         XCTAssertTrue(stored.isEmpty, "a refused file was stored anyway: \(stored)")
     }
+
+    // MARK: - A LUT this machine does not have
+
+    /// The recipe names a LUT whose blob has not arrived (a sidecar from another
+    /// catalog, a restore still to come). The picture renders without it, so it must
+    /// not be filed under the key the LUT picture will be looked up by: once the blob
+    /// arrives, the developed preview cached while it was missing has to stop
+    /// answering. `recipe_fp` itself stays the recipe's — only the picture's key moves.
+    func testAPreviewRenderedWithoutAMissingLUTIsNotServedOnceTheLUTArrives() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-lut-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blobs = try BlobStore(directory: root.appendingPathComponent("blobs"))
+        let library = CreativeLUTLibrary()
+        library.attach { blobs.data(for: $0) }
+        let bytes = Data(Self.redInvertingCube.utf8)
+        let ref = BrushStrokeSet.blobRef(for: bytes)
+
+        let store = try CatalogStore(path: root.appendingPathComponent("lumen.db").path,
+                                     cachePath: root.appendingPathComponent("cache.db").path)
+        defer { store.close() }
+        let folder = try store.registerFolder(path: root.path)
+        let id = try store.upsertPhoto(PhotoRow(folderID: folder, filename: "frame.jpg"))
+        let withLUT = recipe(tap: .display, ref: ref)
+        try store.saveRecipe(withLUT, photoID: id, isCurrent: true)
+        let recipeFP = try store.currentRecipeFingerprint(photoID: id)
+        XCTAssertEqual(recipeFP, try RecipeFingerprint.fingerprint(withLUT))
+
+        // Blob absent: the stage is nil and the picture is the no-LUT picture...
+        XCTAssertNil(CreativeLUTStage(reference: withLUT.look.lut, library: library))
+        XCTAssertEqual(render(withLUT, library: library).pixels,
+                       render(Recipe(), library: library).pixels)
+        // ...so it is filed under a key that is not the recipe's.
+        let missingKey = try store.currentPreviewFingerprint(photoID: id, library: library)
+        XCTAssertNotEqual(missingKey, recipeFP,
+                          "a picture rendered without its LUT is filed as the LUT picture")
+        XCTAssertEqual(missingKey,
+                       try RecipeFingerprint.previewFingerprint(withLUT, library: library),
+                       "the renderer's identity and the cache's lookup disagree")
+        let stale = PreviewRow(photoID: id, level: .fit, recipeFP: missingKey,
+                               source: .lumen, path: "previews/aa/stale.heic", bytes: 10,
+                               createdAt: 1, lastUsedAt: 1)
+        try store.recordPreview(stale)
+        XCTAssertEqual(PreviewCache.decide(request: .fit, fingerprint: missingKey,
+                                           stored: try store.previews(photoID: id)),
+                       .serve(stale), "while the blob is missing, the no-LUT picture is right")
+
+        // The blob arrives.
+        _ = try blobs.store(bytes)
+        XCTAssertNotNil(CreativeLUTStage(reference: withLUT.look.lut, library: library))
+        let arrivedKey = try store.currentPreviewFingerprint(photoID: id, library: library)
+        XCTAssertEqual(arrivedKey, recipeFP, "with the cube present the keys coincide")
+        XCTAssertEqual(try store.currentRecipeFingerprint(photoID: id), recipeFP,
+                       "availability must not move recipe_fp itself")
+        XCTAssertEqual(PreviewCache.decide(request: .fit, fingerprint: arrivedKey,
+                                           stored: try store.previews(photoID: id)),
+                       .decode, "the preview rendered without the LUT is still served")
+        XCTAssertEqual(try store.invalidatePreviews(photoID: id, keeping: arrivedKey), [stale])
+
+        // Nothing changes for a recipe with no LUT, or one whose LUT is inert.
+        XCTAssertEqual(try RecipeFingerprint.previewFingerprint(Recipe(), library: library),
+                       try RecipeFingerprint.fingerprint(Recipe()))
+        let inert = recipe(tap: .display, amount: 0, ref: "blob:xxh64:00000000000000ff")
+        XCTAssertEqual(try RecipeFingerprint.previewFingerprint(inert, library: library),
+                       try RecipeFingerprint.fingerprint(inert))
+        try store.saveRecipe(Recipe(), photoID: id, isCurrent: true)
+        XCTAssertEqual(try store.currentPreviewFingerprint(photoID: id, library: library),
+                       try store.currentRecipeFingerprint(photoID: id))
+    }
 }

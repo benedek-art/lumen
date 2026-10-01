@@ -456,7 +456,7 @@ actor RenderCoordinator {
                                     showingUncropped: showingUncropped,
                                     softProofing: softProof != nil, note: note,
                                     mattesPending: !missingMatteKinds(url: url, recipe: recipe).isEmpty)
-                                    ? (try? RecipeFingerprint.fingerprint(recipe)).map {
+                                    ? (try? RecipeFingerprint.previewFingerprint(recipe)).map {
                                         DevelopedPreviewIdentity(source: sourceIdentity, recipeFingerprint: $0)
                                     } : nil,
                                 sourceIdentity: sourceIdentity,

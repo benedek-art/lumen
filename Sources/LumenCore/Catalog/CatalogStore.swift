@@ -2593,6 +2593,24 @@ public final class CatalogStore {
             [.integer(photoID)])) ?? ""
     }
 
+    /// The key the photo's current rendered picture is filed under in the preview cache:
+    /// `currentRecipeFingerprint`, plus `RecipeFingerprint.lutMissingSuffix` when the
+    /// recipe's creative LUT is not on this machine. Empty string = as-shot, as there.
+    ///
+    /// One query. The recipe text comes back only when it names a LUT at all, so a
+    /// grid cell of an ordinary edit pays no JSON decode for this.
+    public func currentPreviewFingerprint(photoID: Int64,
+                                          library: CreativeLUTLibrary = .shared) throws -> String {
+        guard let row = try firstRow(
+            "SELECT recipe_fp, CASE WHEN instr(recipe, '\"lut\"') > 0 THEN recipe END "
+            + "FROM edit WHERE photo_id = ? AND is_current = 1 LIMIT 1;",
+            [.integer(photoID)], { ($0.string(0) ?? "", $0.string(1)) }) else { return "" }
+        guard let json = row.1 else { return row.0 }
+        let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+        return RecipeFingerprint.previewFingerprint(recipeFingerprint: row.0, recipe: recipe,
+                                                    library: library)
+    }
+
     /// Makes an existing edit row the current one, preserving the one-per-photo rule.
     public func makeCurrent(editID: Int64) throws {
         try db.transaction {
@@ -4713,6 +4731,10 @@ public final class CatalogStore {
     }
     public func edits(photoID: Int64) throws -> [EditRow] { throw CatalogError.unavailable }
     public func currentRecipeFingerprint(photoID: Int64) throws -> String {
+        throw CatalogError.unavailable
+    }
+    public func currentPreviewFingerprint(photoID: Int64,
+                                          library: CreativeLUTLibrary = .shared) throws -> String {
         throw CatalogError.unavailable
     }
     public func makeCurrent(editID: Int64) throws { throw CatalogError.unavailable }
