@@ -45,48 +45,60 @@ extension AppState {
                 else { continue }
                 suggestions[url] = AutoTone.suggest(from: stats)
             }
-            await MainActor.run {
-                guard !suggestions.isEmpty else {
-                    self.statusMessage = "Auto could not read those files"
-                    return
-                }
-                var before: [URL: HistoryStack.PhotoEdit] = [:]
-                var after: [URL: HistoryStack.PhotoEdit] = [:]
-                var applied: [URL: Recipe] = [:]
-                for (url, tone) in suggestions {
-                    // The photo's real baseline, not bare defaults: Auto measured
-                    // through recipe(for:) — starting from Recipe() here installed a
-                    // recipe it never measured, stripping a JPEG's Linear preset
-                    // (second tone map) or a RAW's ISO denoise, unrecoverably (undo
-                    // recorded the same wrong `before`).
-                    let iso = self.allPhotos.first(where: { $0.id == url })?.iso
-                    let old = self.recipes[url]
-                        ?? AppState.startingRecipe(for: url, iso: iso)
-                    var updated = old
-                    updated.develop.tone = tone
-                    before[url] = HistoryStack.PhotoEdit(recipe: old)
-                    after[url] = HistoryStack.PhotoEdit(recipe: updated)
-                    applied[url] = updated
-                    self.recipes[url] = updated
-                }
-                self.history.record(before: before, after: after, coalescingKey: nil,
-                                    label: "Auto Tone")
-                // THROUGH `persist`, not a hand-rolled save loop. Writing the catalog
-                // directly skipped everything else `persist` does — notably
-                // `refreshLibraryQueryIfEditStateShows`, so with the filter chip set to
-                // "Edited: no" an auto-toned frame stayed in a list claiming to hold only
-                // untouched photographs until something unrelated forced a requery.
-                self.persist(applied)
-                // AND THE INSTRUMENTS. `scheduleScopeRefresh` is the only producer of
-                // `AppState.scopes`, and every other write path calls it. Auto did not:
-                // press Auto with the histogram open and it kept describing the picture
-                // from BEFORE Auto ran, until you touched another control. The one
-                // instrument you would use to judge Auto was the one that did not move.
-                self.scheduleScopeRefresh()
-                self.statusMessage = "Auto applied to \(applied.count) photo"
-                    + (applied.count == 1 ? "" : "s")
-            }
+            await MainActor.run { self.applyAutoToneSuggestions(suggestions) }
         }
+    }
+
+    /// Install Auto's measured tone. Separate from the measurement so the landing can
+    /// be exercised without a decode.
+    ///
+    /// The measurement is asynchronous, so this can land in the middle of a slider
+    /// drag. It used to write `recipes` and persist while the gesture's deferred write
+    /// was still pending; with no further drag event, the release then flushed that
+    /// older value over Auto's, so memory showed Auto's tone while the catalog and the
+    /// sidecar kept the slider's. Same remedy as undo: close the gesture first, so its
+    /// pending write lands before Auto's and Auto's is the last one.
+    func applyAutoToneSuggestions(_ suggestions: [URL: Tone]) {
+        guard !suggestions.isEmpty else {
+            statusMessage = "Auto could not read those files"
+            return
+        }
+        sliderGesture(active: false)
+        var before: [URL: HistoryStack.PhotoEdit] = [:]
+        var after: [URL: HistoryStack.PhotoEdit] = [:]
+        var applied: [URL: Recipe] = [:]
+        for (url, tone) in suggestions {
+            // The photo's real baseline, not bare defaults: Auto measured
+            // through recipe(for:) — starting from Recipe() here installed a
+            // recipe it never measured, stripping a JPEG's Linear preset
+            // (second tone map) or a RAW's ISO denoise, unrecoverably (undo
+            // recorded the same wrong `before`).
+            let iso = allPhotos.first(where: { $0.id == url })?.iso
+            let old = recipes[url]
+                ?? AppState.startingRecipe(for: url, iso: iso)
+            var updated = old
+            updated.develop.tone = tone
+            before[url] = HistoryStack.PhotoEdit(recipe: old)
+            after[url] = HistoryStack.PhotoEdit(recipe: updated)
+            applied[url] = updated
+            recipes[url] = updated
+        }
+        history.record(before: before, after: after, coalescingKey: nil,
+                       label: "Auto Tone")
+        // THROUGH `persist`, not a hand-rolled save loop. Writing the catalog
+        // directly skipped everything else `persist` does — notably
+        // `refreshLibraryQueryIfEditStateShows`, so with the filter chip set to
+        // "Edited: no" an auto-toned frame stayed in a list claiming to hold only
+        // untouched photographs until something unrelated forced a requery.
+        persist(applied)
+        // AND THE INSTRUMENTS. `scheduleScopeRefresh` is the only producer of
+        // `AppState.scopes`, and every other write path calls it. Auto did not:
+        // press Auto with the histogram open and it kept describing the picture
+        // from BEFORE Auto ran, until you touched another control. The one
+        // instrument you would use to judge Auto was the one that did not move.
+        scheduleScopeRefresh()
+        statusMessage = "Auto applied to \(applied.count) photo"
+            + (applied.count == 1 ? "" : "s")
     }
 
     private static func statistics(url: URL, recipe: Recipe,

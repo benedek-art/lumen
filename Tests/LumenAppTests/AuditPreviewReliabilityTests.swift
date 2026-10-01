@@ -80,6 +80,28 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertNil(draft?.previewIdentity)
     }
 
+    /// A settle rendered before the Subject matte this recipe needs has been generated
+    /// draws that mask selecting nothing. It carried the final fingerprint anyway, so it
+    /// could be filed and served as the developed preview.
+    func testSettleBeforeItsMatteIsReadyIsNotADevelopedPreview() async throws {
+        let url = try scratch().appendingPathComponent("subject.png")
+        try write(pixels(width: 256, height: 192), to: url)
+        let coordinator = RenderCoordinator()
+        var recipe = Recipe()
+        recipe.masks = [Mask(name: "Subject", components: [MaskComponent(op: .add, kind: .aiSubject)])]
+        let early = await coordinator.renderOneShot(url: url, recipe: recipe, maxLongEdge: 256, draft: false)
+        XCTAssertNotNil(early)
+        XCTAssertNil(early?.previewIdentity, "pixels without the matte were labelled as the developed recipe")
+        _ = await coordinator.ensureMattes(url: url, recipe: recipe)
+        let settled = await coordinator.renderOneShot(url: url, recipe: recipe, maxLongEdge: 256, draft: false)
+        XCTAssertEqual(settled?.previewIdentity?.recipeFingerprint, try RecipeFingerprint.fingerprint(recipe))
+
+        XCTAssertTrue(RenderCoordinator.mayBecomeDevelopedPreview(
+            draft: false, region: nil, showingUncropped: false, softProofing: false, note: nil, mattesPending: false))
+        XCTAssertFalse(RenderCoordinator.mayBecomeDevelopedPreview(
+            draft: false, region: nil, showingUncropped: false, softProofing: false, note: nil, mattesPending: true))
+    }
+
     @MainActor func testThumbnailReplacementDoesNotReuseOldDimensions() async throws {
         let url = try scratch().appendingPathComponent("original.png")
         try write(pixels(width: 32, height: 24), to: url)
