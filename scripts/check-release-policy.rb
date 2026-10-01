@@ -19,6 +19,26 @@ def violations(workflow)
       next
     end
     errors << "#{name} cannot ignore failures" if job['continue-on-error'] || Array(job['steps']).any? { |s| s['continue-on-error'] }
+    # A lane that does not run, or whose verdict is replaced, is green without testing.
+    # Only release-validation's own branch condition is allowed at job level, and only
+    # the cached toolchain install may be conditional at step level.
+    allowed_job_if = name == 'release-validation' ? "github.ref == 'refs/heads/main'" : nil
+    errors << "#{name} must not be conditional" unless job['if'] == allowed_job_if
+    Array(job['steps']).each do |step|
+      run = step['run'].to_s
+      if step.key?('if') && !run.include?('install-linux-toolchain.sh')
+        errors << "#{name} must not skip a verification step"
+      end
+      # `| tee` reports tee's status unless pipefail is on. GitHub turns pipefail on
+      # only for an EXPLICIT `shell: bash`; the implicit default is `bash -e {0}`.
+      if run.include?('| tee') && (step['shell'] != 'bash' || run.include?('+o pipefail'))
+        errors << "#{name} must keep pipefail on a piped verification step"
+      end
+      if run.include?('status=$?') && run.lines.map(&:strip).reject(&:empty?).last != 'exit $status'
+        errors << "#{name} must exit with the captured verification status"
+      end
+      errors << "#{name} must not discard a failing status" if run.match?(/\|\|\s*true|\bexit 0\b/)
+    end
   end
   validation = jobs['release-validation'] || {}
   runs = Array(validation['steps']).map { |step| step['run'].to_s }
@@ -49,7 +69,15 @@ mutations = [
   ->(w) { w['jobs']['test-fast']['continue-on-error'] = true },
   ->(w) { w['jobs']['release-validation']['steps'].last['run'] = 'swift test --skip LumenPipelineTests' },
   ->(w) { w['jobs']['app-bundle']['permissions'] = { 'contents' => 'write' } },
-  ->(w) { w['jobs']['app-bundle']['steps'] << { 'run' => 'gh release create dev-latest' } }
+  ->(w) { w['jobs']['app-bundle']['steps'] << { 'run' => 'gh release create dev-latest' } },
+  ->(w) { w['jobs']['test-fast']['steps'].last['if'] = 'false' },
+  ->(w) { w['jobs']['release-validation']['steps'].last['if'] = 'false' },
+  ->(w) { w['jobs']['engine-linux']['if'] = "github.ref != 'refs/heads/main'" },
+  ->(w) { w['jobs']['test-fast']['steps'].last.delete('shell') },
+  ->(w) { s = w['jobs']['test-fast']['steps'].last; s['run'] = "set +o pipefail\n" + s['run'] },
+  ->(w) { s = w['jobs']['engine-linux']['steps'].last; s['run'] = s['run'].sub('exit $status', 'exit 0') },
+  ->(w) { s = w['jobs']['test-fast']['steps'].last; s['run'] = s['run'].sub('exit $status', 'echo done') },
+  ->(w) { s = w['jobs']['fixtures-linux']['steps'].find { |x| x['run'].to_s.include?('gen-fixtures') }; s['run'] += ' || true' }
 ]
 mutations.each_with_index do |mutate, index|
   changed = Marshal.load(Marshal.dump(workflow))
