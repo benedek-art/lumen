@@ -1435,7 +1435,7 @@ struct LoupeView: View {
             .task(id: BeforeKey(url: photo.id, recipe: beforeRecipe,
                                 wanted: needsBeforeRender, longEdge: longEdge,
                                 strokeRefs: Set(state.strokeSets(for: beforeRecipe).keys))) {
-                await renderBefore(longEdge: longEdge)
+                await renderBefore(longEdge: longEdge, drawnDevice: drawnDevice)
             }
             .task(id: SamplerKey(revision: model.revision, needed: samplerNeeded)) {
                 await rebuildSampler()
@@ -1616,7 +1616,7 @@ struct LoupeView: View {
     /// The before rendition, evaluated through the same pipeline as the edit so the
     /// flip is a comparison and not a different renderer's opinion.
     @MainActor
-    private func renderBefore(longEdge: Int) async {
+    private func renderBefore(longEdge: Int, drawnDevice: Double?) async {
         guard needsBeforeRender else { return }
         // Let the edited rendition claim the coordinator's generation lane first: it
         // supersedes by number, and the picture being edited must never lose that race
@@ -1629,12 +1629,23 @@ struct LoupeView: View {
                                thumbnails: nil,
                                // Same geometry, same rule: the before rendition shares
                                // this canvas and would pump in size beside the edit.
+                               // SAME RULE INCLUDES THE DRAWN EXTENT. Without it the
+                               // visible ceiling never bound for the before pass and its
+                               // ladder had no sharpness floor — the one ladder in the
+                               // loupe with authority was the one drawing beside a plate
+                               // that had none, so after one hot frame the before half of
+                               // a ⇧Y split was a rung softer than the after half
+                               // (W2/H1-08). The before is framed like the edit
+                               // (`Recipe.beforeRendition`), so the edit's drawn extent
+                               // is the before's too.
                                draftLongEdge: DraftResolution.draftLongEdge(
                                    settledLongEdge: longEdge,
                                    fitLongEdge: LoupeView.draftLongEdge,
-                                   zoomRatio: viewport.zoom),
+                                   zoomRatio: viewport.zoom,
+                                   drawnDeviceLongEdge: drawnDevice),
                                fullLongEdge: longEdge,
-                               strokeSets: state.strokeSets(for: beforeRecipe))
+                               strokeSets: state.strokeSets(for: beforeRecipe),
+                               drawnDeviceLongEdge: drawnDevice)
         // DELIBERATELY NOT GIVEN THE SETTLE GUARD the compare panes just received.
         //
         // The guard SKIPS a settle while a hand is down, and something has to ask for

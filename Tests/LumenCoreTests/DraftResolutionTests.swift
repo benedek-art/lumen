@@ -223,4 +223,48 @@ final class DraftResolutionTests: XCTestCase {
             XCTAssertLessThan(Double(ceiling) - drawn, Double(DraftResolution.ceilingBucket))
         }
     }
+
+    /// THE LOUPE'S TWO RENDITIONS SHARE ONE CANVAS, so they share one sizing rule
+    /// (W2/H1-08). The edit's draft passes the drawn extent; the before rendition's did
+    /// not, so its visible ceiling never bound and its ladder had no sharpness floor —
+    /// and after one hot frame the before half of a split was a rung softer than the
+    /// after half. Read from LoupeView.swift with comments blanked: every
+    /// `DraftResolution.draftLongEdge(` call there carries `drawnDeviceLongEdge:`, and
+    /// so does every `load(` that sizes a draft. Drop it from `renderBefore` and this
+    /// names the call.
+    func testBothLoupeRenditionsAreSizedByTheDrawnExtent() throws {
+        let root = RawTruthProvenanceTests.repositoryRoot
+        let code = RawTruthProvenanceTests.withoutComments(try String(
+            contentsOf: root.appendingPathComponent("Sources/LumenApp/LoupeView.swift"),
+            encoding: .utf8))
+        func arguments(after marker: String) -> [String] {
+            var out: [String] = []
+            var search = code.startIndex..<code.endIndex
+            while let hit = code.range(of: marker, range: search) {
+                var depth = 1
+                var i = hit.upperBound
+                while i < code.endIndex, depth > 0 {
+                    if code[i] == "(" { depth += 1 }
+                    if code[i] == ")" { depth -= 1 }
+                    i = code.index(after: i)
+                }
+                out.append(String(code[hit.upperBound..<i]))
+                search = i..<code.endIndex
+            }
+            return out
+        }
+        let drafts = arguments(after: "DraftResolution.draftLongEdge(")
+        XCTAssertGreaterThanOrEqual(drafts.count, 2, "the edit and the before both size a draft")
+        for call in drafts {
+            XCTAssertTrue(call.contains("drawnDeviceLongEdge:"),
+                          "a loupe draft sized without the drawn extent: \(call.prefix(160))")
+        }
+        let loads = arguments(after: "Model.load(").filter { $0.contains("draftLongEdge:") }
+            + arguments(after: "model.load(").filter { $0.contains("draftLongEdge:") }
+        XCTAssertGreaterThanOrEqual(loads.count, 2)
+        for call in loads {
+            XCTAssertTrue(call.contains("drawnDeviceLongEdge: drawnDevice"),
+                          "a loupe load without the ladder's floor: \(call.prefix(160))")
+        }
+    }
 }
