@@ -26,7 +26,7 @@ final class CatalogService: @unchecked Sendable {
         var catalogID: Int64
         var flag: PhotoFlag
         var rating: Int
-        var label: ColorLabel
+        var label: ColorLabel?
         var recipe: Recipe?
         /// The capture ISO the backfill read, carried through so an unedited photo can
         /// start on the noise-reduction defaults its own gain calls for.
@@ -603,7 +603,7 @@ final class CatalogService: @unchecked Sendable {
         SidecarMerge.resolve(
             catalog: SidecarMerge.State(
                 rating: row.rating,
-                flag: sidecarFlag(appFlag(row.flag)),
+                flag: SidecarFlag(row.flag),
                 label: row.label,
                 recipe: recipe,
                 // Empty string is `currentRecipeFingerprint`'s "as shot", which is not
@@ -647,9 +647,9 @@ final class CatalogService: @unchecked Sendable {
     private static func stored(_ state: SidecarMerge.State,
                                row: PhotoRow) -> StoredState {
         StoredState(catalogID: row.id,
-                    flag: appFlag(state.flag),
+                    flag: PhotoFlag(state.flag),
                     rating: state.rating,
-                    label: appLabel(state.label),
+                    label: ColorLabel(storedName: state.label),
                     recipe: state.recipe,
                     iso: row.iso)
     }
@@ -674,19 +674,19 @@ final class CatalogService: @unchecked Sendable {
             if state.rating != row.rating {
                 try store.setRating(state.rating, photoID: row.id)
             }
-            let mergedFlag = coreFlag(state.flag)
-            if mergedFlag != row.flag {
-                try store.setFlag(mergedFlag, photoID: row.id)
+            if state.flag != row.flag {
+                try store.setFlag(state.flag, photoID: row.id)
             }
-            let mergedLabel = state.label == .none ? nil : state.label.displayName.lowercased()
-            if mergedLabel != row.label {
-                try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
+            // `rawValue` is the lowercase name the column stores, so this compares the
+            // merged label with the row in the row's own spelling.
+            if state.label?.rawValue != row.label {
+                try store.setLabel(state.label, photoID: row.id)
             }
             if let recovered = state.recipe, recovered != storedRecipe {
                 // `isRenderedFile:` because `photo.edited` is measured against what a
                 // fresh import of THIS file would have left behind, and for a JPEG
-                // that is not a bare `Recipe()`. `PhotoFormats` is the app target's
-                // list on purpose — see the parameter's own note in `CatalogStore`.
+                // that is not a bare `Recipe()`. `PhotoFormats` is the one list that
+                // answers it — see the parameter's own note in `CatalogStore`.
                 try store.saveRecipe(recovered, photoID: row.id, isCurrent: true,
                                      isRenderedFile: PhotoFormats.isRendered(file))
             }
@@ -733,17 +733,17 @@ final class CatalogService: @unchecked Sendable {
         let url = photo.id
         queue.async {
             do {
-                try self.store.setFlag(Self.coreFlag(flag), photoID: id)
+                try self.store.setFlag(flag, photoID: id)
                 try self.store.setRating(rating, photoID: id)
-                try self.store.setLabel(Self.coreLabel(label), photoID: id)
+                try self.store.setLabel(label, photoID: id)
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
                 self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
-                for: url, photoID: id, rating: rating, flag: Self.sidecarFlag(flag),
+                for: url, photoID: id, rating: rating, flag: SidecarFlag(flag),
                 label: SidecarLabelPolicy.write(
-                    appLabel: label == .none ? nil : label.displayName.lowercased(),
+                    appLabel: label?.rawValue,
                     labelChanged: labelChanged),
                 recipe: nil)
         }
@@ -1117,63 +1117,6 @@ final class CatalogService: @unchecked Sendable {
 
     func dissolveStack(id: Int64) async {
         await onQueue("unstack", fallback: ()) { try $0.dissolveStack(id: id) }
-    }
-
-    // MARK: - Enum bridging
-
-    static func sidecarFlag(_ flag: PhotoFlag) -> SidecarFlag {
-        switch flag {
-        case .picked: return .pick
-        case .rejected: return .reject
-        case .none: return .none
-        }
-    }
-
-    static func appFlag(_ flag: SidecarFlag) -> PhotoFlag {
-        switch flag {
-        case .pick: return .picked
-        case .reject: return .rejected
-        case .none: return .none
-        }
-    }
-
-    // The app and the catalog each name these for their own audience. One conversion
-    // in one place beats qualifying every call site.
-
-    static func appFlag(_ flag: LumenCore.PhotoFlag) -> PhotoFlag {
-        switch flag {
-        case .pick: return .picked
-        case .reject: return .rejected
-        case .unflagged: return .none
-        }
-    }
-
-    static func coreFlag(_ flag: PhotoFlag) -> LumenCore.PhotoFlag {
-        switch flag {
-        case .picked: return .pick
-        case .rejected: return .reject
-        case .none: return .unflagged
-        }
-    }
-
-    static func appLabel(_ name: String?) -> ColorLabel {
-        guard let name = name?.lowercased() else { return .none }
-        for candidate in ColorLabel.allCases
-        where candidate.displayName.lowercased() == name {
-            return candidate
-        }
-        return .none
-    }
-
-    static func coreLabel(_ label: ColorLabel) -> LumenCore.ColorLabel? {
-        switch label {
-        case .none: return nil
-        case .red: return .red
-        case .yellow: return .yellow
-        case .green: return .green
-        case .blue: return .blue
-        case .purple: return .purple
-        }
     }
 
     // MARK: - Sidecars

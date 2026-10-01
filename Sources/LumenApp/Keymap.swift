@@ -171,11 +171,11 @@ final class KeyDispatcher {
 
         // ---- Flags -------------------------------------------------------------
         case "p":
-            state.setFlag(.picked)
+            state.setFlag(.pick)
         case "x":
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
         case "u":
-            state.setFlag(.none)
+            state.setFlag(.unflagged)
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
@@ -577,7 +577,7 @@ final class KeyDispatcher {
                 state.deleteActiveMask()
                 return true
             }
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
             return true
         case 0x1B:      // Escape
             // A focused slider gets Escape first, to drop its focus. This monitor runs

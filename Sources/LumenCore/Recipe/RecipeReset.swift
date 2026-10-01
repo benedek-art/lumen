@@ -34,7 +34,7 @@
 // it.
 //
 // The one fact this file deliberately does NOT know is which extensions are rendered:
-// that list is `PhotoFormats` in the app target, and duplicating it here would be a
+// that list is `PhotoFormats` (Library/), and re-deriving it here would be a
 // second answer to "is this a JPEG" that can disagree with the one the scanner used.
 // The caller states the answer; see `SourceFile`.
 

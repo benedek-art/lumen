@@ -21,44 +21,16 @@ import UniformTypeIdentifiers
 
 // MARK: - Formats
 
-/// What Lumen will browse. Deliberately NOT on `AppState`: the folder scan runs off
-/// the main actor, and a main-actor-isolated constant it has to reach for is both a
-/// concurrency warning today and an error under Swift 6.
-enum PhotoFormats {
-    /// Everything CIRAWFilter will decode. The short list this started as made a
-    /// Hasselblad, Phase One, Leica or Minolta file invisible in the grid and uncounted
-    /// by the ingest planner — not an error the user could act on, just an empty folder
-    /// where their shoot was.
-    static let raw: Set<String> = [
-        "arw", "sr2", "srf", "arq",              // Sony
-        "cr2", "cr3", "crw",                     // Canon
-        "nef", "nrw",                            // Nikon
-        "orf",                                   // Olympus / OM
-        "pef", "dng",                            // Pentax, and the open format
-        "raf",                                   // Fujifilm
-        "rw2",                                   // Panasonic
-        "rwl",                                   // Leica
-        "srw",                                   // Samsung
-        "erf",                                   // Epson
-        "x3f",                                   // Sigma
-        "3fr", "fff",                            // Hasselblad
-        "iiq", "cap",                            // Phase One
-        "mrw",                                   // Minolta
-        "dcr", "kdc",                            // Kodak
-        "mef",                                   // Mamiya
-        "raw",                                   // generic
-    ]
-    static let rendered: Set<String> = [
-        "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff",
-    ]
-    static let browsable: Set<String> = raw.union(rendered)
-
+/// `PhotoFormats` itself is in LumenCore (`Library/PhotoFormats.swift`), so the filter
+/// grammar that compiles RAW-only from it is tested on Linux. This half stays here
+/// because `UTType` is a platform type.
+extension PhotoFormats {
     /// The same list as content types, for `NSOpenPanel.allowedContentTypes`.
     ///
     /// Derived from `browsable` rather than written out a second time: two lists of the
-    /// same photographs is how one of them comes to be missing a Phase One file, and this
-    /// enum's own header records that a short list once made "a Hasselblad, Phase One,
-    /// Leica or Minolta file invisible in the grid".
+    /// same photographs is how one of them comes to be missing a Phase One file, and
+    /// `PhotoFormats`' own header records that a short list once made "a Hasselblad,
+    /// Phase One, Leica or Minolta file invisible in the grid".
     ///
     /// `UTType(filenameExtension:)` answers nil for an extension the system does not know,
     /// which is fine and is why this compacts: an unrecognised RAW simply is not offered
@@ -67,17 +39,6 @@ enum PhotoFormats {
     static var browsableContentTypes: [UTType] {
         browsable.sorted().compactMap { UTType(filenameExtension: $0) }
     }
-
-    static func isRaw(_ url: URL) -> Bool {
-        raw.contains(url.pathExtension.lowercased())
-    }
-
-    /// Already-rendered files, which decode through `RenderedImageSource` rather than
-    /// the RAW stage. A sibling of `isRaw` so callers do not each write the
-    /// lowercase-the-extension dance and drift apart on the one that forgets.
-    static func isRendered(_ url: URL) -> Bool {
-        rendered.contains(url.pathExtension.lowercased())
-    }
 }
 
 // MARK: - Photo
@@ -85,9 +46,10 @@ enum PhotoFormats {
 struct PhotoItem: Identifiable, Hashable, Sendable {
     let id: URL
     var catalogID: Int64?
-    var flag: PhotoFlag = .none
+    var flag: PhotoFlag = .unflagged
     var rating: Int = 0
-    var label: ColorLabel = .none
+    /// nil is unlabelled.
+    var label: ColorLabel? = nil
     /// What the file says it was shot at, from the catalog's EXIF row. It is what makes
     /// an unedited photo's noise-reduction defaults ISO-adaptive; nil until the
     /// metadata backfill has reached this photo, and nil forever for a file that
@@ -148,37 +110,25 @@ enum PickTarget: Equatable, Sendable {
     }
 }
 
-enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
-    case rejected = -1
-    case none = 0
-    case picked = 1
+// The flag and the colour label are LumenCore's `PhotoFlag` and `ColorLabel` — one of
+// each. This module used to declare its own pair (`.picked`/`.rejected`/`.none`, and a
+// six-case label whose `.none` meant "unlabelled") with `CatalogService` translating on
+// every read and write. Unlabelled is `ColorLabel?` = nil now. What is left here is the
+// presentation, which LumenCore has no business knowing.
 
+extension PhotoFlag {
     var symbolName: String {
         switch self {
-        case .picked: return "flag.fill"
-        case .rejected: return "xmark"
-        case .none: return "flag"
+        case .pick: return "flag.fill"
+        case .reject: return "xmark"
+        case .unflagged: return "flag"
         }
     }
 }
 
-enum ColorLabel: Int, Codable, Sendable, CaseIterable {
-    case none = 0, red, yellow, green, blue, purple
-
-    var displayName: String {
-        switch self {
-        case .none: return "None"
-        case .red: return "Red"
-        case .yellow: return "Yellow"
-        case .green: return "Green"
-        case .blue: return "Blue"
-        case .purple: return "Purple"
-        }
-    }
-
+extension ColorLabel {
     var color: Color {
         switch self {
-        case .none: return .clear
         case .red: return Color(red: 0.85, green: 0.25, blue: 0.25)
         case .yellow: return Color(red: 0.90, green: 0.75, blue: 0.20)
         case .green: return Color(red: 0.30, green: 0.70, blue: 0.35)
@@ -196,222 +146,17 @@ enum ViewMode: String, Sendable {
 
 // MARK: - Filtering
 
-/// ISO as a chip: bands rather than a free-form pair of numbers, because the question
-/// a photographer actually asks a filter is "show me the clean ones" or "show me the
-/// ones that will need denoise", and because a band is one click.
-enum ISOBand: String, CaseIterable, Identifiable, Sendable {
-    case upTo400 = "≤ 400"
-    case to1600 = "401–1600"
-    case to6400 = "1601–6400"
-    case above6400 = "≥ 6401"
+// `LibraryFilter`, `ISOBand` and `StackFilter` are in LumenCore (`Library/
+// LibraryFilter.swift`), where `LibraryFilterTests` pins the grammar on Linux.
 
-    var id: String { rawValue }
+/// The memory path's five questions, answered by the roll entry the app already has.
+extension PhotoItem: LibraryFilterable {}
 
-    var range: ClosedRange<Int> {
-        switch self {
-        case .upTo400: return 0...400
-        case .to1600: return 401...1600
-        case .to6400: return 1601...6400
-        case .above6400: return 6401...4_000_000
-        }
-    }
-}
-
-/// The stack-state chip (docs/10 §10.2): everything, one row per collapsed stack, or
-/// only the frames that were never grouped.
-enum StackFilter: String, CaseIterable, Identifiable, Sendable {
-    case any = "All frames"
-    case collapsedTops = "Collapsed stacks"
-    case unstacked = "Unstacked only"
-
-    var id: String { rawValue }
-}
-
-struct LibraryFilter: Equatable, Sendable {
-    /// Criteria OR within themselves and AND across themselves — the day-one rule
-    /// (D39). An empty set means "no constraint from this criterion". `matchAny` is
-    /// the bar's All/Any toggle and flips the join BETWEEN criteria, never within one.
-    var flags: Set<PhotoFlag> = []
-    var minRating: Int = 0
-    var labels: Set<ColorLabel> = []
-    var text: String = ""
-    var rawOnly: Bool = false
-
-    /// nil = no constraint, true = has an edit that changes the picture, false = as
-    /// shot. Reads `photo.edited`, which `saveRecipe` maintains in the same transaction
-    /// as the recipe — no join, no parse, and true only when the recipe actually
-    /// renders differently.
-    var edited: Bool? = nil
-    var cameras: Set<String> = []
-    var lenses: Set<String> = []
-    var isoBands: Set<ISOBand> = []
-    var stackState: StackFilter = .any
-    var keywords: Set<String> = []
-    var matchAny: Bool = false
-
-    /// The criteria that only exist in SQL. The memory fallback cannot evaluate any of
-    /// them — it has no camera, no ISO and no stack table — so the bar hides these
-    /// chips rather than offering controls that would quietly do nothing.
-    var usesCatalogOnlyCriteria: Bool {
-        edited != nil || !cameras.isEmpty || !lenses.isEmpty || !isoBands.isEmpty
-            || stackState != .any || !keywords.isEmpty
-    }
-
-    var isActive: Bool {
-        !flags.isEmpty || minRating > 0 || !labels.isEmpty || !text.isEmpty || rawOnly
-            || usesCatalogOnlyCriteria
-    }
-
-    /// The memory path, used only when there is no catalog to ask. It answers the five
-    /// criteria a `PhotoItem` can answer and is deliberately not extended past them:
-    /// a filter that silently ignores a lit chip is the failure this file exists to
-    /// avoid, which is why the bar hides those chips in this mode instead.
-    func matches(_ photo: PhotoItem) -> Bool {
-        if !flags.isEmpty && !flags.contains(photo.flag) { return false }
-        if photo.rating < minRating { return false }
-        if !labels.isEmpty && !labels.contains(photo.label) { return false }
-        if rawOnly && !photo.isRaw { return false }
-        if !text.isEmpty
-            && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
-        return true
-    }
-
-    /// How many criteria are lit, for the badge on the Filter button.
-    ///
-    /// Criteria, not values: three flag chips lit is ONE criterion, because they OR
-    /// together into a single clause of the query. A badge counting chips would read
-    /// "5" for what the sentence calls two conditions.
-    var activeCriteriaCount: Int {
-        var n = 0
-        if !flags.isEmpty { n += 1 }
-        if minRating > 0 { n += 1 }
-        if !labels.isEmpty { n += 1 }
-        if rawOnly { n += 1 }
-        if edited != nil { n += 1 }
-        if !cameras.isEmpty { n += 1 }
-        if !lenses.isEmpty { n += 1 }
-        if !isoBands.isEmpty { n += 1 }
-        if !keywords.isEmpty { n += 1 }
-        if stackState != .any { n += 1 }
-        if !text.isEmpty { n += 1 }
-        return n
-    }
-
-    /// The criteria that are actually HIDDEN behind the Filter button.
-    ///
-    /// Search text is a criterion like any other and `activeCriteriaCount` counts it,
-    /// but its field is right there in the strip with its own contents and its own
-    /// clear ✕. Badging the button "1" for something the eye can already read would
-    /// send the photographer into a popover where every group is empty.
-    var hiddenCriteriaCount: Int {
-        activeCriteriaCount - (text.isEmpty ? 0 : 1)
-    }
-
-    /// The active query written out. "or" inside a criterion, and between criteria
-    /// whatever the Match toggle says — the sentence IS the documentation, which is why
-    /// it survived the filter bar being taken apart (docs/28 Phase 3) and moved to the
-    /// status bar rather than being deleted with its container.
-    ///
-    /// It lives on the filter rather than in a view because two surfaces now read it:
-    /// the status bar shows it, and the filter popover shows the same words back inside
-    /// the control that produced them. Two hand-rolled versions of a sentence that is
-    /// supposed to be authoritative is exactly one too many.
-    ///
-    /// `catalogLive` only changes what the EMPTY sentence says: with no catalog the app
-    /// filters in memory over `PhotoItem`, and a bar that did not say so would be
-    /// claiming a reach it does not have.
-    func sentence(catalogLive: Bool) -> String {
-        guard isActive else {
-            return catalogLive
-                ? "No filter — showing every photo"
-                : "No filter — filtering in memory, without the catalog"
-        }
-        var parts: [String] = []
-        if !flags.isEmpty {
-            parts.append(flags.sorted { $0.rawValue > $1.rawValue }
-                .map(Self.flagName).joined(separator: " or "))
-        }
-        if minRating > 0 {
-            parts.append("★ \(minRating) or better")
-        }
-        if !labels.isEmpty {
-            parts.append(labels.sorted { $0.rawValue < $1.rawValue }
-                .map { $0 == ColorLabel.none ? "Unlabelled" : $0.displayName }
-                .joined(separator: " or "))
-        }
-        if rawOnly { parts.append("RAW only") }
-        if let edited { parts.append(edited ? "edited" : "untouched") }
-        if !cameras.isEmpty { parts.append(cameras.sorted().joined(separator: " or ")) }
-        if !lenses.isEmpty { parts.append(lenses.sorted().joined(separator: " or ")) }
-        if !isoBands.isEmpty {
-            parts.append(ISOBand.allCases.filter { isoBands.contains($0) }
-                .map { "ISO " + $0.rawValue }.joined(separator: " or "))
-        }
-        if !keywords.isEmpty { parts.append(keywords.sorted().joined(separator: " or ")) }
-        if stackState != .any { parts.append(stackState.rawValue.lowercased()) }
-        if !text.isEmpty { parts.append("matching \"\(text)\"") }
-        return parts.joined(separator: matchAny ? "  or  " : "  and  ")
-    }
-
-    static func flagName(_ flag: PhotoFlag) -> String {
-        switch flag {
-        case .picked: return "Picked"
-        case .rejected: return "Rejected"
-        case .none: return "Unflagged"
-        }
-    }
-
-    /// The bar, compiled. Every chip becomes an indexed predicate in `CatalogStore`'s
-    /// builder — which was 200 lines of correct, tested SQL with no caller at all while
-    /// this struct filtered five criteria with a linear scan of the roll.
+extension LibraryFilter {
+    /// The bar, compiled against the app's sort menu. `SortOrder` is a menu and stays
+    /// here; the grammar takes the `PhotoQuery.SortKey` it names.
     func query(sort: SortOrder, ascending: Bool, albumID: Int64?) -> PhotoQuery {
-        var query = PhotoQuery()
-        query.flags = flags.map(CatalogService.coreFlag)
-        if minRating > 0 {
-            query.rating = minRating
-            query.ratingComparison = .atLeast
-        }
-        for label in labels {
-            if let core = CatalogService.coreLabel(label) {
-                query.labels.append(core)
-            } else {
-                // `.none` in the app's vocabulary is "unlabelled", which is a NULL in
-                // the catalog's and therefore its own predicate — `label IN (…)` can
-                // never match a NULL.
-                query.includeUnlabeled = true
-            }
-        }
-        if rawOnly { query.fileTypes = PhotoFormats.raw.sorted() }
-        query.edited = edited
-        query.cameras = cameras.sorted()
-        query.lenses = lenses.sorted()
-        query.keywords = keywords.sorted()
-        if !isoBands.isEmpty {
-            // One predicate per lit band, OR-ed — NOT one range spanning them all.
-            //
-            // This used to take the minimum lower bound and the maximum upper bound and
-            // call the span "the honest reading of OR within a criterion". It is not:
-            // lighting "≤ 400" and "≥ 6401" asked for two bands and returned every ISO
-            // 800 frame between them. Adjacent bands still collapse naturally, because
-            // adjacent BETWEENs cover the same rows either way.
-            query.isoRanges = isoBands.map { $0.range }.sorted { $0.lowerBound < $1.lowerBound }
-        }
-        switch stackState {
-        case .any: query.stackState = .any
-        case .collapsedTops: query.stackState = .collapsedTopsOnly
-        case .unstacked: query.stackState = .unstacked
-        }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        query.text = trimmed.isEmpty ? nil : trimmed
-        query.matchAny = matchAny
-        query.albumID = albumID
-        // The grid shows files that are on the disk. Rows for frames that have gone
-        // offline keep their edits and stay findable, but putting them in the contact
-        // sheet would put cells in it that cannot be opened.
-        query.includeMissing = false
-        query.sortKey = sort.sortKey
-        query.ascending = ascending
-        return query
+        query(sortKey: sort.sortKey, ascending: ascending, albumID: albumID)
     }
 }
 
@@ -1980,7 +1725,8 @@ final class AppState: ObservableObject {
         var flags: [PhotoFlag: Int] = [:]
         /// Index r = photos with rating ≥ r, for r in 1...5. Index 0 unused.
         var ratingAtLeast = [Int](repeating: 0, count: 6)
-        var labels: [ColorLabel: Int] = [:]
+        /// Keyed by `ColorLabel?`: the nil key counts the unlabelled photographs.
+        var labels: [ColorLabel?: Int] = [:]
 
         /// Pure and static so `LumenAppTests` can pin it without constructing an
         /// `AppState` — whose init opens the real catalog in Application Support,
@@ -2052,7 +1798,7 @@ final class AppState: ObservableObject {
     /// running — an app that silently ignores a lit chip is worse than one that admits
     /// the catalog is gone.
     private func memoryOrdered() -> [PhotoItem] {
-        let filtered = filter.isActive ? allPhotos.filter(filter.matches) : allPhotos
+        let filtered = filter.isActive ? allPhotos.filter { filter.matches($0) } : allPhotos
         let ascending = sortAscending
         func by(_ ordered: Bool) -> Bool { ascending ? ordered : !ordered }
         switch sortOrder {
@@ -2061,7 +1807,12 @@ final class AppState: ObservableObject {
         case .flag:
             return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
         case .label:
-            return filtered.sorted { by($0.label.rawValue < $1.label.rawValue) }
+            // Unlabelled first, then key order — the order the old Int-raw app enum
+            // sorted in (`.none = 0, red, …, purple`). Not `rawValue`, which is the
+            // String name now and would sort alphabetically.
+            return filtered.sorted {
+                by(($0.label?.metaSlot ?? 0) < ($1.label?.metaSlot ?? 0))
+            }
         default:
             return filtered.sorted {
                 by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
@@ -3136,7 +2887,7 @@ final class AppState: ObservableObject {
     }
 
     func setFlag(_ flag: PhotoFlag) {
-        let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
+        let target: PhotoFlag = referenceItem?.flag == flag ? .unflagged : flag
         let from = cursorIndex
         mutateTargets("Flag") { $0.flag = target }
         advanceIfNeeded(from: from)
@@ -3151,7 +2902,7 @@ final class AppState: ObservableObject {
     }
 
     func setLabel(_ label: ColorLabel) {
-        let target: ColorLabel = referenceItem?.label == label ? .none : label
+        let target: ColorLabel? = referenceItem?.label == label ? nil : label
         let from = cursorIndex
         mutateTargets("Label") { $0.label = target }
         advanceIfNeeded(from: from)

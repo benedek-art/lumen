@@ -51,16 +51,47 @@ public enum CatalogError: Error, CustomStringConvertible {
 // MARK: - Small vocabulary types
 
 /// Pick / reject / unflagged (docs/10 §10.4). Stored as the raw Int in `photo.flag`.
+///
+/// The ONLY photo flag. LumenApp used to declare a second one over the identical raw
+/// values and translate on every read and write; see `CullingEncoding.swift`. The SF
+/// Symbol the app draws for each case is a LumenApp extension, because a symbol name is
+/// presentation and LumenCore has no SwiftUI.
 public enum PhotoFlag: Int, Sendable, CaseIterable {
     case reject = -1
     case unflagged = 0
     case pick = 1
+
+    /// The word the filter sentence uses — here because the sentence is Linux-tested.
+    public var displayName: String {
+        switch self {
+        case .pick: return "Picked"
+        case .reject: return "Rejected"
+        case .unflagged: return "Unflagged"
+        }
+    }
 }
 
 /// Canonical colour-label keys. `photo.label` stores the key; the *display* name lives
 /// in `meta` under `label_name_1…5` and is user-editable (gap G25).
+///
+/// Five cases and no sixth. The app's old copy carried `.none = 0` for "unlabelled",
+/// which is not a value a label can take but the ABSENCE of one — a NULL in
+/// `photo.label`, which is why `PhotoQuery` has always carried `includeUnlabeled` beside
+/// its `[ColorLabel]`. Unlabelled is `ColorLabel?` = nil end to end now.
 public enum ColorLabel: String, Sendable, CaseIterable {
     case red, yellow, green, blue, purple
+
+    /// The built-in name. A label the user has renamed shows the name in `meta`; this
+    /// is what it is called until they do.
+    public var displayName: String {
+        switch self {
+        case .red: return "Red"
+        case .yellow: return "Yellow"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .purple: return "Purple"
+        }
+    }
 
     /// 1-based meta slot, matching the `6`–`9` (+ purple) key bindings.
     public var metaSlot: Int {
@@ -2197,9 +2228,9 @@ public final class CatalogStore {
     /// - Parameter isRenderedFile: whether this photograph is a file somebody has
     ///   already tone-mapped — a JPEG, HEIC, PNG or TIFF — rather than a camera raw.
     ///   It decides the baseline `edited` is measured against, and it is a PARAMETER
-    ///   because LumenCore does not own the list of rendered extensions:
-    ///   `PhotoFormats` in the app target does, and a second copy of that list here
-    ///   could disagree with the one the folder scan used about the same file. Its
+    ///   because the store does not interpret paths: `PhotoFormats` answers it, the
+    ///   folder scan has already asked, and re-asking here from a path would be a
+    ///   second reading that could disagree with the scan's about the same file. Its
     ///   default is `false` — the raw case — so a caller that does not know says
     ///   nothing rather than guessing "JPEG".
     @discardableResult
@@ -2226,8 +2257,8 @@ public final class CatalogStore {
         // `Recipe.asImported(from:)` is the ONE statement of what as-imported means —
         // `RecipeReset.swift`, unit-tested on Linux — and this reads it rather than
         // restating it. The ISO comes off the photo row because the row is where the
-        // scanner put it; only `isRendered` has to be told, because the extension list
-        // that answers it lives in the app target on purpose.
+        // scanner put it; only `isRendered` has to be told, because the caller has
+        // already asked `PhotoFormats` about this file and the store does not re-ask.
         //
         // The pipeline version is normalized onto the baseline for the reason the old
         // comment gave and which still holds: comparing against a *different* version's

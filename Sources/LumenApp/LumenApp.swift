@@ -407,9 +407,9 @@ private struct LumenCommands: Commands {
 
             CommandMenu("Photo") {
                 Group {
-                    Button("Pick") { state.setFlag(.picked) }
-                    Button("Reject") { state.setFlag(.rejected) }
-                    Button("Unflag") { state.setFlag(.none) }
+                    Button("Pick") { state.setFlag(.pick) }
+                    Button("Reject") { state.setFlag(.reject) }
+                    Button("Unflag") { state.setFlag(.unflagged) }
                     Divider()
                     ForEach(1...5, id: \.self) { value in
                         Button("Rating \(value)") { state.setRating(value) }
