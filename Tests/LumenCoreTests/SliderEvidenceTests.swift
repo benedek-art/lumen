@@ -9,7 +9,7 @@
 //
 //   · `ControlIndex` is 34 NAVIGATION topics, and says so in its own header.
 //   · `ProofRegistry` is 135 VERIFICATION specs.
-//   · `SliderInventory` (LumenAppTests) is 97 call sites, for LAYOUT.
+//   · `SliderInventory` (LumenAppTests) is 102 call sites, for LAYOUT.
 //   · `docs/27-slider-verification.md` is hand-maintained prose.
 //
 // Four enumerations of the same surface, none of which reconciles with another, so a

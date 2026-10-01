@@ -200,6 +200,12 @@ enum PanelChain {
     /// in a bare `diameter + 40` frame at the default 68 pt wheel.
     static let maskWheelBarWidth: CGFloat = 68 + 40
 
+    /// The Heal tool's bar over the loupe (`HealCanvas.swift`, `HealToolBar`): a HUD in
+    /// a fixed 250 pt frame with 10 pt of padding each side. It never resizes, so its
+    /// three rows get one track width, at every column width, of 230 − 150 = 80 pt.
+    static let healBarWidth: CGFloat = 250
+    static let healBarInset: CGFloat = 10
+
     /// What a `LumenSlider` row spends before the groove: the label frame, the two 6 pt
     /// gaps of its `HStack(spacing: 6)`, and the readout's frame.
     ///
@@ -259,6 +265,8 @@ enum PanelChain {
         case gradeWheelBar
         /// The same bar under one of the mask panel's four-up wheels.
         case maskWheelBar
+        /// The Heal tool's HUD on the loupe — Size, Feather, Opacity.
+        case healBar
 
         /// True for the hosts whose width follows the develop column's drag handle.
         var resizes: Bool { self == .developTop || self == .developDisclosure }
@@ -294,6 +302,8 @@ enum PanelChain {
                 return gradeWheelDiameter + Lumen.valueWidth + rowGap
             case .maskWheelBar:
                 return maskWheelBarWidth
+            case .healBar:
+                return healBarWidth - 2 * healBarInset
             }
         }
 
@@ -402,7 +412,11 @@ enum SliderInventory {
     /// could not find was `LumenColorWheel`'s lightness bar, the app's only untitled
     /// slider and the only one written inside the control kit rather than at a panel's
     /// call site. Both of its geometries are in the table below now.
-    static let callSiteCount = 97
+    ///
+    /// 97 → 102 when the October run added five and none of them came with a row: the
+    /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
+    /// Amount, and the export sheet's sequence Start at.
+    static let callSiteCount = 102
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -509,6 +523,11 @@ enum SliderInventory {
                    step: 0.1, decimals: 1),
         SliderSpec("Headroom", "ExportSheet.swift:1026", .exportSheet, 0.5...4,
                    step: 0.1, decimals: 1),
+        // The {seq} start. Drags over 1…999 and types to 99 999: a soft range of 9 999
+        // was 9 998 steps, which even ⇧-scrub's 1 704 pt cannot land one by one, and a
+        // six-digit readout is the width of the pill's whole room.
+        SliderSpec("Start at", "ExportSheet.swift:831", .exportSheet, 1...999,
+                   hard: 1...99_999, step: 1),
 
         // Look — grade, primaries, transform, film lab, grain.
         // The look-apply strength. It was in no row of this table, so its label,
@@ -517,6 +536,8 @@ enum SliderInventory {
         // and only the row was missing. That is the tripwire's blind spot, found
         // by an audit of this instrument rather than by the instrument.
         SliderSpec("Amount", "LookPanel.swift:385", .developTop, 0...100, step: 1),
+        // The creative LUT's strength, in the Looks section under the LUT's own row.
+        SliderSpec("Amount", "LookPanel.swift:250", .developTop, 0...100, step: 1),
         SliderSpec("Blending", "LookPanel.swift:786", .developTop, 0...100, step: 1),
         SliderSpec("Balance", "LookPanel.swift:792", .developTop, -100...100, step: 1),
         SliderSpec("Hue shift", "LookPanel.swift:857", .developTop, -180...180, step: 1),
@@ -636,6 +657,11 @@ enum SliderInventory {
                    -1...1, step: 0.01, decimals: 2),
         SliderSpec("", "LumenControls.swift:2087 (MaskPanel.swift:3008)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
+
+        // The Heal tool's bar on the loupe. Size is in pixels of the original file.
+        SliderSpec("Size", "HealCanvas.swift:343", .healBar, 2...400, step: 1),
+        SliderSpec("Feather", "HealCanvas.swift:347", .healBar, 0...100, step: 1),
+        SliderSpec("Opacity", "HealCanvas.swift:351", .healBar, 0...100, step: 1),
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.
         // "Midtones" is the widest of the six names.

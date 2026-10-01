@@ -829,7 +829,7 @@ private struct ExportRecipeEditor: View {
             }
             if usesSequence {
                 LumenSlider(title: "Start at", value: sequenceStartBinding,
-                            range: 1...9999, hardRange: 1...999_999, defaultValue: 1,
+                            range: 1...999, hardRange: 1...99_999, defaultValue: 1,
                             step: 1, decimals: 0, bipolar: false,
                             help: "The first photo of the batch gets this {seq} number.")
             }
