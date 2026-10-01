@@ -171,6 +171,19 @@ public enum Num {
 
     @inlinable public static func saturate(_ x: Double) -> Double { clamp(x, 0, 1) }
 
+    /// `clamp`, except that a NaN `x` becomes `fallback` instead of passing through.
+    ///
+    /// `clamp` cannot refuse a NaN: `Swift.max(NaN, lo)` is NaN, and so is the `min`
+    /// around it. At most call sites that is harmless; at the white-balance inputs it
+    /// made one NaN as-shot neutral (a DNG carrying no AsShotNeutral or ColorMatrix)
+    /// into a NaN S6 matrix, and an 8-bit render of NaN is a black frame. For every
+    /// non-NaN `x` this is `clamp(x, lo, hi)` exactly — same operations, same order —
+    /// which `AsShotNeutralSanitationTests` pins with a bit-for-bit sweep.
+    @inlinable public static func clampFinite(_ x: Double, _ lo: Double, _ hi: Double,
+                                              fallback: Double) -> Double {
+        x.isNaN ? fallback : clamp(x, lo, hi)
+    }
+
     /// Ease `amount` onto `cap` instead of clipping at it.
     ///
     /// Exact while `|amount|` is below `knee × cap`, then approaching `cap`

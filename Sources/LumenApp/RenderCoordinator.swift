@@ -707,8 +707,8 @@ actor RenderCoordinator {
     /// reason: the answer lives on the decoded source, which lives on this actor.
     func asShotNeutral(for url: URL) -> WhiteBalanceEngine.Neutral? {
         guard let source = try? self.source(for: url) else { return nil }
-        return WhiteBalanceEngine.Neutral(kelvin: source.asShotTemperature,
-                                          tint: source.asShotTint)
+        return WhiteBalanceEngine.Neutral.sanitizedAsShot(kelvin: source.asShotTemperature,
+                                                          tint: source.asShotTint)
     }
 
     func invalidate(url: URL) {
