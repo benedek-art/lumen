@@ -1283,6 +1283,14 @@ struct MixerHueRing: View {
                             grabbed = taken
                             handle = taken
                         }
+                        // A PRESS IS NOT A MOVE (B3-05). `minimumDistance: 0` delivers
+                        // the press itself as a change, and the first click of a
+                        // double-click has `clickCount` 1 — so it moved the grabbed
+                        // handle to the clicked angle, the second click reset the arc,
+                        // and one ⌘Z landed on an arc nobody made. Nothing is written
+                        // until the pointer has actually travelled.
+                        guard drag.translation.width != 0 || drag.translation.height != 0
+                        else { return }
                         sliderGestureChanged(true)
                         let dx = Double(drag.location.x - box / 2)
                         let dy = Double(drag.location.y - box / 2)
