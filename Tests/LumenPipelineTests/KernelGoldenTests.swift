@@ -3328,6 +3328,259 @@ final class KernelGoldenTests: XCTestCase {
                           "Off and an all-zero Classic block rendered differently")
     }
 
+    // MARK: S3 at the sizes and precisions the app actually renders
+
+    /// A context that never reuses an intermediate. The region test below renders the
+    /// same graph more than once, and a context that had cached the full frame's
+    /// intermediates could hand them to a region render — which would then agree with
+    /// the full frame whatever the ROIs said.
+    private func uncachedContext(_ format: CIFormat) -> CIContext {
+        CIContext(options: [
+            .workingColorSpace: CGColorSpace(
+                name: CGColorSpace.extendedLinearITUR_2020) as Any,
+            .workingFormat: format,
+            .cacheIntermediates: false,
+        ])
+    }
+
+    /// Render `rect` of `image` and nothing else, so Core Image computes only the
+    /// regions of interest that rect needs. Rows come back in the order `readBack`
+    /// returns them.
+    private func readRegion(_ image: CIImage, _ rect: CGRect,
+                            in ctx: CIContext) -> ImageBuffer {
+        let w = Int(rect.width), h = Int(rect.height)
+        var pixels = [Float](repeating: 0, count: w * h * 4)
+        pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            ctx.render(image, toBitmap: base, rowBytes: w * 16,
+                       bounds: rect, format: .RGBAf, colorSpace: nil)
+        }
+        return ImageBuffer(width: w, height: h, pixels: pixels)
+    }
+
+    /// The tiled render: the stage evaluated for a region must equal the same pixels of
+    /// the whole frame.
+    ///
+    /// Core Image tiles a 45 MP export and a zoomed loupe by itself, asking each node
+    /// for only what the node downstream says it reaches — the `reach` every
+    /// `applyNeighbourhood` call in `applyDenoise` declares. Every other S3 golden reads
+    /// back the whole of a 64 px frame, so the whole frame is always in the region of
+    /// interest and a reach declared too short could never show. Here the frame is
+    /// 256 × 224, the middle is more than `ClassicalDenoise.receptiveField(levels: 5)`
+    /// = 79 px from every border, and the regions are small, so an under-declared
+    /// reach hands a kernel pixels Core Image never computed for it.
+    ///
+    /// Every pass is on — hot pixels, both masters, the blotch filter — because each
+    /// has its own ROI. The regions are centred vertically, so a region's rows are the
+    /// same rows of the full read whichever way up the bitmap is.
+    func testDenoiseRegionRendersMatchTheWholeFrame() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable && KernelLibrary.hotPixel != nil,
+                          "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 256, height = 224
+        XCTAssertGreaterThan(Swift.min(width, height) / 2,
+                             ClassicalDenoise.receptiveField(levels: 5),
+                             "no pixel of the frame is out of the stage's reach of its "
+                                 + "border, so a region cannot under-fetch")
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 60, hotPixels: 60,
+                                         colorSmoothness: 100), iso: iso)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width))
+
+        // Regions first, each in a fresh context, then the whole frame in another.
+        let regionHeight = 32
+        let y0 = (height - regionHeight) / 2
+        let regions = [
+            CGRect(x: 120, y: y0, width: 24, height: regionHeight),   // centre
+            CGRect(x: 0, y: y0, width: 20, height: regionHeight),     // left border
+            CGRect(x: 224, y: y0, width: 32, height: regionHeight),   // the colour line
+        ]
+        var pieces: [(CGRect, ImageBuffer)] = []
+        for rect in regions {
+            pieces.append((rect, readRegion(output, rect, in: uncachedContext(.RGBAf))))
+        }
+        let whole = readRegion(output, CGRect(x: 0, y: 0, width: width, height: height),
+                               in: uncachedContext(.RGBAf))
+
+        var moved = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                moved = Swift.max(moved, whole[x, y].maxAbsDifference(source[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(moved, 1e-3,
+                             "the stage moved the frame by \(moved); a region agreeing "
+                                 + "with it would prove nothing")
+
+        for (rect, piece) in pieces {
+            var worst = 0.0
+            var at = (0, 0)
+            var wrote = false
+            for j in 0..<Int(rect.height) {
+                for i in 0..<Int(rect.width) {
+                    let got = piece[i, j]
+                    if got.r != 0 || got.g != 0 || got.b != 0 { wrote = true }
+                    let x = Int(rect.minX) + i
+                    let y = Int(rect.minY) + j
+                    let d = got.maxAbsDifference(whole[x, y])
+                    if d > worst { worst = d; at = (x, y) }
+                }
+            }
+            XCTAssertTrue(wrote, "region \(rect) rendered nothing")
+            // The same kernels on the same inputs: anything above float noise is a
+            // pixel that read from outside what Core Image computed for it.
+            XCTAssertLessThan(worst, 1e-5,
+                              "region \(rect) differs from the whole frame by \(worst) "
+                                  + "at \(at) — a declared reach in S3 is too short")
+        }
+    }
+
+    /// The whole-stage golden, on a frame with an interior. At 64 px every pixel is
+    /// within the deepest band's reach of a border, so
+    /// `testDenoiseMatchesTheReferenceEngine` mostly compares border handling; this
+    /// compares the stage itself, at the same bar.
+    func testDenoiseMatchesTheReferenceAwayFromTheBorder() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 192, height = 176
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        // Smoothness 0 for the reason the 64 px golden gives: the blotch pass rides
+        // CIBoxBlur and has its own, looser test.
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 50, lumaDetail: 40,
+                                         colorSmoothness: 0), iso: iso)
+        XCTAssertEqual(plan.classicalDenoise.effectiveLevels(width: width, height: height),
+                       ClassicalDenoise.defaultLevels)
+        let expected = plan.classicalDenoise.apply(source)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width))
+        guard let got = readBack(output, width: width, height: height) else {
+            return XCTFail("denoise render failed")
+        }
+        var moved = 0.0
+        var worst = 0.0
+        var at = (0, 0)
+        for y in 0..<height {
+            for x in 0..<width {
+                moved = Swift.max(moved, expected[x, y].maxAbsDifference(source[x, y]))
+                let d = got[x, y].maxAbsDifference(expected[x, y])
+                if d > worst { worst = d; at = (x, y) }
+            }
+        }
+        XCTAssertGreaterThan(moved, 1e-3, "the reference barely moved the frame")
+        XCTAssertLessThan(worst, 2e-4,
+                          "GPU and reference differ by \(worst) at \(at) on a "
+                              + "\(width)×\(height) frame, against a stage effect of "
+                              + "\(moved)")
+    }
+
+    /// The interactive render passes `noiseScale` (the decode's linear scale, squared)
+    /// so a preview is denoised for the noise the downsample left in it. The CPU twin
+    /// is `ClassicalDenoise.scaled(noiseScale:)`, which `PipelineRenderer` calls on its
+    /// reference path. Nothing compared the two at any scale but 1.
+    ///
+    /// Two scales: 0.6, where the stage runs on a weakened profile, and 0.4, below
+    /// `contributingNoiseScale`, where both paths must hand the frame back untouched.
+    func testDenoiseAtPreviewScaleMatchesTheScaledReference() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 12800.0
+        let width = 64, height = 64
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 60, colorSmoothness: 0),
+                               iso: iso)
+
+        func gpu(_ scale: Double) -> ImageBuffer? {
+            readBack(RenderGraph().applyDenoise(
+                        ciImage(from: source), plan: plan,
+                        options: RenderGraph.Options(longEdge: width, noiseScale: scale)),
+                     width: width, height: height)
+        }
+        func worst(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+            var w = 0.0
+            for y in 0..<height {
+                for x in 0..<width { w = Swift.max(w, a[x, y].maxAbsDifference(b[x, y])) }
+            }
+            return w
+        }
+
+        let full = plan.classicalDenoise.apply(source)
+        let preview = plan.classicalDenoise.scaled(noiseScale: 0.6).apply(source)
+        // The scale must reach the stage at all, or matching it is matching scale 1.
+        XCTAssertGreaterThan(worst(full, preview), 1e-3,
+                             "the reference denoises the same at scale 0.6 as at 1")
+        guard let atPreview = gpu(0.6) else { return XCTFail("render at 0.6 failed") }
+        let previewError = worst(atPreview, preview)
+        XCTAssertLessThan(previewError, 2e-4,
+                          "at noise scale 0.6 the GPU differs from the scaled reference "
+                              + "by \(previewError)")
+
+        XCTAssertLessThan(0.4, ClassicalDenoise.contributingNoiseScale)
+        guard let atFit = gpu(0.4) else { return XCTFail("render at 0.4 failed") }
+        XCTAssertLessThan(worst(plan.classicalDenoise.scaled(noiseScale: 0.4).apply(source),
+                                source), 1e-12,
+                          "below the contributing scale the reference still moved pixels")
+        XCTAssertLessThan(worst(atFit, source), 1e-6,
+                          "below the contributing scale the GPU stage still moved pixels")
+    }
+
+    /// The stage at the precision the app renders in. Every golden above reads through
+    /// an RGBAf context so that it measures arithmetic; `PipelineRenderer` works in
+    /// RGBAh, and S3 is the stage most exposed to that — its forward transform turns a
+    /// linear frame into a plane spanning tens of units, where half-float's step is
+    /// 0.0156 (`testTheVSTAndRotationRoundTrip` prints it). `ClassicalDenoise.GPUPlan`
+    /// documents a half-float model of the whole stage — worst pixel 9.8e-4, RMS
+    /// 1.2e-4, on an effect of 1.5e-2 to 4.8e-2 — and no test rendered it.
+    ///
+    /// The bars are relative to the stage's own effect, like the blotch golden's: the
+    /// worst pixel inside a quarter of what the stage moves, the RMS inside 2% of it.
+    /// The model sits near 6% and 0.8%; a pedestal or scale lost in the encoded plane
+    /// costs whole multiples of the effect.
+    func testDenoiseAtTheShippingHalfFloatPrecisionTracksTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 96, height = 96
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 50, colorSmoothness: 0),
+                               iso: iso)
+        let expected = plan.classicalDenoise.apply(source)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width))
+        let got = readRegion(output, CGRect(x: 0, y: 0, width: width, height: height),
+                             in: uncachedContext(.RGBAh))
+
+        var moved = 0.0
+        var worst = 0.0
+        var sumSquares = 0.0
+        var wrote = false
+        for y in 0..<height {
+            for x in 0..<width {
+                let g = got[x, y]
+                if g.r != 0 || g.g != 0 || g.b != 0 { wrote = true }
+                moved = Swift.max(moved, expected[x, y].maxAbsDifference(source[x, y]))
+                let d = g.maxAbsDifference(expected[x, y])
+                worst = Swift.max(worst, d)
+                sumSquares += d * d
+            }
+        }
+        let rms = (sumSquares / Double(width * height)).squareRoot()
+        print("S3 HALF-FLOAT worst \(worst) rms \(rms) against a stage effect of \(moved)")
+        XCTAssertTrue(wrote, "the half-float render wrote nothing")
+        XCTAssertGreaterThan(moved, 1e-3, "the reference barely moved the frame")
+        XCTAssertLessThan(worst, moved * 0.25,
+                          "in RGBAh the stage's worst pixel is off by \(worst), more than "
+                              + "a quarter of its \(moved) effect")
+        XCTAssertLessThan(rms, moved * 0.02,
+                          "in RGBAh the stage is off by \(rms) RMS against a \(moved) "
+                              + "effect")
+    }
+
     func testMidGreyLandsWhereTheTransformPromises() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let source = ImageBuffer(width: 8, height: 4) { _, _ in RGB(gray: 0.18) }
