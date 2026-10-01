@@ -209,10 +209,18 @@ struct ColorPanel: View {
                                         set: { $0.develop.mixer.uniformity = $1 }),
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
                             bipolar: false,
+                            // AI-08, interim: the engine evaluates this per pixel
+                            // (S9 is a colour table, so it cannot see a neighbourhood),
+                            // and the help says what that costs until a spatial local
+                            // mean reaches the stage. Measured: at 100, inputs at
+                            // 24°/29°/34° inside one band all leave at 29°.
                             help: "Gathers scattered hues in toward each band's own "
                                 + "centre — calms mottled colour like patchy skin or a "
                                 + "streaky sky. Works on all eight bands at once, "
-                                + "whatever is selected above.")
+                                + "whatever is selected above. For now it works pixel "
+                                + "by pixel, not on the neighbourhood: at 100 the hues "
+                                + "inside a band all land on one, so fine colour "
+                                + "texture flattens along with the blotches.")
             }
         }
     }
@@ -453,9 +461,17 @@ struct ColorPanel: View {
                                     + "the neighbours.")
                     LumenSlider(title: "Variance", value: pointBinding(index, .variance),
                                 range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                // AI-08, interim: per pixel, like Even out hues —
+                                // at −100, inputs at 24°/29°/34° around a 29° swatch
+                                // all leave at 29°.
                                 help: "Negative gathers the nearby hues in toward the "
                                     + "swatch, evening them out; positive spreads them "
-                                    + "apart.")
+                                    + "apart. For now it works pixel by pixel, not on "
+                                    + "the neighbourhood: at −100 colours well inside "
+                                    + "its range take the swatch's hue and colourfulness "
+                                    + "and move halfway to its lightness, so fine colour "
+                                    + "texture flattens too; positive amplifies it, "
+                                    + "noise included.")
                 }
             }
         }
