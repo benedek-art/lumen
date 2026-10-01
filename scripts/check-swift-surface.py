@@ -277,6 +277,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # Metal
     "MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLPixelFormat",
     "MTLCreateSystemDefaultDevice",
+    # The HDR preview's EDR layer (`EDRViewport.swift`): a `CAMetalLayer` backing an
+    # `NSView`, written through Core Image.
+    "Metal", "QuartzCore", "CALayer", "CAMetalLayer", "NSObjectProtocol",
     # AppKit
     "AppKit", "NSApp", "NSApplication", "NSApplicationDelegate", "NSImage", "NSColor",
     "NSView", "NSViewRepresentable", "NSViewController", "NSWindow", "NSEvent",
@@ -960,6 +963,9 @@ METHOD_SKIP = {
     "addLine", "closeSubpath", "component", "components", "preview", "artifact",
     "parse", "start", "stop", "reset", "update", "scale", "rotate", "translate",
     "combine", "cgImage",
+    # `MTLCommandBuffer.commit()`; the in-tree `commit(inReleaseBody:)` is the
+    # updater's and says nothing about a command buffer.
+    "commit",
 }
 
 

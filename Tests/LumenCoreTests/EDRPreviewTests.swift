@@ -208,6 +208,81 @@ final class EDRPreviewTests: XCTestCase {
                        CGRect(x: 600, y: 350, width: 800, height: 250))
     }
 
+    // MARK: - Off is the SDR path it always was
+
+    /// Source text, `//` comments blanked so prose about the rule cannot satisfy it.
+    private func code(_ path: String) -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()      // LumenCoreTests
+            .deletingLastPathComponent()      // Tests
+            .deletingLastPathComponent()      // <package>
+            .appendingPathComponent(path)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            XCTFail("\(path) not found — if it moved, move this scan with it")
+            return ""
+        }
+        return text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let slashes = line.range(of: "//") else { return line }
+                return line[..<slashes.lowerBound]
+            }
+            .joined(separator: "\n")
+    }
+
+    /// The text from `start` to the parenthesis that closes the first `(` after it.
+    private func call(_ start: String, in text: String) -> String? {
+        guard let head = text.range(of: start),
+              let open = text.range(of: "(", range: head.lowerBound..<text.endIndex)
+        else { return nil }
+        var depth = 0
+        var index = open.lowerBound
+        while index < text.endIndex {
+            if text[index] == "(" { depth += 1 }
+            if text[index] == ")" {
+                depth -= 1
+                if depth == 0 { return String(text[head.lowerBound...index]) }
+            }
+            index = text.index(after: index)
+        }
+        return nil
+    }
+
+    /// The claim behind "no change at all to the SDR path when off", read where it
+    /// lives (LumenApp and LumenPipeline do not build on this lane; the bytes are
+    /// `EDRPreviewRenderTests` on macOS). The coordinator's SDR delivery is the same
+    /// call with the same arguments — nothing EDR reaches it — and the EDR pass is
+    /// reached only from inside `if let edrWhiteTarget`, AFTER it. The renderer's SDR
+    /// function never mentions the EDR pass either: the EDR frame is a separate
+    /// function rather than a mode of the SDR one.
+    func testWithThePreviewOffTheSDRFrameIsTheCallItWas() {
+        let coordinator = code("Sources/LumenApp/RenderCoordinator.swift")
+        guard let produce = coordinator.range(of: "private func produce("),
+              let sdr = call("renderer.renderPreviewDelivery(",
+                             in: String(coordinator[produce.lowerBound...]))
+        else { return XCTFail("produce no longer calls renderPreviewDelivery") }
+        XCTAssertFalse(sdr.lowercased().contains("edr"),
+                       "the SDR delivery call now carries an EDR argument: \(sdr)")
+        let body = String(coordinator[produce.lowerBound...])
+        guard let sdrAt = body.range(of: "renderer.renderPreviewDelivery("),
+              let edrAt = body.range(of: "renderer.renderPreviewEDR("),
+              let gate = body.range(of: "if let edrWhiteTarget")
+        else { return XCTFail("the EDR pass is no longer behind `if let edrWhiteTarget`") }
+        XCTAssertLessThan(sdrAt.lowerBound, gate.lowerBound,
+                          "the EDR gate runs before the SDR frame is delivered")
+        XCTAssertLessThan(gate.lowerBound, edrAt.lowerBound,
+                          "the EDR pass is reachable without a white target")
+
+        let renderer = code("Sources/LumenPipeline/PipelineRenderer.swift")
+        guard let start = renderer.range(of: "public func renderPreviewDelivery("),
+              let end = renderer.range(of: "static let edrIdentitySuffix")
+        else { return XCTFail("renderPreviewDelivery or the EDR section moved") }
+        let sdrFunction = String(renderer[start.lowerBound..<end.lowerBound])
+        XCTAssertFalse(sdrFunction.lowercased().contains("edr"),
+                       "the SDR preview function now knows about the EDR pass")
+        XCTAssertTrue(sdrFunction.contains("format: .RGBA8"),
+                      "the SDR preview no longer rasterizes 8-bit")
+    }
+
     // MARK: - The rendition, and the gain-map round trip
 
     /// A scene with something in every register: a −6…+5 EV ramp around mid-grey in
