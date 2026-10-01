@@ -12,6 +12,20 @@ def violations(workflow)
   errors << 'publisher must depend on every required check' unless Array(publisher['needs']).sort == required.sort
   errors << 'only successful main runs may publish' unless publisher['if'] == "success() && github.ref == 'refs/heads/main'"
   errors << 'publisher cannot continue after failure' if publisher['continue-on-error']
+  # A re-run of an old main run passes every gate with an old commit. The publisher
+  # must ask where main is now, refuse unless it is this run's commit, and do so
+  # unconditionally and BEFORE anything is published.
+  steps = Array(publisher['steps'])
+  tip_check = steps.index do |s|
+    run = s['run'].to_s
+    run.include?('ls-remote origin refs/heads/main') && run.include?('"$TIP" != "$GITHUB_SHA"') &&
+      run.include?('exit 1') && !run.match?(/\|\|\s*true|\bexit 0\b/)
+  end
+  publish_step = steps.index { |s| s['run'].to_s.include?('gh release create') }
+  unless tip_check && publish_step && tip_check < publish_step &&
+         !steps[tip_check].key?('if') && !steps[tip_check]['continue-on-error']
+    errors << 'publisher must refuse a run that is not the current tip of main'
+  end
   required.each do |name|
     job = jobs[name]
     if !job
@@ -77,7 +91,15 @@ mutations = [
   ->(w) { s = w['jobs']['test-fast']['steps'].last; s['run'] = "set +o pipefail\n" + s['run'] },
   ->(w) { s = w['jobs']['engine-linux']['steps'].last; s['run'] = s['run'].sub('exit $status', 'exit 0') },
   ->(w) { s = w['jobs']['test-fast']['steps'].last; s['run'] = s['run'].sub('exit $status', 'echo done') },
-  ->(w) { s = w['jobs']['fixtures-linux']['steps'].find { |x| x['run'].to_s.include?('gen-fixtures') }; s['run'] += ' || true' }
+  ->(w) { s = w['jobs']['fixtures-linux']['steps'].find { |x| x['run'].to_s.include?('gen-fixtures') }; s['run'] += ' || true' },
+  # The tip-of-main refusal: removed, moved after the publication, skipped, made
+  # non-fatal, or inverted.
+  ->(w) { w['jobs']['publish-release']['steps'].reject! { |x| x['run'].to_s.include?('ls-remote') } },
+  ->(w) { s = w['jobs']['publish-release']['steps']; g = s.index { |x| x['run'].to_s.include?('ls-remote') }; s << s.delete_at(g) },
+  ->(w) { w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }['if'] = 'false' },
+  ->(w) { w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }['continue-on-error'] = true },
+  ->(w) { s = w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }; s['run'] = s['run'].sub('exit 1', 'exit 0') },
+  ->(w) { s = w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }; s['run'] = s['run'].sub('!=', '=') }
 ]
 mutations.each_with_index do |mutate, index|
   changed = Marshal.load(Marshal.dump(workflow))

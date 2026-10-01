@@ -195,6 +195,19 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: Lumen-app
+      - name: Refuse to publish anything but the current tip of main
+        # `cancel-in-progress` keeps two LIVE runs from racing, and nothing else here
+        # does: a manual "Re-run jobs" on an old, green main run passes every gate
+        # above with the old commit and would push it out as `dev-latest`. The updater
+        # then sees a "new" release whose build is older than the one installed copies
+        # already run. So the publisher asks the remote where main is NOW and refuses
+        # unless that is the commit this run built. An empty answer refuses too.
+        run: |
+          TIP=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ -z "$TIP" ] || [ "$TIP" != "$GITHUB_SHA" ]; then
+            echo "::error::This run built ${GITHUB_SHA}, but main is at ${TIP:-an unknown commit}. Refusing to publish an older build as dev-latest."
+            exit 1
+          fi
       - name: Publish the rolling dev release the in-app updater reads
         # One moving pre-release, `dev-latest`, holding the newest build of the
         # validated main branch. The app's updater polls the PUBLIC releases API for it —
