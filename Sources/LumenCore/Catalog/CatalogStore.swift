@@ -3792,10 +3792,18 @@ public final class CatalogStore {
             parameters.append(.integer(range.upperBound))
         }
         if !query.keywords.isEmpty {
+            // A membership test against ONE list, not a correlated EXISTS per row. The
+            // EXISTS form made SQLite walk every photo in scope and probe
+            // `photo_keyword` for each — measured on a 20 000-photo roll, 27–41 ms per
+            // count against 11–16 ms for this form, and the filter popover's keyword
+            // facet runs one count per keyword offered: 12 keywords were ~65% of a
+            // 650 ms `facetCounts`. The set is the same set — the photos carrying any
+            // of the named keywords — so every count and every grid row is unchanged;
+            // `CatalogQueryCostTests` holds both halves.
             criteria.append("""
-            EXISTS (SELECT 1 FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
-                     WHERE pk.photo_id = photo.id
-                       AND k.name IN (\(CatalogStore.placeholders(query.keywords.count))))
+            photo.id IN (SELECT pk.photo_id FROM photo_keyword pk
+                          WHERE pk.keyword_id IN (SELECT k.id FROM keyword k
+                            WHERE k.name IN (\(CatalogStore.placeholders(query.keywords.count)))))
             """)
             for keyword in query.keywords { parameters.append(.text(keyword)) }
         }
