@@ -349,14 +349,25 @@ private struct ComparePane: View {
         let r = ratio(for: cg, container: container)
         let drawn = LoupeGeometry.drawnSize(imageWidth: cg.width, imageHeight: cg.height,
                                             ratio: r, displayScale: displayScale)
+        // The loupe's resampling rule, not the drawn ratio. `r >= 1 ? .none : .high` is
+        // the predicate `ProxyResampling` was written to replace: at fit every draft
+        // proxy is magnified (r >= 1), so every frame of a drag in `C` was drawn
+        // nearest-neighbour — hard aliased edges shimmering frame to frame — while the
+        // loupe drew the same photograph smoothed (W2/H1-05). Unsmoothed is for the
+        // photograph's own pixels at 1:1 or beyond, and nothing else.
+        let resampling = ProxyResampling.mode(
+            zoomRatio: sync.zoom,
+            drawnRatio: r,
+            renderedLongEdge: Swift.max(cg.width, cg.height),
+            fullLongEdge: model.displayFullLongEdge)
         // The inspection holds work in Compare too (docs/10 §10.5 names loupe, survey
         // and compare), and a hold that lifted one pane and not the other would be
         // worse than none.
         return Image(decorative: InspectionGain.displayed(cg, hold: state.inspectionHold),
                      scale: 1, orientation: .up)
             .resizable()
-            .interpolation(r >= 1 ? .none : .high)
-            .antialiased(r < 1)
+            .interpolation(resampling.swiftUIInterpolation)
+            .antialiased(resampling != .none)
             .frame(width: drawn.width, height: drawn.height)
             .offset(offset(for: cg, container: container, drawn: drawn))
             .frame(width: container.width, height: container.height)
