@@ -25,8 +25,8 @@
 //
 // More than one kernel because of two hard limits, not taste: the recipe does not bound
 // the number of Point Colour swatches (the panel stops at 8, a sidecar need not), and the
-// Mixer alone needs 29 kernel arguments — the most `ExactMixerGPU` has been qualified
-// with on device. Core Image concatenates adjacent colour kernels into one program, so
+// Mixer alone needs 29 kernel arguments — the most the EXECUTION-05 exact-Mixer kernel
+// (since retired) was qualified with on device. Core Image concatenates adjacent colour kernels into one program, so
 // the chain costs no intermediate buffer where it is linear.
 //
 // THE TWIN IS NOT THE ORACLE. `ColorEngine.apply` (Double) stays the independent

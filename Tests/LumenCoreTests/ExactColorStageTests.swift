@@ -310,7 +310,7 @@ final class ExactColorStageTests: XCTestCase {
     /// Linux cannot compile the kernels, but it can hold their SIGNATURES to the uniform
     /// lists the graph passes: a count mismatch is a kernel that fails at apply time on
     /// the Mac. And the argument budget: the Mixer is the widest pass at 29, the most
-    /// `ExactMixerGPU` was qualified with on device.
+    /// the EXECUTION-05 exact-Mixer kernel (since retired) was qualified with on device.
     func testEveryKernelSignatureMatchesItsPassAndStaysInBudget() throws {
         var r = Recipe()
         r.look.primaries.rHue = 5
