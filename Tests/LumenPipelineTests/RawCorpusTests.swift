@@ -1529,6 +1529,217 @@ final class RawCorpusTests: XCTestCase {
         }
     }
 
+    // MARK: - Diagnostic: which flat-mode option blacks out the monochrome decode
+
+    /// DIAGNOSTIC, NOT AN INVARIANT. Corpus 1087 (Leica M Monochrom Typ 246: LinearRaw,
+    /// one sample per pixel, BlackLevel 0, WhiteLevel 3750, BaselineExposure 0, and no
+    /// ColorMatrix, AsShotNeutral or CalibrationIlluminant) decodes to a frame whose
+    /// mean is -0.0042 in all three channels. The as-shot neutral Apple reports is
+    /// finite (5454 K / -13), so the NaN hypothesis is dead and the decode is black
+    /// BEFORE Lumen's white balance. The raw samples themselves are not black: their
+    /// mean over the full SubIFD is 266.6 of 3750, 0.0711 of white, so a linear decode
+    /// of this frame should average about 0.07.
+    ///
+    /// The "independent" check in AuditRawAccuracyTests cannot tell these apart, because
+    /// its oracle sets the same flat options Lumen does. Its 1.2e-4 agreement says both
+    /// are equally black, not that the decode is right.
+    ///
+    /// So this decodes the file once with NO options written (Apple's own defaults),
+    /// once with Lumen's full flat set (`AppleRawSource.decode`), once with the flat set
+    /// minus each option, and once with the defaults plus each option alone. The option
+    /// whose removal restores a ~0.07 mean, or whose addition alone blacks it out, is
+    /// the cause. It also reads back every CIRAWFilter property in both states, and adds
+    /// ImageIO's own decode as a yardstick that touches no CIRAWFilter setter at all.
+    ///
+    /// The flat set is REPLICATED here, as the oracle replicates it. If
+    /// `AppleRawSource.decode` gains or loses a setter, change `monoFlatOptions` too.
+    func testMonochromeDecodeOptionSweep() throws {
+        let entries = try corpus()
+        let mono = entries.filter { $0.isMono }
+        XCTAssertFalse(mono.isEmpty, "No manifest row carries the `mono` flag; "
+                           + "the monochrome decode sweep has no file to sweep.")
+        for entry in mono where FileManager.default.fileExists(atPath: entry.url.path) {
+            guard let opened = CIRAWFilter(imageURL: entry.url),
+                  RawParams.selectsRawDecoder(opened.decoderVersion.rawValue) else {
+                RawCorpusTests.emit("corpus-mono-sweep: \(entry.id) refused-at-open")
+                continue
+            }
+            let kelvin = opened.neutralTemperature
+            let tint = opened.neutralTint
+            RawCorpusTests.emit(Self.monoPropertyLine(entry, state: "default", opened))
+
+            var flatFilter: CIRAWFilter?
+            let defaultImage = Self.monoDecode(entry, variant: "apple-default") { _ in }
+            XCTAssertNotNil(defaultImage, "\(entry.id): CIRAWFilter with no options "
+                                + "written formed no image, so the sweep measured nothing")
+            _ = Self.monoDecode(entry, variant: "lumen-flat") { filter in
+                Self.applyMonoFlat(filter, kelvin: kelvin, tint: tint, except: nil)
+                flatFilter = filter
+            }
+            if let flatFilter {
+                RawCorpusTests.emit(Self.monoPropertyLine(entry, state: "lumen-flat",
+                                                          flatFilter))
+            }
+            for option in Self.monoFlatOptions {
+                _ = Self.monoDecode(entry, variant: "flat-without-" + option) { filter in
+                    Self.applyMonoFlat(filter, kelvin: kelvin, tint: tint, except: option)
+                }
+                _ = Self.monoDecode(entry, variant: "default-with-only-" + option) { filter in
+                    Self.applyMonoOption(option, filter, kelvin: kelvin, tint: tint)
+                }
+            }
+            // Lumen never writes `shadowBias` or `baselineExposure`; if Apple's default
+            // for either is what pulls the frame to -0.004, zeroing it on top of the
+            // flat set shows it.
+            _ = Self.monoDecode(entry, variant: "flat-plus-shadowBias-0") { filter in
+                Self.applyMonoFlat(filter, kelvin: kelvin, tint: tint, except: nil)
+                filter.shadowBias = 0
+            }
+            _ = Self.monoDecode(entry, variant: "flat-plus-baselineExposure-0") { filter in
+                Self.applyMonoFlat(filter, kelvin: kelvin, tint: tint, except: nil)
+                filter.baselineExposure = 0
+            }
+            RawCorpusTests.emit(Self.imageIOYardstick(entry))
+        }
+    }
+
+    /// Every option `AppleRawSource.decode` writes besides the decoder pin, scale and
+    /// draft flag (the sweep holds those at the per-file default, 0.125 and false).
+    private static let monoFlatOptions = [
+        "neutralTemperature+neutralTint", "boostAmount", "boostShadowAmount",
+        "localToneMapAmount", "isGamutMappingEnabled", "contrastAmount", "exposure",
+        "extendedDynamicRangeAmount", "sharpnessAmount", "luminanceNoiseReductionAmount",
+        "colorNoiseReductionAmount", "isLensCorrectionEnabled",
+    ]
+
+    private static func applyMonoOption(_ option: String, _ filter: CIRAWFilter,
+                                        kelvin: Float, tint: Float) {
+        switch option {
+        case "neutralTemperature+neutralTint":
+            filter.neutralTemperature = kelvin
+            filter.neutralTint = tint
+        case "boostAmount": filter.boostAmount = 0
+        case "boostShadowAmount": filter.boostShadowAmount = 0
+        case "localToneMapAmount": filter.localToneMapAmount = 0
+        case "isGamutMappingEnabled": filter.isGamutMappingEnabled = false
+        case "contrastAmount": filter.contrastAmount = 0
+        case "exposure": filter.exposure = 0
+        case "extendedDynamicRangeAmount": filter.extendedDynamicRangeAmount = 1
+        case "sharpnessAmount": filter.sharpnessAmount = 0
+        case "luminanceNoiseReductionAmount": filter.luminanceNoiseReductionAmount = 0
+        case "colorNoiseReductionAmount": filter.colorNoiseReductionAmount = 0
+        case "isLensCorrectionEnabled": filter.isLensCorrectionEnabled = false
+        default: XCTFail("monoFlatOptions names an option the sweep cannot set: " + option)
+        }
+    }
+
+    /// `AppleRawSource.decode`'s flat set, in its order, optionally minus one option.
+    private static func applyMonoFlat(_ filter: CIRAWFilter, kelvin: Float, tint: Float,
+                                      except: String?) {
+        for option in monoFlatOptions where option != except {
+            applyMonoOption(option, filter, kelvin: kelvin, tint: tint)
+        }
+    }
+
+    /// One fresh filter per variant, so no setting leaks from the previous one.
+    @discardableResult
+    private static func monoDecode(_ entry: CorpusEntry, variant: String,
+                                   _ configure: (CIRAWFilter) -> Void) -> CIImage? {
+        guard let filter = CIRAWFilter(imageURL: entry.url) else {
+            emit("corpus-mono-sweep: \(entry.id) variant=\(variant) open=failed")
+            return nil
+        }
+        filter.scaleFactor = 0.125
+        filter.isDraftModeEnabled = false
+        configure(filter)
+        guard let image = filter.outputImage else {
+            emit("corpus-mono-sweep: \(entry.id) variant=\(variant) outputImage=nil")
+            return nil
+        }
+        emit("corpus-mono-sweep: \(entry.id) variant=\(variant) "
+            + monoStatistics(image) + " · expect mean ~0.07 for a correct linear decode")
+        return image
+    }
+
+    /// Per-channel means, channel-0 min/max/std and the non-finite count, read back as
+    /// RGBAf through the same context `readFiniteness` uses.
+    private static func monoStatistics(_ image: CIImage) -> String {
+        let extent = image.extent
+        guard let buffer = PipelineRenderer.buffer(from: image,
+                                                   context: DecodeMaterializer.context)
+        else { return "extent=\(extent.width)x\(extent.height) readback=failed" }
+        var sums = [0.0, 0.0, 0.0]
+        var count = 0
+        var nonFinite = 0
+        var low = Double.infinity, high = -Double.infinity, squares = 0.0
+        for pixel in 0..<(buffer.pixels.count / 4) {
+            let r = Double(buffer.pixels[pixel * 4])
+            let g = Double(buffer.pixels[pixel * 4 + 1])
+            let b = Double(buffer.pixels[pixel * 4 + 2])
+            guard r.isFinite, g.isFinite, b.isFinite else { nonFinite += 1; continue }
+            sums[0] += r; sums[1] += g; sums[2] += b
+            squares += r * r
+            low = Swift.min(low, r); high = Swift.max(high, r)
+            count += 1
+        }
+        let n = Double(Swift.max(count, 1))
+        let means = sums.map { String(describing: $0 / n) }.joined(separator: comma)
+        let std = (Swift.max(0, squares / n - (sums[0] / n) * (sums[0] / n))).squareRoot()
+        return "extent=\(buffer.width)x\(buffer.height) mean-rgb=\(means) "
+            + "r-min=\(String(describing: low)) r-max=\(String(describing: high)) "
+            + "r-std=\(String(describing: std)) nonfinite-pixels=\(nonFinite)/\(count + nonFinite)"
+    }
+
+    /// Every CIRAWFilter property, read back. `state` says whether anything was written.
+    private static func monoPropertyLine(_ entry: CorpusEntry, state: String,
+                                         _ f: CIRAWFilter) -> String {
+        let supported = f.supportedDecoderVersions.map(\.rawValue).joined(separator: comma)
+        let linear = f.linearSpaceFilter?.name ?? dash
+        let chroma = f.neutralChromaticity
+        var parts = ["corpus-mono-props: \(entry.id) state=\(state)"]
+        parts.append("decoderVersion=\(f.decoderVersion.rawValue) supported=\(supported)")
+        parts.append("nativeSize=\(f.nativeSize.width)x\(f.nativeSize.height)")
+        parts.append("baselineExposure=\(f.baselineExposure) shadowBias=\(f.shadowBias)")
+        parts.append("exposure=\(f.exposure) boostAmount=\(f.boostAmount)")
+        parts.append("boostShadowAmount=\(f.boostShadowAmount)")
+        parts.append("contrastAmount=\(f.contrastAmount) isContrastSupported=\(f.isContrastSupported)")
+        parts.append("localToneMapAmount=\(f.localToneMapAmount) "
+            + "isLocalToneMapSupported=\(f.isLocalToneMapSupported)")
+        parts.append("extendedDynamicRangeAmount=\(f.extendedDynamicRangeAmount)")
+        parts.append("isGamutMappingEnabled=\(f.isGamutMappingEnabled)")
+        parts.append("isLensCorrectionEnabled=\(f.isLensCorrectionEnabled) "
+            + "isLensCorrectionSupported=\(f.isLensCorrectionSupported)")
+        parts.append("sharpnessAmount=\(f.sharpnessAmount) isSharpnessSupported=\(f.isSharpnessSupported)")
+        parts.append("detailAmount=\(f.detailAmount) isDetailSupported=\(f.isDetailSupported)")
+        parts.append("luminanceNoiseReductionAmount=\(f.luminanceNoiseReductionAmount) "
+            + "isLuminanceNoiseReductionSupported=\(f.isLuminanceNoiseReductionSupported)")
+        parts.append("colorNoiseReductionAmount=\(f.colorNoiseReductionAmount) "
+            + "isColorNoiseReductionSupported=\(f.isColorNoiseReductionSupported)")
+        parts.append("moireReductionAmount=\(f.moireReductionAmount) "
+            + "isMoireReductionSupported=\(f.isMoireReductionSupported)")
+        parts.append("neutralTemperature=\(f.neutralTemperature) neutralTint=\(f.neutralTint)")
+        parts.append("neutralChromaticity=\(chroma.x)/\(chroma.y)")
+        parts.append("linearSpaceFilter=\(linear)")
+        return parts.joined(separator: " ")
+    }
+
+    /// ImageIO's own RAW decode, forced from the image rather than the embedded
+    /// 160x120 preview. Display-referred, but it is Apple's pipeline with none of
+    /// Lumen's setters, so a black frame here means Apple cannot decode this file at all.
+    private static func imageIOYardstick(_ entry: CorpusEntry) -> String {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 768,
+            kCGImageSourceCreateThumbnailWithTransform: false,
+        ]
+        guard let source = CGImageSourceCreateWithURL(entry.url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0,
+                                                              options as CFDictionary)
+        else { return "corpus-mono-sweep: \(entry.id) variant=imageio decode=failed" }
+        return "corpus-mono-sweep: \(entry.id) variant=imageio "
+            + monoStatistics(CIImage(cgImage: image))
+    }
+
     // MARK: - Tier 3 — export and metadata
 
     /// R-8. Export to 16-bit TIFF at 1600 px, reopen through a fresh CGImageSource, and
