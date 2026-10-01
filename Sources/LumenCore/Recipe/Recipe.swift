@@ -266,7 +266,10 @@ public struct Recipe: Codable, Equatable, Sendable {
             ?? currentPipelineVersion
         self.develop = try c.decodeIfPresent(Develop.self, forKey: .develop) ?? Develop()
         self.look = try c.decodeIfPresent(Look.self, forKey: .look) ?? Look()
-        self.masks = try c.decodeIfPresent([Mask].self, forKey: .masks) ?? []
+        // Two rows carrying one id are repaired here, on load, wherever that changes
+        // no picture — see `MaskIdentityRepair`. Identity for every recipe without one.
+        self.masks = MaskIdentityRepair.repair(
+            try c.decodeIfPresent([Mask].self, forKey: .masks) ?? []).masks
         self.maskGroups = try c.decodeIfPresent([MaskGroup].self, forKey: .maskGroups)
             ?? []
     }

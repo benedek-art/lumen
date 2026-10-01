@@ -232,6 +232,17 @@ struct MaskPanel: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 Divider().overlay(Lumen.separator).padding(.vertical, 2)
             }
+            // Two rows sharing one id that `MaskIdentityRepair` could not rename without
+            // changing what one of them selects (S-07). Every control here selects by
+            // id, so the panel cannot tell those rows apart; saying so is the honest
+            // half of declining to guess.
+            if !MaskIdentityRepair.duplicateIDs(in: masks).isEmpty {
+                Text("Two masks in this file's settings share one identity, so the "
+                     + "panel can only reach the first of them.")
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             maskListSection
             if let mask = activeMask {
                 overlayControls(mask)
