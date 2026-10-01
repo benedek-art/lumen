@@ -533,25 +533,19 @@ final class MaskDependencyAdversarialTests: XCTestCase {
 
     // MARK: - 7 · Two masks carrying one identity
 
-    /// The walk resolves a duplicate id FIRST-WINS; the renderer renders BOTH rows. So a
-    /// second mask carrying an id already in the stack has its dependencies walked from
-    /// the OTHER mask's components — and its own reference goes unfetched.
+    /// The renderer renders BOTH rows of a duplicated id, so the roster must walk its
+    /// roots by ROW: a second mask carrying an id already in the stack must have its
+    /// OWN references fetched, not the first row's. `contributing` was repaired to do
+    /// that (3aa0370), but this case kept asserting the pre-repair roster under an
+    /// `XCTExpectFailure` — so on macOS its two stale assertions were the "expected"
+    /// failures and the case could not fail whichever way the walk behaved, and on
+    /// Linux it returned before running. It now asserts the repaired behaviour.
     ///
     /// Colliding ids are re-issued on paste (`Recipe.appendingMasks`), so this is a
-    /// hand-edited sidecar or a future writer, not an everyday path. It is here because
-    /// it is the one shape where the roster and the renderer disagree about which mask
-    /// is which.
-    func testTwoMasksCarryingOneIdentityLeaveTheSecondOnesDependencyUnfetched() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("A FINDING from adversarial verification, recorded rather than silenced. It runs and prints its real numbers on every lane; only the red is suppressed. The day it is fixed this becomes an unexpected pass and asks to be deleted.")
-        #else
-        return
-        #endif
+    /// hand-edited sidecar or a future writer, not an everyday path. Which row a
+    /// THIRD mask's `maskRef: "dup"` means stays first-wins everywhere; whether such
+    /// ids should be repaired on load is an owner decision, not something this pins.
+    func testTwoMasksCarryingOneIdentityBothHaveTheirDependenciesFetched() {
         var subject = Mask(id: "src", name: "Subject",
                            components: [matteComponent(.aiSubject)])
         subject.enabled = false
@@ -563,16 +557,12 @@ final class MaskDependencyAdversarialTests: XCTestCase {
         let plan = RenderPlan(recipe: recipe)
         XCTAssertEqual(plan.masks.count, 2, "both rows render")
 
-        // The walk never reaches the Subject mask, because it looked up "dup" and got
-        // the OTHER row's components.
-        // These two PASS and record the mechanism; the pixel assertion below is the harm.
         XCTAssertEqual(MaskDependency.contributing(in: recipe).map(\.id),
-                       ["dup", "dup"],
-                       "the walk resolved \"dup\" to the first row's components, so the "
-                           + "Subject mask the second row points at is not in the roster")
+                       ["src", "dup", "dup"],
+                       "the second row's reference to the Subject mask must be in the roster")
         let wanted = MaskDependency.wantedMattes(in: recipe, from: .vision)
-        XCTAssertEqual(wanted, [],
-                       "the matte the second row's reference needs was never asked for")
+        XCTAssertEqual(wanted, [.aiSubject],
+                       "the matte the second row's reference needs must be asked for")
         var rosterMattes: [String: Plane] = [:]
         for kind in wanted { rosterMattes[kind.rawValue] = matte(0.6) }
 
