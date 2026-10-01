@@ -2227,8 +2227,17 @@ public final class PipelineRenderer {
     /// two therefore differ by the difference between two local averages of the same
     /// picture, which is nothing on a flat patch and small on a busy one — against a
     /// pre-existing error that was the whole of S7 plus the whole of S9/S10.
+    ///
+    /// `pointColorSwatch` — the mask and swatch index a mask Point Colour pick feeds —
+    /// carries the sample on through the mask's OWN sub-recipe as far as that swatch
+    /// reads: the mask's exposure, tone and white balance, then its earlier swatches
+    /// (`ReferenceRenderer.localSelectionInput`). The stage input alone is what a
+    /// Colour Range component compares, but not what a mask's swatch compares — the
+    /// global picker's AI-02 gap, one level down. Applied to the window mean, as the
+    /// global tap is. Nil (a Colour Range or Similarity pick) leaves the tap as it was.
     public func sampleMaskStageInput(source: any ImageSource, recipe: Recipe,
                                      sourceX: Double, sourceY: Double,
+                                     pointColorSwatch: (maskID: String, index: Int)? = nil,
                                      radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
@@ -2247,8 +2256,14 @@ public final class PipelineRenderer {
         // the same thing it did going in. Every stage in that list preserves the
         // extent today; a stage that stopped doing so would otherwise move the
         // eyedropper rather than fail.
-        return sampleMean(staged.cropped(to: decoded.extent),
-                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+        guard let input = sampleMean(staged.cropped(to: decoded.extent),
+                                     sourceX: sourceX, sourceY: sourceY, radius: radius)
+        else { return nil }
+        guard let swatch = pointColorSwatch,
+              let mask = plan.recipe.masks.first(where: { $0.id == swatch.maskID })
+        else { return input }
+        return ReferenceRenderer.localSelectionInput(input, mask: mask, plan: plan,
+                                                     swatchIndex: swatch.index)
     }
 
     /// One sample of the image the COLOUR stage receives — S3 through S8, the value

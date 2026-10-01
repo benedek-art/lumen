@@ -322,19 +322,27 @@ public enum ReferenceRenderer {
         return c.mix(target * luminance / targetLuminance, Num.saturate(strength))
     }
 
-    /// A mask's sub-recipe is a delta over the global parameters, evaluated with the
-    /// same engines the global path uses — never a parallel implementation.
-    static func applyLocalAdjust(_ image: ImageBuffer, mask: Mask, plan: RenderPlan,
-                                 space: RGBColorSpace) -> ImageBuffer {
-        let scale = Num.clamp(mask.amount, 0, 200) / 100.0
-        let a = mask.adjust
-        let tone = ToneEngine(tone: Tone(exposure: a.exposure * scale,
+    /// The front of a mask's colour sub-recipe: everything a mask's Point Colour swatch
+    /// sees before it compares — exposure, the local tone curve, the local white
+    /// balance — and the colour engine the swatches live in. One construction, read by
+    /// `applyLocalAdjust` (the render) and `localSelectionInput` (the picker), so the
+    /// picker cannot drift from what the render compares.
+    struct LocalColourFront {
+        let tone: ToneEngine
+        let exposureGain: Double
+        let balance: LocalWhiteBalance
+        let color: ColorEngine
+
+        init(mask: Mask, plan: RenderPlan, space: RGBColorSpace) {
+            let scale = Num.clamp(mask.amount, 0, 200) / 100.0
+            let a = mask.adjust
+            tone = ToneEngine(tone: Tone(exposure: a.exposure * scale,
                                          contrast: a.contrast * scale,
                                          highlights: a.highlights * scale,
                                          shadows: a.shadows * scale,
                                          whites: a.whites * scale,
                                          blacks: a.blacks * scale))
-        let color = ColorEngine(mixer: Mixer(),
+            color = ColorEngine(mixer: Mixer(),
                                 pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
                                 // Density and protectSkin inherited from the global
                                 // colour panel — see `ColorAdjust.local` for why an
@@ -344,16 +352,55 @@ public enum ReferenceRenderer {
                                               saturation: a.sat * scale,
                                               inheriting: plan.recipe.develop.color),
                                 primaries: Primaries(), bw: nil)
+            exposureGain = tone.exposureGain
+            balance = LocalWhiteBalance.resolve(a, amount: scale,
+                                                balanced: plan.balancedNeutral,
+                                                space: space)
+        }
+
+        /// Exposure, tone and white balance: the colour stage's input inside the mask.
+        func colourStageInput(_ pixel: RGB, space: RGBColorSpace) -> RGB {
+            var c = pixel * exposureGain
+            if !tone.isIdentity {
+                let lum = Swift.max(space.luminance(c), 0)
+                c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+            }
+            return balance.apply(c)
+        }
+    }
+
+    /// What a mask's Point Colour swatch `swatchIndex` (the next index when adding one)
+    /// actually compares, given the mask stage's input `c` — the value the mask's
+    /// eyedropper has to store.
+    ///
+    /// The global picker's AI-02 gap, inside a mask: the mask picker stored the mask
+    /// stage INPUT (`sampleMaskStageInput`) while the swatch is judged after the mask's
+    /// own exposure, tone and white balance and after every earlier swatch of the same
+    /// mask, so a swatch picked in a mask carrying a Temp or Exposure move sat off the
+    /// colour that was clicked. Same sequence `applyLocalAdjust` runs, stopped at the
+    /// swatch: `LocalColourFront`, then `ColorEngine.selectionInput`.
+    public static func localSelectionInput(_ c: RGB, mask: Mask, plan: RenderPlan,
+                                           swatchIndex: Int,
+                                           space: RGBColorSpace = .rec2020) -> RGB {
+        guard c.isFinite else { return c }
+        let front = LocalColourFront(mask: mask, plan: plan, space: space)
+        return front.color.selectionInput(front.colourStageInput(c, space: space),
+                                          for: .pointColor(index: swatchIndex))
+    }
+
+    /// A mask's sub-recipe is a delta over the global parameters, evaluated with the
+    /// same engines the global path uses — never a parallel implementation.
+    static func applyLocalAdjust(_ image: ImageBuffer, mask: Mask, plan: RenderPlan,
+                                 space: RGBColorSpace) -> ImageBuffer {
+        let scale = Num.clamp(mask.amount, 0, 200) / 100.0
+        let a = mask.adjust
+        let front = LocalColourFront(mask: mask, plan: plan, space: space)
         // The exact stage's twin, not `color.apply`: the GPU's `LocalPlan` runs this
         // mask's colour stage through the same kernels as the global one, and the CPU
         // path runs their twin, so the two paths execute one implementation (AI-03).
-        let colorStage = color.exactStage
-        let exposureGain = tone.exposureGain
+        let colorStage = front.color.exactStage
         let hueShift = a.hue * scale
         let context = OKLabTransform.working
-        let balance = LocalWhiteBalance.resolve(a, amount: scale,
-                                                balanced: plan.balancedNeutral,
-                                                space: space)
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
         // Local grading wheels (D29), the same engine the global grade uses. Kept in
@@ -373,12 +420,7 @@ public enum ReferenceRenderer {
                           blackAnchorEV: plan.tone.blackAnchorEV)
 
         var out = image.map { pixel in
-            var c = pixel * exposureGain
-            if !tone.isIdentity {
-                let lum = Swift.max(space.luminance(c), 0)
-                c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            }
-            c = balance.apply(c)
+            var c = front.colourStageInput(pixel, space: space)
             c = colorStage.apply(c)
             if hueShift != 0 {
                 var lch = context.toLCh(c)

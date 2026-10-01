@@ -3469,8 +3469,17 @@ final class AppState: ObservableObject {
                 // the error grew with the edit (docs/23 dossier queue item 5).
                 let sample: RGB?
                 if target.samplesTheMaskStage {
+                    // A mask swatch reads after the mask's own exposure, tone, white
+                    // balance and earlier swatches; the next swatch's index is the
+                    // mask's current count, as `.maskPointColor` appends below.
+                    var swatch: (maskID: String, index: Int)?
+                    if case .maskPointColor(let maskID) = target,
+                       let mask = current.masks.first(where: { $0.id == maskID }) {
+                        swatch = (maskID, mask.adjust.pointColors.count)
+                    }
                     sample = await renderCoordinator.sampleMaskReference(
-                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
+                        pointColorSwatch: swatch)
                 } else if let tap = target.colorSelectionTap(
                     existingPointColors: current.develop.pointColors.count) {
                     // Through the colour stage as far as the selection reads (AI-02):
