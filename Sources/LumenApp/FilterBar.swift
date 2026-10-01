@@ -382,7 +382,7 @@ struct FilterBar: View {
         // which is also the better shape here: it reads as part of the filter being
         // built rather than as a second window over the first.
         LumenMenu(title: metadataTitle, symbol: "camera.aperture", inline: true,
-                  help: "Camera, lens, ISO, keyword and stack state") {
+                  help: "Camera, lens, ISO, keyword, stack state and culling evidence") {
             // THE COUNTS MOVE TO THE ANNOTATION COLUMN. They used to be glued into the
             // label — "Canon EOS R5  (214)" — as one string, which is how you get a
             // column of names whose right edge lands wherever each name happened to
@@ -471,6 +471,30 @@ struct FilterBar: View {
                             }
                         }
                     }
+                    // The culling pass's evidence (docs/10 §10.8 "Evidence chips"), as
+                    // sets to look at. Lighting one shows frames; it never flags them.
+                    if state.cullingAssistsEnabled {
+                        Group {
+                            LumenMenuHeader(title: "Culling evidence")
+                            LumenMenuItem(title: "Soft focus",
+                                          isSelected: state.filter.softFocus) {
+                                state.filter.softFocus.toggle()
+                            }
+                            LumenMenuItem(title: "Eyes closed",
+                                          isSelected: state.filter.closedEyes) {
+                                state.filter.closedEyes.toggle()
+                            }
+                        }
+                        Group {
+                            LumenMenuHeader(title: "Bursts")
+                            ForEach(BurstFilter.allCases) { option in
+                                LumenMenuItem(title: option.rawValue,
+                                              isSelected: state.filter.burst == option) {
+                                    state.filter.burst = option
+                                }
+                            }
+                        }
+                    }
                 }
             }
             // The one menu in the app whose length is the LIBRARY's rather than the
@@ -492,6 +516,9 @@ struct FilterBar: View {
         var lit = state.filter.cameras.count + state.filter.lenses.count
             + state.filter.isoBands.count + state.filter.keywords.count
         if state.filter.stackState != .any { lit += 1 }
+        if state.filter.softFocus { lit += 1 }
+        if state.filter.closedEyes { lit += 1 }
+        if state.filter.burst != .any { lit += 1 }
         return lit == 0 ? "Metadata" : "Metadata (\(lit))"
     }
 
@@ -603,10 +630,15 @@ struct FilterBar: View {
             return "needs the catalog"
         }
         switch order {
-        case .sharpness, .aesthetic:
-            // `cache.frame_score` has no writer anywhere in the repo: the culling
-            // analysis pass of docs/10 §10.6 is not built. Sorting by it would order
-            // every photo by NULL and look like the menu item did nothing.
+        case .sharpness:
+            // Written by the culling pass (`CatalogService.analyzeCulling`). Frames it
+            // has not reached sort last, unlabelled, in both directions — the builder's
+            // rule for every score — so a half-finished pass orders what it has.
+            return state.cullingAssistsEnabled ? nil : "culling assists are off"
+        case .aesthetic:
+            // Still nothing writes `frame_score.aesthetic`: the aesthetics request of
+            // docs/10 §10.6 is not part of the culling pass yet. Sorting by it would
+            // order every photo by NULL and look like the menu item did nothing.
             return SortOrder.scoreSortsPending
         case .userOrder:
             // `ap.position` only exists inside an album; outside one the builder falls

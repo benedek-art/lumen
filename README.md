@@ -39,7 +39,7 @@ What is built, by phase:
 | 5 — Denoise | Profiled VST + wavelet classical NR, the cached AI-splice model, ISO-adaptive defaults, tiling. Runs in the reference implementation; the GPU path still rides Apple's decode-stage NR. |
 | 6 — Colour depth | Eight-band mixer, point colour, three-way wheels with visible pivots, printer lights in twelfths of a stop, primaries, B&W — all in an H-K-aware perceptual model. |
 | 7 — Film Lab, output, HDR | Six stocks with real characteristic curves, halation and density-domain grain; multi-recipe export; ISO 21496-1 gain-map maths. The HDR *viewport* is not built. |
-| 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Heal and AI culling assists are not built. |
+| 8 — Dailies | Scopes, histogram with draggable zones, compare and survey. Culling assists run in the background on-device: a sharpness score (sortable, a soft-focus chip, a grid attention dot), burst grouping by capture time and perceptual hash, and eyes-closed evidence from Vision — evidence only, never a flag; thresholds not yet calibrated on real shoots. Heal and the aesthetics sort are not built. |
 
 The owner has run it on a Mac four times (2026-08-23 ×2, and sessions A and B on
 2026-08-26) against his own RAW folders, recorded in `docs/audit/`, docs/19 and

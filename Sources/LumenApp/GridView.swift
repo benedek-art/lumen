@@ -57,6 +57,9 @@ struct GridView: View {
                                       // closure value on every pass rather than a
                                       // fresh identity per cell per body.
                                       onRate: state.ratingSink,
+                                      // A field read off the roll entry, not a lookup:
+                                      // this closure re-runs on every cull keystroke.
+                                      attention: photo.attention,
                                       loader: state.thumbnails)
                                 // ONE tap handler, not a count-2 gesture racing a
                                 // simultaneous count-1. See `handleCellClick` for the
@@ -241,6 +244,10 @@ struct PhotoCell: View {
     /// The filmstrip passes nil: its cells are 96 points tall, and five click targets
     /// eleven points wide inside one of them is a dexterity test, not an affordance.
     let onRate: ((PhotoItem, Int) -> Void)?
+    /// The culling pass's evidence (docs/10 §10.2 "Attention dot"). Its own input rather
+    /// than read through `photo`, because `PhotoItem` compares by URL alone and a value
+    /// that changes without changing identity must be visible to the diff on its own.
+    let attention: CullingAttention?
     let loader: ThumbnailLoader
 
     @State private var image: CGImage? = nil
@@ -258,6 +265,7 @@ struct PhotoCell: View {
          isPrimary: Bool,
          showsCaption: Bool = true,
          onRate: ((PhotoItem, Int) -> Void)? = nil,
+         attention: CullingAttention? = nil,
          loader: ThumbnailLoader) {
         self.photo = photo
         self.side = side
@@ -266,6 +274,7 @@ struct PhotoCell: View {
         self.isPrimary = isPrimary
         self.showsCaption = showsCaption
         self.onRate = onRate
+        self.attention = attention
         self.loader = loader
     }
 
@@ -327,6 +336,9 @@ struct PhotoCell: View {
         .overlay(alignment: .bottom) {
             if hasBadges || showsStars { badges }
         }
+        .overlay(alignment: .topTrailing) {
+            if let attention, attention.needsAttention { attentionDot(attention) }
+        }
         .onHover { if onRate != nil { hovering = $0 } }
         .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
         .overlay(
@@ -354,6 +366,21 @@ struct PhotoCell: View {
         .padding(.vertical, 3)
         .frame(width: side)
         .background(Color.black.opacity(0.45))
+    }
+
+    /// One neutral dot, the size of a label chip's short side, top right — and
+    /// deliberately information-poor (docs/10 §10.2): no colour coding, no icon, no
+    /// count. It routes the eye; the number behind it is in the tooltip, and the set it
+    /// belongs to is one chip away in the filter bar. White with a dark ring so it reads
+    /// on a bright sky and a black frame alike.
+    private func attentionDot(_ attention: CullingAttention) -> some View {
+        Circle()
+            .fill(Color.white.opacity(0.9))
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.5), lineWidth: 1))
+            .frame(width: 7, height: 7)
+            .padding(5)
+            .help(attention.explanation)
+            .accessibilityLabel(attention.explanation)
     }
 
     private var stars: some View {

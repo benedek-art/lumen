@@ -593,6 +593,146 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    // MARK: - The culling pass (docs/10 §10.6)
+
+    /// Its own lane at BACKGROUND QoS — efficiency cores, the bottom of the scheduler —
+    /// rather than `maintenance`, so the EXIF backfill of the next folder never waits
+    /// behind a face pass, and rather than `queue`, which is the cull keystroke's lane.
+    private let cullingLane = DispatchQueue(label: "dev.lumenapp.catalog.culling",
+                                            qos: .background)
+    /// Same discipline as `backfillGeneration`: a folder switch supersedes the running
+    /// pass, which stops after the photograph it is on. Guarded by `backfillLock`.
+    private var cullingGeneration = 0
+
+    private func isCurrentCullingPass(_ mine: Int) -> Bool {
+        backfillLock.lock()
+        defer { backfillLock.unlock() }
+        return cullingGeneration == mine
+    }
+
+    /// Stop the running culling pass at its next photograph.
+    func cancelCullingAnalysis() {
+        backfillLock.lock()
+        cullingGeneration += 1
+        backfillLock.unlock()
+    }
+
+    /// Measure every frame in `folder` that has no evidence at this analyzer revision,
+    /// regroup the folder's bursts, and report the evidence as it accumulates.
+    ///
+    /// THE KEYSTROKE PATH IS NOT TOUCHED. The decode, the measurement and the face pass
+    /// run here, one photograph at a time; the catalog's serial `queue` is entered once
+    /// per chunk read and once per chunk write, each a handful of statements. Nothing in
+    /// this function runs on the main actor: `onUpdate` is called from this lane, and
+    /// the receiver hops — at most once every `updateInterval`, plus once at the end, so
+    /// a 2,000-frame pass republishes the grid tens of times, not thousands.
+    ///
+    /// Writes `cache.frame_score` and `cache.face` only — never `photo.flag`, never
+    /// `stack` (D37).
+    func analyzeCulling(folder: URL, detectFaces: Bool,
+                        onUpdate: @escaping @Sendable (_ evidence: [Int64: CullingAttention],
+                                                       _ finished: Bool) -> Void) {
+        backfillLock.lock()
+        cullingGeneration += 1
+        let mine = cullingGeneration
+        backfillLock.unlock()
+
+        cullingLane.async { [store, weak self] in
+            guard let queue = self?.queue else { return }
+            func stopped(_ error: Error) {
+                NSLog("Lumen catalog: culling analysis stopped — %@",
+                      String(describing: error))
+            }
+            func current() -> Bool { self?.isCurrentCullingPass(mine) == true }
+
+            // One read for the dot map: scores, plus the frames the closed-eyes chip
+            // would list, so the dot and the chip are the same answer.
+            func evidence(folderID: Int64) throws -> [Int64: CullingAttention] {
+                var eyes = PhotoQuery()
+                eyes.closedEyes = true
+                let closed = Set(try store.photos(matching: eyes, folderID: folderID).map(\.id))
+                return CullingAttention.evidence(scores: try store.frameScores(folderID: folderID),
+                                                 closedEyes: closed)
+            }
+
+            var folderID: Int64 = 0
+            var broke = false
+            queue.sync {
+                do { folderID = try store.registerFolder(path: folder.path) }
+                catch { stopped(error); broke = true }
+            }
+            guard !broke else { return }
+
+            var cursor: Int64 = 0
+            var lastUpdate = Date.distantPast
+            while current() {
+                var chunk: [Int64] = []
+                var names: [Int64: String] = [:]
+                queue.sync {
+                    do {
+                        chunk = try store.photosMissingFrameScore(folderID: folderID,
+                                                                  afterID: cursor, limit: 16)
+                        for id in chunk {
+                            if let row = try store.photo(id: id) { names[id] = row.filename }
+                        }
+                    } catch { stopped(error); broke = true }
+                }
+                guard !broke else { return }
+                guard let last = chunk.last else { break }
+                cursor = last
+
+                var results: [CullingAnalyzer.Result] = []
+                for id in chunk {
+                    guard current() else { return }
+                    guard let name = names[id] else { continue }
+                    let url = folder.appendingPathComponent(name)
+                    results.append(autoreleasepool {
+                        CullingAnalyzer.analyze(url: url, photoID: id,
+                                                detectFaces: detectFaces)
+                    })
+                }
+                guard current() else { return }
+                var update: [Int64: CullingAttention]?
+                let due = Date().timeIntervalSince(lastUpdate)
+                    >= CatalogService.cullingUpdateInterval
+                queue.sync {
+                    do {
+                        for result in results {
+                            try store.recordFrameScore(result.score)
+                            if let faces = result.faces {
+                                try store.recordFaces(faces, photoID: result.score.photoID)
+                            }
+                        }
+                        if due { update = try evidence(folderID: folderID) }
+                    } catch { stopped(error); broke = true }
+                }
+                guard !broke else { return }
+                if let update {
+                    lastUpdate = Date()
+                    onUpdate(update, false)
+                }
+            }
+            guard current() else { return }
+
+            // Grouping is whole-folder and cheap (one read, one sort, one transaction),
+            // so it runs at the end of every pass — including the pass that found
+            // nothing to measure, which is how a relaunch gets its bursts and its dots.
+            var final: [Int64: CullingAttention] = [:]
+            queue.sync {
+                do {
+                    let groups = BurstGrouper.group(try store.burstCandidates(folderID: folderID))
+                    try store.replaceBursts(groups, folderID: folderID)
+                    final = try evidence(folderID: folderID)
+                } catch { stopped(error); broke = true }
+            }
+            guard !broke, current() else { return }
+            onUpdate(final, true)
+        }
+    }
+
+    /// How often a running pass republishes the grid's dots.
+    private static let cullingUpdateInterval: TimeInterval = 5
+
     /// Reconcile what the catalog knows with what the sidecar says, under docs/15
     /// §15.5's three rules. The rules themselves live in `SidecarMerge`, in LumenCore,
     /// where they can be tested; this function owns only the file read, the mtime stat

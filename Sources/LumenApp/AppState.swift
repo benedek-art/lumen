@@ -56,6 +56,11 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     /// records no ISO, in which case the flat wire defaults stand.
     var iso: Int?
     var sourceIdentity: SourceFileIdentity? = nil
+    /// The culling pass's evidence for this frame (docs/10 §10.6), nil until the pass
+    /// has measured it. Carried on the roll entry rather than looked up per cell, so the
+    /// grid's body — which re-runs on every cull keystroke — reads a field and does no
+    /// extra work for it.
+    var attention: CullingAttention? = nil
 
     var filename: String { id.lastPathComponent }
     var isRaw: Bool { PhotoFormats.isRaw(id) }
@@ -220,7 +225,7 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
     /// disabled item in the menu: an ordering that silently does nothing is worse than
     /// one that says what it is waiting for.
     static let scoreSortsPending =
-        "waiting on the culling analysis pass, which does not run yet"
+        "waiting on the aesthetics pass, which is not built yet"
 }
 
 // MARK: - Library sections
@@ -1915,6 +1920,56 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: Culling assists (docs/10 §10.6)
+
+    /// The master switch (D5): off means no analysis runs, so no evidence reaches the
+    /// grid, and the evidence chips and the sharpness sort are not offered. Default ON,
+    /// per the spec's control table. There is no Settings pane in the app yet to put the
+    /// toggle in; `defaults write <bundle id> cullingAssists.enabled -bool NO` and a
+    /// relaunch is the switch until there is.
+    static let cullingAssistsKey = "cullingAssists.enabled"
+
+    /// Read ONCE, at launch. The filter bar's body asks this, and that body re-runs on
+    /// every cull keystroke; a defaults lookup there would be main-actor work per key.
+    let cullingAssistsEnabled: Bool =
+        UserDefaults.standard.object(forKey: AppState.cullingAssistsKey) as? Bool ?? true
+
+    /// Start (or restart) the background pass over `folder`. Everything heavy happens on
+    /// `CatalogService`'s background lane; this hops back once per batch of evidence.
+    func startCullingAnalysis(folder: URL) {
+        guard cullingAssistsEnabled, let catalog else { return }
+        catalog.analyzeCulling(folder: folder, detectFaces: true) { evidence, finished in
+            Task { @MainActor [weak self] in
+                guard let self, self.folderURL == folder else { return }
+                self.adoptCullingEvidence(evidence)
+                // A sort or a chip that reads the evidence was answered from the rows
+                // as they were when it ran; the finished pass is the moment to re-ask.
+                if finished && (self.sortOrder == .sharpness || self.filter.softFocus
+                                || self.filter.closedEyes || self.filter.burst != .any) {
+                    self.refreshLibraryQuery()
+                }
+            }
+        }
+    }
+
+    /// Put the evidence on the roll entries, in ONE assignment — `allPhotos` is
+    /// `@Published`, and a per-element write would republish the grid once per frame.
+    /// Frames whose evidence did not change are left alone, and a batch that changes
+    /// nothing publishes nothing.
+    private func adoptCullingEvidence(_ evidence: [Int64: CullingAttention]) {
+        var updated = allPhotos
+        var changed = false
+        for i in updated.indices {
+            guard let id = updated[i].catalogID else { continue }
+            let fresh = evidence[id]
+            guard updated[i].attention != fresh else { continue }
+            updated[i].attention = fresh
+            changed = true
+        }
+        guard changed else { return }
+        allPhotos = updated
+    }
+
     /// An album is a source that spans folders, and only one folder is open at a time.
     /// Saying so beats an album row that reads 40 opening a grid of 6 with no
     /// explanation anywhere on screen.
@@ -2576,6 +2631,9 @@ final class AppState: ObservableObject {
         scanGeneration &+= 1
         let generation = scanGeneration
         let catalog = self.catalog
+        // The previous folder's culling pass is measuring photographs that are leaving
+        // the screen; it stops after the one it is on.
+        catalog?.cancelCullingAnalysis()
         Task.detached(priority: .userInitiated) { [weak self] in
             // A restricted roll does not enumerate: the list IS the answer, sorted the
             // same way a scan sorts so the grid's initial order does not depend on which
@@ -2641,6 +2699,9 @@ final class AppState: ObservableObject {
                     // in the catalog since seconds after it opened (session C, the
                     // owner's Sony a7 IV / Lumix GX85 report).
                     self.refreshLibrarySections()
+                    // AFTER the EXIF, because burst grouping reads capture time and
+                    // the body serial: started earlier, a fresh card would group nothing.
+                    self.startCullingAnalysis(folder: url)
                 }
             }
         }

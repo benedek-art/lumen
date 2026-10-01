@@ -260,6 +260,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Vision", "VNImageRequestHandler", "VNGenerateForegroundInstanceMaskRequest",
     "VNGeneratePersonSegmentationRequest", "VNInstanceMaskObservation",
     "VNPixelBufferObservation", "VNObservation", "VNRequest",
+    # ...and the culling pass's face evidence (docs/10 §10.6).
+    "VNDetectFaceLandmarksRequest", "VNDetectFaceCaptureQualityRequest",
+    "VNFaceLandmarkRegion2D",
     # CryptoKit: the updater's SHA-256 over the downloaded asset (L-03). Named
     # individually for the same reason Vision's requests are — this tree uses exactly
     # one primitive from it, and a typo in a second should still fail here.
