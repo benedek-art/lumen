@@ -29,6 +29,9 @@ final class KeyDispatcher {
 
     private weak var state: AppState?
     private var monitor: Any?
+    /// `flagsChanged`, kept apart from the key monitor so `handle` never sees an event
+    /// that has no characters. Feeds `ModifierKeys`.
+    private var flagsMonitor: Any?
     /// Set while a hold-key gesture is active, so key-up can undo what key-down did.
     private var holdActive: Character?
 
@@ -44,18 +47,29 @@ final class KeyDispatcher {
                 self.handle(event) ? nil : event
             }
         }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
+            ModifierKeys.shared.update(event.modifierFlags)
+            return event
+        }
     }
 
     func uninstall() {
         if let monitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+        }
         monitor = nil
+        flagsMonitor = nil
     }
 
     deinit {
         if let monitor {
             NSEvent.removeMonitor(monitor)
+        }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
         }
     }
 
@@ -157,11 +171,11 @@ final class KeyDispatcher {
 
         // ---- Flags -------------------------------------------------------------
         case "p":
-            state.setFlag(.picked)
+            state.setFlag(.pick)
         case "x":
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
         case "u":
-            state.setFlag(.none)
+            state.setFlag(.unflagged)
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
@@ -563,7 +577,7 @@ final class KeyDispatcher {
                 state.deleteActiveMask()
                 return true
             }
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
             return true
         case 0x1B:      // Escape
             // A focused slider gets Escape first, to drop its focus. This monitor runs

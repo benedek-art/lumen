@@ -299,6 +299,37 @@ final class MaskReferencePipelineTests: XCTestCase {
                        "adjusting a mask does not change its selection")
     }
 
+    func testForgettingAnotherSourceKeepsGeometryBrushPlanes() throws {
+        // Browsing to a neighbour, or prefetching one, used to run forgetMattes for
+        // THAT file, and forgetMattes cleared every photo's brush planes. A brush
+        // without Automask is geometry: the next render must resume the held plane,
+        // not repaint the whole set.
+        let source = MaskReferenceFixtureSource(longEdge: 128)
+        var brush = MaskComponent(op: .add, kind: .brush)
+        brush.strokesRef = "blob:geometry-brush-survives"
+        var mask = Mask(id: "painted-geometry", components: [brush])
+        mask.adjust.exposure = 1
+        var r = Recipe()
+        r.develop.denoise.mode = .off
+        r.masks = [mask]
+        let strokes = ["blob:geometry-brush-survives": BrushStrokeSet(strokes: (0..<6).map { i in
+            BrushStroke(points: [BrushPoint(x: 0.2 + 0.1 * Double(i), y: 0.5)], size: 0.1,
+                        feather: 50, flow: 100, density: 100, automask: false)
+        })]
+        let held = PipelineRenderer()
+        let before = try pixels(held, source, r, strokes: strokes)
+        let stats = BrushPlaneCache.currentStats
+        held.forgetMattes(for: URL(fileURLWithPath: "/tmp/lumen-some-other-photograph.tif"))
+        let after = try pixels(held, source, r, strokes: strokes)
+        let now = BrushPlaneCache.currentStats
+        XCTAssertEqual(now.repainted, stats.repainted,
+                       "another file's source change repainted an untouched geometry brush")
+        XCTAssertEqual(now.strokesPainted, stats.strokesPainted)
+        XCTAssertGreaterThan(now.resumed, stats.resumed,
+                             "the raster rebake must have asked the brush cache, or this proves nothing")
+        XCTAssertEqual(worst(before, after), 0)
+    }
+
     func testForgettingSameURLSourceAlsoForgetsAutomaskedBrushPixels() throws {
         let original = MaskReferenceFixtureSource(longEdge: 128) { _, _ in RGB(gray: 0.18) }
         let replacement = MaskReferenceFixtureSource(longEdge: 128) { u, _ in RGB(gray: u < 0.5 ? 0.18 : 1.2) }

@@ -231,7 +231,10 @@ public final class PipelineRenderer {
         // Automask brush prefixes sampled the same old pixels. Clearing the finished
         // alpha alone would rebuild it from that obsolete prefix. The generation in
         // pictureKey also isolates a deferred old bake that paints after this clear.
-        brushPlanes.clear()
+        // ONLY those: a brush without Automask is geometry and survives any pixels, and
+        // it is the expensive half (seconds per 60-stroke set). Clearing every photo's
+        // planes here threw that away on every first open and neighbour prefetch.
+        brushPlanes.clearPictureDependent()
         // The band-hue measurement is a statement about the same pixels.
         bandHues.removeValue(forKey: url)
         bandHueOrder.removeAll { $0 == url }

@@ -78,7 +78,7 @@ public final class AppleRawSource: ImageSource {
         // opt-in on macOS27: "supported" does not mean selected or validated in our
         // working context, and a non-nil lazy outputImage is not a pixel check.
         // Explicit recipe pins remain honoured in decode(), including RAW9.
-        self.pinnedDecoderVersion = Int(filter.decoderVersion.rawValue.filter(\.isNumber))
+        self.pinnedDecoderVersion = RawParams.decoderNumber(filter.decoderVersion.rawValue)
         self.pinnedVersion = filter.decoderVersion
 
         self.asShotTemperature = Double(filter.neutralTemperature)
@@ -87,6 +87,18 @@ public final class AppleRawSource: ImageSource {
         self.defaultColorNR = filter.colorNoiseReductionAmount
         self.defaultSharpness = filter.sharpnessAmount
         self.captureISO = CaptureMetadataReader.read(url: url)?.iso.map { Double($0) }
+    }
+
+    /// Whether a decode by `version` must go through the RAW9 colour boundary.
+    ///
+    /// By decoder NUMBER, never by spelling. This was `rawValue == "9"`, while every
+    /// other decoder comparison in this file normalized to digits, and Apple spells DNG
+    /// decoders with a suffix (`version8DNG` is "8.dng"). A RAW9 DNG decoder named
+    /// "9.dng" therefore skipped the boundary and its lazy image was evaluated in the
+    /// Rec2020 working context: the cyan decode AI-01 reproduced. One predicate, shared
+    /// with the private RAW tests so they cannot skip such a file either.
+    static func needsRaw9Boundary(_ version: CIRAWDecoderVersion) -> Bool {
+        RawParams.needsRaw9ColourBoundary(version.rawValue)
     }
 
     public var nativeLongEdge: Double {
@@ -212,7 +224,7 @@ public final class AppleRawSource: ImageSource {
         if let requested = dev.raw.decoderVersion,
            requested != pinnedDecoderVersion,
            let match = filter.supportedDecoderVersions.first(where: {
-               Int($0.rawValue.filter(\.isNumber)) == requested
+               RawParams.decoderNumber($0.rawValue) == requested
            }) {
             resolvedVersion = match
         } else {
@@ -393,7 +405,7 @@ public final class AppleRawSource: ImageSource {
         // would have been delivered at 512 px in draft demosaic. That is the falsifier,
         // it is loud, and nobody has ever seen it.
         let stored: (image: CIImage, bytes: Int)
-        if filter.decoderVersion.rawValue == "9" {
+        if Self.needsRaw9Boundary(filter.decoderVersion) {
             guard let corrected = DecodeMaterializer.materialize(
                 image, evaluatingIn: .raw9LinearSRGB) else { return nil }
             stored = corrected
