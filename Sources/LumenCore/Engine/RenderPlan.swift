@@ -226,12 +226,19 @@ public struct RenderPlan: Sendable {
             let huesPart = bandMeanHues.map {
                 $0.map(CanonicalJSON.canonicalNumber).joined(separator: ",")
             } ?? "-"
-            let key = PlanTableCache.key(
+            // Spelled through `PlanKeyMemo`: byte-identical to `PlanTableCache.key`
+            // over the same subtrees, re-encoded only when one of them moved.
+            let key = RenderPlan.colorGradeKeyMemo.key(
                 ["cg", "\(lutSize)", "\(space)", huesPart,
                  CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
                  CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV)],
+                inputs: ColorGradeKeyInputs(
+                    mixer: develop.mixer, pointColors: develop.pointColors,
+                    color: develop.color, primaries: look.primaries, bw: look.bw,
+                    wheels: look.wheels, printerLights: look.printerLights)) {
                 [develop.mixer, develop.pointColors, develop.color,
-                 look.primaries, look.bw, look.wheels, look.printerLights])
+                 look.primaries, look.bw, look.wheels, look.printerLights]
+            }
             self.colorGradeLUT = key.map {
                 allowStaleTables
                     ? PlanTableCache.tableAllowingStale(.colorGrade, key: $0,
@@ -345,18 +352,20 @@ public struct RenderPlan: Sendable {
         // absence of one. Absent keys as "-", present-but-unencodable fails the key.
         let filmPart: String?
         if let film = look.filmLab {
-            filmPart = (try? CanonicalJSON.tree(of: film)).map(CanonicalJSON.serialize)
+            filmPart = RenderPlan.filmKeyMemo.pieces(for: film) { [film] }?.first
         } else {
             filmPart = "-"
         }
         let baseKey = filmPart.flatMap { film in
-            PlanTableCache.key(
+            RenderPlan.finishKeyMemo.key(
                 ["fin", "\(lutSize)", "\(space)", film,
                  CanonicalJSON.canonicalNumber(white),
                  CanonicalJSON.canonicalNumber(toneEngine.whiteAnchorEV),
                  CanonicalJSON.canonicalNumber(toneEngine.blackAnchorEV),
                  displayWhiteTarget.map(CanonicalJSON.canonicalNumber) ?? "-"],
-                [look.render, develop.curve])
+                inputs: FinishKeyInputs(render: look.render, curve: develop.curve)) {
+                [look.render, develop.curve]
+            }
         }
         let bakePlain = { LUT3D(size: lutSize, transform: display) }
         // The proofed variant below stays on the blocking path either way: it is a
@@ -503,8 +512,11 @@ public struct RenderPlan: Sendable {
             // the zones, which is to say by the controls that are dragged most. The
             // key is complete because `toneEngine` is built from these two subtrees
             // alone, and `peak` is derived from the table they produce.
-            let toneKey = PlanTableCache.key(["tonecube", "\(cubeSize)"],
-                                             [develop.tone, develop.zones])
+            let toneKey = RenderPlan.toneKeyMemo.key(
+                ["tonecube", "\(cubeSize)"],
+                inputs: ToneKeyInputs(tone: develop.tone, zones: develop.zones)) {
+                [develop.tone, develop.zones]
+            }
             // CACHED, BUT NEVER SERVED STALE — unlike every other table here, and for
             // a reason the comment above already states without following through:
             // the cube and `toneGainScale` "are meaningless except as a pair".
