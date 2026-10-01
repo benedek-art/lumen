@@ -106,6 +106,154 @@ final class AppliedReadoutTests: XCTestCase {
     }
 }
 
+// MARK: - The sweep: limiters the engine reports and no panel showed
+
+final class EngineLimitReadoutTests: XCTestCase {
+
+    // MARK: Tone — effectiveHighlights and its three siblings
+
+    func testUntouchedAndSingleSliderAtContrastZeroAreNeverCaptioned() {
+        XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone()))
+        // At Contrast 0 a single slider is never eased (ToneEngine's own claim), and the
+        // two halves are solved separately, so the ordinary "flatten it" move is silent.
+        for v in [-100.0, 100] {
+            XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone(highlights: v)))
+            XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone(shadows: v)))
+            XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone(whites: v)))
+            XCTAssertNil(AppliedReadout.toneEasingCaption(tone: Tone(blacks: v)))
+        }
+        XCTAssertNil(AppliedReadout.toneEasingCaption(
+            tone: Tone(highlights: -100, shadows: 100)))
+    }
+
+    /// The caption carries the number the render uses. Measured: Highlights −100 at
+    /// Contrast −100 applies −94; Blacks +100 there applies +91 on its shelf.
+    ///
+    /// SUBSTITUTION: make `easedToneSliders` return `[]` and both unwraps fail.
+    func testAnEasedSliderIsNamedWithTheAmountTheRenderApplies() throws {
+        let tone = Tone(contrast: -100, highlights: -100)
+        let engine = ToneEngine(tone: tone)
+        let caption = try XCTUnwrap(AppliedReadout.toneEasingCaption(tone: tone),
+                                    "Highlights is eased to \(engine.effectiveHighlights) "
+                                        + "and the panel's readout said nothing")
+        let shown = "Highlights \(AppliedReadout.signed(engine.effectiveHighlights * 100)) "
+            + "of \u{2212}100"
+        XCTAssertTrue(caption.contains(shown), caption)
+        XCTAssertTrue(caption.contains("\u{2212}94"), caption)
+
+        let blacks = Tone(contrast: -100, blacks: 100)
+        let shelf = try XCTUnwrap(AppliedReadout.toneEasingCaption(tone: blacks))
+        XCTAssertTrue(shelf.contains("Blacks (tone shelf) +91 of +100"), shelf)
+    }
+
+    /// Every row the readout reports is the engine's own applied value, and every
+    /// slider the engine holds back by half a unit or more is reported — over a grid
+    /// that includes the binding corners.
+    func testTheReadoutIsExactlyTheEnginesAppliedAmounts() {
+        var reported = 0
+        let steps: [Double] = [-100, -50, 0, 50, 100]
+        for c in steps { for h in steps { for s in steps { for w in steps { for b in steps {
+            let tone = Tone(contrast: c, highlights: h, shadows: s, whites: w, blacks: b)
+            let engine = ToneEngine(tone: tone)
+            let rows = AppliedReadout.easedToneSliders(tone: tone)
+            let truth: [(String, Double, Double)] = [
+                ("Highlights", h, engine.effectiveHighlights * 100),
+                ("Shadows", s, engine.effectiveShadows * 100),
+                ("Whites (tone shelf)", w, engine.effectiveWhites * 100),
+                ("Blacks (tone shelf)", b, engine.effectiveBlacks * 100),
+            ]
+            for (name, requested, applied) in truth {
+                let row = rows.first { $0.name == name }
+                if abs(requested - applied) >= 0.5 {
+                    XCTAssertEqual(row?.applied, applied, "\(name) at \(tone)")
+                    XCTAssertEqual(row?.requested, requested)
+                } else {
+                    XCTAssertNil(row, "\(name) is applied as set at \(tone)")
+                }
+            }
+            reported += rows.count
+        } } } } }
+        XCTAssertGreaterThan(reported, 0, "the grid never reached a binding case")
+    }
+
+    // MARK: Grade — the wheels' Luminance and the grid's Brilliance
+
+    private func plannedGrade(_ recipe: Recipe) -> GradeEngine {
+        // The anchors the render actually uses, from the render's own plan.
+        let plan = RenderPlan(recipe: recipe)
+        return GradeEngine(wheels: recipe.look.wheels,
+                           printerLights: recipe.look.printerLights,
+                           whiteAnchorEV: plan.tone.whiteAnchorEV,
+                           blackAnchorEV: plan.tone.blackAnchorEV)
+    }
+
+    func testAnUngradedRecipeIsNeverCaptioned() {
+        XCTAssertEqual(AppliedReadout.wheelLuminanceScale(Recipe()), 1)
+        XCTAssertNil(AppliedReadout.wheelLuminanceCaption(Recipe()))
+        XCTAssertEqual(AppliedReadout.brillianceScale(Recipe()), 1)
+        XCTAssertNil(AppliedReadout.brillianceCaption(Recipe()))
+    }
+
+    /// Measured: Shadows +1 / Midtones +1 / Highlights −1 at Blending 0 applies 2% of
+    /// the zone wheels' Luminance. Whites −60 moves the anchors the windows hang off,
+    /// so the readout must build its engine from the recipe's tone, not the defaults.
+    ///
+    /// SUBSTITUTION: make `wheelLuminanceCaption` return nil and the unwrap fails.
+    func testHeldWheelLuminanceIsNamedWithTheRendersScale() throws {
+        var recipe = Recipe()
+        recipe.look.wheels.shadows.lum = 1
+        recipe.look.wheels.mid.lum = 1
+        recipe.look.wheels.high.lum = -1
+        recipe.look.wheels.blending = 0
+        recipe.develop.tone.whites = -60
+        let g = plannedGrade(recipe)
+        XCTAssertEqual(AppliedReadout.wheelLuminanceScale(recipe), g.lumScale * g.jointScale)
+        XCTAssertLessThan(g.lumScale * g.jointScale, 0.5)
+        let caption = try XCTUnwrap(AppliedReadout.wheelLuminanceCaption(recipe))
+        XCTAssertTrue(caption.contains(AppliedReadout.percent(g.lumScale * g.jointScale)),
+                      caption)
+    }
+
+    /// Measured: Brilliance Shadows +100 / Highlights −100 applies 34% on the zone rows.
+    func testHeldBrillianceIsNamedWithTheRendersScale() throws {
+        var recipe = Recipe()
+        recipe.look.wheels.colorBalance.brilliance.shadows = 100
+        recipe.look.wheels.colorBalance.brilliance.high = -100
+        let scale = plannedGrade(recipe).colorBalance.appliedBrillianceScale
+        XCTAssertEqual(AppliedReadout.brillianceScale(recipe), scale)
+        let caption = try XCTUnwrap(AppliedReadout.brillianceCaption(recipe))
+        XCTAssertTrue(caption.contains("34%"), caption)
+    }
+
+    // MARK: The panels read them
+
+    /// SUBSTITUTION: delete any of the three `AppliedReadout.` calls from its panel and
+    /// the matching assertion is red.
+    func testThePanelsAskForTheReadouts() throws {
+        let basic = Scan.squeezed(Scan.stripped(try Scan.appSource("BasicPanel.swift")))
+        let toneRows = try Scan.between("private var toneRows: some View {",
+                                        "private var presenceSection", in: basic)
+        XCTAssertTrue(toneRows.contains("if let eased = AppliedReadout.toneEasingCaption("
+                                        + "tone: recipe.develop.tone) { Text(eased)"),
+                      "the Tone rows no longer show what the solve applies")
+
+        let look = Scan.squeezed(Scan.stripped(try Scan.appSource("LookPanel.swift")))
+        let wheels = try Scan.between("private var wheelsRows: some View {",
+                                      "colorBalanceDisclosure", in: look)
+        XCTAssertTrue(wheels.contains("if let held = AppliedReadout.wheelLuminanceCaption("
+                                      + "state.currentRecipe) { Text(held)"),
+                      "the wheels no longer show what Luminance the grade applies")
+
+        let grid = try Scan.between("private var colorBalanceDisclosure: some View {",
+                                    "private func balanceAxis(", in: look)
+        XCTAssertTrue(grid.contains("let brillianceHeld = AppliedReadout.brillianceCaption("
+                                    + "state.currentRecipe)"))
+        XCTAssertTrue(grid.contains("note: brillianceNote"))
+        XCTAssertTrue(grid.contains("brillianceNote = brillianceHeld"),
+                      "the Brilliance note never carries the held amount")
+    }
+}
+
 // MARK: - AI-08, interim: the per-pixel variance tools say what they cost
 
 /// Mixer Uniformity ("Even out hues") and Point Colour Variance are meant to compress

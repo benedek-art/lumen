@@ -548,6 +548,19 @@ struct BasicPanel: View {
                         help: "Sets the black clipping point — how deep a shadow goes "
                             + "before it renders as pure black. Push it up to open "
                             + "the deepest shadows, pull it down to crush them.")
+            // The Tint caption's idiom, for the four zonal sliders. `ToneEngine` eases
+            // a window that runs downhill against the contrast slope so no brighter tone
+            // renders darker, and has published the applied amounts
+            // (`effectiveHighlights` and siblings) for exactly this line since the solve
+            // landed — `Tone(contrast: -100, highlights: -100)` applies −94. Nil, and so
+            // absent, whenever every slider is applied as set: at Contrast 0 a single
+            // slider is never eased.
+            if let eased = AppliedReadout.toneEasingCaption(tone: recipe.develop.tone) {
+                Text(eased)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

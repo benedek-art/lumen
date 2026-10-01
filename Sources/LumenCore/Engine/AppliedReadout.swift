@@ -52,6 +52,95 @@ public enum AppliedReadout {
                               caption: caption)
     }
 
+    // MARK: - The four zonal Tone sliders
+
+    /// One Tone slider the monotonicity solve is holding back.
+    public struct Eased: Equatable, Sendable {
+        public let name: String
+        /// Slider units, −100…100.
+        public let requested: Double
+        public let applied: Double
+    }
+
+    /// Highlights, Shadows, Whites and Blacks whose applied amount sits at least half a
+    /// slider unit short of the request — the same half-unit the Tint caption uses, so
+    /// a rounding difference never earns a line.
+    ///
+    /// Whites and Blacks are reported as their TONE SHELF: the solve eases the shelf,
+    /// never the anchor, so the white and black points themselves still move fully.
+    public static func easedToneSliders(tone: Tone, zones: Zones = Zones()) -> [Eased] {
+        let engine = ToneEngine(tone: tone, zones: zones)
+        let rows: [(String, Double, Double)] = [
+            ("Highlights", tone.highlights, engine.effectiveHighlights),
+            ("Shadows", tone.shadows, engine.effectiveShadows),
+            ("Whites (tone shelf)", tone.whites, engine.effectiveWhites),
+            ("Blacks (tone shelf)", tone.blacks, engine.effectiveBlacks),
+        ]
+        var out: [Eased] = []
+        for (name, raw, effective) in rows {
+            let requested = Num.clamp(raw, -100, 100)
+            let applied = effective * 100
+            guard abs(requested - applied) >= 0.5 else { continue }
+            out.append(Eased(name: name, requested: requested, applied: applied))
+        }
+        return out
+    }
+
+    /// The line under the Tone sliders, or nil when every one is applied as set.
+    public static func toneEasingCaption(tone: Tone, zones: Zones = Zones()) -> String? {
+        let eased = easedToneSliders(tone: tone, zones: zones)
+        guard !eased.isEmpty else { return nil }
+        let parts = eased.map {
+            "\($0.name) \(signed($0.applied)) of \(signed($0.requested))"
+        }
+        return "Applied here: " + parts.joined(separator: ", ")
+            + " — eased so no brighter tone renders darker."
+    }
+
+    // MARK: - Grading wheels and the Colour Balance grid
+
+    /// The engine `RenderPlan` grades through, built the way it builds it: the wheels'
+    /// windows hang off the TONE stage's live anchors, so Whites and Blacks change what
+    /// the grade's limiter allows.
+    private static func gradeEngine(_ recipe: Recipe) -> GradeEngine {
+        let tone = ToneEngine(tone: recipe.develop.tone, zones: recipe.develop.zones)
+        return GradeEngine(wheels: recipe.look.wheels,
+                           printerLights: recipe.look.printerLights,
+                           whiteAnchorEV: tone.whiteAnchorEV,
+                           blackAnchorEV: tone.blackAnchorEV)
+    }
+
+    /// Shares below this are a rounding difference, not a held-back control.
+    static let scaleFloor: Double = 0.995
+
+    /// What the Shadows/Midtones/Highlights wheels' Luminance is multiplied by: their own
+    /// solve times the joint correction with Brilliance. 1 when applied as set. The
+    /// Global wheel's Luminance is not zone-weighted and is not scaled.
+    public static func wheelLuminanceScale(_ recipe: Recipe) -> Double {
+        let g = gradeEngine(recipe)
+        return g.lumScale * g.jointScale
+    }
+
+    public static func wheelLuminanceCaption(_ recipe: Recipe) -> String? {
+        let scale = wheelLuminanceScale(recipe)
+        guard scale < scaleFloor else { return nil }
+        return "The zone wheels' Luminance is applied at \(percent(scale)) here — more "
+            + "would make a brighter tone render darker."
+    }
+
+    /// What the grid's Shadows/Midtones/Highlights Brilliance rows are multiplied by.
+    /// Global Brilliance is not scaled.
+    public static func brillianceScale(_ recipe: Recipe) -> Double {
+        gradeEngine(recipe).colorBalance.appliedBrillianceScale
+    }
+
+    public static func brillianceCaption(_ recipe: Recipe) -> String? {
+        let scale = brillianceScale(recipe)
+        guard scale < scaleFloor else { return nil }
+        return "The zone rows are applied at \(percent(scale)) here so no brighter tone "
+            + "renders darker."
+    }
+
     // MARK: - Formatting
 
     /// −3.53 / +0.08: signed, two places, a true minus.
@@ -61,4 +150,15 @@ public enum AppliedReadout {
     }
 
     static func magnitude(_ v: Double) -> String { String(format: "%.2f", abs(v)) }
+
+    /// Slider units, signed and whole, with a true minus; zero has no sign.
+    static func signed(_ v: Double) -> String {
+        let n = Int(v.rounded())
+        if n == 0 { return "0" }
+        return n > 0 ? "+\(n)" : "\u{2212}\(-n)"
+    }
+
+    static func percent(_ scale: Double) -> String {
+        "\(Int((Num.saturate(scale) * 100).rounded()))%"
+    }
 }

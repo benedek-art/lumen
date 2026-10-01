@@ -671,6 +671,18 @@ struct LookPanel: View {
         wheel(gradeZone.title, path: gradeZone.path, diameter: 150)
             .frame(maxWidth: .infinity)
 
+        // The Tint caption's idiom, for the wheels' Luminance. `GradeEngine` scales the
+        // zone wheels' Luminance by `lumScale · jointScale` so the grade cannot fold the
+        // tone response across a crossfade — Shadows +1 / Midtones +1 / Highlights −1 at
+        // Blending 0 applies 2% of it — and no panel said so. Nil, and so absent,
+        // whenever the wheels are applied as set.
+        if let held = AppliedReadout.wheelLuminanceCaption(state.currentRecipe) {
+            Text(held)
+                .font(.lumenCaption)
+                .foregroundStyle(Lumen.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
         // THE SENTENCE IS ON THE ROW IT IS ABOUT, here and at three more sites in this
         // file. A non-prominent `DevelopNote` draws nothing now, so each of those
         // paragraphs was a string built for no reader; what each said about one control
@@ -718,12 +730,21 @@ struct LookPanel: View {
         // local `let` rather than inline — a multi-line ternary in an argument list is
         // the exact shape `check-swift-surface.py` is known to mis-read.
         let brilliancePushed = LookPanel.brillianceIsPushed(grid.brilliance)
-        let brillianceNote: String
+        // And when the grid's own limiter is holding the zone rows back, the note says
+        // by how much — `appliedBrillianceScale`, the number the render multiplies by.
+        // Nil while the rows are applied as set, so the ordinary note is unchanged.
+        let brillianceHeld = AppliedReadout.brillianceCaption(state.currentRecipe)
+        var brillianceNote: String
         if brilliancePushed {
             brillianceNote = "Past ±20 is artifact territory — highlights start to "
                 + "flatten and shadows to plug."
         } else {
             brillianceNote = "Perceived brightness without changing colourfulness."
+        }
+        if let brillianceHeld, brilliancePushed {
+            brillianceNote += " " + brillianceHeld
+        } else if let brillianceHeld {
+            brillianceNote = brillianceHeld
         }
 
         return VStack(alignment: .leading, spacing: Lumen.rowGap) {
@@ -769,7 +790,7 @@ struct LookPanel: View {
                             "cb.brilliance",
                             note: brillianceNote,
                             help: LookPanel.brillianceHelp,
-                            warn: brilliancePushed)
+                            warn: brilliancePushed || brillianceHeld != nil)
             }
         }
     }
