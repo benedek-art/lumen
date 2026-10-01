@@ -468,7 +468,13 @@ final class RecipeCodecToleranceTests: XCTestCase {
                     profile: false, removeCA: false,
                     defringe: Defringe(purpleAmount: 3, purpleHueLo: 31, purpleHueHi: 71,
                                        greenAmount: 4, greenHueLo: 41, greenHueHi: 61))),
-            heal: Heal(strokesRef: "blob:xxh64:0000000000000001", count: 3))
+            heal: Heal(strokesRef: "blob:xxh64:0000000000000001", count: 3,
+                       // Every field off its decoder's fallback: clone, not heal; a
+                       // source that is not the destination; non-default size, feather
+                       // and opacity.
+                       spots: [HealSpot(id: "spot-1", mode: .clone, x: 0.31, y: 0.42,
+                                        sourceX: 0.55, sourceY: 0.61, radius: 0.023,
+                                        feather: 35, opacity: 70)]))
 
         let look = Look(
             wheels: wheels,

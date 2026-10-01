@@ -471,6 +471,7 @@ struct CropSection: View {
                 ForEach(cropAspects) { aspect in
                     if let ratio = aspect.ratio {
                         Button(aspect.name) { applyAspect(ratio) }
+                            .disabled(!canHold(ratio))
                     } else {
                         // "Original" is the way BACK, not another ratio — see
                         // `restoreOriginal()`.
@@ -480,7 +481,10 @@ struct CropSection: View {
                 if !tool.recentCustomAspects.isEmpty {
                     Divider()
                     ForEach(tool.recentCustomAspects, id: \.self) { ratio in
+                        // Remembered from another frame, so it may be a shape this
+                        // one cannot hold (M12) — offered, but not as a live choice.
                         Button(Self.name(forRatio: ratio)) { applyAspect(ratio) }
+                            .disabled(!canHold(ratio))
                     }
                 }
                 Divider()
@@ -544,7 +548,7 @@ struct CropSection: View {
                 .onSubmit { commitCustomRatio() }
             Button("Set") { commitCustomRatio() }
                 .font(.lumenCaption)
-                .disabled(CropGeometry.aspect(fromText: customRatio) == nil)
+                .disabled(typedRatio == nil)
         }
         .frame(height: Lumen.rowHeight)
     }
@@ -693,14 +697,43 @@ struct CropSection: View {
     /// your mind about the ratio cost you the composition — `CropGeometry.refit` keeps
     /// the centre and the scale, and is the same call for all nine entries.
     private func applyAspect(_ ratio: Double) {
-        guard let size = frameSizeForCrop, let photoID, ratio > 0 else { return }
+        guard frameSizeForCrop != nil, let photoID, ratio > 0 else { return }
+        // No lock on a shape the frame cannot hold (M12): the padlock would name one
+        // ratio while the rectangle, floored at 5 % of an edge, held another.
+        guard canHold(ratio) else { return }
         tool.setLock(ratio, for: photoID)
-        binder.edit("geometry.crop.aspect") { recipe in
-            recipe.develop.geometry.crop = CropGeometry.refit(
-                recipe.develop.geometry.crop, aspect: ratio,
-                sourceWidth: size.width, sourceHeight: size.height,
-                degrees: recipe.develop.geometry.angle)
+        // PER TARGET (S-11 / KG-01): each selected photograph refits against its OWN
+        // frame, and one that cannot hold the ratio, or whose frame is not known, is
+        // left as it was rather than refit against the primary's.
+        applyFraming(.aspect(ratio), key: "geometry.crop.aspect")
+    }
+
+    /// One framing write over the edit targets, each computed against its own frame by
+    /// `BatchFraming` — the rule every crop/angle/ratio writer in this panel and in the
+    /// loupe goes through, so none of them can stamp the primary's arithmetic on a
+    /// photograph of another shape.
+    private func applyFraming(_ edit: BatchFraming.Edit, key: String) {
+        Self.applyFraming(edit, key: key, state: state,
+                          primaryFallback: assumedFrame)
+    }
+
+    @MainActor
+    static func applyFraming(_ edit: BatchFraming.Edit, key: String, state: AppState,
+                             primaryFallback: BatchFraming.Frame?) {
+        // `targets:` named so the photo-aware overload is the one chosen; it is every
+        // edit target, as the one-argument form would have written.
+        state.updateRecipe(coalescingKey: key, targets: state.editTargets) { photo, recipe in
+            let frame = state.framingFrame(for: photo, primaryFallback: primaryFallback)
+            if let next = BatchFraming.apply(edit, to: recipe.develop.geometry,
+                                             frame: frame) {
+                recipe.develop.geometry = next
+            }
         }
+    }
+
+    /// `assumedFrameAspect` as a frame, for the primary before its decode has landed.
+    private var assumedFrame: BatchFraming.Frame? {
+        BatchFraming.Frame(width: assumedFrameAspect, height: 1)
     }
 
     /// "Original" restores the full frame: the crop cleared, the lock released, the
@@ -719,24 +752,39 @@ struct CropSection: View {
         }
     }
 
+    /// The custom field's entry, accepted only if THIS frame can hold it at this angle
+    /// (M12): `60:1` passes the typo guard but a crop of a 3:2 frame bottoms out at
+    /// 30:1, and writing it anyway padlocked a ratio the rectangle did not have.
+    private var typedRatio: Double? {
+        guard let size = frameSizeForCrop else { return nil }
+        return CropGeometry.aspect(fromText: customRatio, sourceWidth: size.width,
+                                   sourceHeight: size.height,
+                                   degrees: recipe.develop.geometry.angle)
+    }
+
+    /// Whether the primary's frame can hold `ratio` — the gate the menu's entries read.
+    private func canHold(_ ratio: Double) -> Bool {
+        guard let size = frameSizeForCrop else { return false }
+        return CropGeometry.canHold(aspect: ratio, sourceWidth: size.width,
+                                    sourceHeight: size.height,
+                                    degrees: recipe.develop.geometry.angle)
+    }
+
     private func commitCustomRatio() {
-        guard let ratio = CropGeometry.aspect(fromText: customRatio) else { return }
+        guard let ratio = typedRatio else { return }
         tool.rememberCustom(ratio)
         applyAspect(ratio)
         showsCustomField = false
     }
 
     private func swapOrientation() {
-        guard let size = frameSizeForCrop, let photoID else { return }
-        binder.edit("geometry.crop.orientation") { recipe in
-            recipe.develop.geometry.crop = CropGeometry.swappingOrientation(
-                recipe.develop.geometry.crop,
-                sourceWidth: size.width, sourceHeight: size.height,
-                degrees: recipe.develop.geometry.angle)
-        }
-        // The lock turns with the rectangle, or the next drag would fight the swap.
+        guard frameSizeForCrop != nil, let photoID else { return }
+        applyFraming(.swapOrientation, key: "geometry.crop.orientation")
+        // The lock turns with the rectangle, or the next drag would fight the swap —
+        // and it takes the ratio the rectangle actually holds now, which is the
+        // reciprocal except where the frame could not hold that (M12).
         if let locked = tool.lockedAspect(for: photoID), locked > 0 {
-            tool.setLock(1 / locked, for: photoID)
+            tool.setLock(currentRatio ?? 1 / locked, for: photoID)
         }
     }
 
@@ -762,20 +810,16 @@ struct CropSection: View {
     /// carried rectangle assumption-shaped in the visible way the fallback's own note
     /// accepts — never NaN-shaped.
     private var angleBinding: Binding<Double> {
-        let size = frameSizeForCrop
-        return binder.custom("geometry.angle",
-                             get: { $0.develop.geometry.angle },
-                             set: { recipe, angle in
-                                 if let size, size.width > 0, size.height > 0 {
-                                     recipe.develop.geometry.crop = CropGeometry.reangled(
-                                         recipe.develop.geometry.crop,
-                                         sourceWidth: size.width,
-                                         sourceHeight: size.height,
-                                         from: recipe.develop.geometry.angle,
-                                         to: angle)
-                                 }
-                                 recipe.develop.geometry.angle = angle
-                             })
+        let state = self.state
+        let fallback = assumedFrame
+        return Binding(
+            get: { state.currentRecipe.develop.geometry.angle },
+            set: { angle in
+                // Per target (S-11 / KG-01): every selected photograph carries its own
+                // crop through the angle against its own frame.
+                CropSection.applyFraming(.angle(angle), key: "geometry.angle",
+                                         state: state, primaryFallback: fallback)
+            })
     }
 }
 

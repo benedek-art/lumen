@@ -288,9 +288,15 @@ extension XMPSidecar {
     /// newer" answers a question about this session's history; asking "is the document
     /// newer than this build" answers the one that decides whether a write destroys
     /// somebody's work.
+    ///
+    /// Against `supportedPipelineVersion`, not `currentPipelineVersion`: the first is the
+    /// newest document this build can write back whole, the second only what it stamps on
+    /// a document that needs nothing newer. A version-3 recipe carrying heal spots is
+    /// this build's own and must stay writable here; on a version-2 build it is exactly
+    /// the newer document this guard exists for.
     public static func writableFields(_ stated: SidecarStatedFields,
                                       documentVersion: Int) -> SidecarStatedFields {
-        guard documentVersion > currentPipelineVersion else { return stated }
+        guard documentVersion > supportedPipelineVersion else { return stated }
         return stated.subtracting(.recipe)
     }
 }

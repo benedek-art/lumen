@@ -23,7 +23,7 @@ final class UnsavedSidecarRecordTests: XCTestCase {
         let reopened = try CatalogStore(path: db, cachePath: cache)
         defer { reopened.close() }
         let read = UnsavedSidecarRecord.decode(try reopened.metaValue(UnsavedSidecarRecord.metaKey))
-        XCTAssertEqual(Set(read.map(\.photoPath)), ["/Volumes/Card/a.NEF", "/Volumes/Card/b.NEF"])
+        XCTAssertEqual(read.map(\.photoPath).sorted(), ["/Volumes/Card/a.NEF", "/Volumes/Card/b.NEF"])
         XCTAssertEqual(read.first { $0.photoID == 1 }?.statedFields, [.recipe, .strokes])
         XCTAssertEqual(read.first { $0.photoID == 2 }?.statedFields, [.rating])
 

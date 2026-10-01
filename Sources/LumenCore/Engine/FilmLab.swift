@@ -449,13 +449,34 @@ public struct HalationProfile: Sendable {
     public static let protectEV: Double = 4.0
     /// The physically measured per-channel strengths, RGB.
     public static let measuredStrength: RGB = RGB(0.05, 0.015, 0.0)
+    /// The gain that turns a stock's `halationStrength` into the gain on the
+    /// NORMALIZED bounce field — 1.75, the raw sum `1 + 0.5 + 0.25` of the three-bounce
+    /// series every stock's strength was authored against.
+    ///
+    /// N-006 / C1-09. Both renderers used to walk raw weights `decay^(k−1)`, so the field
+    /// they multiplied by `strength` summed to 1.75 and `normalizedWeights` had no caller.
+    /// The picture was the same on both paths, but Amount's meaning was hostage to
+    /// `bounceCount`: a fourth bounce would have raised every stock's glow by 7% with no
+    /// stock edited. `strength` is now the gain on the NORMALIZED field (weights summing
+    /// to 1, whatever the count — see `fieldGain` for how the renderers apply it), and
+    /// this constant carries the old sum into the gain instead — a LITERAL, not
+    /// `weightSum`, because the point is that it no longer follows the series. Folded
+    /// here rather than into six stock literals so `halationStrength` keeps reading as
+    /// the measured number it is. Pixels are unchanged: byte-identical on every
+    /// halation proof render, and `HalationControlTests.testNormalizingTheBouncesMovesNoPixel`
+    /// holds the stage to the pre-change one at zero difference.
+    public static let strengthCalibration: Double = 1.75
 
     /// Gaussian sigmas in pixels, σ_k = σ₁·√k, k = 1…3.
     public let sigmas: [Double]
-    /// Bounce weights, `decay^(k−1)` — raw, so `strength` keeps its measured meaning.
+    /// Bounce weights, `decay^(k−1)` — the series' raw SHAPE, 1, ½, ¼. The renderers
+    /// accumulate with these (they are dyadic, so they scale an f32 field exactly) and
+    /// apply `fieldGain`, which is what makes the result `strength` times the
+    /// `normalizedWeights` sum. The raw sum the stocks were calibrated against lives in
+    /// `strengthCalibration`, not here.
     public let weights: [Double]
-    /// Per-channel gain applied to the summed field: stock strength, blended toward
-    /// pure red by Redness, scaled by Amount.
+    /// Per-channel gain applied to the NORMALIZED summed field: stock strength, blended
+    /// toward pure red by Redness, scaled by Amount and by `strengthCalibration`.
     public let strength: RGB
     /// Amount, normalized to 0…1.
     public let amount: Double
@@ -463,9 +484,6 @@ public struct HalationProfile: Sendable {
     public let redness: Double
     /// Size multiplier, 0.5×…2×.
     public let sizeMultiplier: Double
-    /// Geometric decay between bounces, carried per-instance so the spatial stage can
-    /// walk `sigmas` and scale as it goes without reaching for a type constant.
-    public let decay: Double
     /// Scene-linear level treated as the clip (seeded by S1's clipping mask).
     public let clipLevel: Double
     public let longEdgePixels: Int
@@ -495,11 +513,10 @@ public struct HalationProfile: Sendable {
         }
         self.sigmas = sig
         self.weights = w
-        self.decay = HalationProfile.bounceDecay
 
         let base: RGB = stock.halationStrength
         let pureRed: RGB = RGB(base.r, 0, 0)
-        self.strength = base.mix(pureRed, red) * a
+        self.strength = base.mix(pureRed, red) * a * HalationProfile.strengthCalibration
 
         self.amount = a
         self.redness = red
@@ -521,7 +538,8 @@ public struct HalationProfile: Sendable {
     }
 
     /// Bounce weights normalized to sum 1 — the form an energy-preserving blur set
-    /// wants, so `strength` stays the only gain in the path.
+    /// wants, so `strength` stays the only gain in the path. What the renderers APPLY,
+    /// per unit of `strength`: `fieldGain · weights[k] == strength · normalizedWeights[k]`.
     public var normalizedWeights: [Double] {
         let s: Double = weightSum
         guard s > 1e-12 else { return weights }
@@ -551,29 +569,44 @@ public struct HalationProfile: Sendable {
         return out
     }
 
-    /// The per-channel apply, once the image module has produced the blurred field:
-    /// `out_c = in_c + strength_c · H_c`.
+    /// The gain on the field the renderers accumulate, `Σ weights[k] · G_k ∗ H`:
+    /// `strength / weightSum`, so the glow they add is exactly
+    /// `strength · Σ normalizedWeights[k] · G_k ∗ H` — `strength` on a unit-sum field.
+    ///
+    /// WHY THE NORMALIZATION IS FOLDED HERE AND NOT INTO EACH BOUNCE (N-006). The
+    /// obvious form multiplies each blurred bounce by `normalizedWeights[k]` — 4/7,
+    /// 2/7, 1/7 — and that is what was tried first. The reference accumulates the field
+    /// in an f32 `ImageBuffer`, and 4/7 is not dyadic, so every pixel's field rounded
+    /// differently from the shipped one: measured, 51 of the 63 halation proof-sweep
+    /// renders changed, by one f32 ULP (5.96e-8). Accumulating with the raw
+    /// dyadic weights keeps the f32 field bit-for-bit what it was, and dividing the
+    /// gain by `weightSum` in f64 cancels `strengthCalibration` to within an f64 ULP,
+    /// which the f32 store does not see. Same arithmetic, no pixel moved.
+    public var fieldGain: RGB {
+        let s: Double = weightSum
+        guard s > 1e-12 else { return strength }
+        return strength * (1.0 / s)
+    }
+
+    /// The per-channel apply, once the image module has produced the accumulated field
+    /// `Σ weights[k] · G_k ∗ H`: `out_c = in_c + fieldGain_c · field_c`.
     public func combine(_ base: RGB, blurred: RGB) -> RGB {
-        base + strength * blurred
+        base + fieldGain * blurred
     }
 
-    // MARK: The GPU stand-in
+    // MARK: The GPU form
 
-    // The shader form of the reconstruction is a hard pedestal — `max(E − threshold, 0)
-    // · boost` — because a smoothstep in log space is not worth a per-pixel `log2` in
-    // the glow pass. The two are matched at the reference ramp's half-power point
-    // rather than at its foot, which is where a linear stand-in and a smoothstep agree
-    // best (docs/14 §1.4: the GPU kernel approximates this file, within tolerance).
-
-    /// Scene-linear onset for the shader's pedestal.
-    public var threshold: Double {
-        clipLevel * pow(2.0, -HalationProfile.protectEV / 2.0)
-    }
-
-    /// Multiplier for the shader's pedestal — the reconstruction headroom.
-    public var boost: Double {
-        pow(2.0, HalationProfile.boostRange)
-    }
+    // The shader (`KernelLibrary.halationEnergy`) evaluates `highlightEnergy` itself —
+    // the same smoothstep in log2 space, from `clipLevel`, `protectEV` and `boostRange`
+    // — so there is ONE gate, not a reference and a stand-in.
+    //
+    // There used to be a stand-in: a hard pedestal `max(E − clip·2⁻², 0)·2^0.3`, said
+    // to be "matched at the reference ramp's half-power point". It was matched nowhere.
+    // Above the onset it sat a constant 0.308 below the reference, so the GPU rendered
+    // 0.612 of the reference's glow at E = 0.5, 0.750 at the clip and NONE at all at
+    // E ≤ 0.25, where the reference still returns 0.139 (M09 / C1-01). A sky two stops
+    // under the clip glowed in the reference and not in the app. One `log2` and one
+    // `exp2` per pixel in a quarter-res glow pass was never worth that.
 
     /// Per-channel strengths, under the name the spatial stage uses.
     public var strengths: RGB { strength }
@@ -717,14 +750,23 @@ public struct FilmGrainProfile: Sendable {
     /// One measured departure from the model, for honesty. The premise is three
     /// INDEPENDENT unit-variance fields; the shipped plates are not quite that.
     /// `plateSeed(channel:)` separates the three seeds by adding a golden-ratio
-    /// constant, and the fields come back correlated at r ≈ 0.088 / 0.044 / −0.040
-    /// (16 384 samples, so the first is real and not sampling noise), and a bilinearly
-    /// sampled plate does not carry exactly the plate's variance — 1.025 / 1.023 /
-    /// 0.982 at a 2560 px render. So the luminance is held to a few percent rather than
-    /// exactly. The residual seed correlation is worth its own look — three
-    /// "independent" dye layers that agree 9% of the time are less independent than the
-    /// model this file is written around — but it makes the defect being fixed here
-    /// SMALLER, not larger, and it is a plate-generator question.
+    /// constant, and the shipped plates come back correlated at r ≈ 0.088 / 0.046 /
+    /// −0.038, and a bilinearly sampled plate does not carry exactly the plate's
+    /// variance — 1.025 / 1.023 / 0.982 at a 2560 px render. So the luminance is held to
+    /// a few percent rather than exactly.
+    ///
+    /// THE CORRELATION IS SAMPLING NOISE, NOT STRUCTURE, and this comment used to say
+    /// the opposite ("16 384 samples, so the first is real"). The 16 384 pixels are not
+    /// 16 384 independent samples: the plate's coarsest octave is a lattice of about
+    /// 8 × 8 cells and carries most of its variance, so the effective sample count is
+    /// about 100 and the null distribution of r has σ ≈ 0.11. Measured over 200 draws
+    /// each: plates from UNRELATED random seeds give mean r −0.013, σ 0.106, with 35%
+    /// of pairs at |r| ≥ 0.088; plates from `plateSeed` offsets of random bases give
+    /// mean −0.00005, σ 0.112, 40.5% at |r| ≥ 0.088. The offset scheme adds no
+    /// correlation; the shipped plate is one fixed draw whose r happens to be +0.088
+    /// (N-005, retired in the October 2026 verification, V5). Choosing a different
+    /// `defaultPlateSeed` for a smaller r would move every grain golden and proof
+    /// record for a cosmetic number, and is not done.
     public var noiseMixWeights: (luma: Double, own: Double) {
         let x: Double = Num.clamp(chroma, 0, 1)
         // Three independent unit fields sum to variance 3; three identical ones to 9.

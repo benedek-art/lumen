@@ -119,7 +119,7 @@ final class MaskDependencyAdversarialTests: XCTestCase {
                        "with no references in the recipe the roster and the plan's "
                            + "render list must be the same list")
         // Named, so a regression says which cell moved.
-        XCTAssertEqual(Set(plan.masks.map(\.id)),
+        XCTAssertEqual(plan.masks.map(\.id).sorted(),
                        ["m0true", "m1true", "m3true"],
                        "the fixture no longer covers the fold it was built for")
     }
