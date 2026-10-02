@@ -101,6 +101,42 @@ public enum SourceOpening {
     }
 }
 
+/// Which background `.expand` walk may still open its roll: the most recent request.
+///
+/// A multi-folder or mixed open walks its directories off the main actor and only then
+/// calls `openFolder`, which is where the scan generation advances. Both of two such
+/// opens requested before either walk finished used to capture the SAME generation,
+/// so whichever walk finished first opened its roll, advanced the generation, and
+/// discarded the other — often the newer request, the one the user actually wants.
+///
+/// A ticket now records two things when the walk starts: its own place in the order of
+/// expansions, and the scan generation then current. It may open only if no later
+/// expansion has started AND no folder open has started since (a plain folder open
+/// advances the scan generation and supersedes a pending walk, as before). An expansion
+/// does NOT advance the scan generation itself: a walk that finds nothing must leave
+/// the scan already in flight free to land.
+public struct ExpansionRequests: Equatable, Sendable {
+    public struct Ticket: Equatable, Sendable {
+        public let expansion: UInt64
+        public let scanGeneration: UInt64
+    }
+
+    public private(set) var latest: UInt64 = 0
+
+    public init() {}
+
+    /// An `.expand` request is starting now.
+    public mutating func begin(scanGeneration: UInt64) -> Ticket {
+        latest &+= 1
+        return Ticket(expansion: latest, scanGeneration: scanGeneration)
+    }
+
+    /// Whether the walk holding `ticket` may open its roll now.
+    public func isCurrent(_ ticket: Ticket, scanGeneration: UInt64) -> Bool {
+        ticket.expansion == latest && ticket.scanGeneration == scanGeneration
+    }
+}
+
 /// Finder opens that arrive before there is anywhere to deliver them.
 ///
 /// "Open With ▸ Lumen" on an app that is not running delivers `application(_:open:)`

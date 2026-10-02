@@ -1595,6 +1595,9 @@ final class AppState: ObservableObject {
     /// Which folder scan is the current one. Opening B while A is still enumerating
     /// must not let A's results land on top of B's.
     var scanGeneration: UInt64 = 0
+    /// Which multi-source walk is the current one: the newest `.expand` request wins,
+    /// whichever walk finishes first (`ExpansionRequests`, LumenCore).
+    var expansionRequests = ExpansionRequests()
     // `zoomLevel` moved to `LoupeViewport.zoom`. It was `@Published` here and written
     // once per gesture event, and this object is an `@EnvironmentObject` in twenty-two
     // view files — so every pinch rebuilt the whole window and all seven menus. That is
@@ -2808,13 +2811,19 @@ final class AppState: ObservableObject {
             // to open: an empty answer keeps the open folder and says so, instead of
             // replacing it with nothing.
             let extensions = Self.browsableExtensions
-            let generation = scanGeneration
+            // The ticket is taken NOW, when the request starts, not when the walk ends:
+            // two of these requested before either walk finished used to share one
+            // scan generation, and the first to finish discarded the newer one.
+            let ticket = expansionRequests.begin(scanGeneration: scanGeneration)
             statusMessage = "Scanning…"
             Task.detached(priority: .userInitiated) { [weak self] in
                 let found = Self.expand(sources, extensions: extensions)
                 await MainActor.run {
                     // Another open started meanwhile: that one is what the user wants.
-                    guard let self, self.scanGeneration == generation else { return }
+                    guard let self,
+                          self.expansionRequests.isCurrent(ticket,
+                                                           scanGeneration: self.scanGeneration)
+                    else { return }
                     guard case .files(let expandedRoot, let files)? =
                             SourceOpening.expansionOutcome(root: root, found: found) else {
                         self.statusMessage = Self.nothingToOpenMessage

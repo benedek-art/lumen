@@ -165,4 +165,57 @@ final class SourceOpeningTests: XCTestCase {
         XCTAssertFalse(flatExpand[..<walk.lowerBound].contains("openFolder("),
                        "the roll must not be replaced before the walk has answered")
     }
+
+    // MARK: - The newest open wins, whichever walk finishes first
+
+    /// Two multi-folder opens requested before either walk finished. Each captured the
+    /// same scan generation (it advances only inside `openFolder`), so whichever walk
+    /// finished first opened its roll and the newer request was thrown away.
+    func testTheNewerOfTwoPendingExpansionsWinsWhicheverFinishesFirst() {
+        var requests = ExpansionRequests()
+        let scan: UInt64 = 7
+        let first = requests.begin(scanGeneration: scan)
+        let second = requests.begin(scanGeneration: scan)
+        // The OLDER walk finishes first: it must not open.
+        XCTAssertFalse(requests.isCurrent(first, scanGeneration: scan),
+                       "the first walk to finish replaced the roll the user asked for later")
+        // The newer one, finishing after, does.
+        XCTAssertTrue(requests.isCurrent(second, scanGeneration: scan),
+                      "the most recent open request was discarded")
+        // And the other order gives the same answer.
+        var reversed = ExpansionRequests()
+        let a = reversed.begin(scanGeneration: scan)
+        let b = reversed.begin(scanGeneration: scan)
+        XCTAssertTrue(reversed.isCurrent(b, scanGeneration: scan))
+        XCTAssertFalse(reversed.isCurrent(a, scanGeneration: scan))
+    }
+
+    /// A plain folder open after the walk started advances the scan generation and is
+    /// the newer request; one before it is older and leaves the walk current. Starting
+    /// a walk does not touch the generation, so a walk that finds nothing leaves the
+    /// scan already in flight free to land.
+    func testAFolderOpenSupersedesAPendingExpansionAndNotTheOtherWayRound() {
+        var requests = ExpansionRequests()
+        let ticket = requests.begin(scanGeneration: 3)
+        XCTAssertFalse(requests.isCurrent(ticket, scanGeneration: 4),
+                       "a folder opened after the walk started was replaced by the walk")
+        XCTAssertTrue(requests.isCurrent(ticket, scanGeneration: 3))
+    }
+
+    func testOpenSourcesTakesItsTicketWhenTheRequestStarts() throws {
+        let code = try ShellSource.code("Sources/LumenApp/AppState.swift")
+        let verb = try XCTUnwrap(ShellSource.body(after: "func openSources(_ urls: [URL])", in: code))
+        let flatVerb = ShellSource.squashed(verb)
+        let caseExpand = try XCTUnwrap(flatVerb.range(of: "case .expand("))
+        let expand = String(flatVerb[caseExpand.upperBound...])
+        let begin = try XCTUnwrap(expand.range(of: "expansionRequests.begin(scanGeneration: scanGeneration)"),
+                                  "the expand path no longer reserves its place when it starts")
+        let task = try XCTUnwrap(expand.range(of: "Task.detached("))
+        XCTAssertLessThan(begin.lowerBound, task.lowerBound,
+                          "the ticket must be taken before the walk, not when it ends")
+        XCTAssertTrue(expand.contains("self.expansionRequests.isCurrent(ticket, scanGeneration: self.scanGeneration)"),
+                      "the walk must ask whether it is still the newest request")
+        XCTAssertFalse(expand.contains("self.scanGeneration == generation"),
+                       "the shared-generation guard is back: the first walk to finish wins")
+    }
 }
