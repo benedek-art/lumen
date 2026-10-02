@@ -25,10 +25,14 @@ public struct WhiteBalanceEngine: Sendable {
     public init(asShotKelvin: Double, asShotTint: Double,
                 targetKelvin: Double?, targetTint: Double?,
                 space: RGBColorSpace = .rec2020) {
-        let aK = Num.clamp(asShotKelvin, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
-        let aT = Num.clamp(asShotTint, -300, 300)
-        let tK = Num.clamp(targetKelvin ?? aK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
-        let tT = Num.clamp(targetTint ?? aT, -300, 300)
+        // A file with no defined neutral adapts from the rendered-file reference
+        // rather than from NaN; a NaN target means "as shot", which is what nil means.
+        let neutral = Neutral.sanitizedAsShot(kelvin: asShotKelvin, tint: asShotTint)
+        let aK = Num.clamp(neutral.kelvin, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
+        let aT = Num.clamp(neutral.tint, -300, 300)
+        let tK = Num.clampFinite(targetKelvin ?? aK, ColorTemperature.minKelvin,
+                                 ColorTemperature.maxKelvin, fallback: aK)
+        let tT = Num.clampFinite(targetTint ?? aT, -300, 300, fallback: aT)
         self.asShot = (aK, aT)
         self.target = (tK, tT)
         self.space = space
@@ -87,6 +91,24 @@ public struct WhiteBalanceEngine: Sendable {
         /// non-raw input). It is a real answer for a JPEG and a WRONG one for a RAW,
         /// which is the whole of the defect below.
         public static let reference = Neutral(kelvin: 5500, tint: 0)
+
+        /// The neutral a render may adapt FROM, given what the decoder reported.
+        ///
+        /// `CIRAWFilter.neutralTemperature`/`neutralTint` have no defined value for a
+        /// file that records no camera neutral — a LinearRaw, one-sample-per-pixel
+        /// monochrome DNG with no ColorMatrix, AsShotNeutral or CalibrationIlluminant
+        /// is the case on record (corpus 1087, Leica M Monochrom). A non-finite or
+        /// non-positive temperature is not a temperature, so the pair becomes the
+        /// rendered-file `reference`; a finite temperature with a non-finite tint keeps
+        /// the temperature and takes tint 0. Every real neutral passes through
+        /// unchanged, so no camera file with a neutral renders differently.
+        ///
+        /// Only the RENDER side is sanitised. The source still hands Apple's own value
+        /// back to the filter at decode, so the decode itself is untouched.
+        public static func sanitizedAsShot(kelvin: Double, tint: Double) -> Neutral {
+            guard kelvin.isFinite, kelvin > 0 else { return reference }
+            return Neutral(kelvin: kelvin, tint: tint.isFinite ? tint : reference.tint)
+        }
     }
 
     /// What a Temp/Tint row displays, and therefore what its first drag writes.
@@ -119,9 +141,10 @@ public struct WhiteBalanceEngine: Sendable {
     /// will silently pull in.
     public static func displayed(temp: Double?, tint: Double?,
                                  asShot: Neutral) -> AsShotDisplay {
-        let kelvin = Num.clamp(asShot.kelvin,
+        let neutral = Neutral.sanitizedAsShot(kelvin: asShot.kelvin, tint: asShot.tint)
+        let kelvin = Num.clamp(neutral.kelvin,
                                ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
-        let tintValue = Num.clamp(asShot.tint, -300, 300)
+        let tintValue = Num.clamp(neutral.tint, -300, 300)
         return AsShotDisplay(temperature: temp ?? kelvin,
                              tint: tint ?? tintValue,
                              isAsShot: temp == nil && tint == nil)
@@ -133,20 +156,23 @@ public struct WhiteBalanceEngine: Sendable {
     /// colour measured on the CURRENT render (i.e. with `current` already applied).
     ///
     /// Solved by search rather than inversion: the locus is a fitted curve, so a
-    /// closed-form inverse would be a second approximation layered on the first. Two
-    /// passes over mired space cost well under a millisecond and are exact against the
-    /// forward model, which is the property that matters when the user clicks a grey card.
+    /// closed-form inverse would be a second approximation layered on the first. A
+    /// bounded search in mired/tint space minimizes the actual forward model, including
+    /// its physical tint guard, rather than introducing a separate inverse model.
     public static func neutralizing(sample: RGB, asShotKelvin: Double, asShotTint: Double,
                                     current: WhiteBalanceEngine,
                                     space: RGBColorSpace = .rec2020) -> (kelvin: Double, tint: Double) {
+        // The same neutral `init` adapts from, so a file with none cannot seed the
+        // search (or the fallback answer) with NaN.
+        let shot = Neutral.sanitizedAsShot(kelvin: asShotKelvin, tint: asShotTint)
         // Undo the current WB so we search against the decoded value.
         let decoded = current.matrix.inverse.apply(sample)
         guard decoded.isFinite, decoded.maxComponent > 1e-9 else {
-            return (asShotKelvin, asShotTint)
+            return (shot.kelvin, shot.tint)
         }
 
         func residualChroma(kelvin: Double, tint: Double) -> Double {
-            let m = adaptation(asShot: (asShotKelvin, asShotTint),
+            let m = adaptation(asShot: (shot.kelvin, shot.tint),
                                target: (kelvin, tint), space: space)
             let out = m.apply(decoded)
             let mean = (out.r + out.g + out.b) / 3
@@ -155,8 +181,8 @@ public struct WhiteBalanceEngine: Sendable {
             return (n.r - 1) * (n.r - 1) + (n.g - 1) * (n.g - 1) + (n.b - 1) * (n.b - 1)
         }
 
-        var bestK = asShotKelvin
-        var bestT = asShotTint
+        var bestK = shot.kelvin
+        var bestT = shot.tint
         var best = Double.infinity
 
         // Coarse sweep: even steps in mireds (the perceptually uniform axis) × tint.
@@ -164,8 +190,10 @@ public struct WhiteBalanceEngine: Sendable {
         let miredEnd = 1e6 / ColorTemperature.minKelvin
         while mired <= miredEnd {
             let k = 1e6 / mired
-            var t = -150.0
-            while t <= 150 {
+            // Search the engine/typed range, not only the slider's soft travel.
+            // adaptation still applies the physical, temperature-dependent guard.
+            var t = -300.0
+            while t <= 300 {
                 let d = residualChroma(kelvin: k, tint: t)
                 if d < best { best = d; bestK = k; bestT = t }
                 t += 10
@@ -190,8 +218,48 @@ public struct WhiteBalanceEngine: Sendable {
             m2 += 0.25
         }
 
-        return (Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin),
-                Num.clamp(bestT, -150, 150))
+        // Near the positive tint guard, Kelvin and tint trade off along a narrow
+        // valley. The best coarse seed's fixed refinement box can miss its minimum
+        // even when the exact manual correction is legal. Walk that valley with a
+        // bounded pattern search; each accepted move strictly improves the measured
+        // neutral residual. A fixed evaluation budget also bounds picker latency.
+        var remaining = 48
+        for level in 0..<10 {
+            let step = 4.0 / pow(2.0, Double(level))
+            for _ in 0..<8 {
+                guard remaining > 0, best > 1e-14 else { break }
+                remaining -= 1
+                let centre = 1e6 / bestK
+                let tint = bestT
+                var nextK = bestK
+                var nextT = bestT
+                var nextError = best
+                for dm in [-1.0, 0, 1] {
+                    for dt in [-1.0, 0, 1] where dm != 0 || dt != 0 {
+                        let m = Num.clamp(centre + dm * step,
+                                          1e6 / ColorTemperature.maxKelvin, miredEnd)
+                        let t = Num.clamp(tint + dt * step, -300, 300)
+                        let k = 1e6 / m
+                        let error = residualChroma(kelvin: k, tint: t)
+                        if error < nextError { nextError = error; nextK = k; nextT = t }
+                    }
+                }
+                guard nextError < best else { break }
+                best = nextError
+                bestK = nextK
+                bestT = nextT
+            }
+        }
+
+        // Report the tint the render will USE. Every magenta past the guard renders
+        // identically, so the search cannot tell them apart and keeps the first grid
+        // point it met beyond the bound — +10 written where +3.5 renders at 2000 K,
+        // which the Tint row then flags as "bounded by physics" on the user's own
+        // click. `temperatureAndTint` already reports the bounded value; this is the
+        // same contract. Pixel-identical: `chromaticity` clamps to exactly this.
+        let kelvin = Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
+        return (kelvin,
+                ColorTemperature.clampedTint(kelvin: kelvin, tint: Num.clamp(bestT, -300, 300)))
     }
 }
 

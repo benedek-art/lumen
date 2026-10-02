@@ -5,8 +5,10 @@
 // hook unnecessary.
 //
 // The existing suite checks the duplicate case only through a FRESH cursor, i.e. only
-// through `rebuild`, which is the half that is correct. The fast path is untested
-// against duplicates, and that is where the claim fails.
+// through `rebuild`, which is the half that is correct. The fast path was untested
+// against duplicates, and that is where the claim failed (S-08). The repair keys the
+// memo on a revision the roll's owner bumps; the distinct-identity cases below still
+// pass a constant revision, so they keep proving the slot verification on its own.
 
 import XCTest
 @testable import LumenCore
@@ -21,92 +23,76 @@ final class RollCursorAdversarialTests: XCTestCase {
         (0..<count).map { url("\(prefix)\(String(format: "%05d", $0))") }
     }
 
-    // MARK: The verification is not sufficient
+    // MARK: Duplicates (S-08) — the verification was not sufficient, the revision is
 
-    /// The length matches, the photograph IS standing at the remembered index, and the
-    /// answer is still wrong: `firstIndex(of:)` says 0, the memo says 2.
+    // These three were recorded behind `XCTExpectFailure`: the fast path proved an
+    // occurrence stood at the remembered index, not that it was the FIRST, so a roll
+    // that gained a second copy of a file at the same length was answered from the
+    // cursor's history. No O(1) check over `count` and `idAt` can see that — the slot
+    // that changed is one it has no reason to read — so the owner now hands over a
+    // revision that changes with the roll's contents, and each case below bumps it at
+    // exactly the point the roll changes, as `AppState` does when it rebuilds `photos`.
+    // Substitute the old fast-path condition (no revision check) and all three go red.
+
+    /// The length matches and the photograph IS standing at the remembered index; the
+    /// answer must still be `firstIndex(of:)`'s.
     func testAVerifiedHitReturnsANonFirstIndexOnceTheRollCarriesTheFileTwice() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("Recorded defect. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         let a = url("A"), b = url("B"), c = url("C")
         var ids = [a, b, c]
+        var revision: UInt64 = 1
         var cursor = RollCursor()
 
-        XCTAssertEqual(cursor.index(of: c, inRollOf: ids.count) { ids[$0] }, 2)
+        XCTAssertEqual(cursor.index(of: c, inRollOf: ids.count, revision: revision) { ids[$0] }, 2)
         XCTAssertEqual(cursor.rebuilds, 1)
 
-        // Same length. C is still standing at index 2 — both halves of the stated
+        // Same length. C is still standing at index 2 — both halves of the old
         // verification hold. A second copy of C has landed at index 0.
         ids = [c, b, c]
+        revision += 1
         XCTAssertEqual(ids.count, 3)
         XCTAssertEqual(ids[2], c)
 
-        let answer = cursor.index(of: c, inRollOf: ids.count) { ids[$0] }
-        XCTAssertEqual(cursor.rebuilds, 1, "the fast path was not taken, so this test "
-                       + "is no longer exercising the fast path")
+        let answer = cursor.index(of: c, inRollOf: ids.count, revision: revision) { ids[$0] }
         XCTAssertEqual(answer, ids.firstIndex(of: c),
                        "the memo answered \(String(describing: answer)) where the "
                        + "search it replaces answers "
                        + "\(String(describing: ids.firstIndex(of: c)))")
+        // And the fast path is still a fast path once the new roll is indexed.
+        let built = cursor.rebuilds
+        for _ in 0..<10 {
+            XCTAssertEqual(cursor.index(of: c, inRollOf: ids.count, revision: revision) { ids[$0] }, 0)
+            XCTAssertEqual(cursor.index(of: b, inRollOf: ids.count, revision: revision) { ids[$0] }, 1)
+        }
+        XCTAssertEqual(cursor.rebuilds, built, "an unchanged revision rebuilt the map")
     }
 
     /// The same failure reached the way an app would reach it: a roll of two, one file
-    /// replaced by a copy of the other. Nothing about the length or the queried
-    /// photograph's position changed.
+    /// replaced by a copy of the other.
     func testTheFastPathDisagreesWithFirstIndexAfterADuplicateAppearsBeforeIt() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("Recorded defect. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         let x = url("X"), a = url("A")
         var ids = [x, a]
         var cursor = RollCursor()
-        XCTAssertEqual(cursor.index(of: a, inRollOf: ids.count) { ids[$0] }, 1)
+        XCTAssertEqual(cursor.index(of: a, inRollOf: ids.count, revision: 7) { ids[$0] }, 1)
 
         ids = [a, a]
-        let answer = cursor.index(of: a, inRollOf: ids.count) { ids[$0] }
+        let answer = cursor.index(of: a, inRollOf: ids.count, revision: 8) { ids[$0] }
         XCTAssertEqual(answer, ids.firstIndex(of: a),
                        "answered \(String(describing: answer)) for a roll whose first "
                        + "index is 0")
     }
 
-    /// A fresh cursor on the very same roll gives the other answer, so the type is not
-    /// merely opinionated about duplicates — it is inconsistent with itself. The same
-    /// roll answered twice by two cursors in the same state of the world differs.
+    /// Two cursors in different states of history, asked about the same roll at the
+    /// same revision, must give the same answer.
     func testTwoCursorsDisagreeAboutTheSameRoll() {
-        // `XCTExpectFailure` is Apple's XCTest only — swift-corelibs-xctest
-        // has no such symbol, and `swiftc -parse` accepts it either way, so a
-        // recorded expectation has to be spelled twice. macOS records it and
-        // still runs the body; Linux stands the case down with the same
-        // sentence rather than failing a lane over a finding already written up.
-        #if canImport(Darwin)
-        XCTExpectFailure("The fast path proves an occurrence sits at the remembered index, not that it is the FIRST, so a duplicated URL makes the answer depend on the cursor's history. Latent: no path today puts a duplicate in the roll. This is a FINDING, recorded rather than silenced. The test runs and prints its real numbers on every lane; only the red is suppressed, so the day it is fixed this becomes an unexpected pass and asks for the expectation to be deleted.")
-        #else
-        return
-        #endif
         let a = url("A"), b = url("B")
         var warmed = RollCursor()
         var ids = [b, a]
-        _ = warmed.index(of: a, inRollOf: ids.count) { ids[$0] }
+        _ = warmed.index(of: a, inRollOf: ids.count, revision: 1) { ids[$0] }
         ids = [a, a]
 
         var fresh = RollCursor()
-        let freshAnswer = fresh.index(of: a, inRollOf: ids.count) { ids[$0] }
-        let warmedAnswer = warmed.index(of: a, inRollOf: ids.count) { ids[$0] }
+        let freshAnswer = fresh.index(of: a, inRollOf: ids.count, revision: 2) { ids[$0] }
+        let warmedAnswer = warmed.index(of: a, inRollOf: ids.count, revision: 2) { ids[$0] }
         XCTAssertEqual(freshAnswer, 0, "the rebuild path is the correct half")
         XCTAssertEqual(warmedAnswer, freshAnswer,
                        "the answer depends on the cursor's history, not on the roll")
@@ -123,15 +109,15 @@ final class RollCursorAdversarialTests: XCTestCase {
         var ids = [a, b, c, d]
         var cursor = RollCursor()
         for (i, id) in ids.enumerated() {
-            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] }, i)
+            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] }, i)
         }
         // A stays at 0 and D stays at 3; B and C trade places under the memo.
         ids = [a, c, b, d]
-        XCTAssertEqual(cursor.index(of: a, inRollOf: ids.count) { ids[$0] }, 0)
+        XCTAssertEqual(cursor.index(of: a, inRollOf: ids.count, revision: 0) { ids[$0] }, 0)
         XCTAssertEqual(cursor.rebuilds, 1, "A's hit did not rebuild, as intended")
-        XCTAssertEqual(cursor.index(of: b, inRollOf: ids.count) { ids[$0] }, 2)
-        XCTAssertEqual(cursor.index(of: c, inRollOf: ids.count) { ids[$0] }, 1)
-        XCTAssertEqual(cursor.index(of: d, inRollOf: ids.count) { ids[$0] }, 3)
+        XCTAssertEqual(cursor.index(of: b, inRollOf: ids.count, revision: 0) { ids[$0] }, 2)
+        XCTAssertEqual(cursor.index(of: c, inRollOf: ids.count, revision: 0) { ids[$0] }, 1)
+        XCTAssertEqual(cursor.index(of: d, inRollOf: ids.count, revision: 0) { ids[$0] }, 3)
     }
 
     /// Shrink and regrow to the same length between two lookups.
@@ -139,13 +125,13 @@ final class RollCursorAdversarialTests: XCTestCase {
         var ids = roll(12)
         var cursor = RollCursor()
         for (i, id) in ids.enumerated() {
-            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] }, i)
+            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] }, i)
         }
         let survivors = Array(ids.prefix(9))
         ids = survivors + roll(3, prefix: "IMG")
         XCTAssertEqual(ids.count, 12)
         for id in ids + [url("ABSENT")] {
-            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] },
+            XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] },
                            ids.firstIndex(of: id), id.lastPathComponent)
         }
     }
@@ -167,7 +153,7 @@ final class RollCursorAdversarialTests: XCTestCase {
                 if !ids.contains(incoming) { ids[(round * 5) % ids.count] = incoming }
             }
             for id in pool {
-                XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count) { ids[$0] },
+                XCTAssertEqual(cursor.index(of: id, inRollOf: ids.count, revision: 0) { ids[$0] },
                                ids.firstIndex(of: id),
                                "round \(round), \(id.lastPathComponent)")
             }
@@ -187,7 +173,7 @@ final class RollCursorAdversarialTests: XCTestCase {
         let callsPerKeystroke = 3
         let keystrokes = 30
         for _ in 0..<(keystrokes * callsPerKeystroke) {
-            XCTAssertNil(cursor.index(of: rejected, inRollOf: ids.count) { ids[$0] })
+            XCTAssertNil(cursor.index(of: rejected, inRollOf: ids.count, revision: 0) { ids[$0] })
         }
         XCTAssertEqual(cursor.rebuilds, keystrokes * callsPerKeystroke,
                        "a miss costs one full rebuild per call")
@@ -199,14 +185,47 @@ final class RollCursorAdversarialTests: XCTestCase {
     func testAnEmptyRollDiscardsTheMapAndTheNextQuestionPaysForIt() {
         let ids = roll(50)
         var cursor = RollCursor()
-        _ = cursor.index(of: ids[10], inRollOf: ids.count) { ids[$0] }
+        _ = cursor.index(of: ids[10], inRollOf: ids.count, revision: 0) { ids[$0] }
         XCTAssertEqual(cursor.rebuilds, 1)
-        XCTAssertNil(cursor.index(of: ids[10], inRollOf: 0) { _ in
+        XCTAssertNil(cursor.index(of: ids[10], inRollOf: 0, revision: 0) { _ in
             XCTFail("read an identity out of an empty roll")
             return URL(fileURLWithPath: "/never")
         })
         XCTAssertEqual(cursor.rebuilds, 1, "the empty path is not counted as a rebuild")
-        _ = cursor.index(of: ids[10], inRollOf: ids.count) { ids[$0] }
+        _ = cursor.index(of: ids[10], inRollOf: ids.count, revision: 0) { ids[$0] }
         XCTAssertEqual(cursor.rebuilds, 2)
+    }
+
+    // MARK: The owner keeps its half of the contract
+
+    private static func appSource(_ name: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LumenApp/\(name).swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// The revision is only as good as the owner that bumps it. `AppState.photos` is the
+    /// one place the roll is rebuilt, so the bump has to sit beside the rebuild, and
+    /// every cursor over that roll has to be handed the owner's revision rather than a
+    /// constant. A source contract because `AppState` is macOS-only; it runs on Linux.
+    func testTheRollOwnerBumpsTheRevisionWhereItRebuildsAndEveryCursorReadsIt() throws {
+        let state = try Self.appSource("AppState")
+        XCTAssertTrue(state.contains("photoCache = built\n        rollRevision &+= 1"),
+                      "AppState rebuilds `photos` without bumping `rollRevision`")
+        XCTAssertTrue(state.contains("revision: rollRevision) { list[$0].id }"),
+                      "rollIndex does not key its cursor on the roll's revision")
+        let loader = try Self.appSource("ThumbnailLoader")
+        XCTAssertTrue(loader.contains("roll.index(of: anchor, inRollOf: count, revision: revision,"),
+                      "the prefetch cursor ignores the revision it is handed")
+        for view in ["GridView", "FilmstripView", "LoupeView"] {
+            let text = try Self.appSource(view)
+            XCTAssertFalse(text.contains("revision: 0"),
+                           "\(view) hands the prefetch cursor a constant revision")
+            XCTAssertTrue(text.contains("revision: rollRevision")
+                          || text.contains("revision: state.rollRevision"),
+                          "\(view) does not pass the roll's revision to the prefetch")
+        }
     }
 }

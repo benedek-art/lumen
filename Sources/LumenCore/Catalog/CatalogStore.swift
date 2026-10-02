@@ -51,16 +51,47 @@ public enum CatalogError: Error, CustomStringConvertible {
 // MARK: - Small vocabulary types
 
 /// Pick / reject / unflagged (docs/10 §10.4). Stored as the raw Int in `photo.flag`.
+///
+/// The ONLY photo flag. LumenApp used to declare a second one over the identical raw
+/// values and translate on every read and write; see `CullingEncoding.swift`. The SF
+/// Symbol the app draws for each case is a LumenApp extension, because a symbol name is
+/// presentation and LumenCore has no SwiftUI.
 public enum PhotoFlag: Int, Sendable, CaseIterable {
     case reject = -1
     case unflagged = 0
     case pick = 1
+
+    /// The word the filter sentence uses — here because the sentence is Linux-tested.
+    public var displayName: String {
+        switch self {
+        case .pick: return "Picked"
+        case .reject: return "Rejected"
+        case .unflagged: return "Unflagged"
+        }
+    }
 }
 
 /// Canonical colour-label keys. `photo.label` stores the key; the *display* name lives
 /// in `meta` under `label_name_1…5` and is user-editable (gap G25).
+///
+/// Five cases and no sixth. The app's old copy carried `.none = 0` for "unlabelled",
+/// which is not a value a label can take but the ABSENCE of one — a NULL in
+/// `photo.label`, which is why `PhotoQuery` has always carried `includeUnlabeled` beside
+/// its `[ColorLabel]`. Unlabelled is `ColorLabel?` = nil end to end now.
 public enum ColorLabel: String, Sendable, CaseIterable {
     case red, yellow, green, blue, purple
+
+    /// The built-in name. A label the user has renamed shows the name in `meta`; this
+    /// is what it is called until they do.
+    public var displayName: String {
+        switch self {
+        case .red: return "Red"
+        case .yellow: return "Yellow"
+        case .green: return "Green"
+        case .blue: return "Blue"
+        case .purple: return "Purple"
+        }
+    }
 
     /// 1-based meta slot, matching the `6`–`9` (+ purple) key bindings.
     public var metaSlot: Int {
@@ -299,6 +330,9 @@ public struct ArtifactRow: Equatable, Sendable {
 /// `pinned` distinguishes a sidebar smart album from a bar preset (gap G23);
 /// `scope`/`scopeID` carry everywhere / folder-subtree / album (gap G22).
 public struct CollectionRow: Equatable, Sendable {
+    /// `album.kind` for a smart album: a saved `LibraryFilter` (`query`), no members.
+    public static let smartKind = "smart"
+
     public var id: Int64
     public var parentID: Int64?
     public var name: String
@@ -402,6 +436,18 @@ public enum PhotoFacet: String, Sendable, CaseIterable {
     }
 }
 
+/// One grid position: the photo and the one other field the grid's caller keeps.
+/// See `CatalogStore.photoOrder(matching:folderID:)`.
+public struct PhotoOrderRow: Equatable, Sendable {
+    public var id: Int64
+    public var iso: Int?
+
+    public init(id: Int64, iso: Int?) {
+        self.id = id
+        self.iso = iso
+    }
+}
+
 /// One value of a metadata chip and how many photos carry it — the live counts docs/10
 /// §10.8 asks for ("Sony A7 IV (1,203)").
 public struct FacetValue: Equatable, Sendable {
@@ -456,14 +502,17 @@ public struct ScannedFile: Equatable, Sendable {
     public var fileMTime: Int64
     public var quickSig: String?
     public var ext: String?
+    public var sourceIdentity: String?
 
     public init(filename: String, fileSize: Int64, fileMTime: Int64,
-                quickSig: String? = nil, ext: String? = nil) {
+                quickSig: String? = nil, ext: String? = nil,
+                sourceIdentity: String? = nil) {
         self.filename = filename
         self.fileSize = fileSize
         self.fileMTime = fileMTime
         self.quickSig = quickSig
         self.ext = ext
+        self.sourceIdentity = sourceIdentity
     }
 
     /// A photo's identity within its registered folder: the path from that folder down
@@ -498,15 +547,18 @@ public struct ScanResult: Equatable, Sendable {
     public var missing: [Int64]
     public var restored: [Int64]
     public var unchanged: Int
+    public var invalidatedPreviews: [PreviewRow]
 
     public init(added: [Int64] = [], changed: [Int64] = [], relocated: [Int64] = [],
-                missing: [Int64] = [], restored: [Int64] = [], unchanged: Int = 0) {
+                missing: [Int64] = [], restored: [Int64] = [], unchanged: Int = 0,
+                invalidatedPreviews: [PreviewRow] = []) {
         self.added = added
         self.changed = changed
         self.relocated = relocated
         self.missing = missing
         self.restored = restored
         self.unchanged = unchanged
+        self.invalidatedPreviews = invalidatedPreviews
     }
 }
 
@@ -559,6 +611,8 @@ public struct CatalogRecovery: Equatable, Sendable {
         case firstRun
         /// `PRAGMA quick_check` returned "ok". Nothing was touched.
         case healthy
+        /// Operational failure, not evidence that the original is corrupt.
+        case unavailable(reason: String)
         /// The catalog failed its check and was replaced by a backup that passed. The
         /// corrupt file is MOVED ASIDE, never deleted: a file SQLite cannot read may
         /// still be readable by a recovery tool, and the last hour of somebody's
@@ -578,6 +632,8 @@ public struct CatalogRecovery: Equatable, Sendable {
         switch outcome {
         case .firstRun, .healthy:
             return nil
+        case .unavailable(let reason):
+            return "The catalog could not be checked and was left untouched: " + reason
         case .restored(let backup, _):
             let name = URL(fileURLWithPath: backup).lastPathComponent
             // Careful about the tense. Sidecar recovery happens per folder, at scan
@@ -585,14 +641,14 @@ public struct CatalogRecovery: Equatable, Sendable {
             // yet — promising otherwise would be the same class of caption this project
             // keeps finding and removing.
             return "The catalog was damaged and has been restored from \(name). "
-                + "Edits made since that backup come back from the sidecars as each "
-                + "folder is rescanned."
+                + "Newer edits can be recovered from successfully saved sidecars as "
+                + "each folder is rescanned."
         case .unrecoverable(let tried):
             return tried == 0
                 ? "The catalog is damaged and there is no backup to restore from. "
-                    + "Your edits are still in the sidecars beside your photos."
+                    + "Successfully saved sidecars may recover your edits."
                 : "The catalog is damaged and none of the \(tried) backups could be "
-                    + "read either. Your edits are still in the sidecars beside your photos."
+                    + "restored with its required payloads. Successfully saved sidecars may recover your edits."
         }
     }
 
@@ -855,6 +911,13 @@ public struct PhotoQuery: Sendable {
         case any, collapsedTopsOnly, unstacked
     }
 
+    /// Burst membership, from the culling pass's grouping (`cache.frame_score.burst_id`).
+    /// A frame the pass has not reached is "not in a burst" — the same answer as a frame
+    /// it measured and found alone, because both are frames nobody has grouped.
+    public enum BurstState: String, Sendable {
+        case any, inBurst, notInBurst
+    }
+
     /// Virtual copies are `edit` rows, so "masters" means "no version edit exists".
     public enum VersionKind: String, Sendable {
         case all, mastersOnly, versionsOnly
@@ -894,6 +957,7 @@ public struct PhotoQuery: Sendable {
     public var cameraPreviewOnly: Bool = false
     public var closedEyesThreshold: Double = 0.35
     public var softFocusThreshold: Double = 0.35
+    public var burstState: BurstState = .any
 
     // Text chip — tokenized contains/prefix
     public var text: String? = nil
@@ -908,6 +972,67 @@ public struct PhotoQuery: Sendable {
     public var offset: Int? = nil
 
     public init() {}
+}
+
+// MARK: - Culling evidence rows
+
+/// One `cache.frame_score` row as the culling pass writes it (docs/10 §10.6).
+///
+/// Evidence, never a verdict: nothing that reads this writes `photo.flag`. The row is
+/// disposable (`cache.db`) and keyed on the FILE — the measurement is taken on the
+/// camera's preview, which no slider changes.
+public struct FrameScoreRow: Equatable, Sendable {
+    public var photoID: Int64
+    /// 0…1 (`SharpnessScorer`); nil when the frame could not be measured.
+    public var sharpness: Double?
+    /// Estimated noise σ at the analysis scale.
+    public var noise: Double?
+    /// 64-bit DCT perceptual hash (`PerceptualHash`), stored as its bit pattern.
+    public var perceptualHash: UInt64?
+    /// The long edge the score was measured at. Below `SharpnessScorer.analysisLongEdge`
+    /// the number came from a thumbnail and reads high.
+    public var analysedLongEdge: Int?
+    /// The burst this frame belongs to (its first frame's photo id), nil when ungrouped.
+    public var burstID: Int64?
+    /// 1-based position in the burst's evidence order (sharpest first).
+    public var burstRank: Int?
+    public var analyzerRevision: Int
+    public var computedAt: Int64
+
+    public init(photoID: Int64, sharpness: Double?, noise: Double?,
+                perceptualHash: UInt64?, analysedLongEdge: Int?,
+                burstID: Int64? = nil, burstRank: Int? = nil,
+                analyzerRevision: Int = SharpnessScorer.analyzerRevision,
+                computedAt: Int64 = 0) {
+        self.photoID = photoID
+        self.sharpness = sharpness
+        self.noise = noise
+        self.perceptualHash = perceptualHash
+        self.analysedLongEdge = analysedLongEdge
+        self.burstID = burstID
+        self.burstRank = burstRank
+        self.analyzerRevision = analyzerRevision
+        self.computedAt = computedAt
+    }
+}
+
+/// One `cache.face` row: where the face is and what the evidence says about it.
+public struct FaceEvidenceRow: Equatable, Sendable {
+    public var rect: NormalizedRect
+    /// 0 closed … 1 open (`EyeOpenness.openness`); nil when no eye landmarks were found.
+    public var eyesOpen: Double?
+    /// The face region's own sharpness score, 0…1; nil when the region was too small.
+    public var focus: Double?
+    /// Vision's capture-quality score, 0…1, when the platform provides it.
+    public var captureQuality: Double?
+
+    public init(rect: NormalizedRect, eyesOpen: Double?, focus: Double?,
+                captureQuality: Double? = nil) {
+        self.rect = rect
+        self.eyesOpen = eyesOpen
+        self.focus = focus
+        self.captureQuality = captureQuality
+    }
 }
 
 // MARK: - Migrations
@@ -959,17 +1084,19 @@ public final class CatalogStore {
 
     /// Schema version this build understands. Base DDL (`CatalogSchema.lumenDDL`) is
     /// version 1; everything after it is a migration below.
-    public static let latestSchemaVersion: Int = 3
+    public static let latestSchemaVersion: Int = 4
 
     /// Gap-closing migration for `lumen.db` (brief 02 §2.3, G5–G15, G17–G26, G31).
     public static let migrations: [CatalogMigration] = [
         CatalogMigration(version: 2, sql: CatalogStore.lumenMigration2),
         CatalogMigration(version: 3, sql: CatalogStore.lumenMigration3),
+        CatalogMigration(version: 4, sql: CatalogStore.lumenMigration4),
     ]
 
     /// Gap-closing migration for `cache.db` (G1–G4, G19, G28, G29).
     public static let cacheMigrations: [CatalogMigration] = [
-        CatalogMigration(version: 2, sql: CatalogStore.cacheMigration2)
+        CatalogMigration(version: 2, sql: CatalogStore.cacheMigration2),
+        CatalogMigration(version: 3, sql: CatalogStore.cacheMigration3),
     ]
 
     private static let lumenMigration2: String = """
@@ -1085,6 +1212,50 @@ public final class CatalogStore {
     CREATE INDEX IF NOT EXISTS look_kind ON look(kind, name);
     """
 
+    /// Keyword hierarchy and synonyms (docs/10 §10.8, docs/15 §15.3).
+    ///
+    /// `keyword.parent_id` has been in the base DDL with nothing writing it, and the
+    /// table had no identity: `addKeyword` looked a name up with `LIMIT 1` and a
+    /// full scan. A hierarchy needs "this name under this parent" to be one row, so
+    /// that becomes a UNIQUE index — after folding any rows that already break it onto
+    /// the oldest, with their photographs. In order: a child of a duplicate parent
+    /// moves to the surviving parent; every membership moves to its keyword's
+    /// survivor (INSERT OR IGNORE, so a photo tagged twice keeps one row); then the
+    /// orphaned memberships and keyword rows go. Exact names, case and all: two
+    /// spellings a photographer typed are two keywords until they say otherwise.
+    ///
+    /// `keyword_synonym` is new. NULL parents fold together via COALESCE, for the
+    /// reason `look_identity` records: SQLite treats NULLs as distinct in UNIQUE.
+    private static let lumenMigration4: String = """
+    UPDATE keyword SET parent_id = (
+      SELECT MIN(s.id) FROM keyword s, keyword p
+       WHERE p.id = keyword.parent_id AND s.name = p.name
+         AND COALESCE(s.parent_id, 0) = COALESCE(p.parent_id, 0))
+     WHERE parent_id IS NOT NULL;
+
+    INSERT OR IGNORE INTO photo_keyword (photo_id, keyword_id)
+      SELECT pk.photo_id,
+             (SELECT MIN(s.id) FROM keyword s
+               WHERE s.name = k.name AND COALESCE(s.parent_id, 0) = COALESCE(k.parent_id, 0))
+        FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id;
+    DELETE FROM photo_keyword WHERE keyword_id NOT IN (
+      SELECT MIN(id) FROM keyword GROUP BY COALESCE(parent_id, 0), name);
+    DELETE FROM keyword WHERE id NOT IN (
+      SELECT MIN(id) FROM keyword GROUP BY COALESCE(parent_id, 0), name);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS keyword_identity
+      ON keyword(COALESCE(parent_id, 0), name);
+    CREATE INDEX IF NOT EXISTS keyword_name   ON keyword(name);
+    CREATE INDEX IF NOT EXISTS keyword_parent ON keyword(parent_id);
+
+    CREATE TABLE IF NOT EXISTS keyword_synonym (
+      keyword_id INTEGER NOT NULL REFERENCES keyword(id),
+      synonym    TEXT NOT NULL,
+      PRIMARY KEY (keyword_id, synonym)
+    );
+    CREATE INDEX IF NOT EXISTS keyword_synonym_word ON keyword_synonym(synonym);
+    """
+
     private static let cacheMigration2: String = """
     -- G1: the invalidation key in §15.6 is (photo_id, level, recipe_fp). One row per
     -- level cannot hold an embedded and a Lumen render at once, cannot hold per-version
@@ -1155,6 +1326,26 @@ public final class CatalogStore {
 
     -- G29: one concept, one name.
     ALTER TABLE feature_print RENAME COLUMN revision TO analyzer_rev;
+    """
+
+    /// The culling pass's columns (docs/10 §10.6, F5).
+    ///
+    /// `frame_score` had a sharpness column and nothing to fill it; the pass that fills it
+    /// also produces a noise estimate, the scale it measured at, a perceptual hash, and the
+    /// burst grouping that hash feeds. ADD COLUMN, not a table rewrite: every existing row
+    /// keeps what it had and reads NULL for the new evidence.
+    ///
+    /// The two indexes are the sort and the chips: the sharpness sort and the soft-focus
+    /// chip read `sharpness`, the burst chip reads `burst_id`, and both have to stay
+    /// index-backed at 100k frames (§15.2).
+    private static let cacheMigration3: String = """
+    ALTER TABLE frame_score ADD COLUMN noise REAL;
+    ALTER TABLE frame_score ADD COLUMN phash INTEGER;
+    ALTER TABLE frame_score ADD COLUMN analysed_edge INTEGER;
+    ALTER TABLE frame_score ADD COLUMN burst_id INTEGER;
+    ALTER TABLE frame_score ADD COLUMN burst_rank INTEGER;
+    CREATE INDEX IF NOT EXISTS frame_score_sharpness ON frame_score(sharpness);
+    CREATE INDEX IF NOT EXISTS frame_score_burst ON frame_score(burst_id, burst_rank);
     """
 
     /// G16: the text chip needs tokenized contains/prefix; `LIKE '%x%'` cannot meet
@@ -1550,7 +1741,11 @@ public final class CatalogStore {
         guard manager.fileExists(atPath: path) else {
             return CatalogRecovery(outcome: .firstRun)
         }
-        if probeQuickCheck(path: path) { return CatalogRecovery(outcome: .healthy) }
+        switch probeIntegrity(path: path) {
+        case .healthy: return CatalogRecovery(outcome: .healthy)
+        case .unavailable(let reason): return CatalogRecovery(outcome: .unavailable(reason: reason))
+        case .corrupt: break
+        }
 
         let backups = (try? manager.contentsOfDirectory(atPath: backupDirectory))?
             .filter { $0.hasSuffix(".db") }
@@ -1558,7 +1753,8 @@ public final class CatalogStore {
         for name in backups {
             let candidate = URL(fileURLWithPath: backupDirectory, isDirectory: true)
                 .appendingPathComponent(name).path
-            guard probeQuickCheck(path: candidate) else { continue }
+            guard probeQuickCheck(path: candidate),
+                  prepareBackupPayloads(path: candidate, liveCatalogPath: path) else { continue }
             let stamp = String(CatalogStore.now())
             let setAside = path + ".damaged-" + stamp
             do {
@@ -1581,25 +1777,110 @@ public final class CatalogStore {
 
     /// One `PRAGMA quick_check` on a file this process does not otherwise hold open.
     ///
-    /// False for anything that is not a readable SQLite catalog, including a file that
-    /// cannot be opened at all: the caller's question is "can this be used", and every
-    /// no is the same no.
+    /// True only for a positively checked healthy backup. A false result alone MUST
+    /// NOT authorize replacing the live catalog; `probeIntegrity` distinguishes
+    /// confirmed corruption from locks, permission failures and I/O errors.
     ///
     /// Internal rather than private so the recovery tests can assert that the damage
     /// they inflicted actually took. A restore test that ran against a file SQLite still
     /// finds perfectly readable would pass while proving nothing.
     ///
-    /// The existence guard is load-bearing, not defensive tidying. `SQLiteDatabase`
-    /// opens with `SQLITE_OPEN_CREATE`, so a path that is not there becomes an empty
-    /// database — which passes `quick_check` perfectly. Without this, a backup that
-    /// vanished between the directory listing and this call would be created empty,
-    /// pass, and be restored OVER a catalog that was merely damaged. Answering "no" for
-    /// a file that does not exist is also just correct: nothing there cannot be used.
+    /// Read-only opening is load-bearing: the ordinary CREATE mode would turn a
+    /// vanished backup into an empty database that passes `quick_check`. The probe
+    /// must never manufacture a valid-looking backup, even across a deletion race.
     static func probeQuickCheck(path: String) -> Bool {
-        guard FileManager.default.fileExists(atPath: path) else { return false }
-        guard let database = try? SQLiteDatabase(path: path) else { return false }
-        defer { database.close() }
-        return (try? database.scalarText("PRAGMA quick_check;")) == "ok"
+        if case .healthy = probeIntegrity(path: path) { return true }
+        return false
+    }
+
+    private enum IntegrityProbe {
+        case healthy, corrupt, unavailable(String)
+    }
+
+    /// Older builds could publish the SQLite snapshot before copying its brushes.
+    /// The payloads checked are every `strokesRef` (brush masks and painted heal) and
+    /// every creative LUT's `look.lut.ref` blob. A healthy database alone is therefore not evidence of a complete backup.
+    /// Inspect references without migrating or rewriting the candidate. Live blobs
+    /// may satisfy a legacy database-only snapshot, but their bytes must hash to the
+    /// requested content address just like the backup's own payloads. Restore missing
+    /// or damaged payloads BEFORE replacing the database; an I/O failure must not
+    /// publish a restored catalog whose paintings do not exist. Damaged bytes are
+    /// preserved under a unique name, never discarded.
+    private static func prepareBackupPayloads(path: String, liveCatalogPath: String) -> Bool {
+        do {
+            let database = try SQLiteDatabase(path: path, readOnly: true)
+            defer { database.close() }
+            let statement = try database.prepare("SELECT recipe FROM edit;")
+            let backupBlobs = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("blobs")
+            let liveBlobs = URL(fileURLWithPath: liveCatalogPath).deletingLastPathComponent().appendingPathComponent("blobs")
+            var references: Set<String> = []
+            func collect(_ value: Any) {
+                if let object = value as? [String: Any] {
+                    for (key, child) in object {
+                        if key == "strokesRef", let ref = child as? String, !ref.isEmpty {
+                            references.insert(ref)
+                        } else if key == "lut", let lut = child as? [String: Any],
+                                  let ref = lut["ref"] as? String,
+                                  BlobStore.filename(for: ref) != nil {
+                            // A creative LUT's cube lives on the same shelf as the
+                            // strokes (`look.lut.ref`); without it `CreativeLUTStage`
+                            // resolves to nil and the restored photograph silently
+                            // renders without its look. A ref that is not a blob
+                            // address names nothing in the store and is left alone.
+                            references.insert(ref)
+                        } else { collect(child) }
+                    }
+                } else if let array = value as? [Any] {
+                    for child in array { collect(child) }
+                }
+            }
+            while try statement.step() {
+                guard let json = statement.string(0) else { return false }
+                collect(try JSONSerialization.jsonObject(with: Data(json.utf8)))
+            }
+            // Keep paths, not every painting's bytes: recovering a large library
+            // must not retain its entire blob store in memory at once.
+            var repairs: [(target: URL, source: URL, reference: String)] = []
+            for ref in references {
+                guard let name = BlobStore.filename(for: ref) else { return false }
+                let target = liveBlobs.appendingPathComponent(name)
+                if let live = try? Data(contentsOf: target), BrushStrokeSet.blobRef(for: live) == ref { continue }
+                let source = backupBlobs.appendingPathComponent(name)
+                guard let saved = try? Data(contentsOf: source),
+                      BrushStrokeSet.blobRef(for: saved) == ref else { return false }
+                repairs.append((target, source, ref))
+            }
+            if !repairs.isEmpty {
+                let manager = FileManager.default
+                try manager.createDirectory(at: liveBlobs, withIntermediateDirectories: true)
+                for repair in repairs {
+                    let bytes = try Data(contentsOf: repair.source)
+                    guard BrushStrokeSet.blobRef(for: bytes) == repair.reference else { return false }
+                    if manager.fileExists(atPath: repair.target.path) {
+                        let preserved = URL(fileURLWithPath: repair.target.path + ".damaged-" + UUID().uuidString)
+                        try manager.copyItem(at: repair.target, to: preserved)
+                    }
+                    try bytes.write(to: repair.target, options: .atomic)
+                }
+            }
+            return true
+        } catch { return false }
+    }
+
+    private static func probeIntegrity(path: String) -> IntegrityProbe {
+        do {
+            // Never CREATE a missing backup or mutate the catalog being checked.
+            let database = try SQLiteDatabase(path: path, readOnly: true)
+            defer { database.close() }
+            guard let result = try database.scalarText("PRAGMA quick_check;") else {
+                return .unavailable("The integrity check returned no result")
+            }
+            return result == "ok" ? .healthy : .corrupt
+        } catch let error as SQLiteError where error.indicatesCorruptDatabase {
+            return .corrupt
+        } catch {
+            return .unavailable(String(describing: error))
+        }
     }
 
     /// Move a catalog and its WAL companions aside, together.
@@ -1933,13 +2214,18 @@ public final class CatalogStore {
     ///
     /// New file          -> insert.
     /// (size, mtime) differ -> update, reported as changed.
+    /// Stat token differs -> confirmed with `signature` (the file's quick signature,
+    ///                      computed only for these rows) against the stored one;
+    ///                      changed only on a mismatch or when nothing confirms it.
     /// Gone              -> move detection first: a `quick_sig` match against a newly
     ///                      appeared file (this folder, or a `missing` row anywhere)
     ///                      relocates the row with edits, history and album membership
     ///                      intact. Only an unmatched disappearance sets `missing = 1`.
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = CatalogStore.now()) throws -> ScanResult {
+                     at now: Int64 = CatalogStore.now(),
+                     completeListing: Bool = true,
+                     signature: ((ScannedFile) -> String?)? = nil) throws -> ScanResult {
         try db.transaction {
             var result = ScanResult()
 
@@ -1960,6 +2246,33 @@ public final class CatalogStore {
             }
             statement.reset()
 
+            // ONE FILE ON DISK IS ONE ROW, whichever registered folder it is opened under.
+            //
+            // A row is keyed on (folder, path relative to the folder), and folders nest:
+            // a picked set of frames is rooted at their common parent, and a card can be
+            // opened at `DCIM/100NIKON` one day and at its root the next. The same file
+            // then has a different relative name under each, and it used to get a second
+            // row — no rating, no recipe, no albums, its own history. So before anything
+            // is inserted, a file this folder does not know is looked up by its ABSOLUTE
+            // path in every registered ancestor or descendant folder, and a row found
+            // there is moved into this folder with everything on it. The ordinary loop
+            // below then treats it as an existing row: a changed file still invalidates,
+            // a missing one is restored. Nothing to pay when no related folder exists,
+            // which is every folder's first open.
+            for (id, relocated) in try self.adoptRowsFromRelatedFolders(
+                folderID: folderID,
+                names: files.map(\.filename).filter { existing[$0] == nil }) {
+                existing[relocated] = try {
+                    let row = try self.db.prepare(
+                        "SELECT file_size, file_mtime, quick_sig, missing FROM photo WHERE id = ?;")
+                    try row.bind(1, id)
+                    _ = try row.step()
+                    return (id: id, size: row.int(0), mtime: row.int(1),
+                            sig: row.string(2), missing: row.bool(3))
+                }()
+                result.relocated.append(id)
+            }
+
             var seen: Set<String> = []
             var newFiles: [ScannedFile] = []
 
@@ -1969,12 +2282,55 @@ public final class CatalogStore {
                     newFiles.append(file)
                     continue
                 }
-                if row.size != file.fileSize || row.mtime != file.fileMTime {
+                let identityKey = "source_identity_\(row.id)"
+                var changed = row.size != file.fileSize || row.mtime != file.fileMTime
+                var newSig = file.quickSig
+                // A different stat token at the same size and second is a SUSPICION.
+                // A row with no stored token (scanned before tokens existed) adopts
+                // the current one: reading that as a change wiped every quick
+                // signature, EXIF field and preview in the library on the first scan
+                // after upgrading. A stored token that differs (a Finder tag moves
+                // ctime; a filesystem that renumbers inodes on remount) is confirmed
+                // against the stored quick signature, one megabyte, before anything
+                // is invalidated. Only when there is nothing to confirm against is
+                // the suspicion taken as a change, which is the safe direction for
+                // pixels.
+                if !changed, let current = file.sourceIdentity,
+                   let stored = try self.metaValue(identityKey),
+                   !SourceFileIdentity.sameGeneration(stored: stored, current: current) {
+                    if newSig == nil { newSig = signature?(file) }
+                    if let old = row.sig, !old.isEmpty, let newSig {
+                        changed = newSig != old
+                    } else {
+                        changed = true
+                    }
+                }
+                if changed {
                     try self.db.run("""
                     UPDATE photo SET file_size = ?, file_mtime = ?,
-                      quick_sig = COALESCE(?, quick_sig), missing = 0 WHERE id = ?;
+                      quick_sig = ?, full_hash = NULL, missing = 0,
+                      capture_at = NULL, capture_subsec = NULL, camera = NULL,
+                      camera_serial = NULL, lens = NULL, iso = NULL, shutter_s = NULL,
+                      aperture = NULL, focal_mm = NULL, width = NULL, height = NULL,
+                      orientation = NULL, gps_lat = NULL, gps_lon = NULL, aspect = NULL
+                    WHERE id = ?;
                     """, [.integer(file.fileSize), .integer(file.fileMTime),
-                          .optionalText(file.quickSig), .integer(row.id)])
+                          .optionalText(newSig), .integer(row.id)])
+                    // Source replacement invalidates even embedded browse rungs and
+                    // source-derived artifacts; user edits/culling remain untouched.
+                    result.invalidatedPreviews += try self.previews(photoID: row.id)
+                    try self.db.run("DELETE FROM cache.preview WHERE photo_id = ?;", [.integer(row.id)])
+                    try self.db.run("DELETE FROM cache.artifact WHERE photo_id = ?;", [.integer(row.id)])
+                    // The clipping statistics were read off the OLD file's sensor data;
+                    // keeping them would caption the new exposure with the old one's
+                    // clipped percentages until the analyzer revision next changed.
+                    try self.db.run("DELETE FROM cache.raw_stats WHERE photo_id = ?;", [.integer(row.id)])
+                    // The culling evidence was measured on the OLD file's preview; a
+                    // sharpness score and a hash describing a picture that is no longer
+                    // there would keep sorting and grouping it as that picture.
+                    try self.db.run("DELETE FROM cache.frame_score WHERE photo_id = ?;", [.integer(row.id)])
+                    try self.db.run("DELETE FROM cache.face WHERE photo_id = ?;", [.integer(row.id)])
+                    self.reindexText(photoID: row.id)
                     result.changed.append(row.id)
                 } else if row.missing {
                     try self.db.run("UPDATE photo SET missing = 0 WHERE id = ?;",
@@ -1983,13 +2339,16 @@ public final class CatalogStore {
                 } else {
                     result.unchanged += 1
                 }
+                if let identity = file.sourceIdentity {
+                    try self.setMetaValue(identityKey, identity)
+                }
             }
 
             // Rows whose filename vanished from the listing, indexed by signature so a
             // rename inside the folder is a relocation, not a disappearance.
             var goneBySignature: [String: Int64] = [:]
             var gone: [(name: String, id: Int64)] = []
-            for (name, row) in existing where !seen.contains(name) {
+            for (name, row) in existing where completeListing && !seen.contains(name) {
                 gone.append((name: name, id: row.id))
                 if let sig = row.sig, !sig.isEmpty { goneBySignature[sig] = row.id }
             }
@@ -2019,6 +2378,9 @@ public final class CatalogStore {
                                         ?? CatalogStore.fileExtension(of: file.filename)),
                           .integer(id)])
                     self.reindexText(photoID: id)
+                    if let identity = file.sourceIdentity {
+                        try self.setMetaValue("source_identity_\(id)", identity)
+                    }
                     result.relocated.append(id)
                     continue
                 }
@@ -2028,6 +2390,9 @@ public final class CatalogStore {
                     quickSig: file.quickSig, addedAt: now,
                     ext: file.ext ?? CatalogStore.fileExtension(of: file.filename)))
                 result.added.append(inserted)
+                if let identity = file.sourceIdentity {
+                    try self.setMetaValue("source_identity_\(inserted)", identity)
+                }
             }
 
             for entry in gone where !consumed.contains(entry.id) {
@@ -2036,10 +2401,60 @@ public final class CatalogStore {
                 result.missing.append(entry.id)
             }
 
-            try self.db.run("UPDATE folder SET last_scanned_at = ? WHERE id = ?;",
-                            [.integer(now), .integer(folderID)])
+            if completeListing {
+                try self.db.run("UPDATE folder SET last_scanned_at = ? WHERE id = ?;",
+                                [.integer(now), .integer(folderID)])
+            }
             return result
         }
+    }
+
+    /// Moves into `folderID` every row that another registered folder holds for one of
+    /// `names` — the same absolute path reached through an ancestor or a descendant
+    /// folder — and returns `(row id, name in this folder)` for each one moved. Runs
+    /// inside `scan`'s transaction. Paths are compared by component, so `day1` never
+    /// matches `day10`.
+    private func adoptRowsFromRelatedFolders(folderID: Int64,
+                                             names: [String]) throws -> [(Int64, String)] {
+        guard !names.isEmpty else { return [] }
+        func components(_ path: String) -> [String] {
+            URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        }
+        var here: [String]? = nil
+        var related: [(id: Int64, parts: [String])] = []
+        let folders = try db.prepare("SELECT id, path FROM folder;")
+        var all: [(Int64, [String])] = []
+        while try folders.step() {
+            all.append((folders.int(0), components(folders.string(1) ?? "")))
+        }
+        for (id, parts) in all where id == folderID { here = parts }
+        guard let here else { return [] }
+        for (id, parts) in all where id != folderID {
+            let shorter = Swift.min(parts.count, here.count)
+            if Array(parts.prefix(shorter)) == Array(here.prefix(shorter)) {
+                related.append((id: id, parts: parts))
+            }
+        }
+        guard !related.isEmpty else { return [] }
+
+        var adopted: [(Int64, String)] = []
+        for name in names {
+            let absolute = here + name.split(separator: "/").map(String.init)
+            for folder in related {
+                guard folder.parts.count < absolute.count,
+                      Array(absolute.prefix(folder.parts.count)) == folder.parts else { continue }
+                let theirs = absolute.dropFirst(folder.parts.count).joined(separator: "/")
+                guard let id = try db.scalarInt(
+                    "SELECT id FROM photo WHERE folder_id = ? AND filename = ?;",
+                    [.integer(folder.id), .text(theirs)]) else { continue }
+                try db.run("UPDATE photo SET folder_id = ?, filename = ? WHERE id = ?;",
+                           [.integer(folderID), .text(name), .integer(id)])
+                reindexText(photoID: id)
+                adopted.append((id, name))
+                break
+            }
+        }
+        return adopted
     }
 
     // MARK: - Recipes
@@ -2057,9 +2472,9 @@ public final class CatalogStore {
     /// - Parameter isRenderedFile: whether this photograph is a file somebody has
     ///   already tone-mapped — a JPEG, HEIC, PNG or TIFF — rather than a camera raw.
     ///   It decides the baseline `edited` is measured against, and it is a PARAMETER
-    ///   because LumenCore does not own the list of rendered extensions:
-    ///   `PhotoFormats` in the app target does, and a second copy of that list here
-    ///   could disagree with the one the folder scan used about the same file. Its
+    ///   because the store does not interpret paths: `PhotoFormats` answers it, the
+    ///   folder scan has already asked, and re-asking here from a path would be a
+    ///   second reading that could disagree with the scan's about the same file. Its
     ///   default is `false` — the raw case — so a caller that does not know says
     ///   nothing rather than guessing "JPEG".
     @discardableResult
@@ -2067,7 +2482,6 @@ public final class CatalogStore {
                            name: String?, isCurrent: Bool,
                            isRenderedFile: Bool = false,
                            at now: Int64 = CatalogStore.now()) throws -> Int64 {
-        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
         let fingerprint = try RecipeFingerprint.fingerprint(recipe)
         // "Edited" means the recipe differs from what a fresh import of THIS
         // PHOTOGRAPH would have left behind — not from the type's default.
@@ -2086,8 +2500,8 @@ public final class CatalogStore {
         // `Recipe.asImported(from:)` is the ONE statement of what as-imported means —
         // `RecipeReset.swift`, unit-tested on Linux — and this reads it rather than
         // restating it. The ISO comes off the photo row because the row is where the
-        // scanner put it; only `isRendered` has to be told, because the extension list
-        // that answers it lives in the app target on purpose.
+        // scanner put it; only `isRendered` has to be told, because the caller has
+        // already asked `PhotoFormats` about this file and the store does not re-ask.
         //
         // The pipeline version is normalized onto the baseline for the reason the old
         // comment gave and which still holds: comparing against a *different* version's
@@ -2112,11 +2526,22 @@ public final class CatalogStore {
         // claiming semantics this build does not have — and the next older build to
         // open the catalog would then demote a row that is, in fact, its own.
         //
-        // `min`, not `currentPipelineVersion` outright: an OLDER recipe must keep
+        // `min`, not `supportedPipelineVersion` outright: an OLDER recipe must keep
         // reporting its own age, which is what migrations read and what
         // `testARecipeWrittenAtAnOlderVersionStillReportsThatVersion` pins.
         let storedPipelineVersion = Swift.min(recipe.pipelineVersion,
-                                              currentPipelineVersion)
+                                              supportedPipelineVersion)
+        // AND THE TEXT SAYS WHAT THE COLUMN SAYS (M-02). `canonicalRecipeJSON` writes the
+        // recipe's own `pipelineVersion` into the text, so clamping only the column left
+        // a row reading `pipeline_version = 2` beside `{"pipelineVersion":7,…}` — and
+        // `currentRecipe` decodes the TEXT, so the carried-forward number came back on
+        // every open and re-infected every later save and sidecar. Identical bytes for
+        // every recipe this build or an older one wrote (the clamp is the identity
+        // there); the fingerprint is left as the recipe's own, which is what the preview
+        // cache and the sidecar comparison were already keyed on.
+        var stamped = recipe
+        stamped.pipelineVersion = storedPipelineVersion
+        let json = try CanonicalJSON.canonicalRecipeJSON(stamped)
 
         return try db.transaction {
             if isCurrent {
@@ -2158,7 +2583,7 @@ public final class CatalogStore {
             if let id = editID,
                let rowVersion = try self.db.scalarInt(
                    "SELECT pipeline_version FROM edit WHERE id = ?;", [.integer(id)]),
-               rowVersion > Int64(currentPipelineVersion) {
+               rowVersion > Int64(supportedPipelineVersion) {
                 try self.db.run("""
                 UPDATE edit SET kind = 'version', is_current = 0,
                   name = COALESCE(name, ?) WHERE id = ?;
@@ -2224,6 +2649,24 @@ public final class CatalogStore {
         (try db.scalarText(
             "SELECT recipe_fp FROM edit WHERE photo_id = ? AND is_current = 1 LIMIT 1;",
             [.integer(photoID)])) ?? ""
+    }
+
+    /// The key the photo's current rendered picture is filed under in the preview cache:
+    /// `currentRecipeFingerprint`, plus `RecipeFingerprint.lutMissingSuffix` when the
+    /// recipe's creative LUT is not on this machine. Empty string = as-shot, as there.
+    ///
+    /// One query. The recipe text comes back only when it names a LUT at all, so a
+    /// grid cell of an ordinary edit pays no JSON decode for this.
+    public func currentPreviewFingerprint(photoID: Int64,
+                                          library: CreativeLUTLibrary = .shared) throws -> String {
+        guard let row = try firstRow(
+            "SELECT recipe_fp, CASE WHEN instr(recipe, '\"lut\"') > 0 THEN recipe END "
+            + "FROM edit WHERE photo_id = ? AND is_current = 1 LIMIT 1;",
+            [.integer(photoID)], { ($0.string(0) ?? "", $0.string(1)) }) else { return "" }
+        guard let json = row.1 else { return row.0 }
+        let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+        return RecipeFingerprint.previewFingerprint(recipeFingerprint: row.0, recipe: recipe,
+                                                    library: library)
     }
 
     /// Makes an existing edit row the current one, preserving the one-per-photo rule.
@@ -2613,7 +3056,13 @@ public final class CatalogStore {
     }
 
     /// `B` adds to the target album (default "Tray"); any album is designatable.
+    ///
+    /// Never a smart album: its contents are its query, so `B` would write membership
+    /// rows that nothing reads — a keystroke that reports success and does nothing.
     public func setTargetCollection(_ albumID: Int64) throws {
+        if try collection(id: albumID)?.kind == CollectionRow.smartKind {
+            throw CatalogError.invalid("a smart album cannot be the target album")
+        }
         try db.transaction {
             try self.db.run("UPDATE album SET is_target = 0 WHERE is_target = 1;")
             try self.db.run("UPDATE album SET is_target = 1 WHERE id = ?;",
@@ -2659,6 +3108,65 @@ public final class CatalogStore {
                 try statement.run()
             }
             statement.reset()
+        }
+    }
+
+    /// Rename an album. Returns false, and writes nothing, for a name that is empty
+    /// once trimmed — an album row with no words in it is a row nobody can find again.
+    ///
+    /// An album could be created and never renamed: the sidebar's only verb on a
+    /// typo was to make a second album and live with the first.
+    @discardableResult
+    public func renameCollection(id: Int64, to name: String) throws -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard try collection(id: id) != nil else {
+            throw CatalogError.notFound("album \(id)")
+        }
+        try db.run("UPDATE album SET name = ? WHERE id = ?;", [.text(trimmed), .integer(id)])
+        return true
+    }
+
+    /// Replace a smart album's saved filter — "update with the current filter".
+    /// Refuses a manual album: membership is its meaning, and a query beside it would
+    /// be a second, contradicting one.
+    public func updateCollectionQuery(id: Int64, query: String) throws {
+        guard let row = try collection(id: id) else {
+            throw CatalogError.notFound("album \(id)")
+        }
+        guard row.kind == CollectionRow.smartKind else {
+            throw CatalogError.invalid("album \(id) is not a smart album")
+        }
+        try db.run("UPDATE album SET query = ? WHERE id = ?;", [.text(query), .integer(id)])
+    }
+
+    /// Delete an album. The photographs stay — membership rows are bookkeeping, and
+    /// nothing in here touches `photo` — which is what makes this safe to offer
+    /// without an undo.
+    ///
+    /// Three things go with the row, in one transaction:
+    ///   · its membership rows. `album_photo` references `album` with no cascade and
+    ///     the catalog runs with `foreign_keys=ON`, so deleting the row alone fails.
+    ///   · its place as a parent. Album sets nest one level (docs/10 §10.9); a child
+    ///     of a deleted set moves up to the set's own parent rather than vanishing.
+    ///   · its place as a smart album's scope. A smart album scoped to this album is
+    ///     left with no scope, which reads "everywhere" — the broader answer, never a
+    ///     query pointed at a row that no longer exists.
+    /// If it was the target album there is then no target, and `B` says so rather
+    /// than silently promoting another album the photographer did not choose.
+    public func deleteCollection(id: Int64) throws {
+        try db.transaction {
+            guard let row = try self.collection(id: id) else {
+                throw CatalogError.notFound("album \(id)")
+            }
+            try self.db.run("DELETE FROM album_photo WHERE album_id = ?;", [.integer(id)])
+            try self.db.run("UPDATE album SET parent_id = ? WHERE parent_id = ?;",
+                            [.optionalInteger(row.parentID), .integer(id)])
+            try self.db.run("""
+            UPDATE album SET scope = NULL, scope_id = NULL
+             WHERE scope = 'album' AND scope_id = ?;
+            """, [.integer(id)])
+            try self.db.run("DELETE FROM album WHERE id = ?;", [.integer(id)])
         }
     }
 
@@ -2750,18 +3258,22 @@ public final class CatalogStore {
         }
     }
 
+    // MARK: - Keywords
+
+    /// Keyword photographs. `name` is what the photographer typed: a plain keyword, or
+    /// a path from the root in `KeywordPath`'s spelling ("Places > Iceland").
+    ///
+    /// A plain name that already exists ANYWHERE in the hierarchy is that keyword — a
+    /// root one first — so typing "Iceland" after building "Places > Iceland" tags the
+    /// one keyword rather than growing a second, and a sidecar's flat `dc:subject`
+    /// lands back on the keyword it came from. A plain name that is a synonym tags the
+    /// keyword it is a synonym of. Only an unknown name creates a root keyword.
     @discardableResult
     public func addKeyword(_ name: String, photoIDs: [Int64]) throws -> Int64 {
-        try db.transaction {
-            var keywordID = try self.db.scalarInt(
-                "SELECT id FROM keyword WHERE name = ? LIMIT 1;", [.text(name)])
-            if keywordID == nil {
-                try self.db.run("INSERT INTO keyword (name) VALUES (?);", [.text(name)])
-                keywordID = self.db.lastInsertRowID
-            }
-            guard let id = keywordID else {
-                throw CatalogError.notFound("keyword \(name) after insert")
-            }
+        let path = KeywordPath.parse(name)
+        guard !path.isEmpty else { throw CatalogError.invalid("an empty keyword") }
+        return try db.transaction {
+            let id = try self.resolveKeyword(path, create: true)!
             let statement = try self.db.prepare(
                 "INSERT OR IGNORE INTO photo_keyword (photo_id, keyword_id) VALUES (?, ?);")
             for photoID in photoIDs {
@@ -2776,11 +3288,71 @@ public final class CatalogStore {
         }
     }
 
+    /// The keyword a typed path names, creating the missing tail when asked.
+    private func resolveKeyword(_ path: [String], create: Bool) throws -> Int64? {
+        if path.count == 1 {
+            let name = path[0]
+            if let id = try db.scalarInt("""
+            SELECT id FROM keyword WHERE name = ?
+             ORDER BY parent_id IS NOT NULL, id LIMIT 1;
+            """, [.text(name)]) { return id }
+            if let id = try db.scalarInt("""
+            SELECT keyword_id FROM keyword_synonym WHERE synonym = ?
+             ORDER BY keyword_id LIMIT 1;
+            """, [.text(name)]) { return id }
+            guard create else { return nil }
+            try db.run("INSERT INTO keyword (name) VALUES (?);", [.text(name)])
+            return db.lastInsertRowID
+        }
+        var parent: Int64? = nil
+        for component in path {
+            let found: Int64?
+            if let parent {
+                found = try db.scalarInt(
+                    "SELECT id FROM keyword WHERE parent_id = ? AND name = ?;",
+                    [.integer(parent), .text(component)])
+            } else {
+                found = try db.scalarInt(
+                    "SELECT id FROM keyword WHERE parent_id IS NULL AND name = ?;",
+                    [.text(component)])
+            }
+            if let found { parent = found; continue }
+            guard create else { return nil }
+            try db.run("INSERT INTO keyword (parent_id, name) VALUES (?, ?);",
+                       [.optionalInteger(parent), .text(component)])
+            parent = db.lastInsertRowID
+        }
+        return parent
+    }
+
+    /// A keyword's own name, without its ancestors — what a sidecar's flat
+    /// `dc:subject` carries for it.
+    public func keywordName(id: Int64) throws -> String? {
+        try db.scalarText("SELECT name FROM keyword WHERE id = ?;", [.integer(id)])
+    }
+
+    /// The display path of one keyword, root first ("Places > Iceland").
+    private func keywordPath(id: Int64) throws -> String {
+        let names = try allRows("""
+        WITH RECURSIVE up(id, name, parent_id, depth) AS (
+          SELECT id, name, parent_id, 0 FROM keyword WHERE id = ?
+          UNION ALL
+          SELECT k.id, k.name, k.parent_id, up.depth + 1
+            FROM keyword k JOIN up ON k.id = up.parent_id
+           WHERE up.depth < 64
+        )
+        SELECT name FROM up ORDER BY depth DESC;
+        """, [.integer(id)]) { $0.string(0) ?? "" }
+        return KeywordPath.display(names)
+    }
+
+    /// The keywords on one photo, each as its display path — a root keyword is its bare
+    /// name, a nested one reads "Places > Iceland". The sidebar shows these and hands
+    /// them back to `removeKeyword`, which resolves the same spelling exactly.
     public func keywords(photoID: Int64) throws -> [String] {
-        try allRows("SELECT k.name FROM photo_keyword pk "
-                    + "JOIN keyword k ON k.id = pk.keyword_id "
-                    + "WHERE pk.photo_id = ? ORDER BY k.name;",
-                    [.integer(photoID)], { $0.string(0) ?? "" })
+        let ids = try allRows("SELECT keyword_id FROM photo_keyword WHERE photo_id = ?;",
+                              [.integer(photoID)]) { $0.int(0) }
+        return try ids.map { try keywordPath(id: $0) }.sorted()
     }
 
     /// Every keyword in the catalog with how many photos carry it.
@@ -2791,37 +3363,144 @@ public final class CatalogStore {
     /// used to show these numbers next to a chip that queries one folder, and they were
     /// out by two orders of magnitude on any catalog with more than one shoot in it.
     /// The bar's keyword counts come from `facetCounts(for:)` now; this is the
-    /// vocabulary only.
+    /// vocabulary only. Values are display paths; the count is the keyword's own
+    /// photographs, not its children's.
     public func allKeywords() throws -> [FacetValue] {
+        // One statement for the whole vocabulary, paths built root-down, rather than a
+        // walk up from every keyword: this runs on every folder open.
         try allRows("""
-        SELECT k.name, COUNT(pk.photo_id) FROM keyword k
-          LEFT JOIN photo_keyword pk ON pk.keyword_id = k.id
-         GROUP BY k.id ORDER BY k.name;
+        WITH RECURSIVE path(id, display) AS (
+          SELECT id, name FROM keyword WHERE parent_id IS NULL
+          UNION ALL
+          SELECT k.id, path.display || ' \(KeywordPath.separator) ' || k.name
+            FROM keyword k JOIN path ON k.parent_id = path.id
+        )
+        SELECT path.display,
+               (SELECT COUNT(*) FROM photo_keyword pk WHERE pk.keyword_id = path.id)
+          FROM path ORDER BY path.display;
         """, []) { FacetValue(value: $0.string(0) ?? "", count: Int($0.int(1))) }
     }
 
     /// Detaches a keyword from photos without deleting the keyword itself: a shoot
     /// vocabulary is worth keeping even when the last photo using a term is untagged.
+    ///
+    /// `name` is a display path as `keywords(photoID:)` gives it, or a plain name. A
+    /// plain name detaches every keyword of that name from these photos — the one the
+    /// photographer sees is the one on the photo, whatever branch it sits on.
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         if photoIDs.isEmpty { return }
+        let path = KeywordPath.parse(name)
+        guard !path.isEmpty else { return }
         try db.transaction {
-            guard let keywordID = try self.db.scalarInt(
-                "SELECT id FROM keyword WHERE name = ? LIMIT 1;", [.text(name)])
-            else { return }
+            var ids: [Int64] = []
+            if path.count == 1 {
+                ids = try self.allRows("SELECT id FROM keyword WHERE name = ?;",
+                                       [.text(path[0])]) { $0.int(0) }
+            } else if let id = try self.resolveKeyword(path, create: false) {
+                ids = [id]
+            }
+            guard !ids.isEmpty else { return }
             let statement = try self.db.prepare(
                 "DELETE FROM photo_keyword WHERE photo_id = ? AND keyword_id = ?;")
             for photoID in photoIDs {
-                statement.reset()
-                try statement.bind(1, photoID)
-                try statement.bind(2, keywordID)
-                try statement.run()
+                for keywordID in ids {
+                    statement.reset()
+                    try statement.bind(1, photoID)
+                    try statement.bind(2, keywordID)
+                    try statement.run()
+                }
             }
             statement.reset()
             for photoID in photoIDs { self.reindexText(photoID: photoID) }
         }
     }
 
+    // MARK: Synonyms
+
+    /// Another word for a keyword (migration 4). Searching for it finds the keyword's
+    /// photographs, the keyword chip matches it, and typing it as a keyword tags the
+    /// keyword itself rather than minting a near-duplicate — Lightroom's synonyms.
+    /// Returns false for a blank synonym, for one that is the keyword's own name, and
+    /// for a keyword that does not exist.
+    @discardableResult
+    public func addSynonym(_ synonym: String, toKeyword keyword: String) throws -> Bool {
+        let word = synonym.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { return false }
+        return try db.transaction {
+            guard let id = try self.resolveKeyword(KeywordPath.parse(keyword), create: false),
+                  try self.db.scalarText("SELECT name FROM keyword WHERE id = ?;",
+                                         [.integer(id)]) != word else { return false }
+            try self.db.run("""
+            INSERT OR IGNORE INTO keyword_synonym (keyword_id, synonym) VALUES (?, ?);
+            """, [.integer(id), .text(word)])
+            try self.reindexPhotos(underKeyword: id)
+            return true
+        }
+    }
+
+    public func removeSynonym(_ synonym: String, fromKeyword keyword: String) throws {
+        try db.transaction {
+            guard let id = try self.resolveKeyword(KeywordPath.parse(keyword),
+                                                   create: false) else { return }
+            try self.db.run("DELETE FROM keyword_synonym WHERE keyword_id = ? AND synonym = ?;",
+                            [.integer(id), .text(synonym)])
+            try self.reindexPhotos(underKeyword: id)
+        }
+    }
+
+    public func synonyms(ofKeyword keyword: String) throws -> [String] {
+        guard let id = try resolveKeyword(KeywordPath.parse(keyword), create: false) else {
+            return []
+        }
+        return try allRows("SELECT synonym FROM keyword_synonym WHERE keyword_id = ? "
+                           + "ORDER BY synonym;", [.integer(id)]) { $0.string(0) ?? "" }
+    }
+
+    /// Re-index every photograph tagged with this keyword or anything below it: their
+    /// searchable text carries the keyword's synonyms and ancestors.
+    private func reindexPhotos(underKeyword id: Int64) throws {
+        let photos = try allRows("""
+        WITH RECURSIVE down(id) AS (
+          SELECT ? UNION SELECT k.id FROM keyword k JOIN down ON k.parent_id = down.id
+        )
+        SELECT DISTINCT pk.photo_id FROM photo_keyword pk JOIN down ON pk.keyword_id = down.id;
+        """, [.integer(id)]) { $0.int(0) }
+        for photo in photos { reindexText(photoID: photo) }
+    }
+
     // MARK: - Stacks
+
+    /// Stack the bursts in one folder by capture time (`BurstGrouping`), as
+    /// `burst-auto` stacks with the first frame as the pick. Returns the stacks made.
+    ///
+    /// ONLY FRAMES IN NO STACK ARE CONSIDERED, so running it again is a no-op, a
+    /// manual stack is never touched (docs/15 §15.3: "re-running burst analysis never
+    /// clobbers a manual stack"), and an auto stack the photographer has re-picked or
+    /// trimmed keeps what they did. Offline frames are left out: a stack whose pick
+    /// cannot be opened hides its siblings behind a cell that does not work.
+    @discardableResult
+    public func stackBursts(folderID: Int64,
+                            maxGap: Double = BurstGrouping.defaultMaxGapSeconds) throws -> [Int64] {
+        try db.transaction {
+            let frames = try self.allRows("""
+            SELECT photo.id, photo.capture_at, photo.capture_subsec,
+                   COALESCE(photo.camera_serial, photo.camera)
+              FROM photo
+             WHERE photo.folder_id = ? AND photo.missing = 0
+               AND photo.capture_at IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM stack_member sm WHERE sm.photo_id = photo.id);
+            """, [.integer(folderID)]) { s in
+                BurstFrame(id: s.int(0), captureAt: s.int(1),
+                           captureSubsec: s.isNull(2) ? nil : Int(s.int(2)),
+                           body: s.string(3))
+            }
+            var made: [Int64] = []
+            for group in BurstGrouping.groups(frames, maxGap: maxGap) {
+                made.append(try self.createStack(origin: "burst-auto", photoIDs: group))
+            }
+            return made
+        }
+    }
 
     /// The stack one photo belongs to, if any. `stack_member.photo_id` is UNIQUE, so
     /// this is a single index lookup and a photo is in at most one stack.
@@ -3040,7 +3719,7 @@ public final class CatalogStore {
         JOIN photo_keyword pk ON pk.keyword_id = k.id
         JOIN photo ON photo.id = pk.photo_id
         \(scope)
-        GROUP BY k.id
+        GROUP BY k.name
         ORDER BY COUNT(DISTINCT photo.id) DESC, k.name
         LIMIT ?;
         """, parameters) { $0.string(0) ?? "" }
@@ -3155,6 +3834,23 @@ public final class CatalogStore {
 
     public func previewCacheBytes() throws -> Int64 {
         (try db.scalarInt("SELECT COALESCE(SUM(bytes), 0) FROM cache.preview;")) ?? 0
+    }
+
+    /// Conditional removal: an obsolete plan must never remove the newer payload
+    /// that has since taken the same (photo, rung, recipe) key.
+    public func discardPreviews(_ candidates: [PreviewRow]) throws -> [PreviewRow] {
+        try db.transaction {
+            var removed: [PreviewRow] = []
+            for candidate in candidates {
+                guard let current = try self.preview(photoID: candidate.photoID,
+                    level: candidate.level, recipeFP: candidate.recipeFP),
+                    current.path == candidate.path else { continue }
+                try self.db.run("DELETE FROM cache.preview WHERE photo_id = ? AND level = ? AND recipe_fp = ? AND path = ?;",
+                    [.integer(candidate.photoID), .int(candidate.level.rawValue), .text(candidate.recipeFP), .text(candidate.path)])
+                removed.append(current)
+            }
+            return removed
+        }
     }
 
     /// LRU eviction to a byte budget. Order is 1:1 -> fit -> grid, least-recently-viewed
@@ -3403,34 +4099,209 @@ public final class CatalogStore {
               .int(Swift.max(0, limit))]) { $0.int(0) }
     }
 
+    // MARK: - Culling evidence (`cache.frame_score`, `cache.face`)
+
+    /// Write one frame's measurement. Upserts the measured columns only: the burst
+    /// grouping is a property of the FOLDER, written by `replaceBursts` after a pass, and
+    /// junk/aesthetic belong to detectors that are not this one — re-measuring one frame
+    /// must not ungroup it or erase another detector's evidence.
+    public func recordFrameScore(_ row: FrameScoreRow,
+                                 at now: Int64 = CatalogStore.now()) throws {
+        try db.run("""
+        INSERT INTO cache.frame_score
+          (photo_id, sharpness, noise, phash, analysed_edge, analyzer_rev, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(photo_id) DO UPDATE SET
+          sharpness     = excluded.sharpness,
+          noise         = excluded.noise,
+          phash         = excluded.phash,
+          analysed_edge = excluded.analysed_edge,
+          analyzer_rev  = excluded.analyzer_rev,
+          computed_at   = excluded.computed_at;
+        """, [.integer(row.photoID), .optionalReal(row.sharpness), .optionalReal(row.noise),
+              .optionalInteger(row.perceptualHash.map { Int64(bitPattern: $0) }),
+              .optionalInt(row.analysedLongEdge), .int(row.analyzerRevision),
+              .integer(now)])
+    }
+
+    private static let frameScoreColumns = """
+    fs.photo_id, fs.sharpness, fs.noise, fs.phash, fs.analysed_edge, fs.burst_id, \
+    fs.burst_rank, fs.analyzer_rev, fs.computed_at
+    """
+
+    private static func decodeFrameScore(_ s: SQLiteStatement) -> FrameScoreRow {
+        FrameScoreRow(photoID: s.int(0), sharpness: s.optionalDouble(1),
+                      noise: s.optionalDouble(2),
+                      perceptualHash: s.optionalInt(3).map { UInt64(bitPattern: $0) },
+                      analysedLongEdge: s.optionalIntValue(4), burstID: s.optionalInt(5),
+                      burstRank: s.optionalIntValue(6), analyzerRevision: Int(s.int(7)),
+                      computedAt: s.int(8))
+    }
+
+    public func frameScore(photoID: Int64) throws -> FrameScoreRow? {
+        try firstRow("SELECT \(CatalogStore.frameScoreColumns) FROM cache.frame_score AS fs "
+                     + "WHERE fs.photo_id = ?;", [.integer(photoID)],
+                     CatalogStore.decodeFrameScore)
+    }
+
+    /// Every scored frame in a folder, for the grid's badge map. One query per pass
+    /// batch, never one per cell and never on the keystroke path.
+    public func frameScores(folderID: Int64) throws -> [FrameScoreRow] {
+        try allRows("""
+        SELECT \(CatalogStore.frameScoreColumns) FROM cache.frame_score AS fs
+        JOIN photo ON photo.id = fs.photo_id
+        WHERE photo.folder_id = ?
+        ORDER BY fs.photo_id;
+        """, [.integer(folderID)], CatalogStore.decodeFrameScore)
+    }
+
+    /// The culling pass's queue: frames in a folder with no row at this revision, oldest
+    /// id first. A row at another revision counts as missing, so bumping
+    /// `SharpnessScorer.analyzerRevision` is a recompute, not a permanent stale answer.
+    public func photosMissingFrameScore(folderID: Int64,
+                                        revision: Int = SharpnessScorer.analyzerRevision,
+                                        afterID: Int64 = 0,
+                                        limit: Int = 200) throws -> [Int64] {
+        try allRows("""
+        SELECT photo.id FROM photo
+        LEFT JOIN cache.frame_score AS fs
+               ON fs.photo_id = photo.id AND fs.analyzer_rev = ?
+        WHERE photo.folder_id = ? AND photo.id > ? AND photo.missing = 0
+          AND fs.photo_id IS NULL
+        ORDER BY photo.id
+        LIMIT ?;
+        """, [.int(revision), .integer(folderID), .integer(afterID),
+              .int(Swift.max(0, limit))]) { $0.int(0) }
+    }
+
+    /// What the burst grouper needs for every present frame of a folder. Frames the pass
+    /// has not hashed come back with a nil hash and are left ungrouped.
+    public func burstCandidates(folderID: Int64) throws -> [BurstCandidate] {
+        try allRows("""
+        SELECT photo.id, photo.capture_at, photo.capture_subsec,
+               COALESCE(photo.camera_serial, photo.camera), fs.phash, fs.sharpness
+        FROM photo
+        LEFT JOIN cache.frame_score AS fs ON fs.photo_id = photo.id
+        WHERE photo.folder_id = ? AND photo.missing = 0
+        ORDER BY photo.id;
+        """, [.integer(folderID)]) { s in
+            let seconds = s.optionalInt(1)
+            let micro = s.optionalInt(2) ?? 0
+            return BurstCandidate(
+                photoID: s.int(0),
+                captureTime: seconds.map { Double($0) + Double(micro) / 1_000_000 },
+                camera: s.string(3),
+                hash: s.optionalInt(4).map { UInt64(bitPattern: $0) },
+                sharpness: s.optionalDouble(5))
+        }
+    }
+
+    /// Replace a folder's burst grouping with `groups`, in one transaction. Grouping is
+    /// recomputed whole: a frame that left a burst (a re-shoot, a deleted neighbour) must
+    /// lose its id, which an additive write would never do.
+    ///
+    /// Writes `cache.frame_score` only. Stacks are the photographer's (`stack` in
+    /// lumen.db); turning a burst into a stack is their keystroke.
+    public func replaceBursts(_ groups: [BurstGroup], folderID: Int64) throws {
+        try db.transaction {
+            try self.db.run("""
+            UPDATE cache.frame_score SET burst_id = NULL, burst_rank = NULL
+            WHERE burst_id IS NOT NULL
+              AND photo_id IN (SELECT id FROM main.photo WHERE folder_id = ?);
+            """, [.integer(folderID)])
+            for group in groups {
+                for (rank, photoID) in group.ranked.enumerated() {
+                    try self.db.run("""
+                    UPDATE cache.frame_score SET burst_id = ?, burst_rank = ?
+                    WHERE photo_id = ?;
+                    """, [.integer(group.id), .int(rank + 1), .integer(photoID)])
+                }
+            }
+        }
+    }
+
+    /// Replace one frame's face evidence.
+    public func recordFaces(_ faces: [FaceEvidenceRow], photoID: Int64,
+                            revision: Int = SharpnessScorer.analyzerRevision) throws {
+        try db.transaction {
+            try self.db.run("DELETE FROM cache.face WHERE photo_id = ?;", [.integer(photoID)])
+            for face in faces {
+                try self.db.run("""
+                INSERT INTO cache.face
+                  (photo_id, rect_x, rect_y, rect_w, rect_h, eyes_open, capture_quality,
+                   focus, analyzer_rev)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, [.integer(photoID), .real(face.rect.x), .real(face.rect.y),
+                      .real(face.rect.width), .real(face.rect.height),
+                      .optionalReal(face.eyesOpen), .optionalReal(face.captureQuality),
+                      .optionalReal(face.focus), .int(revision)])
+            }
+        }
+    }
+
+    public func faces(photoID: Int64) throws -> [FaceEvidenceRow] {
+        try allRows("""
+        SELECT rect_x, rect_y, rect_w, rect_h, eyes_open, focus, capture_quality
+        FROM cache.face WHERE photo_id = ? ORDER BY id;
+        """, [.integer(photoID)]) { s in
+            FaceEvidenceRow(rect: NormalizedRect(x: s.double(0), y: s.double(1),
+                                                 width: s.double(2), height: s.double(3)),
+                            eyesOpen: s.optionalDouble(4), focus: s.optionalDouble(5),
+                            captureQuality: s.optionalDouble(6))
+        }
+    }
+
     // MARK: - Filter / sort query builder
 
     /// Builds and runs the grid query. Every value is a bound parameter; the only
     /// interpolated fragments are compile-time constants chosen by an enum.
     public func photos(matching query: PhotoQuery,
                        folderID: Int64? = nil) throws -> [PhotoRow] {
-        let built = buildPhotoQuery(query, folderID: folderID, countOnly: false)
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows(built.sql, built.parameters, CatalogStore.decodePhoto)
+    }
+
+    /// The grid's ORDER — each row's id and ISO, nothing else — for the query
+    /// `photos(matching:)` runs, in exactly its order.
+    ///
+    /// `AppState.refreshLibraryQuery` re-runs the grid query on every chip, every sort
+    /// change and every cull decision under a filter or a rating sort, and keeps two
+    /// fields of each row: the id (to order the roll) and the ISO (to backfill the
+    /// develop panel). Asking for all 31 columns made SQLite's sorter carry every one
+    /// of them through the ORDER BY and made Swift build a `PhotoRow` with five strings
+    /// per frame. Same WHERE, same ORDER BY with its `photo.id` tiebreak, so the order
+    /// is the same total order; `CatalogQueryCostTests` compares the two over every
+    /// sort key.
+    public func photoOrder(matching query: PhotoQuery,
+                           folderID: Int64? = nil) throws -> [PhotoOrderRow] {
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .order)
+        return try allRows(built.sql, built.parameters) {
+            PhotoOrderRow(id: $0.int(0), iso: $0.optionalIntValue(1))
+        }
     }
 
     /// Live chip counts ride the same predicates and the same indexes.
     public func countPhotos(matching query: PhotoQuery,
                             folderID: Int64? = nil) throws -> Int {
-        let built = buildPhotoQuery(query, folderID: folderID, countOnly: true)
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .count)
         return Int((try db.scalarInt(built.sql, built.parameters)) ?? 0)
     }
 
     /// The `EXPLAIN QUERY PLAN` rows for a query — the CI assertion surface that keeps
     /// every UI-visible query index-backed (§15.2).
     public func queryPlan(for query: PhotoQuery, folderID: Int64? = nil) throws -> [String] {
-        let built = buildPhotoQuery(query, folderID: folderID, countOnly: false)
+        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows("EXPLAIN QUERY PLAN " + built.sql, built.parameters) {
             $0.string(3) ?? ""
         }
     }
 
+    /// What a grid statement selects. The predicates and the order are the same for
+    /// all three; only the projection differs.
+    private enum PhotoProjection { case rows, order, count }
+
     private func buildPhotoQuery(_ query: PhotoQuery, folderID: Int64?,
-                                 countOnly: Bool)
+                                 projection: PhotoProjection)
         -> (sql: String, parameters: [SQLiteValue]) {
 
         var parameters: [SQLiteValue] = []
@@ -3529,12 +4400,26 @@ public final class CatalogStore {
             parameters.append(.integer(range.upperBound))
         }
         if !query.keywords.isEmpty {
+            // A chip names a keyword by its leaf. It matches that keyword, any keyword
+            // it is a synonym of, and everything filed below either — "Iceland" finds
+            // the frames tagged "Reykjavik" under it, which is the point of filing it
+            // there. Uncorrelated, so SQLite evaluates the closure once per query, and a
+            // membership test against one list rather than an EXISTS per row (P16 measured
+            // the per-row form at 27–41 ms per count on a 20k roll against 11–16 ms).
+            let leaves = query.keywords.map { KeywordPath.leaf($0) }
+            let marks = CatalogStore.placeholders(leaves.count)
             criteria.append("""
-            EXISTS (SELECT 1 FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
-                     WHERE pk.photo_id = photo.id
-                       AND k.name IN (\(CatalogStore.placeholders(query.keywords.count))))
+            photo.id IN (SELECT pk.photo_id FROM photo_keyword pk
+                     WHERE pk.keyword_id IN (
+                       WITH RECURSIVE chosen(id) AS (
+                         SELECT id FROM keyword WHERE name IN (\(marks))
+                         UNION SELECT keyword_id FROM keyword_synonym WHERE synonym IN (\(marks))
+                         UNION SELECT k.id FROM keyword k JOIN chosen ON k.parent_id = chosen.id
+                       )
+                       SELECT id FROM chosen))
             """)
-            for keyword in query.keywords { parameters.append(.text(keyword)) }
+            for keyword in leaves { parameters.append(.text(keyword)) }
+            for keyword in leaves { parameters.append(.text(keyword)) }
         }
 
         switch query.stackState {
@@ -3579,6 +4464,16 @@ public final class CatalogStore {
                             + "AND fa.eyes_open < ?)")
             parameters.append(.real(query.closedEyesThreshold))
         }
+        switch query.burstState {
+        case .any:
+            break
+        case .inBurst:
+            criteria.append("EXISTS (SELECT 1 FROM cache.frame_score f "
+                            + "WHERE f.photo_id = photo.id AND f.burst_id IS NOT NULL)")
+        case .notInBurst:
+            criteria.append("NOT EXISTS (SELECT 1 FROM cache.frame_score f "
+                            + "WHERE f.photo_id = photo.id AND f.burst_id IS NOT NULL)")
+        }
         if query.cameraPreviewOnly {
             criteria.append("""
             (EXISTS (SELECT 1 FROM cache.preview p
@@ -3600,11 +4495,20 @@ public final class CatalogStore {
                 (photo.filename LIKE ? OR photo.ext LIKE ? OR photo.camera LIKE ?
                  OR photo.lens LIKE ? OR photo.job LIKE ?
                  OR EXISTS (SELECT 1 FROM photo_keyword pk
-                              JOIN keyword k ON k.id = pk.keyword_id
-                             WHERE pk.photo_id = photo.id AND k.name LIKE ?))
+                             WHERE pk.photo_id = photo.id AND pk.keyword_id IN (
+                               WITH RECURSIVE hit(id) AS (
+                                 SELECT id FROM keyword WHERE name LIKE ?
+                                 UNION SELECT keyword_id FROM keyword_synonym
+                                        WHERE synonym LIKE ?
+                                 UNION SELECT k.id FROM keyword k
+                                         JOIN hit ON k.parent_id = hit.id
+                               )
+                               SELECT id FROM hit)))
                 """)
                 let pattern = "%" + text + "%"
-                for _ in 0..<6 { parameters.append(.text(pattern)) }
+                // Five columns, then a keyword's name and its synonyms — the same
+                // words, ancestors included, that the FTS row indexes.
+                for _ in 0..<7 { parameters.append(.text(pattern)) }
             }
         }
 
@@ -3618,9 +4522,13 @@ public final class CatalogStore {
             }
         }
 
-        var sql = countOnly
-            ? "SELECT COUNT(*) FROM photo"
-            : "SELECT \(CatalogStore.photoColumns) FROM photo"
+        let countOnly = projection == .count
+        var sql: String
+        switch projection {
+        case .rows: sql = "SELECT \(CatalogStore.photoColumns) FROM photo"
+        case .order: sql = "SELECT photo.id, photo.iso FROM photo"
+        case .count: sql = "SELECT COUNT(*) FROM photo"
+        }
         for join in joins { sql += "\n" + join }
         if !clauses.isEmpty { sql += "\nWHERE " + clauses.joined(separator: " AND ") }
 
@@ -3748,15 +4656,38 @@ public final class CatalogStore {
         try db.transaction {
             _ = try self.db.run("DELETE FROM cache.photo_fts;")
             _ = try self.db.run("""
+            WITH RECURSIVE \(CatalogStore.keywordTermsCTE(onePhoto: false))
             INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
             SELECT p.id, p.filename, COALESCE(p.ext, ''),
                    COALESCE(p.camera, ''), COALESCE(p.lens, ''), COALESCE(p.job, ''),
-                   COALESCE((SELECT group_concat(k.name, ' ')
-                               FROM photo_keyword pk JOIN keyword k ON k.id = pk.keyword_id
-                              WHERE pk.photo_id = p.id), '')
+                   COALESCE((SELECT group_concat(term, ' ') FROM terms t
+                              WHERE t.photo_id = p.id), '')
               FROM main.photo p;
             """)
         }
+    }
+
+    /// The searchable keyword words of a photograph: each keyword's own name, every
+    /// ancestor's name and every synonym of either. One spelling for the per-photo
+    /// re-index and the wholesale rebuild, so the two cannot index different words.
+    /// `onePhoto` binds the photo id as the statement's first parameter.
+    private static func keywordTermsCTE(onePhoto: Bool) -> String {
+        """
+        up(photo_id, id, name, parent_id, depth) AS (
+          SELECT pk.photo_id, k.id, k.name, k.parent_id, 0
+            FROM main.photo_keyword pk JOIN main.keyword k ON k.id = pk.keyword_id
+          \(onePhoto ? "WHERE pk.photo_id = ?" : "")
+          UNION
+          SELECT up.photo_id, k.id, k.name, k.parent_id, up.depth + 1
+            FROM main.keyword k JOIN up ON k.id = up.parent_id
+           WHERE up.depth < 64
+        ),
+        terms(photo_id, term) AS (
+          SELECT photo_id, name FROM up
+          UNION
+          SELECT up.photo_id, s.synonym FROM main.keyword_synonym s JOIN up ON s.keyword_id = up.id
+        )
+        """
     }
 
     /// NEVER THROWS. The text index is DERIVED DATA — every row in it is recomputable
@@ -3782,7 +4713,10 @@ public final class CatalogStore {
                      statement.string(2) ?? "", statement.string(3) ?? "",
                      statement.string(4) ?? "")
                 }) else { return }
-            let keywordList = try keywords(photoID: photoID).joined(separator: " ")
+            let keywordList = try db.scalarText("""
+            WITH RECURSIVE \(CatalogStore.keywordTermsCTE(onePhoto: true))
+            SELECT COALESCE(group_concat(term, ' '), '') FROM terms;
+            """, [.integer(photoID)]) ?? ""
             try db.run("DELETE FROM cache.photo_fts WHERE rowid = ?;", [.integer(photoID)])
             try db.run("""
             INSERT INTO cache.photo_fts (rowid, filename, ext, camera, lens, job, keywords)
@@ -3994,7 +4928,7 @@ public final class CatalogStore {
 
 public final class CatalogStore {
 
-    public static let latestSchemaVersion: Int = 3
+    public static let latestSchemaVersion: Int = 4
     public static let migrations: [CatalogMigration] = []
     public static let cacheMigrations: [CatalogMigration] = []
 
@@ -4103,7 +5037,8 @@ public final class CatalogStore {
 
     @discardableResult
     public func scan(folderID: Int64, files: [ScannedFile],
-                     at now: Int64 = 0) throws -> ScanResult {
+                     at now: Int64 = 0, completeListing: Bool = true,
+                     signature: ((ScannedFile) -> String?)? = nil) throws -> ScanResult {
         throw CatalogError.unavailable
     }
 
@@ -4131,6 +5066,10 @@ public final class CatalogStore {
     }
     public func edits(photoID: Int64) throws -> [EditRow] { throw CatalogError.unavailable }
     public func currentRecipeFingerprint(photoID: Int64) throws -> String {
+        throw CatalogError.unavailable
+    }
+    public func currentPreviewFingerprint(photoID: Int64,
+                                          library: CreativeLUTLibrary = .shared) throws -> String {
         throw CatalogError.unavailable
     }
     public func makeCurrent(editID: Int64) throws { throw CatalogError.unavailable }
@@ -4225,6 +5164,14 @@ public final class CatalogStore {
     public func addToCollection(_ albumID: Int64, photoIDs: [Int64]) throws {
         throw CatalogError.unavailable
     }
+    @discardableResult
+    public func renameCollection(id: Int64, to name: String) throws -> Bool {
+        throw CatalogError.unavailable
+    }
+    public func deleteCollection(id: Int64) throws { throw CatalogError.unavailable }
+    public func updateCollectionQuery(id: Int64, query: String) throws {
+        throw CatalogError.unavailable
+    }
     public func removeFromCollection(_ albumID: Int64, photoIDs: [Int64]) throws {
         throw CatalogError.unavailable
     }
@@ -4242,6 +5189,17 @@ public final class CatalogStore {
     }
     public func keywords(photoID: Int64) throws -> [String] { throw CatalogError.unavailable }
     public func allKeywords() throws -> [FacetValue] { throw CatalogError.unavailable }
+    public func keywordName(id: Int64) throws -> String? { throw CatalogError.unavailable }
+    @discardableResult
+    public func addSynonym(_ synonym: String, toKeyword keyword: String) throws -> Bool {
+        throw CatalogError.unavailable
+    }
+    public func removeSynonym(_ synonym: String, fromKeyword keyword: String) throws {
+        throw CatalogError.unavailable
+    }
+    public func synonyms(ofKeyword keyword: String) throws -> [String] {
+        throw CatalogError.unavailable
+    }
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         throw CatalogError.unavailable
     }
@@ -4255,6 +5213,11 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func dissolveStack(id: Int64) throws { throw CatalogError.unavailable }
+    @discardableResult
+    public func stackBursts(folderID: Int64,
+                            maxGap: Double = BurstGrouping.defaultMaxGapSeconds) throws -> [Int64] {
+        throw CatalogError.unavailable
+    }
     public func facetCounts(_ facet: PhotoFacet, folderID: Int64? = nil,
                             limit: Int = 200) throws -> [FacetValue] {
         throw CatalogError.unavailable
@@ -4293,6 +5256,9 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
     public func previewCacheBytes() throws -> Int64 { throw CatalogError.unavailable }
+    public func discardPreviews(_ candidates: [PreviewRow]) throws -> [PreviewRow] {
+        throw CatalogError.unavailable
+    }
     @discardableResult
     public func pruneCache(maxBytes: Int64) throws -> [PreviewRow] {
         throw CatalogError.unavailable
@@ -4323,6 +5289,10 @@ public final class CatalogStore {
 
     public func photos(matching query: PhotoQuery,
                        folderID: Int64? = nil) throws -> [PhotoRow] {
+        throw CatalogError.unavailable
+    }
+    public func photoOrder(matching query: PhotoQuery,
+                           folderID: Int64? = nil) throws -> [PhotoOrderRow] {
         throw CatalogError.unavailable
     }
     public func countPhotos(matching query: PhotoQuery,

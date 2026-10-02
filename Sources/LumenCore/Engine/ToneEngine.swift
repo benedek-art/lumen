@@ -76,15 +76,27 @@ public struct ToneEngine: Sendable {
     /// Saturating at half the anchor puts full strength at −4.5 EV instead.
     public static let shadowShelfEnd: Double = 0.5
 
-    /// Where the Whites and Blacks shelves run, as a fraction of the anchor. They start
-    /// above where Highlights and Shadows have already saturated, so the two controls
-    /// act on different parts of the range instead of fighting for the same one.
+    /// Where the Whites shelf runs, as a fraction of the white anchor: +1 … +4 EV on the
+    /// default anchors.
+    ///
+    /// IT OVERLAPS HIGHLIGHTS, and this sentence used to say it did not ("they start
+    /// above where Highlights and Shadows have already saturated", W2/A1-05). Highlights'
+    /// shelf rises over 0 … +5 EV (`highlightShelfEnd`), so Whites' whole travel lies
+    /// inside it: at Whites' first stop Highlights is at 0.10, at Whites' last (+4 EV) it
+    /// is at 0.90 and still at its steepest. The two are still different controls —
+    /// Whites peaks higher and also moves the white anchor — but they share the top of
+    /// the range, which is why Highlights −60 then Whites +60 partly cancel.
+    /// `EngineTests.testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays` holds these
+    /// numbers; moving `endShelfStart` up to where Highlights has saturated is the other
+    /// way to make the old sentence true, and it costs Whites authority (DECISION, P12).
     public static let endShelfStart: Double = 0.20
     public static let endShelfEnd: Double = 0.80
 
-    /// Blacks' shelf, as a fraction of |black anchor|. Deeper than Shadows' and wider,
-    /// so the two controls act on different tones and their slopes do not peak
-    /// together — Shadows' steepest point is around −2.2 EV, Blacks' around −5.9.
+    /// Blacks' shelf, as a fraction of |black anchor|: −1.35 … −5.58 EV on the default
+    /// anchors. Deeper than Shadows' and wider, so the two slopes do not peak together —
+    /// Shadows' steepest point is at −2.25 EV, Blacks' at −3.47 EV (each shelf's
+    /// midpoint), 1.2 stops apart. This said −5.9 for Blacks, a number for some earlier
+    /// pair of constants, which overstated the separation threefold.
     public static let blackShelfStart: Double = 0.15
     public static let blackShelfEnd: Double = 0.62
 
@@ -442,7 +454,8 @@ public struct ToneEngine: Sendable {
         return Num.smoothstep(0, hi * Self.highlightShelfEnd, t)
     }
 
-    /// Whites: a shelf in the top of the range, above where Highlights has saturated.
+    /// Whites: a shelf in the top of the range, inside Highlights' rising ramp rather
+    /// than above it — see `endShelfStart` for the overlap, measured.
     ///
     /// Whites used to move the white ANCHOR and nothing else. Measured on a -9…+5 EV
     /// grey ramp, full travel was worth 26.7 code values up and 12.3 down — and Blacks,
@@ -476,27 +489,133 @@ public struct ToneEngine: Sendable {
         return Num.smoothstep(-lo * Self.blackShelfStart, -lo * Self.blackShelfEnd, -t)
     }
 
-    /// Where the slope starts and finishes relaxing back to 1, in stops from the
-    /// pivot. The window has to be this wide: relaxing a slope over a narrow band
-    /// makes the mapping itself non-monotone, because the falling gain beats the
-    /// rising distance. Over 4→8 stops the derivative goes negative at contrast ≈ 85,
-    /// which would render a brighter input darker — an inversion, never a look. Over
-    /// 4→12 the derivative stays positive past contrast 128, with margin.
-    public static let contrastRelaxStartEV: Double = 4
-    public static let contrastRelaxEndEV: Double = 12
+    /// No room between the pivot and an anchor means that side of the picture is
+    /// already past the end of the scale, and contrast leaves it alone rather than
+    /// dividing by a reach of zero. Reachable in the shipped ranges: the pivot clamps
+    /// to ±4 and Whites +100 pulls the white anchor down to +3.5.
+    public static let minContrastReachEV: Double = 1e-6
 
-    /// Contrast: slope around an explicit pivot in log-exposure space, with the slope
-    /// relaxing back to 1 far from the pivot so extremes compress rather than explode
-    /// (the toe and shoulder of S14 finish the job).
+    /// How far toward the anchor the full slope holds before the shoulder starts, as a
+    /// fraction of the reach. This is the number that decides whether Contrast still
+    /// FEELS like contrast, so it is set from measurements and not from taste.
+    ///
+    /// WHY IT IS NOT ZERO. The first version of the A1-01 fix started the shoulder at
+    /// the pivot (`smoothstep(0, 1, u)`). That pins the anchor correctly, but it dilutes
+    /// the slope everywhere — including the midtones, where the subject of a photograph
+    /// lives — and the proof priced it: `tone.contrast` authority 81.42 → 54.83, mean
+    /// separation 45.25 → 24.63. 54.83 is BELOW this control's own declared
+    /// `authorityFloor` of 55. The registry rejected the fix, which is what a floor is
+    /// for: a control may not be quietly weakened to make a different bug go away.
+    ///
+    /// So the slope holds undiluted across the inner fraction of the reach and eases
+    /// only over the outer part — the straight section, shoulder and toe a film curve
+    /// has always had. At 0.2 the straight section runs to +1.0 EV of a default +5 EV
+    /// white anchor and to −1.8 EV of a −9 EV black one.
+    ///
+    /// WHY IT IS NOT MORE, and this is the real cost, stated in full because the first
+    /// version of this comment understated a regression and that is how it got shipped.
+    /// A steeper middle with the ends nailed down means a flatter shoulder, and a
+    /// flatter shoulder is slope the four zonal windows can no longer borrow, so
+    /// `solveZonalLimits` scales Highlights, Shadows, Whites and Blacks down further:
+    ///
+    ///     hold   authority   Highlights −100    Shadows +100    four-way
+    ///                        at contrast +100   at contrast −100  corner
+    ///     0.00      54.83         0.9894            0.8439        0.7565
+    ///     0.15      64.88         0.9067            0.6833        0.6841
+    ///     0.20      68.38         0.8460            0.6192        0.6468
+    ///     0.30      74.96         0.6347            0.5937        0.5272
+    ///
+    /// The paired case falls through 0.60 at a hold of about 0.225, so 0.2 is the last
+    /// setting where a single tone control pushed to its end against contrast pushed to
+    /// its end still applies more than 60% of what it asks. Inside the daily-use band
+    /// (five sliders within ±60, the end points within ±40) the limiter takes 0.6% at
+    /// its worst — which is to say, nothing. The generator asserts all three numbers.
+    ///
+    /// That the limiter binds at all is not slack being given away. It solves for the
+    /// LARGEST scale that keeps the composed tone map monotone and `RobustnessTests`
+    /// checks the response stops rising 2% above the solved limit, so a bigger number
+    /// there would be an inverting picture, not a stronger slider.
+    ///
+    /// Monotonicity is what bounds the hold from above. With
+    /// `f(d) = d·mix(slope, 1, S(u))` and `S = smoothstep(hold, 1, u)`, the derivative
+    /// in u is `slope + (1−slope)·[S + u·S′]`, and the bracket's maximum grows with the
+    /// hold: 1.687 at 0.0, 1.983 at 0.2, 2.519 at 0.4. At contrast +100 (slope 1.6) the
+    /// derivative is `1.6 − 0.6·max`, so it reaches zero just past a hold of 0.44 and a
+    /// hold of 0.5 INVERTS the picture. At 0.2 the minimum derivative is 0.41, which is
+    /// the same order as the 0.4 contrast −100 has always had at the pivot.
+    /// `testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting` measures it rather than
+    /// trusting this paragraph.
+    public static let contrastShoulderStart: Double = 0.2
+
+    /// Contrast: slope around an explicit pivot in log-exposure space, relaxing back to
+    /// 1 as it approaches the anchor so the ends of the scale are FIXED POINTS.
+    ///
+    /// A1-01, and the fix is a change of denomination. The relax window used to be two
+    /// constants — 4 stops to 12 stops from the pivot — while the thing that decides
+    /// where a highlight actually clips is the DISPLAY ANCHOR, +5 EV by default and as
+    /// low as +3.5 under Whites +100. Those two numbers had nothing to do with each
+    /// other, so at contrast +100 the white anchor mapped to +7.87 EV and everything
+    /// from +3.125 EV upward landed at or beyond white: measured on the proof ramp, 34
+    /// of 256 columns rendered at exactly 255.0 against 0 of 256 at contrast 0, and 40
+    /// tied at the darkest value. 1.875 stops of highlight and 3.037 stops of shadow,
+    /// flattened to one value each.
+    ///
+    /// Three things in the tree said that could not happen: this control's own tooltip
+    /// ("the ends of the scale stay pinned, so it cannot clip a highlight"), docs/04,
+    /// and a green test. The test probed ±`LumenLog.maxEV` — ±12 EV, the extreme of the
+    /// log scale, four stops past the anchor and seven past where a photograph lives —
+    /// where the old window had relaxed to 1 by construction. It asserted a true thing
+    /// about a place nothing renders.
+    ///
+    /// So the reach is the distance to the anchor on the side being mapped, and the
+    /// slope relaxes to exactly 1 there. `d * 1 == d` makes the anchor map to itself, so
+    /// the promise is now geometry rather than a wide-enough window: contrast cannot
+    /// move a pixel across the end of the scale because the end of the scale is a fixed
+    /// point of the mapping.
+    ///
+    /// AND IT STILL HAS TO FEEL LIKE CONTRAST. Relaxing from the pivot outward pins the
+    /// anchor but dilutes the midtones, and the proof said so: authority 81.42 → 54.83
+    /// against a declared floor of 55. So the slope holds undiluted across the inner
+    /// `contrastShoulderStart` of the reach and eases only over the outer part — the
+    /// straight section, shoulder and toe a film curve has always had. See that
+    /// constant for why the hold is 0.2 and not more.
+    ///
+    /// STILL MONOTONE, which is what the old window was wide for. With
+    /// `f(d) = d·mix(slope, 1, s(u))` and `u = d/reach`, the derivative in u is
+    /// `slope + (1−slope)·[s(u) + u·s'(u)]`, whose bracket peaks at 1.9825 at the
+    /// shipped hold of 0.2. At contrast +100 (slope 1.6) the minimum derivative is
+    /// 1.6 − 0.6·1.9825 = 0.4105, reached at |d|/reach = 0.770 — on the default anchors,
+    /// +3.85 EV. At contrast −100 (slope 0.4) the derivative is smallest at the pivot at
+    /// 0.4. Positive across the whole range, so the inversion the old comment feared
+    /// ("a brighter input darker, an inversion, never a look") cannot occur here either.
+    /// `EngineTests.testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting` measures it
+    /// rather than trusting this paragraph — there is no `ToneMonotoneTests`, which is
+    /// what this line named until the atlas run went looking for it.
+    ///
+    /// BOTH NUMBERS IN THIS PARAGRAPH USED TO BE THE ONES FOR A HOLD OF 0.3 — bracket
+    /// 2.2069, minimum derivative 0.276 — left behind when the hold was settled at 0.2
+    /// and the trade table above was written. Two independent measurements agree on
+    /// 0.410481 at +3.8508 EV (140,001 central differences at h = 1e-6 over the default
+    /// [−9, +5] EV), which back-solves the bracket to 1.982532 and matches the constant's
+    /// own paragraph. A comment that explains a control is part of the control, and this
+    /// one was explaining a curve the engine does not run.
+    ///
+    /// Above the anchor `u` saturates and the mapping is the identity, which is correct
+    /// and is the same answer the old window gave: a pixel already past the end of the
+    /// scale is not somewhere contrast should be pushing further.
     public func contrastMapped(_ t: Double) -> Double {
         let c = Num.clamp(tone.contrast, -100, 100)
         guard c != 0 else { return t }
         let pivot = Num.clamp(tone.contrastPivot, -4, 4)
         let slope = 1 + 0.6 * (c / 100)
         let d = t - pivot
-        let relax = Num.smoothstep(Self.contrastRelaxStartEV, Self.contrastRelaxEndEV,
-                                   abs(d))
-        let effective = Num.mix(slope, 1, relax)
+        // The LIVE anchors, not the defaults: Whites and Blacks move them, and a reach
+        // measured against a default anchor would put the fixed point somewhere the
+        // display transform no longer clips.
+        let reach = d >= 0 ? whiteAnchorEV - pivot : pivot - blackAnchorEV
+        guard reach > Self.minContrastReachEV else { return t }
+        let shoulder = Num.smoothstep(Self.contrastShoulderStart, 1, abs(d) / reach)
+        let effective = Num.mix(slope, 1, shoulder)
         return pivot + d * effective
     }
 
@@ -550,8 +669,20 @@ public struct ToneEngine: Sendable {
         // posterized is not a gentler failure than an inversion, it is a different one.
         // With the scale solved first the clamp fires on 0 of 1024 samples for every one
         // of the 242 combinations of the five sliders at ±100.
+        let curve = clampedResponse(size: size)
+        var samples = [Double](repeating: 1, count: curve.domain.count)
+        for i in 0..<curve.domain.count {
+            samples[i] = pow(2, curve.mapped[i] - curve.domain[i])
+        }
+        return LUT1D(samples: samples)
+    }
+
+    /// The baked response before and after the forward clamp, on the shaper's domain.
+    /// One function so `bakeGainLUT` and `zoneFlattening` cannot disagree about what
+    /// the clamp did.
+    private func clampedResponse(size: Int)
+        -> (domain: [Double], requested: [Double], mapped: [Double]) {
         let count = Swift.max(size, 2)
-        var samples = [Double](repeating: 1, count: count)
         var mapped = [Double](repeating: 0, count: count)
         var domain = [Double](repeating: 0, count: count)
         for i in 0..<count {
@@ -560,16 +691,49 @@ public struct ToneEngine: Sendable {
             domain[i] = t
             mapped[i] = t + stops(at: t)
         }
+        let requested = mapped
         // One forward pass: never let the mapped value fall below the one before it.
         // The domain is increasing, so this is exactly "no brighter input renders
         // darker", and it touches nothing that was already monotone.
         for i in 1..<mapped.count where mapped[i] < mapped[i - 1] {
             mapped[i] = mapped[i - 1]
         }
-        for i in 0..<count {
-            samples[i] = pow(2, mapped[i] - domain[i])
+        return (domain, requested, mapped)
+    }
+
+    /// Where the bake's forward clamp flattened the tone response, if anywhere.
+    ///
+    /// Astra AI-07. The clamp is the Zones panel's only limiter, and it limits by
+    /// rendering a band of input tones as ONE output value: Darks +2 EV at the default
+    /// pivots flattens 1.74 EV of input (−3.53…−1.80 EV) and Darks +4 EV flattens
+    /// 3.85 EV, where the rendered tone sits up to 2.20 EV away from what the slider
+    /// asked for. Texture inside that band is gone, and nothing said so. This is the
+    /// measurement a panel needs to say so; it changes no pixel.
+    public struct Flattening: Equatable, Sendable {
+        /// Darkest and brightest input tone, in EV from mid-grey, that the clamp moved.
+        public var lowEV: Double
+        public var highEV: Double
+        /// Largest distance between the requested and the rendered tone, in EV.
+        public var worstEV: Double
+        /// Share of the shaper's samples the clamp moved.
+        public var fraction: Double
+        public var widthEV: Double { highEV - lowEV }
+    }
+
+    /// `nil` when the clamp in `bakeGainLUT` moved nothing — every recipe the six
+    /// tone sliders alone can produce, by `solveZonalLimits`.
+    public func zoneFlattening(size: Int = 1024) -> Flattening? {
+        let curve = clampedResponse(size: size)
+        var low = Double.nan, high = Double.nan, worst = 0.0, moved = 0
+        for i in 0..<curve.domain.count where curve.mapped[i] != curve.requested[i] {
+            moved += 1
+            if low.isNaN { low = curve.domain[i] }
+            high = curve.domain[i]
+            worst = Swift.max(worst, curve.mapped[i] - curve.requested[i])
         }
-        return LUT1D(samples: samples)
+        guard moved > 0 else { return nil }
+        return Flattening(lowEV: low, highEV: high, worstEV: worst,
+                          fraction: Double(moved) / Double(curve.domain.count))
     }
 
     /// True when nothing in the tone stack changes a pixel — lets the renderer skip

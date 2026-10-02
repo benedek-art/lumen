@@ -94,14 +94,33 @@ public enum DraftResolution {
     /// own pixels: that is what "1:1 means the photograph's pixels" rests on, what
     /// `settledActualLongEdge` normalizes every draw against, and what lets the PROXY
     /// badge tell the truth.
+    ///
+    /// QUANTIZED, in the same 256-px buckets the loupe's container ask is (W2/H1-03).
+    /// The ask is `min(bucketed container, ceiling)`, and the drawn extent is always
+    /// inside the container, so an unbucketed ceiling was the smaller of the two on every
+    /// fit frame and the bucket never bound: dragging a window edge walked the ask
+    /// through every integer, each one a new render key and — because the decode scale
+    /// follows the ask — a new full RAW decode. Rounding the ceiling UP to the next
+    /// bucket costs at most 255 pixels the downsample discards, keeps "never fewer than
+    /// the panel draws", and gives every window size inside one bucket one ask, one
+    /// decode, and one entry in the developed-preview cache. The draft, which takes its
+    /// cap from here too, lands on the same bucket, so the two passes still share one
+    /// `DecodeKey`.
     public static func visibleCeiling(_ drawnDeviceLongEdge: Double?) -> Int? {
-        guard let drawn = drawnDeviceLongEdge, drawn.isFinite, drawn >= 1 else {
+        guard let drawn = drawnDeviceLongEdge, drawn.isFinite, drawn >= 1,
+              drawn < 1e9 else {
             return nil
         }
         // Rounded UP, so a fractional drawn extent never asks for a pixel less than
-        // the panel will put on screen.
-        return Int(drawn.rounded(.up))
+        // the panel will put on screen — and up to the bucket, so it is stable.
+        let buckets = (drawn / Double(ceilingBucket)).rounded(.up)
+        return Int(buckets) * ceilingBucket
     }
+
+    /// The quantum of a viewer ask, in device pixels — shared by the container bucket
+    /// in `LoupeView.requestedLongEdge` and `visibleCeiling`, so the two cannot be
+    /// denominated differently again.
+    public static let ceilingBucket: Int = 256
 
     /// The on-screen long edge, in points, of a proxy drawn at `zoomRatio`.
     ///

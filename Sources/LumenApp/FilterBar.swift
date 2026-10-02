@@ -32,9 +32,8 @@ import SwiftUI
 // For `FacetCounts` and `PhotoQuery`. The counts beside these chips are the
 // catalog's answer to the grid's own query now, not a pass over the roll, so
 // this file names catalog types for the first time. `ColorLabel` and
-// `PhotoFlag` still mean the app's enums here — a declaration in this module
-// shadows the imported one — which is why the two are mapped explicitly through
-// `CatalogService.coreLabel` / `coreFlag` rather than left to read alike.
+// `PhotoFlag` are LumenCore's own — there is one of each now, so a facet count is
+// looked up by the very value the chip toggles, with nothing translated between.
 import LumenCore
 
 struct FilterBar: View {
@@ -261,14 +260,14 @@ struct FilterBar: View {
     private var flagGroup: some View {
         HStack(spacing: 3) {
             chip(title: "Pick", systemImage: "flag.fill",
-                 count: flagCount(.picked),
-                 isOn: state.filter.flags.contains(.picked)) { toggleFlag(.picked) }
+                 count: flagCount(.pick),
+                 isOn: state.filter.flags.contains(.pick)) { toggleFlag(.pick) }
             chip(title: "Reject", systemImage: "xmark",
-                 count: flagCount(.rejected),
-                 isOn: state.filter.flags.contains(.rejected)) { toggleFlag(.rejected) }
+                 count: flagCount(.reject),
+                 isOn: state.filter.flags.contains(.reject)) { toggleFlag(.reject) }
             chip(title: "Unflagged", systemImage: nil,
-                 count: flagCount(.none),
-                 isOn: state.filter.flags.contains(.none)) { toggleFlag(.none) }
+                 count: flagCount(.unflagged),
+                 isOn: state.filter.flags.contains(.unflagged)) { toggleFlag(.unflagged) }
         }
     }
 
@@ -328,8 +327,12 @@ struct FilterBar: View {
                 .help(helpCount(label.displayName, labelCount(label)))
             }
             Spacer(minLength: 6)
-            chip(title: "Unlabelled", systemImage: nil, count: labelCount(.none),
-                 isOn: state.filter.labels.contains(.none)) { toggleLabel(.none) }
+            // `nil`, not `.none`: unlabelled is the absence of a colour, and the filter
+            // carries it as `includeUnlabeled` beside the five.
+            chip(title: "Unlabelled", systemImage: nil, count: labelCount(nil),
+                 isOn: state.filter.includeUnlabeled) {
+                state.filter.includeUnlabeled.toggle()
+            }
         }
     }
 
@@ -379,7 +382,7 @@ struct FilterBar: View {
         // which is also the better shape here: it reads as part of the filter being
         // built rather than as a second window over the first.
         LumenMenu(title: metadataTitle, symbol: "camera.aperture", inline: true,
-                  help: "Camera, lens, ISO, keyword and stack state") {
+                  help: "Camera, lens, ISO, keyword, stack state and culling evidence") {
             // THE COUNTS MOVE TO THE ANNOTATION COLUMN. They used to be glued into the
             // label — "Canon EOS R5  (214)" — as one string, which is how you get a
             // column of names whose right edge lands wherever each name happened to
@@ -468,6 +471,30 @@ struct FilterBar: View {
                             }
                         }
                     }
+                    // The culling pass's evidence (docs/10 §10.8 "Evidence chips"), as
+                    // sets to look at. Lighting one shows frames; it never flags them.
+                    if state.cullingAssistsEnabled {
+                        Group {
+                            LumenMenuHeader(title: "Culling evidence")
+                            LumenMenuItem(title: "Soft focus",
+                                          isSelected: state.filter.softFocus) {
+                                state.filter.softFocus.toggle()
+                            }
+                            LumenMenuItem(title: "Eyes closed",
+                                          isSelected: state.filter.closedEyes) {
+                                state.filter.closedEyes.toggle()
+                            }
+                        }
+                        Group {
+                            LumenMenuHeader(title: "Bursts")
+                            ForEach(BurstFilter.allCases) { option in
+                                LumenMenuItem(title: option.rawValue,
+                                              isSelected: state.filter.burst == option) {
+                                    state.filter.burst = option
+                                }
+                            }
+                        }
+                    }
                 }
             }
             // The one menu in the app whose length is the LIBRARY's rather than the
@@ -489,6 +516,9 @@ struct FilterBar: View {
         var lit = state.filter.cameras.count + state.filter.lenses.count
             + state.filter.isoBands.count + state.filter.keywords.count
         if state.filter.stackState != .any { lit += 1 }
+        if state.filter.softFocus { lit += 1 }
+        if state.filter.closedEyes { lit += 1 }
+        if state.filter.burst != .any { lit += 1 }
         return lit == 0 ? "Metadata" : "Metadata (\(lit))"
     }
 
@@ -600,10 +630,15 @@ struct FilterBar: View {
             return "needs the catalog"
         }
         switch order {
-        case .sharpness, .aesthetic:
-            // `cache.frame_score` has no writer anywhere in the repo: the culling
-            // analysis pass of docs/10 §10.6 is not built. Sorting by it would order
-            // every photo by NULL and look like the menu item did nothing.
+        case .sharpness:
+            // Written by the culling pass (`CatalogService.analyzeCulling`). Frames it
+            // has not reached sort last, unlabelled, in both directions — the builder's
+            // rule for every score — so a half-finished pass orders what it has.
+            return state.cullingAssistsEnabled ? nil : "culling assists are off"
+        case .aesthetic:
+            // Still nothing writes `frame_score.aesthetic`: the aesthetics request of
+            // docs/10 §10.6 is not part of the culling pass yet. Sorting by it would
+            // order every photo by NULL and look like the menu item did nothing.
             return SortOrder.scoreSortsPending
         case .userOrder:
             // `ap.position` only exists inside an album; outside one the builder falls
@@ -734,7 +769,7 @@ struct FilterBar: View {
             return memoryCount { $0.flags = [flag] }
         }
         guard facetsCounted else { return nil }
-        return facets.flags[CatalogService.coreFlag(flag)] ?? 0
+        return facets.flags[flag] ?? 0
     }
 
     private func ratingCount(_ minimum: Int) -> Int? {
@@ -746,16 +781,27 @@ struct FilterBar: View {
         return facets.ratingAtLeast[minimum]
     }
 
-    private func labelCount(_ label: ColorLabel) -> Int? {
+    /// `nil` is the Unlabelled chip.
+    private func labelCount(_ label: ColorLabel?) -> Int? {
         guard state.isLibraryQueryLive else {
-            return memoryCount { $0.labels = [label] }
+            // The value as the SOLE selection of the label criterion — colours and
+            // Unlabelled are one criterion, so both halves of it are set.
+            return memoryCount { clicked in
+                if let label {
+                    clicked.labels = [label]
+                    clicked.includeUnlabeled = false
+                } else {
+                    clicked.labels = []
+                    clicked.includeUnlabeled = true
+                }
+            }
         }
         guard facetsCounted else { return nil }
         // "Unlabelled" is its own number rather than a sixth colour, because it is its
         // own predicate: `label IN (…)` can never match the NULL an unlabelled
         // photograph stores.
-        guard let core = CatalogService.coreLabel(label) else { return facets.unlabeled }
-        return facets.labels[core] ?? 0
+        guard let label else { return facets.unlabeled }
+        return facets.labels[label] ?? 0
     }
 
     /// An uncounted facet reads as an en dash rather than as a number, in a slot the
@@ -783,7 +829,7 @@ struct FilterBar: View {
     private func memoryCount(_ click: (inout LibraryFilter) -> Void) -> Int {
         var clicked = state.filter
         click(&clicked)
-        return state.allPhotos.filter(clicked.matches).count
+        return state.allPhotos.filter { clicked.matches($0) }.count
     }
 
     // MARK: Mutation

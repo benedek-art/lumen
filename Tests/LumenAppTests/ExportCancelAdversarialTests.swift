@@ -279,8 +279,10 @@ final class ExportCancelAdversarialTests: XCTestCase {
                               + "the name a photographer will ship — \(line)")
             }
         }
-        XCTAssertTrue(write.contains("moveItem(at: partial, to: destination)"),
+        XCTAssertTrue(write.contains("renamex_np(from!, to!, flags)"),
                       "the delivery must arrive by a same-directory rename")
+        XCTAssertTrue(write.contains("RENAME_EXCL"),
+                      "default publication must atomically refuse a competing destination")
     }
 
     // MARK: - B. A stale click cannot cancel the next run
@@ -491,7 +493,8 @@ final class ExportCancelAdversarialTests: XCTestCase {
         let task = try XCTUnwrap(export.range(of: "Task {"))
         XCTAssertTrue(capture.lowerBound < task.lowerBound,
                       "the capture must happen on the main actor before the batch")
-        XCTAssertTrue(export.contains("softProof: proof)"),
+        // The argument, wherever it falls in the call: F6 added `allowOverwrite:` after it.
+        XCTAssertTrue(export.contains("softProof: proof)") || export.contains("softProof: proof,"),
                       "the captured value must actually reach the renderer")
 
         // The same accessor, not a parallel reading of `softProof`.

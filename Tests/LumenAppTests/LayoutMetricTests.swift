@@ -155,7 +155,7 @@ final class LayoutMetricTests: XCTestCase {
         for title in ["Master", "Red / Cyan", "Green / Mag", "Blue / Yellow"] {
             let w = TextMetric.width(title, LayoutFont.body)
             guard w > Lumen.labelWidth else { continue }
-            failures.append("\(title) — LookPanel.swift:1615: \(f(w)) pt against "
+            failures.append("\(title) — LookPanel.swift:1741: \(f(w)) pt against "
                             + "\(f(Lumen.labelWidth)) pt, and this row has no "
                             + "minimumScaleFactor — TRUNCATES")
         }
@@ -427,7 +427,7 @@ final class LayoutMetricTests: XCTestCase {
             let w = TextMetric.width(text, LayoutFont.numeric)
             guard w > column else { continue }
             failures.append("\"\(text)\" is \(f(w)) pt against a \(f(column)) pt frame "
-                            + "with no lineLimit — LookPanel.swift:1631")
+                            + "with no lineLimit — LookPanel.swift:1755")
         }
         report(failures, of: 2, "PrinterLightRow draws its readout in a fixed 124 pt frame.")
     }
@@ -748,6 +748,12 @@ final class LayoutMetricTests: XCTestCase {
         try pin("Sources/LumenApp/ExportSheet.swift",
                 ".padding(.horizontal, 14) .padding(.vertical, 8)",
                 "export editor gutter \(f(PanelChain.exportEditorInset))")
+
+        // The Heal tool's bar, a fixed HUD on the loupe.
+        try pin("Sources/LumenApp/HealCanvas.swift",
+                ".padding(10) .frame(width: 250) .lumenHUD(",
+                "heal bar \(f(PanelChain.healBarWidth)) wide, "
+                + "\(f(PanelChain.healBarInset)) padding")
 
         // The footer G1-06 is about.
         try pin("Sources/LumenApp/DevelopPanel.swift",

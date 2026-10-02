@@ -3,10 +3,16 @@
 //
 // This is the arithmetic behind the picker-first mixer (docs/28 Phase 5): click a colour
 // in the photograph and the band that owns it selects itself, instead of the
-// photographer having to know which of Red/Orange/Yellow/Green/Aqua/Blue/Purple/Magenta
+// photographer having to know which of Red/Orange/Yellow/Mint/Aqua/Azure/Purple/Magenta
 // a particular skin tone or sky lives in. It is derived from `bandWeights` rather than
 // from the band centres, and these tests are mostly about why that distinction matters:
 // the arcs are draggable, so the answer has to follow the ring the user drew.
+//
+// The picker matters more than it looks, and B1-08 is why: the eight names were inherited
+// from a product whose bands sit somewhere else, and two of them were most of a band out
+// (see `ColorEngine.bandNames`). They are honest now, but there is still no band centred
+// on ordinary green — so "click the thing you want to change" is the reliable route to a
+// band, and reading the label is not.
 
 import XCTest
 @testable import LumenCore
@@ -110,21 +116,42 @@ final class DominantBandTests: XCTestCase {
 
     // MARK: Colours, and the ones that have no colour
 
-    func testASaturatedColourResolvesToTheBandItLooksLike() {
+    /// A saturated colour resolves to a stable band, and the band's NAME is now the one
+    /// its centre earns.
+    ///
+    /// This test used to be called `...ResolvesToTheBandItLooksLike` and expected the
+    /// green primary to select a band called "Green" and the blue primary a band called
+    /// "Blue". Both passed, and both were the defect: B1-08 measured the band centres and
+    /// found "Green" sitting 43.3° from green and "Blue" 31.8° from blue — most of a band
+    /// away — so what the test really pinned was that a mislabelled band kept its label.
+    ///
+    /// THE ASSIGNMENT DID NOT CHANGE and that is the point. The green primary reads as
+    /// band 3 and the blue primary as band 5 exactly as before; the arithmetic was never
+    /// wrong. Only the two strings moved, to Mint and Azure, and the expectations below
+    /// moved with them — which is why this test going red on the rename was the evidence
+    /// that the rename took, rather than an inconvenience.
+    ///
+    /// The band INDEX is asserted alongside the name from here on. A future rename can
+    /// then only be a rename: if the name and the index ever disagree about which band a
+    /// primary belongs to, one of them moved and the message says which.
+    func testASaturatedColourResolvesToAStablyNamedBand() {
         // Red, green and blue primaries, through the same OKLab transform the engine
-        // grades in. Named by what the band is called, because that is what the
-        // photographer will see selected.
-        let cases: [(RGB, String)] = [
-            (RGB(0.9, 0.05, 0.05), "Red"),
-            (RGB(0.05, 0.7, 0.1), "Green"),
-            (RGB(0.05, 0.1, 0.9), "Blue"),
+        // grades in.
+        let cases: [(sample: RGB, band: Int, name: String)] = [
+            (RGB(0.9, 0.05, 0.05), 0, "Red"),
+            (RGB(0.05, 0.7, 0.1), 3, "Mint"),
+            (RGB(0.05, 0.1, 0.9), 5, "Azure"),
         ]
-        for (colour, expected) in cases {
+        for (colour, expectedBand, expectedName) in cases {
             guard let band = ColorEngine.dominantBand(for: colour, arcs: canonical) else {
-                XCTFail("\(expected) sample read as having no colour")
+                XCTFail("the \(expectedName) sample read as having no colour")
                 continue
             }
-            XCTAssertEqual(ColorEngine.bandNames[band], expected)
+            XCTAssertEqual(band, expectedBand,
+                           "\(colour) moved from band \(expectedBand) to band \(band) — "
+                               + "that is the arithmetic changing, not a rename")
+            XCTAssertEqual(ColorEngine.bandNames[band], expectedName,
+                           "band \(band) is called \(ColorEngine.bandNames[band]) now")
         }
     }
 

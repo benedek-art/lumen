@@ -1,0 +1,58 @@
+{
+  "findings": [
+    {
+      "id": "UX-01", "severity": "P1", "confidence": "reproduced with production AppState",
+      "title": "Undo during a slider gesture saves the value that was just undone",
+      "location": "Sources/LumenApp/AppState.swift:3565–3568,3631–3649",
+      "trigger": "Begin a slider gesture, set Exposure from 0 to +1, invoke undo before the gesture sink closes, end gesture, quit.",
+      "effect": "In-memory exposure remains 0, but test.png.xmp contains exposure:1. Negative control: close gesture before undo; sidecar correctly omits the non-default exposure. Slider release and prepareToQuit flush pendingGesturePersist without replacing it with the undo result.",
+      "evidence": ["AppProbe.swift", "app-probe-open.log", "app-probe-closed.log"],
+      "latestStatus": "persists by source comparison; apply/flush logic unchanged",
+      "direction": "Make undo/redo and pending gesture persistence one ordered state transition; regression-test memory, catalog and XMP after release and reopen."
+    },
+    {
+      "id": "UX-02", "severity": "P2", "confidence": "source plus exact arithmetic replay; native gesture not verified",
+      "title": "Panel resizing accumulates the full gesture translation repeatedly",
+      "location": "Sources/LumenApp/ContentView.swift:79–87",
+      "trigger": "Drag the Develop column divider left while several onChanged events arrive.",
+      "effect": "The current, already modified width is reduced by cumulative drag.translation.width. From 380 pt, events −2,−4,−6,−8,−10 produce 410 instead of 390 pt; ten 1-pt-spaced events produce 435. The outcome depends on event count. Coordinate-based GUI dragging was unavailable in the audit tool, so this is not claimed as a live gesture reproduction.",
+      "evidence": ["AppProbe.swift", "app-probe-open.log"],
+      "latestStatus": "persists; same closure on latest branch",
+      "direction": "Capture the starting width and use a stable coordinate space; apply each cumulative translation to the start, not the current width."
+    },
+    {
+      "id": "UX-03", "severity": "P2", "confidence": "source and native accessibility tree observed",
+      "title": "Custom editing sliders do not expose adjustable accessibility semantics",
+      "location": "Sources/LumenApp/LumenControls.swift:437–789,1218–1245",
+      "trigger": "Inspect Develop or local-mask editing with native accessibility APIs.",
+      "effect": "Tone and other sliders appear as merged static text, for example 'Tone Exposure 0.00 Contrast 0 …', without per-control slider roles or increment/decrement actions. The standard thumbnail-size slider is correctly exposed as settable float. Keyboard arrow handlers exist, but are not a substitute for each slider's accessible name/value/adjust action.",
+      "evidence": ["UiAuditHost.swift", "ui-observations.md"],
+      "latestStatus": "persists by source comparison; no slider accessibility modifiers added",
+      "direction": "Expose individual labelled adjustable elements and numeric values, then test VoiceOver navigation and value changes on a real build."
+    },
+    {
+      "id": "BR-01", "severity": "P1", "confidence": "exact new-branch algorithm replay plus production catalog reproduction",
+      "title": "Opening selected files from sibling trees can merge two photographs into one catalog identity",
+      "location": "latest branch Sources/LumenApp/AppState.swift:2662–2674; Sources/LumenCore/Catalog/CatalogStore.swift:476–485",
+      "trigger": "Select /audit/day1/photos/DSC_0001.NEF and /audit/day2/photos/DSC_0001.NEF using the newer multi-file Open workflow.",
+      "effect": "commonParent collects every equal path component, even after a mismatch, producing /audit/photos instead of /audit. ScannedFile.catalogName falls back to basename because neither file is below the fake root. Both become DSC_0001.NEF in one folder row; the catalog probe returns the same ID twice and one row. Saving exposure −2 for the second changes the first's current recipe from +1 to −2.",
+      "evidence": ["BranchProbe.swift", "branch-probe.log", "reliability/core_probe.swift"],
+      "latestStatus": "new in latest branch a6e6941; multi-file workflow absent on main",
+      "direction": "Stop common-prefix comparison at the first mismatch. Reject out-of-root catalog paths rather than collapsing to basename; assert distinct identity for every selected original."
+    },
+    {
+      "id": "BR-02", "severity": "P1", "confidence": "new-branch call-path review plus production catalog reproduction",
+      "title": "Opening a selected subset marks unselected photographs as missing",
+      "location": "latest branch Sources/LumenApp/AppState.swift:2747–2803; Sources/LumenApp/CatalogService.swift:214; Sources/LumenCore/Catalog/CatalogStore.swift:2033–2036",
+      "trigger": "Scan a folder of photographs, then use the newer Open-selected-files workflow to open only one file from that same folder.",
+      "effect": "The selected subset is passed to the full-folder reconciliation API. Other existing rows are marked missing, although their originals remain on disk. Core reproduction: two-photo album becomes a one-photo visible album after a one-file scan; missingIDs contains the unselected file. Reopening the full folder repairs the missing state. No original is deleted.",
+      "evidence": ["reliability/core_probe.swift"],
+      "latestStatus": "new latest-branch caller misuse of unchanged catalog API; main has no selected-subset caller",
+      "direction": "Separate register/update-selected-files from complete-folder reconciliation. Only a complete enumeration may declare an absent row missing."
+    }
+  ],
+  "followups": [
+    {"id":"UX-F01", "title":"Typed slider values on focus loss", "status":"source-risk, not promoted to confirmed defect", "evidence":"LumenControls TextField commits only onSubmit, cancels onExitCommand, and has no textFocused onChange. Verify click-away and panel/photo switches with a real pointer-capable UI session."},
+    {"id":"UX-F02", "title":"Polygon vertex drag cumulative delta", "status":"source-risk from masks agent, not live-reproduced", "evidence":"MaskCanvas.dragOutline uses current component.path then adds full pointer-start displacement on each onChanged. Contrast with stored origins in gradient/radial gestures."}
+  ]
+}

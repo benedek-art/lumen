@@ -16,6 +16,7 @@ import os.signpost
 import CoreImage.CIFilterBuiltins
 import CoreText
 import Foundation
+import Darwin
 import ImageIO
 import LumenCore
 import UniformTypeIdentifiers
@@ -130,7 +131,10 @@ public final class PipelineRenderer {
     /// different granularity: one component's painting, before the fold and before the
     /// refinement chain, which is the only part of a mask that grows without bound as
     /// the photographer works. See the type's header (docs/36 §1.2).
-    private let brushPlanes = BrushPlaneCache()
+    let brushPlanes = BrushPlaneCache()
+    /// A deferred mask bake captures its picture key. If a source is replaced while
+    /// that bake is pending, its nested brush work must never share the new key.
+    private var maskSourceGeneration: UInt64 = 0
 
     /// One file's mattes, and which kinds have been LOOKED for.
     ///
@@ -143,12 +147,15 @@ public final class PipelineRenderer {
     /// nobody had made.
     private struct MatteEntry {
         var planes: [String: Plane] = [:]
+        /// Distinguishes replacement pixels even when the set of matte kinds is unchanged.
+        var generation: UInt64 = 0
         /// Kinds a generation pass has been RUN for, whatever it found. Vision looking
         /// for a person and finding none is an answer, and this is what keeps it from
         /// being re-asked on every edit — the job the old per-file flag was doing, at
         /// the granularity the question actually has.
         var attempted: Set<String> = []
     }
+    private var nextMatteGeneration: UInt64 = 0
 
     /// What this renderer believes about its kernels. `.live` in the app; a test can
     /// substitute a degraded build, which is the only way the refusal below can be
@@ -193,6 +200,10 @@ public final class PipelineRenderer {
                             for url: URL) -> [URL] {
         var entry = mattes[url] ?? MatteEntry()
         entry.planes.merge(produced) { _, new in new }
+        if !produced.isEmpty {
+            nextMatteGeneration &+= 1
+            entry.generation = nextMatteGeneration
+        }
         entry.attempted.formUnion(requested)
         mattes[url] = entry
         matteOrder.removeAll { $0 == url }
@@ -215,7 +226,15 @@ public final class PipelineRenderer {
         // alone cannot see a content change under an unchanged path. Coarse
         // (clears every photo's rasters), and correct: an invalidate is rare and
         // a raster rebake is a background stale-while-bake, not a stall.
+        maskSourceGeneration &+= 1
         maskRasters.clear()
+        // Automask brush prefixes sampled the same old pixels. Clearing the finished
+        // alpha alone would rebuild it from that obsolete prefix. The generation in
+        // pictureKey also isolates a deferred old bake that paints after this clear.
+        // ONLY those: a brush without Automask is geometry and survives any pixels, and
+        // it is the expensive half (seconds per 60-stroke set). Clearing every photo's
+        // planes here threw that away on every first open and neighbour prefetch.
+        brushPlanes.clearPictureDependent()
         // The band-hue measurement is a statement about the same pixels.
         bandHues.removeValue(forKey: url)
         bandHueOrder.removeAll { $0 == url }
@@ -365,15 +384,17 @@ public final class PipelineRenderer {
     /// never rides a stale table, and its proof has been through `deliveredProof`.
     func exportPlan(source: any ImageSource, recipe: Recipe,
                     using exportRecipe: ExportRecipe,
-                    softProof: SoftProof?) -> RenderPlan {
+                    softProof: SoftProof?,
+                    displayWhiteTarget: Double? = nil) -> RenderPlan {
         Self.stampRenderIdentity(source)
         return RenderPlan(recipe: recipe,
                           asShotKelvin: source.asShotTemperature,
                           asShotTint: source.asShotTint,
-                          // Not `hdr?.whiteTargetPercent`: raising the ceiling to
-                          // 400% and then encoding 8 bits clipped everything above
-                          // diffuse white. See `ExportRecipe.hdrIsWritable`.
-                          displayWhiteTarget: exportRecipe.renderWhiteTargetPercent,
+                          // nil — SDR white — for the primary, always: raising the
+                          // ceiling to 400% and then encoding 8 bits clipped everything
+                          // above diffuse white. Only the gain map's HDR rendition
+                          // passes `ExportRecipe.gainMapWhiteTargetPercent` here.
+                          displayWhiteTarget: displayWhiteTarget,
                           lutSize: LUT3D.exportSize,
                           captureISO: source.captureMetadata.iso,
                           softProof: Self.deliveredProof(softProof),
@@ -625,6 +646,146 @@ public final class PipelineRenderer {
                                decodeMilliseconds: decodeMs)
     }
 
+    // MARK: - EDR preview
+
+    /// The suffix that keeps the EDR pass's colour tables apart from the SDR frame's
+    /// in `PlanTableCache`'s stale door.
+    ///
+    /// The door lends a draft "the newest table THIS photograph rendered with", and
+    /// the finish table's key includes the display white. With the HDR preview on, the
+    /// viewer renders each frame twice — SDR (every instrument reads it) and EDR (the
+    /// screen shows it) — so under one identity the next SDR draft could borrow the
+    /// EDR pass's 400% table, and the EDR draft the SDR pass's 100% one: each frame
+    /// would be the other rendition's picture formation. A separate identity makes
+    /// each pass stale only against itself. `EDRPreviewRenderTests` holds the SDR
+    /// draft that follows an EDR pass to the bytes it has with no EDR pass at all.
+    static let edrIdentitySuffix = "|edr"
+
+    /// The plan the HDR preview renders through: `previewPlan` with the display white
+    /// target the viewport chose (`EDRPreview.whiteTarget` — the gain-map export's own
+    /// `HDRSettings.whiteTargetPercent` when the display can show it), stamped under
+    /// its own cache identity. Everything else — interactive table size, the viewing
+    /// proof, stale-while-bake on drafts, the measured band hues — is the SDR
+    /// preview's, so the two passes are one picture at two peaks.
+    func edrPreviewPlan(source: any ImageSource, recipe: Recipe, draft: Bool,
+                        softProof: SoftProof?, displayWhiteTarget: Double) -> RenderPlan {
+        // Measured before the stamp, so nothing between the stamp and the plan can move
+        // the identity the plan's tables are filed under.
+        let hues = ColorEngine.needsMeasuredBandHues(recipe.develop.mixer)
+            ? measuredBandMeanHues(source: source) : nil
+        PlanTableCache.setRenderIdentity(
+            PlanTableCache.renderIdentity(for: source.url) + Self.edrIdentitySuffix)
+        // Back to the photograph's own identity once the plan exists: the tables are
+        // requested inside `RenderPlan.init` (a deferred bake records the identity at
+        // request time), and any later plan built without a stamp of its own must not
+        // inherit the EDR one.
+        defer { Self.stampRenderIdentity(source) }
+        return RenderPlan(recipe: recipe,
+                          asShotKelvin: source.asShotTemperature,
+                          asShotTint: source.asShotTint,
+                          displayWhiteTarget: displayWhiteTarget,
+                          lutSize: LUT3D.interactiveSize,
+                          captureISO: source.captureMetadata.iso,
+                          softProof: softProof,
+                          allowStaleTables: draft,
+                          bandMeanHues: hues)
+    }
+
+    /// The colour space the EDR frame is delivered in: linear, extended range, sRGB
+    /// primaries — 1.0 is SDR white and the headroom is the values above it. It is
+    /// also what `EDRImageView`'s `CAMetalLayer` is tagged with, so nothing between
+    /// the two re-encodes it.
+    public static var edrColorSpace: CGColorSpace? {
+        CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+    }
+
+    /// The HDR preview's frame: the same graph, geometry and region as
+    /// `renderPreviewDelivery`, at `displayWhiteTarget`, rasterized as half-float
+    /// extended-linear sRGB instead of 8-bit sRGB — so the values above 1.0 the
+    /// transform placed there reach the screen instead of clipping at the encoder.
+    ///
+    /// No dither: the 8-bit dither exists to break quantization banding at 8 bits,
+    /// and half-float has none to break. The gain-map export's HDR rendition
+    /// (`renderHDRPair`) carries none either.
+    ///
+    /// A SEPARATE FUNCTION, deliberately, rather than a flag on
+    /// `renderPreviewDelivery`: the SDR frame every instrument reads, and every frame
+    /// with the HDR preview off, goes through code this change does not touch. The
+    /// region arithmetic below is that function's, line for line; the caller drops
+    /// the EDR frame unless its `regionUnit` and `fullPixelSize` come back equal to
+    /// the SDR frame's, so a drift between the two copies costs the HDR preview and
+    /// never misplaces a picture.
+    public func renderPreviewEDR(source: any ImageSource, recipe: Recipe,
+                                 maxLongEdge: Int, draft: Bool,
+                                 coarseDecode: Bool,
+                                 showingUncropped: Bool = false,
+                                 strokeSets: [String: BrushStrokeSet] = [:],
+                                 softProof: SoftProof? = nil,
+                                 region: CGRect? = nil,
+                                 displayWhiteTarget: Double) throws -> PreviewDelivery {
+        let native = source.nativeLongEdge
+        let scale = native > 0 ? Swift.min(1.0, Double(maxLongEdge) / native) : 1.0
+        let decodeStarted = DispatchTime.now().uptimeNanoseconds
+        guard let decoded = source.decode(recipe: recipe, draft: coarseDecode,
+                                          scaleFactor: scale) else {
+            throw RenderError.decodeFailed
+        }
+        let decodeMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1e6
+        let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let plan = edrPreviewPlan(source: source, recipe: recipe, draft: draft,
+                                  softProof: softProof,
+                                  displayWhiteTarget: displayWhiteTarget)
+        let graph = makeGraph(plan: plan, decoded: decoded,
+                              sourceURL: source.url,
+                              allowStaleRasters: draft,
+                              strokeSets: strokeSets,
+                              aiMattes: mattes[source.url]?.planes ?? [:],
+                              maskRasterCeiling:
+                                  CGFloat(DraftLadder.interactiveLongEdgeCeiling))
+        var image = graph.build(decoded, plan: plan,
+                                options: RenderGraph.Options(longEdge: longEdge,
+                                                             noiseScale: scale * scale))
+        image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
+                                   skipCrop: showingUncropped)
+
+        let fullExtent: CGRect = image.extent
+        var rasterRect: CGRect = fullExtent
+        var deliveredUnit: CGRect?
+        let extentUsable: Bool = !fullExtent.isInfinite
+            && fullExtent.minX.isFinite && fullExtent.minY.isFinite
+            && fullExtent.width.isFinite && fullExtent.height.isFinite
+            && fullExtent.width >= 1 && fullExtent.height >= 1
+        if let region, extentUsable, region.width > 0, region.height > 0 {
+            let asked = CGRect(
+                x: fullExtent.minX + region.minX * fullExtent.width,
+                y: fullExtent.minY + (1 - region.maxY) * fullExtent.height,
+                width: region.width * fullExtent.width,
+                height: region.height * fullExtent.height)
+            let integral = asked.integral.intersection(fullExtent)
+            if integral.width >= 1, integral.height >= 1,
+               integral != fullExtent.integral {
+                rasterRect = integral
+                deliveredUnit = CGRect(
+                    x: (integral.minX - fullExtent.minX) / fullExtent.width,
+                    y: 1 - (integral.maxY - fullExtent.minY) / fullExtent.height,
+                    width: integral.width / fullExtent.width,
+                    height: integral.height / fullExtent.height)
+            }
+        }
+        guard let space = Self.edrColorSpace,
+              let cgImage = context.createCGImage(image, from: rasterRect,
+                                                  format: .RGBAh, colorSpace: space)
+        else {
+            throw RenderError.renderFailed
+        }
+        let fullPixelSize: CGSize = extentUsable
+            ? CGSize(width: fullExtent.width, height: fullExtent.height)
+            : CGSize(width: cgImage.width, height: cgImage.height)
+        return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
+                               fullPixelSize: fullPixelSize,
+                               decodeMilliseconds: decodeMs)
+    }
+
     // MARK: - Export
 
     /// Writes the file and returns the names of the kernels that were NOT available,
@@ -651,12 +812,20 @@ public final class PipelineRenderer {
     public func export(source: any ImageSource, recipe: Recipe, to destination: URL,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
-                       softProof: SoftProof? = nil) throws -> [String] {
+                       softProof: SoftProof? = nil,
+                       allowOverwrite: Bool = false) throws -> [String] {
+        try exportRecipe.metadata.validateContact()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
                                       softProof: softProof)
+        // nil unless the recipe writes a gain map, so every other export reaches
+        // `write` with exactly the arguments it always had.
+        let hdr = try exportedHDRImage(source: source, recipe: recipe,
+                                       using: exportRecipe, strokeSets: strokeSets,
+                                       softProof: softProof)
         try write(image, to: destination, using: exportRecipe,
-                  sourceProperties: Self.sourceImageProperties(source.url))
+                  sourceProperties: Self.sourceImageProperties(source.url),
+                  allowOverwrite: allowOverwrite, hdrImage: hdr)
         return availability.unavailable
     }
 
@@ -682,6 +851,42 @@ public final class PipelineRenderer {
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
                        softProof: SoftProof? = nil) throws -> CIImage {
+        try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
+                               strokeSets: strokeSets, softProof: softProof,
+                               displayWhiteTarget: nil, dither: true)
+    }
+
+    /// The gain map's HDR rendition, or nil when the recipe writes no map
+    /// (`ExportRecipe.hdrIsWritable`).
+    ///
+    /// The SAME delivery as `exportedImage` — plan, proof, graph, geometry, resize,
+    /// grain, output sharpening, watermark — at `gainMapWhiteTargetPercent` instead of
+    /// SDR white, so the two renditions differ by the display transform's peak and by
+    /// nothing else (docs/11: "they agree by construction"). Anything else that
+    /// differed — a resize, a sharpen — would be encoded into the map as if it were
+    /// highlight headroom. Two deliberate differences, both because this image is never
+    /// quantized by us: no dither (it exists to break 8-bit banding), and no metadata
+    /// (the primary carries the file's).
+    func exportedHDRImage(source: any ImageSource, recipe: Recipe,
+                          using exportRecipe: ExportRecipe,
+                          strokeSets: [String: BrushStrokeSet] = [:],
+                          softProof: SoftProof? = nil) throws -> CIImage? {
+        guard let white = exportRecipe.gainMapWhiteTargetPercent else { return nil }
+        return try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
+                                      strokeSets: strokeSets, softProof: softProof,
+                                      displayWhiteTarget: white, dither: false)
+    }
+
+    /// One delivered rendition: `exportedImage`'s body, parameterized by the display
+    /// white (nil is SDR) and by whether the 8-bit dither runs. The SDR call passes
+    /// `nil, true`, which is the plan and the tail this function had before it took
+    /// either argument.
+    private func deliveredRendition(source: any ImageSource, recipe: Recipe,
+                                    using exportRecipe: ExportRecipe,
+                                    strokeSets: [String: BrushStrokeSet],
+                                    softProof: SoftProof?,
+                                    displayWhiteTarget: Double?,
+                                    dither: Bool) throws -> CIImage {
         // An export is a promise in a way a preview is not, so it refuses rather than
         // delivers.
         //
@@ -704,7 +909,7 @@ public final class PipelineRenderer {
         }
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let plan = exportPlan(source: source, recipe: recipe, using: exportRecipe,
-                              softProof: softProof)
+                              softProof: softProof, displayWhiteTarget: displayWhiteTarget)
 
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -730,7 +935,7 @@ public final class PipelineRenderer {
         // built: the natural shape is for `exportedImage` to take an already-rendered
         // master and apply only geometry, resize, grain, sharpen, watermark and dither
         // — everything from here down. What makes it more than a refactor is that
-        // `RenderPlan` is built from `exportRecipe.renderWhiteTargetPercent`, so two
+        // `RenderPlan` is built from a display white (the gain map renders a second), so two
         // recipes with different HDR white targets do NOT share a master and the
         // sharing has to be keyed on that. It also needs measuring on a Mac before
         // anyone claims a number for it.
@@ -816,8 +1021,10 @@ public final class PipelineRenderer {
         }
         // Last, on the output pixel grid: the dither has to be one output CODE wide, and
         // a resample after it would average the pattern away.
-        image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
-                                 bitDepth: exportRecipe.effectiveBitDepth)
+        if dither {
+            image = Self.applyDither(image, colorSpace: exportRecipe.colorSpace,
+                                     bitDepth: exportRecipe.effectiveBitDepth)
+        }
         return image
     }
 
@@ -908,10 +1115,13 @@ public final class PipelineRenderer {
     ///
     /// `softProof` is threaded and delivered through `deliveredProof(_:)` for the same
     /// reason `exportedImage` does it: this is a DELIVERY path, and a delivery path that
-    /// silently renders unproofed is the defect that was found in the one beside it. It
-    /// has no caller today (`ExportRecipe` line 774 records that the gain-map write is
-    /// specified and unbuilt), which is precisely why the argument goes in now — the
-    /// caller that eventually arrives should not have to rediscover this.
+    /// silently renders unproofed is the defect that was found in the one beside it.
+    ///
+    /// The gain-map EXPORT does not come through here: `export` renders its HDR
+    /// rendition with `exportedHDRImage`, which runs the delivery's resize, grain,
+    /// sharpen and watermark too, so the pair the encoder sees differs only by the
+    /// transform's peak. This pair is full-resolution and untailed — the loupe preview's
+    /// reference (`EDRPreviewRenderTests`).
     public func renderHDRPair(source: any ImageSource, recipe: Recipe,
                               settings: HDRSettings,
                               strokeSets: [String: BrushStrokeSet] = [:],
@@ -965,33 +1175,12 @@ public final class PipelineRenderer {
     /// never need to be remembered — stripped nothing, because whatever the decode's
     /// property dictionary carried went to the encoder untouched.
     ///
-    /// **The two halves of this function rest on different amounts of evidence, and the
-    /// difference is the most important thing on this page.**
-    ///
-    /// The SUBTRACTIVE half — the `drop` calls below — is sound under either reading of
-    /// what `CIContext.write*Representation` does with the dictionary
-    /// `settingProperties` attaches. If it honours it, the removed keys are gone. If it
-    /// ignores it, nothing was going to be written anyway. Either way the coordinates do
-    /// not reach the file, and Strip GPS means what it says.
-    ///
-    /// The ADDITIVE half — Copyright, Contact and the DPI pair below — is sound under
-    /// only ONE of those readings. It is written here, correctly ordered after the
-    /// drops, and whether the encoder serialises properties that were ADDED rather than
-    /// merely preserved **has not been verified on a Mac by anyone**. The older comment
-    /// in this spot asserted that `CIContext.write*Representation` "takes no metadata
-    /// argument" and concluded the additive half was impossible; that is the pessimistic
-    /// reading, and it is not obviously right — `settingProperties` exists precisely to
-    /// carry a dictionary forward to an encoder. It is also not obviously wrong. Nobody
-    /// has opened a written file and looked.
-    ///
-    /// So: this code writes a copyright line, and the export sheet says it writes one
-    /// and says it is unconfirmed. That is the honest position while the fact is
-    /// unknown. It is one afternoon at a Mac to settle — export a JPEG and a TIFF with a
-    /// copyright set, read them back with `CGImageSourceCopyPropertiesAtIndex`, and
-    /// check `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`
-    /// — after which either this comment loses its hedge or the file has to be authored
-    /// through `CGImageDestination`, which takes an explicit properties dictionary and
-    /// removes the question. Zero tests touch this function on either platform.
+    /// Additions follow removals, so an explicitly supplied copyright/contact still
+    /// reaches an export with source metadata disabled. AuditExportMetadataTests opens
+    /// actual JPEG, HEIC, TIFF and PNG deliveries through ImageIO to verify standard
+    /// privacy controls, copyright, structured creator contact, print density and
+    /// geometry. That is readback evidence for those fields, not a guarantee about
+    /// every camera's proprietary metadata or every third-party reader.
     ///
     /// One thing the additive half is NOT: a way to guarantee EXIF is present when the
     /// switch is on. Nothing here fabricates camera fields the decode did not carry, and
@@ -1056,8 +1245,6 @@ public final class PipelineRenderer {
         // an export with EXIF off drops the whole TIFF dictionary, so a copyright placed
         // in it first would go out with the bathwater.
         //
-        // This is the additive half the header hedges. It is written; whether the
-        // encoder serialises it is unconfirmed, and the sheet says as much.
         func put(_ value: String?, _ key: CFString, in container: CFString) {
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return }
@@ -1069,8 +1256,20 @@ public final class PipelineRenderer {
             in: kCGImagePropertyTIFFDictionary)
         put(policy.copyright, kCGImagePropertyIPTCCopyrightNotice,
             in: kCGImagePropertyIPTCDictionary)
-        put(policy.contact, kCGImagePropertyIPTCContact,
-            in: kCGImagePropertyIPTCDictionary)
+        if let kind = policy.contactKind, let contact = policy.contact {
+            // ImageIO drops the legacy IPTC Contact key (String or Array). Its
+            // structured IPTC Core creator email/URL fields survive JPEG, HEIC,
+            // TIFF and PNG. A supplied contact replaces the source's contact block;
+            // it never inherits somebody else's address alongside the new value.
+            let field = kind == .email ? kCGImagePropertyIPTCContactInfoEmails
+                                      : kCGImagePropertyIPTCContactInfoWebURLs
+            let key = kCGImagePropertyIPTCDictionary as String
+            var iptc = properties[key] as? [String: Any] ?? [:]
+            iptc.removeValue(forKey: kCGImagePropertyIPTCContact as String)
+            iptc[kCGImagePropertyIPTCCreatorContactInfo as String] = [
+                field as String: contact.trimmingCharacters(in: .whitespacesAndNewlines)]
+            properties[key] = iptc
+        }
 
         // Resolution never reached the written file at all: `resolutionPPI` drove the
         // output-sharpening radius and nothing else, so the print TIFF a user asked for
@@ -1078,6 +1277,31 @@ public final class PipelineRenderer {
         if resolutionPPI.isFinite, resolutionPPI > 0 {
             properties[kCGImagePropertyDPIWidth as String] = resolutionPPI
             properties[kCGImagePropertyDPIHeight as String] = resolutionPPI
+            // JPEG's encoder prefers nested density to the generic DPI pair. The
+            // source's 72 ppi (or a synthesized default) must not override the export
+            // recipe. TIFF stores rational values, retaining fractional PPI; JFIF's
+            // integer density is only its compatibility copy.
+            let tiffKey = kCGImagePropertyTIFFDictionary as String
+            var tiff = properties[tiffKey] as? [String: Any] ?? [:]
+            tiff[kCGImagePropertyTIFFXResolution as String] = resolutionPPI
+            tiff[kCGImagePropertyTIFFYResolution as String] = resolutionPPI
+            tiff[kCGImagePropertyTIFFResolutionUnit as String] = 2 // inches
+            properties[tiffKey] = tiff
+            let jfifKey = kCGImagePropertyJFIFDictionary as String
+            var jfif = properties[jfifKey] as? [String: Any] ?? [:]
+            let density = Int(Num.clamp(resolutionPPI.rounded(), 1, 65_535))
+            jfif[kCGImagePropertyJFIFXDensity as String] = density
+            jfif[kCGImagePropertyJFIFYDensity as String] = density
+            jfif[kCGImagePropertyJFIFDensityUnit as String] = 1 // inches
+            properties[jfifKey] = jfif
+            // A PNG source may also carry its old physical-size chunk. Let the
+            // encoder derive a new one from the requested DPI rather than copying it.
+            let pngKey = kCGImagePropertyPNGDictionary as String
+            if var png = properties[pngKey] as? [String: Any] {
+                png.removeValue(forKey: kCGImagePropertyPNGXPixelsPerMeter as String)
+                png.removeValue(forKey: kCGImagePropertyPNGYPixelsPerMeter as String)
+                properties[pngKey] = png
+            }
         }
 
         // RECONCILE the geometry fields with the pixels being written. The source
@@ -1137,7 +1361,9 @@ public final class PipelineRenderer {
     /// exactly as it found it.
     private func write(_ image: CIImage, to destination: URL,
                        using recipe: ExportRecipe,
-                       sourceProperties: [String: Any]? = nil) throws {
+                       sourceProperties: [String: Any]? = nil,
+                       allowOverwrite: Bool = false,
+                       hdrImage: CIImage? = nil) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
@@ -1148,7 +1374,18 @@ public final class PipelineRenderer {
         let quality = Num.clamp(recipe.quality / 100.0, 0, 1)
         let qualityKey = CIImageRepresentationOption(
             rawValue: kCGImageDestinationLossyCompressionQuality as String)
-        let options: [CIImageRepresentationOption: Any] = [qualityKey: quality]
+        var options: [CIImageRepresentationOption: Any] = [qualityKey: quality]
+        // THE GAIN MAP (docs/11 §HDR export). Core Image's `hdrImage` option (macOS 15)
+        // takes the HDR rendition beside the SDR primary being written and computes and
+        // embeds the ISO 21496-1 gain map from the pair — the encoder side of Apple's
+        // "render both renditions, recompute the map on save" strategy. Only the HEIC
+        // and JPEG branches read `options`, and `hdrImage` is nil unless the recipe
+        // writes a map, so every other export hands the encoder the dictionary it
+        // always did. The map's resolution is Core Image's choice: `HDRSettings.mapScale`
+        // has no reader on this path, and the sheet says so.
+        if let hdrImage, recipe.format.supportsGainMap {
+            options[.hdrImage] = hdrImage
+        }
 
         // Every branch writes `prepared`, not `image` — the metadata policy is only
         // applied if the thing carrying it is the thing that gets encoded. And every
@@ -1201,18 +1438,32 @@ public final class PipelineRenderer {
         }
 
         do {
-            if FileManager.default.fileExists(atPath: destination.path) {
-                // The batch loop disambiguates, so this is the direct caller's case (a
-                // test, a re-export to a named path). `replaceItemAt` swaps the two and
-                // consumes the temp; it is what `moveItem` cannot do over an existing
-                // file.
-                _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
-            } else {
-                try FileManager.default.moveItem(at: partial, to: destination)
-            }
+            // A pre-render existence check cannot reserve a filename. RENAME_EXCL
+            // makes checking and publication ONE filesystem operation, including a
+            // destination created by another process while we encoded. Replacement
+            // requires an explicit opt-in; normal batch exports never opt in.
+            //
+            // RENAME_EXCL is only promised on APFS and HFS+. On exFAT/FAT cards, SMB
+            // and NFS it can answer ENOTSUP or EINVAL, and that used to fail every
+            // export to them. `ExclusivePublish` (LumenCore, tested with injected
+            // ENOTSUP) falls back on exactly those answers to a hard link, then to an
+            // O_EXCL claim of the name — both refuse an existing file just as
+            // RENAME_EXCL does. Its error carries the reason, which the batch's status
+            // line names.
+            let flags = UInt32(RENAME_EXCL)
+            let calls = ExclusivePublish.Syscalls(renameExclusive: { partial, destination in
+                let result = partial.withUnsafeFileSystemRepresentation { from in
+                    destination.withUnsafeFileSystemRepresentation { to in
+                        renamex_np(from!, to!, flags)
+                    }
+                }
+                return result == 0 ? 0 : errno
+            })
+            try ExclusivePublish.publish(partial, as: destination,
+                                         allowOverwrite: allowOverwrite, using: calls)
         } catch {
             try? FileManager.default.removeItem(at: partial)
-            throw RenderError.writeFailed(destination)
+            throw error
         }
     }
 
@@ -1286,7 +1537,7 @@ public final class PipelineRenderer {
                            aiMattes: [String: Plane],
                            deferGrain: Bool = false,
                            maskRasterCeiling: CGFloat? = nil) -> RenderGraph {
-        var graph = RenderGraph()
+        var graph = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
         let extent = decoded.extent
 
         // This used to `guard !draft else { return graph }` — so during every drag,
@@ -1409,7 +1660,7 @@ public final class PipelineRenderer {
                 // the staged ImageBuffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
                 pictureKey = Self.maskSourceFingerprint(recipe: plan.recipe)
-                    .map { photograph + "|" + $0 }
+                    .map { photograph + "|source-generation:\(maskSourceGeneration)|" + $0 }
             } else {
                 // No stage input was built, so nothing in this plan is reading one and
                 // no mask has a fingerprint to state. WHICH photograph is the key
@@ -1443,6 +1694,13 @@ public final class PipelineRenderer {
                     // `bake` and not before it, so a frame served a stale raster does
                     // not pay for painting it will not use.
                     var painted: [String: Plane] = [:]
+                    // Painted at the size the fold actually runs at: a mask with a
+                    // stroke thinner than `MaskRaster.brushFineRadiusPx` folds on a
+                    // finer grid (Astra M04 / S-10), and `rasterize` refuses a held
+                    // plane of any other size and repaints it from stroke one.
+                    let foldSize = MaskRaster.brushFoldSize(
+                        mask: mask, strokeSets: strokeSets,
+                        size: (width: width, height: height))
                     for (index, component) in mask.components.enumerated()
                     where component.kind == .brush {
                         guard let ref = component.strokesRef,
@@ -1457,7 +1715,7 @@ public final class PipelineRenderer {
                         painted[ref] = brushPlanes.plane(
                             componentKey: "\(mask.id)#\(index)",
                             set: set,
-                            size: (width: width, height: height),
+                            size: foldSize,
                             sourceKey: automasked ? (sourceKey ?? "-") : "-",
                             source: automasked ? source : nil)
                     }
@@ -1473,16 +1731,20 @@ public final class PipelineRenderer {
                                               masks: plan.allMasks)
                 }
                 let alpha: Plane
+                let dependencies = MaskDependency.closure(of: mask, in: plan.allMasks)
                 if let sourceKey,
-                   let maskJSON = (try? CanonicalJSON.tree(of: mask))
-                       .map(CanonicalJSON.serialize) {
-                    let strokesKey = mask.components.compactMap(\.strokesRef)
+                   let maskJSON = Self.maskSelectionFingerprint(dependencies) {
+                    // Blob refs are content-addressed. Include their availability from
+                    // the entire closure too: a disabled donor's strokes may arrive
+                    // after this borrower's empty raster was cached.
+                    let refs = Set(dependencies.flatMap { $0.components.compactMap(\.strokesRef) })
+                    let strokesKey = refs.sorted()
                         .map { "\($0):\(strokeSets[$0]?.strokes.count ?? 0)" }
                         .joined(separator: ",")
-                    // The matte KIND NAMES, not the matte pixels — which is why this
-                    // term cannot stand in for the photograph, and why it was so easy
-                    // to mistake for a term that could.
+                    // A regenerated matte can keep its kind and photograph. Its
+                    // generation prevents a referenced selection retaining old pixels.
                     let mattesKey = aiMattes.keys.sorted().joined(separator: ",")
+                        + "@\(mattes[sourceURL]?.generation ?? 0)"
                     let key = Self.maskRasterKey(sourceURL: sourceURL,
                                                  maskJSON: maskJSON,
                                                  width: width, height: height,
@@ -1577,7 +1839,8 @@ public final class PipelineRenderer {
         let height = Swift.max(Int(extent.height * fit), 8)
 
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
-                               height: height, extent: extent, strokeSets: strokeSets)
+                               height: height, extent: extent, strokeSets: strokeSets,
+                               masks: [mask])
         return MaskRaster.combine(mask: mask,
                                   size: (width: width, height: height),
                                   source: stage,
@@ -1596,26 +1859,14 @@ public final class PipelineRenderer {
     /// pure geometry and a brush is pure geometry plus its stroke set.
     private func maskSource(decoded: CIImage, plan: RenderPlan,
                             width: Int, height: Int, extent: CGRect,
-                            strokeSets: [String: BrushStrokeSet]) -> ImageBuffer? {
-        /// A brush is pure geometry UNLESS one of its strokes has Automask on, which
-        /// gates each stamp on a colour difference against the picture.
-        ///
-        /// `MaskKind.brush.readsSourceImage` is false, correctly, for a plain brush —
-        /// but that made this test skip the stage input whenever Refine was 0, and
-        /// `MaskRaster.paint` then computes `stroke.automask && source != nil`, which is
-        /// false, and drops the ΔE gate entirely. So the Automask toggle did nothing in
-        /// preview or export while the CPU reference honoured it, and turning Refine up
-        /// to 3 switched it back on by accident.
-        func usesAutomask(_ component: MaskComponent) -> Bool {
-            guard component.kind == .brush, let ref = component.strokesRef,
-                  let set = strokeSets[ref] else { return false }
-            return set.strokes.contains { $0.automask }
-        }
-
-        let needsPicture = plan.masks.contains { mask in
-            mask.components.contains { $0.kind.readsSourceImage || usesAutomask($0) }
-                || MaskRaster.refineRadius(feather: mask.refine.feather,
-                                           longEdge: Swift.max(width, height)) >= 1
+                            strokeSets: [String: BrushStrokeSet],
+                            masks: [Mask]? = nil) -> ImageBuffer? {
+        // Rendering starts at enabled masks; an overlay starts at the requested row,
+        // even when it is disabled. Both need the complete reference closure, not just
+        // the root's own kinds: a disabled luma donor still lends its selection.
+        let needsPicture = (masks ?? plan.masks).contains { mask in
+            Self.maskReadsPicture(mask, in: plan.allMasks, strokeSets: strokeSets,
+                                  longEdge: Swift.max(width, height))
         }
         guard needsPicture else { return nil }
 
@@ -1627,10 +1878,13 @@ public final class PipelineRenderer {
         // The mask is sampling the picture's LUMINANCE and COLOUR, and the spatial
         // stages move neither meaningfully at this size. Skipping them keeps this to
         // one cheap pass — under its own name now that `draft` no longer gates stages.
-        let staged = RenderGraph().localStageInput(
-            small, plan: plan,
-            options: RenderGraph.Options(longEdge: Swift.max(width, height),
-                                         maskSource: true))
+        // With the painted heal strokes, as the render's S5 has them: a band selects
+        // the photograph without the blemish the photographer removed.
+        let staged = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
+            .localStageInput(
+                small, plan: plan,
+                options: RenderGraph.Options(longEdge: Swift.max(width, height),
+                                             maskSource: true))
         return Self.buffer(from: staged, context: context)
     }
 
@@ -1664,7 +1918,7 @@ public final class PipelineRenderer {
     ///    by evaluating the referenced stack with the same `source`, so "Sky ∩ Person"
     ///    reads the picture exactly when Sky or Person does. `MaskDependency.closure`
     ///    is the walk — the same one used everywhere else that has to follow a
-    ///    reference — so it terminates on a cycle and leads with `mask` itself.
+    ///    reference — so it terminates on a cycle and includes `mask` itself.
     ///
     /// Conservative in the direction that matters: every route by which the rasterizer
     /// could touch `source` for this mask puts the fingerprint back in its key. Being
@@ -1695,7 +1949,11 @@ public final class PipelineRenderer {
     /// callers stating the same dependency two ways is how they drift apart.
     public static func maskSourceFingerprint(recipe: Recipe) -> String? {
         var parts: [String] = []
+        // `develop.heal` because S5 runs inside the mask source (`colorStageInput`):
+        // a spot changes the pixels a luma or colour band selects from, and a key that
+        // omitted it would serve the raster of the picture before the spot.
         let inputs: [any Encodable] = [
+            recipe.develop.heal,
             recipe.develop.raw, recipe.develop.tone, recipe.develop.zones,
             recipe.develop.color, recipe.develop.mixer, recipe.develop.pointColors,
             recipe.look.wheels, recipe.look.printerLights, recipe.look.primaries,
@@ -1706,6 +1964,23 @@ public final class PipelineRenderer {
             parts.append(CanonicalJSON.serialize(tree))
         }
         return parts.joined(separator: "|")
+    }
+
+    /// Only selection fields affect an alpha plane. Adjustment strength, colour edits,
+    /// names and folder membership do not; referenced selections include their own
+    /// components, inversion and refinement, regardless of whether their edits are on.
+    static func maskSelectionFingerprint(_ dependencies: [Mask]) -> String? {
+        struct Selection: Encodable {
+            var id: String
+            var components: [MaskComponent]
+            var invert: Bool
+            var refine: MaskRefine
+        }
+        let selections = dependencies.map {
+            Selection(id: $0.id, components: $0.components,
+                      invert: $0.invert, refine: $0.refine)
+        }
+        return (try? CanonicalJSON.tree(of: selections)).map(CanonicalJSON.serialize)
     }
 
     /// One mask raster's `MaskRasterCache` key — the ONLY place a raster key is
@@ -1726,10 +2001,11 @@ public final class PipelineRenderer {
     /// a pasted mask definition share a key, and one frame wears the other's
     /// rasterized selection in the loupe and in the delivered file.
     ///
-    /// None of the other terms can stand in for it. `maskJSON` is the mask DEFINITION,
+    /// None of the other terms can stand in for it. `maskJSON` is the selection closure,
     /// which Paste Settings makes identical on purpose. `WxH` is the raster size, which
     /// collides across every frame of the same aspect. `strokesKey` is stroke refs and
-    /// counts. `mattesKey` is the matte KIND names — `aiSubject`, not the subject.
+    /// counts throughout the closure. `mattesKey` includes the matte kinds and their
+    /// stored generation, so replacing pixels invalidates a same-kind selection.
     /// `sourceKey` is the picture-source fingerprint, and it is PER MASK: "-" for a
     /// mask whose dependency closure reads no picture at all, so a brush or a polygon
     /// stops being invalidated by a tone edit it does not depend on. It is not, and
@@ -1954,8 +2230,17 @@ public final class PipelineRenderer {
     /// two therefore differ by the difference between two local averages of the same
     /// picture, which is nothing on a flat patch and small on a busy one — against a
     /// pre-existing error that was the whole of S7 plus the whole of S9/S10.
+    ///
+    /// `pointColorSwatch` — the mask and swatch index a mask Point Colour pick feeds —
+    /// carries the sample on through the mask's OWN sub-recipe as far as that swatch
+    /// reads: the mask's exposure, tone and white balance, then its earlier swatches
+    /// (`ReferenceRenderer.localSelectionInput`). The stage input alone is what a
+    /// Colour Range component compares, but not what a mask's swatch compares — the
+    /// global picker's AI-02 gap, one level down. Applied to the window mean, as the
+    /// global tap is. Nil (a Colour Range or Similarity pick) leaves the tap as it was.
     public func sampleMaskStageInput(source: any ImageSource, recipe: Recipe,
                                      sourceX: Double, sourceY: Double,
+                                     pointColorSwatch: (maskID: String, index: Int)? = nil,
                                      radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
@@ -1974,8 +2259,14 @@ public final class PipelineRenderer {
         // the same thing it did going in. Every stage in that list preserves the
         // extent today; a stage that stopped doing so would otherwise move the
         // eyedropper rather than fail.
-        return sampleMean(staged.cropped(to: decoded.extent),
-                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+        guard let input = sampleMean(staged.cropped(to: decoded.extent),
+                                     sourceX: sourceX, sourceY: sourceY, radius: radius)
+        else { return nil }
+        guard let swatch = pointColorSwatch,
+              let mask = plan.recipe.masks.first(where: { $0.id == swatch.maskID })
+        else { return input }
+        return ReferenceRenderer.localSelectionInput(input, mask: mask, plan: plan,
+                                                     swatchIndex: swatch.index)
     }
 
     /// One sample of the image the COLOUR stage receives — S3 through S8, the value
@@ -1988,8 +2279,19 @@ public final class PipelineRenderer {
     /// photograph carrying any real tone move selected the wrong colour, and the
     /// error grew with the edit. Through `RenderGraph.colorStageInput`, the same
     /// expression the render uses, never a re-derivation.
+    ///
+    /// AND THEN THROUGH THE STAGE AS FAR AS THE SELECTION READS (AI-02). The colour
+    /// stage's input is still not what a swatch compares: `ColorEngine.apply` runs the
+    /// primaries and the Mixer first, and every earlier swatch, so after a Red Hue +100
+    /// a red picked here sat a band away from the pixel its swatch was judging, and
+    /// Saturation −100 left 0.1198 of 0.12 chroma at Range 0. `tap` says which
+    /// selection the pick feeds and `ColorEngine.selectionInput` runs the same sequence
+    /// `apply` does, stopped where that selection reads. Applied to the window MEAN, so
+    /// on a busy patch it is the stage of the average rather than the average of the
+    /// stage — the same order of approximation the mean itself already is.
     public func sampleColorStageInput(source: any ImageSource, recipe: Recipe,
                                       sourceX: Double, sourceY: Double,
+                                      tap: ColorEngine.SelectionTap,
                                       radius: Int = 2) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
@@ -2004,8 +2306,84 @@ public final class PipelineRenderer {
         let staged = RenderGraph().colorStageInput(
             decoded, plan: plan,
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
-        return sampleMean(staged.cropped(to: decoded.extent),
-                          sourceX: sourceX, sourceY: sourceY, radius: radius)
+        guard let input = sampleMean(staged.cropped(to: decoded.extent),
+                                     sourceX: sourceX, sourceY: sourceY, radius: radius)
+        else { return nil }
+        // The plan's own recipe and measured hues, so the engine is the render's.
+        let engine = ColorEngine(mixer: plan.recipe.develop.mixer,
+                                 pointColors: plan.recipe.develop.pointColors,
+                                 color: plan.recipe.develop.color,
+                                 primaries: plan.recipe.look.primaries,
+                                 bw: plan.recipe.look.bw,
+                                 bandMeanHues: plan.bandMeanHues)
+        return engine.selectionInput(input, for: tap)
+    }
+
+    /// The picture a new spot's source is searched in: the S5 INPUT — the decode,
+    /// through the spots that come before it in the list — cut to the window
+    /// `SpotSourceSearch.window` names and scaled to the search's working size.
+    ///
+    /// Through the spots before it, so a new spot can borrow from a patch an earlier one
+    /// already cleaned, which is what it will actually be sampling when it renders. NOT
+    /// through S3 denoise: the search scores texture similarity on a downscaled window,
+    /// where the profiled noise reduction moves nothing the ranking can see, and paying a
+    /// wavelet stack per click for it would be a cost with no answer attached.
+    ///
+    /// Lazy like every other tap here: only the window is rendered.
+    public func healSearchBuffer(source: any ImageSource, recipe: Recipe, spot: HealSpot,
+                                 priorSpots: [HealSpot])
+        -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
+            sourceWidth: Int, sourceHeight: Int)? {
+        healSearchBuffer(source: source, recipe: recipe,
+                         window: { SpotSourceSearch.window(for: spot, sourceWidth: $0,
+                                                           sourceHeight: $1) },
+                         priorSpots: priorSpots, priorStrokes: [])
+    }
+
+    /// The same picture for a new painted heal STROKE: the decode through every spot and
+    /// the strokes before it — what the stroke will sample when it renders (spots
+    /// first, then strokes in draw order) — cut to `StrokeSourceSearch.window`.
+    public func healStrokeSearchBuffer(source: any ImageSource, recipe: Recipe,
+                                       stroke: BrushStroke, priorStrokes: [BrushStroke])
+        -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
+            sourceWidth: Int, sourceHeight: Int)? {
+        healSearchBuffer(source: source, recipe: recipe,
+                         window: { StrokeSourceSearch.window(for: stroke, sourceWidth: $0,
+                                                             sourceHeight: $1) },
+                         priorSpots: recipe.develop.heal.spots, priorStrokes: priorStrokes)
+    }
+
+    private func healSearchBuffer(source: any ImageSource, recipe: Recipe,
+                                  window windowFor: (Int, Int) -> SpotSourceSearch.Window,
+                                  priorSpots: [HealSpot], priorStrokes: [BrushStroke])
+        -> (buffer: ImageBuffer, window: SpotSourceSearch.Window,
+            sourceWidth: Int, sourceHeight: Int)? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        Self.stampRenderIdentity(source)
+        let extent = decoded.extent
+        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1 else { return nil }
+        let width = Int(extent.width.rounded()), height = Int(extent.height.rounded())
+        let window = windowFor(width, height)
+        var staged = RenderGraph.applySpots(decoded, spots: priorSpots)
+        if !priorStrokes.isEmpty {
+            staged = RenderGraph.applyHealStrokes(staged, strokes: priorStrokes)
+        }
+        // The window is top-down; Core Image is bottom-up.
+        let rect = CGRect(x: extent.minX + CGFloat(window.x),
+                          y: extent.minY + extent.height
+                              - CGFloat(window.y + window.height),
+                          width: CGFloat(window.width), height: CGFloat(window.height))
+        var cut = staged.cropped(to: rect)
+            .transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+        if window.scale < 1 {
+            cut = cut.applyingFilter("CILanczosScaleTransform", parameters: [
+                kCIInputScaleKey: window.scale, kCIInputAspectRatioKey: 1.0,
+            ]).cropped(to: CGRect(x: 0, y: 0, width: window.bufferWidth,
+                                  height: window.bufferHeight))
+        }
+        guard let buffer = Self.buffer(from: cut, context: context) else { return nil }
+        return (buffer, window, width, height)
     }
 
     /// The mean of a small window about a normalized source coordinate, read back in

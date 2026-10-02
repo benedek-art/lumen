@@ -156,6 +156,11 @@ struct BeforeAfterPair: View {
     let mode: BeforeAfterMode
     let before: CGImage
     let after: CGImage
+    /// The `[` / `]` inspection hold, applied to BOTH panes. These were the one pair of
+    /// photograph plates in the app drawn without it, so in `Y` / `⌥Y` the badge said
+    /// "HIGHLIGHT INSPECT −2 EV" over a picture that had not moved (W2/H1-06) — a
+    /// momentary inspection announcing a change it did not make.
+    var hold: InspectionHold? = nil
 
     var body: some View {
         Group {
@@ -177,7 +182,8 @@ struct BeforeAfterPair: View {
     private func pane(_ image: CGImage, label: String) -> some View {
         ZStack(alignment: .bottomLeading) {
             Lumen.viewerBackground
-            Image(decorative: image, scale: 1, orientation: .up)
+            Image(decorative: InspectionGain.displayed(image, hold: hold),
+                  scale: 1, orientation: .up)
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
@@ -486,6 +492,73 @@ struct ClippingOverlayView: View {
         guard v.isFinite else { return 0 }
         let scaled = (Swift.min(Swift.max(v, 0), 1) * 255).rounded()
         return UInt8(Swift.min(Swift.max(scaled, 0), 255))
+    }
+}
+
+// MARK: - Visualize Spots
+
+/// The Heal tool's dust view (docs/09 §Dust Removal, LR's "Visualize Spots"): the
+/// photograph replaced by `LumenCore.SpotVisualization`'s inverted band-pass, so a speck
+/// of sensor dust in a sky reads as a black mark on white.
+///
+/// A VIEW, built from the sampler's display bytes exactly as `ClippingOverlayView` is,
+/// and opaque so it covers the picture rather than tinting it. It is never in the
+/// recipe and never in a render: the export path has no way to reach it, and
+/// `SpotVisualizationTests` scans the renderers to keep it so.
+struct SpotVisualizationView: View {
+
+    let sampler: PixelSampler
+    let threshold: Double
+
+    @State private var overlay: CGImage?
+
+    private struct BuildKey: Equatable {
+        let sampler: UUID
+        let threshold: Double
+    }
+
+    var body: some View {
+        Group {
+            if let overlay {
+                Image(decorative: overlay, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.high)
+            } else {
+                Color.clear
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: BuildKey(sampler: sampler.id, threshold: threshold)) {
+            await rebuild()
+        }
+    }
+
+    @MainActor
+    private func rebuild() async {
+        let source = sampler
+        let wanted = threshold
+        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+            SpotVisualizationView.build(sampler: source, threshold: wanted)
+        }.value
+        guard !Task.isCancelled else { return }
+        overlay = built
+    }
+
+    nonisolated static func build(sampler: PixelSampler, threshold: Double) -> CGImage? {
+        let width = sampler.width, height = sampler.height
+        guard let luma = SpotVisualization.luma(rgba: sampler.bytes, width: width,
+                                                height: height) else { return nil }
+        let grey = SpotVisualization.render(luma: luma, width: width, height: height,
+                                            threshold: threshold)
+        guard grey.count == width * height,
+              let space = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2),
+              let provider = CGDataProvider(data: Data(grey) as CFData) else { return nil }
+        return CGImage(width: width, height: height,
+                       bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: width,
+                       space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true,
+                       intent: .defaultIntent)
     }
 }
 

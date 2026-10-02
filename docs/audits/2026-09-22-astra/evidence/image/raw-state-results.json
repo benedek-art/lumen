@@ -1,0 +1,49 @@
+{
+  "file": "A7401502.ARW",
+  "draftStates": [
+    false,
+    true,
+    false
+  ],
+  "scaleFactors": [
+    0.1,
+    0.5,
+    1
+  ],
+  "decoder7and8": "nativeSize remains7008x4672 before/afteroutputImage at alltestedstates",
+  "decoder9": {
+    "scale01or05": {
+      "nativeBeforeOutput": [
+        3572,
+        2120
+      ],
+      "nativeAfterOutput": [
+        3504,
+        2336
+      ]
+    },
+    "scale1": {
+      "nativeBeforeOutput": [
+        7008,
+        4672
+      ],
+      "nativeAfterOutput": [
+        7008,
+        4672
+      ]
+    }
+  },
+  "outputAtScale01": [
+    468,
+    701
+  ],
+  "outputAtScale05": [
+    2336,
+    3504
+  ],
+  "outputAtScale1": [
+    4672,
+    7008
+  ],
+  "scope": "RawStateProbe runs eachsequenceononefilter;nativeSize reads are dynamic underRAW9."
+}

@@ -547,6 +547,10 @@ struct LumenSlider: View {
     /// modified and stops following a retuned preset. Every one of those panels already
     /// has a correct clear action; the slider's own gesture contradicted them.
     var onReset: (() -> Void)?
+    /// What VoiceOver calls this row when `title` is empty — the colour wheels'
+    /// lightness bar is the one such row. Ignored when there is a title: the words on
+    /// screen are the name (UX-03, `SliderAccessibility.label`).
+    var accessibilityName: String? = nil
 
     @State private var isDragging = false
     @State private var dragStartValue: Double = 0
@@ -791,6 +795,38 @@ struct LumenSlider: View {
         // `LumenScrollNudge.swift`; everything about it that a Mac is not needed to run
         // is `ScrollNudge` in LumenCore.
         .lumenOptionScrollNudge { wheelNudge($0) }
+        // ONE ADJUSTABLE ELEMENT PER ROW (UX-03). The row is shapes and gestures, so
+        // the accessibility tree saw only its text: a section read as one run of static
+        // words — "Tone Exposure 0.00 Contrast 0 …" — with no control, no value and no
+        // way to change it. The children are replaced by a single element carrying the
+        // name on screen, the readout's digits and the tooltip's sentence, and
+        // increment/decrement move exactly one of the control's own steps through the
+        // same gesture bracket a key press uses — one undo step, deferred write landed.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(SliderAccessibility.label(title: title,
+                                                           name: accessibilityName)))
+        .accessibilityValue(Text(SliderAccessibility.value(value, decimals: decimals)))
+        .accessibilityHint(Text(help ?? ""))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: accessibilityStep(.increment)
+            case .decrement: accessibilityStep(.decrement)
+            @unknown default: break
+            }
+        }
+    }
+
+    /// One VoiceOver increment or decrement: a single step of this control, never the
+    /// ⇧-ten `nudge` reads off the keyboard, bracketed like a key press so it is one
+    /// undo step and its deferred write lands at once.
+    private func accessibilityStep(_ direction: SliderAccessibility.Direction) {
+        let next = SliderAccessibility.adjusted(value, direction, track: scrubTrack)
+        guard next != value, next.isFinite else { return }
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        commit(next)
+        onEditingChanged?(false)
+        sliderGestureChanged(false)
     }
 
     /// One arrow press, ten under ⇧.
@@ -1426,6 +1462,34 @@ struct LumenSectionHeader: View {
     /// frame back; a photographer deciding which to press is exactly who is hovering.
     /// Nil for the sections where Reset's scope is the obvious one.
     var resetHelp: String? = nil
+
+    /// THE SECTION'S OWN VERB, in the header, so the fold governs everything under it.
+    ///
+    /// The sources sidebar is why this exists. Each of its sections kept its one-click
+    /// verb OUTSIDE the `if …Expanded` — originally because a `.keyboardShortcut` on a
+    /// view that is not in the hierarchy is never registered, so a chord-bearing button
+    /// inside a section that ships closed is a dead chord. That reason is gone (the three
+    /// chords moved to the Scene's commands), but the shape stayed, and the shape is a
+    /// lie: a section drawn with a closed triangle that still shows a row underneath is
+    /// telling the photographer the fold means something it does not.
+    ///
+    /// Putting the verb in the header row settles it without giving the verb up. The
+    /// triangle then governs exactly what sits beneath it, and docs/12 §12.12's rule —
+    /// "every panel leads with its one-click entry point" — is honoured more literally
+    /// than before, because the entry point is now IN the lead row rather than under it.
+    ///
+    /// Unlike Reset this is always visible rather than fading in on hover. Reset can hide
+    /// because the accent dot already answers "did I touch this?" from across the panel;
+    /// an ADD affordance has no such second signal, and one that appears only under the
+    /// pointer is one a photographer has to already know about to find.
+    var onAction: (() -> Void)?
+    /// The glyph. Must be a symbol this app already draws — `Image(systemName:)` handed
+    /// an unknown name renders nothing at all, with no placeholder and no log.
+    var actionSymbol: String = "plus"
+    var actionHelp: String? = nil
+    /// Greyed and unclickable rather than absent, so the header does not reflow as a
+    /// selection changes under it.
+    var actionEnabled: Bool = true
     /// The space that says "a new section begins here" — and it is what replaced the
     /// hairline that used to say it.
     ///
@@ -1479,6 +1543,16 @@ struct LumenSectionHeader: View {
     /// never goes anywhere observable — see `CommandState` for what a per-event publish
     /// costs a drag.
     @State private var hovering = false
+    /// Whether the pointer is over the verb WHILE it is greyed — the one spot in an
+    /// interactive row that answers no click (V7 D1). Row-local like `hovering`.
+    @State private var overDisabledVerb = false
+
+    /// The row's pointing hand: on wherever a click does something, which is the whole
+    /// interactive row EXCEPT a greyed verb. The swallowing layer below stops that
+    /// click; without this the hand still promised one over it.
+    private var rowCursorEnabled: Bool {
+        isInteractive && !(overDisabledVerb && !actionEnabled)
+    }
 
     /// Whether a click on this header means anything. False for a header that is only
     /// a group label — no chevron, no accordion callback — in which case the hover fill
@@ -1583,6 +1657,41 @@ struct LumenSectionHeader: View {
                     .frame(width: 5, height: 5)
             }
             Spacer()
+            if let onAction {
+                Button(action: onAction) {
+                    Image(systemName: actionSymbol)
+                        .font(.lumenGlyphCaption)
+                        // A real target on a 10 pt glyph, and the same 16 pt box the
+                        // other glyph-only buttons in this app use.
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(actionEnabled ? Lumen.secondaryText : Lumen.tertiaryText)
+                .disabled(!actionEnabled)
+                .lumenClickCursor(actionEnabled)
+                .help(actionHelp ?? "")
+                // A DISABLED BUTTON DOES NOT CONSUME ITS CLICK (V7 D1). The click falls
+                // through to the row's own `.onTapGesture { toggle() }`, so pressing the
+                // greyed tray glyph on Albums (no target album) or Stack (fewer than two
+                // selected) folded the section instead of doing nothing. A clear,
+                // hit-testable layer with its own empty tap claims the click while the
+                // verb is disabled; the innermost tap gesture wins over the row's.
+                .overlay {
+                    if !actionEnabled {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {}
+                            // And the row's pointing hand stands down over it: the
+                            // cursor region is the whole row, so the glyph that does
+                            // nothing still wore the hand that says "click".
+                            .onHover { overDisabledVerb = $0 }
+                            // A layer that goes while the pointer is on it gets no
+                            // exit event; the flag must not outlive it.
+                            .onDisappear { overDisabledVerb = false }
+                    }
+                }
+            }
             if let onReset, isModified {
                 // Reset appears on hover (design audit step 3, and Lightroom's own
                 // behaviour). A develop panel can hold a dozen modified sections and a
@@ -1658,8 +1767,9 @@ struct LumenSectionHeader: View {
         // One cursor region for the whole header rather than one on the chevron: the
         // row and the arrow do the same thing, so the pointing hand should not appear
         // over 20 points of a 300-point target. Gated the same way the hover fill is —
-        // a pointing hand over a label that answers no click is a promise broken.
-        .lumenClickCursor(isInteractive)
+        // a pointing hand over a label that answers no click is a promise broken — and
+        // over a greyed verb inside the row, for the same reason (`rowCursorEnabled`).
+        .lumenClickCursor(rowCursorEnabled)
         .animation(Lumen.motionState, value: hovering)
         .padding(.top, topRhythm)
     }
@@ -1899,6 +2009,29 @@ struct LumenColorWheel: View {
                         sliderGestureChanged(false)
                     }
             )
+            // THE PUCK AS AN ADJUSTABLE ELEMENT (UX-03). The disc is gradients and a
+            // drag, so it was invisible to VoiceOver. It now reads as one element whose
+            // value is both halves of the puck, whose increment/decrement move its
+            // strength one percent, and whose named actions turn the hue — every write
+            // bracketed like a click, so each is one undo step.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(title.isEmpty ? "Colour wheel" : "\(title) colour wheel"))
+            .accessibilityValue(Text(SliderAccessibility.wheelValue(hue: hue, saturation: sat)))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    accessibilityWrite { sat = SliderAccessibility.adjustedWheelStrength(sat, .increment) }
+                case .decrement:
+                    accessibilityWrite { sat = SliderAccessibility.adjustedWheelStrength(sat, .decrement) }
+                @unknown default: break
+                }
+            }
+            .accessibilityAction(named: Text("Turn hue clockwise")) {
+                accessibilityWrite { hue = SliderAccessibility.rotatedWheelHue(hue, by: 1) }
+            }
+            .accessibilityAction(named: Text("Turn hue anticlockwise")) {
+                accessibilityWrite { hue = SliderAccessibility.rotatedWheelHue(hue, by: -1) }
+            }
 
             if !title.isEmpty {
                 Text(title)
@@ -1930,14 +2063,24 @@ struct LumenColorWheel: View {
                 Text("Luminance")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
-                    .help("Luminance — the zone's own brightness, up to half a stop "
-                          + "each way, holding its colour rather than washing it out. "
+                    .help("Luminance — the zone's perceptual brightness, up to "
+                          + "1.5 stops on neutral tones each way. Overlapping zone edits "
+                          + "may be eased to preserve tonal separation. "
                           + "Drag the bar, or double-click it to reset.")
             } else {
                 lightnessBar
                     .frame(width: diameter + 40)
             }
         }
+    }
+
+    /// One assistive write, bracketed the way a click on the disc is.
+    private func accessibilityWrite(_ write: () -> Void) {
+        onEditingChanged?(true)
+        sliderGestureChanged(true)
+        write()
+        onEditingChanged?(false)
+        sliderGestureChanged(false)
     }
 
     /// The lightness bar, one definition for both framings above.
@@ -1954,7 +2097,10 @@ struct LumenColorWheel: View {
                     // wheels true — it has been claiming "the bar under each wheel
                     // is the zone's own lightness" over an undifferentiated grey.
                     trackStops: Lumen.wheelLightnessStops,
-                    onEditingChanged: onEditingChanged)
+                    onEditingChanged: onEditingChanged,
+                    // Untitled on screen, so it is named for VoiceOver — after the
+                    // wheel it belongs to where the wheel has a caption.
+                    accessibilityName: title.isEmpty ? "Luminance" : "\(title) luminance")
     }
 
     private var puck: some View {
@@ -1977,9 +2123,93 @@ struct LumenColorWheel: View {
     /// instrument to neon. The mixer's hue ring took the matching step in its own
     /// colour system (`ColorPanel.hueColor`), so the two colour instruments read as
     /// siblings rather than one rich and one washed.
-    static let wheelColors: [Color] = (0..<13).map {
-        Color(hue: Double($0) / 12, saturation: 0.72, brightness: 0.8)
+    /// THE RING IS PAINTED IN THE COLOUR SYSTEM THE ENGINE READS IT IN, which is B2-02
+    /// and was not true until now.
+    ///
+    /// This was `Color(hue: i/12, saturation: 0.72, brightness: 0.8)` — SwiftUI HSB —
+    /// while `ZoneOffset.init` (GradeEngine) takes the SAME angle and uses it as an
+    /// OKLab **ab** angle: `a = amplitude·cos(θ)`, `b = amplitude·sin(θ)`. Two different
+    /// hue circles wearing one number. Measured across 24 angles: mean 29.6°, worst
+    /// 50.3° of error between the colour under the cursor and the colour the render
+    /// applies. Drag the puck to the orange the ring shows and the picture goes yellow.
+    ///
+    /// `Lumen.hueColor` is the mixer's ring conversion, which had it right all along —
+    /// OKLCh through the working space to sRGB, where OKLCh's `h` IS the engine's
+    /// `atan2(b, a)`. The comment two paragraphs up has always said these two
+    /// instruments should "read as siblings"; they are the same instrument now.
+    ///
+    /// Position is untouched. The puck's drag reads `atan2(dy, dx)` in screen space,
+    /// clockwise from three o'clock, which is exactly where `AngularGradient` starts and
+    /// which way it runs — so only the paint moves and every stored `wheel.hue` still
+    /// means the pixel it always meant.
+    static let wheelColors: [Color] = (0...12).map {
+        Lumen.hueColor(Double($0) / 12 * 360)
     }
+}
+
+extension Lumen {
+    /// THE SIX BASIC TONE ROWS' GEOMETRY, in one place, because two surfaces write these
+    /// fields and they were not agreeing about how.
+    ///
+    /// `BasicPanel` builds a `LumenSlider` per row, which clamps to `range`, snaps to
+    /// `step`, and accepts a wider `hardRange` from typing. `HistogramView`'s five
+    /// draggable zone handles write the SAME five fields through their own
+    /// `updateRecipe`, and re-implemented the clamp as `slider == .exposure ? 5 : 100`
+    /// with NO step at all — so a histogram drag could leave Exposure at 0.374296…,
+    /// a value the slider that displays it can neither produce nor return to, and which
+    /// its readout then rounds to a number the recipe does not hold.
+    ///
+    /// Stated once here and consumed by the histogram through `SliderTrack.resolve`,
+    /// which is the same clamp-then-snap `LumenSlider` performs. `ToneRowGeometryTests`
+    /// pins these against the panel's own literals, since the panel still spells them at
+    /// its call sites where a reader expects to find them.
+    enum ToneRow: String, CaseIterable {
+        case blacks, shadows, exposure, highlights, whites
+
+        /// Where dragging pins.
+        var range: ClosedRange<Double> {
+            self == .exposure ? -5...5 : -100...100
+        }
+
+        /// Where typing is still accepted — wider than `range` on Exposure only.
+        var hardRange: ClosedRange<Double> {
+            self == .exposure ? -10...10 : -100...100
+        }
+
+        var step: Double { self == .exposure ? 0.01 : 1 }
+
+        /// The clamp AND the snap, so a value written from anywhere is a value the row
+        /// can display and return to.
+        func resolve(_ value: Double) -> Double {
+            guard value.isFinite else { return 0 }
+            return SliderTrack(width: 1, lowerBound: range.lowerBound,
+                               upperBound: range.upperBound, step: step,
+                               scale: .linear).resolve(value)
+        }
+    }
+
+    /// The sRGB a hue ANGLE means in the colour system the engines actually work in.
+    ///
+    /// Both of this app's colour instruments name a hue by an angle and hand that angle
+    /// to an engine that reads it as OKLCh `h` — the mixer's band ring and the grading
+    /// wheel. Painting either of them from SwiftUI's HSB puts a different colour under
+    /// the cursor than the render produces, which is B2-02: 29.6° of mean error on the
+    /// grading wheel until it started calling this.
+    ///
+    /// Lives here, in the kit, because two callers in two files is exactly how a
+    /// conversion comes to exist twice and drift.
+    static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.16) -> Color {
+        let working = OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: degrees))
+        let display = Lumen.workingToSRGB.apply(working)
+        let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(display.r),
+                                                       Num.saturate(display.g),
+                                                       Num.saturate(display.b)))
+        return Color(red: Num.saturate(encoded.r),
+                     green: Num.saturate(encoded.g),
+                     blue: Num.saturate(encoded.b))
+    }
+
+    static let workingToSRGB: Mat3 = ColorEngine.workingSpace.matrix(to: .srgb)
 }
 
 // MARK: - Small helpers
@@ -2074,6 +2304,85 @@ struct LumenBadge: View {
             // "marker scale, never area" — a badge is a marker.
             .background(emphasized ? Lumen.accent.opacity(0.8) : Lumen.hudFill)
             .clipShape(Capsule(style: .continuous))
+    }
+}
+
+/// THE ONE FIELD THE SIDEBAR ADDS THINGS WITH — an album, a keyword.
+///
+/// It was written twice, byte for byte apart from the placeholder, the binding and the
+/// verb: thirty-two lines each, carrying two copies of the argument for why the plus
+/// glyph needs a 16 pt content shape (its own bounds are ten points square, which is no
+/// hit target) and two copies of the argument for `lumenWell` (a field must read as
+/// somewhere you type into, so the highlight sits along the BOTTOM lip).
+///
+/// Two copies of a rule is how one of them comes to be missing when the rule moves —
+/// and that had already happened here once: both fields were built with a hardcoded
+/// radius of 4, from before there were three radii, so they sat at the Aqua proportion
+/// while every surface around them went to 9 and 14. One of the two was fixed first.
+///
+/// The focus binding is required rather than optional. A field that can be focused only
+/// sometimes is two components wearing one name, and the caller that has no chord for
+/// it simply declares a `@FocusState` nothing reads.
+/// A sidebar row turned into its own name for editing: Return commits, Escape cancels.
+/// A component for the same reason `SidebarEntryField` is one — a bare `TextField` in the
+/// sidebar is the copy that drifts (`DesignSystemTests.testTheSidebarHasNoHandRolledEntryField`).
+struct SidebarRenameField: View {
+    let placeholder: String
+    @Binding var text: String
+    let commit: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.lumenBody)
+            .foregroundStyle(Lumen.primaryText)
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+            .onSubmit(commit)
+            .onExitCommand(perform: cancel)
+    }
+}
+
+struct SidebarEntryField: View {
+    let placeholder: String
+    /// What the plus button's tooltip says it will do. Its own parameter rather than
+    /// something derived from the placeholder: "Add keyword" lowercased and prefixed
+    /// reads "Add add keyword", which is how a generated string ends up in front of a
+    /// photographer.
+    let actionHelp: String
+    @Binding var text: String
+    var focus: FocusState<Bool>.Binding
+    let submit: () -> Void
+
+    /// Blank, or nothing but spaces: there is nothing to add and the button says so.
+    private var isEmpty: Bool {
+        text.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.lumenBody)
+                .focused(focus)
+                .onSubmit(submit)
+            Button(action: submit) {
+                Image(systemName: "plus")
+                    .font(.lumenGlyphCaption)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Lumen.secondaryText)
+            .lumenClickCursor()
+            .disabled(isEmpty)
+            .help(actionHelp)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Lumen.controlBackground)
+        .lumenWell(radius: Lumen.radiusControl)
     }
 }
 

@@ -26,11 +26,12 @@ final class CatalogService: @unchecked Sendable {
         var catalogID: Int64
         var flag: PhotoFlag
         var rating: Int
-        var label: ColorLabel
+        var label: ColorLabel?
         var recipe: Recipe?
         /// The capture ISO the backfill read, carried through so an unedited photo can
         /// start on the noise-reduction defaults its own gain calls for.
         var iso: Int?
+        var sourceIdentity: SourceFileIdentity? = nil
     }
 
     private let store: CatalogStore
@@ -56,6 +57,7 @@ final class CatalogService: @unchecked Sendable {
     /// nowhere else, so a full disk, a read-only volume or a locked database all
     /// presented as "the edit was applied" until the next launch reverted it.
     var onFailure: ((String) -> Void)?
+    var onInvalidatedPreviews: (([PreviewRow]) -> Void)?
 
     /// The payloads a recipe references rather than contains — brush stroke sets. A
     /// recipe stays small and diffable; the forty kilobytes of stylus samples behind
@@ -76,7 +78,22 @@ final class CatalogService: @unchecked Sendable {
         [URL: (photoID: Int64?, content: SidecarContent,
                stated: SidecarStatedFields)] = [:]
     private var sidecarFlushScheduled = false
+    private var sidecarsClosed = false
+    /// One actionable notice per photo/outage, reset after a successful write.
+    private var reportedSidecarFailures: Set<URL> = []
+    /// Sidecars owed since a quit whose final flush failed, keyed by photo path, and
+    /// mirrored into `meta` (`UnsavedSidecarRecord.metaKey`) so the debt survives the
+    /// process. Guarded by `sidecarLock`.
+    private var unsavedSidecars: [String: UnsavedSidecarRecord] = [:]
+    /// Bare sidecars already reported as of ambiguous ownership this session.
+    /// Confined to `queue`, where `establishLegacySidecarOwners` runs.
+    private var reportedAmbiguousSidecars: Set<String> = []
     private let sidecarLock = NSLock()
+
+    /// Set at open when the last quit left sidecars unwritten. Read once after
+    /// construction, like `recovery.notice`: it is delivered synchronously, because the
+    /// `onFailure` hop that should have carried it at quit never ran.
+    private(set) var unsavedSidecarNotice: String?
 
     /// Which backfill call is the CURRENT one. A folder switch starts a new pass and
     /// the old one — thousands of file opens on the serial maintenance lane, ahead of
@@ -101,6 +118,10 @@ final class CatalogService: @unchecked Sendable {
         self.directory = directory
         self.blobs = try BlobStore(
             directory: directory.appendingPathComponent("blobs", isDirectory: true))
+        // Creative LUTs live on the same shelf as the brush strokes; both renderers read
+        // them through the shared library, which reads them from here.
+        let lutShelf = self.blobs
+        CreativeLUTLibrary.shared.attach { ref in lutShelf.data(for: ref) }
 
         // docs/15 §15.8: `PRAGMA quick_check` on every open, and on failure a restore
         // from the newest backup that passes, with a notice AFTER the fact.
@@ -150,6 +171,82 @@ final class CatalogService: @unchecked Sendable {
         backupQueue.asyncAfter(deadline: .now() + Self.openBackupDelay) { [weak self] in
             self?.backUp(force: false)
         }
+
+        // REL-09, the quit half: what the last quit could not write is owed now.
+        let owed = UnsavedSidecarRecord.decode(
+            try? store.metaValue(UnsavedSidecarRecord.metaKey))
+        if !owed.isEmpty {
+            unsavedSidecarNotice = UnsavedSidecarRecord.notice(for: owed)
+            NSLog("Lumen catalog: %@", unsavedSidecarNotice ?? "")
+            for record in owed { unsavedSidecars[record.photoPath] = record }
+            queue.async { [weak self] in self?.requeueUnsavedSidecars(owed) }
+        }
+    }
+
+    /// Rebuild the owed fields from the CATALOG, the newer truth by now, and queue them.
+    /// Runs on `queue`. A record that cannot be rebuilt (the photo is gone from the
+    /// catalog) is reported once and dropped, so it does not nag every launch.
+    private func requeueUnsavedSidecars(_ records: [UnsavedSidecarRecord]) {
+        var dropped = false
+        for record in records {
+            let url = URL(fileURLWithPath: record.photoPath)
+            let stated = record.statedFields
+            guard let id = record.photoID, let row = try? store.photo(id: id) else {
+                report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt: "
+                       + "the photo is no longer in the catalog.")
+                sidecarLock.lock()
+                unsavedSidecars[record.photoPath] = nil
+                sidecarLock.unlock()
+                dropped = true
+                continue
+            }
+            var recipeFields: (json: String, fingerprint: String, version: Int)?
+            var strokes: String?? = nil
+            if !stated.isDisjoint(with: [.recipe, .strokes]),
+               let recipe = try? store.currentRecipe(photoID: id),
+               let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
+               let fingerprint = try? RecipeFingerprint.fingerprint(recipe) {
+                if stated.contains(.recipe) {
+                    recipeFields = (json, fingerprint,
+                                    Swift.min(recipe.pipelineVersion, supportedPipelineVersion))
+                }
+                if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
+            }
+            let flag: SidecarFlag?
+            switch row.flag {
+            case .pick: flag = stated.contains(.flag) ? .pick : nil
+            case .reject: flag = stated.contains(.flag) ? .reject : nil
+            case .unflagged: flag = stated.contains(.flag) ? SidecarFlag.none : nil
+            }
+            // Keywords come back as additions only: the record names the field, not
+            // the delta, and the catalog's list is the newer truth. A removal that was
+            // still owed when Lumen quit is the one thing this cannot replay.
+            var keywordEdit: SidecarKeywordEdit?
+            if stated.contains(.keywords), let words = try? store.keywords(photoID: id) {
+                keywordEdit = SidecarKeywordEdit(added: words)
+            }
+            enqueueSidecar(for: url, photoID: id,
+                           rating: stated.contains(.rating) ? row.rating : nil,
+                           flag: flag,
+                           label: stated.contains(.label) ? .some(row.label) : nil,
+                           recipe: recipeFields, strokes: strokes,
+                           keywordEdit: keywordEdit)
+        }
+        if dropped { persistUnsavedSidecars() }
+    }
+
+    /// Mirror `unsavedSidecars` into `meta`. Runs on `queue`; reads the map at the time
+    /// it runs, so an earlier-scheduled call can never overwrite a later state.
+    private func persistUnsavedSidecars() {
+        sidecarLock.lock()
+        let value = UnsavedSidecarRecord.encode(Array(unsavedSidecars.values))
+        sidecarLock.unlock()
+        do {
+            try store.setMetaValue(UnsavedSidecarRecord.metaKey, value)
+        } catch {
+            NSLog("Lumen catalog: could not record unsaved sidecars — %@",
+                  String(describing: error))
+        }
     }
 
     private static func backupDirectory(in directory: URL) -> URL {
@@ -161,7 +258,8 @@ final class CatalogService: @unchecked Sendable {
     /// Register a folder, reconcile its files, and return everything already known
     /// about them. Runs on the caller's thread by design: it is called from the
     /// background scan task, never from the main actor.
-    func registerAndLoad(folder: URL, files: [URL]) -> [URL: StoredState] {
+    func registerAndLoad(folder: URL, files: [URL],
+                         completeListing: Bool = true) -> [URL: StoredState] {
         var result: [URL: StoredState] = [:]
         // A scan is when a RAW can gain a same-name sibling; the sidecar naming memo
         // must not outlive it.
@@ -169,6 +267,9 @@ final class CatalogService: @unchecked Sendable {
         queue.sync {
             do {
                 let folderID = try store.registerFolder(path: folder.path)
+                // Resolve historical ownership BEFORE a new sibling is registered
+                // or allowed to import a bare sidecar belonging to an older photo.
+                establishLegacySidecarOwners(folder: folder, folderID: folderID, files: files)
                 // The folder scan is recursive and `photo` is UNIQUE per
                 // (folder, filename), so the basename is not an identity: one card
                 // with day1/ and day2/ subfolders puts two different frames named
@@ -205,10 +306,19 @@ final class CatalogService: @unchecked Sendable {
                     return ScannedFile(filename: name,
                                        fileSize: size, fileMTime: mtime,
                                        quickSig: signature,
-                                       ext: file.pathExtension.lowercased())
+                                       ext: file.pathExtension.lowercased(),
+                                       sourceIdentity: SourceFileIdentity.read(file)?.token)
                 }
-                _ = try store.scan(folderID: folderID, files: scanned,
-                                   at: CatalogStore.now())
+                // A changed stat token is confirmed against the stored quick signature
+                // before the scan invalidates anything; only those files are read.
+                let urlsByName = Dictionary(zip(names, files), uniquingKeysWith: { first, _ in first })
+                let scan = try store.scan(folderID: folderID, files: scanned,
+                                   at: CatalogStore.now(), completeListing: completeListing,
+                                   signature: { scannedFile in
+                                       urlsByName[scannedFile.filename]
+                                           .flatMap { try? QuickSignature.compute(url: $0) }
+                                   })
+                onInvalidatedPreviews?(scan.invalidatedPreviews)
 
                 // ONE PHOTO'S FAILURE COSTS ONE PHOTO. This loop used to sit bare
                 // inside the folder's `do`, so the first `try` that threw abandoned
@@ -262,10 +372,14 @@ final class CatalogService: @unchecked Sendable {
                         sidecarLock.lock()
                         let unflushed = pendingSidecars[file] != nil
                         sidecarLock.unlock()
+                        // Read ONCE. The merge and the stroke restore each read the
+                        // file for themselves; the keyword import below would have
+                        // made it three reads per photograph per folder open.
+                        let sidecar = Self.readSidecar(for: file)
                         let resolution = Self.merge(row: row, recipe: recipe,
                                                     recipeFingerprint: fingerprint,
                                                     hasUnflushedEdits: unflushed,
-                                                    file: file)
+                                                    file: file, sidecar: sidecar)
                         // Before anything reads the recovered recipe: put the sidecar's
                         // brush strokes back into the blob store, so a `strokesRef` in
                         // it resolves to a painting rather than to nothing. Run for
@@ -273,7 +387,8 @@ final class CatalogService: @unchecked Sendable {
                         // that kept its own recipe can still be missing the blob a
                         // shared sidecar carries, which is the "copied the photos and
                         // the .xmp files to a new machine" case.
-                        Self.restoreStrokes(from: file, blobs: blobs)
+                        Self.restoreStrokes(from: sidecar, blobs: blobs)
+                        Self.importKeywords(from: sidecar, photoID: row.id, store: store)
                         // A sidecar fills in where the catalog is silent — and until
                         // now it filled in ONLY the copy handed to the grid. Membership
                         // and ordering are SQL-backed (the whole filter bar compiles to
@@ -286,6 +401,7 @@ final class CatalogService: @unchecked Sendable {
                                               storedRecipe: recipe,
                                               store: store, file: file)
                         result[file] = Self.stored(resolution.state, row: row)
+                        result[file]?.sourceIdentity = SourceFileIdentity.read(file)
                     } catch {
                         withoutTheirRow.append(name)
                         NSLog("Lumen catalog: %@ could not be read from the catalog "
@@ -422,15 +538,23 @@ final class CatalogService: @unchecked Sendable {
                 cursor = last.id
                 // OFF the catalog queue: this is a file open and an EXIF parse per
                 // photograph, and it is what used to hold the lane.
-                let read: [(photoID: Int64, metadata: PhotoMetadata)] =
+                let read: [(photoID: Int64, metadata: PhotoMetadata, url: URL, identity: SourceFileIdentity)] =
                     chunk.compactMap { row in
                         let url = folder.appendingPathComponent(row.filename)
-                        guard let metadata = CaptureMetadataReader.read(url: url)
+                        guard let identity = SourceFileIdentity.read(url),
+                              let metadata = CaptureMetadataReader.read(url: url),
+                              SourceFileIdentity.read(url) == identity
                         else { return nil }
-                        return (photoID: row.id, metadata: metadata)
+                        return (photoID: row.id, metadata: metadata, url: url, identity: identity)
                     }
                 queue.sync {
-                    do { try store.setMetadata(read) }
+                    do {
+                        let current = try read.filter {
+                            guard SourceFileIdentity.read($0.url) == $0.identity else { return false }
+                            return try store.metaValue("source_identity_\($0.photoID)") == $0.identity.token
+                        }
+                        try store.setMetadata(current.map { (photoID: $0.photoID, metadata: $0.metadata) })
+                    }
                     catch {
                         stopped(error)
                         broke = true
@@ -459,15 +583,23 @@ final class CatalogService: @unchecked Sendable {
                 guard let last = chunk.last else { break }
                 signatureCursor = last.id
                 // A megabyte read and a hash per photograph, likewise off the lane.
-                let signed: [(photoID: Int64, signature: String)] =
+                let signed: [(photoID: Int64, signature: String, url: URL, identity: SourceFileIdentity)] =
                     chunk.compactMap { row in
                         let url = folder.appendingPathComponent(row.filename)
-                        guard let signature = try? QuickSignature.compute(url: url)
+                        guard let identity = SourceFileIdentity.read(url),
+                              let signature = try? QuickSignature.compute(url: url),
+                              SourceFileIdentity.read(url) == identity
                         else { return nil }
-                        return (photoID: row.id, signature: signature)
+                        return (photoID: row.id, signature: signature, url: url, identity: identity)
                     }
                 queue.sync {
-                    do { try store.setQuickSigs(signed) }
+                    do {
+                        let current = try signed.filter {
+                            guard SourceFileIdentity.read($0.url) == $0.identity else { return false }
+                            return try store.metaValue("source_identity_\($0.photoID)") == $0.identity.token
+                        }
+                        try store.setQuickSigs(current.map { (photoID: $0.photoID, signature: $0.signature) })
+                    }
                     catch {
                         stopped(error)
                         broke = true
@@ -478,17 +610,157 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    // MARK: - The culling pass (docs/10 §10.6)
+
+    /// Its own lane at BACKGROUND QoS — efficiency cores, the bottom of the scheduler —
+    /// rather than `maintenance`, so the EXIF backfill of the next folder never waits
+    /// behind a face pass, and rather than `queue`, which is the cull keystroke's lane.
+    private let cullingLane = DispatchQueue(label: "dev.lumenapp.catalog.culling",
+                                            qos: .background)
+    /// Same discipline as `backfillGeneration`: a folder switch supersedes the running
+    /// pass, which stops after the photograph it is on. Guarded by `backfillLock`.
+    private var cullingGeneration = 0
+
+    private func isCurrentCullingPass(_ mine: Int) -> Bool {
+        backfillLock.lock()
+        defer { backfillLock.unlock() }
+        return cullingGeneration == mine
+    }
+
+    /// Stop the running culling pass at its next photograph.
+    func cancelCullingAnalysis() {
+        backfillLock.lock()
+        cullingGeneration += 1
+        backfillLock.unlock()
+    }
+
+    /// Measure every frame in `folder` that has no evidence at this analyzer revision,
+    /// regroup the folder's bursts, and report the evidence as it accumulates.
+    ///
+    /// THE KEYSTROKE PATH IS NOT TOUCHED. The decode, the measurement and the face pass
+    /// run here, one photograph at a time; the catalog's serial `queue` is entered once
+    /// per chunk read and once per chunk write, each a handful of statements. Nothing in
+    /// this function runs on the main actor: `onUpdate` is called from this lane, and
+    /// the receiver hops — at most once every `updateInterval`, plus once at the end, so
+    /// a 2,000-frame pass republishes the grid tens of times, not thousands.
+    ///
+    /// Writes `cache.frame_score` and `cache.face` only — never `photo.flag`, never
+    /// `stack` (D37).
+    func analyzeCulling(folder: URL, detectFaces: Bool,
+                        onUpdate: @escaping @Sendable (_ evidence: [Int64: CullingAttention],
+                                                       _ finished: Bool) -> Void) {
+        backfillLock.lock()
+        cullingGeneration += 1
+        let mine = cullingGeneration
+        backfillLock.unlock()
+
+        cullingLane.async { [store, weak self] in
+            guard let queue = self?.queue else { return }
+            func stopped(_ error: Error) {
+                NSLog("Lumen catalog: culling analysis stopped — %@",
+                      String(describing: error))
+            }
+            func current() -> Bool { self?.isCurrentCullingPass(mine) == true }
+
+            // One read for the dot map: scores, plus the frames the closed-eyes chip
+            // would list, so the dot and the chip are the same answer.
+            func evidence(folderID: Int64) throws -> [Int64: CullingAttention] {
+                var eyes = PhotoQuery()
+                eyes.closedEyes = true
+                let closed = Set(try store.photos(matching: eyes, folderID: folderID).map(\.id))
+                return CullingAttention.evidence(scores: try store.frameScores(folderID: folderID),
+                                                 closedEyes: closed)
+            }
+
+            var folderID: Int64 = 0
+            var broke = false
+            queue.sync {
+                do { folderID = try store.registerFolder(path: folder.path) }
+                catch { stopped(error); broke = true }
+            }
+            guard !broke else { return }
+
+            var cursor: Int64 = 0
+            var lastUpdate = Date.distantPast
+            while current() {
+                var chunk: [Int64] = []
+                var names: [Int64: String] = [:]
+                queue.sync {
+                    do {
+                        chunk = try store.photosMissingFrameScore(folderID: folderID,
+                                                                  afterID: cursor, limit: 16)
+                        for id in chunk {
+                            if let row = try store.photo(id: id) { names[id] = row.filename }
+                        }
+                    } catch { stopped(error); broke = true }
+                }
+                guard !broke else { return }
+                guard let last = chunk.last else { break }
+                cursor = last
+
+                var results: [CullingAnalyzer.Result] = []
+                for id in chunk {
+                    guard current() else { return }
+                    guard let name = names[id] else { continue }
+                    let url = folder.appendingPathComponent(name)
+                    results.append(autoreleasepool {
+                        CullingAnalyzer.analyze(url: url, photoID: id,
+                                                detectFaces: detectFaces)
+                    })
+                }
+                guard current() else { return }
+                var update: [Int64: CullingAttention]?
+                let due = Date().timeIntervalSince(lastUpdate)
+                    >= CatalogService.cullingUpdateInterval
+                queue.sync {
+                    do {
+                        for result in results {
+                            try store.recordFrameScore(result.score)
+                            if let faces = result.faces {
+                                try store.recordFaces(faces, photoID: result.score.photoID)
+                            }
+                        }
+                        if due { update = try evidence(folderID: folderID) }
+                    } catch { stopped(error); broke = true }
+                }
+                guard !broke else { return }
+                if let update {
+                    lastUpdate = Date()
+                    onUpdate(update, false)
+                }
+            }
+            guard current() else { return }
+
+            // Grouping is whole-folder and cheap (one read, one sort, one transaction),
+            // so it runs at the end of every pass — including the pass that found
+            // nothing to measure, which is how a relaunch gets its bursts and its dots.
+            var final: [Int64: CullingAttention] = [:]
+            queue.sync {
+                do {
+                    let groups = BurstGrouper.group(try store.burstCandidates(folderID: folderID))
+                    try store.replaceBursts(groups, folderID: folderID)
+                    final = try evidence(folderID: folderID)
+                } catch { stopped(error); broke = true }
+            }
+            guard !broke, current() else { return }
+            onUpdate(final, true)
+        }
+    }
+
+    /// How often a running pass republishes the grid's dots.
+    private static let cullingUpdateInterval: TimeInterval = 5
+
     /// Reconcile what the catalog knows with what the sidecar says, under docs/15
     /// §15.5's three rules. The rules themselves live in `SidecarMerge`, in LumenCore,
     /// where they can be tested; this function owns only the file read, the mtime stat
     /// and the enum mapping.
     private static func merge(row: PhotoRow, recipe: Recipe?,
                               recipeFingerprint: String?, hasUnflushedEdits: Bool,
-                              file: URL) -> SidecarMerge.Resolution {
+                              file: URL, sidecar: SidecarContent?) -> SidecarMerge.Resolution {
         SidecarMerge.resolve(
             catalog: SidecarMerge.State(
                 rating: row.rating,
-                flag: sidecarFlag(appFlag(row.flag)),
+                flag: SidecarFlag(row.flag),
                 label: row.label,
                 recipe: recipe,
                 // Empty string is `currentRecipeFingerprint`'s "as shot", which is not
@@ -497,7 +769,7 @@ final class CatalogService: @unchecked Sendable {
                     ? recipeFingerprint : nil,
                 sidecarMTime: row.sidecarMTime,
                 hasUnflushedEdits: hasUnflushedEdits),
-            sidecar: readSidecar(for: file),
+            sidecar: sidecar,
             sidecarMTime: modificationTime(of: sidecarURL(for: file)))
     }
 
@@ -512,8 +784,8 @@ final class CatalogService: @unchecked Sendable {
     /// already dropped any entry whose key does not address its own bytes, so writing an
     /// existing blob writes identical bytes. Failures are logged, never thrown — a blob
     /// that will not write costs one mask, not the folder open.
-    private static func restoreStrokes(from file: URL, blobs: BlobStore) {
-        guard let payload = readSidecar(for: file)?.strokesPayload else { return }
+    private static func restoreStrokes(from sidecar: SidecarContent?, blobs: BlobStore) {
+        guard let payload = sidecar?.strokesPayload else { return }
         for (ref, set) in BrushStrokeSidecar.decode(payload) {
             guard blobs.strokeSet(for: ref) == nil else { continue }
             do {
@@ -529,12 +801,35 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// Take the sidecar's keywords into the catalog — the ones it does not have yet,
+    /// and only those (`SidecarKeywordImport`: additive, never a removal). This is the
+    /// reading half of docs/15 §15.5's `dc:subject`: a folder keyworded in Lightroom,
+    /// or a catalog rebuilt from sidecars, arrives with its keywords. No catalog read
+    /// at all for a sidecar without a bag, which is nearly every photograph.
+    private static func importKeywords(from sidecar: SidecarContent?, photoID: Int64,
+                                       store: CatalogStore) {
+        guard let words = sidecar?.keywords, !words.isEmpty else { return }
+        do {
+            // Against the catalog's LEAVES: the sidecar is flat, and "Iceland" in it is
+            // the "Places > Iceland" the catalog already has.
+            let missing = SidecarKeywordImport.missing(
+                fromCatalog: try store.keywords(photoID: photoID).map(KeywordPath.leaf),
+                sidecar: words)
+            for word in missing {
+                _ = try store.addKeyword(word, photoIDs: [photoID])
+            }
+        } catch {
+            NSLog("Lumen catalog: could not import sidecar keywords — %@",
+                  String(describing: error))
+        }
+    }
+
     private static func stored(_ state: SidecarMerge.State,
                                row: PhotoRow) -> StoredState {
         StoredState(catalogID: row.id,
-                    flag: appFlag(state.flag),
+                    flag: PhotoFlag(state.flag),
                     rating: state.rating,
-                    label: appLabel(state.label),
+                    label: ColorLabel(storedName: state.label),
                     recipe: state.recipe,
                     iso: row.iso)
     }
@@ -559,19 +854,19 @@ final class CatalogService: @unchecked Sendable {
             if state.rating != row.rating {
                 try store.setRating(state.rating, photoID: row.id)
             }
-            let mergedFlag = coreFlag(state.flag)
-            if mergedFlag != row.flag {
-                try store.setFlag(mergedFlag, photoID: row.id)
+            if state.flag != row.flag {
+                try store.setFlag(state.flag, photoID: row.id)
             }
-            let mergedLabel = state.label == .none ? nil : state.label.displayName.lowercased()
-            if mergedLabel != row.label {
-                try store.setLabel(coreLabel(appLabel(mergedLabel)), photoID: row.id)
+            // `rawValue` is the lowercase name the column stores, so this compares the
+            // merged label with the row in the row's own spelling.
+            if state.label?.rawValue != row.label {
+                try store.setLabel(state.label, photoID: row.id)
             }
             if let recovered = state.recipe, recovered != storedRecipe {
                 // `isRenderedFile:` because `photo.edited` is measured against what a
                 // fresh import of THIS file would have left behind, and for a JPEG
-                // that is not a bare `Recipe()`. `PhotoFormats` is the app target's
-                // list on purpose — see the parameter's own note in `CatalogStore`.
+                // that is not a bare `Recipe()`. `PhotoFormats` is the one list that
+                // answers it — see the parameter's own note in `CatalogStore`.
                 try store.saveRecipe(recovered, photoID: row.id, isCurrent: true,
                                      isRenderedFile: PhotoFormats.isRendered(file))
             }
@@ -618,17 +913,17 @@ final class CatalogService: @unchecked Sendable {
         let url = photo.id
         queue.async {
             do {
-                try self.store.setFlag(Self.coreFlag(flag), photoID: id)
+                try self.store.setFlag(flag, photoID: id)
                 try self.store.setRating(rating, photoID: id)
-                try self.store.setLabel(Self.coreLabel(label), photoID: id)
+                try self.store.setLabel(label, photoID: id)
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
                 self.onFailure?("Could not save the flag or rating — \(error)")
             }
             self.enqueueSidecar(
-                for: url, photoID: id, rating: rating, flag: Self.sidecarFlag(flag),
+                for: url, photoID: id, rating: rating, flag: SidecarFlag(flag),
                 label: SidecarLabelPolicy.write(
-                    appLabel: label == .none ? nil : label.displayName.lowercased(),
+                    appLabel: label?.rawValue,
                     labelChanged: labelChanged),
                 recipe: nil)
         }
@@ -701,32 +996,36 @@ final class CatalogService: @unchecked Sendable {
             // the file stays there. The catalog and — since K-018 — the blob backup are
             // the copies that actually carry a painting this size; the sidecar's job is
             // to carry what it can and never to destroy what it cannot.
-            let strokes: String??
-            switch BrushStrokeSidecar.decision(for: recipe, blob: {
-                self.blobs.strokeSet(for: $0)
-            }) {
-            case .none:
-                strokes = .some(nil)
-            case .payload(let p):
-                strokes = .some(p)
-            case .tooLarge(let characters):
-                strokes = nil
-                NSLog("Lumen catalog: %@'s brush painting is %d characters, past the "
-                      + "%d the sidecar can carry — the sidecar keeps its previous copy "
-                      + "and the catalog holds the current one",
-                      url.lastPathComponent, characters,
-                      BrushStrokeSidecar.payloadLimit)
-                self.onFailure?(
-                    "\(url.lastPathComponent) has more brush strokes than a sidecar can "
-                    + "hold, so its .xmp keeps an earlier copy. The catalog and its "
-                    + "backups have the current painting.")
-            }
+            let strokes = self.sidecarStrokes(for: recipe, url: url)
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint,
                                          Swift.min(recipe.pipelineVersion,
-                                                   currentPipelineVersion)),
+                                                   supportedPipelineVersion)),
                                 strokes: strokes)
         }
+    }
+
+    /// What a sidecar write says about brush strokes for `recipe`; see `saveRecipe`.
+    private func sidecarStrokes(for recipe: Recipe, url: URL) -> String?? {
+        switch BrushStrokeSidecar.decision(for: recipe, blob: {
+            self.blobs.strokeSet(for: $0)
+        }) {
+        case .none:
+            return .some(nil)
+        case .payload(let p):
+            return .some(p)
+        case .tooLarge(let characters):
+            NSLog("Lumen catalog: %@'s brush painting is %d characters, past the "
+                  + "%d the sidecar can carry — the sidecar keeps its previous copy "
+                  + "and the catalog holds the current one",
+                  url.lastPathComponent, characters,
+                  BrushStrokeSidecar.payloadLimit)
+            onFailure?(
+                "\(url.lastPathComponent) has more brush strokes than a sidecar can "
+                + "hold, so its .xmp keeps an earlier copy. The catalog and its "
+                + "backups have the current painting.")
+        }
+        return nil
     }
 
     // MARK: - Queries
@@ -754,6 +1053,23 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// Each photograph's frame as the crop arithmetic needs it — stored extent turned by
+    /// its EXIF orientation — for a multi-selection's framing writes (S-11 / KG-01).
+    /// A photo with no metadata row yet is simply absent, and its framing is left alone.
+    func frames(photoIDs: [Int64]) async -> [Int64: BatchFraming.Frame] {
+        await onQueue("frame read", fallback: [:]) { store in
+            var out: [Int64: BatchFraming.Frame] = [:]
+            for id in photoIDs {
+                guard let row = try store.photo(id: id),
+                      let frame = BatchFraming.catalogFrame(width: row.width, height: row.height,
+                                                     exifOrientation: row.orientation)
+                else { continue }
+                out[id] = frame
+            }
+            return out
+        }
+    }
+
     /// Filter and sort in SQL rather than in Swift, which is what keeps a
     /// 100,000-frame archive responsive — and what makes the eight sort orders that
     /// need capture time, camera, ISO or aspect possible at all.
@@ -761,6 +1077,15 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("grid query", fallback: []) { store in
             let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
             return try store.photos(matching: query, folderID: folderID)
+        }
+    }
+
+    /// The same query, answering only what the grid keeps: each row's id, in order,
+    /// and its ISO. See `CatalogStore.photoOrder(matching:folderID:)` for the cost.
+    func photoOrder(matching query: PhotoQuery, folderPath: String?) async -> [PhotoOrderRow] {
+        await onQueue("grid order query", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
+            return try store.photoOrder(matching: query, folderID: folderID)
         }
     }
 
@@ -836,10 +1161,29 @@ final class CatalogService: @unchecked Sendable {
     /// Albums with their membership counts, which is what the sidebar shows. Counted
     /// through the same query builder the grid uses, so an album row and the grid it
     /// opens can never report different numbers.
-    func collections() async -> [CollectionItem] {
+    ///
+    /// A smart album has no members; its number is its saved filter run over the open
+    /// folder — the grid it produces when clicked, which is the invariant every other
+    /// count in this column keeps.
+    func collections(folderPath: String?) async -> [CollectionItem] {
         await onQueue("album list", fallback: []) { store in
+            let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
             var out: [CollectionItem] = []
             for album in try store.collections() {
+                if album.kind == CollectionRow.smartKind {
+                    let filter = album.query.flatMap { LibraryFilter(savedJSON: $0) }
+                    var count = 0
+                    if let filter {
+                        count = try store.countPhotos(
+                            matching: filter.query(sortKey: .captureTime, ascending: true,
+                                                   albumID: nil),
+                            folderID: folderID)
+                    }
+                    out.append(CollectionItem(id: album.id, name: album.name, count: count,
+                                              isTarget: false, isSmart: true,
+                                              filter: filter))
+                    continue
+                }
                 var query = PhotoQuery()
                 query.albumID = album.id
                 let count = try store.countPhotos(matching: query)
@@ -847,6 +1191,20 @@ final class CatalogService: @unchecked Sendable {
                                           count: count, isTarget: album.isTarget))
             }
             return out
+        }
+    }
+
+    func createSmartCollection(name: String, query: String) async -> Int64? {
+        await onQueue("smart album creation", fallback: nil) { (store: CatalogStore) -> Int64? in
+            try store.createCollection(name: name, kind: CollectionRow.smartKind,
+                                       query: query, pinned: true)
+        }
+    }
+
+    func updateSmartCollection(_ albumID: Int64, query: String) async -> Bool {
+        await onQueue("smart album update", fallback: false) {
+            try $0.updateCollectionQuery(id: albumID, query: query)
+            return true
         }
     }
 
@@ -875,6 +1233,20 @@ final class CatalogService: @unchecked Sendable {
     func removeFromCollection(_ albumID: Int64, photoIDs: [Int64]) async {
         await onQueue("album membership", fallback: ()) {
             try $0.removeFromCollection(albumID, photoIDs: photoIDs)
+        }
+    }
+
+    /// False for a blank name (nothing written) or a failed write; the caller says so.
+    func renameCollection(_ albumID: Int64, to name: String) async -> Bool {
+        await onQueue("album rename", fallback: false) {
+            try $0.renameCollection(id: albumID, to: name)
+        }
+    }
+
+    func deleteCollection(_ albumID: Int64) async -> Bool {
+        await onQueue("album deletion", fallback: false) {
+            try $0.deleteCollection(id: albumID)
+            return true
         }
     }
 
@@ -920,15 +1292,57 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("keyword list", fallback: []) { try $0.allKeywords() }
     }
 
-    func addKeyword(_ name: String, photoIDs: [Int64]) async {
-        await onQueue("keyword write", fallback: ()) {
-            _ = try $0.addKeyword(name, photoIDs: photoIDs)
+    /// Keyword the photographs, in the catalog AND in each one's sidecar.
+    ///
+    /// The sidecar half used to be absent: keywords lived only in `photo_keyword`, so
+    /// docs/15 §15.1's "recovered from sidecars" was false for them and a lost catalog
+    /// took every keyword with it. The write is a delta (`SidecarKeywordEdit`) applied
+    /// to the file's own `dc:subject` at flush time, so keywords another tool put there
+    /// survive.
+    func addKeyword(_ name: String, targets: [(id: Int64, url: URL)]) async {
+        let ids = targets.map { $0.id }
+        // On the catalog's queue, after the row write, like every other sidecar
+        // enqueue in this file: a sidecar is never told something the catalog was not.
+        await onQueue("keyword write", fallback: ()) { [self] store in
+            let keywordID = try store.addKeyword(name, photoIDs: ids)
+            // The sidecar's `dc:subject` is flat: it gets the keyword's own name — not
+            // the "Places > Iceland" path that was typed, and not a synonym that was
+            // typed for it, but the keyword that was actually tagged.
+            let word = try store.keywordName(id: keywordID) ?? KeywordPath.leaf(name)
+            for target in targets {
+                self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
+                                    label: nil, recipe: nil,
+                                    keywordEdit: SidecarKeywordEdit(added: [word]))
+            }
         }
     }
 
-    func removeKeyword(_ name: String, photoIDs: [Int64]) async {
-        await onQueue("keyword write", fallback: ()) {
-            try $0.removeKeyword(name, photoIDs: photoIDs)
+    func removeKeyword(_ name: String, targets: [(id: Int64, url: URL)]) async {
+        let ids = targets.map { $0.id }
+        // On the catalog's queue, after the row write, like every other sidecar
+        // enqueue in this file: a sidecar is never told something the catalog was not.
+        await onQueue("keyword write", fallback: ()) { [self] store in
+            try store.removeKeyword(name, photoIDs: ids)
+            for target in targets {
+                self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
+                                    label: nil, recipe: nil,
+                                    keywordEdit: SidecarKeywordEdit(
+                                        removed: [KeywordPath.leaf(name)]))
+            }
+        }
+    }
+
+    /// Stack the open folder's bursts; the number of stacks made, nil on failure.
+    func stackBursts(folderPath: String) async -> Int? {
+        await onQueue("burst stacking", fallback: nil) { (store: CatalogStore) -> Int? in
+            guard let folder = try store.folder(path: folderPath) else { return 0 }
+            return try store.stackBursts(folderID: folder.id).count
+        }
+    }
+
+    func addSynonym(_ synonym: String, toKeyword keyword: String) async -> Bool {
+        await onQueue("keyword synonym", fallback: false) {
+            try $0.addSynonym(synonym, toKeyword: keyword)
         }
     }
 
@@ -1000,63 +1414,6 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("unstack", fallback: ()) { try $0.dissolveStack(id: id) }
     }
 
-    // MARK: - Enum bridging
-
-    static func sidecarFlag(_ flag: PhotoFlag) -> SidecarFlag {
-        switch flag {
-        case .picked: return .pick
-        case .rejected: return .reject
-        case .none: return .none
-        }
-    }
-
-    static func appFlag(_ flag: SidecarFlag) -> PhotoFlag {
-        switch flag {
-        case .pick: return .picked
-        case .reject: return .rejected
-        case .none: return .none
-        }
-    }
-
-    // The app and the catalog each name these for their own audience. One conversion
-    // in one place beats qualifying every call site.
-
-    static func appFlag(_ flag: LumenCore.PhotoFlag) -> PhotoFlag {
-        switch flag {
-        case .pick: return .picked
-        case .reject: return .rejected
-        case .unflagged: return .none
-        }
-    }
-
-    static func coreFlag(_ flag: PhotoFlag) -> LumenCore.PhotoFlag {
-        switch flag {
-        case .picked: return .pick
-        case .rejected: return .reject
-        case .none: return .unflagged
-        }
-    }
-
-    static func appLabel(_ name: String?) -> ColorLabel {
-        guard let name = name?.lowercased() else { return .none }
-        for candidate in ColorLabel.allCases
-        where candidate.displayName.lowercased() == name {
-            return candidate
-        }
-        return .none
-    }
-
-    static func coreLabel(_ label: ColorLabel) -> LumenCore.ColorLabel? {
-        switch label {
-        case .none: return nil
-        case .red: return .red
-        case .yellow: return .yellow
-        case .green: return .green
-        case .blue: return .blue
-        case .purple: return .purple
-        }
-    }
-
     // MARK: - Sidecars
 
     /// `label` is double-optional on purpose. `nil` means "this call has nothing to
@@ -1067,8 +1424,10 @@ final class CatalogService: @unchecked Sendable {
                                 flag: SidecarFlag? = nil,
                                 label: String??,
                                 recipe: (json: String, fingerprint: String, version: Int)?,
-                                strokes: String?? = nil) {
+                                strokes: String?? = nil,
+                                keywordEdit: SidecarKeywordEdit? = nil) {
         sidecarLock.lock()
+        guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let queued = pendingSidecars[url]
         var content = queued?.content ?? Self.readSidecar(for: url) ?? SidecarContent()
         if let rating { content.rating = rating }
@@ -1084,7 +1443,16 @@ final class CatalogService: @unchecked Sendable {
         // brush masking, so drop the key". Collapsing them would leave a stale painting
         // in the sidecar of a photograph whose brush masks had all been deleted.
         if let strokes { content.strokesPayload = strokes }
+        // Composed onto whatever edit is already queued, in time order, and applied to
+        // the queued copy of the bag so a sidecar that does not exist yet is authored
+        // with it. An existing document gets the delta re-applied to its own bag at
+        // flush time (`XMPSidecar.reseed`).
+        if let keywordEdit {
+            content.keywords = keywordEdit.apply(to: content.keywords ?? [])
+            content.keywordEdit = content.keywordEdit.then(keywordEdit)
+        }
         content.writeStamp = ISO8601DateFormatter().string(from: Date())
+        content.sourceExtension = url.pathExtension.lowercased()
 
         // And the same nil-vs-`.some(nil)` distinction the parameters draw, carried
         // through to the write instead of being collapsed here. Everything NOT in this
@@ -1097,6 +1465,7 @@ final class CatalogService: @unchecked Sendable {
         if label != nil { stated.insert(.label) }
         if recipe != nil { stated.insert(.recipe) }
         if strokes != nil { stated.insert(.strokes) }
+        if keywordEdit != nil { stated.insert(.keywords) }
 
         pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content,
                                 stated: stated)
@@ -1105,13 +1474,14 @@ final class CatalogService: @unchecked Sendable {
         sidecarLock.unlock()
 
         guard shouldSchedule else { return }
-        queue.asyncAfter(deadline: .now() + Self.sidecarDebounce) {
-            self.flushSidecars()
+        queue.asyncAfter(deadline: .now() + Self.sidecarDebounce) { [weak self] in
+            self?.flushSidecars()
         }
     }
 
     func flushSidecars() {
         sidecarLock.lock()
+        guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let batch = pendingSidecars
         pendingSidecars = [:]
         sidecarFlushScheduled = false
@@ -1187,6 +1557,12 @@ final class CatalogService: @unchecked Sendable {
                 // short of a lock across another process's write can — but the two
                 // seconds the debounce buys are the part that was reachable by hand.
                 if let fresh = XMPSidecar.parse(existing) {
+                    guard fresh.sourceExtension == nil
+                            || fresh.sourceExtension == url.pathExtension.lowercased() else {
+                        report("Sidecar ownership mismatch for \(path.lastPathComponent); "
+                               + "it was left untouched. The catalog edit remains separate.")
+                        continue
+                    }
                     // Same interlock as the stale read's, applied to the fresh one:
                     // re-seeding from a HALF-READ document would delete whatever lies
                     // past the damage just as surely, and this read is the one being
@@ -1208,7 +1584,7 @@ final class CatalogService: @unchecked Sendable {
                               + "build implements %d — its recipe is left exactly as it "
                               + "is; the rating, flag and label still go in",
                               path.lastPathComponent, fresh.pipelineVersion,
-                              currentPipelineVersion)
+                              supportedPipelineVersion)
                     }
                     content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
                 }
@@ -1226,6 +1602,13 @@ final class CatalogService: @unchecked Sendable {
             do {
                 // Atomic: a sidecar half-written by a crash is worse than no sidecar.
                 try Data(text.utf8).write(to: path, options: .atomic)
+                sidecarLock.lock()
+                reportedSidecarFailures.remove(url)
+                let settled = unsavedSidecars.removeValue(forKey: url.path) != nil
+                sidecarLock.unlock()
+                if settled {
+                    queue.async { [weak self] in self?.persistUnsavedSidecars() }
+                }
                 // And record the mtime we just gave it. This is half of what makes
                 // §15.5 rule 1 answerable: without a stamp taken on OUR writes, the very
                 // next scan sees a file newer than nothing and has to guess. `photoID`
@@ -1240,6 +1623,15 @@ final class CatalogService: @unchecked Sendable {
                 NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
                       path.lastPathComponent, String(describing: error))
                 failed.append((url, entry))
+                sidecarLock.lock()
+                let firstFailure = reportedSidecarFailures.insert(url).inserted
+                sidecarLock.unlock()
+                if firstFailure {
+                    report("Could not save portable sidecar \(path.lastPathComponent). "
+                           + "Check that the photo's volume is connected and writable. "
+                           + "Lumen will retry while open; the sidecar is not up to date "
+                           + "(\(error.localizedDescription)).")
+                }
             }
         }
 
@@ -1255,8 +1647,8 @@ final class CatalogService: @unchecked Sendable {
         if shouldSchedule { sidecarFlushScheduled = true }
         sidecarLock.unlock()
         if shouldSchedule {
-            queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) {
-                self.flushSidecars()
+            queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) { [weak self] in
+                self?.flushSidecars()
             }
         }
     }
@@ -1289,45 +1681,157 @@ final class CatalogService: @unchecked Sendable {
     /// `SidecarNaming`, in LumenCore, where it is tested; this function owns only the
     /// two facts it needs — is it a RAW, and which other RAWs share its name.
     static func sidecarURL(for photo: URL) -> URL {
-        SidecarNaming.url(for: photo, isRaw: PhotoFormats.isRaw(photo),
-                          rawSiblingExtensions: rawSiblings(of: photo))
+        let qualified = photo.appendingPathExtension("xmp")
+        guard PhotoFormats.isRaw(photo) else { return qualified }
+        // Ownership decides, in LumenCore where it is tested: a foreign NAME.EXT.xmp
+        // (darktable's) never displaces a bare file Lumen owns for this extension.
+        let bare = photo.deletingPathExtension().appendingPathExtension("xmp")
+        let bareContent = (try? Data(contentsOf: bare)).flatMap { XMPSidecar.parse($0) }
+        if bareContent?.sourceExtension?.lowercased() == photo.pathExtension.lowercased() {
+            return bare
+        }
+        let qualifiedContent = (try? Data(contentsOf: qualified)).flatMap { XMPSidecar.parse($0) }
+        return SidecarNaming.resolve(photo: photo, isRaw: true,
+                                     bare: bareContent, qualified: qualifiedContent,
+                                     rawSiblingExtensions: rawSiblings(of: photo))
     }
 
-    /// The other RAW files sharing `photo`'s basename, from one directory listing per
-    /// directory, memoized — this is asked once per sidecar read and per flush, and a
-    /// ten-thousand-frame folder must not stat ten thousand times to learn a fact that
-    /// is the same for all of them. `registerAndLoad` forgets the memo, because a
-    /// rescan is when a sibling can appear.
+    /// Backfill only ownership supported by BOTH the recorded recipe fingerprint
+    /// and the recorded sidecar timestamp, with exactly one matching catalog row.
+    /// Unknown/ambiguous legacy documents stay byte-for-byte intact and are reported.
+    private func establishLegacySidecarOwners(folder: URL, folderID: Int64, files: [URL]) {
+        let raws = files.filter { PhotoFormats.isRaw($0) }
+        guard !raws.isEmpty else { return }
+        let rows = (try? store.photos(folderID: folderID)) ?? []
+        var known: [String: [PhotoRow]] = [:]
+        for row in rows {
+            let file = folder.appendingPathComponent(row.filename)
+            guard PhotoFormats.isRaw(file) else { continue }
+            let key = file.deletingPathExtension().path.lowercased()
+            known[key, default: []].append(row)
+        }
+        var seen: Set<String> = []
+        for photo in raws {
+            let key = photo.deletingPathExtension().path.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            let bare = photo.deletingPathExtension().appendingPathExtension("xmp")
+            guard let data = try? Data(contentsOf: bare),
+                  var content = XMPSidecar.parse(data), content.sourceExtension == nil,
+                  content.recipeJSON != nil || content.writeStamp != nil else { continue }
+            let stamp = Self.modificationTime(of: bare)
+            let candidates = (known[key] ?? []).filter { row in
+                guard let stamp, row.sidecarMTime == stamp,
+                      let fingerprint = content.recipeFingerprint, !fingerprint.isEmpty
+                else { return false }
+                return (try? store.currentRecipeFingerprint(photoID: row.id)) == fingerprint
+            }
+            if candidates.count == 1, content.parsedCleanly,
+               content.pipelineVersion <= supportedPipelineVersion,
+               let original = String(data: data, encoding: .utf8) {
+                content.sourceExtension = URL(fileURLWithPath: candidates[0].filename).pathExtension.lowercased()
+                if let updated = XMPSidecar.update(original, with: content) {
+                    do {
+                        // A changed file is no longer the document whose provenance
+                        // was checked. Refuse rather than migrate that newer edit.
+                        guard try Data(contentsOf: bare) == data else { continue }
+                        let attributes = try FileManager.default.attributesOfItem(atPath: bare.path)
+                        try Data(updated.utf8).write(to: bare, options: .atomic)
+                        if let date = attributes[.modificationDate] {
+                            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: bare.path)
+                        }
+                        continue
+                    } catch {
+                        report("Could not record sidecar ownership for \(bare.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+            }
+            // Once per document per session: this runs on every scan, and an unresolved
+            // legacy file used to put the same notice in the status bar every time.
+            if !Self.rawSiblings(of: photo).isEmpty,
+               reportedAmbiguousSidecars.insert(bare.path).inserted {
+                report("Ambiguous sidecar ownership for \(bare.lastPathComponent). "
+                       + "Its edits were not assigned to either RAW. The sidecar and "
+                       + "existing catalog edits were preserved; choose its owner before importing it.")
+            }
+        }
+    }
+
+    /// Index one directory's complete listing, including unselected neighbours.
+    /// Stems and extensions are case-insensitive just as SidecarNaming's original
+    /// listing resolver is; directory identity belongs to the outer memo, so matching
+    /// basenames in separate directories can never become siblings.
+    struct RawSiblingIndex {
+        private var extensionsByStem: [String: Set<String>] = [:]
+
+        init(names: [String], isRawName: (String) -> Bool) {
+            for name in names where isRawName(name) {
+                let url = URL(fileURLWithPath: name)
+                let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+                extensionsByStem[stem, default: []].insert(url.pathExtension.lowercased())
+            }
+        }
+
+        func siblings(of photo: URL) -> Set<String> {
+            let stem = photo.deletingPathExtension().lastPathComponent.lowercased()
+            // Same stem + extension is the same case-insensitive filename, which
+            // the original resolver excluded as the queried photo itself.
+            return (extensionsByStem[stem] ?? []).subtracting([photo.pathExtension.lowercased()])
+        }
+    }
+
+    /// A directory listing alone was not a useful memo: every query still parsed
+    /// all N names, and registration asks several times for each of N photos. Build
+    /// the basename index once, then answer from its bounded extension set. A rescan
+    /// drops the memo because a RAW may have gained or lost an unselected sibling.
     private static let siblingLock = NSLock()
-    private static var siblingNames: [String: [String]] = [:]
+    private static var siblingIndexes: [String: RawSiblingIndex] = [:]
+    /// How many names the PRODUCTION sibling path has classified since the last
+    /// `forgetSiblings()`, guarded by `siblingLock`. It exists so a test can bind
+    /// `rawSiblings(of:)` itself to the index (REL-05): a per-query rescan of the
+    /// cached listing classifies N names per query, the index N names per directory.
+    private static var siblingClassifications = 0
+
+    static var siblingClassificationCount: Int {
+        siblingLock.lock()
+        defer { siblingLock.unlock() }
+        return siblingClassifications
+    }
+
+    /// The one RAW-name classifier the production path uses. Called with
+    /// `siblingLock` held.
+    private static func classifyRawName(_ name: String) -> Bool {
+        siblingClassifications += 1
+        return PhotoFormats.raw.contains(URL(fileURLWithPath: name).pathExtension.lowercased())
+    }
 
     private static func rawSiblings(of photo: URL) -> Set<String> {
         let directory = photo.deletingLastPathComponent()
         siblingLock.lock()
-        var names = siblingNames[directory.path]
-        siblingLock.unlock()
-        if names == nil {
+        defer { siblingLock.unlock() }
+        if siblingIndexes[directory.path] == nil {
+            // Keep creation inside the lock: concurrent readers build at most once,
+            // and an older in-flight listing cannot republish after forgetSiblings.
             let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            siblingLock.lock()
-            siblingNames[directory.path] = listed
-            siblingLock.unlock()
-            names = listed
+            siblingIndexes[directory.path] = RawSiblingIndex(names: listed,
+                                                             isRawName: classifyRawName)
         }
-        return SidecarNaming.rawSiblingExtensions(
-            of: photo, amongNames: names ?? [],
-            isRawName: { PhotoFormats.raw.contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) })
+        return siblingIndexes[directory.path]?.siblings(of: photo) ?? []
     }
 
     static func forgetSiblings() {
         siblingLock.lock()
-        siblingNames.removeAll()
+        siblingIndexes.removeAll()
+        siblingClassifications = 0
         siblingLock.unlock()
     }
 
     static func readSidecar(for photo: URL) -> SidecarContent? {
         let url = sidecarURL(for: photo)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return XMPSidecar.parse(data)
+        guard let content = XMPSidecar.parse(data),
+              content.sourceExtension == nil || content.sourceExtension == photo.pathExtension.lowercased()
+        else { return nil }
+        return content
     }
 
     // MARK: - Preview cache
@@ -1342,6 +1846,19 @@ final class CatalogService: @unchecked Sendable {
     struct PreviewState: Sendable {
         var fingerprint: String
         var rows: [PreviewRow]
+    }
+
+    private static func previewFingerprint(store: CatalogStore, photoID: Int64) throws -> String {
+        // The PICTURE's key, not the recipe's: a LUT this machine lacks is part of
+        // `recipe_fp` but not of the rendered pixels (`RecipeFingerprint
+        // .previewFingerprint`), and a preview filed under the plain fingerprint would
+        // outlive the blob's arrival.
+        let fingerprint = try store.currentPreviewFingerprint(photoID: photoID)
+        guard fingerprint.isEmpty, let row = try store.photo(id: photoID) else { return fingerprint }
+        // An unsaved import still has a concrete rendered recipe (ISO defaults and
+        // rendered-file linear tone), not an empty recipe fingerprint.
+        return try RecipeFingerprint.fingerprint(Recipe.asImported(from: Recipe.SourceFile(
+            isRendered: PhotoFormats.isRendered(URL(fileURLWithPath: row.filename)), iso: row.iso)))
     }
 
     /// AWAIT, never `queue.sync`.
@@ -1366,21 +1883,42 @@ final class CatalogService: @unchecked Sendable {
             // original instead — which is what it did on every launch before this cache
             // was wired at all.
             return PreviewState(
-                fingerprint: try store.currentRecipeFingerprint(photoID: photoID),
+                fingerprint: try Self.previewFingerprint(store: store, photoID: photoID),
                 rows: try store.previews(photoID: photoID))
         }
     }
 
     /// File a preview. Asynchronous: the pixels are already on screen by the time this
     /// runs, and a bookkeeping row must never be in front of a photograph.
-    func recordPreview(_ row: PreviewRow) {
+    func recordPreview(_ row: PreviewRow, sourceURL: URL? = nil,
+                       sourceIdentity: SourceFileIdentity? = nil,
+                       completion: ((Bool, [PreviewRow]) -> Void)? = nil) {
         queue.async { [store] in
+            var accepted = false
+            var replaced: [PreviewRow] = []
+            defer { completion?(accepted, replaced) }
             do {
+                if let sourceURL {
+                    guard let sourceIdentity,
+                          SourceFileIdentity.read(sourceURL) == sourceIdentity else { return }
+                }
+                if row.source == .lumen {
+                    guard try Self.previewFingerprint(store: store, photoID: row.photoID) == row.recipeFP else { return }
+                }
+                if let previous = try store.preview(photoID: row.photoID, level: row.level, recipeFP: row.recipeFP),
+                   previous.path != row.path { replaced.append(previous) }
                 try store.recordPreview(row)
+                accepted = true
             } catch {
                 NSLog("Lumen catalog: preview bookkeeping failed — %@",
                       String(describing: error))
             }
+        }
+    }
+
+    func discardPreviews(_ rows: [PreviewRow]) async -> [PreviewRow] {
+        await onQueue("discard obsolete previews", fallback: []) { store in
+            try store.discardPreviews(rows)
         }
     }
 
@@ -1495,9 +2033,10 @@ final class CatalogService: @unchecked Sendable {
     ///     look at (it takes `.db` only), so a snapshot the process does not live to
     ///     finish is invisible to the restore rather than the newest thing in the
     ///     directory;
-    ///   · move it into place — the rename is what publishes it;
     ///   · copy the brush payloads next to it (K-018): a snapshot without them restores
     ///     every recipe intact with every brush mask rasterizing to nothing;
+    ///   · move the database into place LAST — only a complete snapshot is eligible
+    ///     for restore; an interruption before this leaves no discoverable `.db`;
     ///   · stamp it, only now, because a backup that failed must be owed again at the
     ///     next opportunity rather than buying a full disk twenty hours of silence;
     ///   · prune, only after a successful write, so a failing backup can never be the
@@ -1518,8 +2057,11 @@ final class CatalogService: @unchecked Sendable {
         // `BackupRetention` dates.
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let target = folder.appendingPathComponent("lumen-\(stamp).db")
+        // Never replace an earlier complete snapshot, even for two backups in the
+        // same second. Retention parses the timestamp prefix and permits suffixes.
+        let target = folder.appendingPathComponent("lumen-\(stamp)-\(UUID()).db")
         let partial = URL(fileURLWithPath: target.path + ".partial")
+        let blobBackup = target.deletingPathExtension().appendingPathExtension("blobs")
 
         do {
             try FileManager.default.createDirectory(
@@ -1529,14 +2071,8 @@ final class CatalogService: @unchecked Sendable {
             // out of existence, and then the open-time restore has nothing to restore
             // FROM (§15.8).
             try CatalogStore.snapshot(from: catalogPath, to: partial.path)
-            if FileManager.default.fileExists(atPath: target.path) {
-                try FileManager.default.removeItem(at: target)
-            }
-            try FileManager.default.moveItem(at: partial, to: target)
-
-            let blobBackup = target.deletingPathExtension()
-                .appendingPathExtension("blobs")
             let copied = try blobs.backUp(to: blobBackup)
+            try FileManager.default.moveItem(at: partial, to: target)
             queue.sync { try? self.store.noteBackupTaken(at: now) }
             let pruned = Self.pruneBackups(in: folder)
             NSLog("Lumen catalog: backed up %@ with %d brush payload(s); "
@@ -1545,6 +2081,10 @@ final class CatalogService: @unchecked Sendable {
         } catch {
             // Leave nothing half-written behind, even under a name the restore ignores.
             try? FileManager.default.removeItem(at: partial)
+            // These uniquely named payloads belong only to this unpublished attempt.
+            if !FileManager.default.fileExists(atPath: target.path) {
+                try? FileManager.default.removeItem(at: blobBackup)
+            }
             NSLog("Lumen catalog: backup failed — %@", String(describing: error))
             if let catalogError = error as? CatalogError,
                case .corrupt = catalogError {
@@ -1622,7 +2162,12 @@ final class CatalogService: @unchecked Sendable {
         onFailure?(message)
     }
 
-    func close() {
+    /// - Returns: the sidecar file names the final flush could not write. They are also
+    ///   recorded in the catalog before it closes and surfaced at the next launch
+    ///   (`unsavedSidecarNotice`), because a failure reported through `onFailure` here
+    ///   is a hop to a main actor that never runs again.
+    @discardableResult
+    func close() -> [String] {
         // Drain first, THEN flush. `saveCullingState` and `saveRecipe` are `queue.async`
         // and call `enqueueSidecar` at the END of their work, so on a backlogged queue —
         // a metadata backfill is the usual cause — a rating pressed just before quitting
@@ -1631,8 +2176,28 @@ final class CatalogService: @unchecked Sendable {
         // store, and the app terminated with the edit in the catalog and no sidecar. The
         // sidecar is the recovery copy, so the one edit most likely to be lost was the
         // last one made.
-        queue.sync {}
-        flushSidecars()
+        let unsaved: [String] = queue.sync {
+            flushSidecars()
+            sidecarLock.lock()
+            sidecarsClosed = true
+            // What is still pending after the final flush is exactly what failed: the
+            // flush re-queues failures and nothing else can enqueue past this point.
+            for (url, entry) in pendingSidecars {
+                let record = UnsavedSidecarRecord(photoPath: url.path, photoID: entry.photoID,
+                                                  stated: entry.stated)
+                unsavedSidecars[url.path] = unsavedSidecars[url.path].map { $0.merged(with: record) }
+                    ?? record
+            }
+            let names = pendingSidecars.keys.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
+            sidecarLock.unlock()
+            persistUnsavedSidecars()
+            return names
+        }
+        if !unsaved.isEmpty {
+            NSLog("Lumen catalog: quitting with %d portable sidecar(s) unsaved (%@); the "
+                  + "catalog has the edits and the next launch writes them again",
+                  unsaved.count, unsaved.joined(separator: ", "))
+        }
         // J1-04: the restore path that exists and works used to have, on a typical
         // install, zero inputs — `backup()`'s only caller was a menu item nobody is
         // obliged to click. It has one here now, gated twice: on the once-per-N-hours
@@ -1645,6 +2210,7 @@ final class CatalogService: @unchecked Sendable {
         // writes goes through the store.
         backUpAtQuitIfAffordable()
         queue.sync { store.close() }
+        return unsaved
     }
 }
 

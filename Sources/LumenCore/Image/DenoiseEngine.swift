@@ -17,10 +17,11 @@
 //  - §12.6 the slider→threshold calibration against LR feel is unmeasured: the mappings in
 //    `lumaK` / `chromaK` / the band scalers are the shipped first cut, and every constant
 //    that a calibration pass would move is a named `public static let` here.
-//  - §12.7 `ClassicNR` carries only luma/chroma/hotPixels on the wire. The four LR-parity
-//    sub-sliders (Luminance Detail / Luminance Contrast / Color Detail / Color Smoothness)
-//    are engine parameters with documented defaults until the recipe schema grows them —
-//    this file does not invent wire format.
+//  - §12.7 is CLOSED: `ClassicNR` carries all seven sliders on the wire (luma, chroma, hot
+//    pixels and the four LR-parity sub-sliders) plus the two user-set bits, and
+//    `ClassicalDenoise.init(_:profile:)` reads every one. This bullet used to say the
+//    sub-sliders were engine constants "until the recipe schema grows them"; it grew them,
+//    and the gap table and the R6 decision memo had copied the stale bullet (W2/E1-08).
 //
 // Everything here is per-pixel f64 over f32 storage, single-threaded, allocation-simple.
 // The spatial primitives (à-trous analysis/synthesis, guided filter, blurs) live in
@@ -115,10 +116,12 @@ public struct NoiseProfile: Sendable, Equatable {
     public static let estimatorBins: Int = 16
 
     /// The estimator takes the 10th percentile of block variances inside each signal bin as
-    /// "this bin's flat-region variance". Under pure noise the block variance is χ²-
-    /// distributed with 63 degrees of freedom, whose 10th percentile sits at ≈0.78 of the
-    /// true variance, so the percentile is divided back out by this factor.
-    public static let flatBlockCorrection: Double = 1.0 / 0.78
+    /// "this bin's flat-region variance". Under pure noise the block's residual variance
+    /// (after the plane fit below takes three parameters out of 64 samples) is χ²-
+    /// distributed with 61 degrees of freedom, whose 10th percentile sits at ≈0.776 of
+    /// the true variance (Wilson–Hilferty), so the percentile is divided back out by
+    /// this factor.
+    public static let flatBlockCorrection: Double = 1.0 / 0.776
 
     /// Estimate `(a, b)` from one plane's own local variance-vs-mean statistics — the
     /// "unknown (camera, ISO) pair" path of docs/07 §2.4, which measures on first encounter
@@ -126,7 +129,15 @@ public struct NoiseProfile: Sendable, Equatable {
     ///
     /// Estimator, in full:
     ///  1. Tile the plane into non-overlapping 8×8 blocks; for each, take the sample mean μ
-    ///     and the unbiased sample variance v.
+    ///     and the variance v of the residual about the block's least-squares PLANE
+    ///     (μ + gx·dx + gy·dy), unbiased over its 61 degrees of freedom.
+    ///
+    ///     The plane is E1-03's fix. This took the plain sample variance, so a scene's own
+    ///     smooth slope inside a block was fitted as shot noise: on the proof ramp
+    ///     (0.18·2^(−3+5v), about 11% across eight rows) plus noise from a known profile
+    ///     it recovered σ(0.18) at 1.34× the truth, and across the frame's other axis
+    ///     1.59×. A slope is not noise at any scale, and a plane removes it exactly.
+    ///     Texture still raises a block's variance; step 2 is what handles that.
     ///  2. Bucket the blocks into 16 bins by μ across the observed range. Texture only ever
     ///     *raises* a block's variance, so within a bin the low-variance blocks are the flat
     ///     ones: take the 10th percentile of v as the bin's noise variance and undo the
@@ -152,23 +163,38 @@ public struct NoiseProfile: Sendable, Equatable {
         variances.reserveCapacity(bx * by)
 
         let n = Double(block * block)
+        // Offsets from the block centre, so the two slope regressors are orthogonal to
+        // the mean and to each other and the least-squares plane is three dot products.
+        let centre = Double(block - 1) / 2
+        var sumOffsetSquared = 0.0
+        for k in 0..<block { sumOffsetSquared += (Double(k) - centre) * (Double(k) - centre) }
+        let sumDX2 = sumOffsetSquared * Double(block)   // Σ over the block of dx²
         for j in 0..<by {
             let y0 = j * block
             for i in 0..<bx {
                 let x0 = i * block
                 var s = 0.0
                 var s2 = 0.0
+                var sx = 0.0
+                var sy = 0.0
                 for y in y0..<(y0 + block) {
                     let row = y * w
+                    let dy = Double(y - y0) - centre
                     for x in x0..<(x0 + block) {
                         let v = Double(plane.values[row + x])
                         let f = v.isFinite ? v : 0
                         s += f
                         s2 += f * f
+                        sx += f * (Double(x - x0) - centre)
+                        sy += f * dy
                     }
                 }
                 let m = s / n
-                let variance = Swift.max((s2 - n * m * m) / (n - 1), 0)
+                // Residual sum of squares about the plane: the spread about the mean,
+                // less what each fitted slope explains (gx·Σf·dx = (Σf·dx)²/Σdx²).
+                let explained = (sx * sx + sy * sy) / sumDX2
+                let residual = s2 - n * m * m - explained
+                let variance = Swift.max(residual / (n - 3), 0)
                 means.append(m)
                 variances.append(variance)
             }
@@ -427,11 +453,44 @@ public struct ClassicalDenoise: Sendable {
 
     // MARK: Named constants (the calibration surface, docs/07 §12.6)
 
-    /// 5 levels ⇒ 31 px support at the deepest band, the top of the 4–5 band the 24 px S3
-    /// halo allows (docs/07 §12.3).
+    /// 5 levels: the deepest band's own B3 step reaches 32 px, and the stack as a whole
+    /// reaches `receptiveField(levels: 5)` = 79 px once the hot-pixel pass and the blotch
+    /// filter are counted (docs/07 §12.3).
     public static let defaultLevels: Int = 5
     /// Hardest level count the engine will honour, so a bad caller cannot blow the halo.
     public static let maximumLevels: Int = 6
+
+    /// How far, in pixels, one output pixel of `apply` reads from its input — the halo a
+    /// tile of this stage needs for its valid region to equal the untiled frame.
+    ///
+    /// Counted along the longest dependency chain, which both paths share (the GPU
+    /// stage's `roiCallback`s add up to the same number):
+    ///
+    ///  - the hot-pixel pass, a 3×3 neighbourhood: 1;
+    ///  - the à-trous stack: level `j` smooths with a five-tap B3 row whose taps sit
+    ///    `2^j` apart, so it reaches `2·2^j`, and level `j` smooths level `j−1`'s output.
+    ///    Summed over `levels` bands: `2^(levels+1) − 2` — 62 at five levels. The edge
+    ///    maps the shrinkage reads run beside the stack, not after it, so they count
+    ///    only when they reach further (three radius-1 box passes and a central
+    ///    difference: 4, which only a one-level stack does not cover);
+    ///  - the blotch pass, a guided filter: one box of `blotchRadius` to form the
+    ///    coefficients and a second to average them, so `2·blotchRadius` — 16.
+    ///
+    /// It was declared as 24 px in docs/14 §6.3 (and as `TilePlan.classicOverlap`)
+    /// from the deepest band's support alone, which is a third of the real reach. On a
+    /// structured ISO 6400 frame a 24 px apron moved seam pixels by 1.6e-5 (small: the
+    /// reconstruction is exact whatever a band's border sees, and only the shrunk part
+    /// of a coarse band depends on it), where this apron reproduces the frame exactly —
+    /// `testTilingTheStageOnItsOwnApronReproducesTheWholeFrame`.
+    /// `levels` is clamped the way `SpatialOps.atrousWavelet` clamps it.
+    public static func receptiveField(levels: Int) -> Int {
+        let l = Swift.min(Swift.max(levels, 1), 10)
+        let hotPixel = 1
+        let atrous = (1 << (l + 1)) - 2
+        let edge = SpatialOps.boxRadiiForGaussian(sigma: edgeBlurSigma).reduce(0, +) + 1
+        let blotch = 2 * blotchRadius
+        return hotPixel + Swift.max(atrous, edge) + blotch
+    }
 
     /// The `noiseScale` (= s² for a decode at linear scale s) at or below which the
     /// classical bands stop running — see `scaled(noiseScale:)` for the argument and
@@ -1558,9 +1617,12 @@ public struct TilePlan: Sendable {
     /// measured compile + throughput test settles it. Overlap is S2's declared 32 px halo.
     public static let aiTile: Int = 768
     public static let aiOverlap: Int = 32
-    /// S3 defaults: docs/14's 2048 px classical export tiles with the declared 24 px halo.
+    /// S3 defaults: docs/14's 2048 px classical export tiles, with the halo the stage
+    /// actually reaches. It was a declared 24 px, a third of that reach; derived now, so
+    /// a change to the stack's depth or the blotch radius moves the apron with it.
     public static let classicTile: Int = 2048
-    public static let classicOverlap: Int = 24
+    public static let classicOverlap: Int =
+        ClassicalDenoise.receptiveField(levels: ClassicalDenoise.defaultLevels)
 
     public init(width: Int, height: Int, tile: Int, overlap: Int) {
         self.width = Swift.max(width, 0)

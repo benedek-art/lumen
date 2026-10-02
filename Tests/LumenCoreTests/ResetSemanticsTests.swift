@@ -299,6 +299,138 @@ final class ResetSemanticsTests: XCTestCase {
                        "the Linear transform is an edit on a raw and a baseline on a "
                        + "JPEG, and the predicate has to tell them apart")
     }
+
+    // MARK: - The viewer's before rendition (W2/H1-02)
+
+    /// A cropped, straightened, flipped edit with a grade on it.
+    private func framedEdit() -> Recipe {
+        var edit = Recipe()
+        edit.develop.geometry.crop = Crop(x: 0.2, y: 0.1, w: 0.5, h: 0.75)
+        edit.develop.geometry.angle = 3.5
+        edit.develop.geometry.flipH = true
+        edit.develop.geometry.lens.profile = !Recipe().develop.geometry.lens.profile
+        edit.develop.tone.exposure = 1.2
+        edit.look.render.preset = "Punchy"
+        return edit
+    }
+
+    /// THE DEFECT: the before plate is drawn into the edit's box, so it must be the
+    /// edit's shape. Built as `Recipe(pipelineVersion:)` it was the uncropped,
+    /// unstraightened sensor frame — a 3:2 picture stretched into a 1:1 crop.
+    func testTheBeforeRenditionIsFramedLikeTheEdit() {
+        let edit = framedEdit()
+        let before = Recipe.beforeRendition(of: edit, from: unknownISORaw)
+        XCTAssertEqual(before.develop.geometry.crop, edit.develop.geometry.crop)
+        XCTAssertEqual(before.develop.geometry.angle, edit.develop.geometry.angle)
+        XCTAssertEqual(before.develop.geometry.flipH, edit.develop.geometry.flipH)
+        XCTAssertEqual(before.pipelineVersion, edit.pipelineVersion)
+    }
+
+    /// And it is the file AS IMPORTED, not the type's default: a JPEG's before is on
+    /// the Linear transform (a bare `Recipe()` lays a second tone map on it), a raw's
+    /// before carries its own ISO's denoise, and nothing the edit did travels — not the
+    /// grade, not the lens correction.
+    func testTheBeforeRenditionIsTheFileAsImportedApartFromTheFraming() {
+        let edit = framedEdit()
+        let jpeg = Recipe.beforeRendition(of: edit, from: renderedFile)
+        XCTAssertEqual(jpeg.look.render.preset, LookSubset.linearPresetName)
+        XCTAssertEqual(jpeg.develop.tone, Recipe.asImported(from: renderedFile).develop.tone)
+        XCTAssertEqual(jpeg.develop.geometry.lens,
+                       Recipe.asImported(from: renderedFile).develop.geometry.lens,
+                       "the lens correction is part of what the edit did")
+
+        let raw = Recipe.SourceFile(isRendered: false, iso: 12800)
+        var expected = Recipe.asImported(from: raw)
+        expected.develop.geometry.crop = edit.develop.geometry.crop
+        expected.develop.geometry.angle = edit.develop.geometry.angle
+        expected.develop.geometry.flipH = edit.develop.geometry.flipH
+        expected.pipelineVersion = edit.pipelineVersion
+        XCTAssertEqual(Recipe.beforeRendition(of: edit, from: raw), expected)
+    }
+
+    // MARK: - One Noise Reduction row (W2/E1-01, K-028)
+
+    /// A frame edited away from its ISO default on every denoise field, with both
+    /// master bits set — what a selection looks like after a batch edit.
+    private func denoiseEdited() -> Recipe {
+        var r = Recipe()
+        r.develop.denoise.classic = ClassicNR(luma: 77, chroma: 66, hotPixels: 12,
+                                              lumaDetail: 9, lumaContrast: 8,
+                                              colorDetail: 7, colorSmoothness: 6)
+        r.develop.denoise.classic.lumaUserSet = true
+        r.develop.denoise.classic.chromaUserSet = true
+        r.develop.tone.exposure = 0.7
+        return r
+    }
+
+    /// THE DEFECT, stated on the value: double-clicking a Noise row on a mixed-ISO
+    /// selection must put EACH frame on its own ISO's value. The panel resolved one
+    /// number from the primary photograph and stamped it on all of them, so an ISO 25600
+    /// frame came back at the ISO 400 frame's Luminance 0.
+    ///
+    /// Substitute the old shape — the value resolved from ANOTHER file than the one being
+    /// reset (`from: SourceFile(iso: 400)` for both) — and the ISO 25600 assertions fail.
+    func testEachFrameResetsToItsOwnISOsValue() {
+        let low = Recipe.SourceFile(isRendered: false, iso: 400)
+        let high = Recipe.SourceFile(isRendered: false, iso: 25600)
+        for row in Recipe.DenoiseRow.allCases {
+            var a = denoiseEdited()
+            var b = denoiseEdited()
+            a.resetDenoise(row, from: low)
+            b.resetDenoise(row, from: high)
+            let wantA = Recipe.asImported(from: low).develop.denoise.classic
+            let wantB = Recipe.asImported(from: high).develop.denoise.classic
+            let field: (ClassicNR) -> Double = {
+                switch row {
+                case .luma: return $0.luma
+                case .lumaDetail: return $0.lumaDetail
+                case .lumaContrast: return $0.lumaContrast
+                case .chroma: return $0.chroma
+                case .colorDetail: return $0.colorDetail
+                case .colorSmoothness: return $0.colorSmoothness
+                }
+            }
+            XCTAssertEqual(field(a.develop.denoise.classic), field(wantA), "\(row) at ISO 400")
+            XCTAssertEqual(field(b.develop.denoise.classic), field(wantB), "\(row) at ISO 25600")
+        }
+        // The numbers the audit measured, so the loop above is not comparing two zeros.
+        var a = denoiseEdited(), b = denoiseEdited()
+        a.resetDenoise(.luma, from: low)
+        b.resetDenoise(.luma, from: high)
+        XCTAssertEqual(a.develop.denoise.classic.luma, 0)
+        XCTAssertEqual(b.develop.denoise.classic.luma, 40,
+                       "an ISO 25600 raw imports at Luminance 40; the reset gave it 0")
+    }
+
+    /// One row, one field: every other value on the frame stays where the photographer
+    /// put it, and only the masters clear their user-set bit.
+    func testAResetTouchesOnlyItsOwnRow() {
+        let file = Recipe.SourceFile(isRendered: false, iso: 6400)
+        var luma = denoiseEdited()
+        luma.resetDenoise(.luma, from: file)
+        XCTAssertFalse(luma.develop.denoise.classic.lumaUserSet)
+        XCTAssertTrue(luma.develop.denoise.classic.chromaUserSet)
+        XCTAssertEqual(luma.develop.denoise.classic.chroma, 66)
+        XCTAssertEqual(luma.develop.denoise.classic.lumaDetail, 9)
+        XCTAssertEqual(luma.develop.denoise.classic.hotPixels, 12)
+        XCTAssertEqual(luma.develop.tone.exposure, 0.7)
+
+        var detail = denoiseEdited()
+        detail.resetDenoise(.colorDetail, from: file)
+        XCTAssertTrue(detail.develop.denoise.classic.lumaUserSet,
+                      "a sub-slider reset is not a master reset")
+        XCTAssertEqual(detail.develop.denoise.classic.colorSmoothness, 6)
+    }
+
+    /// A rendered file's reset lands on the flat wire value, whatever ISO its EXIF
+    /// records — the same rule `asImported` applies, so the panel and the whole-photo
+    /// Reset cannot disagree about it.
+    func testARenderedFileResetsToTheFlatValueWhateverItsISO() {
+        var r = denoiseEdited()
+        r.resetDenoise(.chroma, from: Recipe.SourceFile(isRendered: true, iso: 25600))
+        XCTAssertEqual(r.develop.denoise.classic.chroma, ClassicNR().chroma)
+        XCTAssertFalse(r.develop.denoise.classic.chromaUserSet)
+    }
 }
 
 // MARK: - The metadata half, against a real catalog

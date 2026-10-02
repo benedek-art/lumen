@@ -116,14 +116,15 @@ public enum KeyGrammar {
                   + "the cursor in the loupe"),
             KeyRow(keys: "Esc",
                    action: "Leave what you are inside — a focused slider, then masking, "
-                       + "then the crop tool (putting its framing back), then back to "
-                       + "the grid"),
+                       + "then the Heal tool, then the crop tool (putting its framing "
+                       + "back), then back to the grid"),
         ]),
         KeyGroup(title: "Culling", rows: [
             KeyRow(keys: "P", action: "Pick"),
             KeyRow(keys: "X", action: "Reject"),
             KeyRow(keys: "U", action: "Unflag"),
-            KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask"),
+            KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask; "
+                  + "while healing, delete the selected spot or stroke"),
             KeyRow(keys: "1–5", action: "Rating"),
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
@@ -156,6 +157,16 @@ public enum KeyGrammar {
             // presses of a key the dispatcher already claims, told apart by the
             // interval between them (`CropTool.noteArming`).
             KeyRow(keys: "R R", action: "Reset the crop and stay in the tool"),
+            // docs/12 §12.3's `Q`, unclaimed until the retouch stage existed. Bare, so it
+            // is a dispatcher key and `dispatchedKeys` carries it.
+            KeyRow(keys: "Q",
+                   action: "Heal tool: click a blemish to heal it, drag a spot's circle or "
+                       + "its source; again to put it away"),
+            // docs/09's and LR's re-roll. Bare and only live while the Heal tool is
+            // armed; everywhere else the dispatcher lets it fall through.
+            KeyRow(keys: "/",
+                   action: "While healing: re-pick the selected spot's source — the next "
+                       + "best, round to the first again"),
             KeyRow(keys: "⇧S", action: "Soft proof through the destination space"),
             KeyRow(keys: "\\", action: "Before / after, full frame"),
             KeyRow(keys: "Y", action: "Before / after, side by side"),
@@ -199,7 +210,7 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("3", command: true), "Crop workspace"),
             KeyRow(KeyBinding("4", command: true), "Grade workspace"),
             KeyRow(KeyBinding("5", command: true), "Deliver workspace"),
-            KeyRow(KeyBinding("o", command: true), "Open folder"),
+            KeyRow(KeyBinding("o", command: true), "Open photographs or a folder"),
             KeyRow(KeyBinding("i", command: true, shift: true), "Ingest from a card"),
             KeyRow(KeyBinding("z", command: true), "Undo"),
             KeyRow(KeyBinding("z", command: true, shift: true), "Redo"),
@@ -254,7 +265,7 @@ public enum KeyGrammar {
         // Flags, ratings, labels
         "p", "x", "u", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-",
         // Editing and panels
-        "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f",
+        "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f", "q", "/",
         // Zoom and thumbnail size
         "z", "=", "+", "[", "]",
     ]

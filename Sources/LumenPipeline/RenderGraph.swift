@@ -79,8 +79,22 @@ public struct RenderGraph {
     /// aliased speckle where the model says 0.5 px is the finest thing that may exist
     /// (C2-03 / K-065).
     public var defersGrain: Bool = false
+    /// Where `look.lut`'s cube is read from — the shared shelf the app attaches its blob
+    /// store to, and the one `ReferenceRenderer.Inputs` defaults to, so both renderers
+    /// resolve the same cube for the same ref. Tests hand in their own.
+    public var creativeLUTs: CreativeLUTLibrary = .shared
+    /// The painted heal strokes S5 renders after the spots (`StrokeHeal`), resolved out
+    /// of the stroke sets by whoever builds this graph — the recipe holds only their
+    /// blob reference. Empty means none, or the blob is not to hand yet.
+    public var healStrokes: [BrushStroke] = []
 
     public init() {}
+
+    /// A graph that will render `recipe`'s painted heal strokes from `strokeSets`.
+    public init(healStrokesOf recipe: Recipe, strokeSets: [String: BrushStrokeSet]) {
+        self.healStrokes = StrokeHeal.strokes(for: recipe.develop.heal,
+                                              strokeSets: strokeSets)
+    }
 
     // MARK: - The chain
 
@@ -104,11 +118,53 @@ public struct RenderGraph {
                                 options: Options) -> CIImage {
         var image = colorStageInput(input, plan: plan, options: options)
 
-        // S9 + S10 — colour and grade, as one table on the log axis.
-        if !plan.colorGradeIsIdentity {
+        // S9 — colour, exactly, every time (AI-03). Never a table and never chosen per
+        // recipe: a route that changed with the recipe is a discontinuity the moment a
+        // second control moves (EXECUTION-05).
+        image = Self.applyColorStage(image, plan.colorStage)
+
+        // S10 — the grade, as one table on the log axis.
+        if !plan.gradeIsIdentity {
             image = Self.throughShaper(image) { encoded in
-                ColorCube.filter(plan.colorGradeLUT, image: encoded)
+                ColorCube.filter(plan.gradeLUT, image: encoded)
             } ?? image
+        }
+        return image
+    }
+
+    /// The exact colour stage as a chain of colour kernels, in `stage.passes` order, on
+    /// the uniforms its CPU twin reads (`ExactColorStage`). `primaries` produces the
+    /// fixed pre-Mixer reference a swatch's Variance reads; `finish` receives the stage
+    /// input so a non-finite result falls back to it, as `ColorEngine.apply` does.
+    ///
+    /// No fallback to a table and no silently skipped pass: a kernel that will not
+    /// compile is on the core roster, which sends the whole render down the CPU path
+    /// before this is reached. If a pass still returns nil here the stage input is
+    /// returned UNCOLOURED rather than half-coloured — loud, and the same rule every
+    /// other stage in this graph follows.
+    static func applyColorStage(_ input: CIImage, _ stage: ExactColorStage) -> CIImage {
+        guard !stage.isIdentity else { return input }
+        var image = input
+        var reference = input
+        for pass in stage.passes {
+            var arguments: [Any] = [image]
+            switch pass.kernel {
+            case .primaries, .mixer:
+                break
+            case .point:
+                arguments.append(pass.readsReference ? reference : image)
+            case .finish:
+                arguments.append(input)
+            }
+            arguments += pass.uniforms.map {
+                CIVector(x: CGFloat($0.x), y: CGFloat($0.y), z: CGFloat($0.z),
+                         w: CGFloat($0.w))
+            }
+            guard let next = KernelLibrary.apply(KernelLibrary.colourKernel(pass.kernel),
+                                                 extent: input.extent, arguments)
+            else { return input }
+            image = next
+            if pass.kernel == .primaries { reference = image }
         }
         return image
     }
@@ -134,6 +190,20 @@ public struct RenderGraph {
         // `noiseScale` has already shrunk the work to match.
         if !options.maskSource {
             image = applyDenoise(image, plan: plan, options: options)
+        }
+
+        // S5 — retouch: heal and clone spots, on the scene-linear picture S3 left, so
+        // every stage below inherits the healed pixels (docs/14 §2.1 rule 3). NOT skipped
+        // for the mask source: a luma or colour band must select the photograph without
+        // the blemish the photographer removed, exactly as the reference's S11 does —
+        // which is why `PipelineRenderer.maskSourceFingerprint` keys `develop.heal`.
+        let spots = plan.recipe.develop.heal.spots
+        if !spots.isEmpty {
+            image = Self.applySpots(image, spots: spots)
+        }
+        // Then the painted heal strokes, in draw order — the reference's order.
+        if !healStrokes.isEmpty {
+            image = Self.applyHealStrokes(image, strokes: healStrokes)
         }
 
         // S6 — one fused matrix: white balance, exposure, printer lights.
@@ -171,10 +241,20 @@ public struct RenderGraph {
         if plan.vignetteEV != 0 {
             image = applyVignette(image, ev: plan.vignetteEV,
                                   feather: plan.vignetteFeather,
-                                  crop: plan.recipe.develop.geometry.crop)
+                                  geometry: plan.recipe.develop.geometry)
         }
         if let film = plan.filmChain, film.halationAmount > 0 {
             image = applyHalation(image, film: film, longEdge: options.longEdge)
+        }
+
+        // The creative LUT, resolved once for both taps; nil skips both outright, so a
+        // recipe without one builds exactly the graph it built before the stage existed.
+        // Positions and spaces: `CreativeLUTStage`'s header, and the reference's twin
+        // lines in `ReferenceRenderer.render`.
+        let creativeLUT = CreativeLUTStage(reference: plan.recipe.look.lut,
+                                           library: creativeLUTs)
+        if let lut = creativeLUT, lut.tap == .log {
+            image = Self.applyCreativeLUT(image, lut) ?? image
         }
 
         // S14 + S15 — picture formation and the curve, as one table. The table is
@@ -228,6 +308,13 @@ public struct RenderGraph {
             image = applyLocalCurves(image, plan: plan, options: options)
         }
 
+        // Display-interpreted LUT: S15, after the local curve tap, before the grain —
+        // the export lays its grain down after the resize, so before grain is the one
+        // position preview and export share.
+        if let lut = creativeLUT, lut.tap == .display {
+            image = Self.applyCreativeLUT(image, lut) ?? image
+        }
+
         // Grain lives inside picture formation, in the density domain.
         //
         // Off `plan.grain` now, not off `plan.filmChain` — the plan answers "what grain
@@ -268,6 +355,48 @@ public struct RenderGraph {
         }
 
         return image
+    }
+
+    // MARK: - Creative LUT
+
+    /// `CreativeLUTStage.apply`, in the graph — the same steps with the same matrices.
+    ///
+    /// The user's cube is uploaded as the file defines it and fetched once per pixel; it
+    /// is never re-baked into a second table, so the only gap to the reference is the
+    /// fetch itself (`ColorCube.filter` — `KernelLibrary.cubeLookup`, float — interpolates
+    /// trilinearly where `LUT3D.sample` is tetrahedral; the same gap every plan table
+    /// here carries, and `CreativeLUTParityTests` measures it). The display tap's encode and decode are
+    /// the stock sRGB tone-curve filters: the IEC 61966-2-1 curve, the one
+    /// `TransferFunction.srgb` is.
+    ///
+    /// Nil means a stage could not be built; the caller then leaves the image as it was,
+    /// the graph's rule for every stage (a frame missing its LUT is recoverable).
+    static func applyCreativeLUT(_ image: CIImage, _ lut: CreativeLUTStage) -> CIImage? {
+        let cube = CreativeLUTCubes.baked(lut)
+        let mapped: CIImage?
+        switch lut.tap {
+        case .log:
+            mapped = throughShaper(image) { ColorCube.filter(cube, image: $0) }
+        case .display:
+            let display = applyMatrix(image, CreativeLUTStage.workingToDisplay)
+            guard let unit = clamped(display, low: 0, high: 1) else { return nil }
+            let encode = CIFilter.linearToSRGBToneCurve()
+            encode.inputImage = unit
+            guard let encoded = encode.outputImage,
+                  let looked = ColorCube.filter(cube, image: encoded) else { return nil }
+            let decode = CIFilter.sRGBToneCurveToLinear()
+            decode.inputImage = looked
+            guard let linear = decode.outputImage else { return nil }
+            mapped = applyMatrix(linear, CreativeLUTStage.displayToWorking)
+        }
+        guard let mapped else { return nil }
+        let extent = image.extent
+        if lut.isFullStrength { return mapped.cropped(to: extent) }
+        // `blendMask` is `mix(base, over, m)`, which is the reference's
+        // `c + (mapped − c)·amount` term for term.
+        guard let amount = constant(RGB(gray: lut.amount), extent: extent) else { return nil }
+        return KernelLibrary.apply(KernelLibrary.blendMask, extent: extent,
+                                   [image, mapped, amount])
     }
 
     // MARK: - Soft proof's gamut flag
@@ -330,6 +459,192 @@ public struct RenderGraph {
                             format: .RGBAf, colorSpace: nil)
         return image.clampedToExtent().cropped(to: extent)
     }
+    // MARK: - S5 retouch
+
+    /// Heal and clone spots, in order, each reading the picture the previous one left —
+    /// the twin of `SpotRetouch.apply`, resolved by the same `SpotRetouch.resolve`, so the
+    /// two renderers agree on every centre, radius and core before a pixel is computed.
+    ///
+    /// Each spot is two kernels and a composite: the rim (`boundarySamples`×1, Heal only),
+    /// then the spot over its own bounding box, laid over the picture. Outside that box
+    /// the picture is the input itself, not a pass-through of it, so a spot costs its own
+    /// area and nothing else, and the rest of the frame is the bytes S3 produced.
+    public static func applySpots(_ image: CIImage, spots: [HealSpot]) -> CIImage {
+        let extent = image.extent
+        guard !extent.isInfinite, !extent.isEmpty, extent.width >= 1, extent.height >= 1,
+              KernelLibrary.retouchAvailable else { return image }
+        let width = Int(extent.width.rounded())
+        let height = Int(extent.height.rounded())
+        var current = image
+        for spot in spots {
+            guard let resolved = SpotRetouch.resolve(spot, width: width, height: height)
+            else { continue }
+            current = applySpot(current, resolved, extent: extent) ?? current
+        }
+        return current
+    }
+
+    static func applySpot(_ image: CIImage, _ spot: SpotRetouch.SpotGeometry,
+                          extent: CGRect) -> CIImage? {
+        let h = Double(extent.height)
+        let ox = Double(extent.minX), oy = Double(extent.minY)
+        // A top-down box in the reference's pixels, as a bottom-up Core Image rect.
+        func ciRect(_ minX: Double, _ minY: Double, _ maxX: Double, _ maxY: Double) -> CGRect {
+            CGRect(x: ox + minX, y: oy + h - maxY, width: maxX - minX, height: maxY - minY)
+        }
+        let reach = spot.radius + 2
+        let destination = ciRect(spot.cx - reach, spot.cy - reach,
+                                 spot.cx + reach, spot.cy + reach)
+        let source = ciRect(spot.sx - reach, spot.sy - reach, spot.sx + reach, spot.sy + reach)
+        let box = ciRect(Double(spot.minX), Double(spot.minY),
+                         Double(spot.maxX), Double(spot.maxY))
+        let rimExtent = CGRect(x: 0, y: 0, width: SpotRetouch.boundarySamples, height: 1)
+
+        let clamped = image.clampedToExtent()
+        let centre = CIVector(x: spot.cx, y: spot.cy)
+        let borrowed = CIVector(x: spot.sx, y: spot.sy)
+
+        let rim: CIImage
+        if spot.heal {
+            guard let kernel = KernelLibrary.spotBoundary,
+                  let built = kernel.apply(
+                      extent: rimExtent,
+                      roiCallback: { _, _ in destination.union(source) },
+                      arguments: [clamped, centre, borrowed, Float(spot.radius),
+                                  Float(h), Float(ox), Float(oy)])
+            else { return nil }
+            rim = built
+        } else {
+            // A Clone never reads the rim, but the kernel has a sampler for it.
+            rim = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: rimExtent)
+        }
+
+        // The shift from a destination pixel to the one it borrows, in Core Image's
+        // bottom-up frame: x as is, y negated.
+        let dx = CGFloat(spot.sx - spot.cx)
+        let dy = CGFloat(-(spot.sy - spot.cy))
+        guard let kernel = KernelLibrary.spotApply,
+              let applied = kernel.apply(
+                  extent: box,
+                  roiCallback: { index, rect in
+                      index == 0
+                          ? rect.union(rect.offsetBy(dx: dx, dy: dy)).insetBy(dx: -2, dy: -2)
+                          : rimExtent
+                  },
+                  arguments: [clamped, rim, centre, borrowed, Float(spot.radius),
+                              Float(spot.rin), Float(spot.opacity),
+                              Float(spot.heal ? 1 : 0), Float(h), Float(ox), Float(oy)])
+        else { return nil }
+        // Cropped to the box before it is laid over the picture. The kernel is clear
+        // outside its disc, and the crop makes that true of everything Core Image might
+        // read outside the box as well: see `KernelLibrary.spotApplySource`.
+        return applied.cropped(to: box).composited(over: image)
+    }
+
+    /// Painted heal strokes, in draw order — the twin of `StrokeHeal.apply`, resolved
+    /// by the same `StrokeHeal.resolve`. Per stroke: the CPU-rasterized tube alpha, the
+    /// rim (Heal only) as one kernel over a `count`x1 extent, then the stroke over its
+    /// own box, laid over the picture.
+    public static func applyHealStrokes(_ image: CIImage, strokes: [BrushStroke]) -> CIImage {
+        let extent = image.extent
+        guard !extent.isInfinite, !extent.isEmpty, extent.width >= 1, extent.height >= 1,
+              KernelLibrary.strokeRetouchAvailable else { return image }
+        let width = Int(extent.width.rounded())
+        let height = Int(extent.height.rounded())
+        var current = image
+        for stroke in strokes {
+            guard let resolved = StrokeHeal.resolve(stroke, width: width, height: height)
+            else { continue }
+            current = applyHealStroke(current, resolved, extent: extent) ?? current
+        }
+        return current
+    }
+
+    /// A row of RGBAf texels as an image over `0..<count` x `0..<1`. Float data with no
+    /// colour space: the numbers go in as numbers.
+    static func texelRow(_ texels: [Float], count: Int) -> CIImage {
+        let data = texels.withUnsafeBufferPointer { Data(buffer: $0) }
+        return CIImage(bitmapData: data, bytesPerRow: count * 4 * MemoryLayout<Float>.size,
+                       size: CGSize(width: count, height: 1), format: .RGBAf, colorSpace: nil)
+    }
+
+    static func applyHealStroke(_ image: CIImage, _ g: StrokeHeal.StrokeGeometry,
+                                extent: CGRect) -> CIImage? {
+        let h = Double(extent.height)
+        let ox = Double(extent.minX), oy = Double(extent.minY)
+        func ciRect(_ minX: Double, _ minY: Double, _ maxX: Double, _ maxY: Double) -> CGRect {
+            CGRect(x: ox + minX, y: oy + h - maxY, width: maxX - minX, height: maxY - minY)
+        }
+        let box = ciRect(Double(g.minX), Double(g.minY), Double(g.maxX), Double(g.maxY))
+
+        // The tube's alpha, top-down rows like every plane, placed over the box.
+        let alphaValues = StrokeHeal.alphaPlane(g)
+        let alphaData = alphaValues.withUnsafeBufferPointer { Data(buffer: $0) }
+        let alpha = CIImage(bitmapData: alphaData,
+                            bytesPerRow: g.width * MemoryLayout<Float>.size,
+                            size: CGSize(width: g.width, height: g.height),
+                            format: .Rf, colorSpace: nil)
+            .transformed(by: CGAffineTransform(translationX: box.minX, y: box.minY))
+
+        let count = g.rim.count
+        let rows = Swift.max(count, 1)
+        var positions = [Float](repeating: 0, count: rows * 4)
+        var steps = [Float](repeating: 0, count: rows * 4)
+        for k in 0..<count {
+            let xHi = floor(g.rim[k].x / 16), yHi = floor(g.rim[k].y / 16)
+            positions[k * 4] = Float(xHi)
+            positions[k * 4 + 1] = Float(g.rim[k].x - 16 * xHi)
+            positions[k * 4 + 2] = Float(yHi)
+            positions[k * 4 + 3] = Float(g.rim[k].y - 16 * yHi)
+            steps[k * 4] = Float(g.rimSteps[k].x)
+            steps[k * 4 + 1] = Float(g.rimSteps[k].y)
+            steps[k * 4 + 3] = 1
+        }
+        let rimExtent = CGRect(x: 0, y: 0, width: rows, height: 1)
+        let positionImage = texelRow(positions, count: rows)
+        let stepImage = texelRow(steps, count: rows)
+
+        let clamped = image.clampedToExtent()
+        let offset = CIVector(x: g.dx, y: g.dy)
+        // Everything a rim sample or a borrowed pixel can reach, in Core Image's frame.
+        let reach = g.radius + 2
+        let around = ciRect(Double(g.minX) - reach, Double(g.minY) - reach,
+                            Double(g.maxX) + reach, Double(g.maxY) + reach)
+        let borrowed = around.offsetBy(dx: CGFloat(g.dx), dy: CGFloat(-g.dy))
+
+        let rim: CIImage
+        if g.heal && count > 0 {
+            guard let kernel = KernelLibrary.strokeBoundary,
+                  let built = kernel.apply(
+                      extent: rimExtent,
+                      roiCallback: { index, _ in index == 0 ? around.union(borrowed) : rimExtent },
+                      arguments: [clamped, positionImage, stepImage, offset,
+                                  Float(h), Float(ox), Float(oy)])
+            else { return nil }
+            rim = built
+        } else {
+            rim = CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: rimExtent)
+        }
+
+        let dx = CGFloat(g.dx), dy = CGFloat(-g.dy)
+        guard let kernel = KernelLibrary.strokeApply,
+              let applied = kernel.apply(
+                  extent: box,
+                  roiCallback: { index, rect in
+                      switch index {
+                      case 0: return rect.union(rect.offsetBy(dx: dx, dy: dy))
+                          .insetBy(dx: -2, dy: -2)
+                      case 3: return rect
+                      default: return rimExtent
+                      }
+                  },
+                  arguments: [clamped, rim, positionImage, alpha, offset,
+                              Float(g.radius), Float(count), Float(g.heal ? 1 : 0),
+                              Float(h), Float(ox), Float(oy)])
+        else { return nil }
+        return applied.cropped(to: box).composited(over: image)
+    }
+
     // MARK: - S3 profiled classical noise reduction
 
     /// Tier 1 (docs/07 §2), in the graph: hot pixels, then a variance-stabilizing
@@ -594,7 +909,17 @@ public struct RenderGraph {
     // MARK: - S8 presence
 
     func applyPresence(_ image: CIImage, plan: RenderPlan, options: Options) -> CIImage {
-        Self.applyPresence(image, detail: plan.detail, longEdge: options.longEdge)
+        // The GLOBAL controls are ±100, and the reference clamps them there
+        // (`DetailEngine.applyTexture/applyClarity` through `scaledPresenceAmount`).
+        // This passed a hand-edited sidecar's ±250 straight through, so the two
+        // renderers disagreed on any value outside the slider's range. The static
+        // below stays unclamped on purpose: the local stage hands it a mask's
+        // Strength-scaled amount, which may legitimately reach ±200. Dehaze clamps
+        // inside `applyDehaze` on both paths already.
+        var detail = plan.detail
+        detail.texture = DetailEngine.scaledPresenceAmount(detail.texture)
+        detail.clarity = DetailEngine.scaledPresenceAmount(detail.clarity)
+        return Self.applyPresence(image, detail: detail, longEdge: options.longEdge)
     }
 
     /// Presence over an explicit `Detail`, so the local stage can run the same code on
@@ -906,27 +1231,27 @@ public struct RenderGraph {
             let adjusted = Self.applyLocalAdjust(out, mask: mask, plan: plan,
                                                  longEdge: options.longEdge,
                                                  lutSize: options.lutSize)
-            // Normal keeps the two-argument kernel it always used, so the common case
-            // is bit-identical and pays nothing for a feature it is not using. The
-            // coefficients come off the working space rather than being written into
-            // the shader, so this cannot drift from `MaskAlgebra.blended`.
-            let composite: CIImage?
-            if mask.blend == .normal {
-                composite = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                extent: out.extent,
-                                                [out, adjusted, alpha])
-            } else {
-                let w = RGBColorSpace.rec2020.luminanceWeights
-                let mode: Float = mask.blend == .luminosity ? 1 : 2
-                composite = KernelLibrary.apply(KernelLibrary.blendMaskMode,
-                                                extent: out.extent,
-                                                [out, adjusted, alpha, mode,
-                                                 Float(w.r), Float(w.g), Float(w.b)])
-            }
-            guard let blended = composite else { continue }
+            guard let blended = Self.compositeLocal(base: out, adjusted: adjusted,
+                alpha: alpha, blend: mask.blend) else { continue }
             out = blended
         }
         return out
+    }
+
+    /// Both local taps obey one mask blend contract, before alpha interpolation.
+    /// S15b pixels remain display-linear Rec2020, so the same luminance coefficients
+    /// apply there as in S11. Normal retains the existing kernel unchanged.
+    private static func compositeLocal(base: CIImage, adjusted: CIImage,
+                                       alpha: CIImage, blend: MaskBlend) -> CIImage? {
+        if blend == .normal {
+            return KernelLibrary.apply(KernelLibrary.blendMask, extent: base.extent,
+                                       [base, adjusted, alpha])
+        }
+        let w = RGBColorSpace.rec2020.luminanceWeights
+        let mode: Float = blend == .luminosity ? 1 : 2
+        return KernelLibrary.apply(KernelLibrary.blendMaskMode, extent: base.extent,
+                                   [base, adjusted, alpha, mode,
+                                    Float(w.r), Float(w.g), Float(w.b)])
     }
 
     /// A mask's sub-recipe evaluated on the stage input. Local parameters are deltas
@@ -963,10 +1288,18 @@ public struct RenderGraph {
                                   globalColor: plan.recipe.develop.color,
                                   globalWheels: plan.recipe.look.wheels,
                                   balanced: plan.balancedNeutral)
-        if !localPlan.isIdentity {
-            out = throughShaper(out) { encoded in
-                ColorCube.filter(localPlan.lut, image: encoded)
-            } ?? out
+        // Three pieces, in the order the reference evaluates them: the tone/white
+        // balance table, the mask's colour stage EXACTLY (AI-03 — its swatches and
+        // Saturation are the same hue- and chroma-selective tools the global table
+        // could not hold), then the hue/tint/grade table. Each is skipped only when it
+        // is the identity, so a control crossing zero adds or removes one exact piece
+        // and never changes how the others are evaluated.
+        if let pre = localPlan.preLUT {
+            out = throughShaper(out) { encoded in ColorCube.filter(pre, image: encoded) } ?? out
+        }
+        out = applyColorStage(out, localPlan.colorStage)
+        if let post = localPlan.postLUT {
+            out = throughShaper(out) { encoded in ColorCube.filter(post, image: encoded) } ?? out
         }
 
         // The spatial half. It runs over the whole frame and `applyLocal` composites
@@ -974,8 +1307,8 @@ public struct RenderGraph {
         // cropped decomposition of its own. Without this the mask panel's Texture,
         // Clarity, Dehaze and Sharpness sliders moved and nothing happened.
         var localDetail = Detail()
-        localDetail.texture = a.texture * scale
-        localDetail.clarity = a.clarity * scale
+        localDetail.texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
+        localDetail.clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         localDetail.dehaze = a.dehaze * scale
         if localDetail.texture != 0 || localDetail.clarity != 0 || localDetail.dehaze != 0 {
             out = Self.applyPresence(out, detail: localDetail, longEdge: longEdge)
@@ -988,12 +1321,41 @@ public struct RenderGraph {
                                     longEdge: longEdge)
         } else if sharpness < 0 {
             // Negative Sharpness is a softening; `applySharpen` clamps at zero.
-            let filter = CIFilter.gaussianBlur()
-            filter.inputImage = out.clampedToExtent()
-            filter.radius = Float(Num.clamp(-sharpness / 100, 0, 1) * 2.5)
-            out = filter.outputImage?.cropped(to: out.extent) ?? out
+            let sigma = SpatialOps.frameDenominatedSigma(
+                radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                longEdge: longEdge)
+            out = Self.applyLocalSoftening(out, sigma: sigma)
         }
         return out
+    }
+
+    /// Match the reference's discrete Gaussian at subpixel radii. Core Image's
+    /// Gaussian approximation over-softens this range (sigma .5 is visibly wider),
+    /// precisely where frame-denominated blur lands on a small preview. Nine taps
+    /// contain the reference's full 4-sigma support below one pixel; larger radii
+    /// keep the existing Gaussian and its established reference-resolution look.
+    private static func applyLocalSoftening(_ image: CIImage, sigma: Double) -> CIImage {
+        guard sigma > 0.05 else { return image }
+        if sigma < 1 {
+            let radius = Swift.max(Int(ceil(sigma * 4)), 1)
+            var weights = [CGFloat](repeating: 0, count: 9)
+            for i in -radius...radius {
+                weights[i + 4] = CGFloat(exp(-Double(i * i) / (2 * sigma * sigma)))
+            }
+            let total = weights.reduce(0, +)
+            weights = weights.map { $0 / total }
+            let vector = CIVector(values: weights, count: weights.count)
+            let horizontal = image.clampedToExtent().applyingFilter(
+                "CIConvolution9Horizontal", parameters: ["inputWeights": vector])
+                .cropped(to: image.extent)
+            return horizontal.clampedToExtent().applyingFilter(
+                "CIConvolution9Vertical", parameters: ["inputWeights": vector])
+                .cropped(to: image.extent)
+        }
+        let filter = CIFilter.gaussianBlur()
+        filter.inputImage = image.clampedToExtent()
+        filter.radius = Float(sigma)
+        return filter.outputImage?.cropped(to: image.extent) ?? image
     }
 
     // MARK: - S15b local point curve
@@ -1024,9 +1386,8 @@ public struct RenderGraph {
             guard let curved = Self.throughShaper(out, { encoded in
                 ColorCube.filter(table, image: encoded)
             }) else { continue }
-            guard let blended = KernelLibrary.apply(KernelLibrary.blendMask,
-                                                    extent: out.extent,
-                                                    [out, curved, alpha])
+            guard let blended = Self.compositeLocal(base: out, adjusted: curved,
+                                                    alpha: alpha, blend: mask.blend)
             else { continue }
             out = blended
         }
@@ -1283,28 +1644,23 @@ public struct RenderGraph {
 
     // MARK: - S13 vignette and halation
 
-    /// `crop` is the recipe's crop, so the burn is centred on the rectangle the user
-    /// will actually see.
-    ///
-    /// This stage runs on the full decoded frame and `applyGeometry` crops afterwards,
-    /// so computing the ellipse from `image.extent` centred it on the SENSOR. On a
-    /// cropped photo the burn was off-centre with the wrong radius, and on an
-    /// off-centre crop it could sit almost entirely outside the visible frame — while
-    /// the panel note asserts the vignette "is masked to the crop rectangle, so it
-    /// stays post-crop by construction".
-    ///
-    /// Straighten is not accounted for: the crop rectangle is expressed on the
-    /// straightened frame while this stage still sees the source orientation, and the
-    /// two coincide only at angle 0. A rotated frame therefore still places the ellipse
-    /// slightly off. That is a much smaller error than the one being fixed, and it is
-    /// listed in BUILDING.md rather than approximated with maths I cannot check here.
-    /// `dithered: false` exists for ONE caller: the banding golden renders an
+    /// Evaluate the crop's ellipse in the exact oriented coordinates used by delivery.
+    /// Pixels stay in source space here: vignette still precedes halation and picture
+    /// formation. Only its coordinate field is transformed, with no image resampling.
+    /// The full rectangle/rotation/flip comes from applyGeometry's shared definition.
+    /// `dithered: false` is test-only: the banding golden renders an
     /// undithered control in the same run and asserts the dither's improvement as a
     /// RATIO, because an absolute bar calibrated by simulating fp16 died on the real
     /// driver's materialization (both macOS lanes, same 0.0072 EV, deterministic).
     /// The shipping path never passes it.
-    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+    func applyVignette(_ image: CIImage, ev: Double, feather: Double,
                        crop: Crop, dithered: Bool = true) -> CIImage {
+        applyVignette(image, ev: ev, feather: feather, geometry: Geometry(crop: crop),
+                      dithered: dithered)
+    }
+
+    func applyVignette(_ image: CIImage, ev: Double, feather recipeFeather: Double,
+                       geometry: Geometry, dithered: Bool = true) -> CIImage {
         let full = image.extent
         guard full.width > 0, full.height > 0 else { return image }
         // The reference's clamp, and now literally the reference's OWN clamp rather
@@ -1320,16 +1676,19 @@ public struct RenderGraph {
                            DetailEngine.vignetteAmountRange.upperBound)
         guard ev != 0 else { return image }
 
-        var e = full
-        if crop.x != 0 || crop.y != 0 || crop.w != 1 || crop.h != 1,
-           crop.w > 0, crop.h > 0 {
-            // Recipe crop is top-left-origin; Core Image extents are bottom-up.
-            e = CGRect(x: full.minX + CGFloat(crop.x) * full.width,
-                       y: full.minY + CGFloat(1 - crop.y - crop.h) * full.height,
-                       width: CGFloat(crop.w) * full.width,
-                       height: CGFloat(crop.h) * full.height)
-        }
+        let rects = PipelineRenderer.geometryRects(geometry, sourceSize: full.size)
+        // Core Image's final cropped image has integral pixel bounds. Align the
+        // ellipse with that delivered rectangle, not its fractional requested edge;
+        // otherwise a small/rotated crop shifts the brightening ramp by a pixel.
+        let e = rects.target.integral
         guard e.width > 0, e.height > 0 else { return image }
+        // Delivery first translates a nonzero source origin to zero, then applies
+        // this orientation. Rows act on the SOURCE coordinate, not a resampled image.
+        let t = rects.orientation
+        let axisX = CIVector(x: t.a, y: t.c,
+            z: t.tx - t.a * full.minX - t.c * full.minY)
+        let axisY = CIVector(x: t.b, y: t.d,
+            z: t.ty - t.b * full.minX - t.d * full.minY)
         let centre = CIVector(x: e.midX, y: e.midY)
         // PER AXIS, then scaled so the corner lands at r = 1 — level sets elliptical on
         // the crop's own proportions, which is what docs/06's Roundness 0 means and what
@@ -1372,7 +1731,8 @@ public struct RenderGraph {
         let noise = plate ?? image
         let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full,
-                                   [image, noise, centre, inv, Float(ev), Float(feather),
+                                   [image, noise, centre, inv, axisX, axisY,
+                                    Float(ev), Float(feather),
                                     CIVector(x: weights.r, y: weights.g, z: weights.b),
                                     Float(threshold),
                                     Float(DetailEngine.vignetteHighlightProtection),
@@ -1392,16 +1752,23 @@ public struct RenderGraph {
     func applyHalation(_ image: CIImage, film: FilmChain, longEdge: Int) -> CIImage {
         let profile = film.halation(longEdgePixels: longEdge)
         guard profile.strengths.maxComponent > 0 else { return image }
+        // The reference's gate, evaluated in the shader — not a pedestal standing in
+        // for it (M09: the pedestal rendered 0.61 of the reference's glow at E = 0.5
+        // and none at all two stops under the clip).
         guard let energy = KernelLibrary.apply(
-            KernelLibrary.highlightEnergy, extent: image.extent,
-            [image, Float(profile.threshold), Float(profile.boost)])
+            KernelLibrary.halationEnergy, extent: image.extent,
+            [image, Float(profile.clipLevel), Float(HalationProfile.protectEV),
+             Float(HalationProfile.boostRange)])
         else { return image }
 
         // Three bounces at geometrically spaced radii, decaying by half each time —
         // the film base is not a single-scale scatterer.
+        // The reference's accumulation (N-006): the raw dyadic shape here, and the
+        // normalization in `profile.fieldGain` below, so the glow is `strengths` times
+        // a unit-sum field whatever the bounce count.
         var glow: CIImage?
-        var weight = 1.0
-        for sigma in profile.sigmasInPixels where sigma > 0 {
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
+        where sigma > 0 {
             // Through the shared helper, which is the whole point of the fix recorded
             // in `gaussianBlur`'s own header: `CIGaussianBlur.radius` IS the standard
             // deviation, measured on the runner. This stage kept its own copy of the
@@ -1422,10 +1789,9 @@ public struct RenderGraph {
             } else {
                 glow = scaled
             }
-            weight *= profile.decay
         }
         guard let field = glow else { return image }
-        let s = profile.strengths
+        let s = profile.fieldGain
         return KernelLibrary.apply(KernelLibrary.addGlow, extent: image.extent,
                                    [image, field, CIVector(x: s.r, y: s.g, z: s.b)])
             ?? image
@@ -1877,9 +2243,20 @@ struct LocalCurvePlan {
 
 // MARK: - Local adjustment table
 
-/// A mask's per-pixel colour work, baked the same way the global path is.
+/// A mask's per-pixel colour work: the same three-piece shape as the global path.
+///
+/// It was ONE table holding tone, white balance, the mask's `ColorEngine`, hue shift,
+/// tint and grade. The `ColorEngine` part is what AI-03 is about — a masked Point Colour
+/// or Saturation sampled through a cube has the same 30-to-50-code error the global one
+/// had — so it runs exactly between two tables: `preLUT` (tone gain, white balance) and
+/// `postLUT` (hue shift, colour tint, local grade), each nil when it is the identity.
+/// ALWAYS split, never only when the colour stage is live: fusing the two tables when
+/// it is off would be a route that changes with a control, which is exactly the
+/// discontinuity EXECUTION-05 measured.
 struct LocalPlan {
-    let lut: LUT3D
+    let preLUT: LUT3D?
+    let colorStage: ExactColorStage
+    let postLUT: LUT3D?
     let isIdentity: Bool
 
     /// `size` is the render's table size, not a default: an export bakes at
@@ -1913,7 +2290,10 @@ struct LocalPlan {
             && (adjust.wheels?.isNeutral ?? true)
         self.isIdentity = identity
         guard !identity else {
-            self.lut = LUT3D.identity(size: 2)
+            self.preLUT = nil
+            self.colorStage = ColorEngine(mixer: Mixer(), pointColors: [], color: ColorAdjust(),
+                                          primaries: Primaries(), bw: nil).exactStage
+            self.postLUT = nil
             return
         }
 
@@ -1963,12 +2343,17 @@ struct LocalPlan {
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
-        self.lut = LUT3D(size: size) { encoded in
+        // Same identity tests the reference uses (`ReferenceRenderer.applyLocalAdjust`).
+        self.preLUT = tone.isIdentity && balance.isIdentity ? nil : LUT3D(size: size) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            c = balance.apply(c)
-            c = colorEngine.apply(c)
+            return LumenLog.encode(balance.apply(c))
+        }
+        self.colorStage = colorEngine.exactStage
+        let tinted = tintColor != nil && tintStrength > 0
+        self.postLUT = hueShift == 0 && !tinted && localGrade == nil ? nil : LUT3D(size: size) { encoded in
+            var c = LumenLog.decode(encoded)
             if hueShift != 0 {
                 var lch = OKLabTransform.working.toLCh(c)
                 lch.h = Num.wrapHue(lch.h + hueShift)
@@ -1985,5 +2370,28 @@ struct LocalPlan {
         }
     }
 }
+
+/// Uploaded cube bytes per creative-LUT ref. A content-addressed ref names bytes that
+/// never change, so the copy into `CIColorCube`'s format is made once per LUT rather than
+/// once per frame — `ColorCube.Baked`'s own argument, for a table that is invariant per
+/// ref rather than per process. Bounded, because a session can audition many LUTs.
+enum CreativeLUTCubes {
+    private static let lock = NSLock()
+    private static var baked: [String: ColorCube.Baked] = [:]
+    private static let limit = 16
+
+    static func baked(_ lut: CreativeLUTStage) -> ColorCube.Baked {
+        // An empty ref is a stage built by hand (a test); there is no identity to key on.
+        guard !lut.ref.isEmpty else { return ColorCube.Baked(lut.cube) }
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = baked[lut.ref] { return hit }
+        if baked.count >= limit { baked.removeAll(keepingCapacity: true) }
+        let made = ColorCube.Baked(lut.cube)
+        baked[lut.ref] = made
+        return made
+    }
+}
+
 
 #endif

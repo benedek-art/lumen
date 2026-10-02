@@ -26,6 +26,103 @@ final class MaskRasterCacheTests: XCTestCase {
                        "background raster did not drain within \(timeoutSeconds)s")
     }
 
+    func testClearRejectsAnAlreadyRunningBakeWithoutDisturbingANewSameKeyRequest() {
+        let cache = MaskRasterCache()
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let newBake = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: false) {
+            self.marked(1)
+        }
+        _ = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: true) {
+            started.signal()
+            _ = release.wait(timeout: .now() + 5)
+            return self.marked(2)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+        cache.clear()
+        // Seed the new source, then request the exact same key the old source is
+        // baking. The old worker must not remove or consume this new-era job.
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: false) {
+            self.marked(3)
+        }
+        _ = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: true) {
+            newBake.signal()
+            return self.marked(4)
+        }
+        release.signal()
+        XCTAssertEqual(newBake.wait(timeout: .now() + 5), .success,
+                       "the old worker lost the replacement source's same-key job")
+        // A queued different-mask bake is a deterministic barrier: the serial bake
+        // queue can only reach it after publishing m's new pixels.
+        let barrier = DispatchSemaphore(value: 0)
+        _ = cache.plane(maskID: "barrier", key: "A", identity: "photo", allowStale: false) {
+            self.marked(0)
+        }
+        _ = cache.plane(maskID: "barrier", key: "B", identity: "photo", allowStale: true) {
+            barrier.signal()
+            return self.marked(0)
+        }
+        XCTAssertEqual(barrier.wait(timeout: .now() + 5), .success)
+        var rebaked = false
+        let actual = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: false) {
+            rebaked = true
+            return self.marked(99)
+        }
+        XCTAssertFalse(rebaked)
+        XCTAssertEqual(actual.values, marked(4).values)
+    }
+
+    func testClearPreventsAnOldBakeFromRepopulatingAnEmptyCache() {
+        let cache = MaskRasterCache()
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: false) {
+            self.marked(1)
+        }
+        _ = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: true) {
+            started.signal()
+            _ = release.wait(timeout: .now() + 5)
+            return self.marked(2)
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+        cache.clear()
+        let barrier = DispatchSemaphore(value: 0)
+        _ = cache.plane(maskID: "barrier", key: "A", identity: "photo", allowStale: false) {
+            self.marked(0)
+        }
+        _ = cache.plane(maskID: "barrier", key: "B", identity: "photo", allowStale: true) {
+            barrier.signal()
+            return self.marked(0)
+        }
+        release.signal()
+        XCTAssertEqual(barrier.wait(timeout: .now() + 5), .success)
+        var rebaked = false
+        let actual = cache.plane(maskID: "m", key: "B", identity: "photo", allowStale: false) {
+            rebaked = true
+            return self.marked(3)
+        }
+        XCTAssertTrue(rebaked, "an invalidated in-flight bake repopulated the cache")
+        XCTAssertEqual(actual.values, marked(3).values)
+    }
+
+    func testClearDuringASynchronousBakePreventsPublication() {
+        let cache = MaskRasterCache()
+        _ = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: false) {
+            cache.clear()
+            return self.marked(1)
+        }
+        var rebaked = false
+        let actual = cache.plane(maskID: "m", key: "A", identity: "photo", allowStale: false) {
+            rebaked = true
+            return self.marked(2)
+        }
+        XCTAssertTrue(rebaked)
+        XCTAssertEqual(actual.values, marked(2).values)
+    }
+
     func testTheFirstSightOfAMaskBakesSynchronously() {
         let cache = MaskRasterCache()
         var bakes = 0

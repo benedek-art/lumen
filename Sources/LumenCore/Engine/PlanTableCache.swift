@@ -13,8 +13,9 @@
 // are `defaultWhiteAnchorEV − 1.5 · whites` and the matching black, so they move only
 // with Whites and Blacks. Exposure, Contrast, Highlights, Shadows, every zone, every
 // presence and denoise and sharpening control, every mask, and the vignette all leave
-// this table bit-identical. `colorGradeLUT` is the same story for the colour and grade
-// stack: it is untouched by anything in Develop's tone or detail subtrees.
+// this table bit-identical. `gradeLUT` is the same story for the grade: it is untouched
+// by anything in Develop's tone or detail subtrees, and — since the colour stage left
+// the table (AI-03) — by every colour control as well.
 //
 // Why this is safe to share. The key is built from every input the closure reads, so a
 // hit returns exactly the table a rebuild would have produced — the cache cannot change
@@ -38,7 +39,8 @@ public enum PlanTableCache {
         /// The finish table with a soft proof mapped over it. A separate slot rather
         /// than a variant of `finish`, because the flag overlay needs both at once.
         case finishProofed
-        case colorGrade
+        /// S10 alone. It held S9 + S10 until the colour stage became exact (AI-03).
+        case grade
         /// The tone stage's gain cube. The last expensive bake that was not in this
         /// cache: 32³ = 32 768 samples rebuilt at plan init, i.e. on every mouse event
         /// of a drag, and invalidated by precisely the six sliders a photographer
@@ -117,7 +119,13 @@ public enum PlanTableCache {
     /// URL. Deriving the string separately at the second call site is how two spellings
     /// of one identity come to exist and the question quietly starts answering `false`
     /// for every photograph — so the cache that keys on it owns it.
-    public static func renderIdentity(for url: URL) -> String { url.absoluteString }
+    public static func renderIdentity(for url: URL) -> String {
+        // A draft may borrow a previous table only from this generation of the
+        // photograph, never from pixels replaced at the same path. Synthetic and
+        // unavailable sources retain their existing stable URL identity.
+        guard let source = SourceFileIdentity.read(url) else { return url.absoluteString }
+        return url.absoluteString + "|source=" + source.token
+    }
 
     public static func setRenderIdentity(_ identity: String) {
         lock.lock()

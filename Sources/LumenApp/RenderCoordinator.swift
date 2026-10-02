@@ -43,6 +43,23 @@ struct RenderResult: @unchecked Sendable {
     /// Wall time the RAW decode cost inside this render — near zero on a cache hit.
     /// Zero on the paths that do not decode (the embedded-preview fallback).
     let decodeMilliseconds: Double
+    /// Only exact, whole-frame, unproofed deliveries may become developed previews.
+    var previewIdentity: DevelopedPreviewIdentity? = nil
+    var sourceIdentity: SourceFileIdentity? = nil
+    /// The HDR preview's frame of the SAME request — half-float, extended-linear sRGB
+    /// (`PipelineRenderer.edrColorSpace`), rendered at `edrWhiteTarget` — or nil when
+    /// the preview is off, the display cannot show it, or the pass failed. It is
+    /// DISPLAY-ONLY: `image` above stays the 8-bit SDR frame whatever this holds, so
+    /// the scopes, the readout, the clipping and peaking overlays and the developed
+    /// preview cache all go on measuring the SDR rendition — the deliberate base the
+    /// gain map is built on — exactly as they do with the preview off.
+    var edrImage: CGImage? = nil
+    var edrWhiteTarget: Double? = nil
+}
+
+struct DevelopedPreviewIdentity: Equatable, Sendable {
+    let source: SourceFileIdentity
+    let recipeFingerprint: String
 }
 
 /// What the renderer knows about one file's AI mattes after a pass, plus the files its
@@ -65,12 +82,29 @@ struct MattePass: Sendable {
     /// Files whose mattes are gone. Any entry a caller holds for one of these is now a
     /// lie and must be dropped, not refreshed.
     let evicted: [URL]
+    /// The pass had kinds to produce and could not run, because the original could not
+    /// be read or decoded. Without it "not attempted, not pending" could only mean
+    /// WORKING, and the panel said "Computing on this Mac" forever about a file on an
+    /// ejected volume (audit F5-09).
+    var sourceUnavailable: Bool = false
 }
 
 actor RenderCoordinator {
 
     private let renderer = PipelineRenderer()
     private var sources: [URL: any ImageSource] = [:]
+    private var sourceIdentities: [URL: SourceFileIdentity] = [:]
+    /// The identity each file had when a source was last built from it, KEPT PAST the
+    /// source LRU's eviction. It is what tells a real replacement (bytes changed under
+    /// the path) from a first open, a neighbour prefetch, or a re-acquisition after the
+    /// twelve-entry LRU dropped it — only the first of those invalidates anything the
+    /// renderer derived from the picture. One stat token per file browsed: a few hundred
+    /// bytes per thousand photographs, against seconds of brush settle per
+    /// unnecessary forget.
+    private var knownIdentities: [URL: SourceFileIdentity] = [:]
+    /// How many times `source(for:)` judged a file replaced and forgot what the
+    /// renderer held for it. Read by tests; a neighbour prefetch must not move it.
+    private(set) var sourceReplacementsForgotten = 0
     private var latestGeneration: UInt64 = 0
 
     /// Bounded so a fast scroll through a folder cannot pin a hundred decoded RAWs in
@@ -209,7 +243,8 @@ actor RenderCoordinator {
                 strokeSets: [String: BrushStrokeSet] = [:],
                 showingUncropped: Bool = false,
                 softProof: SoftProof? = nil,
-                region: CGRect? = nil) async -> RenderResult? {
+                region: CGRect? = nil,
+                edrWhiteTarget: Double? = nil) async -> RenderResult? {
         latestGeneration = max(latestGeneration, generation)
         // Drop work that is already stale before paying for a decode.
         guard generation >= latestGeneration else { return nil }
@@ -227,7 +262,8 @@ actor RenderCoordinator {
                              strokeSets: strokeSets,
                              showingUncropped: showingUncropped,
                              softProof: softProof,
-                             region: region)
+                             region: region,
+                             edrWhiteTarget: edrWhiteTarget)
     }
 
     /// A render nobody else is waiting on — the scope proxy, the Auto-tone probe. It
@@ -265,7 +301,8 @@ actor RenderCoordinator {
                          strokeSets: [String: BrushStrokeSet],
                          showingUncropped: Bool = false,
                          softProof: SoftProof? = nil,
-                         region: CGRect? = nil) async -> RenderResult? {
+                         region: CGRect? = nil,
+                         edrWhiteTarget: Double? = nil) async -> RenderResult? {
         // Stale by TICKET, or stale because the caller has gone away.
         //
         // The ticket alone could not drop a backlog. `latestGeneration` is claimed when
@@ -293,6 +330,7 @@ actor RenderCoordinator {
 
         do {
             let source = try self.source(for: url)
+            let sourceIdentity = sourceIdentities[url]
             // AND AFTER THE ALLOCATION, NOT ONLY BEFORE IT — the other half of the
             // budget being advisory. `source(for:)` trims on the way in, which bounds
             // the process against what the LAST render left behind and says nothing
@@ -320,6 +358,7 @@ actor RenderCoordinator {
             var regionUnit: CGRect?
             var fullPixelSize: CGSize?
             var decodeMilliseconds: Double = 0
+            var edrImage: CGImage?
             if KernelLibrary.coreAvailable {
                 let delivery = try renderer.renderPreviewDelivery(
                     source: source, recipe: recipe,
@@ -341,6 +380,30 @@ actor RenderCoordinator {
                     : "Reduced — \(missing.count) GPU "
                         + (missing.count == 1 ? "kernel" : "kernels")
                         + " unavailable: " + missing.joined(separator: ", ")
+                // THE HDR PREVIEW'S PASS, AFTER the SDR frame and beside it — never
+                // instead of it. Nothing above this line reads `edrWhiteTarget`, so with
+                // the preview off (nil) the SDR frame is produced by the identical call
+                // with identical arguments it always was.
+                //
+                // Not gated on staleness: a drag cancels this task on every event, and a
+                // frame that landed without its EDR half would flash SDR on screen.
+                // Kept only when it covers exactly what the SDR frame covers — the two
+                // region computations are separate copies, and a mismatch costs the
+                // HDR preview for one frame rather than misplacing a picture.
+                if let edrWhiteTarget,
+                   let edr = try? renderer.renderPreviewEDR(
+                        source: source, recipe: recipe,
+                        maxLongEdge: maxLongEdge, draft: draft,
+                        coarseDecode: coarseDecode,
+                        showingUncropped: showingUncropped,
+                        strokeSets: strokeSets,
+                        softProof: softProof,
+                        region: region,
+                        displayWhiteTarget: edrWhiteTarget),
+                   edr.regionUnit == delivery.regionUnit,
+                   edr.fullPixelSize == delivery.fullPixelSize {
+                    edrImage = edr.image
+                }
             } else {
                 // No region on the CPU fallback: it is rare, whole-frame by
                 // construction, and a region contract it half-honoured would be
@@ -376,13 +439,29 @@ actor RenderCoordinator {
             // away, and the picture moved only when the hand paused. Finished work is
             // never stale by cancellation: the caller decides against
             // `FrameDelivery.shouldShow`, whose only questions are identity and order.
+            guard let sourceIdentity, SourceFileIdentity.read(url) == sourceIdentity else {
+                invalidate(url: url)
+                return nil
+            }
             return RenderResult(image: image, generation: generation, isDraft: draft,
                                 usedEmbeddedPreview: false,
                                 note: note,
-                                nativeLongEdge: Int(source.nativeLongEdge.rounded()),
+                                nativeLongEdge: DraftLadder.pixelCount(
+                                    from: source.nativeLongEdge),
                                 regionUnit: regionUnit,
                                 fullPixelSize: fullPixelSize,
-                                decodeMilliseconds: decodeMilliseconds)
+                                decodeMilliseconds: decodeMilliseconds,
+                                previewIdentity: Self.mayBecomeDevelopedPreview(
+                                    draft: draft, region: region,
+                                    showingUncropped: showingUncropped,
+                                    softProofing: softProof != nil, note: note,
+                                    mattesPending: !missingMatteKinds(url: url, recipe: recipe).isEmpty)
+                                    ? (try? RecipeFingerprint.previewFingerprint(recipe)).map {
+                                        DevelopedPreviewIdentity(source: sourceIdentity, recipeFingerprint: $0)
+                                    } : nil,
+                                sourceIdentity: sourceIdentity,
+                                edrImage: edrImage,
+                                edrWhiteTarget: edrImage == nil ? nil : edrWhiteTarget)
         } catch {
             // Never leave the viewer empty: fall back to the embedded preview and
             // label it honestly.
@@ -390,8 +469,9 @@ actor RenderCoordinator {
                 return RenderResult(image: preview, generation: generation, isDraft: true,
                                     usedEmbeddedPreview: true,
                                     note: "Embedded preview — \(Self.describe(error))",
-                                    nativeLongEdge: Int((try? self.source(for: url))
-                                        .map(\.nativeLongEdge)?.rounded() ?? 0),
+                                    nativeLongEdge: DraftLadder.pixelCount(
+                                        from: (try? self.source(for: url))
+                                            .map(\.nativeLongEdge) ?? 0),
                                     regionUnit: nil,
                                     fullPixelSize: nil,
                                     decodeMilliseconds: 0)
@@ -410,9 +490,14 @@ actor RenderCoordinator {
         // reconsider until the next source lookup — and an export is often the last
         // thing the app does before being left alone.
         defer { trimDecodeResidency() }
+        // A source that cannot say how big it is has nothing to export: asking the
+        // renderer for a zero long edge is not a smaller export, it is a broken one,
+        // and `Int(_:)` on the file's own number would trap before getting that far.
+        let native = DraftLadder.pixelCount(from: source.nativeLongEdge)
+        guard native > 0 else { throw RawSourceError.undecodable(url) }
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.renderPreview(source: source, recipe: recipe,
-                                          maxLongEdge: Int(source.nativeLongEdge),
+                                          maxLongEdge: native,
                                           draft: false, coarseDecode: false,
                                           strokeSets: strokeSets)
     }
@@ -436,7 +521,8 @@ actor RenderCoordinator {
     func export(url: URL, recipe: Recipe, to destination: URL,
                 exportRecipe: ExportRecipe,
                 strokeSets: [String: BrushStrokeSet] = [:],
-                softProof: SoftProof? = nil) throws -> [String] {
+                softProof: SoftProof? = nil,
+                allowOverwrite: Bool = false) throws -> [String] {
         let source = try self.source(for: url)
         // Same reason as `renderFullSize`, and more so for a batch: two hundred files
         // through this call is two hundred native decodes, each one bounded by the trim
@@ -445,7 +531,11 @@ actor RenderCoordinator {
         generateMattesNow(source: source, recipe: recipe)
         return try renderer.export(source: source, recipe: recipe, to: destination,
                                    using: exportRecipe, strokeSets: strokeSets,
-                                   softProof: softProof)
+                                   softProof: softProof,
+                                   // True only for a recipe whose collision policy is
+                                   // Overwrite, on a file that was there before the run
+                                   // (`ExportRecipe.placement`).
+                                   allowOverwrite: allowOverwrite)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.
@@ -466,6 +556,21 @@ actor RenderCoordinator {
         record(evicted: renderer.storeMattes(
             VisionMattes.generate(image: picture, kinds: missing),
             requested: Set(missing.map { $0.rawValue }), for: source.url))
+    }
+
+    /// Whether a delivered frame depicts the recipe exactly enough to be filed as the
+    /// photo's developed preview under that recipe's fingerprint.
+    ///
+    /// `mattesPending` is the one that was missing. A settle rendered before the
+    /// Subject or People matte this recipe needs has been generated draws that mask
+    /// selecting nothing, yet carries the final recipe's fingerprint, so it could be
+    /// stored and served as the developed picture until the recipe next changed.
+    static func mayBecomeDevelopedPreview(draft: Bool, region: CGRect?,
+                                          showingUncropped: Bool,
+                                          softProofing: Bool, note: String?,
+                                          mattesPending: Bool) -> Bool {
+        !draft && region == nil && !showingUncropped && !softProofing && note == nil
+            && !mattesPending
     }
 
     /// The kinds this recipe wants that no pass has looked for yet on this file.
@@ -532,19 +637,24 @@ actor RenderCoordinator {
     /// fast path costs.
     func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
         let missing = missingMatteKinds(url: url, recipe: recipe)
-        if !missing.isEmpty,
-           let source = try? self.source(for: url),
-           let picture = renderer.matteSourceImage(source: source) {
-            let produced = await VisionMatteWorker.shared.mattes(image: picture,
-                                                                kinds: missing)
-            record(evicted: renderer.storeMattes(
-                produced, requested: Set(missing.map { $0.rawValue }), for: url))
+        var unavailable = false
+        if !missing.isEmpty {
+            if let source = try? self.source(for: url),
+               let picture = renderer.matteSourceImage(source: source) {
+                let produced = await VisionMatteWorker.shared.mattes(image: picture,
+                                                                    kinds: missing)
+                record(evicted: renderer.storeMattes(
+                    produced, requested: Set(missing.map { $0.rawValue }), for: url))
+            } else {
+                unavailable = true
+            }
         }
         let dropped = evictedMattes.subtracting([url])
         evictedMattes.removeAll()
         return MattePass(available: renderer.matteKinds(for: url),
                          attempted: renderer.attemptedMatteKinds(for: url),
-                         evicted: Array(dropped))
+                         evicted: Array(dropped),
+                         sourceUnavailable: unavailable)
     }
 
     /// Decode a photograph nobody has asked for yet, so that when they do, the file is
@@ -597,12 +707,14 @@ actor RenderCoordinator {
     /// reason: the answer lives on the decoded source, which lives on this actor.
     func asShotNeutral(for url: URL) -> WhiteBalanceEngine.Neutral? {
         guard let source = try? self.source(for: url) else { return nil }
-        return WhiteBalanceEngine.Neutral(kelvin: source.asShotTemperature,
-                                          tint: source.asShotTint)
+        return WhiteBalanceEngine.Neutral.sanitizedAsShot(kelvin: source.asShotTemperature,
+                                                          tint: source.asShotTint)
     }
 
     func invalidate(url: URL) {
         sources.removeValue(forKey: url)
+        sourceIdentities.removeValue(forKey: url)
+        knownIdentities.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
         // The matte was computed from this file's pixels, so it goes with them — and
         // anyone holding a copy of the ledger hears about it the same way they hear
@@ -663,15 +775,67 @@ actor RenderCoordinator {
     ///
     /// A mask has to compare against what it will be applied to, and it is applied to
     /// the output of this stage list.
+    ///
+    /// `pointColorSwatch` names the mask swatch a mask Point Colour pick feeds; the
+    /// renderer then carries the sample through that mask's own exposure, tone, white
+    /// balance and earlier swatches, which is what the swatch compares.
     func sampleMaskReference(url: URL, recipe: Recipe,
-                             sourceX: Double, sourceY: Double) -> RGB? {
+                             sourceX: Double, sourceY: Double,
+                             pointColorSwatch: (maskID: String, index: Int)? = nil) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
-                                                        sourceY: sourceY),
+                                                        sourceY: sourceY,
+                                                        pointColorSwatch: pointColorSwatch),
               sample.isFinite
         else { return nil }
         return sample
+    }
+
+    /// Where a new heal or clone spot should borrow from: `SpotSourceSearch` over the S5
+    /// input around the spot (`PipelineRenderer.healSearchBuffer`). On this actor because
+    /// the decoded source is, so a click on the photograph being viewed decodes nothing.
+    /// Nil when nothing fits — the caller then places the source beside the spot.
+    func healAutoSource(url: URL, recipe: Recipe, spot: HealSpot,
+                        priorSpots: [HealSpot]) -> (x: Double, y: Double)? {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                    spot: spot, priorSpots: priorSpots)
+        else { return nil }
+        return SpotSourceSearch.autoSource(for: spot, in: found.buffer, window: found.window,
+                                           sourceWidth: found.sourceWidth,
+                                           sourceHeight: found.sourceHeight)
+    }
+
+    /// The distinct sources `/` cycles through for an existing spot, best first
+    /// (`SpotSourceSearch.rankedSources`), searched in the same S5 input
+    /// `healAutoSource` uses — so the first of them is the source a click would pick.
+    func healSourceCandidates(url: URL, recipe: Recipe, spot: HealSpot,
+                              priorSpots: [HealSpot]) -> [(x: Double, y: Double)] {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healSearchBuffer(source: source, recipe: recipe,
+                                                    spot: spot, priorSpots: priorSpots)
+        else { return [] }
+        return SpotSourceSearch.rankedSources(for: spot, in: found.buffer,
+                                              window: found.window,
+                                              sourceWidth: found.sourceWidth,
+                                              sourceHeight: found.sourceHeight)
+    }
+
+    /// The source offset for a new painted heal stroke (`StrokeSourceSearch`), searched
+    /// in the S5 input through the spots and the strokes before it. Nil when nothing
+    /// fits — the caller then keeps its provisional offset.
+    func healStrokeAutoOffset(url: URL, recipe: Recipe, stroke: BrushStroke,
+                              priorStrokes: [BrushStroke]) -> (dx: Double, dy: Double)? {
+        guard let source = try? self.source(for: url),
+              let found = renderer.healStrokeSearchBuffer(source: source, recipe: recipe,
+                                                          stroke: stroke,
+                                                          priorStrokes: priorStrokes)
+        else { return nil }
+        return StrokeSourceSearch.autoOffset(for: stroke, in: found.buffer,
+                                             window: found.window,
+                                             sourceWidth: found.sourceWidth,
+                                             sourceHeight: found.sourceHeight)
     }
 
     /// The fourth tap: the COLOUR stage's input, S3 through S8 — what
@@ -679,12 +843,17 @@ actor RenderCoordinator {
     /// eyedropper stored `sampleWorking` (post-S6) while the engine compared here,
     /// so a swatch picked with tone moves selected the wrong colour (docs/23 dossier
     /// queue item 5).
+    ///
+    /// `tap` names the selection the pick feeds — a Mixer band, or swatch `i` — and the
+    /// renderer carries the sample through the colour stage as far as that selection
+    /// reads (AI-02): the stage input alone is before the primaries and the Mixer.
     func samplePointColorReference(url: URL, recipe: Recipe,
-                                   sourceX: Double, sourceY: Double) -> RGB? {
+                                   sourceX: Double, sourceY: Double,
+                                   tap: ColorEngine.SelectionTap) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
-                                                          sourceY: sourceY),
+                                                          sourceY: sourceY, tap: tap),
               sample.isFinite
         else { return nil }
         return sample
@@ -726,7 +895,8 @@ actor RenderCoordinator {
     /// filter that produces something, and a rendered file quietly run through the RAW
     /// stage would be wrong in ways nobody could see from the picture.
     private func source(for url: URL) throws -> any ImageSource {
-        if let cached = sources[url] {
+        let identity = SourceFileIdentity.read(url)
+        if let cached = sources[url], let identity, sourceIdentities[url] == identity {
             sourceOrder.removeAll { $0 == url }
             sourceOrder.append(url)
             // Here rather than after the render, because this is the one line every
@@ -738,14 +908,39 @@ actor RenderCoordinator {
             trimDecodeResidency()
             return cached
         }
+        // The source-object LRU is smaller than some renderer caches. A source
+        // reacquired after its FILE CHANGED must not inherit the old bytes' measured
+        // hues, mattes or picture-dependent mask rasters. A miss alone is not that: a
+        // first open, a neighbour prefetch and a re-acquisition after the LRU dropped
+        // an unchanged file all land here too, and forgetting on those discarded every
+        // photo's mask rasters (and, for a while, every brush plane) on each step of
+        // browsing. `knownIdentities` outlives the LRU so the two can be told apart.
+        let previous = sourceIdentities[url] ?? knownIdentities[url]
+        let replaced = previous != nil && previous != identity
+        sources.removeValue(forKey: url)
+        sourceIdentities.removeValue(forKey: url)
+        sourceOrder.removeAll { $0 == url }
+        if replaced {
+            let hadMattes = !renderer.attemptedMatteKinds(for: url).isEmpty
+            knownIdentities.removeValue(forKey: url)
+            renderer.forgetMattes(for: url)
+            sourceReplacementsForgotten += 1
+            if hadMattes { evictedMattes.insert(url) }
+        }
         let created: any ImageSource = PhotoFormats.isRendered(url)
             ? try RenderedImageSource(url: url)
             : try AppleRawSource(url: url)
+        guard let identity, SourceFileIdentity.read(url) == identity else {
+            throw CocoaError(.fileReadUnknown)
+        }
         sources[url] = created
+        sourceIdentities[url] = identity
+        knownIdentities[url] = identity
         sourceOrder.append(url)
         while sourceOrder.count > Self.sourceCacheLimit, let oldest = sourceOrder.first {
             sourceOrder.removeFirst()
             sources.removeValue(forKey: oldest)
+            sourceIdentities.removeValue(forKey: oldest)
         }
         trimDecodeResidency()
         return created

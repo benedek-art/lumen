@@ -26,6 +26,41 @@ final class LumenAppDelegate: NSObject, NSApplicationDelegate {
             state?.prepareToQuit()
         }
     }
+
+    /// FINDER'S HALF OF THE FRONT DOOR: "Open With ▸ Lumen", a double-click once Lumen
+    /// is the handler, and a drop on the dock icon all arrive here and nowhere else.
+    ///
+    /// Without it those three did nothing at all — the bundle declared no document
+    /// types (`scripts/build-app.sh`), so the system never offered Lumen, and had it
+    /// been offered there was no method to receive the open. The declaration and this
+    /// method are one change: either alone is inert.
+    ///
+    /// `openSources` is the same verb the Open panel and the window drop go through, so
+    /// a folder, a handful of frames, or a mix of both behaves identically however it
+    /// arrives.
+    ///
+    /// A COLD LAUNCH DELIVERS THIS BEFORE THERE IS A STATE (V7 D8). "Open With ▸ Lumen"
+    /// on an app that is not running calls this during launch, before the window's
+    /// `.onAppear` has run `attach`; `state?` was nil and the files were dropped
+    /// silently, after which the launch reopened the PREVIOUS folder instead. Early
+    /// opens are held in `LaunchOpenQueue` (LumenCore, tested) and handed over by
+    /// `attach`, in place of the reopen.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated {
+            let now = launchOpens.receive(urls)
+            guard !now.isEmpty else { return }
+            state?.openSources(now)
+        }
+    }
+
+    private var launchOpens = LaunchOpenQueue()
+
+    /// The window's state exists. Returns the Finder opens that arrived before it did,
+    /// once; empty when there were none.
+    func attach(_ state: AppState) -> [URL] {
+        self.state = state
+        return launchOpens.attach()
+    }
 }
 
 @main
@@ -36,6 +71,22 @@ struct LumenApp: App {
     var body: some Scene {
         WindowGroup("Lumen") {
             ContentView()
+                // DRAG A FOLDER OR A HANDFUL OF FRAMES ONTO THE WINDOW, anywhere in it.
+                //
+                // The owner asked for onboarding that is "simple, easy"; the panel now
+                // takes files as well as folders, and this is the half that needs no
+                // panel at all. On the whole window rather than on the empty state,
+                // because dropping a second card in while the first is open is the same
+                // gesture and should not require finding a particular rectangle.
+                //
+                // `URL.self`, not `String.self`: the mask panel's own drop destination
+                // carries component ids as strings, and two destinations that disagree
+                // about the payload type cannot be confused for one another.
+                .dropDestination(for: URL.self) { urls, _ in
+                    guard !urls.isEmpty else { return false }
+                    state.openSources(urls)
+                    return true
+                }
                 .environmentObject(state)
                 // The develop footer's undo/redo pair reads the same four facts the
                 // Edit menu does, and for the same reason must observe something that
@@ -51,11 +102,17 @@ struct LumenApp: App {
                 // judgement about the photograph (docs/00 Law 7).
                 .preferredColorScheme(.dark)
                 .onAppear {
-                    delegate.state = state
-                    // The owner's first Mac session started at the empty state and
-                    // so has every launch since; a daily driver reopens where you
-                    // left off. Quiet no-op when the bookmark is gone or revoked.
-                    state.reopenLastFolder()
+                    // Files handed over by Finder during launch win over the reopen:
+                    // the photographer asked for THOSE, this launch.
+                    let launchedWith = delegate.attach(state)
+                    if launchedWith.isEmpty {
+                        // The owner's first Mac session started at the empty state and
+                        // so has every launch since; a daily driver reopens where you
+                        // left off. Quiet no-op when the bookmark is gone or revoked.
+                        state.reopenLastFolder()
+                    } else {
+                        state.openSources(launchedWith)
+                    }
                     // The ship-to-self loop's last mile: an installed CI build
                     // replaces itself from the rolling dev release. Delayed so the
                     // launch render wins the disk and the network first; silent
@@ -104,7 +161,7 @@ private struct LumenCommands: Commands {
             }
 
             CommandGroup(replacing: .newItem) {
-                Button("Open Folder…") { state.chooseFolder() }
+                Button("Open…") { state.chooseFolder() }
                     .keyboardShortcut("o", modifiers: [.command])
                 Button("Ingest from Card…") { state.showIngestSheet = true }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
@@ -243,6 +300,13 @@ private struct LumenCommands: Commands {
                             state.toggleAssessmentMode()
                         }
                         .keyboardShortcut("b", modifiers: [.command])
+                        // The loupe's HDR preview (docs/11 §"The EDR editing
+                        // viewport"). A toggle with no key and a fixed title: its state
+                        // is `LoupeViewport`'s, which this scene does not observe, so
+                        // the loupe's own HDR badge is what says it is on. docs/11
+                        // gives the SDR-proof direction ⌥H; which way round the key
+                        // should read is the owner's call, not this slice's.
+                        Button("HDR Preview") { LoupeViewport.shared.toggleHDRPreview() }
                     }
                 }
             }
@@ -338,6 +402,11 @@ private struct LumenCommands: Commands {
                     .disabled(!state.hasCopiedSettings)
                     Button("Paste Masks") { state.pasteMasks() }
                         .disabled(!state.hasCopiedMasks)
+                    // Spot removal is local work on one photograph's blemishes, so the
+                    // two whole-recipe pastes leave it behind unless this is ticked —
+                    // LR's sync default, as a checkable item rather than a dialog for the
+                    // reason the comment above gives. See `RetouchPaste`.
+                    Toggle("Paste Includes Spot Removal", isOn: $commands.pasteIncludesRetouch)
                 }
                 // A SECOND GROUP because a builder takes ten children and Cut made this
                 // one eleven. Split where the divider already was rather than at the
@@ -350,6 +419,7 @@ private struct LumenCommands: Commands {
                         .keyboardShortcut("c", modifiers: [.command, .option])
                     Button("Paste Look") { state.pasteLook() }
                         .keyboardShortcut("v", modifiers: [.command, .option])
+                        .disabled(!state.hasCopiedLook)
                     Divider()
                     Button("Reset Settings") { state.resetToImported() }
                         .keyboardShortcut("r", modifiers: [.command, .shift])
@@ -374,9 +444,9 @@ private struct LumenCommands: Commands {
 
             CommandMenu("Photo") {
                 Group {
-                    Button("Pick") { state.setFlag(.picked) }
-                    Button("Reject") { state.setFlag(.rejected) }
-                    Button("Unflag") { state.setFlag(.none) }
+                    Button("Pick") { state.setFlag(.pick) }
+                    Button("Reject") { state.setFlag(.reject) }
+                    Button("Unflag") { state.setFlag(.unflagged) }
                     Divider()
                     ForEach(1...5, id: \.self) { value in
                         Button("Rating \(value)") { state.setRating(value) }
@@ -416,6 +486,10 @@ private struct LumenCommands: Commands {
                         .disabled(!commands.hasCatalog)
                     Button("Unstack") { state.unstackSelection() }
                         .keyboardShortcut("g", modifiers: [.command, .shift])
+                        .disabled(!commands.hasCatalog)
+                    // No chord: a whole-folder regrouping is a deliberate, once-a-shoot
+                    // act, and the cull keys are the scarce resource.
+                    Button("Stack Bursts in Folder") { state.stackBursts() }
                         .disabled(!commands.hasCatalog)
                     // ⇧⌘K MEANS "LET ME TYPE A KEYWORD" — it applies nothing, it puts the
                     // cursor in the field. So the menu has to do two things the sidebar's

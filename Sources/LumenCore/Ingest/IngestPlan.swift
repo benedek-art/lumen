@@ -194,3 +194,61 @@ public enum IngestPlanner {
         return IngestPlan(copies: copies, refusals: refusals)
     }
 }
+
+/// Which directory a path actually names on disk — the question two destination roots
+/// have to answer before they may be called two copies (S-02).
+///
+/// A string comparison of paths cannot answer it: a backup root chosen through a
+/// symlink, a bind mount or a second mount of the same share is spelled differently and
+/// is the same folder, and every "second copy" written there lands beside the first.
+/// The identity used here is the device and inode of the nearest existing ancestor
+/// (after resolving symlinks), plus whatever components below it do not exist yet.
+///
+/// WHAT THIS DOES NOT PROVE. Two directories with different identities are two
+/// directories, nothing more: they can sit on one disk, one RAID set, one network share.
+/// This check refuses a redundancy claim that is certainly false; it never certifies
+/// physical independence, and no caller may word a result as if it did.
+public enum IngestLocation {
+
+    /// An opaque key: equal keys name the same directory.
+    public static func directoryIdentity(of url: URL) -> String {
+        let fm = FileManager.default
+        var existing = url.standardizedFileURL
+        var remainder: [String] = []
+        while !fm.fileExists(atPath: existing.path) {
+            let parent = existing.deletingLastPathComponent().standardizedFileURL
+            if parent.path == existing.path { break }
+            remainder.insert(existing.lastPathComponent, at: 0)
+            existing = parent
+        }
+        let resolved = existing.resolvingSymlinksInPath()
+        var key = "path:" + resolved.path
+        if let attributes = try? fm.attributesOfItem(atPath: resolved.path),
+           let device = unsigned(attributes[.systemNumber]),
+           let inode = unsigned(attributes[.systemFileNumber]) {
+            key = "id:\(device):\(inode)"
+        }
+        return ([key] + remainder).joined(separator: "/")
+    }
+
+    /// The identity of one file slot: its directory's identity and its name.
+    public static func fileIdentity(of url: URL) -> String {
+        directoryIdentity(of: url.deletingLastPathComponent()) + "//" + url.lastPathComponent
+    }
+
+    /// True when the two URLs are one directory under two spellings.
+    public static func sameDirectory(_ a: URL, _ b: URL) -> Bool {
+        directoryIdentity(of: a) == directoryIdentity(of: b)
+    }
+
+    private static func unsigned(_ value: Any?) -> UInt64? {
+        switch value {
+        case let number as UInt64: return number
+        case let number as Int: return UInt64(bitPattern: Int64(number))
+        case let number as UInt32: return UInt64(number)
+        case let number as Int32: return UInt64(bitPattern: Int64(number))
+        case let number as NSNumber: return number.uint64Value
+        default: return nil
+        }
+    }
+}

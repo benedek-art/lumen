@@ -202,6 +202,18 @@ public enum WorkspaceSection: String, CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// Whether ARRIVING at this section by name (⌘K, a section key) arms the crop
+    /// rectangle — true for `.frame` alone.
+    ///
+    /// Arriving in the Crop WORKSPACE arms it (`⌘3`, the rail tab), because the column
+    /// it opens holds the Crop section and the rectangle has its panel. Arriving at a
+    /// SECTION solos that section, so ⌘K → "Lens Corrections" opened Lens with Crop
+    /// folded and still armed the rectangle (K-029): the picture lost its crop and its
+    /// straighten, the rectangle had no ratio, angle or guide rows, and Escape — whose
+    /// revert baseline is taken when the Crop section mounts — closed the tool KEEPING
+    /// whatever had been dragged. The rectangle is armed only where its panel is.
+    public var armsCropTool: Bool { self == .frame }
+
     /// What the section header prints.
     public var title: String {
         switch self {

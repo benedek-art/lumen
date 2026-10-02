@@ -314,6 +314,22 @@ final class MaskDependencyTests: XCTestCase {
         XCTAssertEqual(MaskDependency.closure(of: orphan, in: [orphan]).map(\.id), ["o"])
     }
 
+    func testClosureUsesFirstDuplicateTargetButTheExplicitRootDefinition() {
+        let first = Mask(id: "donor", components: [radial(0.2)])
+        let duplicate = Mask(id: "donor", components: [reference("unrelated")])
+        let unrelated = Mask(id: "unrelated", components: [radial(0.8)])
+        let staleRoot = Mask(id: "root", components: [reference("unrelated")])
+        let currentRoot = Mask(id: "root", components: [reference("donor")])
+        let all = [first, duplicate, unrelated, staleRoot]
+        let closure = MaskDependency.closure(of: currentRoot, in: all)
+        XCTAssertEqual(closure.map(\.id), ["donor", "root"])
+        XCTAssertEqual(closure.map(\.components), [first.components, currentRoot.components])
+        let actual = MaskRaster.combine(mask: currentRoot, size: size, masks: all)
+        let expected = MaskRaster.combine(mask: first, size: size)
+        XCTAssertTrue(actual.values == expected.values,
+                      "the key's closure must describe the same first-wins selection as the resolver")
+    }
+
     // MARK: - One resolver, called by both
 
     /// The loupe and the export do not each resolve a reference; they call the same

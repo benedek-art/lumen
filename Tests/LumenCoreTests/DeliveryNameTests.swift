@@ -70,14 +70,25 @@ final class DeliveryNameTests: XCTestCase {
 
     // MARK: - The export path has to use it
 
+    /// The rule now lives in `ExportNaming.render` (LumenCore), so it is asserted on the
+    /// function itself: a template that renders empty falls back to the source's name.
+    func testAnEmptyRenderingFallsBackToTheSourceName() {
+        let context = ExportNamingContext(source: URL(fileURLWithPath: "/x/DSC_0001.NEF"),
+                                          recipeName: "")
+        XCTAssertEqual(ExportNaming.render(template: "{recipe}", context: context),
+                       "DSC_0001")
+        XCTAssertEqual(ExportNaming.render(template: "  ", context: context), "DSC_0001")
+        XCTAssertEqual(ExportNaming.render(template: "..", context: context), "DSC_0001")
+    }
+
     /// `AppState.renderFilename` is in LumenApp, which has no test target that runs
     /// here, so this reads it as text — comments stripped, because a doc comment naming
     /// the symbol would let this test pass its own substitution proof.
     func testTheExportNameGoesThroughTheRule() throws {
         let source = Self.strippingComments(try Self.appSource("AppStateActions.swift"))
-        XCTAssertTrue(source.contains("RenameTemplate.usableBasename("),
-                      "renderFilename must guard what the template RENDERED, not just "
-                      + "the literal template")
+        XCTAssertTrue(source.contains("ExportNaming.render("),
+                      "renderFilename must render through ExportNaming, which guards what "
+                      + "the template RENDERED, not just the literal template")
         // Both callers — the exporter and the sheet's preview — go through
         // `renderFilename`, so guarding it once is what keeps the preview honest about
         // what will actually be written.
@@ -117,25 +128,7 @@ final class DeliveryNameTests: XCTestCase {
     }
 
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2) }
-                else { index = source.index(after: index) }
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }
 
@@ -163,7 +156,17 @@ final class ModeEntryTests: XCTestCase {
     func testTheArmedPredicateCannotBeTrueWhileMasking() throws {
         let source = Self.stripped(try Self.appSource("LoupeView.swift"))
         let atAt = try XCTUnwrap(source.range(of: "private var cropArmed: Bool")).upperBound
-        let body = String(source[atAt...].prefix(300))
+        // The brace-matched body, not a character window: comments are blanked to spaces
+        // of the same length, so the four lines explaining this clause pushed it past a
+        // 300-character window once the shared blanker replaced the deleting stripper.
+        let open = try XCTUnwrap(source[atAt...].firstIndex(of: "{"))
+        var depth = 0
+        var close = open
+        for index in source[open...].indices {
+            if source[index] == "{" { depth += 1 }
+            if source[index] == "}" { depth -= 1; if depth == 0 { close = index; break } }
+        }
+        let body = String(source[open...close])
         XCTAssertTrue(body.contains("!panel.layout.isMasking"),
                       "cropArmed must exclude masking; it is the predicate the overlay, "
                       + "the render request and the panel all share")
@@ -177,23 +180,6 @@ final class ModeEntryTests: XCTestCase {
     }
 
     private static func stripped(_ source: String) -> String {
-        var out = ""
-        var i = source.startIndex
-        var block = false
-        while i < source.endIndex {
-            let rest = source[i...]
-            if block {
-                if rest.hasPrefix("*/") { block = false; i = source.index(i, offsetBy: 2) }
-                else { i = source.index(after: i) }
-                continue
-            }
-            if rest.hasPrefix("/*") { block = true; i = source.index(i, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while i < source.endIndex, source[i] != "\n" { i = source.index(after: i) }
-                continue
-            }
-            out.append(source[i]); i = source.index(after: i)
-        }
-        return out
+        blankingComments(in: source)
     }
 }

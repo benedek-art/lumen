@@ -29,6 +29,9 @@ final class KeyDispatcher {
 
     private weak var state: AppState?
     private var monitor: Any?
+    /// `flagsChanged`, kept apart from the key monitor so `handle` never sees an event
+    /// that has no characters. Feeds `ModifierKeys`.
+    private var flagsMonitor: Any?
     /// Set while a hold-key gesture is active, so key-up can undo what key-down did.
     private var holdActive: Character?
 
@@ -44,18 +47,29 @@ final class KeyDispatcher {
                 self.handle(event) ? nil : event
             }
         }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
+            ModifierKeys.shared.update(event.modifierFlags)
+            return event
+        }
     }
 
     func uninstall() {
         if let monitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
+        }
         monitor = nil
+        flagsMonitor = nil
     }
 
     deinit {
         if let monitor {
             NSEvent.removeMonitor(monitor)
+        }
+        if let flagsMonitor {
+            NSEvent.removeMonitor(flagsMonitor)
         }
     }
 
@@ -157,11 +171,11 @@ final class KeyDispatcher {
 
         // ---- Flags -------------------------------------------------------------
         case "p":
-            state.setFlag(.picked)
+            state.setFlag(.pick)
         case "x":
-            state.setFlag(.rejected)
+            state.setFlag(.reject)
         case "u":
-            state.setFlag(.none)
+            state.setFlag(.unflagged)
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
@@ -234,6 +248,18 @@ final class KeyDispatcher {
             // round trip: from outside it enters Crop with the section open and the
             // rectangle live, and from inside it toggles the rectangle without leaving.
             state.toggleCropTool()
+        case "q":
+            // Q IS THE HEAL TOOL, docs/12 §12.3's binding and free in this grammar (docs/29
+            // lists no claim on it). A round trip like R and M: Q arms it on the loupe,
+            // Q again puts it away. `toggleHealTool` carries the entry contract — out of
+            // masking, crop rectangle away — so this key holds none of its own.
+            state.toggleHealTool()
+        case "/":
+            // `/` RE-PICKS THE SELECTED SPOT'S SOURCE (docs/09 §Heal / Clone, LR's
+            // binding): the next-best distinct candidate, cycling. Only while the Heal
+            // tool is armed — outside it the key is nobody's, and falls through.
+            guard HealTool.shared.armed else { return false }
+            state.repickSelectedSpotSource()
         case "m":
             // M IS A ROUND TRIP, and it has to be, because it is the only key that both
             // enters and leaves. The column becomes the mask editor and the workspace
@@ -357,8 +383,9 @@ final class KeyDispatcher {
         // snapping back to Fit, because `zoomOut`'s "below 0.35 means fit" rule lived
         // in the verb nobody called. Click-to-zoom already went through these, so the
         // mouse and the keyboard were following different ladders.
-        // THE LOUPE'S ZOOM IS THE LOUPE'S. `LoupeViewport` writes `state.zoomLevel`, which
-        // only `LoupeView` draws — Compare and Survey run their own `CompareSync.zoom`
+        // THE LOUPE'S ZOOM IS THE LOUPE'S — and it is now the viewport's too.
+        // `LoupeViewport` owns `zoom`, which only `LoupeView` draws — Compare and
+        // Survey run their own `CompareSync.zoom`
         // and the grid has no zoom at all. Unguarded, these three keys did nothing
         // visible in the other three surfaces AND still returned true, so the press was
         // swallowed; worse, pressing Z in the grid left `zoomLevel` at 1 with nothing on
@@ -371,13 +398,13 @@ final class KeyDispatcher {
         // wrong. `-` outside the loupe is already the purple label, above.
         case "z":
             guard state.viewMode == .loupe else { return false }
-            LoupeViewport.shared.toggleZoom(in: state)
+            LoupeViewport.shared.toggleZoom()
         case "-":
             guard state.viewMode == .loupe else { return false }
-            LoupeViewport.shared.zoomOut(in: state)
+            LoupeViewport.shared.zoomOut()
         case "=", "+":
             guard state.viewMode == .loupe else { return false }
-            LoupeViewport.shared.zoomIn(in: state)
+            LoupeViewport.shared.zoomIn()
 
         // ---- Thumbnail size, and the two momentary inspections ------------------
         //
@@ -424,12 +451,13 @@ final class KeyDispatcher {
                 return true
             }
             // Through the viewport verb, like Z and − above it. This line used to read
-            // `state.zoomLevel = state.zoomLevel == 0 ? 1 : 0`: the same two ratios and
+            // `state.zoomLevel = state.zoomLevel == 0 ? 1 : 0` — that field is
+            // `LoupeViewport.zoom` now — : the same two ratios and
             // none of the anchoring, so Space zoomed about the centre of the window
             // while a click zoomed where you pointed — on the key whose own
             // documentation says "centred on the cursor". Exactly the bug the comment
             // above claims was fixed for Z, reintroduced one case later.
-            LoupeViewport.shared.toggleZoom(in: state)
+            LoupeViewport.shared.toggleZoom()
 
         default:
             return false
@@ -530,7 +558,7 @@ final class KeyDispatcher {
             // the responder chain, where the loupe's own `onMoveCommand` is waiting —
             // this monitor runs first, so claiming the key here made that pan handler
             // unreachable code.
-            if state.viewMode == .loupe && state.zoomLevel > 0 { return nil }
+            if state.viewMode == .loupe && LoupeViewport.shared.zoom > 0 { return nil }
             // A focused slider owns the arrows, for exactly the same reason and by
             // exactly the same mechanism (docs/28 Phase 7). Without this the nudge is
             // unreachable code too: `LumenSlider`'s `onKeyPress` lives in the responder
@@ -561,7 +589,14 @@ final class KeyDispatcher {
                 state.deleteActiveMask()
                 return true
             }
-            state.setFlag(.rejected)
+            // The same rule for the Heal tool: Delete removes the selected SPOT, and with
+            // none selected it does nothing rather than reject the photograph under a
+            // tool the photographer is plainly using.
+            if HealTool.shared.armed {
+                state.deleteSelectedSpot()
+                return true
+            }
+            state.setFlag(.reject)
             return true
         case 0x1B:      // Escape
             // A focused slider gets Escape first, to drop its focus. This monitor runs
@@ -577,6 +612,12 @@ final class KeyDispatcher {
             // Escape would jump past a whole surface to the light table.
             if PanelLayout.shared.layout.isMasking {
                 PanelLayout.shared.setMasking(false)
+                return true
+            }
+            // Then the Heal tool, the same layer: its circles are a thing you are inside.
+            // Leaving keeps every spot — they are saved as they are placed.
+            if HealTool.shared.armed {
+                HealTool.shared.armed = false
                 return true
             }
             // Then the crop tool, the same layer of the same idiom: a rectangle on the

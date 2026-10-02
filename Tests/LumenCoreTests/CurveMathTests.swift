@@ -268,10 +268,16 @@ final class CurveMathTests: XCTestCase {
         let bands: [Double] = [420, 0, 0, 0, 0, 0, 0, 0]
         XCTAssertEqual(GroupMove.allowed(bands, requested: 10,
                                          lower: -100, upper: 100), 0)
-        XCTAssertEqual(GroupMove.moved(bands, by: -10, lower: -100, upper: 100),
-                       [100, -10, -10, -10, -10, -10, -10, -10],
-                       "the elementwise clamp is what pulls a hostile value back into "
-                       + "range once the row is touched")
+        // S-06: the first touch makes the set legal — 420 is clamped to its rail, which
+        // is what the row shows — and THEN moves it rigidly. The old answer here,
+        // [100, −10, …], clipped the out-of-range member mid-move: not rigid, and the
+        // way back was frozen at the rail.
+        let down = GroupMove.moved(bands, by: -10, lower: -100, upper: 100)
+        XCTAssertEqual(down, [90, -10, -10, -10, -10, -10, -10, -10],
+                       "a hostile value is pulled into range on first touch and then "
+                       + "moves with its set")
+        XCTAssertEqual(GroupMove.moved(down, by: 10, lower: -100, upper: 100),
+                       [100, 0, 0, 0, 0, 0, 0, 0], "and the way back is open")
     }
 
     func testTheMeanIsTheRowsRestingValue() {
@@ -299,6 +305,36 @@ final class CurveMathTests: XCTestCase {
                           + "LumenCore where it is tested, and a view that stopped "
                           + "calling it is a green lane over a broken editor")
         }
+    }
+
+    /// AI-05: the Point graph draws the master (parametric, then points), so its
+    /// handles, its hit test and its drags must all go through the composite axis.
+    /// `CurveCompositeHandleTests` proves the arithmetic; this pins that the editor
+    /// uses it for the drawn handles, the hit test, and the stored x of a drag.
+    func testThePointGraphDrawsAndHitTestsItsHandlesOnTheCompositeAxis() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertTrue(source.contains("stack.compositeHandles(currentPoints)"),
+                      "the Point graph's handles are drawn at raw point coordinates")
+        XCTAssertTrue(source.contains("stack.pointInput(atCompositeX:"),
+                      "a drag on the Point graph stores the picture x as the point x")
+        XCTAssertTrue(source.contains("? [] : plottedPoints"),
+                      "the drawn controls are not the composite handles")
+        XCTAssertTrue(source.contains("CurveEditing.hitIndex(\n            plottedPoints"),
+                      "the hit test is not run against the handles that are drawn")
+        XCTAssertEqual(source.components(separatedBy: "storedX(").count - 1, 4,
+                       "storedX must be declared once and used by all three point-writing "
+                       + "paths (place, drag, and the VoiceOver adjust action)")
+    }
+
+    /// S-05: a deletion records under `CurveEditing.deletionCoalescingKey` (none), not
+    /// under an index-carrying key two deletions at one slot would share.
+    func testTheCurveEditorRecordsADeletionAsADiscreteStep() throws {
+        let source = try Self.appSource("CurveEditorView.swift")
+        XCTAssertTrue(source.contains("key: CurveEditing.deletionCoalescingKey"),
+                      "deletePoint no longer records under the discrete deletion key")
+        XCTAssertFalse(source.contains("\"delete.\""),
+                       "an index-carrying delete key is back: two deletions at one "
+                       + "index fold into one undo step")
     }
 
     func testTheCurveEditorDoesNotKeyEveryPointOfAChannelTogether() throws {
@@ -435,34 +471,6 @@ final class CurveMathTests: XCTestCase {
     /// Line and block comments out, so no assertion above can be satisfied by prose
     /// about the thing it is looking for. The same walk `SurroundPaintTests` uses.
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") {
-                    inBlock = false
-                    index = source.index(index, offsetBy: 2)
-                } else {
-                    index = source.index(after: index)
-                }
-                continue
-            }
-            if rest.hasPrefix("/*") {
-                inBlock = true
-                index = source.index(index, offsetBy: 2)
-                continue
-            }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" {
-                    index = source.index(after: index)
-                }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }

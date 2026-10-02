@@ -504,9 +504,7 @@ struct DetailPanel: View {
     private var noiseSection: some View {
         DevelopDisclosure("Noise Reduction", isExpanded: $noiseExpanded) {
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                LumenSegmented(options: [(value: Denoise.Mode.off, label: "Off"),
-                                         (value: Denoise.Mode.classic, label: "Classic"),
-                                         (value: Denoise.Mode.ai, label: "AI (stand-in)")],
+                LumenSegmented(options: denoiseAvailability.modeOptions,
                                selection: binder.choice(\.develop.denoise.mode,
                                                         "denoise.mode"))
                     .help("Which engine cleans the noise: Off is off, Classic is the "
@@ -516,6 +514,10 @@ struct DetailPanel: View {
                 noiseControls
             }
         }
+    }
+
+    private var denoiseAvailability: DenoiseControlAvailability {
+        DenoiseControlAvailability(isRendered: isRenderedFile)
     }
 
     @ViewBuilder
@@ -553,11 +555,12 @@ struct DetailPanel: View {
                             // master at its default changed no number and still
                             // flipped Auto to Manual, and a later switch to AI kept
                             // the master instead of zeroing it.
-                            onReset: { binder.edit("denoise.classic.luma") { recipe in
-                                recipe.develop.denoise.classic.luma =
-                                    isoDefault.classic.luma
-                                recipe.develop.denoise.classic.lumaUserSet = false
-                            } })
+                            //
+                            // And it resets EACH selected photo to its own ISO's value:
+                            // `isoDefault` is the primary's, and writing it through a
+                            // closure that cannot see the photo stamped one frame's ISO
+                            // baseline on a whole mixed-ISO selection (W2/E1-01).
+                            onReset: { state.resetDenoise(.luma) })
                 // NAMED FOR WHAT THEY DO, AND SUBORDINATE TO THEIR MASTER.
                 //
                 // They were `Luminance Detail`, `Luminance Contrast`, `Colour Detail`
@@ -590,7 +593,8 @@ struct DetailPanel: View {
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
                             help: "Raises the shrinkage threshold, so texture survives "
-                                + "— and so does the noise beside it.")
+                                + "— and so does the noise beside it.",
+                            onReset: { state.resetDenoise(.lumaDetail) })
                 LumenSlider(title: "Contrast",
                             value: binder.value(\.develop.denoise.classic.lumaContrast,
                                                 "denoise.classic.lumaContrast"),
@@ -599,7 +603,8 @@ struct DetailPanel: View {
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
                             help: "Keeps coarse luminance structure, at the cost of "
-                                + "mottling.")
+                                + "mottling.",
+                            onReset: { state.resetDenoise(.lumaContrast) })
                 LumenSlider(title: "Colour",
                             value: binder.custom(
                                 "denoise.classic.chroma",
@@ -616,11 +621,7 @@ struct DetailPanel: View {
                                 + "alone, so edges and texture stay put. Its default "
                                 + "follows the photo's ISO.",
                             // Same clearing reset as Luminance above, same reason.
-                            onReset: { binder.edit("denoise.classic.chroma") { recipe in
-                                recipe.develop.denoise.classic.chroma =
-                                    isoDefault.classic.chroma
-                                recipe.develop.denoise.classic.chromaUserSet = false
-                            } })
+                            onReset: { state.resetDenoise(.chroma) })
                 LumenSlider(title: "Detail",
                             value: binder.value(\.develop.denoise.classic.colorDetail,
                                                 "denoise.classic.colorDetail"),
@@ -628,7 +629,8 @@ struct DetailPanel: View {
                             defaultValue: isoDefault.classic.colorDetail,
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
-                            help: "Protects thin colour edges.")
+                            help: "Protects thin colour edges.",
+                            onReset: { state.resetDenoise(.colorDetail) })
                 // The one row here with a cost worth naming, so it is named on the
                 // row rather than in a paragraph four rows below it.
                 LumenSlider(title: "Smoothness",
@@ -640,7 +642,8 @@ struct DetailPanel: View {
                             indented: true,
                             help: "Reaches the large blotches. Its guided pass follows "
                                 + "luminance, so it softens a boundary that is pure "
-                                + "colour.")
+                                + "colour.",
+                            onReset: { state.resetDenoise(.colorSmoothness) })
                 LumenSlider(title: "Hot Pixels",
                             value: binder.value(\.develop.denoise.classic.hotPixels,
                                                 "denoise.classic.hotPixels"),
@@ -653,6 +656,15 @@ struct DetailPanel: View {
             }
         case .ai:
             VStack(alignment: .leading, spacing: Lumen.rowGap) {
+                // A pasted or older recipe can retain AI on rendered input. Do not
+                // rewrite its recipe on view construction; disclose it and let the
+                // photographer explicitly select Classic or Off above.
+                if !denoiseAvailability.supportsAmount {
+                    Text("Saved AI settings are retained, but the stand-in is RAW-only. Choose Classic to denoise this rendered file.")
+                        .font(.lumenCaption)
+                        .foregroundStyle(Lumen.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 // Tier 2 does not exist: no model ships, `AIDenoiseSplice` has no
                 // caller, and Amount reaches the decoder's own denoise instead — which
                 // is why dragging it is slow, the stand-in being part of the decode key,
@@ -673,6 +685,7 @@ struct DetailPanel: View {
                             range: 0...100, hardRange: nil, defaultValue: 50,
                             step: 1, decimals: 0, bipolar: false,
                             help: aiAmountHelp)
+                    .disabled(!denoiseAvailability.supportsAmount)
                 // Switching to AI zeroes the Tier-1 masters unless they were hand-set
                 // — `ISODefaults.coupled` owns that rule and its tests — on the
                 // reasoning that the noise they compensate for is gone by then. It is
@@ -686,9 +699,14 @@ struct DetailPanel: View {
     /// modifier's ternary, verbatim.
     private var aiAmountHelp: String {
         if isRenderedFile {
+            // Not "Classic is the engine that runs", which this said and which is
+            // false in this mode: `ISODefaults.classic(for:)` zeroes every Classic
+            // master the photographer did not set by hand (E1-02), so a legacy AI
+            // recipe on a rendered file is denoised by Hot Pixels alone.
             return "The stand-in is part of the raw decode, which this file does not "
-                + "go through, so Amount changes nothing here. Classic is the engine "
-                + "that runs."
+                + "go through, so Amount changes nothing here. In this mode Classic "
+                + "keeps only Hot Pixels and the levels you set by hand: choose "
+                + "Classic to denoise this file."
         }
         return "No model ships yet: Amount drives the raw decoder's own noise "
             + "reduction, and because that is part of the decode, each step "

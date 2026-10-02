@@ -101,8 +101,10 @@ public final class RenderedImageSource: ImageSource {
     }
 
     public var nativePixelSize: (width: Int, height: Int) {
-        (width: Int(image.extent.width.rounded()),
-         height: Int(image.extent.height.rounded()))
+        // `CIImage(contentsOf:)` on whatever file was dropped in: through the one
+        // guard for a file-derived size, because `Int(_:)` traps on a non-finite value.
+        (width: DraftLadder.pixelCount(from: Double(image.extent.width)),
+         height: DraftLadder.pixelCount(from: Double(image.extent.height)))
     }
 
     public var nativeLongEdge: Double {

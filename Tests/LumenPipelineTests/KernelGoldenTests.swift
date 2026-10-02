@@ -770,9 +770,14 @@ final class KernelGoldenTests: XCTestCase {
                            "a mask with contrast, temp, saturation and vibrance "
                                + "declared itself identity, so this test measures "
                                + "a two-point cube and proves nothing")
-            XCTAssertEqual(local.lut.size, size,
-                           "LocalPlan baked \(local.lut.size) when the render asked "
-                               + "for \(size)")
+            // Contrast and Temp live in the table before the exact colour stage; the
+            // colour stage itself has no table since AI-03, and this set has no hue,
+            // tint or grade for the table after it.
+            let pre = try XCTUnwrap(local.preLUT, "contrast and temp need the pre table")
+            XCTAssertEqual(pre.size, size,
+                           "LocalPlan baked \(pre.size) when the render asked for \(size)")
+            XCTAssertFalse(local.colorStage.isIdentity, "saturation and vibrance are live")
+            XCTAssertNil(local.postLUT)
         }
 
         // ---- The size reaches pixels through the graph that ships. ----
@@ -1200,10 +1205,9 @@ final class KernelGoldenTests: XCTestCase {
                              filmExposure: 0, displayWhite: 1.0)
         let profile = film.halation(longEdgePixels: longEdge)
 
-        // Two stops over the clip, on a background four and a half stops BELOW the
-        // reconstruction's onset — so both the reference's smoothstep and the shader's
-        // pedestal read exactly zero everywhere but the block, and the two energy
-        // fields differ in amplitude only, never in footprint.
+        // Two stops over the clip, on a background 1.6 stops below the gate's onset
+        // (log2 0.02 = −5.6 against −4) — so both paths' smoothstep reads exactly zero
+        // everywhere but the block.
         var source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: 0.02) }
         for y in low..<(low + block) {
             for x in low..<(low + block) { source[x, y] = RGB(gray: 4.0) }
@@ -1271,16 +1275,18 @@ final class KernelGoldenTests: XCTestCase {
                        "the two paths disagree about how wide the glow is: "
                            + "\(gpuGlow.spread) against \(referenceGlow.spread)")
 
-        // The energy divergence the engine has claimed is "matched at the half-power
-        // point" and never measured: the shader reconstructs highlights with a hard
-        // pedestal and the reference with a C¹ smoothstep. Recorded as a number with a
-        // bound on it, so a change in either ramp shows up here rather than in a
-        // photograph.
+        // ONE GATE ON BOTH PATHS (M09). This bound was 30%, wide enough to hold the
+        // hard pedestal the shader used to stand in for the reference's smoothstep —
+        // 0.936 of the reference's mass at this block's E = 4, and the bound could
+        // not see the 0.61 at E = 0.5 or the zero at E = 0.25 that
+        // `testHalationGateMatchesTheReferenceAcrossTheOnset` now pins. 3% is f32
+        // read-back and blur discretisation; a pedestal at this E is 6.4% out.
         XCTAssertEqual(gpuGlow.mass, referenceGlow.mass,
-                       accuracy: referenceGlow.mass * 0.30,
-                       "the pedestal and the smoothstep now disagree about total glow "
-                           + "energy by more than 30%: \(gpuGlow.mass) against "
-                           + "\(referenceGlow.mass)")
+                       accuracy: referenceGlow.mass * 0.03,
+                       "the graph and the reference disagree about total glow energy "
+                           + "by more than 3%: \(gpuGlow.mass) against "
+                           + "\(referenceGlow.mass) — the shader's highlight gate is "
+                           + "not the reference's")
 
         // Halation is red because the stock's measured strengths are, and Portra's blue
         // strength is exactly zero. A glow that is not red is a glow through the wrong
@@ -1290,6 +1296,57 @@ final class KernelGoldenTests: XCTestCase {
                           "the glow carried \(blue.mass) of blue against "
                               + "\(gpuGlow.mass) of red, and this stock's blue halation "
                               + "strength is zero")
+    }
+
+    /// The halation gate, GPU against reference, on flat fields either side of the
+    /// clip (M09 / C1-01).
+    ///
+    /// The shader used a hard pedestal `max(E − clip/4, 0)·2^0.3` where the reference
+    /// opens a smoothstep across the last four stops below the clip, and called the two
+    /// "matched at the half-power point". Measured, the GPU rendered 0.000 of the
+    /// reference's glow at E = 0.125 and 0.25, 0.612 at 0.5, 0.750 at the clip and
+    /// 0.9375 at E = 4 — and the only golden sat at E = 4 behind a 30% bound. A sky a
+    /// stop or two under the clip glowed in the f64 reference and not in the app.
+    ///
+    /// A FLAT field, so the blurs are the identity away from the border and the glow at
+    /// the centre is `strength · H(E)` on both paths with nothing spatial in between —
+    /// the gate is the only thing measured. E = 0.125 and 0.25 are where the pedestal
+    /// rendered nothing at all; 0.5 and 1 are its 39% and 25% deficits; 4 is the old
+    /// golden's corner. With the pedestal substituted back the first four go red.
+    func testHalationGateMatchesTheReferenceAcrossTheOnset() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let side = 96
+        let longEdge = 2215
+        let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                     halation: 100),
+                             filmExposure: 0, displayWhite: 1.0)
+        for level in [0.125, 0.25, 0.5, 1.0, 4.0] {
+            let source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: level) }
+            let glowed = RenderGraph().applyHalation(ciImage(from: source), film: film,
+                                                     longEdge: longEdge)
+            guard let gpu = readBack(glowed, width: side, height: side) else {
+                return XCTFail("read-back failed at E = \(level)")
+            }
+            let reference = ReferenceRenderer.applyHalation(source, film: film,
+                                                            longEdge: longEdge)
+            // The central 16 × 16, far from the border at every bounce's sigma.
+            var gpuGlow = 0.0, referenceGlow = 0.0
+            for y in (side / 2 - 8)..<(side / 2 + 8) {
+                for x in (side / 2 - 8)..<(side / 2 + 8) {
+                    gpuGlow += gpu[x, y].r - level
+                    referenceGlow += reference[x, y].r - level
+                }
+            }
+            print(String(format: "HALATION gate E=%.3f gpu %.6f reference %.6f ratio %.4f",
+                         level, gpuGlow, referenceGlow,
+                         referenceGlow > 0 ? gpuGlow / referenceGlow : 0))
+            XCTAssertGreaterThan(referenceGlow, 0,
+                                 "the reference glows nothing at E = \(level)")
+            XCTAssertEqual(gpuGlow, referenceGlow, accuracy: referenceGlow * 0.03,
+                           "at E = \(level) the graph's halation glow is "
+                               + "\(gpuGlow / referenceGlow) of the reference's — the "
+                               + "shader's gate is not `HalationProfile.highlightEnergy`")
+        }
     }
 
     /// Halation has to reach pixels THROUGH `RenderGraph.build`.
@@ -1789,7 +1846,8 @@ final class KernelGoldenTests: XCTestCase {
                                                    unavailable: ["grain", "vignette"])
         let reduced = try renderer.export(source: StubSource(ciImage(from: flat)),
                                           recipe: Recipe(), to: destination,
-                                          using: ExportRecipe(name: "t", format: .png))
+                                          using: ExportRecipe(name: "t", format: .png),
+                                          allowOverwrite: true)
         XCTAssertEqual(reduced, ["grain", "vignette"],
                        "a reduced export reported \(reduced) — `AppState.export` has "
                            + "nothing to put in the status line and counts the file "
@@ -3325,6 +3383,259 @@ final class KernelGoldenTests: XCTestCase {
                                        classic: ClassicNR(luma: 0, chroma: 0)))
         XCTAssertLessThan(spread(off, quiet), 1e-5,
                           "Off and an all-zero Classic block rendered differently")
+    }
+
+    // MARK: S3 at the sizes and precisions the app actually renders
+
+    /// A context that never reuses an intermediate. The region test below renders the
+    /// same graph more than once, and a context that had cached the full frame's
+    /// intermediates could hand them to a region render — which would then agree with
+    /// the full frame whatever the ROIs said.
+    private func uncachedContext(_ format: CIFormat) -> CIContext {
+        CIContext(options: [
+            .workingColorSpace: CGColorSpace(
+                name: CGColorSpace.extendedLinearITUR_2020) as Any,
+            .workingFormat: format,
+            .cacheIntermediates: false,
+        ])
+    }
+
+    /// Render `rect` of `image` and nothing else, so Core Image computes only the
+    /// regions of interest that rect needs. Rows come back in the order `readBack`
+    /// returns them.
+    private func readRegion(_ image: CIImage, _ rect: CGRect,
+                            in ctx: CIContext) -> ImageBuffer {
+        let w = Int(rect.width), h = Int(rect.height)
+        var pixels = [Float](repeating: 0, count: w * h * 4)
+        pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            ctx.render(image, toBitmap: base, rowBytes: w * 16,
+                       bounds: rect, format: .RGBAf, colorSpace: nil)
+        }
+        return ImageBuffer(width: w, height: h, pixels: pixels)
+    }
+
+    /// The tiled render: the stage evaluated for a region must equal the same pixels of
+    /// the whole frame.
+    ///
+    /// Core Image tiles a 45 MP export and a zoomed loupe by itself, asking each node
+    /// for only what the node downstream says it reaches — the `reach` every
+    /// `applyNeighbourhood` call in `applyDenoise` declares. Every other S3 golden reads
+    /// back the whole of a 64 px frame, so the whole frame is always in the region of
+    /// interest and a reach declared too short could never show. Here the frame is
+    /// 256 × 224, the middle is more than `ClassicalDenoise.receptiveField(levels: 5)`
+    /// = 79 px from every border, and the regions are small, so an under-declared
+    /// reach hands a kernel pixels Core Image never computed for it.
+    ///
+    /// Every pass is on — hot pixels, both masters, the blotch filter — because each
+    /// has its own ROI. The regions are centred vertically, so a region's rows are the
+    /// same rows of the full read whichever way up the bitmap is.
+    func testDenoiseRegionRendersMatchTheWholeFrame() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable && KernelLibrary.hotPixel != nil,
+                          "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 256, height = 224
+        XCTAssertGreaterThan(Swift.min(width, height) / 2,
+                             ClassicalDenoise.receptiveField(levels: 5),
+                             "no pixel of the frame is out of the stage's reach of its "
+                                 + "border, so a region cannot under-fetch")
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 60, hotPixels: 60,
+                                         colorSmoothness: 100), iso: iso)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width))
+
+        // Regions first, each in a fresh context, then the whole frame in another.
+        let regionHeight = 32
+        let y0 = (height - regionHeight) / 2
+        let regions = [
+            CGRect(x: 120, y: y0, width: 24, height: regionHeight),   // centre
+            CGRect(x: 0, y: y0, width: 20, height: regionHeight),     // left border
+            CGRect(x: 224, y: y0, width: 32, height: regionHeight),   // the colour line
+        ]
+        var pieces: [(CGRect, ImageBuffer)] = []
+        for rect in regions {
+            pieces.append((rect, readRegion(output, rect, in: uncachedContext(.RGBAf))))
+        }
+        let whole = readRegion(output, CGRect(x: 0, y: 0, width: width, height: height),
+                               in: uncachedContext(.RGBAf))
+
+        var moved = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                moved = Swift.max(moved, whole[x, y].maxAbsDifference(source[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(moved, 1e-3,
+                             "the stage moved the frame by \(moved); a region agreeing "
+                                 + "with it would prove nothing")
+
+        for (rect, piece) in pieces {
+            var worst = 0.0
+            var at = (0, 0)
+            var wrote = false
+            for j in 0..<Int(rect.height) {
+                for i in 0..<Int(rect.width) {
+                    let got = piece[i, j]
+                    if got.r != 0 || got.g != 0 || got.b != 0 { wrote = true }
+                    let x = Int(rect.minX) + i
+                    let y = Int(rect.minY) + j
+                    let d = got.maxAbsDifference(whole[x, y])
+                    if d > worst { worst = d; at = (x, y) }
+                }
+            }
+            XCTAssertTrue(wrote, "region \(rect) rendered nothing")
+            // The same kernels on the same inputs: anything above float noise is a
+            // pixel that read from outside what Core Image computed for it.
+            XCTAssertLessThan(worst, 1e-5,
+                              "region \(rect) differs from the whole frame by \(worst) "
+                                  + "at \(at) — a declared reach in S3 is too short")
+        }
+    }
+
+    /// The whole-stage golden, on a frame with an interior. At 64 px every pixel is
+    /// within the deepest band's reach of a border, so
+    /// `testDenoiseMatchesTheReferenceEngine` mostly compares border handling; this
+    /// compares the stage itself, at the same bar.
+    func testDenoiseMatchesTheReferenceAwayFromTheBorder() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 192, height = 176
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        // Smoothness 0 for the reason the 64 px golden gives: the blotch pass rides
+        // CIBoxBlur and has its own, looser test.
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 50, lumaDetail: 40,
+                                         colorSmoothness: 0), iso: iso)
+        XCTAssertEqual(plan.classicalDenoise.effectiveLevels(width: width, height: height),
+                       ClassicalDenoise.defaultLevels)
+        let expected = plan.classicalDenoise.apply(source)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width))
+        guard let got = readBack(output, width: width, height: height) else {
+            return XCTFail("denoise render failed")
+        }
+        var moved = 0.0
+        var worst = 0.0
+        var at = (0, 0)
+        for y in 0..<height {
+            for x in 0..<width {
+                moved = Swift.max(moved, expected[x, y].maxAbsDifference(source[x, y]))
+                let d = got[x, y].maxAbsDifference(expected[x, y])
+                if d > worst { worst = d; at = (x, y) }
+            }
+        }
+        XCTAssertGreaterThan(moved, 1e-3, "the reference barely moved the frame")
+        XCTAssertLessThan(worst, 2e-4,
+                          "GPU and reference differ by \(worst) at \(at) on a "
+                              + "\(width)×\(height) frame, against a stage effect of "
+                              + "\(moved)")
+    }
+
+    /// The interactive render passes `noiseScale` (the decode's linear scale, squared)
+    /// so a preview is denoised for the noise the downsample left in it. The CPU twin
+    /// is `ClassicalDenoise.scaled(noiseScale:)`, which `PipelineRenderer` calls on its
+    /// reference path. Nothing compared the two at any scale but 1.
+    ///
+    /// Two scales: 0.6, where the stage runs on a weakened profile, and 0.4, below
+    /// `contributingNoiseScale`, where both paths must hand the frame back untouched.
+    func testDenoiseAtPreviewScaleMatchesTheScaledReference() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 12800.0
+        let width = 64, height = 64
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 60, colorSmoothness: 0),
+                               iso: iso)
+
+        func gpu(_ scale: Double) -> ImageBuffer? {
+            readBack(RenderGraph().applyDenoise(
+                        ciImage(from: source), plan: plan,
+                        options: RenderGraph.Options(longEdge: width, noiseScale: scale)),
+                     width: width, height: height)
+        }
+        func worst(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+            var w = 0.0
+            for y in 0..<height {
+                for x in 0..<width { w = Swift.max(w, a[x, y].maxAbsDifference(b[x, y])) }
+            }
+            return w
+        }
+
+        let full = plan.classicalDenoise.apply(source)
+        let preview = plan.classicalDenoise.scaled(noiseScale: 0.6).apply(source)
+        // The scale must reach the stage at all, or matching it is matching scale 1.
+        XCTAssertGreaterThan(worst(full, preview), 1e-3,
+                             "the reference denoises the same at scale 0.6 as at 1")
+        guard let atPreview = gpu(0.6) else { return XCTFail("render at 0.6 failed") }
+        let previewError = worst(atPreview, preview)
+        XCTAssertLessThan(previewError, 2e-4,
+                          "at noise scale 0.6 the GPU differs from the scaled reference "
+                              + "by \(previewError)")
+
+        XCTAssertLessThan(0.4, ClassicalDenoise.contributingNoiseScale)
+        guard let atFit = gpu(0.4) else { return XCTFail("render at 0.4 failed") }
+        XCTAssertLessThan(worst(plan.classicalDenoise.scaled(noiseScale: 0.4).apply(source),
+                                source), 1e-12,
+                          "below the contributing scale the reference still moved pixels")
+        XCTAssertLessThan(worst(atFit, source), 1e-6,
+                          "below the contributing scale the GPU stage still moved pixels")
+    }
+
+    /// The stage at the precision the app renders in. Every golden above reads through
+    /// an RGBAf context so that it measures arithmetic; `PipelineRenderer` works in
+    /// RGBAh, and S3 is the stage most exposed to that — its forward transform turns a
+    /// linear frame into a plane spanning tens of units, where half-float's step is
+    /// 0.0156 (`testTheVSTAndRotationRoundTrip` prints it). `ClassicalDenoise.GPUPlan`
+    /// documents a half-float model of the whole stage — worst pixel 9.8e-4, RMS
+    /// 1.2e-4, on an effect of 1.5e-2 to 4.8e-2 — and no test rendered it.
+    ///
+    /// The bars are relative to the stage's own effect, like the blotch golden's: the
+    /// worst pixel inside a quarter of what the stage moves, the RMS inside 2% of it.
+    /// The model sits near 6% and 0.8%; a pedestal or scale lost in the encoded plane
+    /// costs whole multiples of the effect.
+    func testDenoiseAtTheShippingHalfFloatPrecisionTracksTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.denoiseAvailable, "denoise kernels unavailable")
+        let iso = 6400.0
+        let width = 96, height = 96
+        let source = noisyFrame(width: width, height: height,
+                                profile: NoiseProfile.forISO(iso))
+        let plan = denoisePlan(ClassicNR(luma: 60, chroma: 50, colorSmoothness: 0),
+                               iso: iso)
+        let expected = plan.classicalDenoise.apply(source)
+        let output = RenderGraph().applyDenoise(
+            ciImage(from: source), plan: plan,
+            options: RenderGraph.Options(longEdge: width))
+        let got = readRegion(output, CGRect(x: 0, y: 0, width: width, height: height),
+                             in: uncachedContext(.RGBAh))
+
+        var moved = 0.0
+        var worst = 0.0
+        var sumSquares = 0.0
+        var wrote = false
+        for y in 0..<height {
+            for x in 0..<width {
+                let g = got[x, y]
+                if g.r != 0 || g.g != 0 || g.b != 0 { wrote = true }
+                moved = Swift.max(moved, expected[x, y].maxAbsDifference(source[x, y]))
+                let d = g.maxAbsDifference(expected[x, y])
+                worst = Swift.max(worst, d)
+                sumSquares += d * d
+            }
+        }
+        let rms = (sumSquares / Double(width * height)).squareRoot()
+        print("S3 HALF-FLOAT worst \(worst) rms \(rms) against a stage effect of \(moved)")
+        XCTAssertTrue(wrote, "the half-float render wrote nothing")
+        XCTAssertGreaterThan(moved, 1e-3, "the reference barely moved the frame")
+        XCTAssertLessThan(worst, moved * 0.25,
+                          "in RGBAh the stage's worst pixel is off by \(worst), more than "
+                              + "a quarter of its \(moved) effect")
+        XCTAssertLessThan(rms, moved * 0.02,
+                          "in RGBAh the stage is off by \(rms) RMS against a \(moved) "
+                              + "effect")
     }
 
     func testMidGreyLandsWhereTheTransformPromises() throws {

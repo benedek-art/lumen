@@ -1,16 +1,18 @@
 // Kernels.swift
-// The complete custom-shader surface of Lumen's render path: thirty-three small kernels.
-// (A count that was "thirty-two" in three places while the registry held 33 — if you add
-// a kernel, grep for the number word and update all of them, or better, stop counting.)
+// The complete custom-shader surface of Lumen's render path: a few dozen small kernels.
+// (The count was written out here as a number word and went stale twice; the rosters
+// below and `KernelRosterTests` are the count now.)
 //
-// That number is the point. Nearly every colour-bearing stage is a pure RGB→RGB
-// function, so the engine evaluates it once in LumenCore's reference implementation
-// and bakes it into a lookup table that the stock colour-cube filter applies
-// (docs/14 §5, adapted: Core Image is used as a graph compiler, and the graph's
-// per-pixel colour work is one table fetch rather than nine hand-ported shaders).
-// What remains here is only what a table cannot express: the log shaper that makes an
-// unbounded scene fit a bounded table, image-by-image arithmetic for the guided
-// filter, mask compositing, grain, and the vignette's dependence on position.
+// Most colour-bearing stages are pure RGB→RGB functions, so the engine evaluates them
+// once in LumenCore's reference implementation and bakes them into lookup tables that
+// the stock colour-cube filter applies (docs/14 §5, adapted: Core Image is used as a
+// graph compiler). What remains here is what a table cannot express: the log shaper
+// that makes an unbounded scene fit a bounded table, image-by-image arithmetic for the
+// guided filter, mask compositing, grain, the vignette's dependence on position — and
+// the colour stage S9, which a table CAN express only badly: its hue- and
+// chroma-selective tools lost 30–50 code equivalents in a 33³/65³ cube (AI-03), so it
+// runs exactly as four colour kernels whose source and Swift twin live together in
+// `LumenCore/Engine/ExactColorStage.swift`.
 //
 // Every kernel has a Swift twin in LumenCore, and PipelineGoldenTests renders both to
 // compare them. A kernel that fails to compile leaves `KernelLibrary.isAvailable`
@@ -434,6 +436,25 @@ public enum KernelLibrary {
     kernel vec4 lumenHighlightEnergy(__sample image, float threshold, float boost) {
         vec3 e = max(image.rgb - vec3(threshold), vec3(0.0)) * boost;
         return vec4(e, 1.0);
+    }
+    """
+
+    /// Halation's highlight-energy gate — `HalationProfile.highlightEnergy`, the same
+    /// expression, not an approximation of it: a smoothstep that opens across the last
+    /// `protectEV` stops below `clip` (in log2 space), times the reconstruction headroom
+    /// of up to `boostRange` stops. Per channel: `t = smoothstep(−protect, 0,
+    /// log2(e/clip)); out = t·e·2^(boost·t)`, and zero for `e ≤ 0`.
+    ///
+    /// It replaced a hard pedestal `max(E − clip/4, 0)·2^0.3` that rendered 0.61 of the
+    /// reference's glow at E = 0.5 and none at E ≤ 0.25 (M09). `highlightEnergy` above
+    /// stays as it is: it is the general `max(E − t, 0)·b` clamp the gamut flag and
+    /// `logLuminance` use with t = 0, b = 1.
+    static let halationEnergySource = """
+    kernel vec4 lumenHalationEnergy(__sample image, float clip, float protectEV, float boostRange) {
+        vec3 e = max(image.rgb, vec3(0.0));
+        vec3 ev = log2(max(e, vec3(1.0e-12)) / clip);
+        vec3 t = smoothstep(vec3(-protectEV), vec3(0.0), ev);
+        return vec4(t * e * exp2(boostRange * t), 1.0);
     }
     """
 
@@ -873,10 +894,13 @@ public enum KernelLibrary {
     /// left.
     static let vignetteSource = """
     kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
-                              vec2 invRadius, float ev, float feather,
+                              vec2 invRadius, vec3 axisX, vec3 axisY,
+                              float ev, float feather,
                               vec3 lumaWeights, float threshold,
                               float protection, float ditherEV) {
-        vec2 d = (destCoord() - centre) * invRadius;
+        vec3 sourcePoint = vec3(destCoord(), 1.0);
+        vec2 oriented = vec2(dot(axisX, sourcePoint), dot(axisY, sourcePoint));
+        vec2 d = (oriented - centre) * invRadius;
         float r = length(d);
         float t = smoothstep(1.0 - feather, 1.0, r);
         float lum = dot(image.rgb, lumaWeights);
@@ -884,6 +908,193 @@ public enum KernelLibrary {
         float dith = noise.r * ditherEV * step(1e-6, t);
         float gain = exp2(ev * t * (1.0 - protect) + dith);
         return vec4(image.rgb * gain, image.a);
+    }
+    """
+
+    // MARK: S5 retouch — heal and clone spots (docs/14; `SpotRetouch` is the twin)
+    //
+    // Two GENERAL kernels, because both read away from the pixel they produce. The
+    // reference's arithmetic, line for line: the rim sample count, the sub-sample arc
+    // offsets, the smoothstep edge and the 1e-6 weight floor are `SpotRetouch`'s, and the
+    // constants are interpolated from it rather than retyped.
+    //
+    // COORDINATES are the reference's top-down pixels: `p = (x − ox, h − (y − oy))` for
+    // a `destCoord()` (x, y), exactly `MaskGPU`'s mapping, and a reference point (px, py)
+    // is sampled at Core Image's `(ox + px, oy + h − py)`. Bilinear sampling at pixel
+    // centres +0.5 is the same interpolation on both sides of that flip, and the image is
+    // handed in `clampedToExtent()`, which is `ImageBuffer.bilinear`'s clamped edge.
+
+    /// The rim: one output pixel per rim sample, `I_dst − I_src` averaged along the
+    /// sample's own arc. Rendered over a `boundarySamples`×1 extent.
+    static let spotBoundarySource = """
+    kernel vec4 lumenSpotBoundary(sampler src, vec2 c, vec2 s, float radius,
+                                  float h, float ox, float oy) {
+        float k = floor(destCoord().x);
+        float arc = 6.283185307179586 / \(SpotRetouch.boundarySamples).0;
+        vec3 acc = vec3(0.0);
+        for (int j = 0; j < \(SpotRetouch.boundarySubsamples); j++) {
+            float theta = arc * (k + (float(j) + 0.5) / \(SpotRetouch.boundarySubsamples).0 - 0.5);
+            vec2 u = vec2(cos(theta), sin(theta)) * radius;
+            vec2 dp = c + u;
+            vec2 sp = s + u;
+            vec3 dv = sample(src, samplerTransform(src, vec2(ox + dp.x, oy + h - dp.y))).rgb;
+            vec3 sv = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+            acc += dv - sv;
+        }
+        return vec4(acc / \(SpotRetouch.boundarySubsamples).0, 1.0);
+    }
+    """
+
+    /// One spot over its bounding box: the borrowed pixel, plus — for Heal — the
+    /// discrete Poisson integral of the rim, mixed in through the feathered alpha.
+    /// `heal` is 1 or 0; a Clone never reads the rim image.
+    ///
+    /// CLEAR WHERE THE SPOT DOES NOT REACH, and that is the contract, not a shortcut.
+    /// The `extent` a general kernel is applied over is its domain of definition: a
+    /// promise that outside it the image is clear, which Core Image takes on trust and
+    /// does not enforce. It evaluates the kernel over a margin around the extent, keeps
+    /// the result as a texture, and the `composited(over:)` that lays the spot on the
+    /// picture reads that texture clamp-to-edge across the whole frame. The first version
+    /// returned the opaque input pixel wherever alpha was 0, so the margin's opaque ring
+    /// was smeared over every pixel of the photograph (macOS lane: 63,358 pixels outside
+    /// the box moved, each one equal to the nearest pixel of the box's one-pixel margin).
+    /// A clear pixel composites to the picture's own bytes: `S + D·(1 − 0)` is `D`
+    /// exactly. `RenderGraph.applySpot` also crops to the box, so the promise is kept
+    /// twice.
+    static let spotApplySource = """
+    kernel vec4 lumenSpotApply(sampler src, sampler rim, vec2 c, vec2 s, float radius,
+                               float rin, float opacity, float heal,
+                               float h, float ox, float oy) {
+        vec2 dc = destCoord();
+        vec4 base = sample(src, samplerTransform(src, dc));
+        vec2 p = vec2(dc.x - ox, h - (dc.y - oy));
+        vec2 rel = (p - c) / radius;
+        float rho = length(rel);
+        float a;
+        if (rho >= 1.0) { a = 0.0; }
+        else if (rho <= rin) { a = opacity; }
+        else {
+            float t = clamp((rho - rin) / max(1.0 - rin, 1e-12), 0.0, 1.0);
+            a = opacity * (1.0 - t * t * (3.0 - 2.0 * t));
+        }
+        if (a <= 0.0) { return vec4(0.0); }
+        vec2 sp = p + (s - c);
+        vec3 fill = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+        if (heal > 0.5) {
+            float arc = 6.283185307179586 / \(SpotRetouch.boundarySamples).0;
+            vec3 acc = vec3(0.0);
+            float total = 0.0;
+            for (int k = 0; k < \(SpotRetouch.boundarySamples); k++) {
+                float theta = arc * float(k);
+                vec2 d = rel - vec2(cos(theta), sin(theta));
+                float w = 1.0 / max(dot(d, d), 1e-6);
+                acc += w * sample(rim, samplerTransform(rim, vec2(float(k) + 0.5, 0.5))).rgb;
+                total += w;
+            }
+            fill += acc / total;
+        }
+        return vec4(mix(base.rgb, fill, a), base.a);
+    }
+    """
+
+    /// Trilinear lookup into a baked table at full float precision — what `CIColorCube`
+    /// does, minus its 8-bit storage (`ColorCube.filter` carries the measurement).
+    ///
+    /// `cube` is an RGBAf atlas of the LUT3D bytes: texel (r + g·n, b) holds entry
+    /// (r, g, b), with blue row 0 at the TOP of the atlas because that is where
+    /// `CIImage(bitmapData:)` puts a buffer's first row, so blue index b sits at
+    /// y = n − 1 − b. Texel centres are +0.5. The lower corner is clamped to n − 2 so
+    /// the upper one is always a real knot, and the input is clamped to the unit cube
+    /// exactly as `CIColorCube` clamps it. The twin is `LUT3D`'s trilinear form
+    /// (`ColorCubePrecisionTests` restates it).
+    static let cubeLookupSource = """
+    kernel vec4 lumenCubeLookup(sampler image, sampler cube, float n) {
+        vec4 s = sample(image, samplerCoord(image));
+        vec3 p = clamp(s.rgb, 0.0, 1.0) * (n - 1.0);
+        vec3 i0 = min(floor(p), vec3(n - 2.0));
+        vec3 f = p - i0;
+        float x0 = i0.r + i0.g * n + 0.5;
+        float x1 = x0 + n;
+        float y0 = n - 0.5 - i0.b;
+        float y1 = y0 - 1.0;
+        vec3 c000 = sample(cube, samplerTransform(cube, vec2(x0, y0))).rgb;
+        vec3 c100 = sample(cube, samplerTransform(cube, vec2(x0 + 1.0, y0))).rgb;
+        vec3 c010 = sample(cube, samplerTransform(cube, vec2(x1, y0))).rgb;
+        vec3 c110 = sample(cube, samplerTransform(cube, vec2(x1 + 1.0, y0))).rgb;
+        vec3 c001 = sample(cube, samplerTransform(cube, vec2(x0, y1))).rgb;
+        vec3 c101 = sample(cube, samplerTransform(cube, vec2(x0 + 1.0, y1))).rgb;
+        vec3 c011 = sample(cube, samplerTransform(cube, vec2(x1, y1))).rgb;
+        vec3 c111 = sample(cube, samplerTransform(cube, vec2(x1 + 1.0, y1))).rgb;
+        vec3 c00 = mix(c000, c100, f.r);
+        vec3 c10 = mix(c010, c110, f.r);
+        vec3 c01 = mix(c001, c101, f.r);
+        vec3 c11 = mix(c011, c111, f.r);
+        return vec4(mix(mix(c00, c10, f.g), mix(c01, c11, f.g), f.b), s.a);
+    }
+    """
+
+    // MARK: S5 retouch — painted heal strokes (`StrokeHeal` is the twin)
+    //
+    // The tube's shape arrives as an ALPHA image the CPU rasterized from geometry
+    // alone (`StrokeHeal.alphaPlane`), so the two renderers share one definition of it.
+    // The rim arrives as a `rim count`x1 POSITION image, each texel (x_hi, x_lo, y_hi,
+    // y_lo) with x = 16·hi + lo in the reference's top-down pixels — split so that a
+    // half-float intermediate still places a sample to under a hundredth of a pixel —
+    // and a matching STEP image (the sub-sample step, (sx, sy, 0, 1)). Loops run to the
+    // shared maximum and break at `count`, the form every kernel compiler accepts.
+
+    /// The rim differences: one output pixel per rim sample, `I_dst − I_src` averaged
+    /// over `StrokeHeal.subsamples` points along the rim.
+    static let strokeBoundarySource = """
+    kernel vec4 lumenStrokeBoundary(sampler src, sampler pos, sampler stp, vec2 offset,
+                                    float h, float ox, float oy) {
+        float k = floor(destCoord().x);
+        vec4 e = sample(pos, samplerTransform(pos, vec2(k + 0.5, 0.5)));
+        vec2 hop = sample(stp, samplerTransform(stp, vec2(k + 0.5, 0.5))).xy;
+        vec2 p = vec2(e.x * 16.0 + e.y, e.z * 16.0 + e.w);
+        vec3 acc = vec3(0.0);
+        for (int j = 0; j < \(StrokeHeal.subsamples); j++) {
+            vec2 q = p + (float(j) - \((StrokeHeal.subsamples - 1) / 2).0) * hop;
+            vec2 s = q + offset;
+            vec3 dv = sample(src, samplerTransform(src, vec2(ox + q.x, oy + h - q.y))).rgb;
+            vec3 sv = sample(src, samplerTransform(src, vec2(ox + s.x, oy + h - s.y))).rgb;
+            acc += dv - sv;
+        }
+        return vec4(acc / \(StrokeHeal.subsamples).0, 1.0);
+    }
+    """
+
+    /// One stroke over its bounding box: the borrowed pixel plus — for Heal — the
+    /// inverse-square mean of the rim differences, mixed in through the tube's alpha.
+    static let strokeApplySource = """
+    kernel vec4 lumenStrokeApply(sampler src, sampler rim, sampler pos, sampler alpha,
+                                 vec2 offset, float radius, float count, float heal,
+                                 float h, float ox, float oy) {
+        vec2 dc = destCoord();
+        vec4 base = sample(src, samplerTransform(src, dc));
+        float a = sample(alpha, samplerTransform(alpha, dc)).r;
+        // Clear where the stroke does not reach, for the reason lumenSpotApply is: Core
+        // Image trusts a general kernel's extent rather than cropping to it, and an
+        // opaque copy of the input outside the tube was stretched over the photograph.
+        if (a <= 0.0) { return vec4(0.0); }
+        vec2 p = vec2(dc.x - ox, h - (dc.y - oy));
+        vec2 sp = p + offset;
+        vec3 fill = sample(src, samplerTransform(src, vec2(ox + sp.x, oy + h - sp.y))).rgb;
+        if (heal > 0.5 && a > 0.0) {
+            vec3 acc = vec3(0.0);
+            float total = 0.0;
+            float scale = 1.0 / (radius * radius);
+            for (int k = 0; k < \(StrokeHeal.maxBoundarySamples); k++) {
+                if (float(k) >= count) { break; }
+                vec4 e = sample(pos, samplerTransform(pos, vec2(float(k) + 0.5, 0.5)));
+                vec2 d = p - vec2(e.x * 16.0 + e.y, e.z * 16.0 + e.w);
+                float w = 1.0 / max(dot(d, d) * scale, 1e-6);
+                acc += w * sample(rim, samplerTransform(rim, vec2(float(k) + 0.5, 0.5))).rgb;
+                total += w;
+            }
+            if (total > 0.0) { fill += acc / total; }
+        }
+        return vec4(mix(base.rgb, fill, a), base.a);
     }
     """
 
@@ -921,11 +1132,33 @@ public enum KernelLibrary {
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
     public static let highlightEnergy = make(highlightEnergySource)
+    public static let halationEnergy = make(halationEnergySource)
     public static let denoiseForward = make(denoiseForwardSource)
     public static let denoiseInverse = make(denoiseInverseSource)
     public static let chromaMagnitude = make(chromaMagnitudeSource)
     public static let denoiseRemoved = make(denoiseRemovedSource)
     public static let mixChroma = make(mixChromaSource)
+
+    // S9, the colour stage, exactly (AI-03). Four colour kernels generated in LumenCore
+    // beside their Swift twins (`ExactColorStage`), so the two cannot drift apart
+    // silently; `RenderGraph.applyColorStage` chains them. The colour stage has no
+    // table to fall back to — that table was the defect — so these sit on the CORE
+    // roster: if one fails to compile the renderer takes the CPU reference path, which
+    // runs the twins, rather than a wrong picture.
+    public static let colourPrimaries = make(ExactColorKernelSource.primaries)
+    public static let colourMixer = make(ExactColorKernelSource.mixer)
+    public static let colourPoint = make(ExactColorKernelSource.point)
+    public static let colourFinish = make(ExactColorKernelSource.finish)
+
+    /// The compiled kernel for one pass of the exact colour stage.
+    public static func colourKernel(_ kind: ExactColorStage.Pass.Kernel) -> CIColorKernel? {
+        switch kind {
+        case .primaries: return colourPrimaries
+        case .mixer: return colourMixer
+        case .point: return colourPoint
+        case .finish: return colourFinish
+        }
+    }
 
     // The four that read a neighbourhood are GENERAL kernels. A colour kernel promises
     // to read only the pixel it is producing, and Core Image relies on that promise —
@@ -934,6 +1167,14 @@ public enum KernelLibrary {
     public static let box3 = makeGeneral(box3Source)
     public static let edgeMap = makeGeneral(edgeMapSource)
     public static let hotPixel = makeGeneral(hotPixelSource)
+    // S5's two, general for the same reason: both sample away from the pixel they write.
+    public static let spotBoundary = makeGeneral(spotBoundarySource)
+    public static let spotApply = makeGeneral(spotApplySource)
+    public static let strokeBoundary = makeGeneral(strokeBoundarySource)
+    public static let strokeApply = makeGeneral(strokeApplySource)
+    // Every baked table's lookup (`ColorCube.filter`). General: it reads the atlas at
+    // computed coordinates, which a colour kernel may not do.
+    public static let cubeLookup = makeGeneral(cubeLookupSource)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -964,14 +1205,32 @@ public enum KernelLibrary {
             ("structureTensor", structureTensor),
             ("coherence", coherence), ("detailGainGated", detailGainGated),
             ("tensorMagnitude", tensorMagnitude),
-            ("highlightEnergy", highlightEnergy),
+            ("highlightEnergy", highlightEnergy), ("halationEnergy", halationEnergy),
             ("denoiseForward", denoiseForward), ("denoiseInverse", denoiseInverse),
             ("bSpline5", bSpline5), ("box3", box3),
             ("chromaMagnitude", chromaMagnitude), ("edgeMap", edgeMap),
             ("denoiseRemoved", denoiseRemoved), ("mixChroma", mixChroma),
             ("hotPixel", hotPixel),
+            // S5 degrades like every other non-core stage: a missing spot kernel leaves
+            // the spots unrendered AND names itself in the preview's "Reduced" note,
+            // rather than taking the whole GPU path down for photographs with no spots.
+            ("spotBoundary", spotBoundary), ("spotApply", spotApply),
+            ("strokeBoundary", strokeBoundary), ("strokeApply", strokeApply),
+            ("colourPrimaries", colourPrimaries), ("colourMixer", colourMixer),
+            ("colourPoint", colourPoint), ("colourFinish", colourFinish),
+            // Every table in the graph goes through it; without it the CPU path is the
+            // honest fallback, not `CIColorCube`'s 8-bit lookup.
+            ("cubeLookup", cubeLookup),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
+    }
+
+    /// The kernels S5 needs. Retouch degrades as a whole: half a heal is a wrong picture.
+    public static var retouchAvailable: Bool { spotBoundary != nil && spotApply != nil }
+
+    /// The kernels painted heal strokes need, as a pair for the same reason.
+    public static var strokeRetouchAvailable: Bool {
+        strokeBoundary != nil && strokeApply != nil
     }
 
     /// The kernels S3 needs. Denoise degrades as a whole rather than in pieces: half a
@@ -1115,7 +1374,32 @@ public enum ColorCube {
     /// The same wrap, over bytes that were copied once. Same dimension, same bytes, same
     /// filter, same place in the graph as `filter(_ lut:image:)` — the only difference is
     /// that the table is not re-copied.
+    ///
+    /// NOT `CIColorCube` any more. That filter is handed exactly the Float32 RGBA bytes
+    /// above, and still answered at 8-bit precision: macOS gpu-parity measured a lifted
+    /// black's finish-table value of 0.033596 coming back as exactly 9/255 (0.0352941),
+    /// and ~8.06/255 between two knots — the table stored or sampled to 1/255 inside the
+    /// filter. On a log-encoded table that is 24/255 of a stop (0.094 EV) per step, and
+    /// it sits under every table in the graph: grade, finish, tone gain, local and
+    /// dither. So the lookup is our own `KernelLibrary.cubeLookup`: the same trilinear
+    /// interpolation `CIColorCube` performs, over an RGBAf atlas image of the same bytes.
+    /// If that kernel did not compile the core roster has already sent the render to the
+    /// CPU path; the `CIColorCube` branch below is only reachable from a caller that
+    /// does not check, and it is the old behaviour rather than a wrong picture.
     public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
+        if let kernel = KernelLibrary.cubeLookup {
+            let n = cube.size
+            // Atlas: x = r + g·n, one row per blue index. `CIImage(bitmapData:)` puts the
+            // first row at the TOP of its extent (see `RenderGraph`'s grain anchoring),
+            // which the kernel accounts for. No colour space: these are numbers.
+            let atlas = CIImage(bitmapData: cube.data, bytesPerRow: n * n * 16,
+                                size: CGSize(width: n * n, height: n), format: .RGBAf,
+                                colorSpace: nil).samplingNearest()
+            let atlasExtent = atlas.extent
+            return kernel.apply(extent: image.extent,
+                                roiCallback: { index, rect in index == 0 ? rect : atlasExtent },
+                                arguments: [image, atlas, Float(n)])
+        }
         guard let filter = CIFilter(name: "CIColorCube") else { return nil }
         filter.setValue(image, forKey: kCIInputImageKey)
         filter.setValue(cube.size, forKey: "inputCubeDimension")

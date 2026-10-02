@@ -202,4 +202,81 @@ final class WorkspaceEntryTests: XCTestCase {
                       "Leaving Crop must disarm it — a crop rectangle over the Grade "
                       + "workspace is a control from a room you walked out of.")
     }
+
+    // MARK: Masking has one door IN
+
+    /// `setMasking(true)` is an entry verb in all but name, and the three-verb scan above
+    /// did not know it: `Keymap`'s `O` called it directly for months with this suite
+    /// green, and the picture lost its crop and straighten under a stranded rectangle
+    /// (KG-02). The way IN is `enterMasking` — the flag, the loupe and the crop tool put
+    /// away together — so the flag may be RAISED only there. Lowering it alone stays
+    /// legal everywhere: the way out is only the flag (Escape, the bar's back button).
+    ///
+    /// Per line rather than `contains` on one file, so a second door in a file that
+    /// already holds a legal one is still seen.
+    func testMaskingIsRaisedOnlyByTheEntryVerb() {
+        var raised: [String] = []
+        var offenders: [String] = []
+        for url in Self.appSources {
+            guard let raw = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text = Self.withoutComments(raw)
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                let compact = line.replacingOccurrences(of: " ", with: "")
+                guard compact.contains(".setMasking(") else { continue }
+                if compact.contains(".setMasking(false)") { continue }
+                let site = "\(url.lastPathComponent): "
+                    + line.trimmingCharacters(in: .whitespaces)
+                if url.lastPathComponent == "WorkspaceEntry.swift"
+                    && compact.contains(".setMasking(true)") {
+                    raised.append(site)
+                } else {
+                    offenders.append(site)
+                }
+            }
+        }
+        XCTAssertEqual(raised.count, 1,
+                       "expected exactly one raise of the masking flag, inside "
+                           + "enterMasking; found: \(raised)")
+        XCTAssertTrue(offenders.isEmpty,
+                      "the masking flag is raised past AppState.enterMasking, so the "
+                          + "crop tool is not put away with it (KG-02's shape):\n"
+                          + offenders.joined(separator: "\n"))
+    }
+
+    // MARK: Arriving at a section is not arriving in its workspace (K-029)
+
+    /// ⌘K → "Lens Corrections" solos Lens and folds Crop, so arming the rectangle there
+    /// gave the photograph a crop tool with no panel and an Escape with no baseline.
+    func testOnlyTheFrameSectionArmsTheCropToolOnArrival() {
+        for section in WorkspaceSection.allCases {
+            XCTAssertEqual(section.armsCropTool, section == .frame,
+                           "\(section.rawValue): the rectangle is armed only where its "
+                               + "panel is, and the Crop section is the only one that "
+                               + "holds the ratio, angle and guide rows")
+        }
+        XCTAssertEqual(WorkspaceSection.optics.workspace, .crop,
+                       "the premise of the rule: Lens lives in the Crop workspace, which "
+                           + "is why arriving there used to arm the rectangle")
+    }
+
+    /// The verb asks the rule. `enter` keeps arming (⌘3 and the rail open the Crop
+    /// section with the workspace); `jump` arms only for the section that holds it.
+    func testAJumpArmsTheCropToolOnlyWhereItsPanelIs() {
+        let entry = Self.withoutComments(Self.source(named: "WorkspaceEntry.swift"))
+        guard let start = entry.range(of: "func jump(to section: WorkspaceSection)") else {
+            return XCTFail("AppState.jump(to:) is gone")
+        }
+        let rest = entry[start.upperBound...]
+        // Up to the next member declared at this indentation.
+        let end = ["\n    func ", "\n    private func "]
+            .compactMap { rest.range(of: $0)?.lowerBound }.min() ?? rest.endIndex
+        let body = String(rest[..<end])
+        XCTAssertTrue(body.contains("armingCrop: section.armsCropTool"),
+                      "jump settles the Crop workspace without asking whether the "
+                          + "section it arrived at holds the crop tool's panel — ⌘K → "
+                          + "Lens Corrections arms a rectangle with no panel (K-029)")
+        XCTAssertTrue(entry.contains("workspace == .crop && armingCrop"),
+                      "settle arms the rectangle for the whole Crop workspace again, "
+                          + "whatever its caller asked")
+    }
 }

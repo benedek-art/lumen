@@ -176,9 +176,10 @@ public final class BlobStore: @unchecked Sendable {
     }
 
     /// Every stroke set a recipe's masks refer to, keyed by reference — exactly the
-    /// shape the rasterizer wants. Missing blobs are skipped rather than faked: a
-    /// brush component with no bytes behind it must rasterize to nothing, not to a
-    /// mask somebody else painted.
+    /// shape the rasterizer wants — plus the painted heal strokes' set, which S5 reads
+    /// out of the same map (`StrokeHeal.strokes(for:strokeSets:)`). Missing blobs are
+    /// skipped rather than faked: a brush component with no bytes behind it must
+    /// rasterize to nothing, not to a mask somebody else painted.
     public func strokeSets(for recipe: Recipe) -> [String: BrushStrokeSet] {
         var out: [String: BrushStrokeSet] = [:]
         for mask in recipe.masks {
@@ -186,6 +187,10 @@ public final class BlobStore: @unchecked Sendable {
                 guard let ref = component.strokesRef, out[ref] == nil else { continue }
                 if let set = strokeSet(for: ref) { out[ref] = set }
             }
+        }
+        if let ref = BrushStrokes.healReference(in: recipe), out[ref] == nil,
+           let set = strokeSet(for: ref) {
+            out[ref] = set
         }
         return out
     }

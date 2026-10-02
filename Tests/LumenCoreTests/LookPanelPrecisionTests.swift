@@ -64,7 +64,7 @@ final class LookPanelPrecisionTests: XCTestCase {
 
         // And the hard range is what keeps the precision that the step gave up: a
         // typed value is not snapped, so the preset's own 0.0152 is still enterable.
-        XCTAssertEqual(row.hard, "0...15",
+        XCTAssertEqual(row.hard, "0...9",
                        "the typed range is what makes a coarser step affordable; "
                        + "without it two decimals would be the only precision there is")
     }
@@ -129,24 +129,6 @@ final class LookPanelPrecisionTests: XCTestCase {
     }
 
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2) }
-                else { index = source.index(after: index) }
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }

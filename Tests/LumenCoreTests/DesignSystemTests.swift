@@ -390,4 +390,69 @@ final class DesignSystemTests: XCTestCase {
                                  "\(n) hand-rolled black overlays, up from 19 — use "
                                  + "lumenHUD() or Lumen.hudFill")
     }
+    /// THE SIDEBAR'S ENTRY FIELD IS ONE COMPONENT, not two copies of one.
+    ///
+    /// The album field and the keyword field were byte-identical for thirty-two lines
+    /// apart from the placeholder, the binding and the verb — two copies of the plus
+    /// glyph's hit-target argument and two copies of the `lumenWell` argument included.
+    /// Two copies of a rule is how one comes to be missing when the rule moves, and it
+    /// had already happened: both were built with a hardcoded radius of 4 from before
+    /// there were three radii, and only one of them was found first.
+    ///
+    /// A bare `TextField` in the sidebar is what this forbids. Add a third field and it
+    /// goes through `SidebarEntryField` or this fails, which is the point.
+    func testTheSidebarHasNoHandRolledEntryField() {
+        let sidebar = source("ContentView.swift")
+        XCTAssertEqual(count("TextField(", in: sidebar), 0,
+                       "every sidebar entry field goes through SidebarEntryField")
+        XCTAssertGreaterThanOrEqual(count("SidebarEntryField(", in: sidebar), 2,
+                                    "the component exists because there is more than "
+                                    + "one of them")
+    }
+
+    /// And the component itself keeps the two rules the copies each carried: the plus
+    /// glyph gets a real hit target, and the field reads as a well.
+    func testTheEntryFieldKeepsBothRulesTheCopiesCarried() {
+        let controls = source("LumenControls.swift")
+        guard let field = controls.range(of: "struct SidebarEntryField: View") else {
+            return XCTFail("SidebarEntryField not found in LumenControls.swift")
+        }
+        let body = String(controls[field.lowerBound...])
+        XCTAssertTrue(body.contains(".contentShape(Rectangle())"),
+                      "a 10 pt glyph is no hit target")
+        XCTAssertTrue(body.contains(".lumenWell(radius: Lumen.radiusControl)"),
+                      "the token, never a literal — that is the drift this closes")
+    }
+
+    /// B2-02: the grading wheel is painted in the colour system the engine reads it in.
+    ///
+    /// `Color(hue:saturation:brightness:)` is SwiftUI HSB, and the engine takes the same
+    /// angle as an OKLab ab angle — 29.6° of mean error between the colour under the
+    /// cursor and the colour the render applies. The ring goes through `Lumen.hueColor`
+    /// now, and this is what stops a future edit reaching for the convenient initializer
+    /// again. `WheelHueAgreementTests` pins the engine's half of the same contract.
+    func testTheColourInstrumentsAreNotPaintedInHSB() {
+        let kit = source("LumenControls.swift")
+        XCTAssertEqual(count("Color(hue:", in: kit), 0,
+                       "a colour instrument is painted in SwiftUI HSB while the engines "
+                           + "read hue as an OKLCh angle — go through Lumen.hueColor")
+        XCTAssertGreaterThan(count("Lumen.hueColor(", in: kit), 0,
+                             "the wheel no longer paints through the shared conversion")
+    }
+
+    /// The histogram does not re-implement the tone rows' clamp.
+    ///
+    /// It used to: `let limit: Double = slider == .exposure ? 5 : 100`, with the bounds
+    /// copied from `BasicPanel` and the step simply absent, on a second write path into
+    /// the same five recipe fields. `Lumen.ToneRow` is the shared statement now, and this
+    /// is what stops the convenient inline ternary coming back.
+    func testTheHistogramDoesNotHandRollTheToneRowsClamp() {
+        let histogram = source("HistogramView.swift")
+        XCTAssertEqual(count("? 5 : 100", in: histogram), 0,
+                       "the histogram is clamping tone fields with its own copy of the "
+                           + "panel's bounds — go through Lumen.ToneRow.resolve")
+        XCTAssertGreaterThan(count("Lumen.ToneRow", in: histogram), 0,
+                             "the histogram no longer writes through the shared geometry")
+    }
+
 }

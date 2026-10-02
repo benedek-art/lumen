@@ -1,0 +1,27 @@
+[0/1] Planning build
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Test Suite 'Selected tests' started at 2026-09-22 15:44:44.636.
+Test Suite 'LumenPackageTests.xctest' started at 2026-09-22 15:44:44.638.
+Test Suite 'PlanCostProbeTests' started at 2026-09-22 15:44:44.638.
+Test Case '-[LumenCoreTests.PlanCostProbeTests testATableRekeyingDragDoesNotPayTheBakePerFrame]' started.
+/private/tmp/lumen-latest-source.V4UJxy/Tests/LumenCoreTests/PlanCostProbeTests.swift:149: error: -[LumenCoreTests.PlanCostProbeTests testATableRekeyingDragDoesNotPayTheBakePerFrame] : XCTAssertLessThan failed: ("1.293042") is not less than ("1.20702075") - dragging whites re-keys a colour table on every event; the draft path must serve the newest table and bake off the render path (draft 1.3 ms vs settle 4.8 ms)
+Test Case '-[LumenCoreTests.PlanCostProbeTests testATableRekeyingDragDoesNotPayTheBakePerFrame]' failed (0.199 seconds).
+Test Case '-[LumenCoreTests.PlanCostProbeTests testPrintPlanConstructionCostPerControl]' started.
+Test Case '-[LumenCoreTests.PlanCostProbeTests testPrintPlanConstructionCostPerControl]' passed (0.943 seconds).
+Test Suite 'PlanCostProbeTests' failed at 2026-09-22 15:44:45.780.
+	 Executed 2 tests, with 1 failure (0 unexpected) in 1.142 (1.142) seconds
+Test Suite 'LumenPackageTests.xctest' failed at 2026-09-22 15:44:45.780.
+	 Executed 2 tests, with 1 failure (0 unexpected) in 1.142 (1.142) seconds
+Test Suite 'Selected tests' failed at 2026-09-22 15:44:45.780.
+	 Executed 2 tests, with 1 failure (0 unexpected) in 1.142 (1.144) seconds
+PLANPROBE build: RELEASE
+PLANPROBE draft  exposure    p50    0.91  p95    1.30  max    2.61 ms
+PLANPROBE settle exposure    p50    0.92  p95    1.52  max    1.75 ms
+PLANPROBE draft  whites      p50    1.25  p95    3.67  max    5.58 ms
+PLANPROBE settle whites      p50    4.31  p95    4.70  max    5.29 ms
+PLANPROBE draft  saturation  p50    0.81  p95    2.13  max    3.67 ms
+PLANPROBE settle saturation  p50    4.03  p95    5.03  max    5.24 ms
+PLANPROBE draft  texture     p50    0.80  p95    0.95  max    1.41 ms
+PLANPROBE settle texture     p50    0.79  p95    0.86  max    0.93 ms
+Note: Some test targets reported failures:
+  - LumenPackageTests (XCTest)

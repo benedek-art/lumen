@@ -215,13 +215,15 @@ struct CurveEditorView: View {
     /// default-valued `CurveSet`: the difference is invisible in the render — the
     /// second tap skips an identity curve — and visible in the panel, where
     /// "modified" has to mean modified.
-    private func editCurve(_ key: String, _ body: @escaping (inout CurveSet) -> Void) {
-        CurveEditorView.edit(state, target: target, key: key, body)
+    private func editCurve(_ key: String?, label: String? = nil,
+                           _ body: @escaping (inout CurveSet) -> Void) {
+        CurveEditorView.edit(state, target: target, key: key, label: label, body)
     }
 
-    static func edit(_ state: AppState, target: Target, key: String,
+    static func edit(_ state: AppState, target: Target, key: String?,
+                     label: String? = nil,
                      _ body: @escaping (inout CurveSet) -> Void) {
-        state.updateRecipe(coalescingKey: key) { document in
+        state.updateRecipe(coalescingKey: key, label: label) { document in
             switch target {
             case .global:
                 body(&document.develop.curve)
@@ -309,7 +311,7 @@ struct CurveEditorView: View {
             let size: CGSize = geometry.size
             let backdrop: [Double] = histogram?.normalized(.luma) ?? []
             let samples: [Double] = curveSamples
-            let controls: [[Double]] = channel == .parametric ? [] : currentPoints
+            let controls: [[Double]] = channel == .parametric ? [] : plottedPoints
             let regions: [ParametricRegion] = channel == .parametric
                 ? CurveEditorView.regions(splits: currentSplits) : []
             let highlight: Int? = channel == .parametric ? highlightRegion : nil
@@ -334,6 +336,10 @@ struct CurveEditorView: View {
             .onAppear { plotSize = size }
             .onChange(of: size) { _, newValue in plotSize = newValue }
             .contextMenu { contextItems }
+            // ONE ADJUSTABLE ELEMENT PER POINT (UX-03). The graph is a Canvas, so
+            // VoiceOver found nothing in it: no point, no value, no way to move one
+            // without a pointer. Each point is now an element at the spot it is drawn.
+            .overlay { pointElements(plotted: controls, size: size) }
         }
         .background(Color.black.opacity(0.55))
         // THE SMALLEST RADIUS IN THE SCALE, and the only surface in the app that argues
@@ -386,6 +392,8 @@ struct CurveEditorView: View {
             }
             .contentShape(Rectangle())
             .gesture(railGesture(size: size))
+            // The three triangles, likewise one adjustable element each (UX-03).
+            .overlay { splitElements(splits: splits, size: size) }
         }
         .frame(height: CurveEditorView.railHeight)
         .help("Drag a triangle to move the boundary between two regions. Double-click "
@@ -407,6 +415,97 @@ struct CurveEditorView: View {
             Button("Reset Splits") { writeSplits(CurveEditing.defaultSplits) }
             Button("Reset Regions") { resetParametricRegions() }
         }
+    }
+
+    // MARK: Accessibility
+
+    /// The points as VoiceOver elements, each at the spot the graph draws it.
+    ///
+    /// Clear and not hit-testable: these are for the accessibility tree only, and the
+    /// plot's own gesture still takes every click. The name and the value follow the
+    /// readout (`CurveAccessibility`); increment and decrement move the point's output
+    /// one percent, the two named actions move its input, and each is bracketed like a
+    /// drag so it is one undo step under the point's own key and its deferred write
+    /// lands at once.
+    private func pointElements(plotted: [[Double]], size: CGSize) -> some View {
+        ForEach(Array(plotted.enumerated()), id: \.offset) { index, point in
+            if point.count >= 2 {
+                Color.clear
+                    .frame(width: CurveEditorView.hitRadius * 2,
+                           height: CurveEditorView.hitRadius * 2)
+                    .position(x: CGFloat(point[0]) * size.width,
+                              y: CGFloat(1 - point[1]) * size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(CurveAccessibility.pointLabel(
+                        curve: channel.displayName, index: index, count: plotted.count)))
+                    .accessibilityValue(Text(CurveAccessibility.pointValue(
+                        input: point[0], output: point[1])))
+                    .accessibilityAdjustableAction { direction in
+                        switch direction {
+                        case .increment: accessibilityPointStep(index, .increment, input: false)
+                        case .decrement: accessibilityPointStep(index, .decrement, input: false)
+                        @unknown default: break
+                        }
+                    }
+                    .accessibilityAction(named: Text("Move input right")) {
+                        accessibilityPointStep(index, .increment, input: true)
+                    }
+                    .accessibilityAction(named: Text("Move input left")) {
+                        accessibilityPointStep(index, .decrement, input: true)
+                    }
+            }
+        }
+    }
+
+    /// The split triangles as VoiceOver elements, on the rail where they are drawn.
+    private func splitElements(splits: [Double], size: CGSize) -> some View {
+        ForEach(Array(splits.enumerated()), id: \.offset) { index, position in
+            Color.clear
+                .frame(width: CurveEditorView.hitRadius * 2, height: size.height)
+                .position(x: CGFloat(position) * size.width, y: size.height / 2)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(CurveAccessibility.splitLabel(
+                    index: index, regions: CurveEditorView.regionTitles)))
+                .accessibilityValue(Text(CurveAccessibility.splitValue(position)))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: accessibilitySplitStep(index, .increment)
+                    case .decrement: accessibilitySplitStep(index, .decrement)
+                    @unknown default: break
+                    }
+                }
+        }
+    }
+
+    /// One assistive step of one point: the output axis, or with `input` the input axis
+    /// through `storedX`. Bracketed like a drag, under the key that point's drag uses.
+    private func accessibilityPointStep(_ index: Int, _ direction: SliderAccessibility.Direction,
+                                        input: Bool) {
+        let points: [[Double]] = currentPoints
+        let plotted: [[Double]] = plottedPoints
+        guard points.indices.contains(index), plotted.indices.contains(index),
+              plotted[index].count >= 2 else { return }
+        let next: [[Double]] = input
+            ? CurveAccessibility.shiftingInput(points, index: index,
+                                               plottedX: plotted[index][0], direction,
+                                               storedX: { storedX($0) })
+            : CurveAccessibility.raisingOutput(points, index: index, direction)
+        guard next != points else { return }
+        sliderGestureChanged(true)
+        commitPoints(next, key: pointKey(index))
+        sliderGestureChanged(false)
+    }
+
+    /// One assistive step of one split, bracketed the same way.
+    private func accessibilitySplitStep(_ index: Int, _ direction: SliderAccessibility.Direction) {
+        let splits: [Double] = currentSplits
+        let next: [Double] = CurveAccessibility.adjustedSplits(splits, index: index, direction)
+        guard next != splits else { return }
+        sliderGestureChanged(true)
+        writeSplits(next)
+        sliderGestureChanged(false)
     }
 
     // MARK: Readout
@@ -495,7 +594,7 @@ struct CurveEditorView: View {
     /// shown while the point was being placed.
     private var readoutText: String {
         if channel != .parametric, let index = dragPointIndex {
-            let points: [[Double]] = currentPoints
+            let points: [[Double]] = plottedPoints
             if points.indices.contains(index), points[index].count >= 2 {
                 return CurveEditing.readout(input: points[index][0] * 100,
                                             output: points[index][1] * 100)
@@ -646,14 +745,33 @@ struct CurveEditorView: View {
         return CurveEditing.sanitized(curveSet[keyPath: keyPath])
     }
 
+    /// The stored points where the graph DRAWS and HIT-TESTS them (AI-05).
+    ///
+    /// The Point graph's trace is the master curve — parametric, then points — and a
+    /// point is stored on the point curve's own input axis, which is the parametric
+    /// curve's OUTPUT. With a parametric slider off zero those are different axes, and
+    /// the handles used to sit at their raw stored coordinates: Lights 50 drew a point
+    /// stored at (.6, .7) 17 px off the trace it shapes. `compositeHandles` puts each
+    /// one at the picture input that reaches it, which is on the trace by construction.
+    /// The other channels have nothing composed in front of them and draw as stored.
+    private var plottedPoints: [[Double]] {
+        channel == .point ? stack.compositeHandles(currentPoints) : currentPoints
+    }
+
+    /// A graph x — a picture input — as the x a point is STORED at. The inverse of
+    /// `plottedPoints`, used by every gesture that writes a point.
+    private func storedX(_ plotX: Double) -> Double {
+        channel == .point ? stack.pointInput(atCompositeX: plotX) : plotX
+    }
+
     /// Write a point list back under one coalescing key.
     ///
     /// An identity curve is stored as nil so it costs the render nothing — the same rule
     /// `editCurve` applies one level up for a mask's whole `CurveSet`.
-    private func commitPoints(_ points: [[Double]], key: String) {
+    private func commitPoints(_ points: [[Double]], key: String?, label: String? = nil) {
         guard let keyPath = pointsKeyPath, points.count >= 2 else { return }
         let identity: Bool = CurveEditing.isIdentity(points)
-        editCurve(key) { set in
+        editCurve(key, label: label) { set in
             set[keyPath: keyPath] = identity ? nil : points
         }
     }
@@ -755,7 +873,7 @@ struct CurveEditorView: View {
         // A click on empty graph adds a point and keeps dragging it, which is the same
         // gesture as placing one and adjusting it in one motion — so the placement and
         // the adjustment share a key and stay ONE undo step.
-        let x: Double = CurveEditing.clamp01(Double(location.x / size.width))
+        let x: Double = storedX(CurveEditing.clamp01(Double(location.x / size.width)))
         let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
         let updated: [[Double]] = CurveEditing.sanitized(
             CurveStack.settingPoint(points, x: x, y: y))
@@ -804,7 +922,7 @@ struct CurveEditorView: View {
 
     private func updateDrag(to location: CGPoint, size: CGSize) {
         guard size.width > 1, size.height > 1 else { return }
-        let x: Double = CurveEditing.clamp01(Double(location.x / size.width))
+        let plotX: Double = CurveEditing.clamp01(Double(location.x / size.width))
         let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
 
         if channel == .parametric {
@@ -816,6 +934,7 @@ struct CurveEditorView: View {
         guard let index = dragPointIndex else { return }
         let points: [[Double]] = currentPoints
         guard points.indices.contains(index) else { return }
+        let x: Double = storedX(plotX)
         // `moved` clamps x inside the neighbours' window, so the array stays strictly
         // increasing and the index this drag is holding stays the point the hand grabbed.
         commitPoints(CurveEditing.moved(points, index: index, toX: x, toY: y),
@@ -849,7 +968,7 @@ struct CurveEditorView: View {
         guard channel != .parametric, let location else { return nil }
         guard size.width > 1, size.height > 1 else { return nil }
         return CurveEditing.hitIndex(
-            currentPoints,
+            plottedPoints,
             x: Double(location.x / size.width),
             y: 1 - Double(location.y / size.height),
             toleranceX: Double(CurveEditorView.hitRadius / size.width),
@@ -903,12 +1022,13 @@ struct CurveEditorView: View {
     /// horizontal line, and nothing but Flatten undoes it — which throws away every other
     /// point the photographer placed.
     ///
-    /// A distinct key from `pointKey`, so a delete is its own undo step rather than
-    /// folding into the drag that preceded it.
+    /// No key at all (S-05): a deletion is a discrete action, so it is its own undo
+    /// step — not folded into the drag before it, and not into another deletion that
+    /// happens to land on the same index. See `CurveEditing.deletionCoalescingKey`.
     private func deletePoint(at index: Int) {
         guard let remaining = CurveEditing.deleting(currentPoints, at: index) else { return }
-        commitPoints(remaining,
-                     key: keyPrefix + "delete." + channel.rawValue + ".\(index)")
+        commitPoints(remaining, key: CurveEditing.deletionCoalescingKey,
+                     label: CurveEditing.deletionLabel)
     }
 
     // MARK: Drawing

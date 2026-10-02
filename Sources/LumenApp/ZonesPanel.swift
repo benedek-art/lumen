@@ -117,12 +117,27 @@ struct ZonesPanel: View {
     /// The register's rows with no header of their own: exactly what the section always
     /// wrapped, and the whole of what a caller supplying its own header wants.
     private var rows: some View {
-        VStack(alignment: .leading, spacing: Lumen.rowGap) {
+        // Astra AI-07. The register is the power tool and is deliberately not limited;
+        // its only guard is the bake's forward clamp, which keeps the response monotone
+        // by rendering a band of input tones as ONE value. The engine measures that band
+        // (`ToneEngine.zoneFlattening`), and this is where the photographer hears it —
+        // marked on the strip at the tones it covers, and named under it in EV. Nil on
+        // every combination that renders what it asks for, so the strip stays clean.
+        let flattened = AppliedReadout.zoneFlattening(tone: recipe.develop.tone,
+                                                      zones: zones)
+        return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             ZonePivotStrip(pivots: normalizedPivots,
                            levels: Self.register.map { zones[keyPath: $0.path].ev },
+                           flattened: flattened.map { $0.lowX...$0.highX },
                            onPivotChanged: { index, position in
                                movePivot(index, to: position)
                            })
+            if let flattened {
+                Text(flattened.caption)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // No note between the strip and the rows. Its last clause — "drag a pivot
             // to say where a zone sits" — is already on the handle you would drag, and
@@ -247,6 +262,9 @@ struct ZonePivotStrip: View {
     let pivots: [Double]
     /// Each zone's current exposure, only so a lifted zone reads as lifted.
     let levels: [Double]
+    /// The stretch of the axis the bake's clamp renders flat, in strip coordinates —
+    /// `AppliedReadout.zoneFlattening`. Nil draws nothing.
+    var flattened: ClosedRange<Double>? = nil
     let onPivotChanged: (Int, Double) -> Void
 
     private static let height: CGFloat = 46
@@ -261,6 +279,7 @@ struct ZonePivotStrip: View {
     var body: some View {
         let solved = pivots
         let ev = levels
+        let flat = flattened
 
         return ZStack(alignment: .topLeading) {
             Canvas { context, size in
@@ -289,6 +308,18 @@ struct ZonePivotStrip: View {
                     context.fill(path,
                                  with: .color(Color(white: Num.saturate(base + lift))
                                      .opacity(0.5)))
+                }
+
+                // The flattened band: a faint accent wash over the tones that render
+                // as one, at least two points wide so a band pinned against an end of
+                // the axis is still visible.
+                if let flat {
+                    let lo = size.width * CGFloat(Num.saturate(flat.lowerBound))
+                    let hi = size.width * CGFloat(Num.saturate(flat.upperBound))
+                    let width = Swift.max(hi - lo, 2)
+                    let x = Swift.min(lo, size.width - width)
+                    context.fill(Path(CGRect(x: x, y: 0, width: width, height: size.height)),
+                                 with: .color(Lumen.accent.opacity(0.22)))
                 }
             }
             .background(Lumen.controlBackground)

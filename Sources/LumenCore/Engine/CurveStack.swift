@@ -40,14 +40,27 @@ public struct CurveStack: Sendable {
     /// from 10.1 ms to 2.6 ms.
     private let parametricIsIdentity: Bool
 
+    /// Where the luma curve puts black: `f(0)` on the encoded axis, zero for a curve
+    /// that does not lift it. Decided once, because it picks the branch in `apply`.
+    private let lumaBlack: Double
+
+    /// The same for the master curve (parametric, then points). The parametric curve
+    /// pins 0, so this is the point curve's lift.
+    private let masterBlack: Double
+
     public init(_ set: CurveSet, encoding: TransferFunction = .srgb) {
         self.set = set
         self.encoding = encoding
         let baked = CurveStack.bakeParametric(set.parametric)
         self.parametric = baked
         self.parametricIsIdentity = baked.isIdentity()
-        self.point = set.point.map { MonotoneCubic(points: $0) }
-        self.luma = set.luma.map { MonotoneCubic(points: $0) }
+        let point = set.point.map { MonotoneCubic(points: $0) }
+        self.point = point
+        let parametricBlack = Num.saturate(baked.evaluate(0))
+        self.masterBlack = Num.saturate(point?.evaluate(parametricBlack) ?? parametricBlack)
+        let luma = set.luma.map { MonotoneCubic(points: $0) }
+        self.luma = luma
+        self.lumaBlack = luma.map { Num.saturate($0.evaluate(0)) } ?? 0
         self.rCurve = set.r.map { MonotoneCubic(points: $0) }
         self.gCurve = set.g.map { MonotoneCubic(points: $0) }
         self.bCurve = set.b.map { MonotoneCubic(points: $0) }
@@ -252,6 +265,51 @@ public struct CurveStack: Sendable {
         luma?.evaluate(Num.saturate(x)) ?? x
     }
 
+    // MARK: - The point curve's handles on the composite graph (AI-05)
+
+    /// Where a picture input lands on the POINT curve's own axis: the parametric curve,
+    /// which runs first. This is the coordinate a point is stored in.
+    ///
+    /// The Point graph draws the master curve — parametric then points — because that
+    /// is what the pipeline applies. Its handles were drawn, hit-tested and dragged in
+    /// the point curve's raw coordinates, which are a DIFFERENT axis the moment a
+    /// parametric slider is off zero: Lights 50 with a point at (.6, .7) drew the handle
+    /// at .7 while the trace under it at x = .6 was .7565 — 17 px apart on a 300 px
+    /// plot, 32 px at Lights 100. The handle the hand grabbed was not on the curve the
+    /// eye was reading.
+    public func pointInput(atCompositeX x: Double) -> Double {
+        let u = Num.saturate(x)
+        return parametricIsIdentity ? u : parametric.evaluate(u)
+    }
+
+    /// The inverse: the picture input whose parametric output is `u`, so that a stored
+    /// point `(u, y)` lies on the drawn trace at `(compositeX(u), y)` — the master there
+    /// is `point(parametric(compositeX(u))) = point(u) = y`.
+    ///
+    /// The parametric curve is non-decreasing and pins both ends, so the preimage
+    /// exists; on a plateau (two regions pulled against each other can make one) this
+    /// takes its left end. Bisection to below 1e-15: it runs once per handle per draw.
+    public func compositeX(atPointInput u: Double) -> Double {
+        let target = Num.saturate(u)
+        guard !parametricIsIdentity else { return target }
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<56 {
+            let mid = (lo + hi) / 2
+            if parametric.evaluate(mid) < target { lo = mid } else { hi = mid }
+        }
+        return hi
+    }
+
+    /// Stored point-curve points as the Point graph must draw and hit-test them.
+    /// Malformed rows pass through untouched, so indices still line up with the store.
+    public func compositeHandles(_ points: [[Double]]) -> [[Double]] {
+        guard !parametricIsIdentity else { return points }
+        return points.map { p in
+            guard p.count >= 2 else { return p }
+            return [compositeX(atPointInput: p[0]), p[1]]
+        }
+    }
+
     public func channelCurve(_ x: Double, channel: Int) -> Double {
         let c = channel == 0 ? rCurve : (channel == 1 ? gCurve : bCurve)
         return c?.evaluate(Num.saturate(x)) ?? x
@@ -276,7 +334,12 @@ public struct CurveStack: Sendable {
         if !(point == nil && parametricIsIdentity) {
             if set.preserveLuminance {
                 let lum = Num.saturate(space.luminance(e))
-                if lum > 1e-6 {
+                if masterBlack > 0 {
+                    // The same zero-luminance limit as the luma stage below: a master
+                    // curve that lifts black lifts it with grey (AI-04).
+                    e = CurveStack.liftedLuma(e, luminance: lum, black: masterBlack,
+                                              curve: master)
+                } else if lum > 1e-6 {
                     let scaled = master(lum) / lum
                     e = e * scaled
                 } else {
@@ -289,7 +352,10 @@ public struct CurveStack: Sendable {
 
         if luma != nil {
             let lum = Num.saturate(space.luminance(e))
-            if lum > 1e-6 {
+            if lumaBlack > 0 {
+                e = CurveStack.liftedLuma(e, luminance: lum, black: lumaBlack,
+                                          curve: lumaCurve)
+            } else if lum > 1e-6 {
                 e = e * (lumaCurve(lum) / lum)
             }
         }
@@ -303,13 +369,54 @@ public struct CurveStack: Sendable {
         return encoding.decode(e.clamped(0, 1)) * w
     }
 
-    /// Per-channel 1-D LUTs on the encoded axis — the upload the GPU stage wants when
-    /// there is no luminance coupling to honour.
-    public func bakeChannelLUTs(size: Int = 1024) -> (r: LUT1D, g: LUT1D, b: LUT1D) {
-        (LUT1D(size: size) { channelCurve(master($0), channel: 0) },
-         LUT1D(size: size) { channelCurve(master($0), channel: 1) },
-         LUT1D(size: size) { channelCurve(master($0), channel: 2) })
+    /// A luminance curve that LIFTS BLACK (AI-04), on the encoded axis: the luma curve,
+    /// and the master curve under Preserve Luminance, which has the same form and had
+    /// the same defect (a point curve `[[0, .2], [1, 1]]` rendered neutral 1e−8 as
+    /// `[.053, .032, .093]` through the trilinear cube).
+    ///
+    /// The luma stage is `e · f(L) / L`: curve the luminance, carry the chroma ratios.
+    /// With `f(0) = b > 0` that ratio has no value at L = 0 and grows without bound
+    /// beside it. The stage used to skip `L ≤ 1e-6`, so black stayed black while a
+    /// pixel 1e−7 above it jumped to the plotted lift — the graph's endpoint honoured
+    /// everywhere except AT the endpoint. And next to black `b / L` is enormous, so a
+    /// dark blue corner of the finish cube came out a saturated blue; Core Image's
+    /// trilinear `CIColorCube` mixes that corner with its red and green neighbours on
+    /// the diagonal, and a NEUTRAL near-black rendered `[.027, .006, .067]` — purple.
+    ///
+    /// The limit: below the lift, black is lifted with GREY. The neutral form
+    /// `e · (f(L) − b) / L + b` adds `b` to every channel and applies only the curve's
+    /// remaining rise as a ratio; that ratio tends to the curve's slope at 0, so the
+    /// form is continuous into black, where it is exactly `(b, b, b)`. Its luminance is
+    /// `f(L)` — the weights sum to one — so it is still a luma curve, and on a neutral
+    /// it equals the ratio form exactly.
+    ///
+    /// It takes over only BELOW the lift. From `L = b` up, the ratio's gain is bounded
+    /// (about `1 + f′`), and there the old ratio form runs unchanged; between 0 and `b`
+    /// the two are blended with a smoothstep in `L / b`, so the hand-over is C¹ and a
+    /// curve that does not lift black never reaches this function at all.
+    static func liftedLuma(_ e: RGB, luminance lum: Double, black b: Double,
+                           curve f: (Double) -> Double) -> RGB {
+        let floor = 1e-6
+        let l = Swift.max(lum, floor)
+        let fl = f(l)
+        let neutral = e * ((fl - b) / l) + RGB(b, b, b)
+        guard lum > floor else { return neutral }
+        let ratio = e * (fl / l)
+        let t = Num.saturate(lum / b)
+        let w = t * t * (3 - 2 * t)
+        guard w < 1 else { return ratio }
+        return neutral.mix(ratio, w)
     }
+
+    // There was a `bakeChannelLUTs` here: per-channel 1-D tables composing
+    // `channelCurve(master(x))` — "the upload the GPU stage wants when there is no
+    // luminance coupling to honour". It had no caller in the repository, and it was not
+    // a safe one to acquire: it composed neither `preserveLuminance` (`apply`'s master
+    // branch) nor the luma curve, so the day something wired it, every curve using
+    // either would have rendered differently on that path and nothing would have said
+    // so (K-061). The curve stage is baked into the finish cube through `apply`, which
+    // honours both. Removed rather than fixed, because a correct per-channel upload of a
+    // luminance-coupled curve does not exist — that is what the coupling means.
 
     // MARK: - Editing helpers (TAT and the curve editor)
 
@@ -331,9 +438,13 @@ public struct CurveStack: Sendable {
     }
 
     /// Nudge the curve at `x` by `delta` on the y axis — the TAT drag.
+    ///
+    /// `x` is a picture input; the point is stored at the point curve's own input for
+    /// it, `pointInput(atCompositeX:)`. Stored at `x` itself it would move the curve at
+    /// some other tone whenever a parametric slider is off zero (AI-05's axis mix-up).
     public func nudged(at x: Double, by delta: Double) -> [[Double]] {
         let y = Num.saturate(master(x) + delta)
-        return CurveStack.settingPoint(set.point, x: x, y: y)
+        return CurveStack.settingPoint(set.point, x: pointInput(atCompositeX: x), y: y)
     }
 }
 

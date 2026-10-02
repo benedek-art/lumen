@@ -40,7 +40,7 @@ final class SliderScaleTests: XCTestCase {
         }
     }
 
-    func testBothScalesIncreaseWithValue() {
+    func testEveryScaleIncreasesWithValue() {
         // Every method on SliderTrack does its arithmetic in axis space and converts at
         // the boundary, which is only sound while the axis is monotone increasing.
         for scale in SliderScale.allCases {
@@ -62,6 +62,116 @@ final class SliderScaleTests: XCTestCase {
         XCTAssertEqual(straddling.value(from: 40, travelled: 80), 40)
         XCTAssertEqual(straddling.travelNeeded(from: 0, to: 100), 0)
         XCTAssertEqual(straddling.fraction(of: 50), 0)
+    }
+
+    // MARK: - The log axis, and the Render Contrast row it exists for
+    //
+    // K-039. The Render Contrast row ships on 0.1…10 with a default of 1.5, and
+    // docs/04-spec-tone.md:302 has specified "log-scaled" since it was written while the
+    // call site passed no scale at all. These pin both halves the way the Temp tests
+    // above do: that the linear track really was unusable, and that this axis answers it.
+
+    /// The Render Contrast row as it ships: the develop column's track width, the
+    /// documented range, the step the panel passes.
+    private var renderContrastTrack: SliderTrack {
+        SliderTrack(width: 158, lowerBound: 0.1, upperBound: 10, step: 0.05, scale: .log)
+    }
+
+    private var linearRenderContrastTrack: SliderTrack {
+        SliderTrack(width: 158, lowerBound: 0.1, upperBound: 10, step: 0.05)
+    }
+
+    func testTheLogAxisIsExactlyInvertible() {
+        for value in stride(from: 0.1, through: 10.0, by: 0.017) {
+            let round = SliderScale.log.value(atAxis: SliderScale.log.axis(value))
+            XCTAssertEqual(round, value, accuracy: 1e-12,
+                           "\(value) did not survive a round trip through the axis")
+        }
+    }
+
+    func testALogTrackRejectsARangeThroughZero() {
+        // Same door the reciprocal axis closes, for the same reason: log(0) is negative
+        // infinity and log of a negative is a NaN, so a track that straddles zero has to
+        // report itself unusable rather than hand either to a caller.
+        let straddling = SliderTrack(width: 158, lowerBound: -100, upperBound: 100,
+                                     step: 1, scale: .log)
+        XCTAssertFalse(straddling.isUsable)
+        XCTAssertEqual(straddling.value(from: 40, travelled: 80), 40)
+        XCTAssertEqual(straddling.travelNeeded(from: 0, to: 100), 0)
+        XCTAssertEqual(straddling.fraction(of: 50), 0)
+    }
+
+    func testTheLogTrackEndsLandOnTheRangeEndsAndTravelIsPinned() {
+        let track = renderContrastTrack
+        XCTAssertEqual(track.valueAtPress(x: 0), 0.1, accuracy: 1e-12)
+        XCTAssertEqual(track.valueAtPress(x: track.width), 10, accuracy: 1e-12)
+        XCTAssertEqual(track.fraction(of: 0.1), 0, accuracy: 1e-12)
+        XCTAssertEqual(track.fraction(of: 10), 1, accuracy: 1e-12)
+        // Dragging far past either end stops at the bound rather than running off
+        // through exp() to zero or to infinity.
+        XCTAssertEqual(track.value(from: 1.5, travelled: -10000), 0.1, accuracy: 1e-12)
+        XCTAssertEqual(track.value(from: 1.5, travelled: 10000), 10, accuracy: 1e-12)
+        XCTAssertTrue(track.value(from: 1.5, travelled: 10000).isFinite)
+    }
+
+    func testEqualDragsOnTheLogTrackAreWorthEqualRatios() {
+        // This is the whole property, and it is what a SLOPE control wants: 2.0 is as
+        // far from 1.0 as 0.5 is, because one doubles a difference and the other halves
+        // it. On the linear track the same two settings sit 15% and 5% along.
+        //
+        // Asserted against the analytic ratio rather than against each other, and with
+        // the SNAP's own resolution as the tolerance, because the first version of this
+        // test compared consecutive drags at 1e-9 and went red: 3.25, 3.20, 3.15. That
+        // was not the axis failing, it was `resolve` rounding to the row's 0.05 step in
+        // VALUE space — half a step is 12.5% of 0.2 and 1.3% of 2.0, so the ratios
+        // cannot agree to more than the step allows. The step staying in value units is
+        // this file's rule for every scale (see `SliderScale.log`), so the test has to
+        // know about it rather than the axis being bent to make the test simple.
+        let track = renderContrastTrack
+        let quarter = track.width / 4
+        let expected = exp(track.axisSpan / 4)
+        for start in [0.2, 0.5, 1.0, 2.0] {
+            let after = track.value(from: start, travelled: quarter)
+            let ratio = after / start
+            // Half a step at the landing value, expressed as a ratio at the start.
+            let tolerance = (track.step / 2) / start
+            XCTAssertEqual(ratio, expected, accuracy: tolerance,
+                           "a quarter-track drag from \(start) was worth \(ratio)x, "
+                               + "not \(expected)x — the axis is not doing the one "
+                               + "thing it exists to do")
+        }
+        // 3.0 is above the clamp on the last quarter of the track, which is the other
+        // thing that ends a drag, and it must end AT the bound rather than past it.
+        XCTAssertEqual(track.value(from: 4.0, travelled: quarter), 10, accuracy: 1e-12)
+    }
+
+    func testTheLinearRenderContrastTrackReallyWasUnusable() {
+        // The complaint, as arithmetic, so that the fix below has something to beat.
+        let linear = linearRenderContrastTrack
+        XCTAssertEqual(linear.fraction(of: 1.5), 0.1414, accuracy: 5e-4,
+                       "the default should have sat at 14.1% of the linear track")
+        let workingBand = linear.fraction(of: 1.9) - linear.fraction(of: 1.0)
+        XCTAssertEqual(workingBand, 0.0909, accuracy: 5e-4,
+                       "1.0…1.9 should have been 9.1% of the linear track")
+    }
+
+    func testTheLogTrackPutsTheDefaultAndTheWorkingBandWhereTheHandIs() {
+        let track = renderContrastTrack
+        // The default moves from the first seventh of the track to just past the middle.
+        XCTAssertEqual(track.fraction(of: 1.5), 0.5881, accuracy: 5e-4)
+        XCTAssertGreaterThan(track.fraction(of: 1.5),
+                             linearRenderContrastTrack.fraction(of: 1.5))
+        // And the band a photographer works in more than doubles its share of the track.
+        let logBand = track.fraction(of: 1.9) - track.fraction(of: 1.0)
+        let linearBand = linearRenderContrastTrack.fraction(of: 1.9)
+            - linearRenderContrastTrack.fraction(of: 1.0)
+        XCTAssertGreaterThan(logBand, linearBand * 1.5,
+                             "1.0…1.9 is \(logBand) of the log track against "
+                                 + "\(linearBand) of the linear one — not the "
+                                 + "improvement this change exists to make")
+        // 1.0, the identity, lands at exactly half of the track, because the range is
+        // symmetric in ratio around it: 0.1 is a tenth and 10 is ten times.
+        XCTAssertEqual(track.fraction(of: 1.0), 0.5, accuracy: 1e-12)
     }
 
     func testTheDefaultScaleIsLinearSoEveryOtherControlIsUnchanged() {

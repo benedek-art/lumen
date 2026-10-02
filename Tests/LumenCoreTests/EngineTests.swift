@@ -348,12 +348,127 @@ final class EngineTests: XCTestCase {
     /// push a highlight three and a half stops up and out of the shaper's domain.
     /// Pinning the ends means a contrast push can never clip a highlight it was not
     /// asked to touch, and can never send a deep shadow to negative infinity.
-    func testContrastPinsTheEndsOfTheScale() {
+    /// THE ENDS OF THE LOG SCALE, which is a true thing about a place nothing renders.
+    ///
+    /// Renamed, because under its old name — `testContrastPinsTheEndsOfTheScale` — this
+    /// was cited by A1-01's tooltip and by docs/04 as the proof that Contrast "cannot
+    /// clip a highlight", and it never checked that. `LumenLog.maxEV` is 12: four stops
+    /// past the display's white anchor and seven past anything a photograph contains.
+    /// The old relax window had returned to slope 1 by construction long before there,
+    /// so this assertion held at every contrast setting while Contrast +100 was
+    /// flattening 1.875 stops of real highlight to one value.
+    ///
+    /// It is kept rather than deleted: the log scale's ends genuinely must not move, and
+    /// it costs nothing to say so. What it may not do is stand in for the claim below.
+    func testContrastLeavesTheExtremesOfTheLogScaleAlone() {
         for contrast in [-100.0, -40, 40, 100] {
             let e = ToneEngine(tone: Tone(contrast: contrast))
             for t in [-LumenLog.maxEV, LumenLog.maxEV] {
                 XCTAssertEqual(e.contrastMapped(t), t, accuracy: 1e-9,
                                "contrast \(contrast) moved the end of the scale at \(t) EV")
+            }
+        }
+    }
+
+    /// THE CLAIM THE TOOLTIP ACTUALLY MAKES: "the ends of the scale stay pinned, so it
+    /// cannot clip a highlight." The end of the scale is the DISPLAY ANCHOR — where the
+    /// display transform saturates — not ±12 EV, and this asserts it there.
+    ///
+    /// It is an exact equality rather than a tolerance because the fix makes it
+    /// geometry: the slope relaxes to exactly 1 at the anchor, and `d * 1 == d`, so the
+    /// anchor is a fixed point of the mapping rather than a place the window happens to
+    /// have gone quiet by.
+    func testContrastCannotPushAPixelPastTheDisplayAnchors() {
+        for contrast in [-100.0, -50, -1, 1, 50, 100] {
+            for pivot in [-2.0, 0, 2] {
+                let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot))
+                XCTAssertEqual(e.contrastMapped(e.whiteAnchorEV), e.whiteAnchorEV,
+                               accuracy: 1e-9,
+                               "contrast \(contrast) pivot \(pivot) moved the white "
+                                   + "anchor, so it can burn a highlight to flat white")
+                XCTAssertEqual(e.contrastMapped(e.blackAnchorEV), e.blackAnchorEV,
+                               accuracy: 1e-9,
+                               "contrast \(contrast) pivot \(pivot) moved the black "
+                                   + "anchor, so it can crush a shadow to flat black")
+                // And nothing INSIDE the anchors may be mapped outside them, which is
+                // the property that actually prevents the clip: a fixed point at the end
+                // proves nothing if the interior overshoots it.
+                var t = e.blackAnchorEV
+                while t <= e.whiteAnchorEV {
+                    let v = e.contrastMapped(t)
+                    XCTAssertLessThanOrEqual(v, e.whiteAnchorEV + 1e-9,
+                                             "contrast \(contrast) pivot \(pivot) sent "
+                                                 + "\(t) EV to \(v), past white")
+                    XCTAssertGreaterThanOrEqual(v, e.blackAnchorEV - 1e-9,
+                                                "contrast \(contrast) pivot \(pivot) sent "
+                                                    + "\(t) EV to \(v), past black")
+                    t += 0.05
+                }
+            }
+        }
+    }
+
+    /// The anchors MOVE with Whites and Blacks, and the fixed point has to move with
+    /// them — a reach measured against the default anchor would pin the wrong place.
+    func testTheContrastFixedPointFollowsTheAnchorsWhitesAndBlacksMove() {
+        for (whites, blacks) in [(100.0, 0.0), (0, -100), (100, 100), (-100, -100)] {
+            let e = ToneEngine(tone: Tone(contrast: 100, whites: whites, blacks: blacks))
+            XCTAssertEqual(e.contrastMapped(e.whiteAnchorEV), e.whiteAnchorEV,
+                           accuracy: 1e-9,
+                           "whites \(whites) blacks \(blacks): the white anchor moved to "
+                               + "\(e.whiteAnchorEV) and contrast stopped pinning it")
+            XCTAssertEqual(e.contrastMapped(e.blackAnchorEV), e.blackAnchorEV,
+                           accuracy: 1e-9,
+                           "whites \(whites) blacks \(blacks): black anchor not pinned")
+        }
+    }
+
+    /// The property the old wide window existed to protect, measured rather than argued.
+    /// A brighter input must never render darker.
+    /// The geometry `ToneEngine.endShelfStart` / `blackShelfStart` now state in prose,
+    /// held as numbers (W2/A1-05). The comment had said the Whites and Blacks shelves
+    /// start where Highlights and Shadows have already saturated, and that Blacks'
+    /// steepest point was −5.9 EV; neither was true of the constants that ship. If a
+    /// constant moves, this fails and points at the paragraph that has to move with it.
+    func testTheEndShelvesOverlapTheZonalOnesAsTheCommentSays() {
+        let engine = ToneEngine(tone: Tone())
+        // Whites' shelf runs +1 … +4 EV, inside Highlights' 0 … +5 EV ramp.
+        XCTAssertEqual(engine.whiteWeight(1.0), 0, accuracy: 1e-12)
+        XCTAssertEqual(engine.whiteWeight(4.0), 1, accuracy: 1e-12)
+        XCTAssertEqual(engine.highlightWeight(1.0), 0.104, accuracy: 0.001)
+        XCTAssertEqual(engine.highlightWeight(4.0), 0.896, accuracy: 0.001,
+                       "Highlights has not saturated where Whites does")
+
+        func steepest(_ weight: (Double) -> Double) -> Double {
+            var best = (t: 0.0, slope: -1.0)
+            var t = -9.0
+            while t < 0 {
+                let slope = (weight(t - 1e-4) - weight(t + 1e-4)) / 2e-4
+                if slope > best.slope { best = (t, slope) }
+                t += 0.001
+            }
+            return best.t
+        }
+        XCTAssertEqual(steepest(engine.shadowWeight), -2.25, accuracy: 0.01)
+        XCTAssertEqual(steepest(engine.blackWeight), -3.465, accuracy: 0.01,
+                       "Blacks' steepest point, which the comment said was −5.9 EV")
+    }
+
+    func testContrastIsMonotoneAcrossTheWholeScaleAtEverySetting() {
+        for contrast in stride(from: -100.0, through: 100.0, by: 5) {
+            for pivot in [-4.0, 0, 4] {
+                let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot))
+                var previous = e.contrastMapped(-LumenLog.maxEV)
+                var t = -LumenLog.maxEV + 0.01
+                while t <= LumenLog.maxEV {
+                    let v = e.contrastMapped(t)
+                    XCTAssertGreaterThanOrEqual(
+                        v, previous,
+                        "contrast \(contrast) pivot \(pivot) inverted at \(t) EV: "
+                            + "\(previous) then \(v)")
+                    previous = v
+                    t += 0.01
+                }
             }
         }
     }

@@ -228,8 +228,8 @@ final class CaptureSharpenScopeTests: XCTestCase {
                       + "question itself")
 
         let coordinator = Self.stripped("Sources/LumenApp/RenderCoordinator.swift")
-        let fork = Self.slice(from: "func source(for url: URL)", in: coordinator,
-                              of: "RenderCoordinator.swift", limit: 1_400)
+        let fork = Self.member("private func source(for url: URL) throws -> any ImageSource {",
+                               of: coordinator, in: "RenderCoordinator.swift")
         XCTAssertTrue(fork.contains("PhotoFormats.isRendered(url)"),
                       "the decoder fork must ask the same predicate; if it was renamed "
                       + "or moved, move this scan with it rather than deleting it")
@@ -332,6 +332,7 @@ final class CaptureSharpenScopeTests: XCTestCase {
         var end = source.endIndex
         let after = source[start.upperBound...]
         for marker in ["\n    private var ", "\n    private func ",
+                       "\n    private static func ",
                        "\n    var ", "\n    func ", "\n    @ViewBuilder"] {
             if let hit = after.range(of: marker), hit.lowerBound < end {
                 end = hit.lowerBound

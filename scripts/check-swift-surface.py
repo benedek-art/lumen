@@ -179,12 +179,18 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 # not declared in-tree gets reported, so adding a genuinely new platform type means
 # adding it here — which is the point. Single capital letters are generic parameters.
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
+    # Native APIs used by the audited persistence/export safety regressions.
+    "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
+    # POSIX errno values and open(2) flags: the export's no-overwrite fallback
+    # (`ExclusivePublish`) branches on them, on Darwin and Glibc alike.
+    "ENOTSUP", "EOPNOTSUPP", "EINVAL", "EEXIST", "EPERM", "EXDEV", "EMLINK", "ENOSYS",
+    "EIO", "ENOSPC", "O_CREAT", "O_EXCL", "O_WRONLY",
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
-    "UInt64", "Double", "Float", "Float32", "Float64", "Bool", "String", "Substring",
+    "UInt64", "Double", "Float", "Float16", "Float32", "Float64", "SIMD2", "SIMD3", "SIMD4", "SIMD8", "Bool", "String", "Substring",
     "Character", "Array", "Dictionary", "Set", "Optional", "Result", "Range",
     # `#filePath` and `#line` defaults on a test helper, so a failure reports the
     # CALL site rather than the helper's own line.
@@ -205,10 +211,10 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "ObjCBool", "Duration", "ContinuousClock", "SuspendingClock",
     # Foundation
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
-    "URL", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
+    "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
-    "PropertyListSerialization", "NSError", "NSString", "NSNumber", "NSObject",
+    "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
@@ -225,7 +231,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
     # `XCTWaiter` for a test that must bound how long it waits rather than
     # assert on a value — a hang produces no failing test to assert on.
-    "XCTWaiter", "XCTExpectFailure",
+    "XCTWaiter", "XCTExpectFailure", "XCTExpectedFailure",
     "XCTUnwrap", "XCTFail", "XCTAssertEqual", "XCTAssertNotEqual", "XCTAssertTrue",
     "XCTAssertFalse", "XCTAssertNil", "XCTAssertNotNil", "XCTAssertGreaterThan",
     "XCTAssertLessThan", "XCTAssertGreaterThanOrEqual", "XCTAssertLessThanOrEqual",
@@ -236,7 +242,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "CGDataProvider", "CGPath", "CGMutablePath", "CGBitmapInfo", "CGImageAlphaInfo",
     "CGColorRenderingIntent", "CGImageSource", "CGImageDestination",
     "CGImagePropertyOrientation", "CGDirectDisplayID",
-    "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex",
+    "CGImageSourceCreateWithURL", "CGImageSourceCreateThumbnailAtIndex", "CGImageSourceCreateImageAtIndex",
     "CGImageDestinationCreateWithURL", "CGImageDestinationAddImage",
     "CGImageDestinationFinalize",
     "ImageIO", "CFString", "CFDictionary", "CFData", "CFURL",
@@ -258,6 +264,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Vision", "VNImageRequestHandler", "VNGenerateForegroundInstanceMaskRequest",
     "VNGeneratePersonSegmentationRequest", "VNInstanceMaskObservation",
     "VNPixelBufferObservation", "VNObservation", "VNRequest",
+    # ...and the culling pass's face evidence (docs/10 §10.6).
+    "VNDetectFaceLandmarksRequest", "VNDetectFaceCaptureQualityRequest",
+    "VNFaceLandmarkRegion2D",
     # CryptoKit: the updater's SHA-256 over the downloaded asset (L-03). Named
     # individually for the same reason Vision's requests are — this tree uses exactly
     # one primitive from it, and a typo in a second should still fail here.
@@ -266,15 +275,18 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # "Apple's XCTest, not swift-corelibs-xctest" — `XCTExpectFailure` exists in one and
     # not the other, and `swiftc -parse` accepts it either way. The condition names a
     # platform module rather than an in-tree type, so the symbols pass has to be told.
-    "Darwin",
+    "Darwin", "Glibc",
     "CoreVideo", "CVPixelBufferGetWidth", "CVPixelBufferGetHeight",
     "CVPixelBufferGetPixelFormatType", "CVPixelBufferGetBytesPerRow",
     "CVPixelBufferGetBaseAddress", "CVPixelBufferLockBaseAddress",
     "CVPixelBufferUnlockBaseAddress", "CVPixelBufferLockFlags",
-    "CVPixelBufferCreate",
+    "CVPixelBufferCreate", "CVPixelBufferCreateWithBytes",
     # Metal
     "MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLPixelFormat",
     "MTLCreateSystemDefaultDevice",
+    # The HDR preview's EDR layer (`EDRViewport.swift`): a `CAMetalLayer` backing an
+    # `NSView`, written through Core Image.
+    "Metal", "QuartzCore", "CALayer", "CAMetalLayer", "NSObjectProtocol",
     # AppKit
     "AppKit", "NSApp", "NSApplication", "NSApplicationDelegate", "NSImage", "NSColor",
     "NSView", "NSViewRepresentable", "NSViewController", "NSWindow", "NSEvent",
@@ -297,7 +309,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Label", "Link", "ProgressView", "Gauge", "Stepper", "DisclosureGroup", "TabView",
     "Table", "TableColumn", "GeometryReader", "GeometryProxy", "Canvas",
     "GraphicsContext", "Path", "Shape", "Rectangle", "RoundedRectangle", "Circle",
-    "Ellipse", "Capsule", "Binding", "State", "StateObject", "ObservedObject",
+    "Ellipse", "Capsule", "Binding", "State", "StateObject", "ObservedObject", "GestureState",
     "EnvironmentObject", "Environment", "EnvironmentValues", "EnvironmentKey",
     "PreferenceKey", "ViewModifier", "ViewBuilder", "App", "Scene", "WindowGroup",
     "Settings", "Commands", "CommandGroup", "CommandMenu", "AppStorage",
@@ -306,7 +318,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Alignment", "HorizontalAlignment", "VerticalAlignment", "Edge", "EdgeInsets",
     "Angle", "UnitPoint", "Font", "LinearGradient", "RadialGradient",
     "AngularGradient", "Gradient", "DragGesture", "TapGesture", "Gesture",
-    "MagnifyGesture",
+    "MagnifyGesture", "SpatialTapGesture",
     "MagnificationGesture", "RotationGesture", "LongPressGesture", "AnyView",
     "EmptyView", "ToolbarItem", "ToolbarItemGroup", "KeyboardShortcut",
     "KeyEquivalent", "EventModifiers", "ContentMode", "ColorScheme", "Axis",
@@ -318,7 +330,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "SQLITE_NOTADB", "SQLITE_FORMAT", "SQLITE_OPEN_READWRITE", "SQLITE_OPEN_CREATE",
     "SQLITE_OPEN_FULLMUTEX", "SQLITE_ERROR", "SQLITE_ROW", "SQLITE_DONE",
     # ImageIO
-    "ImageIO", "CGImageSourceCopyPropertiesAtIndex",
+    "ImageIO", "CGImageSourceCopyPropertiesAtIndex", "CGImageSourceCopyAuxiliaryDataInfoAtIndex",
     "CChar", "UTF8", "NSNull",
     # this package's own modules
     "LumenCore", "LumenPipeline", "LumenApp",
@@ -958,6 +970,29 @@ METHOD_SKIP = {
     "addLine", "closeSubpath", "component", "components", "preview", "artifact",
     "parse", "start", "stop", "reset", "update", "scale", "rotate", "translate",
     "combine", "cgImage",
+    # `MTLCommandBuffer.commit()`; the in-tree `commit(inReleaseBody:)` is the
+    # updater's and says nothing about a command buffer.
+    "commit",
+}
+
+# Standard-library signatures whose NAME collides with an in-tree method, consulted
+# ONLY after a value-receiver call has failed every in-tree declaration of that name.
+#
+# The pass is name-based, so `items.drop(while: …)` was judged against the two in-tree
+# `func drop(_:)` and reported — a stdlib call the compiler accepts (docs/audit-2026-09
+# STATUS.md, the third false-finding class). METHOD_SKIP is the wrong tool for that: it
+# would stop checking `drop` altogether. This table instead names the exact stdlib
+# signatures, so `drop(count:)` is still reported while `drop(while:)` is not.
+#
+# Same rule as PLATFORM_MEMBERS: every row is a signature the standard library really
+# declares, written as (labels, required labels) exactly as `collect_methods` records
+# an in-tree one. Add a row only for a name that collides with an in-tree func AND a
+# call the compiler accepts; never to quiet a finding you have not checked.
+STDLIB_SIGNATURES = {
+    "drop": [(["while"], ["while"])],                       # Sequence.drop(while:)
+    "firstIndex": [(["of"], ["of"]), (["where"], ["where"])],  # Collection
+    "merge": [([None, "uniquingKeysWith"], [None, "uniquingKeysWith"])],  # Dictionary
+    "round": [([], []), ([None], [None])],                  # FloatingPoint.round(_:)
 }
 
 
@@ -1038,11 +1073,11 @@ def pass_method_labels():
         for m in METHOD_CALL.finditer(text):
             if m.group(1) in RECEIVER_KEYWORDS:
                 continue
-            yield m, m.group(2)
+            yield m, m.group(2), True
         for m in METHOD_CALL_TYPED.finditer(text):
             receiver = m.group(1)
             if receiver == "Self" or receiver in intree_types:
-                yield m, m.group(2)
+                yield m, m.group(2), False
         for m in METHOD_CALL_BARE.finditer(text):
             name = m.group(1)
             if name in RECEIVER_KEYWORDS or name in shadowed or name in variadic:
@@ -1051,7 +1086,7 @@ def pass_method_labels():
             # The declaration itself, and an enum case with an associated value.
             if re.search(r"\b(?:func|case)\s+$", before):
                 continue
-            yield m, name
+            yield m, name, False
 
     for path in FILES:
         # Bodies blanked so prose — the schema strings in `CatalogStore`, above all —
@@ -1061,7 +1096,7 @@ def pass_method_labels():
         text = strip_all_keep_quotes(path.read_text())
         shadowed = (set(VALUE_BOUND.findall(text)) | set(PARAM_LABELLED.findall(text))
                     | set(PARAM_PLAIN.findall(text)))
-        for m, name in call_sites(text, shadowed):
+        for m, name, on_value in call_sites(text, shadowed):
             if name in METHOD_SKIP or name not in methods:
                 continue
             open_i = m.end() - 1
@@ -1115,7 +1150,12 @@ def pass_method_labels():
                 continue
 
             checked += 1
-            if not any(accepts(s) for s in visible):
+            # A value receiver's type is unknown here, so it may be a stdlib one: the
+            # narrow table above, and only once the in-tree declarations have failed.
+            stdlib = STDLIB_SIGNATURES.get(name, []) if on_value else []
+            if not any(accepts(s) for s in visible) and not any(
+                    accepts((labels, required, None, False))
+                    for labels, required in stdlib):
                 line = text.count("\n", 0, m.start()) + 1
                 problems.append((path.relative_to(ROOT).as_posix(), line, name,
                                  call_labels, visible))
@@ -1515,6 +1555,13 @@ USE = re.compile(r"(?<![\w.])([a-z_]\w*)\??\.([a-zA-Z_]\w*)")
 # parsing scopes.
 INFERRED = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*=")
 CLOSURE_ARG = re.compile(r"[{(]\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s+in\b")
+# A binding annotated with a type ANNOTATED cannot read — a tuple, an array, a
+# dictionary — is still a binding of that name. Without this, `var found: (url: URL,
+# digest: IngestDigest)?` was invisible, a later `let found: IngestDigest` in the same
+# function made `found` look unambiguous, and `found.url` was reported as a missing
+# member of IngestDigest (docs/audit-2026-10/streams/P1-ingest.md). Such a name is
+# ambiguous exactly like an inferred one.
+UNREAD_ANNOTATION = re.compile(r"(?:^|[^\w.])(?:let|var)\s+([a-z_]\w*)\s*:\s*[(\[]")
 
 # The platform value types this pass knows the whole surface of.
 #
@@ -1683,7 +1730,7 @@ def pass_value_members():
             seen = {}
             for m in ANNOTATED.finditer(scope):
                 seen.setdefault(m.group(1), set()).add(m.group(2))
-            ambiguous = set(INFERRED.findall(scope))
+            ambiguous = set(INFERRED.findall(scope)) | set(UNREAD_ANNOTATION.findall(scope))
             for m in CLOSURE_ARG.finditer(scope):
                 for part in m.group(1).split(","):
                     ambiguous.add(part.strip())

@@ -361,6 +361,41 @@ final class RecipeCodecToleranceTests: XCTestCase {
         XCTAssertEqual(swatch.sample, [0.5, 0, 0], "a swatch is a working-space triple")
     }
 
+    /// Zone pivots are ORDERED, and padding must not hand the tone engine a list that
+    /// does not ascend (M-03). `{"pivots":[0.9]}` padded to `[0.9, 0.5, …]` put every
+    /// scene value below +3.6 EV in the Darks zone.
+    func testAnOrderedArrayIsStillOrderedAfterTheDecoderFillsItIn() throws {
+        let short = try JSONDecoder().decode(
+            Zones.self, from: Data(#"{"pivots":[0.9]}"#.utf8))
+        XCTAssertEqual(short.pivots, Zones.defaultPivots,
+                       "the padding rule built a descending pivot array — every zone "
+                           + "below the first pivot collapses onto Darks")
+
+        // The engine, not just the value: Mids must still move a mid-tone.
+        var zones = short
+        zones.mid.ev = 1.0
+        XCTAssertEqual(ToneEngine(tone: Tone(), zones: zones).zonePanelStops(0.0), 1.0,
+                       accuracy: 1e-9, "the Mids slider moved and mid-grey did not")
+
+        // A full-length list that merely arrived out of order is REPAIRED, not thrown
+        // away — it is a list somebody wrote.
+        let jumbled = try JSONDecoder().decode(
+            Zones.self, from: Data(#"{"pivots":[0.8,0.2,0.5,0.35,0.65]}"#.utf8))
+        XCTAssertEqual(jumbled.pivots, [0.2, 0.35, 0.5, 0.65, 0.8])
+
+        // Coincident pivots are a division by zero in the crossfade: pushed apart by the
+        // panel's own gap, so the strip and the picture agree.
+        let touching = try JSONDecoder().decode(
+            Zones.self, from: Data(#"{"pivots":[0.3,0.3,0.5,0.7,0.9]}"#.utf8))
+        XCTAssertEqual(touching.pivots[1], 0.32, accuracy: 1e-12)
+        XCTAssertTrue(zip(touching.pivots, touching.pivots.dropFirst()).allSatisfy { $0 < $1 })
+
+        // Identity on what this app writes: an ascending list round-trips untouched.
+        let own = [0.07, 0.24, 0.49, 0.74, 0.91]
+        XCTAssertEqual(Zones.decodedPivots(own), own)
+        XCTAssertEqual(Zones.decodedPivots(nil), Zones.defaultPivots)
+    }
+
     /// A wrong-length array must not survive the decode only to be indexed later.
     ///
     /// `ColorEngine` reads `bw.bands[i]` for eight bands and `pc.sample[0…2]`, and the
@@ -468,7 +503,13 @@ final class RecipeCodecToleranceTests: XCTestCase {
                     profile: false, removeCA: false,
                     defringe: Defringe(purpleAmount: 3, purpleHueLo: 31, purpleHueHi: 71,
                                        greenAmount: 4, greenHueLo: 41, greenHueHi: 61))),
-            heal: Heal(strokesRef: "blob:xxh64:0000000000000001", count: 3))
+            heal: Heal(strokesRef: "blob:xxh64:0000000000000001", count: 3,
+                       // Every field off its decoder's fallback: clone, not heal; a
+                       // source that is not the destination; non-default size, feather
+                       // and opacity.
+                       spots: [HealSpot(id: "spot-1", mode: .clone, x: 0.31, y: 0.42,
+                                        sourceX: 0.55, sourceY: 0.61, radius: 0.023,
+                                        feather: 35, opacity: 70)]))
 
         let look = Look(
             wheels: wheels,

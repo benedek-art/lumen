@@ -965,8 +965,16 @@ final class EngineIntegrationTests: XCTestCase {
         for stock in FilmStock.all {
             let chain = FilmChain(FilmChain.defaultRecipe(for: stock), displayWhite: 1.0)
             let out = chain.apply(RGB(gray: 0.18))
-            XCTAssertEqual(out.g, 0.18, accuracy: 0.01,
-                           "\(stock.name) did not anchor mid-grey")
+            // ALL THREE CHANNELS, and to the solve's own tolerance (C1-10 / FILM-24).
+            // This asserted `out.g` at ±0.01, so a red or blue regression — a coupler
+            // or tint edit that pulls grey warm, or a `solveGains` that stopped
+            // solving one channel — rendered a cast on grey and stayed green.
+            // `solveGains` anchors each channel inside 1e-6; 1e-4 leaves the LUT-free
+            // `apply` room and nothing else.
+            for (i, name) in ["red", "green", "blue"].enumerated() {
+                XCTAssertEqual(out[i], 0.18, accuracy: 1e-4,
+                               "\(stock.name) did not anchor mid-grey in \(name): \(out)")
+            }
         }
     }
 
@@ -1762,9 +1770,75 @@ final class EngineIntegrationTests: XCTestCase {
                               + "at \(where_)")
         // And the two must not disagree with each other by more than the sum of their
         // own errors, or the loupe is showing a different picture from the delivery.
-        // Measured at 0.0335: the loupe and the delivered file differ by about eight
-        // levels of 255 at worst. Bounded here so it cannot grow silently.
-        XCTAssertLessThan(worstAgainstExport, 0.04,
+        //
+        // RE-ANCHORED 0.04 → 0.045 WITH A1-01, and a bare number would be the wrong way
+        // to record that, so the ladder below carries the argument and this is only its
+        // backstop. What moved: contrast's slope used to relax over a fixed 4→12 EV
+        // window, so at Contrast +30 a scene value at 4.5 EV was multiplied by 1.75 and
+        // entered the colour cube well up its domain. Denominating the reach on the
+        // display anchor puts the shoulder INSIDE the picture's range — which is the
+        // whole of A1-01 — so the same pixel now enters at a gain of 1.02, and lands on
+        // a part of the lattice the coarse cube tracks less well. The worst case moved
+        // with it, to an in-gamut yellow-green at 4.5 EV, hue 90, chroma 0.1.
+        //
+        // The tone stage itself is NOT implicated and that is worth being exact about:
+        // `tone.gain` is applied analytically by `referenceColor` AND by `exactColor`,
+        // before either table is sampled. Contrast cannot add interpolation error; it
+        // can only decide which part of the cube a colour is interpolated in.
+        //
+        // WHY 0.045 AND NOT MORE, MEASURED (Linux x86_64, this recipe, this sweep) with a
+        // one-off 129-cube that is too slow to keep here (55 s to bake against 8 s at
+        // 65): 33-against-129 is 0.0420 and 33-against-65 is 0.0410. The interactive
+        // cube's own convergence-limited error accounts for essentially the whole
+        // preview-against-export gap, so 0.045 is that measured gap plus ~10%, and a
+        // composed-transform defect would have at most ~0.004 to hide in.
+        XCTAssertLessThan(worstAgainstExport, 0.045,
                           "preview and export disagreed by \(worstAgainstExport)")
+
+        // THE LADDER, which is what makes the bound above honest rather than merely
+        // wider. A gap that is the interactive cube's coarseness must SHRINK when that
+        // cube is made finer; a gap that survives a finer cube is a defect in the
+        // composed transform and no tolerance should be moved to accommodate it. That is
+        // the same test `testTheColourTableConverges` applies to the colour cube, asked
+        // here of the preview-against-export pair. Measured on this recipe:
+        // 17-against-65 0.1194, 33-against-65 0.0410, 65-against-129 0.0260 (and
+        // 17-against-33 0.0867, which an earlier version of this comment mislabelled as
+        // 17-against-65).
+        //
+        // 17 rather than 129 for the third rung: it is one extra bake of 4,913 entries
+        // against 2,146,689.
+        //
+        // HALVING, NOT MERELY ORDERING. This used to assert only that the 33-cube beats
+        // the 17-cube, which any well-behaved trilinear table does, so it could not
+        // catch a defect smaller than the 17-cube's whole error (V7 W2). Doubling the
+        // cube must at least HALVE the gap — first-order convergence, the slowest a
+        // lattice that is tracking the transform can manage. Measured 0.1194 / 0.0410 =
+        // 2.91. A size-independent error e in the composed transform adds to both rungs
+        // and drags the ratio toward 1: it fails this at e above about 0.037, and a
+        // rung that stops converging fails it outright.
+        let coarse = RenderPlan(recipe: recipe, lutSize: 17)
+        var worstCoarseAgainstExport = 0.0
+        for i in 0...24 {
+            let ev = -7 + Double(i) * 0.5
+            for hue in stride(from: 0.0, to: 360.0, by: 45.0) {
+                for chroma in [0.02, 0.10, 0.20] {
+                    let tint = OKLabTransform.working.toRGB(
+                        OKLCh(L: 0.5, C: chroma, h: hue))
+                    let normalized = tint / Swift.max(tint.maxComponent, 1e-6)
+                    let scene = normalized * (0.18 * pow(2.0, ev))
+                    worstCoarseAgainstExport = Swift.max(
+                        worstCoarseAgainstExport,
+                        coarse.referenceColor(scene).maxAbsDifference(
+                            export.referenceColor(scene)))
+                }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(
+            worstCoarseAgainstExport, 2 * worstAgainstExport,
+            "the interactive cube at \(LUT3D.interactiveSize) disagrees with the export "
+                + "cube by \(worstAgainstExport), and a 17-cube by "
+                + "\(worstCoarseAgainstExport) — doubling the cube did not halve the gap, "
+                + "so the gap is not only this cube's coarseness and widening the bound "
+                + "above would be hiding a defect")
     }
 }

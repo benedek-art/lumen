@@ -88,6 +88,13 @@ struct ViewerRenderKey: Equatable {
     /// keeps that from being every pan point, and the loupe holds it STICKY while a
     /// pinch is in flight so a continuous zoom does not mint a request per quantum.
     let regionUnit: CGRect?
+    var sourceRevision: Int = 0
+    /// The HDR preview's display white target (`EDRPreview.whiteTarget`) — a viewing
+    /// mode outside the recipe, like `softProof`, and a render input: the loupe's
+    /// request carries it to the coordinator, so a toggle or a headroom step must
+    /// restart the task. Nil for SDR, which is every compare pane and every loupe with
+    /// the preview off — a key equal to the one it was before this field existed.
+    var edrWhiteTarget: Double? = nil
 
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
     /// Reads the beside-the-recipe inputs from the one place they live.
@@ -95,14 +102,17 @@ struct ViewerRenderKey: Equatable {
     static func current(url: URL, recipe: Recipe, longEdge: Int,
                         state: AppState,
                         showingUncropped: Bool = false,
-                        regionUnit: CGRect? = nil) -> ViewerRenderKey {
+                        regionUnit: CGRect? = nil,
+                        edrWhiteTarget: Double? = nil) -> ViewerRenderKey {
         ViewerRenderKey(url: url, recipe: recipe, longEdge: longEdge,
                         strokeRefs: Set(state.strokeSets(for: recipe).keys),
                         softProof: state.activeSoftProof,
                         matteKinds: state.maskMatteKinds(for: url),
                         showingUncropped: showingUncropped,
                         settleTick: state.settleTick,
-                        regionUnit: regionUnit)
+                        regionUnit: regionUnit,
+                        sourceRevision: state.sourceRevision,
+                        edrWhiteTarget: edrWhiteTarget)
     }
 }
 

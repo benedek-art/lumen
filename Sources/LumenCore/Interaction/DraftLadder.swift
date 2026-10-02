@@ -158,6 +158,25 @@ public struct DraftLadder: Sendable, Equatable {
     /// that is not held as pixels is still a correct decode, just an expensive one.
     public static let materializedDecodeByteCeiling: Int = 512 * 1024 * 1024
 
+    /// A pixel dimension read out of a FILE, as an `Int` — or 0 when the file's number
+    /// is not one.
+    ///
+    /// `Int(_:)` on a non-finite `Double` TRAPS, in release as well as debug, and the
+    /// sizes this reads come from `CIRAWFilter.nativeSize` and `CIImage.extent` on files
+    /// the photographer dropped in, which is input nobody here controls. Every site that
+    /// turns such a number into an `Int` goes through this one rule rather than
+    /// re-deciding it; the guard used to exist at one site in five (W2/I3-03), and the
+    /// other four would end the process on a corrupt header instead of declining it.
+    ///
+    /// Zero is the answer for "cannot say": every caller already treats a zero size as
+    /// degenerate (`mayHoldAsPixels` answers false, a decode classifies as interactive),
+    /// so zero is the safe side. Rounded, not truncated — a 7008.6 extent is 7009
+    /// pixels, and the sites this replaced disagreed on that too.
+    public static func pixelCount(from value: Double) -> Int {
+        guard value.isFinite, value > 0, value < 1e9 else { return 0 }
+        return Int(value.rounded())
+    }
+
     /// Whether a decode of this size may be held as pixels rather than as the intention
     /// to make them. Degenerate sizes answer false rather than overflowing: a caller
     /// that cannot say how big the buffer is has not earned one.

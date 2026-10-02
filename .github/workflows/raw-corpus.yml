@@ -32,8 +32,9 @@
 # docs/audit-2026-09/w6/raw-corpus-plan.md — read §9 before reading a failure.
 name: RAW corpus
 on:
-  # Dispatch, plus this file's own path, and NOTHING else — deliberately, and the two
-  # halves of that pull against each other.
+  # Dispatch, this file's own path, and the handful of files that ARE the decode path
+  # this lane exists to check — and nothing wider, deliberately; the two halves of that
+  # pull against each other.
   #
   # This repository has been burned twice by dispatch-only lanes. `gpu-parity.yml`'s
   # header records that its predecessor "was NEVER dispatched: not once in the project's
@@ -50,9 +51,23 @@ on:
   # the plan names the exact condition for widening it: three consecutive green dispatched
   # runs with the evidence sheet read by a human, and R-5's and R-7's thresholds re-set
   # from those measurements. Then `Sources/LumenPipeline/**` joins the paths.
+  #
+  # The narrow exception, added because a lane that triggers only on itself never sees
+  # the change it guards: the decoder wrapper, the test that consumes the corpus, the
+  # two suites that pin the decode boundary's contract in synthetic form, and the
+  # manifest. The manifest is the heredoc in THIS file today (so the first path covers
+  # it); the RawCorpus/ path is where the step below says it moves, listed now so the
+  # move cannot silently drop the trigger. This lane runs only `RawCorpusTests`: a
+  # change to the two boundary suites re-runs the real-file corpus beside it; it does
+  # not run those suites here (the macOS test lanes do).
   push:
     paths:
       - ".github/workflows/raw-corpus.yml"
+      - "Sources/LumenPipeline/AppleRawSource.swift"
+      - "Tests/LumenPipelineTests/RawCorpusTests.swift"
+      - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
+      - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
+      - "Tests/LumenPipelineTests/RawCorpus/**"
   workflow_dispatch:
 
 # One run per branch. Same reasoning as every other macOS lane here: the runners are
@@ -68,7 +83,9 @@ jobs:
     # Forty-five, matching `gpu-parity`, and not fifteen. Sixteen full-sensor demosaics
     # plus sixteen exports is real work, and a cache miss adds ~234 MB of fetching on top.
     # A lane that gets cancelled tells you the runner died, not which file killed it.
-    timeout-minutes: 45
+    # Sixty since AuditRawAccuracyTests joined: about five small-scale decodes per file
+    # per decoder on top, under its own 20-minute step limit.
+    timeout-minutes: 60
     env:
       CORPUS_DIR: ${{ github.workspace }}/.raw-corpus
     steps:
@@ -336,6 +353,104 @@ jobs:
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
+      # Decoder selection, RAW9 colour and native dimensions (AuditRawAccuracyTests),
+      # against the same files.
+      #
+      # These were the only checks of AI-01 (which decoder Apple picked for the file, and
+      # the RAW9 colour boundary) and AI-15 (native size and the DELIVERED size across
+      # scale, draft and cache), and they read LUMEN_AUDIT_RAW_DIR, which nothing set. So
+      # on CI every one of them skipped, and `init` could go back to forcing
+      # `supportedDecoderVersions.last` with every lane green. Pointed at this corpus,
+      # the class reads `corpus.tsv` and leaves the two synthetic negatives to R-9.
+      #
+      # Its own step and its own `swift test`, so that a failure here and a failure in
+      # RawCorpusTests are told apart, and so the RAW corpus test above is not filtered
+      # into this run (LUMEN_RAW_CORPUS is not set here). `!cancelled()` rather than the
+      # default: a red RawCorpusTests must not hide this class's answer.
+      #
+      # The two RAW9 tests need an OS that offers RAW9 for the file. On a runner without
+      # it they report every file as `no-raw9` and then skip; the guard below prints that
+      # skip into the job summary instead of letting it pass silently.
+      - name: Decoder selection and native size, against the same photographs
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ env.CORPUS_DIR }}
+        run: |
+          set +e
+          swift test --filter AuditRawAccuracyTests 2>&1 | tee audit-raw.log
+          status=$?
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" audit-raw.log | tail -1
+          echo "=== failing tests ==="
+          grep -E ": error: -\[" audit-raw.log \
+            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -30
+          echo "=== first failures per test ==="
+          grep -E ": error: -\[" audit-raw.log | sed 's#/Users/runner/work/lumen/lumen/##' \
+            | sed 's/^.*error: //' \
+            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          exit $status
+
+      # The same guard for AuditRawAccuracyTests, per test, and stricter about skips.
+      #
+      # Every test reports one `audit-raw-file: <test> <file> <verdict>` line per corpus
+      # file it examined, refused files included. Each of the five must reach every
+      # positive manifest row (the negatives are not this class's). A test that SKIPPED
+      # reports nothing, so a skip fails here: an unset variable, a moved manifest or a
+      # renamed class all read as "reached 0 of 16".
+      #
+      # The three tests that need no RAW9 must not skip at all, and that is checked by
+      # name as well. The two RAW9 tests may skip only after reaching every file, which
+      # means no file on this runner offers RAW9; that skip goes into the job summary.
+      - name: The decoder checks must have SEEN the corpus, not skipped it
+        if: always()
+        shell: bash
+        run: |
+          expected=$(awk -F';' 'NF >= 7 && $1 != "" && $7 !~ /negative/' \
+            "$CORPUS_DIR/corpus.tsv" | wc -l | tr -d "[:space:]")
+          fail=0
+          {
+            echo
+            echo "### Decoder selection (AuditRawAccuracyTests)"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for t in unpinned native-dimensions pins raw9-preview raw9-native; do
+            seen=$(grep -cE "^audit-raw-file: $t " audit-raw.log 2>/dev/null || true)
+            seen=${seen:-0}
+            echo "$t: reached $seen of $expected corpus files"
+            echo "- \`$t\`: reached $seen of $expected files" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$seen" -lt "$expected" ]; then
+              echo "  $t reached $seen of $expected. A skipped check reads exactly like a passing one."
+              fail=1
+            fi
+          done
+          for name in testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile \
+                      testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache \
+                      testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault; do
+            if grep -qE "AuditRawAccuracyTests.${name}.{0,3} skipped" audit-raw.log 2>/dev/null; then
+              echo "$name SKIPPED. It needs no RAW9; a skip here is a broken lane."
+              fail=1
+            fi
+          done
+          for name in testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode \
+                      testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels; do
+            if grep -qE "AuditRawAccuracyTests.${name}.{0,3} skipped" audit-raw.log 2>/dev/null; then
+              echo "- \`$name\` **SKIPPED**: no corpus file offers RAW9 on this runner, so the RAW9 colour boundary was not exercised" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          # Whether a return to forcing `supportedDecoderVersions.last` is visible on
+          # this runner at all: it is only on files whose default is not their last.
+          notLast=$(grep -cE "^audit-raw-file: unpinned .*default-is-not-last" audit-raw.log 2>/dev/null || true)
+          echo "- files whose default decoder is not their last supported one: ${notLast:-0} of $expected" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo '```'
+            grep -E "^audit-raw-file: unpinned " audit-raw.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $fail
+
       # THE GUARD ON THE GUARD, and it is not optional.
       #
       # `ci.yml` names this trap about CSQLite3 in as many words: a green run that had
@@ -385,6 +500,7 @@ jobs:
           name: raw-corpus-evidence
           path: |
             corpus.log
+            audit-raw.log
             ${{ env.CORPUS_DIR }}/corpus.tsv
             ${{ env.CORPUS_DIR }}/evidence/
           if-no-files-found: warn

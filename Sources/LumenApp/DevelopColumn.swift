@@ -622,6 +622,11 @@ private struct WorkspaceSectionView: View {
         // scrolling column is a pile of floating tiles, and these are tiled edge to
         // edge — which is the case `Lumen.Elevation` names this step for.
         .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
+        // A NAMED GROUP, so VoiceOver hears "Tone" and then the controls inside it
+        // one by one, rather than the section as a run of words (UX-03). The name is
+        // `WorkspaceSection.title`, the same one `ControlIndex` files its controls under.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(section.title))
     }
 
     /// RESET BELONGS TO THE SECTION HEADER NOW, and the section is the column's idea of
@@ -747,9 +752,14 @@ private struct WorkspaceSectionBody: View {
 /// a row below is the duplication that was here before this was a takeover.
 struct MaskEditor: View {
     @ObservedObject var panel: PanelLayout
-    /// This surface shows the edit, so it observes the edit signal — `AppState.recipes`
-    /// is deliberately not published (see `EditRevision`).
-    @EnvironmentObject private var edits: EditRevision
+    // NO `EditRevision`, because this view reads no recipe: its body is `MaskPanel` and
+    // four paddings. It declared the object under the comment "this surface shows the
+    // edit" — true of `MaskPanel`, which observes for itself, and not of this wrapper.
+    // An `@EnvironmentObject` declaration subscribes whether or not it is read, and the
+    // signal is bumped once per mouse event of every drag, so the declaration bought a
+    // re-body of the takeover card per event and nothing else. Same mistake as the one
+    // `ContentView` was carrying, three orders of magnitude cheaper, and left in place
+    // it is precedent.
 
     var body: some View {
         MaskPanel(showsOwnHeader: false)

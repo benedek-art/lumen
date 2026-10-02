@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: ["**"]
@@ -40,6 +43,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Release safety policy and negative controls
+        run: ruby scripts/check-release-policy.rb
       - name: Toolchain
         run: swift --version && xcodebuild -version
       - name: Build — whole package including the app
@@ -80,9 +85,34 @@ jobs:
   # `engine-linux`. What only this lane sees is LumenPipeline: the real Core Image graph,
   # compiled and run against the f32 reference. If a rename makes a skip stop matching,
   # this lane gets slower and stays correct.
+  # THE CEILING IS 25 BECAUSE THE SUITE OUTGREW 15, and the failure mode hid that for
+  # three commits. A job that exceeds `timeout-minutes` is reported by GitHub with
+  # conclusion `cancelled`, not `failure` — so this lane read as "someone cancelled it"
+  # while it was actually being killed mid-run, and three landings went out with their
+  # macOS tests unverified.
+  #
+  # The measurement: the last completion was 02d9fdf at 14 m 49 s — eleven seconds of
+  # headroom. The tone half-split and the grade joint limiter then added their sweeps
+  # (30,240 settings and a 5x5x5 composed grid), and 69a4cbd, 4903db2 and 99c3727 each
+  # died at the wall, the last of them 15 m 09 s in, mid-`PinDockTests`, with zero
+  # failures in everything that had run.
+  #
+  # Raising it rather than skipping more: a timed-out job spends the full fifteen
+  # minutes of macOS runner time and returns nothing, so the ceiling was buying no
+  # minutes, only silence. The skip list above is the lever for cost, and it is still
+  # the lever — this number is only the point past which a run is presumed hung.
+  #
+  # 25 was that number, and then this lane went and approached it: 85c1645 passed in
+  # 24 m 21 s having passed in 16 m 48 s two commits earlier, on the same skip list and
+  # the same test count. That spread is the RUNNER, not the suite — and at 25 it means
+  # a slow runner is reported as `cancelled`, which reads as infrastructure rather than
+  # as a failure and is exactly how two real defects stayed hidden through four pushes.
+  # So the ceiling goes to 35: far enough above the slow end that only a genuine hang
+  # reaches it. The rule stands unchanged — if the FAST end of the spread ever climbs,
+  # the answer is another skip, not another raise.
   test-fast:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Everything except the slow whole-pipeline tests
@@ -125,7 +155,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Build Lumen.app
@@ -140,15 +170,51 @@ jobs:
           name: Lumen-app
           path: Lumen.app.zip
           retention-days: 30
+
+  # An update is not a test artifact. The complete optimized suite gates the
+  # updater, including GPU tests omitted from the fast lane. Failed, skipped or
+  # cancelled prerequisites leave the existing release alone.
+  release-validation:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Complete optimized suite, without the fast lane's exclusions
+        run: swift test -c release
+
+  publish-release:
+    needs: [app-bundle, build-macos, test-fast, fixtures-linux, engine-linux, release-validation]
+    if: success() && github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Lumen-app
+      - name: Refuse to publish anything but the current tip of main
+        # `cancel-in-progress` keeps two LIVE runs from racing, and nothing else here
+        # does: a manual "Re-run jobs" on an old, green main run passes every gate
+        # above with the old commit and would push it out as `dev-latest`. The updater
+        # then sees a "new" release whose build is older than the one installed copies
+        # already run. So the publisher asks the remote where main is NOW and refuses
+        # unless that is the commit this run built. An empty answer refuses too.
+        run: |
+          TIP=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ -z "$TIP" ] || [ "$TIP" != "$GITHUB_SHA" ]; then
+            echo "::error::This run built ${GITHUB_SHA}, but main is at ${TIP:-an unknown commit}. Refusing to publish an older build as dev-latest."
+            exit 1
+          fi
       - name: Publish the rolling dev release the in-app updater reads
         # One moving pre-release, `dev-latest`, holding the newest build of the
-        # working branch. The app's updater polls the PUBLIC releases API for it —
+        # validated main branch. The app's updater polls the PUBLIC releases API for it —
         # release assets need no auth on a public repo, unlike Actions artifacts,
         # which is the whole reason this exists. The body's `commit:` and `sha256:`
         # lines are the updater's contract; change either and the updater goes blind —
         # `sha256:` fails CLOSED, so a release published without it cannot install.
-        if: github.ref == 'refs/heads/claude/photo-editor-design-plan-8ahzmm'
-          || github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -211,6 +277,11 @@ jobs:
       # caught; a reopened hole fails this step even while the step above stays green.
       - name: Swift surface — the checker's own fixture suite
         run: python3 scripts/test-check-swift-surface.py
+
+      # Which verdict file speaks for a control when two carry the same id: the one
+      # named `<id>.json`, never whichever sorts first (V7 D9).
+      - name: Slider atlas generator — canonical verdict file wins
+        run: python3 scripts/test-gen-slider-atlas.py
 
 
   # The engine suite, on the lane that costs nothing. LumenCore is pure Swift — colour

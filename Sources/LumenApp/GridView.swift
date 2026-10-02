@@ -36,6 +36,9 @@ struct GridView: View {
 
     var body: some View {
         let photos = state.photos
+        // Read AFTER `photos`, whose getter is what bumps it: the pair has to describe
+        // one roll, or the prefetch memo is keyed on a revision its array is not (S-08).
+        let rollRevision = state.rollRevision
         let side = CGFloat(state.gridThumbnailSize)
         // Retina: ask for twice the point size, then let the loader snap to a cache level.
         let pixels = Int(side * 2)
@@ -57,6 +60,9 @@ struct GridView: View {
                                       // closure value on every pass rather than a
                                       // fresh identity per cell per body.
                                       onRate: state.ratingSink,
+                                      // A field read off the roll entry, not a lookup:
+                                      // this closure re-runs on every cull keystroke.
+                                      attention: photo.attention,
                                       loader: state.thumbnails)
                                 // ONE tap handler, not a count-2 gesture racing a
                                 // simultaneous count-1. See `handleCellClick` for the
@@ -80,7 +86,7 @@ struct GridView: View {
                     // The ROLL, not a fresh array of its URLs — see the `onChange`
                     // below for the keystroke this projection used to be paid on.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
-                                              in: photos, size: pixels,
+                                              in: photos, revision: rollRevision, size: pixels,
                                               surface: .grid)
                 }
                 .onChange(of: geometry.size.width) { _, width in
@@ -115,7 +121,7 @@ struct GridView: View {
                     // backed by was in effect being rebuilt twice per frame at 2,000
                     // frames and would be rebuilt twice as often again at 4,000. The
                     // loader reads only the window's own indices now.
-                    state.thumbnails.prefetch(around: id, in: photos,
+                    state.thumbnails.prefetch(around: id, in: photos, revision: rollRevision,
                                               size: pixels, surface: .grid)
                 }
             }
@@ -241,6 +247,10 @@ struct PhotoCell: View {
     /// The filmstrip passes nil: its cells are 96 points tall, and five click targets
     /// eleven points wide inside one of them is a dexterity test, not an affordance.
     let onRate: ((PhotoItem, Int) -> Void)?
+    /// The culling pass's evidence (docs/10 §10.2 "Attention dot"). Its own input rather
+    /// than read through `photo`, because `PhotoItem` compares by URL alone and a value
+    /// that changes without changing identity must be visible to the diff on its own.
+    let attention: CullingAttention?
     let loader: ThumbnailLoader
 
     @State private var image: CGImage? = nil
@@ -258,6 +268,7 @@ struct PhotoCell: View {
          isPrimary: Bool,
          showsCaption: Bool = true,
          onRate: ((PhotoItem, Int) -> Void)? = nil,
+         attention: CullingAttention? = nil,
          loader: ThumbnailLoader) {
         self.photo = photo
         self.side = side
@@ -266,13 +277,14 @@ struct PhotoCell: View {
         self.isPrimary = isPrimary
         self.showsCaption = showsCaption
         self.onRate = onRate
+        self.attention = attention
         self.loader = loader
     }
 
     private var wellHeight: CGFloat { showsCaption ? side * 0.76 : side }
 
     private var hasBadges: Bool {
-        photo.flag != .none || photo.rating > 0 || photo.label != .none
+        photo.flag != .unflagged || photo.rating > 0 || photo.label != nil
     }
 
     /// Hovering a rateable cell reveals the strip even on an untouched photo, so five
@@ -304,7 +316,7 @@ struct PhotoCell: View {
         }
         .frame(width: side)
         .contentShape(Rectangle())
-        .task(id: CellRequest(url: photo.id, pixels: pixels)) {
+        .task(id: CellRequest(url: photo.id, pixels: pixels, sourceIdentity: photo.sourceIdentity)) {
             await loadThumbnail()
         }
     }
@@ -318,7 +330,7 @@ struct PhotoCell: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     // A rejected frame reads as rejected without leaving the sheet.
-                    .opacity(photo.flag == .rejected ? 0.4 : 1)
+                    .opacity(photo.flag == .reject ? 0.4 : 1)
             }
         }
         // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
@@ -326,6 +338,9 @@ struct PhotoCell: View {
         .frame(width: side, height: wellHeight)
         .overlay(alignment: .bottom) {
             if hasBadges || showsStars { badges }
+        }
+        .overlay(alignment: .topTrailing) {
+            if let attention, attention.needsAttention { attentionDot(attention) }
         }
         .onHover { if onRate != nil { hovering = $0 } }
         .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusControl, style: .continuous))
@@ -337,16 +352,16 @@ struct PhotoCell: View {
 
     private var badges: some View {
         HStack(spacing: 3) {
-            if photo.flag != .none {
+            if photo.flag != .unflagged {
                 Image(systemName: photo.flag.symbolName)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(photo.flag == .picked ? Color.white : Lumen.secondaryText)
+                    .foregroundStyle(photo.flag == .pick ? Color.white : Lumen.secondaryText)
             }
             if showsStars { stars }
             Spacer(minLength: 0)
-            if photo.label != .none {
+            if let label = photo.label {
                 RoundedRectangle(cornerRadius: Lumen.swatchRadius(7))
-                    .fill(photo.label.color)
+                    .fill(label.color)
                     .frame(width: 12, height: 7)
             }
         }
@@ -354,6 +369,21 @@ struct PhotoCell: View {
         .padding(.vertical, 3)
         .frame(width: side)
         .background(Color.black.opacity(0.45))
+    }
+
+    /// One neutral dot, the size of a label chip's short side, top right — and
+    /// deliberately information-poor (docs/10 §10.2): no colour coding, no icon, no
+    /// count. It routes the eye; the number behind it is in the tooltip, and the set it
+    /// belongs to is one chip away in the filter bar. White with a dark ring so it reads
+    /// on a bright sky and a black frame alike.
+    private func attentionDot(_ attention: CullingAttention) -> some View {
+        Circle()
+            .fill(Color.white.opacity(0.9))
+            .overlay(Circle().strokeBorder(Lumen.hudFill, lineWidth: 1))
+            .frame(width: 7, height: 7)
+            .padding(5)
+            .help(attention.explanation)
+            .accessibilityLabel(attention.explanation)
     }
 
     private var stars: some View {
@@ -403,6 +433,7 @@ struct PhotoCell: View {
 private struct CellRequest: Equatable {
     let url: URL
     let pixels: Int
+    let sourceIdentity: SourceFileIdentity?
 }
 
 #endif

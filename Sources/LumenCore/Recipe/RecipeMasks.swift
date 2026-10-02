@@ -882,6 +882,10 @@ public enum BrushStrokes {
     /// stopped being asked for, so the export rasterized the reference empty and wrote
     /// the file with the retouch missing and no refusal, because the same filter that
     /// dropped the blob also dropped it from the refusal's roster.
+    ///
+    /// AND THE PAINTED HEAL STROKES, last: `develop.heal.strokesRef` is the same kind of
+    /// blob (`StrokeHeal`), rendered at S5, and a delivery without it is a frame with
+    /// its retouching silently missing — the failure this enum exists to refuse.
     public static func references(in recipe: Recipe) -> [String] {
         var out: [String] = []
         for mask in MaskDependency.contributing(in: recipe) {
@@ -891,7 +895,14 @@ public enum BrushStrokes {
                 out.append(ref)
             }
         }
+        if let ref = healReference(in: recipe), !out.contains(ref) { out.append(ref) }
         return out
+    }
+
+    /// The painted heal strokes' blob, or nil when the recipe has none.
+    public static func healReference(in recipe: Recipe) -> String? {
+        guard let ref = recipe.develop.heal.strokesRef, !ref.isEmpty else { return nil }
+        return ref
     }
 
     /// The references `isResolved` cannot account for, in the same order.
@@ -920,6 +931,14 @@ public enum BrushStrokes {
                       seen.insert(ref).inserted else { continue }
                 if !isResolved(component) { out.append(ref) }
             }
+        }
+        // The heal strokes' blob, asked through the same predicate as a brush component
+        // carrying that reference — the predicate reads only the reference, and one
+        // question per blob is the rule above.
+        if let ref = healReference(in: recipe), seen.insert(ref).inserted {
+            var carrier = MaskComponent(op: .add, kind: .brush)
+            carrier.strokesRef = ref
+            if !isResolved(carrier) { out.append(ref) }
         }
         return out
     }

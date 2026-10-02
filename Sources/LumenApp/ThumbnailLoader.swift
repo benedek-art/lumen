@@ -101,6 +101,13 @@ final class ThumbnailLoader: ObservableObject {
     private struct Key: Hashable, Sendable {
         let url: URL
         let pixels: Int
+        let sourceIdentity: SourceFileIdentity?
+
+        init(url: URL, pixels: Int) {
+            self.url = url
+            self.pixels = pixels
+            self.sourceIdentity = SourceFileIdentity.read(url)
+        }
     }
 
     private struct Entry {
@@ -218,15 +225,18 @@ final class ThumbnailLoader: ObservableObject {
     /// Fire-and-forget, and refusable: `record` drops the write under back pressure, so
     /// a settle never waits on an encoder and a cache miss costs a decode rather than a
     /// stall.
-    func recordDeveloped(url: URL, image: CGImage) {
-        guard let previews else { return }
+    @discardableResult
+    func recordDeveloped(url: URL, image: CGImage,
+                         identity: DevelopedPreviewIdentity) -> Task<Void, Never>? {
+        guard let previews else { return nil }
         let longEdge = max(image.width, image.height)
         guard let pixels = PreviewCache.pixelsFilled(byPayloadLongEdge: longEdge) else {
-            return
+            return nil
         }
-        Task { [weak self] in
+        return Task { [weak self] in
             guard self != nil,
-                  let plan = await previews.plan(for: url, pixels: pixels) else { return }
+                  let plan = await previews.developedPlan(for: url, pixels: pixels,
+                                                         identity: identity) else { return }
             previews.record(plan, image: image, source: .lumen)
         }
     }
@@ -317,9 +327,10 @@ final class ThumbnailLoader: ObservableObject {
     /// ~95 µs per keystroke of pure bookkeeping against an 8.3 ms frame budget, and it
     /// is linear in the size of the shoot. Only the window's own indices are read now,
     /// so the cost is a fixed eleven reads whatever the folder holds.
-    func prefetch(around anchor: URL?, in photos: [PhotoItem], size: Int,
-                  surface: PagingSurface) {
-        prefetch(around: anchor, count: photos.count, size: size, surface: surface) {
+    func prefetch(around anchor: URL?, in photos: [PhotoItem], revision: UInt64,
+                  size: Int, surface: PagingSurface) {
+        prefetch(around: anchor, count: photos.count, revision: revision, size: size,
+                 surface: surface) {
             photos[$0].id
         }
     }
@@ -329,9 +340,10 @@ final class ThumbnailLoader: ObservableObject {
     /// Kept because the loupe holds one; it shares the memo and the direction memory
     /// with the call above, which is what lets two views aim the same ring at the same
     /// cursor on one keystroke and pay for it once.
-    func prefetch(around anchor: URL?, in urls: [URL], size: Int,
+    func prefetch(around anchor: URL?, in urls: [URL], revision: UInt64, size: Int,
                   surface: PagingSurface) {
-        prefetch(around: anchor, count: urls.count, size: size, surface: surface) {
+        prefetch(around: anchor, count: urls.count, revision: revision, size: size,
+                 surface: surface) {
             urls[$0]
         }
     }
@@ -347,10 +359,14 @@ final class ThumbnailLoader: ObservableObject {
     /// Where the cursor sits comes from `RollCursor` rather than from a search, and the
     /// index it hands back is verified against `idAt` before it is used — see that type
     /// for why a memo nobody checks is a ring warmed around the wrong photograph.
-    private func prefetch(around anchor: URL?, count: Int, size: Int,
+    /// `revision` is the roll owner's (`AppState.rollRevision`): the memo is trusted
+    /// only for the roll it was built from, which the slot check alone cannot prove once
+    /// a URL appears twice (S-08).
+    private func prefetch(around anchor: URL?, count: Int, revision: UInt64, size: Int,
                           surface: PagingSurface, idAt: (Int) -> URL) {
         guard let anchor,
-              let index = roll.index(of: anchor, inRollOf: count, idAt: idAt) else {
+              let index = roll.index(of: anchor, inRollOf: count, revision: revision,
+                                     idAt: idAt) else {
             return
         }
         travelDirection = PrefetchRing.direction(from: lastAnchorIndex, to: index,
@@ -457,11 +473,12 @@ final class ThumbnailLoader: ObservableObject {
             // embedded-JPEG extraction out of a 40 MB original that does not happen.
             // Off the main actor by construction — this is the detached worker.
             let plan = await previews?.plan(for: key.url, pixels: key.pixels)
+            guard SourceFileIdentity.read(key.url) == key.sourceIdentity else { return nil }
             if let plan, let payload = plan.payload,
                let cached = PreviewStore.decodePayload(file: payload.file,
                                                        maxPixel: payload.pixels) {
                 previews?.served(payload, photoID: plan.photoID)
-                return cached
+                return SourceFileIdentity.read(key.url) == key.sourceIdentity ? cached : nil
             }
             if Task.isCancelled { return nil }
             guard let image = decodeEmbeddedThumbnail(url: key.url, maxPixel: key.pixels,
@@ -469,6 +486,7 @@ final class ThumbnailLoader: ObservableObject {
             else { return nil }
             // Filed asynchronously: the caller already has the photograph, and a
             // scrolling grid must not wait behind an encode.
+            guard SourceFileIdentity.read(key.url) == key.sourceIdentity else { return nil }
             if let plan { previews?.record(plan, image: image) }
             return image
         }
@@ -481,6 +499,7 @@ final class ThumbnailLoader: ObservableObject {
     }
 
     private func finish(_ key: Key, image: CGImage?) {
+        let image = SourceFileIdentity.read(key.url) == key.sourceIdentity ? image : nil
         active = max(0, active - 1)
         let job = jobs.removeValue(forKey: key)
         let wasCancelled = job?.task?.isCancelled ?? false

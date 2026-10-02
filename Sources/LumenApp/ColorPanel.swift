@@ -209,10 +209,18 @@ struct ColorPanel: View {
                                         set: { $0.develop.mixer.uniformity = $1 }),
                             range: 0...100, defaultValue: 0, step: 1, decimals: 0,
                             bipolar: false,
+                            // AI-08, interim: the engine evaluates this per pixel
+                            // (S9 is a colour table, so it cannot see a neighbourhood),
+                            // and the help says what that costs until a spatial local
+                            // mean reaches the stage. Measured: at 100, inputs at
+                            // 24°/29°/34° inside one band all leave at 29°.
                             help: "Gathers scattered hues in toward each band's own "
                                 + "centre — calms mottled colour like patchy skin or a "
                                 + "streaky sky. Works on all eight bands at once, "
-                                + "whatever is selected above.")
+                                + "whatever is selected above. For now it works pixel "
+                                + "by pixel, not on the neighbourhood: at 100 the hues "
+                                + "inside a band all land on one, so fine colour "
+                                + "texture flattens along with the blotches.")
             }
         }
     }
@@ -278,7 +286,7 @@ struct ColorPanel: View {
                          },
                          onResetArc: { resetArc(index) })
 
-            MixerBandRibbon(weights: ColorPanel.ribbonWeights(arcs),
+            MixerBandRibbon(weights: ColorPanel.ribbon(arcs),
                             colors: ColorPanel.bandSwatchColors,
                             selected: index,
                             allBands: allBands)
@@ -400,7 +408,12 @@ struct ColorPanel: View {
                     .background(
                         RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous)
                             .fill(pickIsArmed ? Lumen.fillColor.opacity(0.35) : Color.clear))
-                    .disabled(!pickIsArmed && swatches.count >= ColorPanel.maxSwatches)
+                    // Dead with no photograph, like the mixer's pill below (B3-09): the
+                    // pick resolves only on the loupe's photograph, so arming it with
+                    // none left "Click the colour to work on." on screen with nothing
+                    // to click. An ARMED button stays live — pressing it is the cancel.
+                    .disabled(!pickIsArmed && (swatches.count >= ColorPanel.maxSwatches
+                                               || state.primarySelection == nil))
                     .lumenClickCursor()
                     .help(pickHelp)
 
@@ -448,9 +461,17 @@ struct ColorPanel: View {
                                     + "the neighbours.")
                     LumenSlider(title: "Variance", value: pointBinding(index, .variance),
                                 range: -100...100, defaultValue: 0, step: 1, decimals: 0,
+                                // AI-08, interim: per pixel, like Even out hues —
+                                // at −100, inputs at 24°/29°/34° around a 29° swatch
+                                // all leave at 29°.
                                 help: "Negative gathers the nearby hues in toward the "
                                     + "swatch, evening them out; positive spreads them "
-                                    + "apart.")
+                                    + "apart. For now it works pixel by pixel, not on "
+                                    + "the neighbourhood: at −100 colours well inside "
+                                    + "its range take the swatch's hue and colourfulness "
+                                    + "and move halfway to its lightness, so fine colour "
+                                    + "texture flattens too; positive amplifies it, "
+                                    + "noise included.")
                 }
             }
         }
@@ -574,7 +595,8 @@ struct ColorPanel: View {
             state.cancelPick()
             return
         }
-        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches
+        guard state.currentRecipe.develop.pointColors.count < ColorPanel.maxSwatches,
+              state.primarySelection != nil
         else { return }
         state.beginPick(.newPointColor)
     }
@@ -700,7 +722,7 @@ struct ColorPanel: View {
                                     + ColorPanel.bandName(i).lowercased()
                                     + " prints in the black-and-white mix — up "
                                     + "lightens it, down darkens it, greys stay put. "
-                                    + "The classic moves: drop Blue for a dramatic "
+                                    + "The classic moves: drop Azure for a dramatic "
                                     + "sky, lift Red and Orange to open up skin.")
                 }
             }
@@ -754,15 +776,21 @@ struct ColorPanel: View {
     /// that "the spread between them is preserved".
     ///
     /// `GroupMove.allowed` stops the SET when the first member reaches the rail, so the
-    /// move is a rigid translation: every difference inside the set survives it exactly,
-    /// and dragging back restores the set bit for bit. The rule and its properties live
-    /// in LumenCore, where they are tested; the panel does not restate them.
+    /// move is a rigid translation: every difference inside the set survives it, and
+    /// dragging back restores the set — to round-off, with zero restored exactly so the
+    /// Reset dot clears (S-06). Both halves read the set through `GroupMove.legal`, so
+    /// the number shown and the set moved agree even for an out-of-range sidecar. The
+    /// rule and its properties live in LumenCore, where they are tested; the panel does
+    /// not restate them.
     private func mixerBinding(_ component: MixerComponent) -> Binding<Double> {
         Binding(
             get: {
                 let bands = ColorPanel.normalizedBands(state.currentRecipe.develop.mixer.bands)
                 if allBands {
-                    return GroupMove.mean(bands.map { component.value($0) })
+                    // The mean of the LEGAL set, which is where `moved` starts from —
+                    // so a sidecar band at 150 shows the value the drag will move.
+                    return GroupMove.mean(GroupMove.legal(bands.map { component.value($0) },
+                                                          lower: -100, upper: 100))
                 }
                 let i = min(max(selectedBand, 0), bands.count - 1)
                 return component.value(bands[i])
@@ -774,7 +802,8 @@ struct ColorPanel: View {
                 state.updateRecipe(coalescingKey: key) { recipe in
                     var bands = ColorPanel.normalizedBands(recipe.develop.mixer.bands)
                     if everything {
-                        let values = bands.map { component.value($0) }
+                        let values = GroupMove.legal(bands.map { component.value($0) },
+                                                     lower: -100, upper: 100)
                         let moved = GroupMove.moved(values,
                                                     by: newValue - GroupMove.mean(values),
                                                     lower: -100, upper: 100)
@@ -903,7 +932,7 @@ struct ColorPanel: View {
     /// The stops for one band's row, or nil for a neutral track.
     ///
     /// Nil in All-bands mode on purpose: the row then acts on every band at once, and a
-    /// track wearing Blue's colours while the drag also moves skin would be the panel
+    /// track wearing Azure's colours while the drag also moves skin would be the panel
     /// lying about scope. The bounds check is not defensive noise either — the tables
     /// are sized from the swatch list and the index comes from `ColorEngine.bandCount`,
     /// two constants that agree today and are declared in different modules.
@@ -1025,6 +1054,19 @@ struct ColorPanel: View {
         return out
     }
 
+    /// `ribbonWeights`, remembered against the arcs it was computed from (B3-04).
+    ///
+    /// Still a function of the live arcs — a handle move is a new key and recomputes —
+    /// but the panel re-bodies on EVERY mouse event of ANY slider drag in the column
+    /// (`EditRevision`), and the arcs move only when a ring handle does. Without this an
+    /// Exposure drag with the Colour section open paid 97 membership evaluations per
+    /// event to redraw a ribbon that had not changed.
+    static let ribbonMemo = LastValueMemo<[ColorEngine.BandArc], [[Double]]>()
+
+    static func ribbon(_ arcs: [ColorEngine.BandArc]) -> [[Double]] {
+        ribbonMemo.value(for: arcs, compute: ribbonWeights)
+    }
+
     /// Two finite values from a wire array that a decoded file could have made anything.
     static func pair(_ values: [Double], _ fallback: [Double]) -> [Double] {
         var out = fallback
@@ -1052,18 +1094,12 @@ struct ColorPanel: View {
     /// so that span was clipping even at 0.13 and now clips to the most saturated cyan
     /// the display has — which is the richest true answer available, and the per-channel
     /// saturate below is what keeps the clip from leaving the gamut rather than the hue.
+    /// Moved to `Lumen.hueColor` (LumenControls) so the grading wheel can paint from the
+    /// same colour system this ring does — see B2-02 there. Kept as a forwarder because
+    /// this type is where the ring's own call site reads best.
     static func hueColor(_ degrees: Double, L: Double = 0.72, C: Double = 0.16) -> Color {
-        let working = OKLabTransform.working.toRGB(OKLCh(L: L, C: C, h: degrees))
-        let display = ColorPanel.workingToSRGB.apply(working)
-        let encoded = TransferFunction.srgb.encode(RGB(Num.saturate(display.r),
-                                                       Num.saturate(display.g),
-                                                       Num.saturate(display.b)))
-        return Color(red: Num.saturate(encoded.r),
-                     green: Num.saturate(encoded.g),
-                     blue: Num.saturate(encoded.b))
+        Lumen.hueColor(degrees, L: L, C: C)
     }
-
-    static let workingToSRGB: Mat3 = ColorEngine.workingSpace.matrix(to: .srgb)
 
     /// The ring's wedge colours, computed once.
     ///
@@ -1263,6 +1299,14 @@ struct MixerHueRing: View {
                             grabbed = taken
                             handle = taken
                         }
+                        // A PRESS IS NOT A MOVE (B3-05). `minimumDistance: 0` delivers
+                        // the press itself as a change, and the first click of a
+                        // double-click has `clickCount` 1 — so it moved the grabbed
+                        // handle to the clicked angle, the second click reset the arc,
+                        // and one ⌘Z landed on an arc nobody made. Nothing is written
+                        // until the pointer has actually travelled.
+                        guard drag.translation.width != 0 || drag.translation.height != 0
+                        else { return }
                         sliderGestureChanged(true)
                         let dx = Double(drag.location.x - box / 2)
                         let dy = Double(drag.location.y - box / 2)

@@ -19,7 +19,7 @@ final class HistoryStack: ObservableObject {
     struct Culling: Equatable {
         var flag: PhotoFlag
         var rating: Int
-        var label: ColorLabel
+        var label: ColorLabel?
     }
 
     /// What one step can restore for one photo. Each field is optional because a step
@@ -463,16 +463,17 @@ extension HistoryStack {
         guard let after else { return nil }
         if before?.flag != after.flag {
             switch after.flag {
-            case .picked: return "Pick"
-            case .rejected: return "Reject"
-            case .none: return "Unflagged"
+            case .pick: return "Pick"
+            case .reject: return "Reject"
+            case .unflagged: return "Unflagged"
             }
         }
         if before?.rating != after.rating {
             return after.rating <= 0 ? "No stars"
                 : String(repeating: "★", count: after.rating)
         }
-        if before?.label != after.label { return after.label.displayName }
+        // "None" for a cleared label is the word the old six-case app enum spelled it.
+        if before?.label != after.label { return after.label?.displayName ?? "None" }
         return nil
     }
 }

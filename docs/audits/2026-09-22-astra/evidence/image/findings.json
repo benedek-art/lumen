@@ -1,0 +1,304 @@
+{
+  "commit": "99c37272b42c211a04262ceb98cfb39355d1ab99",
+  "environment": "macOS27 arm64, Swift6.4; native GPU probes explicitly outside restricted sandbox",
+  "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+  "findings": [
+    {
+      "id": "AI-01",
+      "severity": "P1",
+      "confidence": "reproduced",
+      "title": "Forced Apple RAW9 plus Lumen's wide-gamut working space turns all three supplied Sony RAWs cyan",
+      "location": "Sources/LumenPipeline/AppleRawSource.swift:75-80",
+      "trigger": "Fresh RAW with no recipe decoder version, on tested macOS 27 arm64. Apple chooses decoder 8; supported versions are [7,8,9]; Lumen forces 9.",
+      "effect": "The decoded buffer already loses red, before Lumen WB/tone/color/denoise. A7401502 direct flat v8 mean RGB [0.133833,0.133078,0.122484], v9 [0.033745,0.150265,0.113542]. Pixels with any nonpositive channel rise 0.0685%→43.56%. A7401654 rises 2.73%→74.27%; A7401693 0.261%→79.86%. Lumen WB matrix at default is identity; disabling denoise does not repair the cast.",
+      "blindSpot": "The fallback verifies outputImage is non-nil, not that pixels retain color. Synthetic render goldens cannot test camera decoder selection. Must compare actual RAW against Apple's per-file default, with rendered pixels.",
+      "workingSpaceIsolation": "On A7401502, RAW9 is healthy in default/linear-sRGB working space: common Rec2020 readback mean RGB [0.133965,0.138112,0.124154], nonpositive fraction 0.3312%. Linear-P3 yields [0.097522,0.142875,0.117251], 5.2712%; linear-Rec2020 yields [0.033745,0.150265,0.113542], 43.5558%. RAW8 is nearly invariant across the same contexts. Visually verified both RAW9 default and Rec2020 PNGs. This isolates a RAW9/custom-wide-working-space integration failure, not a blanket defect in RAW9.",
+      "history": "New environment/file-based reproduction at main. Do not generalize to all cameras/macOS versions. Apple's related RAW9/custom-working-space DNG report is a different camera and not proof of an identical underlying bug.",
+      "evidence": [
+        "RawProbe.swift",
+        "raw-all-results.txt",
+        "RawSpaceProbe.swift",
+        "raw-space-results.jsonl",
+        "raw-v9-working-default.png",
+        "raw-v9-working-linear-rec2020.png",
+        "apple-flat-v8.png",
+        "apple-flat-v9.png",
+        "A7401654-flat-v8.png",
+        "A7401654-flat-v9.png",
+        "A7401693-flat-v8.png",
+        "A7401693-flat-v9.png"
+      ],
+      "direction": "Respect and pin Apple's per-file default for fresh images; retain explicit recorded decoder choices and add these real-camera comparisons. If opting into RAW9, isolate its decode to a validated working space before conversion to Lumen's Rec2020 pipeline, with actual rendered-pixel checks.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-02",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Point Color picker and selection use different stages after mixer or primaries edits",
+      "location": "Sources/LumenCore/Engine/ColorEngine.swift:417-422; Sources/LumenPipeline/PipelineRenderer.swift:1991-2010; Sources/LumenPipeline/RenderGraph.swift:123-153",
+      "trigger": "Set Red Mixer Hue +100; pick that same red into Point Color; set Point Saturation −100.",
+      "effect": "At Range 0 the picked color retains C=0.1198007 of original C=.12; at default Range 50 retains C=.0426767. A target sampled after the mixer reaches C≈0. The picker taps before primaries/mixer, while swatches compare after them. Its maskSource option also skips presence and denoise despite claiming S3–S8 (presence consequence source-confirmed, not separately image-probed).",
+      "blindSpot": "Point-selection tests feed the engine an already matching sample with preceding controls neutral. They do not exercise the actual picker tap after an existing mixer/primaries edit.",
+      "history": "New extension of previously fixed pre-tone picker-domain issue; that older fix does not cover intra-color-stage ordering.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Define the sample/selection domain explicitly and sample through the stages that precede the selected swatch, or compare membership consistently in a stable source domain.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-03",
+      "severity": "P1",
+      "confidence": "reproduced",
+      "title": "Legal color edits lose substantial accuracy in both preview and export color tables",
+      "location": "Sources/LumenCore/Engine/RenderPlan.swift:214-221; Sources/LumenCore/Color/LUT.swift:27-49,161-162; Sources/LumenPipeline/Kernels.swift:1118-1123",
+      "trigger": "Aqua Mixer Luminance −100 on Rec2020 RGB [.3841336,.5959171,.6482891], with all other controls neutral.",
+      "effect": "Exact color stage remains positive [.106532,.205737,.232635], but 65-cube color stage returns [.202614,.348038,.384925]. Final exact [.127833,.220671,.249249] versus real GPU [.242881,.383300,.422760] at export size 65; max 37.13 encoded-code equivalents. Preview size33 differs by51.21. Global Saturation100 on another positive input gives real GPU65 max31.33 codes. These examples are not merely input-negative clipping; input and exact color-stage output remain positive.",
+      "blindSpot": "Existing tests pin aliveness/monotonicity or use broad tolerances and sparse patches; cube dimensions are fixed despite narrow chroma gates, hue windows, and skin protection. CPU referenceColor also samples a cube, so comparing GPU only to that reference does not validate the intended exact effect.",
+      "history": "Known negative-working-channel finish-domain gap independently remains; this reproduces a separate positive-input/positive-exact-output under-sampling failure inside the color-grade cube. General log-table architectural risk acknowledged, these quantitative settings re-probed at main.",
+      "evidence": [
+        "Probe.swift",
+        "FocusedProbe.swift",
+        "GPUColorProbe.swift",
+        "probe-results.jsonl",
+        "focused-results.jsonl",
+        "gpu-results.jsonl"
+      ],
+      "direction": "Validate exact intended color operations versus the actual GPU across narrow gates and boundaries; consider direct/adaptive stages or a denser/appropriate cube domain. Raising 33 to65 alone is not enough and can worsen an individual sample.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-04",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Luma curve black lift is discontinuous and makes neutral deep blacks purple on the GPU",
+      "location": "Sources/LumenCore/Engine/CurveStack.swift:290-294; Sources/LumenCore/Engine/DisplayTransform.swift:324-338",
+      "trigger": "Luma point curve [[0,.2],[1,1]] on black and very dark neutral pixels.",
+      "effect": "CurveStack.apply(black) stays black; input1e−7 jumps to .033105 linear, violating the plotted endpoint. Through actual GPU, neutral scene1e−8 should be neutral .033596 but becomes [.027359,.006368,.067010] at33 and [.048389,.011588,.117056] at65. The absent zero-luma branch plus existing display zero singularity creates a sharply varying cube field, and GPU trilinear interpolation pulls colored neighboring corners into grey.",
+      "blindSpot": "Tests check master endpoint pass-through and a no-clipping midtone hue case. They omit lifted luma endpoints at/near zero and neutral GPU equality under lifted black curves.",
+      "history": "New reproduced finding at main; exact-vs-table errors at this endpoint are much larger than generic float tolerance.",
+      "evidence": [
+        "Probe.swift",
+        "GPUColorProbe.swift",
+        "probe-results.jsonl",
+        "gpu-results.jsonl"
+      ],
+      "direction": "Define a continuous neutral-preserving zero-luma limit and add real GPU grey-ramp tests with raised luma black endpoints.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-05",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Point curve handles do not lie on the displayed composite trace when parametric edits are active",
+      "location": "Sources/LumenApp/CurveEditorView.swift:312,603-617,644-647; Sources/LumenCore/Engine/CurveStack.swift:231-235",
+      "trigger": "Parametric Lights50, then master point curve [[0,0],[.6,.7],[1,1]].",
+      "effect": "The handle is drawn at(.6,.7), but the displayed composed master trace atx=.6 is .756543; 16.96px separation in a300px plot. Lights100 raises discrepancy to32.03px. The UI draws parametric→point composition but handles/drag coordinates remain raw point-curve coordinates.",
+      "blindSpot": "Curve math tests exercise composition and point editing separately. None verifies that editable handles lie on the drawn trace with parametric controls active.",
+      "history": "New source-confirmed plus numeric reproduction at main; root can visually verify actual panel.",
+      "evidence": [
+        "SmallProbe.swift"
+      ],
+      "direction": "Display/edit the point curve in its own input domain or transform handles and hit-testing into the composite domain consistently.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-06",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "WB neutral picker cannot reach the full tint range accepted by the slider",
+      "location": "Sources/LumenCore/Engine/WhiteBalanceEngine.swift:167-168,183-194; Sources/LumenApp/BasicPanel.swift:278-279",
+      "trigger": "A grey sample whose neutralizing WB is5500K/Tint−250, a setting the manual control accepts.",
+      "effect": "The sample [.188355,.139596,.595352] has an exact permitted neutralization, but picker solves8474.6K/−150 and returns [.208774,.166850,.209656], C=.034829. Coarse search is ±150, local refinement only12 beyond that, and final return reclamps±150. At requested−180 it still leaves C=.011698.",
+      "blindSpot": "Neutral-pick grid in HuePreservationTests synthesizes a current WB then inverts that same current matrix, so it largely recovers original neutral. Cast test in EngineTests uses only3400K/Tint20; no full hard-range cast.",
+      "history": "New finding at main. Positive extreme tint has an intentional safety bound; the negative−250 reproduction avoids that separate limitation.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Search/refine the supported admissible tint domain and return the actual best admissible setting, or visibly disclose a narrower picker contract.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-07",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Zone exposure combinations silently flatten broad tonal intervals",
+      "location": "Sources/LumenCore/Engine/ToneEngine.swift:512-517,566-567; Sources/LumenApp/ZonesPanel.swift:135-141",
+      "trigger": "Default pivots, Darks +2EV or +4EV, other zone amounts0.",
+      "effect": "The monotonic prefix-max bake replaces decreasing requested response with a flat interval. Dark+2 measured1.813EV nearly flat; +4 measured3.894EV. The latter differs from requested mathematical response byup to2.204EV. Scene textures occupying that interval can collapse; the slider still reports a precise exposure amount and shows no limiting telemetry.",
+      "blindSpot": "Tone six-slider tests prove the separate eased shelf solve. They do not establish equivalent guarantees for Zones; exactColor/referenceColor call direct gain while shipped ReferenceRenderer uses the clamped toneGainLUT.",
+      "history": "Known open design/accuracy gap: docs24 tone item3 and audit ledger K-040. Reverified current code, not counted as newly discovered.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Use an explicit zone limiter with applied-value/flattening feedback, or signal destructive flattening before it silently changes the requested zone exposure.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-08",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Uniformity and Point Variance still operate without the texture-preserving local mean",
+      "location": "Sources/LumenCore/Engine/ColorEngine.swift:373-376,672-684; Sources/LumenCore/Engine/RenderPlan.swift:218",
+      "trigger": "Point Variance−100 on small hue texture around a chosen color; analogous Even out hues setting.",
+      "effect": "Three input hues24.23°,29.23°,34.23° all become29.23° in the shipping one-argument path. Supplying local mean at29.23° preserves the ±5° texture, demonstrating the unused seam. Shipping all-RGB LUT cannot carry a spatial mean.",
+      "blindSpot": "ColorScienceTests checks apply(localMean:) algebra but shipping callers only invoke apply(pixel). Passing that unit test does not establish texture preservation in the app.",
+      "history": "Known open COLOR-07/local-neighborhood limitation acknowledged in current source. Measured hue targets ARE wired now, so the older 'means not passed' claim is stale and must not be repeated.",
+      "evidence": [
+        "SmallProbe.swift"
+      ],
+      "direction": "Add a spatial correction path for those tools or present them as pixelwise color convergence with its texture tradeoff.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-09",
+      "severity": "P3",
+      "confidence": "reproduced",
+      "title": "Black target accepts values9–15 that render identically",
+      "location": "Sources/LumenApp/LookPanel.swift:1200-1207; Sources/LumenCore/Engine/DisplayTransform.swift:164-165",
+      "trigger": "Type12 or15 into Black target using its hard range0...15.",
+      "effect": "The initializer caps black at midGrey*.5=.09, so requests9,12,15 all resolve .09 and make identical output. The ordinary track stops9, but numeric entry permits another6 units without effect or an applied-value readout.",
+      "blindSpot": "Tests validate the transform's safety floor, not UI numeric hardRange agreement.",
+      "history": "Source-confirmed and direct-value reproduction at main, newly reported in this audit.",
+      "evidence": [
+        "FocusedProbe.swift",
+        "focused-results.jsonl"
+      ],
+      "direction": "Align entry bounds with the actual limit or display a bounded applied value.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-10",
+      "severity": "P3",
+      "confidence": "reproduced",
+      "title": "Geometric mixer band labels split common orange and green colors across neighboring controls",
+      "location": "Sources/LumenCore/Engine/ColorEngine.swift:95-115,560-597",
+      "trigger": "sRGB orange[1,.5,0] or puregreen[0,1,0], converted correctly to working Rec2020.",
+      "effect": "Orange maps49.70% Red/50.30% Orange; puregreen49.84% Yellow/50.16% Green. Label-based slider expectations therefore differ from what colors the eight equal-angleOKLCh sectors own; samecanonical partition drives B&W mix.",
+      "blindSpot": "Tests use band's mathematical centers to prove band authority. That cannot test whether named photographic colors belong primarily to the label users expect.",
+      "history": "Known open COLOR-01; reverified. Not a numerical defect in the partition: weights sum1, transitions are smooth, and the user can reshape extents.",
+      "evidence": [
+        "Probe.swift",
+        "probe-results.jsonl"
+      ],
+      "direction": "Choose/document perceptual band centers or make range selection and visual membership the primary interaction.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "partially mitigated: names Green/Blue become Mint/Azure, underlying geometry unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-11",
+      "severity": "P2",
+      "confidence": "source-confirmed",
+      "title": "Main still has an architecture-dependent raw-double hash test already corrected on the other branch",
+      "location": "Tests/LumenCoreTests/GradeJointLimiterTests.swift:242-295",
+      "trigger": "Native Apple Silicon baseline test.",
+      "effect": "Root observed hash5029306187037463546 versus Linux-derived12301920802024793674. The per-recipe exact jointScale1 and appliedBrilliance checks do not fail. FNV of raw Double bit patterns changes with platform libm/FMA despite equivalent math.",
+      "blindSpot": "The baseline oracle is a transcribed cross-platform hash rather than same-process semantic comparison.",
+      "history": "Known and fixed in1590e1f on origin/claude/photo-editor-design-plan-8ahzmm, which is not contained in audited main99c3727. Currentmain log last relevant change4903db2 retains old test. Historical correction independently confirms this failure class.",
+      "evidence": [
+        "root baseline run",
+        "git show1590e1f"
+      ],
+      "direction": "Bring the same-process comparison onto main; do not treat this hash-only failure as proof of a rendering regression.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "fixed in newer Claude branch; current-main finding",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-12",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "Basic Contrast clips highlights despite promising pinned endpoints",
+      "location": "Sources/LumenCore/Engine/ToneEngine.swift:491-502; Sources/LumenApp/BasicPanel.swift:483-488",
+      "trigger": "Contrast+100, otherwise neutral. Scene+3.5EV.",
+      "effect": "Tone maps+3.5EV→+5.6EV and display clips to1.0; atContrast0 that sample renders .902351linear. Contrast+50 already clips+4.5EV. Relaxation ends at±12EV rather than live displaywhite+5EV.",
+      "blindSpot": "Old endpoint tests use±12EV log-domain extremes, not the actual displayanchors; they prove the wrong endpoint.",
+      "history": "KnownA1-01, fixed on newerClaude branch by9bcac9f but not auditedmain.",
+      "evidence": [
+        "SmallProbe.swift",
+        "small-results.jsonl"
+      ],
+      "direction": "Use the existing branch's live-anchor contrast solve, then verify its authority/limiter tradeoffs.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "fixed in newer Claude branch; current-main finding",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-13",
+      "severity": "P3",
+      "confidence": "reproduced",
+      "title": "Wheel Luminance tooltip understates the actual scene exposure range by3x",
+      "location": "Sources/LumenApp/LumenControls.swift:1933-1935; Sources/LumenCore/Engine/GradeEngine.swift:233-246",
+      "trigger": "Global wheel Luminance±1 on neutral grey.",
+      "effect": "UI says up to half a stop each way. Actualneutral response is±1.5sceneEV because the0.5stop gain scales cube-root brightnessJ, then cubes back into light. Isolated globalwheel probes return±1.500000000000001EV.",
+      "blindSpot": "Engine explicitly documents the3x conversion, but UIhelp duplicates obsolete unit claim.",
+      "history": "Newly reported mismatch inthisaudit; remains latestClaude. Different from latestbranch's corrected wheel huepaint.",
+      "evidence": [
+        "SmallProbe.swift",
+        "small-results.jsonl"
+      ],
+      "direction": "Describe perceptualbrightness amount or give the actual scene-grey range; avoid calling it half a scene stop.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; relevant math/call sites unchanged",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    },
+    {
+      "id": "AI-14",
+      "severity": "P2",
+      "confidence": "source-confirmed",
+      "title": "Grading wheel painted hue and engine hue use different color systems on main",
+      "location": "Sources/LumenApp/LumenControls.swift:1982-1984; Sources/LumenCore/Engine/GradeEngine.swift:213-216",
+      "trigger": "Choose a tint by the color under the grading wheel puck.",
+      "effect": "Wheelpaint usesSwiftUIColor(hue:HSVangle,saturation:.72,brightness:.8); engine interprets sameangle asOKLab a/b angle. These hue circles differ, so selected orange/blue tint does not match the color under the cursor.",
+      "blindSpot": "Engine hue-angle tests do not compare the SwiftUIwheel paint to the engine's color space.",
+      "history": "KnownB2-02; fixed onlatestClaude bysharedOKLCh ringcolor conversion. Source-confirmed currentmain stilloldHSB paint. Historical29.6°mean/50.3°max measurement was not rerun here, so not treated as fresh measured evidence.",
+      "evidence": [
+        "gitdiff main..latest LumenControls.swift",
+        "current wheelColors definition"
+      ],
+      "direction": "Bring existingOKLCh huepaint implementation and itsagreement test to main.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "fixed in newer Claude branch; current-main finding",
+      "latestVerification": "Source diff only; latest binary not separately built. Relevant files identical except toneContrast (tested cases other thanAI-12 haveContrast0), ColorEnginebandnames, and GradeEnginetest-only defaultnil override."
+    }
+    ,{
+      "id": "AI-15",
+      "severity": "P2",
+      "confidence": "reproduced",
+      "title": "RAW9 changes mutable nativeSize after downscaled decode, breaking Lumen's preview scale contract",
+      "location": "Sources/LumenPipeline/AppleRawSource.swift:93-101,241; Sources/LumenPipeline/PipelineRenderer.swift:519-524,1918",
+      "trigger": "On supplied A7401502, choose automatic decoder9, decode at target512 using target/nativeLongEdge, then request target2560 repeatedly through AppleRawSource.",
+      "effect": "After a512pxdecode, nativeLongEdge changes7008→3504. Next2560target requests scale.73059 and gets5120px; next gets2560px/native3504; subsequent cache hits return5120px while native metadata stays3504. Twice the intended decode longedge means4x pixel area, plus incorrect native metadata for downstream consumers. No timing claim. Fresh scale1 and actual native exports remain4672x7008; this is NOT demonstrated export resolution loss.",
+      "blindSpot": "Synthetic sources expose stable native dimensions. RAW8/7 nativeSize stays7008x4672 through alltestedscale/draftstates. The source reads a mutable platform filter property instead of caching original image dimensions.",
+      "history": "New macOS27/RAW9 integration reproduction. Root masks observations triggered the check; direct decoder and actual AppleRawSource probes isolated it. All3files original ImageIO/EXIF dimensions7008x4672; fullresolution stillavailable.",
+      "evidence": ["RawSizeProbe.swift", "RawStateProbe.swift", "RawScaleOscillationProbe.swift", "RawSourceStateProbe.swift", "raw-size-results.json", "raw-state-results.json", "raw-scale-results.jsonl", "raw-source-state-results.jsonl"],
+      "direction": "Capture immutable original dimensions before scaled decode and use that invariant for native metadata and scale planning. Test source metadata after thumbnail, draft, settled and cached decodes, alongside explicit decoder versions.",
+      "latestBranch": "a6e694103a3676e059847ac48b82c0031281ea53",
+      "latestStatus": "persists by source comparison; AppleRawSource and PipelineRenderer unchanged",
+      "latestVerification": "Source diff only; newer branch not separately built. Original-size export confirmed by root's independent actual JPEG test."
+    }
+  ]
+}

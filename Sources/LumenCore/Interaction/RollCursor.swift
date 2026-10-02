@@ -23,9 +23,23 @@
 // against the roll it is about to be used on, in O(1), before it is returned: the roll
 // still has to be the length the map was built from, and the photograph still has to be
 // standing at the index the map remembers. Anything else rebuilds. The map is therefore
-// never trusted — it is consulted, checked, and used only when the roll itself agrees —
-// which is why this needs no change notification, no version stamp, and no cooperation
-// from the callers who mutate the roll.
+// never trusted — it is consulted, checked, and used only when the roll itself agrees.
+// That was meant to need no change notification and no version stamp; the next
+// paragraph is why it needs one after all.
+//
+// THE VERIFICATION ALONE WAS NOT ENOUGH, and the gap is duplicates (S-08). Checking
+// that the photograph still stands at the remembered index proves AN occurrence is
+// there, not that it is the FIRST: a roll `[a, b, c]` that becomes `[c, b, c]` keeps its
+// length and keeps `c` at 2, so the memo said 2 where `firstIndex(of:)` says 0 — and a
+// fresh cursor on the same roll said 0. The answer depended on the cursor's history.
+// No O(1) check over `count` and `idAt` can close that, because the slot that changed
+// is one the check has no reason to read. So the roll's owner now also hands over a
+// REVISION — any value it changes whenever the roll's contents change — and the memo is
+// trusted only for the revision it was built from. The slot verification stays as a
+// second guard, which is what keeps a distinct-identity roll answered correctly even by
+// an owner that forgets to bump. Ingress does not produce duplicates today (a folder
+// scan yields each file once; the catalog query yields each row once); this makes the
+// answer a function of the roll rather than of history if one ever arrives.
 //
 // A MISS ALWAYS REBUILDS, and that is the one asymmetry. "This photograph is not in the
 // roll" is the single answer that cannot be checked against the roll in constant time,
@@ -64,30 +78,37 @@ public struct RollCursor: Sendable {
     /// distinguishable from an empty roll.
     private var builtCount: Int = -1
 
+    /// The owner's revision `positions` was built from. Nil is "nothing built yet".
+    private var builtRevision: UInt64?
+
     public init() {}
 
     /// The index of `id` in a roll of `count` entries whose identity at index i is
-    /// `idAt(i)`, or nil when the roll does not contain it.
+    /// `idAt(i)`, or nil when the roll does not contain it — always `firstIndex(of:)`'s
+    /// answer, provided `revision` changes whenever the roll's contents do.
     ///
     /// `idAt` is called at most once on the fast path — for the verification — and
     /// `count` times when the map has to be rebuilt.
-    public mutating func index(of id: URL, inRollOf count: Int,
+    public mutating func index(of id: URL, inRollOf count: Int, revision: UInt64,
                                idAt: (Int) -> URL) -> Int? {
         guard count > 0 else {
             positions.removeAll(keepingCapacity: true)
             builtCount = count
+            builtRevision = revision
             return nil
         }
-        // The whole of the fast path: the roll is the length we indexed, we remember a
-        // position for this photograph, and the photograph is still standing there.
-        if builtCount == count, let memo = positions[id], memo < count, idAt(memo) == id {
+        // The whole of the fast path: the roll is the revision and the length we
+        // indexed, we remember a position for this photograph, and the photograph is
+        // still standing there.
+        if builtRevision == revision, builtCount == count,
+           let memo = positions[id], memo < count, idAt(memo) == id {
             return memo
         }
-        rebuild(count: count, idAt: idAt)
+        rebuild(count: count, revision: revision, idAt: idAt)
         return positions[id]
     }
 
-    private mutating func rebuild(count: Int, idAt: (Int) -> URL) {
+    private mutating func rebuild(count: Int, revision: UInt64, idAt: (Int) -> URL) {
         positions.removeAll(keepingCapacity: true)
         positions.reserveCapacity(count)
         for i in 0..<count {
@@ -95,6 +116,7 @@ public struct RollCursor: Sendable {
             if positions[id] == nil { positions[id] = i }
         }
         builtCount = count
+        builtRevision = revision
         rebuilds += 1
     }
 }

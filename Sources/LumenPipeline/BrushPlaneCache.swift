@@ -70,13 +70,10 @@
 // `DraftLadder.interactiveLongEdgeCeiling` is the line between a surface being dragged
 // on and a file being written, read from the ladder rather than restated.
 //
-// `MaskRasterCache` does NOT get the same treatment, and the asymmetry is deliberate
-// rather than an oversight: that cache trusts a key completely, and its key does not
-// name the masks a `maskRef` component resolves against, so holding its settle rung
-// would freeze a referenced selection at whatever the mask it points to last looked
-// like. This cache trusts nothing of the sort — the strokes are COMPARED, entry against
-// request, and the only trusted term is the picture fingerprint that already gates the
-// draft rung. See `MaskRasterCache`'s header for what has to be fixed there.
+// `MaskRasterCache` retains its smaller, proxy-only budget. Its keys now include the
+// full referenced selection, but extending its retention is a separate performance
+// decision. This cache also compares the actual strokes, entry against request, before
+// reusing a prefix; matching a component identity alone never makes a prefix valid.
 
 #if os(macOS)
 
@@ -108,6 +105,9 @@ final class BrushPlaneCache {
     private struct Entry {
         var strokes: [BrushStroke]
         var plane: Plane
+        /// `"-"` for a plane that is pure geometry; anything else means it sampled the
+        /// picture (Automask) and is only as good as the pixels it sampled.
+        var sourceKey: String
     }
 
     private let lock = NSLock()
@@ -189,8 +189,17 @@ final class BrushPlaneCache {
 
         let plane = MaskRaster.accumulatedBrushPlane(strokes: set, size: size,
                                                      source: source, resuming: resume)
-        store(key: key, strokes: set.strokes, plane: plane)
+        store(key: key, strokes: set.strokes, plane: plane, sourceKey: sourceKey)
         return plane
+    }
+
+    /// The sizes of every plane held, both rungs. Read by tests that need to know the
+    /// renderer painted at the size its fold runs at (`MaskRaster.brushFoldSize`).
+    func heldPlaneSizes() -> [(width: Int, height: Int)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return (entries + settled).map { (width: $0.entry.plane.width,
+                                          height: $0.entry.plane.height) }
     }
 
     func clear() {
@@ -200,8 +209,23 @@ final class BrushPlaneCache {
         lock.unlock()
     }
 
-    private func store(key: String, strokes: [BrushStroke], plane: Plane) {
-        let entry = Entry(strokes: strokes, plane: plane)
+    /// Drop every plane that sampled a picture, keep every plane that did not.
+    ///
+    /// What a source replacement actually invalidates. A brush without Automask is
+    /// geometry — the same strokes paint the same plane over any pixels — and it is the
+    /// expensive half of this cache (a cold 60-stroke repaint is ~8.5 s at a 2560 settle
+    /// on the measuring container, header above). `clear()` here used to run on every
+    /// source-cache miss, first opens and neighbour prefetch included, and threw that
+    /// work away for a photograph nobody had replaced.
+    func clearPictureDependent() {
+        lock.lock()
+        entries.removeAll { $0.entry.sourceKey != "-" }
+        settled.removeAll { $0.entry.sourceKey != "-" }
+        lock.unlock()
+    }
+
+    private func store(key: String, strokes: [BrushStroke], plane: Plane, sourceKey: String) {
+        let entry = Entry(strokes: strokes, plane: plane, sourceKey: sourceKey)
         let long = Swift.max(plane.width, plane.height)
         if long <= PipelineRenderer.maskRasterLongEdge {
             lock.lock()

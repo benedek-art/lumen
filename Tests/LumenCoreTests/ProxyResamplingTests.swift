@@ -88,4 +88,51 @@ final class ProxyResamplingTests: XCTestCase {
             }
         }
     }
+
+    /// THE RULE'S CALLERS, which `ProxyResamplingTests` never asked about: the type was
+    /// right and green while the compare pane still drew with the drawn-ratio predicate
+    /// it replaced (`r >= 1 ? .none : .high`, W2/H1-05) — every draft in `C` block-
+    /// upscaled while the loupe smoothed the same photograph.
+    ///
+    /// Read from the source with comments blanked (the fix's own explanation quotes the
+    /// old predicate). A computed `.interpolation(...)` — one whose argument chooses —
+    /// anywhere in the app must choose through `ProxyResampling`; fixed choices
+    /// (`.none` for the clipping rasters, `.medium` for scope plates) are not a rule
+    /// about a photograph and are left alone. Put the old line back in `CompareView` and
+    /// this names it.
+    func testEveryComputedInterpolationInTheAppGoesThroughTheRule() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let app = root.appendingPathComponent("Sources/LumenApp")
+        let files = try FileManager.default.contentsOfDirectory(atPath: app.path)
+            .filter { $0.hasSuffix(".swift") }
+        XCTAssertGreaterThan(files.count, 20, "the scan found no app sources")
+        var computed = 0
+        var offenders: [String] = []
+        for file in files {
+            let text = try String(contentsOf: app.appendingPathComponent(file),
+                                  encoding: .utf8)
+            for line in Self.code(text).components(separatedBy: "\n") {
+                guard let open = line.range(of: ".interpolation(") else { continue }
+                let argument = line[open.upperBound...]
+                let fixed = [".none)", ".low)", ".medium)", ".high)"]
+                    .contains { argument.hasPrefix($0) }
+                if fixed { continue }
+                computed += 1
+                if !argument.hasPrefix("resampling.swiftUIInterpolation") {
+                    offenders.append("\(file): \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(computed, 2,
+                                    "the loupe and the compare pane both choose; the scan "
+                                        + "saw \(computed)")
+        XCTAssertEqual(offenders, [],
+                       "a photograph plate choosing its resampling without ProxyResampling")
+    }
+
+    private static func code(_ source: String) -> String {
+        blankingComments(in: source)
+    }
 }

@@ -485,6 +485,7 @@ final class PreviewCacheStoreTests: XCTestCase {
         }
         let stale = try store.invalidatePreviews(photoID: 1, keeping: "xxh64:new")
         XCTAssertEqual(Set(stale.map(\.level)), [.fit, .oneToOne])
+        XCTAssertEqual(stale.count, 2, "a rung was returned twice")
         // Returned, not merely deleted: the caller has to unlink the payload files, and
         // a delete that told nobody would leak them forever.
         for row in stale {
@@ -492,6 +493,7 @@ final class PreviewCacheStoreTests: XCTestCase {
         }
         let left = try store.previews(photoID: 1)
         XCTAssertEqual(Set(left.map(\.level)), [.thumb, .grid])
+        XCTAssertEqual(left.count, 2, "a rung is stored twice")
         store.close()
     }
 
@@ -541,7 +543,7 @@ final class PreviewCacheStoreTests: XCTestCase {
         XCTAssertEqual(try store.pruneCache(maxBytes: 3_000).map(\.level), [.oneToOne])
         XCTAssertEqual(try store.pruneCache(maxBytes: 2_000).map(\.level), [.fit])
         XCTAssertEqual(try store.pruneCache(maxBytes: 1_000).map(\.level), [.grid])
-        XCTAssertEqual(Set(try store.previews(photoID: 1).map(\.level)), [.thumb])
+        XCTAssertEqual(try store.previews(photoID: 1).map(\.level), [.thumb])
         store.close()
     }
 
@@ -554,8 +556,8 @@ final class PreviewCacheStoreTests: XCTestCase {
         // 5,000 stored against a 2,000 budget: three rows have to go, the three oldest.
         let evicted = try store.pruneCache(maxBytes: 2_000)
         XCTAssertEqual(evicted.map(\.photoID), [1, 2, 3])
-        XCTAssertEqual(Set(try store.previews(photoID: 4).map(\.level)), [.fit])
-        XCTAssertEqual(Set(try store.previews(photoID: 5).map(\.level)), [.fit])
+        XCTAssertEqual(try store.previews(photoID: 4).map(\.level), [.fit])
+        XCTAssertEqual(try store.previews(photoID: 5).map(\.level), [.fit])
         store.close()
     }
 

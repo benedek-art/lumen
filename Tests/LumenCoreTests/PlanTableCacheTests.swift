@@ -68,11 +68,17 @@ final class PlanTableCacheTests: XCTestCase {
 
             XCTAssertEqual(viaCache.finishLUT, fresh.finishLUT,
                            "finishLUT came back stale after \(name)")
-            XCTAssertEqual(viaCache.colorGradeLUT, fresh.colorGradeLUT,
-                           "colorGradeLUT came back stale after \(name)")
+            XCTAssertEqual(viaCache.gradeLUT, fresh.gradeLUT,
+                           "gradeLUT came back stale after \(name)")
+            // The colour stage has no table and no cache (AI-03); it is in this list
+            // so a colour control still has to move SOMETHING the plan carries.
+            XCTAssertEqual(viaCache.colorStage, fresh.colorStage,
+                           "colorStage differs after \(name)")
             XCTAssertTrue(base.finishLUT != fresh.finishLUT
-                            || base.colorGradeLUT != fresh.colorGradeLUT,
-                          "\(name) moved neither table, so it cannot exercise the key")
+                            || base.gradeLUT != fresh.gradeLUT
+                            || base.colorStage != fresh.colorStage,
+                          "\(name) moved nothing the plan carries, so it cannot "
+                              + "exercise the key")
         }
     }
 
@@ -95,7 +101,21 @@ final class PlanTableCacheTests: XCTestCase {
                                 lutSize: 17)
 
         XCTAssertEqual(first.finishLUT, second.finishLUT)
-        XCTAssertEqual(first.colorGradeLUT, second.colorGradeLUT)
+        XCTAssertEqual(first.gradeLUT, second.gradeLUT)
+
+        // A COLOUR drag is now one of those too: the colour stage left the table
+        // (AI-03), so the grade table must not be invalidated by the Mixer, and a key
+        // that still carried the colour subtrees would rebake it on every event.
+        var mixed = recipe
+        mixed.develop.mixer.bands[2].sat = -70
+        mixed.develop.color.saturation = 40
+        let hits = PlanTableCache.traffic(.grade).hits
+        let third = RenderPlan(recipe: mixed, asShotKelvin: 5500, asShotTint: 0,
+                               lutSize: 17)
+        XCTAssertEqual(third.gradeLUT, first.gradeLUT)
+        XCTAssertGreaterThan(PlanTableCache.traffic(.grade).hits, hits,
+                             "a colour drag missed the grade table's cache")
+        XCTAssertNotEqual(third.colorStage, first.colorStage)
         // And the plan still carries the moved values, so nothing was over-cached.
         XCTAssertEqual(second.detail.texture, 62)
         XCTAssertEqual(second.vignetteEV, -0.8)
@@ -159,7 +179,7 @@ final class PlanTableCacheTests: XCTestCase {
         let b = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
                            lutSize: LUT3D.exportSize)
         XCTAssertEqual(a.finishLUT, b.finishLUT)
-        XCTAssertEqual(a.colorGradeLUT, b.colorGradeLUT)
+        XCTAssertEqual(a.gradeLUT, b.gradeLUT)
         XCTAssertEqual(a.finishLUT.size, LUT3D.exportSize)
     }
 
@@ -173,8 +193,8 @@ final class PlanTableCacheTests: XCTestCase {
                                      lutSize: LUT3D.interactiveSize)
         XCTAssertEqual(draft.finishLUT.size, 17)
         XCTAssertEqual(interactive.finishLUT.size, LUT3D.interactiveSize)
-        XCTAssertEqual(draft.colorGradeLUT.size, 17)
-        XCTAssertEqual(interactive.colorGradeLUT.size, LUT3D.interactiveSize)
+        XCTAssertEqual(draft.gradeLUT.size, 17)
+        XCTAssertEqual(interactive.gradeLUT.size, LUT3D.interactiveSize)
     }
 
     /// The HUD's counters (docs/23 M1b) count what actually happened: a cold key is

@@ -89,8 +89,9 @@ struct VerifiedCopyIngestDriver: IngestDriver {
         }
         var roots = [IngestDestinationRoot(url: request.primaryDestination, role: .primary)]
         if let backup = request.backupDestination {
-            guard backup.standardizedFileURL != request.primaryDestination.standardizedFileURL
-            else {
+            // Directory identity, not spelling (S-02): a backup chosen through a symlink
+            // or a second mount of the same share is the primary under another name.
+            guard !IngestLocation.sameDirectory(backup, request.primaryDestination) else {
                 return .refused("Nothing was copied: the backup destination is the primary "
                                 + "destination. A second copy has to be a second volume.")
             }
@@ -129,6 +130,10 @@ struct VerifiedCopyIngestDriver: IngestDriver {
 @MainActor
 struct IngestSheet: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
+    /// Reached the same way `ExportSheet` reaches it — a sheet inherits the presenting
+    /// view's environment. Needed for exactly one thing: opening the destination when
+    /// the copy finishes, so the sheet does not end by handing you back an empty state.
+    @EnvironmentObject var state: AppState
 
     let driver: any IngestDriver
 
@@ -150,8 +155,21 @@ struct IngestSheet: View {
     // Templates
     @State private var folderTemplate: String = "{year}/{date} {job}"
     @State private var renameEnabled: Bool = true
-    /// The template docs/10 §10.7 documents. It does not validate — see the file header.
-    @State private var renameTemplate: String = "{date}-{seq4}-{orig}"
+    /// THE TOKEN IS `{seq:4}`, NOT `{seq4}`, AND THAT ONE CHARACTER WAS THE FIRST THING
+    /// A PHOTOGRAPHER SAW.
+    ///
+    /// docs/10 §10.7 writes the example as `{seq4}`, `RenameTemplate` implements
+    /// `{seq:4}`, and this default was transcribed from the document rather than from the
+    /// parser. `templateProblems` is non-empty for an unknown token and `canStart` requires
+    /// it to be empty — so ⇧⌘I opened on a red validation error with Ingest disabled,
+    /// every time, on a finished and well-tested copy engine, until the photographer
+    /// noticed the Repair button.
+    ///
+    /// `Self.repaired` stays: it exists for anyone whose saved template still says
+    /// `{seq4}`, and it is what turned this from a wrong default into a recoverable one.
+    /// The spec is the thing that is now wrong, and it is wrong in a document rather than
+    /// in front of somebody trying to copy a card.
+    @State private var renameTemplate: String = "{date}-{seq:4}-{orig}"
     @State private var jobName: String = ""
 
     // Protocol
@@ -545,9 +563,13 @@ struct IngestSheet: View {
         if stopRequested { return "Stopping — the frame in flight is being discarded" }
         guard let progress = runProgress else { return "Starting…" }
         let name = progress.currentFile.map { " · " + $0 } ?? ""
+        // The bytes beside the bar are the bar's own measure — how far through the
+        // card — and a frame that failed says so here rather than only at the end
+        // (S-03): the bar fills on a finished run whether or not every frame landed.
+        let failed = progress.filesFailed > 0 ? " · \(progress.filesFailed) failed" : ""
         return "\(progress.filesCompleted) of \(progress.filesTotal) frames · "
-            + ingestByteString(progress.bytesCopied) + " of "
-            + ingestByteString(progress.bytesTotal) + name
+            + ingestByteString(progress.bytesProcessed) + " of "
+            + ingestByteString(progress.bytesTotal) + failed + name
     }
 
     private var canStart: Bool {
@@ -755,6 +777,25 @@ struct IngestSheet: View {
                 self.lastReport = report
                 self.statusLine = report.summary
                     + ingestEjectNote(report, wanted: ejectWanted, source: card)
+                // AND THEN SHOW THEM THE PHOTOGRAPHS. Without this the sheet finished by
+                // writing a sentence and stopping: you closed it onto the same empty
+                // state you started from, and had to navigate by hand to a folder the
+                // templates had just invented (`{year}/{date} {job}`) to see what you had
+                // copied. docs/10 §10.7 asks for the opposite — "the destination contact
+                // sheet opens immediately and populates as frames verify" — and while
+                // cull-while-copying is a larger piece of work, arriving at the roll when
+                // the copy finishes is the half of it that costs one line.
+                //
+                // Only when something actually landed: a run that copied nothing, or was
+                // stopped before its first frame, must not replace the roll on screen
+                // with an empty folder.
+                // `filesAttempted` rather than `allVerified`: a run where one frame of
+                // eight hundred failed its re-read still copied seven hundred and
+                // ninety-nine, and those are exactly the ones you want to look at. The
+                // failure is already named in the banner above.
+                if report.filesAttempted > 0 {
+                    state.openFolder(primary)
+                }
             }
         }
     }

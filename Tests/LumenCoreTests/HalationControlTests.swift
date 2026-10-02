@@ -187,4 +187,136 @@ final class HalationControlTests: XCTestCase {
                        "the recipe's Halo Redness is not reaching the profile the "
                            + "renderers build")
     }
+
+    // MARK: - The panel's capability predicate agrees with the engine
+
+    /// THE PANEL DISABLES ALL THREE ROWS ON ONE PREDICATE, `halationStrength != .zero`
+    /// (LookPanel `halationSupported`, Astra M14 / September C1-08). That is only honest
+    /// if, for every stock this build ships, the predicate is true exactly when some
+    /// Amount, Size and Redness reach pixels, and false exactly when none can. The
+    /// LumenApp test checks the predicate's text and two stocks; this sweeps the roster
+    /// through the accessor both renderers call, at every Redness end, so a stock whose
+    /// halo dies at Redness 100 (a zero red record) cannot sit behind an enabled row.
+    func testEveryStocksHalationRowsAreLiveExactlyWhenTheEngineCanGlow() {
+        for stock in FilmStock.all {
+            let supported = stock.halationStrength != .zero
+            for redness in [0.0, 50, 100] {
+                for size in [0.5, 1.0, 2.0] {
+                    var lab = FilmChain.defaultRecipe(for: stock)
+                    lab.halation = 100
+                    lab.halationSize = size
+                    lab.halationRedness = redness
+                    let chain = FilmChain(lab, displayWhite: 1.0)
+                    let profile = chain.halation(longEdgePixels: 3000)
+                    let reaches = chain.halationAmount > 0
+                        && profile.strengths.maxComponent > 0
+                    XCTAssertEqual(reaches, supported,
+                                   "\(stock.id) redness \(redness) size \(size): the panel "
+                                       + "says \(supported ? "enabled" : "disabled") but "
+                                       + "the engine \(reaches ? "glows" : "cannot glow")")
+                }
+            }
+        }
+        // Not vacuous: the roster carries both kinds.
+        XCTAssertTrue(FilmStock.all.contains { $0.halationStrength == .zero })
+        XCTAssertTrue(FilmStock.all.contains { $0.halationStrength != .zero })
+    }
+
+    // MARK: - Normalized bounce weights (N-006 / C1-09)
+
+    /// THE RENDERER APPLIES WEIGHTS THAT SUM TO ONE. `normalizedWeights` existed and
+    /// nothing called it: both renderers walked raw `decay^(k−1)`, so the field they
+    /// multiplied by `strength` was worth 1 + 0.5 + 0.25 = 1.75 units and a fourth
+    /// bounce would have raised every stock's glow with no stock edited.
+    ///
+    /// A FLAT field makes every blur the identity away from the border, so the glow the
+    /// reference adds at the centre is `strength · H(E) · Σ(applied weights)` exactly —
+    /// which measures the applied sum through `ReferenceRenderer.applyHalation` itself
+    /// rather than reading a property. With the raw walk substituted back the ratio
+    /// reads 1.75.
+    func testTheRendererAppliesBounceWeightsThatSumToOne() {
+        let film = FilmChain(FilmLab(stock: FilmStock.portra400.id, amount: 100,
+                                     halation: 100),
+                             filmExposure: 0, displayWhite: 1.0)
+        let profile = film.halation(longEdgePixels: 2215)
+        var sum = 0.0
+        for w in profile.normalizedWeights { sum += w }
+        XCTAssertEqual(profile.normalizedWeights.count, HalationProfile.bounceCount)
+        XCTAssertEqual(sum, 1.0, accuracy: 1e-15)
+
+        let level = 2.0
+        let side = 96
+        let source = ImageBuffer(width: side, height: side) { _, _ in RGB(gray: level) }
+        let out = ReferenceRenderer.applyHalation(source, film: film, longEdge: 2215)
+        let expected = profile.strengths.r * profile.highlightEnergy(RGB(gray: level)).r
+        let added = Double(out[side / 2, side / 2].r) - level
+        XCTAssertGreaterThan(expected, 0)
+        XCTAssertEqual(added / expected, 1.0, accuracy: 1e-4,
+                       "the reference applied bounce weights summing to \(added / expected), "
+                           + "not 1 — the raw `decay^(k−1)` walk is back")
+    }
+
+    /// AND THE CALIBRATION IS THE OLD RAW SUM, so normalizing moved no pixel.
+    ///
+    /// The legacy stage is rebuilt here from its parts — raw weights `decay^(k−1)`, the
+    /// uncalibrated `stock strength mixed toward red × Amount` — and run beside the
+    /// shipping one on a step edge whose bright side crosses the gate, at every stock
+    /// that glows, both Size ends and three Rednesses. `ImageBuffer` stores f32, and
+    /// the two orders of operation differ by a few f64 ULPs of the glow, so the
+    /// bound is half an f32 ULP at the frame's brightest value: the stored pixels are
+    /// required to be IDENTICAL, not close. Got wrong, the rescale shows as a 1.75×
+    /// glow or a 1/1.75× one.
+    func testNormalizingTheBouncesMovesNoPixel() {
+        let width = 384, height = 8
+        let frame = ImageBuffer(width: width, height: height) { u, _ in
+            RGB(gray: u < 0.5 ? 0.05 : 0.7)
+        }
+        var compared = 0
+        for stock in FilmStock.all where stock.halationStrength != .zero {
+            for (size, redness) in [(1.0, nil as Double?), (0.5, 0.0), (2.0, 100.0)] {
+                var lab = FilmChain.defaultRecipe(for: stock)
+                lab.halation = 100
+                lab.halationSize = size
+                lab.halationRedness = redness
+                let film = FilmChain(lab, displayWhite: 1.0)
+                let profile = film.halation(longEdgePixels: 6000)
+                let shipped = ReferenceRenderer.applyHalation(frame, film: film,
+                                                              longEdge: 6000)
+
+                // The stage as it was before N-006.
+                let base = stock.halationStrength
+                let red = Num.clamp((redness ?? stock.halationRedness) / 100.0, 0, 1)
+                let legacyStrength = base.mix(RGB(base.r, 0, 0), red) * 1.0
+                let energy = frame.map { profile.highlightEnergy($0) }
+                var glow = ImageBuffer(width: width, height: height)
+                var weight = 1.0
+                for sigma in profile.sigmasInPixels where sigma > 0 {
+                    let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
+                    for y in 0..<height {
+                        for x in 0..<width {
+                            glow[x, y] = glow[x, y] + blurred[x, y] * weight
+                        }
+                    }
+                    weight *= HalationProfile.bounceDecay
+                }
+                // Stored through an `ImageBuffer` exactly as the stage stores its own.
+                var legacy = frame
+                var worst = 0.0
+                for y in 0..<height {
+                    for x in 0..<width {
+                        legacy[x, y] = frame[x, y] + legacyStrength * glow[x, y]
+                        worst = Swift.max(worst,
+                                          shipped[x, y].maxAbsDifference(legacy[x, y]))
+                    }
+                }
+                XCTAssertLessThanOrEqual(
+                    worst, 0,
+                    "\(stock.id) size \(size) redness \(String(describing: redness)): "
+                        + "normalizing the bounces moved a pixel by \(worst) — the "
+                        + "calibration is not the old raw sum")
+                compared += 1
+            }
+        }
+        XCTAssertGreaterThanOrEqual(compared, 12, "the sweep compared nothing")
+    }
 }

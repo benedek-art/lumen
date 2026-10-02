@@ -281,6 +281,23 @@ def render_identity(tree):
     bw = out.get("look", {}).get("bw")
     if isinstance(bw, dict) and bw.get("enabled", True) is False:
         del out["look"]["bw"]
+    # A creative grain at Amount 0 is three numbers no pixel reads (Recipe.swift,
+    # `look.grain?.isIdentity`): removed, so a hand-edited `{"grain":{"size":90}}`
+    # fingerprints like no grain at all. `isIdentity` is `!(amount > 0)`.
+    grain = out.get("look", {}).get("grain")
+    if isinstance(grain, dict) and not (grain.get("amount", 0) > 0):
+        del out["look"]["grain"]
+    # `look.lut` IS RENDERED (CreativeLUTStage), so it is hashed — except what reaches
+    # no pixel: an empty ref, or Amount at or below zero, is removed (the same picture
+    # as no LUT), and a rendered LUT's `name` is blanked because it is a label. This is
+    # Recipe.renderIdentity's rule, clause for clause; the two halves move together
+    # (M-04). Absent keys read as LUTReference's decoder reads them: ref "", amount 100.
+    lut = out.get("look", {}).get("lut")
+    if isinstance(lut, dict):
+        if lut.get("ref", "") == "" or not (lut.get("amount", 100) > 0):
+            del out["look"]["lut"]
+        else:
+            lut["name"] = ""
     return out
 
 
@@ -520,6 +537,42 @@ def gen_canonical_fixture():
           "a switched-off B&W mix changed the render fingerprint")
     check(e_on_canon != e_off_canon,
           "turning the treatment off did not change the stored recipe")
+
+    # Case F: the LUT and grain clauses of the mirror (M-04). A creative grain at Amount
+    # 0 written by hand and a LUT at Amount 0 reach no pixel: each must serialize (the
+    # recipe keeps what the photographer's file carried) and each must fingerprint as
+    # the default recipe. A LUT that RENDERS must fingerprint differently from the
+    # default, and its name must not reach the fingerprint. Without the clauses above,
+    # Python and Swift disagree and the replay goes red.
+    f_lut = json.loads(json.dumps(defaults))
+    f_lut["look"]["lut"] = {"ref": "blob:xxh64:0123456789abcdef", "name": "Kodachrome",
+                            "tap": "display", "amount": 0}
+    f_lut_canon = canonical_recipe_json(f_lut, defaults)
+    cases.append({"name": "lutAtAmountZero", "canonical": f_lut_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(f_lut), defaults))})
+    f_grain = json.loads(json.dumps(defaults))
+    f_grain["look"]["grain"] = {"amount": 0, "size": 90, "roughness": 50}
+    f_grain_canon = canonical_recipe_json(f_grain, defaults)
+    cases.append({"name": "grainAtAmountZero", "canonical": f_grain_canon,
+                  "fingerprint": fp(canonical_recipe_json(render_identity(f_grain), defaults))})
+    for name, tree, canon in (("lut", f_lut, f_lut_canon), ("grain", f_grain, f_grain_canon)):
+        check('"%s"' % name in canon, f"the {name} key did not survive serialization: {canon}")
+        check(fp(canonical_recipe_json(render_identity(tree), defaults))
+              == fp(canonical_recipe_json(render_identity(defaults), defaults)),
+              f"a {name} no stage renders changed the render fingerprint")
+    f_lut_on = json.loads(json.dumps(defaults))
+    f_lut_on["look"]["lut"] = {"ref": "blob:xxh64:0123456789abcdef", "name": "Kodachrome",
+                               "tap": "display", "amount": 100}
+    f_lut_on_canon = canonical_recipe_json(f_lut_on, defaults)
+    f_lut_on_fp = fp(canonical_recipe_json(render_identity(f_lut_on), defaults))
+    cases.append({"name": "lutRenders", "canonical": f_lut_on_canon,
+                  "fingerprint": f_lut_on_fp})
+    check(f_lut_on_fp != fp(canonical_recipe_json(render_identity(defaults), defaults)),
+          "a LUT that renders fingerprinted as no LUT")
+    f_lut_renamed = json.loads(json.dumps(f_lut_on))
+    f_lut_renamed["look"]["lut"]["name"] = "Ektachrome"
+    check(fp(canonical_recipe_json(render_identity(f_lut_renamed), defaults)) == f_lut_on_fp,
+          "renaming a LUT changed the render fingerprint")
 
     write_fixture("canonical.json", {"cases": cases})
     write_fixture("default-recipe.json", DEFAULT_RECIPE, sort_keys=True)
@@ -1413,15 +1466,42 @@ def lum_sat_rolloff(brightness):
     return smoothstep(SAT_ROLLOFF_LO0, SAT_ROLLOFF_LO1, brightness) * taper
 
 
-CONTRAST_RELAX_START, CONTRAST_RELAX_END = 4.0, 12.0
+# A1-01. The relax window used to be two constants — 4 stops to 12 stops from the pivot
+# — while the thing that decides where a highlight clips is the DISPLAY ANCHOR, +5 EV by
+# default and as low as +3.5 under Whites +100. At contrast +100 the white anchor mapped
+# to +7.87 EV, so 1.875 stops of highlight and 3.037 stops of shadow flattened to one
+# value each, while the control's tooltip, docs/04 and a green test all said it could not.
+#
+# The reach is now the distance to the anchor on the side being mapped, and the slope
+# relaxes to exactly 1 there, so the anchor is a fixed point: d * 1 == d.
+#
+# Kept in step with `ToneEngine.contrastMapped` deliberately. This file is the
+# independent reference the `fixtures-linux` lane checks the Swift against, so the two
+# implementations agreeing is the evidence — which is exactly why a behaviour change has
+# to be made twice, by hand, in two languages.
+MIN_CONTRAST_REACH_EV = 1e-6
+# How far toward the anchor the full slope holds before the shoulder starts, as a
+# fraction of the reach. Bounded above by monotonicity: the derivative in u is
+# `slope + (1 - slope) * [S + u*S']`, whose bracket peaks at 2.2069 for a hold of 0.3,
+# and at contrast +100 (slope 1.6) the derivative `1.6 - 0.6*bracket` reaches zero just
+# past a hold of 0.44. See ToneEngine.contrastShoulderStart for the whole argument.
+CONTRAST_SHOULDER_START = 0.2
 
 
-def contrast_mapped(t, contrast, pivot=0.0):
+def contrast_mapped(t, contrast, pivot=0.0,
+                    white_anchor_ev=None, black_anchor_ev=None):
     if contrast == 0:
         return t
+    # Resolved at call time rather than as default arguments: these constants are
+    # defined further down this file than this function is.
+    hi = DEFAULT_WHITE_ANCHOR_EV if white_anchor_ev is None else white_anchor_ev
+    lo = DEFAULT_BLACK_ANCHOR_EV if black_anchor_ev is None else black_anchor_ev
     slope = 1 + 0.6 * (contrast / 100.0)
     d = t - pivot
-    relax = smoothstep(CONTRAST_RELAX_START, CONTRAST_RELAX_END, abs(d))
+    reach = (hi - pivot) if d >= 0 else (pivot - lo)
+    if reach <= MIN_CONTRAST_REACH_EV:
+        return t
+    relax = smoothstep(CONTRAST_SHOULDER_START, 1.0, abs(d) / reach)
     return pivot + d * (slope + (1 - slope) * relax)
 
 
@@ -2846,12 +2926,14 @@ class ToneEngine:
 
         t = t0
         p_fall, p_rise = parts(t)
-        p_fixed = contrast_mapped(t, self.contrast, self.pivot)
+        p_fixed = contrast_mapped(t, self.contrast, self.pivot,
+                                  self.white_anchor_ev, self.black_anchor_ev)
         limit = SEARCH_CEILING
         while t < t1:
             t = min(t + MONOTONE_STEP_EV, t1)
             fall, rise = parts(t)
-            fixed = contrast_mapped(t, self.contrast, self.pivot)
+            fixed = contrast_mapped(t, self.contrast, self.pivot,
+                                    self.white_anchor_ev, self.black_anchor_ev)
             d_fall = fall - p_fall
             if d_fall < 0:
                 slack = (fixed - p_fixed) + (rise - p_rise)
@@ -2899,7 +2981,8 @@ class ToneEngine:
 
     def stops(self, t):
         s = self._zonal_stops(t)   # already carries the solved amounts
-        s += contrast_mapped(t, self.contrast, self.pivot) - t
+        s += contrast_mapped(t, self.contrast, self.pivot,
+                         self.white_anchor_ev, self.black_anchor_ev) - t
         return s
 
     def gain(self, t):
@@ -3135,8 +3218,37 @@ def gen_tone_checks():
     check(bound > 0, "the independence sweep never bound the limiter, so it is back to "
                      "proving nothing")
 
-    # Positive contrast steepens the base slope, so nothing the four windows can ask for
-    # inverts it and the scale never binds at all.
+    # Contrast steepens the slope through the middle and eases it to 1 at the anchors
+    # (A1-01), so unlike the old fixed 4→12 stop window it does not prop the slope up
+    # across the whole scale. Out near an anchor the four windows can therefore ask for
+    # more than the slope has, and the limiter binds — which is the limiter doing its job
+    # rather than a regression: it solves for the LARGEST scale that keeps the composed
+    # map monotone, and the "as little as it can" probe below shows the response stops
+    # rising just above the limit it picked.
+    #
+    # What must hold is HOW MUCH it binds, and the honest way to state that is per case
+    # rather than as one floor over a corner sweep, because the two cases are read very
+    # differently by anyone holding a mouse.
+    #
+    # One tone control at its end, against contrast at its end: this is reachable — hard
+    # contrast with the highlights pulled back is an ordinary look — and it must still
+    # deliver most of its travel. The binding pairs are Highlights −100 against contrast
+    # +100 (0.8460) and Shadows +100 against contrast −100 (0.6192). Both sit above 0.60
+    # at ToneEngine.contrastShoulderStart = 0.2 and the second crosses it at about 0.225,
+    # so this floor is what stops the hold being raised for more contrast authority.
+    for contrast in (100.0, -100.0):
+        for name in ("highlights", "shadows", "whites", "blacks"):
+            for v in (-100.0, 100.0):
+                e = ToneEngine(contrast=contrast, **{name: v})
+                check(e.zonal_scale >= 0.60,
+                      f"{name} {v} against contrast {contrast} scaled to "
+                      f"{e.zonal_scale:.4f}: one tone control paired with contrast has "
+                      f"to keep most of its travel")
+
+    # All four windows pulling the same way at once with contrast pinned: not a setting
+    # so much as a corner, so the floor is lower — but it is a floor, in the way of a
+    # change that quietly halves these controls.
+    worst_scale = 1.0
     for contrast in (80.0, 100.0):
         for h in (-100.0, 0.0, 100.0):
             for sh in (-100.0, 0.0, 100.0):
@@ -3144,9 +3256,14 @@ def gen_tone_checks():
                     for b in (-100.0, 100.0):
                         e = ToneEngine(contrast=contrast, highlights=h, shadows=sh,
                                        whites=w, blacks=b)
-                        check(e.zonal_scale >= 1 - 1e-12,
+                        worst_scale = min(worst_scale, e.zonal_scale)
+                        check(e.zonal_scale >= 0.62,
                               f"contrast {contrast} h{h} s{sh} w{w} b{b} scaled to "
-                              f"{e.zonal_scale:.4f} with slope to spare")
+                              f"{e.zonal_scale:.4f}, past the floor the limiter is "
+                              f"allowed to take from these four controls")
+    check(worst_scale < 1 - 1e-12,
+          "the positive-contrast sweep never bound the limiter, so this floor is "
+          "proving nothing — if contrast stopped relaxing at the anchors, say so here")
 
     # Daily-use range: five sliders inside ±60 (±40 for the end points) is a strong edit,
     # and it is applied EXACTLY. Where it does bind, it is because contrast has been

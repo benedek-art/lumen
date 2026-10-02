@@ -42,7 +42,15 @@ import LumenCore
 
 enum DecodeMaterializer {
 
-    /// Above this, leave the decode lazy.
+    enum EvaluationSpace {
+        case pipeline
+        /// RAW9 must be evaluated here, then converted into the pipeline space.
+        /// This is a colour-correctness boundary, not merely a cache optimization.
+        case raw9LinearSRGB
+    }
+
+    /// Above this, decline the allocation. Ordinary decoders may stay lazy; a
+    /// required RAW9 colour boundary must fail instead.
     ///
     /// This was `DraftLadder.interactiveLongEdgeCeiling` (4096) under the claim that
     /// every size that REPEATS sits at or below it — and the claim died the day the
@@ -101,11 +109,34 @@ enum DecodeMaterializer {
         return CIContext(options: options)
     }()
 
-    /// `image`'s pixels and what they weigh, or nil if it should stay lazy.
+    /// RAW9/custom-wide-working-space decoding is not colour-correct on the
+    /// qualification OS/corpus. Evaluate its graph in extended-linear sRGB; render
+    /// to the same extended-linear Rec2020 buffer/tag used by every other decoder.
+    /// Float intermediates match the independent platform oracle. Only the final
+    /// cache plane is half-float, preserving signed values and highlight headroom.
+    private static let raw9Context: CIContext? = {
+        guard let linearSRGB = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+        else { return nil }
+        return CIContext(options: [
+            .workingColorSpace: linearSRGB,
+            .workingFormat: CIFormat.RGBAf,
+            .cacheIntermediates: false,
+        ])
+    }()
+
+    /// `image`'s pixels and what they weigh, or nil when the boundary cannot be made.
     ///
-    /// Returning nil is never an error: a decode that cannot be materialized is still a
-    /// correct decode, just an expensive one, and the caller keeps the lazy image.
-    static func materialize(_ image: CIImage) -> (image: CIImage, bytes: Int)? {
+    /// Ordinary decoders may remain lazy on nil. A RAW9 caller MUST fail closed:
+    /// its unevaluated image is not safe to hand to the pipeline's working context.
+    static func materialize(_ image: CIImage, evaluatingIn evaluation: EvaluationSpace = .pipeline)
+        -> (image: CIImage, bytes: Int)? {
+        let renderContext: CIContext
+        switch evaluation {
+        case .pipeline: renderContext = context
+        case .raw9LinearSRGB:
+            guard let raw9Context else { return nil }
+            renderContext = raw9Context
+        }
         let extent = image.extent
         guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
               Swift.max(extent.width, extent.height) <= CGFloat(longEdgeLimit),
@@ -136,7 +167,20 @@ enum DecodeMaterializer {
               let buffer = created
         else { return nil }
 
-        context.render(image, to: buffer, bounds: extent, colorSpace: working)
+        let destination = CIRenderDestination(pixelBuffer: buffer)
+        destination.colorSpace = working
+        destination.isClamped = false
+        do {
+            // `from` is in source coordinates; `at` is in the zero-origin buffer.
+            // Passing a nonzero source extent as the buffer's render bounds kept
+            // the metadata but wrote no pixels when that rectangle missed it.
+            let task = try renderContext.startTask(toRender: image, from: extent,
+                                                   to: destination, at: .zero)
+            _ = try task.waitUntilCompleted()
+        } catch {
+            // A required colour boundary is not established by a failed GPU task.
+            return nil
+        }
         // Named explicitly on the way back in too, or Core Image assumes sRGB for a
         // pixel buffer and every value is re-interpreted through the wrong transfer
         // function — a silent colour shift on every photograph in the app.

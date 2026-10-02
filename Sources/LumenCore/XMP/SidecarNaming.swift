@@ -58,6 +58,49 @@ public enum SidecarNaming {
         return photo.appendingPathExtension("xmp")
     }
 
+    /// The sidecar for a photograph, given what is already on disk. Ownership decides.
+    ///
+    /// - Parameters:
+    ///   - bare: the parsed `NAME.xmp`, nil when absent or unreadable.
+    ///   - qualified: the parsed `NAME.EXT.xmp`, nil when absent or unreadable.
+    ///
+    /// The order matters, and the first rule is the one that was missing. darktable
+    /// writes `NAME.EXT.xmp` beside every RAW it opens. A lone NEF whose Lumen edits
+    /// live in `NAME.xmp` (owner `nef`) used to switch to darktable's file the moment
+    /// it appeared, because "a qualified file exists" was tested before ownership.
+    /// From then on Lumen read and spliced into darktable's document, and the portable
+    /// copy of its own edits was orphaned. So:
+    ///
+    /// 1. A bare file Lumen wrote for THIS extension is this photo's. Nothing displaces it.
+    /// 2. A qualified file Lumen wrote for this photo is honoured: once a frame has moved
+    ///    to its qualified file, removing its neighbour does not move it back. A qualified
+    ///    file with no owner tag but Lumen content is an older Lumen write; its name
+    ///    already carries the extension.
+    /// 3. A bare file owned by another extension is somebody else's: qualified.
+    /// 4. Otherwise the September (K-015) rules, unchanged: an unowned Lumen document in a
+    ///    collision cannot be assigned by Adobe's convention, and the rest is
+    ///    `url(for:isRaw:rawSiblingExtensions:)`. A foreign qualified file (darktable's)
+    ///    plays no part.
+    public static func resolve(photo: URL, isRaw: Bool,
+                               bare: SidecarContent?, qualified: SidecarContent?,
+                               rawSiblingExtensions: Set<String>) -> URL {
+        let qualifiedURL = photo.appendingPathExtension("xmp")
+        guard isRaw else { return qualifiedURL }
+        let own = photo.pathExtension.lowercased()
+        let bareURL = photo.deletingPathExtension().appendingPathExtension("xmp")
+        if bare?.sourceExtension?.lowercased() == own { return bareURL }
+        if let qualified, isLumenDocument(qualified, ownedBy: own) { return qualifiedURL }
+        if bare?.sourceExtension != nil { return qualifiedURL }
+        if !rawSiblingExtensions.isEmpty, let bare,
+           bare.recipeJSON != nil || bare.writeStamp != nil { return qualifiedURL }
+        return url(for: photo, isRaw: true, rawSiblingExtensions: rawSiblingExtensions)
+    }
+
+    private static func isLumenDocument(_ content: SidecarContent, ownedBy own: String) -> Bool {
+        if let owner = content.sourceExtension { return owner.lowercased() == own }
+        return content.recipeJSON != nil || content.writeStamp != nil
+    }
+
     /// The sibling set for `photo`, from a directory listing.
     ///
     /// Separated from `url(for:…)` so the pure rule can be tested against a hand-built

@@ -21,13 +21,19 @@ public enum ReferenceRenderer {
         public var strokeSets: [String: BrushStrokeSet]
         public var aiMattes: [String: Plane]
         public var grainSeed: UInt64
+        /// Where `look.lut`'s cube is read from. The shared shelf by default, which is
+        /// the one the app attaches its blob store to and the one the GPU graph reads,
+        /// so a fallback render finds the same cube the graph did.
+        public var luts: CreativeLUTLibrary
 
         public init(strokeSets: [String: BrushStrokeSet] = [:],
                     aiMattes: [String: Plane] = [:],
-                    grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed) {
+                    grainSeed: UInt64 = FilmGrainProfile.defaultPlateSeed,
+                    luts: CreativeLUTLibrary = .shared) {
             self.strokeSets = strokeSets
             self.aiMattes = aiMattes
             self.grainSeed = grainSeed
+            self.luts = luts
         }
     }
 
@@ -37,6 +43,24 @@ public enum ReferenceRenderer {
                               space: RGBColorSpace = .rec2020) -> ImageBuffer {
         var image = input
         let longEdge = Swift.max(image.width, image.height)
+
+        // S5 — retouch: heal and clone spots, on the scene-linear decode, so every
+        // stage below sees the retouched picture (docs/14 §2.1 rule 3). The input has
+        // been through S3 upstream of this call, which is where S5 sits. Guarded on the
+        // list rather than left to `apply`'s loop so a recipe without spots does not
+        // even pass through it.
+        let spots = plan.recipe.develop.heal.spots
+        if !spots.isEmpty {
+            image = SpotRetouch.apply(image, spots: spots)
+        }
+        // Then the painted heal strokes, in draw order (`StrokeHeal`), resolved through
+        // the same stroke sets the brush masks read. Spots first, strokes second, on
+        // both renderers: a fixed order so a stroke can borrow from a spotted patch.
+        let healStrokes = StrokeHeal.strokes(for: plan.recipe.develop.heal,
+                                             strokeSets: inputs.strokeSets)
+        if !healStrokes.isEmpty {
+            image = StrokeHeal.apply(image, strokes: healStrokes)
+        }
 
         // S6 — the fused linear matrix.
         if !plan.linear.isIdentity {
@@ -63,9 +87,12 @@ public enum ReferenceRenderer {
             image = DetailEngine.apply(image, detail: detail, decomposition: node)
         }
 
-        // S9 + S10 — colour and grade.
-        if !plan.colorGradeIsIdentity {
-            let lut = plan.colorGradeLUT
+        // S9 — colour, exactly: the twin of the GPU's colour kernels, on the same
+        // Float32 uniforms (AI-03). Never a table.
+        image = plan.colorStage.apply(to: image)
+        // S10 — the grade, through its table.
+        if !plan.gradeIsIdentity {
+            let lut = plan.gradeLUT
             image = image.map { LumenLog.decode(lut.sample(LumenLog.encode($0))) }
         }
 
@@ -115,6 +142,18 @@ public enum ReferenceRenderer {
             image = applyHalation(image, film: film, longEdge: longEdge)
         }
 
+        // The creative LUT, resolved once for both of its taps. Nil — no LUT, Amount 0,
+        // or bytes this machine does not hold — skips both positions outright, which is
+        // what keeps every recipe without one on exactly the code it ran before.
+        let creativeLUT = CreativeLUTStage(reference: plan.recipe.look.lut,
+                                           library: inputs.luts)
+
+        // Log-interpreted LUT: the last scene-referred stage, on the fixed `LumenLog`
+        // encoding, so the transform below forms the picture from its output.
+        if let lut = creativeLUT, lut.tap == .log {
+            image = image.map(lut.apply)
+        }
+
         // S14 + S15 — picture formation and the curve. The table ends in
         // display-linear, so this stage encodes going in and does not decode coming
         // out; the graph's `throughShaperToDisplay` is the same asymmetry.
@@ -139,6 +178,13 @@ public enum ReferenceRenderer {
         // output lives.
         if !alphas.isEmpty {
             image = applyLocalCurves(image, alphas: alphas, plan: plan, space: space)
+        }
+
+        // Display-interpreted LUT (docs/14 §2.3): S15, on the formed picture, after the
+        // local curve tap and before the grain — the grain is laid down after the
+        // export's resize, so this is the one position preview and export share.
+        if let lut = creativeLUT, lut.tap == .display {
+            image = image.map(lut.apply)
         }
 
         // Grain lives inside picture formation, in the density domain.
@@ -254,7 +300,11 @@ public enum ReferenceRenderer {
                 for x in 0..<out.width {
                     let a = Num.saturate(alpha[x, y])
                     if a > 0 {
-                        out[x, y] = out[x, y].mix(curve.apply(out[x, y]), a)
+                        let base = out[x, y]
+                        let curved = curve.apply(base)
+                        let blended = MaskAlgebra.blended(base: base, adjusted: curved,
+                                                          blend: mask.blend, space: space)
+                        out[x, y] = base.mix(blended, a)
                     }
                 }
             }
@@ -280,19 +330,27 @@ public enum ReferenceRenderer {
         return c.mix(target * luminance / targetLuminance, Num.saturate(strength))
     }
 
-    /// A mask's sub-recipe is a delta over the global parameters, evaluated with the
-    /// same engines the global path uses — never a parallel implementation.
-    static func applyLocalAdjust(_ image: ImageBuffer, mask: Mask, plan: RenderPlan,
-                                 space: RGBColorSpace) -> ImageBuffer {
-        let scale = Num.clamp(mask.amount, 0, 200) / 100.0
-        let a = mask.adjust
-        let tone = ToneEngine(tone: Tone(exposure: a.exposure * scale,
+    /// The front of a mask's colour sub-recipe: everything a mask's Point Colour swatch
+    /// sees before it compares — exposure, the local tone curve, the local white
+    /// balance — and the colour engine the swatches live in. One construction, read by
+    /// `applyLocalAdjust` (the render) and `localSelectionInput` (the picker), so the
+    /// picker cannot drift from what the render compares.
+    struct LocalColourFront {
+        let tone: ToneEngine
+        let exposureGain: Double
+        let balance: LocalWhiteBalance
+        let color: ColorEngine
+
+        init(mask: Mask, plan: RenderPlan, space: RGBColorSpace) {
+            let scale = Num.clamp(mask.amount, 0, 200) / 100.0
+            let a = mask.adjust
+            tone = ToneEngine(tone: Tone(exposure: a.exposure * scale,
                                          contrast: a.contrast * scale,
                                          highlights: a.highlights * scale,
                                          shadows: a.shadows * scale,
                                          whites: a.whites * scale,
                                          blacks: a.blacks * scale))
-        let color = ColorEngine(mixer: Mixer(),
+            color = ColorEngine(mixer: Mixer(),
                                 pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
                                 // Density and protectSkin inherited from the global
                                 // colour panel — see `ColorAdjust.local` for why an
@@ -302,12 +360,55 @@ public enum ReferenceRenderer {
                                               saturation: a.sat * scale,
                                               inheriting: plan.recipe.develop.color),
                                 primaries: Primaries(), bw: nil)
-        let exposureGain = tone.exposureGain
-        let hueShift = a.hue * scale
-        let context = OKLabTransform.working
-        let balance = LocalWhiteBalance.resolve(a, amount: scale,
+            exposureGain = tone.exposureGain
+            balance = LocalWhiteBalance.resolve(a, amount: scale,
                                                 balanced: plan.balancedNeutral,
                                                 space: space)
+        }
+
+        /// Exposure, tone and white balance: the colour stage's input inside the mask.
+        func colourStageInput(_ pixel: RGB, space: RGBColorSpace) -> RGB {
+            var c = pixel * exposureGain
+            if !tone.isIdentity {
+                let lum = Swift.max(space.luminance(c), 0)
+                c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+            }
+            return balance.apply(c)
+        }
+    }
+
+    /// What a mask's Point Colour swatch `swatchIndex` (the next index when adding one)
+    /// actually compares, given the mask stage's input `c` — the value the mask's
+    /// eyedropper has to store.
+    ///
+    /// The global picker's AI-02 gap, inside a mask: the mask picker stored the mask
+    /// stage INPUT (`sampleMaskStageInput`) while the swatch is judged after the mask's
+    /// own exposure, tone and white balance and after every earlier swatch of the same
+    /// mask, so a swatch picked in a mask carrying a Temp or Exposure move sat off the
+    /// colour that was clicked. Same sequence `applyLocalAdjust` runs, stopped at the
+    /// swatch: `LocalColourFront`, then `ColorEngine.selectionInput`.
+    public static func localSelectionInput(_ c: RGB, mask: Mask, plan: RenderPlan,
+                                           swatchIndex: Int,
+                                           space: RGBColorSpace = .rec2020) -> RGB {
+        guard c.isFinite else { return c }
+        let front = LocalColourFront(mask: mask, plan: plan, space: space)
+        return front.color.selectionInput(front.colourStageInput(c, space: space),
+                                          for: .pointColor(index: swatchIndex))
+    }
+
+    /// A mask's sub-recipe is a delta over the global parameters, evaluated with the
+    /// same engines the global path uses — never a parallel implementation.
+    static func applyLocalAdjust(_ image: ImageBuffer, mask: Mask, plan: RenderPlan,
+                                 space: RGBColorSpace) -> ImageBuffer {
+        let scale = Num.clamp(mask.amount, 0, 200) / 100.0
+        let a = mask.adjust
+        let front = LocalColourFront(mask: mask, plan: plan, space: space)
+        // The exact stage's twin, not `color.apply`: the GPU's `LocalPlan` runs this
+        // mask's colour stage through the same kernels as the global one, and the CPU
+        // path runs their twin, so the two paths execute one implementation (AI-03).
+        let colorStage = front.color.exactStage
+        let hueShift = a.hue * scale
+        let context = OKLabTransform.working
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
         // Local grading wheels (D29), the same engine the global grade uses. Kept in
@@ -327,13 +428,8 @@ public enum ReferenceRenderer {
                           blackAnchorEV: plan.tone.blackAnchorEV)
 
         var out = image.map { pixel in
-            var c = pixel * exposureGain
-            if !tone.isIdentity {
-                let lum = Swift.max(space.luminance(c), 0)
-                c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            }
-            c = balance.apply(c)
-            c = color.apply(c)
+            var c = front.colourStageInput(pixel, space: space)
+            c = colorStage.apply(c)
             if hueShift != 0 {
                 var lch = context.toLCh(c)
                 lch.h = Num.wrapHue(lch.h + hueShift)
@@ -354,16 +450,18 @@ public enum ReferenceRenderer {
         // caller composites the result through the mask's alpha — the same shape the
         // colour half already had, and the reason a masked Clarity does not need its
         // own cropped decomposition.
-        let texture = a.texture * scale
-        let clarity = a.clarity * scale
+        let texture = DetailEngine.scaledPresenceAmount(a.texture, strength: scale)
+        let clarity = DetailEngine.scaledPresenceAmount(a.clarity, strength: scale)
         let dehaze = a.dehaze * scale
         let sharpness = a.sharpness * scale
         if texture != 0 || clarity != 0 || dehaze != 0 || sharpness != 0 {
             let radius = Swift.max(Int(Double(Swift.max(out.width, out.height)) * 0.02), 3)
             let node = DetailEngine.Decomposition(image: out, workingRadius: radius,
                                                   space: space)
-            out = DetailEngine.applyTexture(out, amount: texture, decomposition: node)
-            out = DetailEngine.applyClarity(out, amount: clarity, decomposition: node)
+            out = DetailEngine.applyTexture(out, amount: a.texture, strength: scale,
+                                           decomposition: node)
+            out = DetailEngine.applyClarity(out, amount: a.clarity, strength: scale,
+                                           decomposition: node)
             out = DetailEngine.applyDehaze(out, amount: dehaze, decomposition: node)
             if sharpness > 0 {
                 out = DetailEngine.applySharpen(
@@ -373,7 +471,11 @@ public enum ReferenceRenderer {
                 // Negative Sharpness is a blur, which `applySharpen` refuses by
                 // contract (it clamps amount at 0). A small Gaussian is what the
                 // control means.
-                let sigma = Num.clamp(-sharpness / 100, 0, 1) * 2.5
+                // Preserve the 2.5 px maximum at the same 2560 px reference as
+                // positive sharpening. A fixed render-pixel blur fades on export.
+                let sigma = SpatialOps.frameDenominatedSigma(
+                    radius: Num.clamp(-sharpness / 100, 0, 1) * 2.5,
+                    longEdge: Swift.max(out.width, out.height))
                 out = SpatialOps.gaussianBlur(out, sigma: sigma)
             }
         }
@@ -479,9 +581,12 @@ public enum ReferenceRenderer {
 
         let energy = image.map { profile.highlightEnergy($0) }
         var glow = ImageBuffer(width: image.width, height: image.height)
-        var weight = 1.0
         var contributed = false
-        for sigma in profile.sigmasInPixels where sigma > 0 {
+        // The raw dyadic SHAPE, with the normalization in `combine`'s `fieldGain`
+        // (N-006): the glow is `strength` times a unit-sum field, and the f32 field
+        // accumulates exactly as it always has.
+        for (sigma, weight) in zip(profile.sigmasInPixels, profile.weights)
+        where sigma > 0 {
             let blurred = SpatialOps.gaussianBlur(energy, sigma: sigma)
             for y in 0..<glow.height {
                 for x in 0..<glow.width {
@@ -489,7 +594,6 @@ public enum ReferenceRenderer {
                 }
             }
             contributed = true
-            weight *= profile.decay
         }
         guard contributed else { return image }
 

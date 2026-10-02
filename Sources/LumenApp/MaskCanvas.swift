@@ -166,6 +166,10 @@ struct MaskCanvas: View {
     /// because a turn computed against a value the previous event wrote compounds.
     @State private var originRotation: Double = 0
     @State private var livePoints: [BrushPoint] = []
+    /// Where a stroke that began as a press on another mask's pin actually started.
+    /// The events before the press travelled were the pin's, so the stroke has to be
+    /// told its first point rather than starting where the candidate was resolved.
+    @State private var strokeSeed: CGPoint? = nil
     @State private var strokeStarted: Date? = nil
     @State private var hover: CGPoint? = nil
     /// Whether Option was down when this stroke began. See `dragBrush`.
@@ -286,6 +290,9 @@ struct MaskCanvas: View {
         // handles, so it appears exactly where a press does something specific,
         // including the rotate band that has no ink of its own.
         .lumenClickCursor(hoverIsOnANamedHandle)
+        // WHAT of the canvas answers the pointer, which is not the same question as
+        // WHETHER it does (`isLive`). See `hitAreaPins` — this is the F1-06 fix.
+        .contentShape(MaskCanvasHitArea(pins: hitAreaPins, radius: MaskCanvas.pinGrab))
         .allowsHitTesting(isLive)
         .help(helpText)
     }
@@ -332,9 +339,9 @@ struct MaskCanvas: View {
         pinPositions().contains { $0.id != maskID && !$0.docked }
     }
 
-    private var isLive: Bool {
-        guard imageRect.width > 1, imageRect.height > 1 else { return false }
-        if hasForeignPins { return true }
+    /// Whether the SELECTED component is one this canvas edits by direct manipulation —
+    /// the case where the whole frame is a target, because you draw anywhere on it.
+    private var hasOwnDrawableTarget: Bool {
         guard let component = component else { return false }
         switch component.kind {
         case .linear, .similarityLine, .radial, .brush, .polygon: return true
@@ -344,6 +351,30 @@ struct MaskCanvas: View {
         case .similarity: return !(component.points ?? []).isEmpty
         default: return false
         }
+    }
+
+    private var isLive: Bool {
+        guard imageRect.width > 1, imageRect.height > 1 else { return false }
+        return hasOwnDrawableTarget || hasForeignPins
+    }
+
+    /// The discs this canvas answers a press on, or nil when the whole frame answers.
+    ///
+    /// F1-06: `isLive` goes true for somebody ELSE's pin, correctly — a pin you can
+    /// press is a target. But the canvas is the size of the photograph and a pin is an
+    /// 11 pt disc, so hit-testing ALL of it meant one enabled mask parked anywhere made
+    /// every pan, every double-click and every scroll over the entire picture disappear
+    /// into an overlay that had nothing to do with them. The viewer felt dead in exactly
+    /// the conditions a mask is worked in.
+    ///
+    /// With a drawable component of its own the whole frame really is the target. With
+    /// only foreign pins, the target is the pins — and the photograph underneath answers
+    /// everything else, which is what it was doing before a pin appeared on it.
+    private var hitAreaPins: [CGPoint]? {
+        guard !hasOwnDrawableTarget else { return nil }
+        return pinPositions()
+            .filter { $0.id != maskID && !$0.docked }
+            .map { $0.point }
     }
 
     private var helpText: String {
@@ -476,7 +507,18 @@ struct MaskCanvas: View {
                     mode = .pin(id)
                     return
                 }
-                if case .pin = mode { return }
+                if case .pin = mode {
+                    // A CANDIDATE for a brush or a lasso, not a verdict (F1-05): once
+                    // the press travels, it is the stroke it looks like, begun where the
+                    // hand went down. Everything else keeps the press-wins rule.
+                    guard let component,
+                          MaskHandles.pinYieldsToStroke(kind: component.kind,
+                                                        from: value.startLocation,
+                                                        to: value.location)
+                    else { return }
+                    mode = .idle
+                    strokeSeed = value.startLocation
+                }
                 guard let component = component else { return }
                 // THE POINTER'S POSITION DURING A DRAG, which `onContinuousHover` does
                 // not report. Its tracking area answers `mouseMoved`, and AppKit stops
@@ -496,7 +538,8 @@ struct MaskCanvas: View {
                 case .radial:
                     dragRadial(value, component, ended: false)
                 case .brush:
-                    dragBrush(value, ended: false)
+                    dragBrush(value, ended: false, seed: strokeSeed)
+                    strokeSeed = nil
                 case .similarity:
                     dragPoint(value, component, ended: false)
                 case .polygon:
@@ -507,10 +550,20 @@ struct MaskCanvas: View {
             }
             .onEnded { value in
                 if case .pin(let id) = mode {
-                    mode = .idle
-                    pointGrab = nil
-                    selectMask(id)
-                    return
+                    // The candidate's last chance: a release can be the first event
+                    // that reports the travel.
+                    if let component,
+                       MaskHandles.pinYieldsToStroke(kind: component.kind,
+                                                     from: value.startLocation,
+                                                     to: value.location) {
+                        mode = .idle
+                        strokeSeed = value.startLocation
+                    } else {
+                        mode = .idle
+                        pointGrab = nil
+                        selectMask(id)
+                        return
+                    }
                 }
                 defer { sliderGestureChanged(false) }
                 guard let component = component else { return }
@@ -520,7 +573,8 @@ struct MaskCanvas: View {
                 case .radial:
                     dragRadial(value, component, ended: true)
                 case .brush:
-                    dragBrush(value, ended: true)
+                    dragBrush(value, ended: true, seed: strokeSeed)
+                    strokeSeed = nil
                 case .similarity:
                     dragPoint(value, component, ended: true)
                 case .polygon:
@@ -1071,15 +1125,25 @@ struct MaskCanvas: View {
                                       rotation: rotation)
             let local = localVector(from: nextCentre, to: value.location,
                                     rotation: rotation)
-            if grab == .resizeMajor {
-                let moved = abs(local.x) - abs(atPress.x)
-                nextRadii[0] = MaskCanvas.radius(nextRadii[0] + moved)
-            } else {
-                let moved = abs(local.y) - abs(atPress.y)
-                nextRadii[1] = MaskCanvas.radius(nextRadii[1] + moved)
-            }
-            if isShiftDown {
-                nextRadii = roundedRadii(nextRadii, drivenByX: grab == .resizeMajor)
+            // ⇧ keeps the ellipse's own ratio and ⌥ holds the opposite rim — LR's two
+            // resize modifiers, in `MaskHandles.resizedRadii` (F1-04). ⇧ used to snap
+            // to a circle here, which is ⇧'s meaning on CREATE and still is there.
+            let axis = grab == .resizeMajor ? 0 : 1
+            let moved = axis == 0 ? abs(local.x) - abs(atPress.x)
+                                  : abs(local.y) - abs(atPress.y)
+            let resized = MaskHandles.resizedRadii(
+                nextRadii, axis: axis, moved: moved,
+                side: axis == 0 ? atPress.x : atPress.y,
+                keepAspect: isShiftDown, fromOppositeRim: isOptionDown,
+                clamp: MaskCanvas.radius)
+            nextRadii = resized.radii
+            if resized.centreShift != 0 {
+                let size = sourcePixels
+                let d = MaskRaster.radialOffset(
+                    axis == 0 ? (x: resized.centreShift, y: 0) : (x: 0, y: resized.centreShift),
+                    rotation: rotation, width: size.w, height: size.h)
+                nextCentre = [MaskCanvas.coord(nextCentre[0] + d.x),
+                              MaskCanvas.coord(nextCentre[1] + d.y)]
             }
         case .create:
             // Only reached when the press landed clear of the ellipse, or with ⌘ down.
@@ -1229,7 +1293,7 @@ struct MaskCanvas: View {
         }
     }
 
-    private func dragBrush(_ value: DragGesture.Value, ended: Bool) {
+    private func dragBrush(_ value: DragGesture.Value, ended: Bool, seed: CGPoint? = nil) {
         // The whole stroke accumulates locally; nothing reaches the recipe until mouse-up,
         // so a stroke is one undo step and a mouse-moved event is not a recipe write.
         let isNew = mode != .brush
@@ -1276,6 +1340,15 @@ struct MaskCanvas: View {
             eraseHeld = Self.optionHeld()
         }
         var smoother = stabilizer ?? BrushStabilizer(strength: brush.stabilize)
+        // A stroke that began on another mask's pin starts where the hand went down,
+        // not where it was when the press stopped being a pin press (F1-05).
+        if isNew, let seed {
+            let s = normalized(seed)
+            if let first = smoother.next(x: Double(s.x), y: Double(s.y)) {
+                points.append(BrushPoint(x: first.x, y: first.y,
+                                         pressure: Self.currentPressure(), t: 0))
+            }
+        }
         let moved = ended ? (smoother.finish(x: Double(n.x), y: Double(n.y))
                                 ?? smoother.next(x: Double(n.x), y: Double(n.y)))
                           : smoother.next(x: Double(n.x), y: Double(n.y))
@@ -2074,6 +2147,31 @@ struct MaskCanvas: View {
                 recipe.masks[m].components[index].strokesRef = ref
             }
         }
+    }
+}
+
+/// The part of `MaskCanvas` that answers a press.
+///
+/// Nil pins means the whole rectangle: the canvas has a shape of its own being edited,
+/// and you draw anywhere on the picture. A pin list means those discs and nothing else
+/// — the canvas is live only as a signpost to other masks, and a signpost must not
+/// swallow the pan, the double-click and the scroll of everything around it (F1-06).
+///
+/// An empty list is a path with no area, which hit-tests nothing. That state is
+/// unreachable — `isLive` is false with neither a drawable component nor a pin, and the
+/// canvas is not hit-tested at all — but it is the right answer if it is ever reached.
+struct MaskCanvasHitArea: Shape {
+    let pins: [CGPoint]?
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        guard let pins else { return Path(rect) }
+        var path = Path()
+        for point in pins {
+            path.addEllipse(in: CGRect(x: point.x - radius, y: point.y - radius,
+                                       width: radius * 2, height: radius * 2))
+        }
+        return path
     }
 }
 

@@ -292,6 +292,16 @@ extension CropGeometry {
         return (c.w * usable.width) / h
     }
 
+    /// Whether a crop is the whole usable frame — what the ratio menu's "Original" writes.
+    ///
+    /// The menu has to recognise the RECTANGLE here, not its ratio (KG-05): on a
+    /// straightened photograph the whole usable frame is not the camera's ratio (3000 ×
+    /// 2000 at 5° is 1.626:1), so "Original" read itself back as "1.626" the moment it
+    /// was picked.
+    public static func isWholeFrame(_ crop: Crop) -> Bool {
+        normalized(crop) == Crop()
+    }
+
     /// The crop a ratio menu should write: `aspect` in pixels, centred, as large as fits.
     public static func centred(aspect: Double, sourceWidth: Double, sourceHeight: Double,
                                degrees: Double) -> Crop {
@@ -473,8 +483,21 @@ extension CropGeometry {
         // each axis on its own is exactly how the aspect — and any ratio lock riding on
         // it — would break.
         let scale = Swift.min(1, after.width / w, after.height / h)
-        let w2 = w * scale
-        let h2 = h * scale
+        var w2 = w * scale
+        var h2 = h * scale
+        // AND THE FLOOR IS RATIO-PRESERVING, for the reason `shrinkIntoFrame` states
+        // (KG-04). A crop at the minimum size carried to an angle whose usable frame is
+        // LARGER becomes a smaller fraction of it, and `normalized` below floors each
+        // axis on its own — a 2.13:1 crop at the floor at 10° came back to 0° as 1.65:1.
+        // Lifted here on one factor, capped where the frame cannot hold the shape, so
+        // `normalized` has nothing left to floor.
+        let lift = Swift.max(minimumCropFraction * after.width / w2,
+                             minimumCropFraction * after.height / h2)
+        if lift > 1 {
+            let capped = Swift.min(lift, after.width / w2, after.height / h2)
+            w2 *= capped
+            h2 *= capped
+        }
         let cx2 = Num.clamp(cx, -(after.width - w2) / 2, (after.width - w2) / 2)
         let cy2 = Num.clamp(cy, -(after.height - h2) / 2, (after.height - h2) / 2)
         return normalized(Crop(x: (cx2 - w2 / 2) / after.width + 0.5,
@@ -575,6 +598,50 @@ extension CropGeometry {
         default: ratio = nil
         }
         guard let ratio, ratio.isFinite, ratio >= 1.0 / 60, ratio <= 60 else { return nil }
+        return ratio
+    }
+
+    /// The pixel ratios a crop of THIS frame can actually hold, at this angle.
+    ///
+    /// M12. The typed bounds above are a typo guard, not a geometry: a crop may not be
+    /// thinner than `minimumCropFraction` of the usable frame on either axis, so the
+    /// widest rectangle there is is the whole width by 5 % of the height, and the
+    /// tallest the reverse. On a 6000 × 4000 frame that is 30:1 and 1:13.3 — so `60:1`
+    /// passed the parser, padlocked, and wrote a 30:1 rectangle, and `1:60` wrote
+    /// 0.075. The lock said one ratio and the picture held another.
+    public static func achievableAspects(sourceWidth: Double, sourceHeight: Double,
+                                         degrees: Double) -> ClosedRange<Double>? {
+        let usable = usableSize(width: sourceWidth, height: sourceHeight, degrees: degrees)
+        guard usable.width > 0, usable.height > 0,
+              usable.width.isFinite, usable.height.isFinite else { return nil }
+        let frameAspect = usable.width / usable.height
+        return (minimumCropFraction * frameAspect)...(frameAspect / minimumCropFraction)
+    }
+
+    /// Whether `aspect` is a ratio a crop of this frame can hold — the gate every ratio
+    /// write goes through, so the padlock never names a shape the rectangle is not.
+    /// A relative hair of slack at each end, so a bound reached by arithmetic (30:1
+    /// typed on a 3:2 frame) is not refused over the last bit of a division.
+    public static func canHold(aspect: Double, sourceWidth: Double, sourceHeight: Double,
+                               degrees: Double) -> Bool {
+        guard aspect.isFinite, aspect > 0,
+              let range = achievableAspects(sourceWidth: sourceWidth,
+                                            sourceHeight: sourceHeight,
+                                            degrees: degrees) else { return false }
+        let slack = 1e-9
+        return aspect >= range.lowerBound * (1 - slack)
+            && aspect <= range.upperBound * (1 + slack)
+    }
+
+    /// A typed ratio, accepted only if THIS frame can hold it: the parser's own bounds
+    /// and then `canHold`. The custom field's Set button and its commit both read this,
+    /// so an entry the frame cannot represent is declined rather than quietly written
+    /// as some other ratio.
+    public static func aspect(fromText text: String, sourceWidth: Double,
+                              sourceHeight: Double, degrees: Double) -> Double? {
+        guard let ratio = aspect(fromText: text),
+              canHold(aspect: ratio, sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                      degrees: degrees) else { return nil }
         return ratio
     }
 }

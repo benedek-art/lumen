@@ -234,8 +234,16 @@ https://claude.ai/code/artifact/8f442d3f-960c-4167-b115-a288480dfb2b
   authority floors on the old ones (`radius` and `haloSuppression` at 0.0000 with 20
   dead steps; `amount` 16.19 against 29; `masking` 4.04 against 10). Only `detail`
   passed, and it passed by reading HIGHER than it should — a dead unsharp term made its
-  cross-fade look authoritative. **The records are not re-pinned: `ControlProofTests`
-  is skipped on both push lanes and the ceremony must run on the final tree.**
+  cross-fade look authoritative. ~~**The records are not re-pinned: `ControlProofTests`
+  is skipped on both push lanes and the ceremony must run on the final tree.**~~ **NO LONGER
+  TRUE, and the correction matters more than the claim did.** `ControlProofTests` is skipped on
+  `engine-linux` only; `proof.yml` runs `swift test --filter ControlProofTests` and has now gone
+  green over all 144 controls on `89a43d1` and again on `fe3d38a`. The sentence predates the
+  trigger fix in `86a8f97`, which is what made that lane fire on changes to the pipeline and the
+  panels rather than to one directory. Left standing it tells a reader the records are unverified
+  when they are re-measured on every push. What IS still outstanding is narrower: `E2-04`'s five
+  `sharpen.*` records are expected to move on wide frames, so a record-moving tranche lands on top
+  of that rather than on a clean tree.
 - **`I3-02`** — CLOSED in the final run, and the claim was corrected UPWARD rather than
   the number gamed. 768 MiB was never achievable: one source may legally hold a 320 MiB
   interactive working set plus a budget-exempt inspection plane of up to 512 MiB, and the
@@ -384,7 +392,7 @@ running).
 | **J3-02** | S1 | a filename template that renders empty makes `folder.appendingPathComponent("")` yield `.../Deliveries.jpg` — the whole batch is written BESIDE the folder the open panel granted |
 | **KG-01** | S2 | with >1 photo selected every crop/angle/ratio write is computed from the PRIMARY's frame dimensions and stamped on all targets — K-023's exact defect, in the one place its fix does not reach |
 | **KG-02** | S2 | `O` calls `setMasking(true)` instead of the `toggleMasking` entry verb, so the crop tool stays armed inside the mask editor |
-| **A1-01** | S2 | Contrast clips 1.875 stops of highlight and 3.037 of shadow where the tooltip, docs/04 and the test all promise it cannot |
+| ~~**A1-01**~~ | S2 | **LANDED** — the relax window is denominated on the display anchors, so each anchor is a fixed point of the mapping. See `slider-ground-truth.md` for what shipped and what it cost. |
 | **A1-03** | S2 | Whites/Blacks silently drag every Zones pivot; Whites +100 alone moves "Midtones" to −0.96 EV while the strip's handles do not move |
 | **I3-01** | S2 | `recordDeveloped` files a viewer-sized settle at the fixed 2560 rung, so the loupe's first frame after an edit comes back SOFTER — against the "never upward" rule `PreviewCache` states in its own header |
 | **I3-02** | S2 | `trimDecodeResidency`'s 768 MB is not a bound: the two passes spare `sourceOrder.last` and `suffix(4)`, an inspection plane is budget-exempt, so the enforceable floor is 1792 MB |

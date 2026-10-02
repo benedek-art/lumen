@@ -17,50 +17,27 @@ import Foundation
 import LumenCore
 import LumenPipeline
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Formats
 
-/// What Lumen will browse. Deliberately NOT on `AppState`: the folder scan runs off
-/// the main actor, and a main-actor-isolated constant it has to reach for is both a
-/// concurrency warning today and an error under Swift 6.
-enum PhotoFormats {
-    /// Everything CIRAWFilter will decode. The short list this started as made a
-    /// Hasselblad, Phase One, Leica or Minolta file invisible in the grid and uncounted
-    /// by the ingest planner — not an error the user could act on, just an empty folder
-    /// where their shoot was.
-    static let raw: Set<String> = [
-        "arw", "sr2", "srf", "arq",              // Sony
-        "cr2", "cr3", "crw",                     // Canon
-        "nef", "nrw",                            // Nikon
-        "orf",                                   // Olympus / OM
-        "pef", "dng",                            // Pentax, and the open format
-        "raf",                                   // Fujifilm
-        "rw2",                                   // Panasonic
-        "rwl",                                   // Leica
-        "srw",                                   // Samsung
-        "erf",                                   // Epson
-        "x3f",                                   // Sigma
-        "3fr", "fff",                            // Hasselblad
-        "iiq", "cap",                            // Phase One
-        "mrw",                                   // Minolta
-        "dcr", "kdc",                            // Kodak
-        "mef",                                   // Mamiya
-        "raw",                                   // generic
-    ]
-    static let rendered: Set<String> = [
-        "jpg", "jpeg", "heic", "heif", "png", "tif", "tiff",
-    ]
-    static let browsable: Set<String> = raw.union(rendered)
-
-    static func isRaw(_ url: URL) -> Bool {
-        raw.contains(url.pathExtension.lowercased())
-    }
-
-    /// Already-rendered files, which decode through `RenderedImageSource` rather than
-    /// the RAW stage. A sibling of `isRaw` so callers do not each write the
-    /// lowercase-the-extension dance and drift apart on the one that forgets.
-    static func isRendered(_ url: URL) -> Bool {
-        rendered.contains(url.pathExtension.lowercased())
+/// `PhotoFormats` itself is in LumenCore (`Library/PhotoFormats.swift`), so the filter
+/// grammar that compiles RAW-only from it is tested on Linux. This half stays here
+/// because `UTType` is a platform type.
+extension PhotoFormats {
+    /// The same list as content types, for `NSOpenPanel.allowedContentTypes`.
+    ///
+    /// Derived from `browsable` rather than written out a second time: two lists of the
+    /// same photographs is how one of them comes to be missing a Phase One file, and
+    /// `PhotoFormats`' own header records that a short list once made "a Hasselblad,
+    /// Phase One, Leica or Minolta file invisible in the grid".
+    ///
+    /// `UTType(filenameExtension:)` answers nil for an extension the system does not know,
+    /// which is fine and is why this compacts: an unrecognised RAW simply is not offered
+    /// as a filter, and the scan still opens it if the photographer reaches it through a
+    /// folder. A filter is a convenience; `browsable` remains the authority.
+    static var browsableContentTypes: [UTType] {
+        browsable.sorted().compactMap { UTType(filenameExtension: $0) }
     }
 }
 
@@ -69,14 +46,21 @@ enum PhotoFormats {
 struct PhotoItem: Identifiable, Hashable, Sendable {
     let id: URL
     var catalogID: Int64?
-    var flag: PhotoFlag = .none
+    var flag: PhotoFlag = .unflagged
     var rating: Int = 0
-    var label: ColorLabel = .none
+    /// nil is unlabelled.
+    var label: ColorLabel? = nil
     /// What the file says it was shot at, from the catalog's EXIF row. It is what makes
     /// an unedited photo's noise-reduction defaults ISO-adaptive; nil until the
     /// metadata backfill has reached this photo, and nil forever for a file that
     /// records no ISO, in which case the flat wire defaults stand.
     var iso: Int?
+    var sourceIdentity: SourceFileIdentity? = nil
+    /// The culling pass's evidence for this frame (docs/10 §10.6), nil until the pass
+    /// has measured it. Carried on the roll entry rather than looked up per cell, so the
+    /// grid's body — which re-runs on every cull keystroke — reads a field and does no
+    /// extra work for it.
+    var attention: CullingAttention? = nil
 
     var filename: String { id.lastPathComponent }
     var isRaw: Bool { PhotoFormats.isRaw(id) }
@@ -119,6 +103,20 @@ enum PickTarget: Equatable, Sendable {
         }
     }
 
+    /// Which selection inside the colour stage a global pick feeds, so the renderer
+    /// can carry the sample through the stage as far as that selection reads (AI-02):
+    /// the Mixer's bands read after the primaries, swatch `i` after the primaries, the
+    /// Mixer and swatches `0..<i`. A NEW swatch is appended, so it reads after all of
+    /// the existing ones. Nil for the targets that do not sample the colour stage.
+    func colorSelectionTap(existingPointColors: Int) -> ColorEngine.SelectionTap? {
+        switch self {
+        case .mixerBand: return .mixerBand
+        case .newPointColor: return .pointColor(index: existingPointColors)
+        case .pointColor(index: let swatch): return .pointColor(index: swatch)
+        case .neutral, .maskSample, .maskPointColor: return nil
+        }
+    }
+
     /// What the status line says while the click is being waited for.
     var prompt: String {
         switch self {
@@ -131,37 +129,25 @@ enum PickTarget: Equatable, Sendable {
     }
 }
 
-enum PhotoFlag: Int, Codable, Sendable, CaseIterable {
-    case rejected = -1
-    case none = 0
-    case picked = 1
+// The flag and the colour label are LumenCore's `PhotoFlag` and `ColorLabel` — one of
+// each. This module used to declare its own pair (`.picked`/`.rejected`/`.none`, and a
+// six-case label whose `.none` meant "unlabelled") with `CatalogService` translating on
+// every read and write. Unlabelled is `ColorLabel?` = nil now. What is left here is the
+// presentation, which LumenCore has no business knowing.
 
+extension PhotoFlag {
     var symbolName: String {
         switch self {
-        case .picked: return "flag.fill"
-        case .rejected: return "xmark"
-        case .none: return "flag"
+        case .pick: return "flag.fill"
+        case .reject: return "xmark"
+        case .unflagged: return "flag"
         }
     }
 }
 
-enum ColorLabel: Int, Codable, Sendable, CaseIterable {
-    case none = 0, red, yellow, green, blue, purple
-
-    var displayName: String {
-        switch self {
-        case .none: return "None"
-        case .red: return "Red"
-        case .yellow: return "Yellow"
-        case .green: return "Green"
-        case .blue: return "Blue"
-        case .purple: return "Purple"
-        }
-    }
-
+extension ColorLabel {
     var color: Color {
         switch self {
-        case .none: return .clear
         case .red: return Color(red: 0.85, green: 0.25, blue: 0.25)
         case .yellow: return Color(red: 0.90, green: 0.75, blue: 0.20)
         case .green: return Color(red: 0.30, green: 0.70, blue: 0.35)
@@ -179,222 +165,17 @@ enum ViewMode: String, Sendable {
 
 // MARK: - Filtering
 
-/// ISO as a chip: bands rather than a free-form pair of numbers, because the question
-/// a photographer actually asks a filter is "show me the clean ones" or "show me the
-/// ones that will need denoise", and because a band is one click.
-enum ISOBand: String, CaseIterable, Identifiable, Sendable {
-    case upTo400 = "≤ 400"
-    case to1600 = "401–1600"
-    case to6400 = "1601–6400"
-    case above6400 = "≥ 6401"
+// `LibraryFilter`, `ISOBand` and `StackFilter` are in LumenCore (`Library/
+// LibraryFilter.swift`), where `LibraryFilterTests` pins the grammar on Linux.
 
-    var id: String { rawValue }
+/// The memory path's five questions, answered by the roll entry the app already has.
+extension PhotoItem: LibraryFilterable {}
 
-    var range: ClosedRange<Int> {
-        switch self {
-        case .upTo400: return 0...400
-        case .to1600: return 401...1600
-        case .to6400: return 1601...6400
-        case .above6400: return 6401...4_000_000
-        }
-    }
-}
-
-/// The stack-state chip (docs/10 §10.2): everything, one row per collapsed stack, or
-/// only the frames that were never grouped.
-enum StackFilter: String, CaseIterable, Identifiable, Sendable {
-    case any = "All frames"
-    case collapsedTops = "Collapsed stacks"
-    case unstacked = "Unstacked only"
-
-    var id: String { rawValue }
-}
-
-struct LibraryFilter: Equatable, Sendable {
-    /// Criteria OR within themselves and AND across themselves — the day-one rule
-    /// (D39). An empty set means "no constraint from this criterion". `matchAny` is
-    /// the bar's All/Any toggle and flips the join BETWEEN criteria, never within one.
-    var flags: Set<PhotoFlag> = []
-    var minRating: Int = 0
-    var labels: Set<ColorLabel> = []
-    var text: String = ""
-    var rawOnly: Bool = false
-
-    /// nil = no constraint, true = has an edit that changes the picture, false = as
-    /// shot. Reads `photo.edited`, which `saveRecipe` maintains in the same transaction
-    /// as the recipe — no join, no parse, and true only when the recipe actually
-    /// renders differently.
-    var edited: Bool? = nil
-    var cameras: Set<String> = []
-    var lenses: Set<String> = []
-    var isoBands: Set<ISOBand> = []
-    var stackState: StackFilter = .any
-    var keywords: Set<String> = []
-    var matchAny: Bool = false
-
-    /// The criteria that only exist in SQL. The memory fallback cannot evaluate any of
-    /// them — it has no camera, no ISO and no stack table — so the bar hides these
-    /// chips rather than offering controls that would quietly do nothing.
-    var usesCatalogOnlyCriteria: Bool {
-        edited != nil || !cameras.isEmpty || !lenses.isEmpty || !isoBands.isEmpty
-            || stackState != .any || !keywords.isEmpty
-    }
-
-    var isActive: Bool {
-        !flags.isEmpty || minRating > 0 || !labels.isEmpty || !text.isEmpty || rawOnly
-            || usesCatalogOnlyCriteria
-    }
-
-    /// The memory path, used only when there is no catalog to ask. It answers the five
-    /// criteria a `PhotoItem` can answer and is deliberately not extended past them:
-    /// a filter that silently ignores a lit chip is the failure this file exists to
-    /// avoid, which is why the bar hides those chips in this mode instead.
-    func matches(_ photo: PhotoItem) -> Bool {
-        if !flags.isEmpty && !flags.contains(photo.flag) { return false }
-        if photo.rating < minRating { return false }
-        if !labels.isEmpty && !labels.contains(photo.label) { return false }
-        if rawOnly && !photo.isRaw { return false }
-        if !text.isEmpty
-            && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
-        return true
-    }
-
-    /// How many criteria are lit, for the badge on the Filter button.
-    ///
-    /// Criteria, not values: three flag chips lit is ONE criterion, because they OR
-    /// together into a single clause of the query. A badge counting chips would read
-    /// "5" for what the sentence calls two conditions.
-    var activeCriteriaCount: Int {
-        var n = 0
-        if !flags.isEmpty { n += 1 }
-        if minRating > 0 { n += 1 }
-        if !labels.isEmpty { n += 1 }
-        if rawOnly { n += 1 }
-        if edited != nil { n += 1 }
-        if !cameras.isEmpty { n += 1 }
-        if !lenses.isEmpty { n += 1 }
-        if !isoBands.isEmpty { n += 1 }
-        if !keywords.isEmpty { n += 1 }
-        if stackState != .any { n += 1 }
-        if !text.isEmpty { n += 1 }
-        return n
-    }
-
-    /// The criteria that are actually HIDDEN behind the Filter button.
-    ///
-    /// Search text is a criterion like any other and `activeCriteriaCount` counts it,
-    /// but its field is right there in the strip with its own contents and its own
-    /// clear ✕. Badging the button "1" for something the eye can already read would
-    /// send the photographer into a popover where every group is empty.
-    var hiddenCriteriaCount: Int {
-        activeCriteriaCount - (text.isEmpty ? 0 : 1)
-    }
-
-    /// The active query written out. "or" inside a criterion, and between criteria
-    /// whatever the Match toggle says — the sentence IS the documentation, which is why
-    /// it survived the filter bar being taken apart (docs/28 Phase 3) and moved to the
-    /// status bar rather than being deleted with its container.
-    ///
-    /// It lives on the filter rather than in a view because two surfaces now read it:
-    /// the status bar shows it, and the filter popover shows the same words back inside
-    /// the control that produced them. Two hand-rolled versions of a sentence that is
-    /// supposed to be authoritative is exactly one too many.
-    ///
-    /// `catalogLive` only changes what the EMPTY sentence says: with no catalog the app
-    /// filters in memory over `PhotoItem`, and a bar that did not say so would be
-    /// claiming a reach it does not have.
-    func sentence(catalogLive: Bool) -> String {
-        guard isActive else {
-            return catalogLive
-                ? "No filter — showing every photo"
-                : "No filter — filtering in memory, without the catalog"
-        }
-        var parts: [String] = []
-        if !flags.isEmpty {
-            parts.append(flags.sorted { $0.rawValue > $1.rawValue }
-                .map(Self.flagName).joined(separator: " or "))
-        }
-        if minRating > 0 {
-            parts.append("★ \(minRating) or better")
-        }
-        if !labels.isEmpty {
-            parts.append(labels.sorted { $0.rawValue < $1.rawValue }
-                .map { $0 == ColorLabel.none ? "Unlabelled" : $0.displayName }
-                .joined(separator: " or "))
-        }
-        if rawOnly { parts.append("RAW only") }
-        if let edited { parts.append(edited ? "edited" : "untouched") }
-        if !cameras.isEmpty { parts.append(cameras.sorted().joined(separator: " or ")) }
-        if !lenses.isEmpty { parts.append(lenses.sorted().joined(separator: " or ")) }
-        if !isoBands.isEmpty {
-            parts.append(ISOBand.allCases.filter { isoBands.contains($0) }
-                .map { "ISO " + $0.rawValue }.joined(separator: " or "))
-        }
-        if !keywords.isEmpty { parts.append(keywords.sorted().joined(separator: " or ")) }
-        if stackState != .any { parts.append(stackState.rawValue.lowercased()) }
-        if !text.isEmpty { parts.append("matching \"\(text)\"") }
-        return parts.joined(separator: matchAny ? "  or  " : "  and  ")
-    }
-
-    static func flagName(_ flag: PhotoFlag) -> String {
-        switch flag {
-        case .picked: return "Picked"
-        case .rejected: return "Rejected"
-        case .none: return "Unflagged"
-        }
-    }
-
-    /// The bar, compiled. Every chip becomes an indexed predicate in `CatalogStore`'s
-    /// builder — which was 200 lines of correct, tested SQL with no caller at all while
-    /// this struct filtered five criteria with a linear scan of the roll.
+extension LibraryFilter {
+    /// The bar, compiled against the app's sort menu. `SortOrder` is a menu and stays
+    /// here; the grammar takes the `PhotoQuery.SortKey` it names.
     func query(sort: SortOrder, ascending: Bool, albumID: Int64?) -> PhotoQuery {
-        var query = PhotoQuery()
-        query.flags = flags.map(CatalogService.coreFlag)
-        if minRating > 0 {
-            query.rating = minRating
-            query.ratingComparison = .atLeast
-        }
-        for label in labels {
-            if let core = CatalogService.coreLabel(label) {
-                query.labels.append(core)
-            } else {
-                // `.none` in the app's vocabulary is "unlabelled", which is a NULL in
-                // the catalog's and therefore its own predicate — `label IN (…)` can
-                // never match a NULL.
-                query.includeUnlabeled = true
-            }
-        }
-        if rawOnly { query.fileTypes = PhotoFormats.raw.sorted() }
-        query.edited = edited
-        query.cameras = cameras.sorted()
-        query.lenses = lenses.sorted()
-        query.keywords = keywords.sorted()
-        if !isoBands.isEmpty {
-            // One predicate per lit band, OR-ed — NOT one range spanning them all.
-            //
-            // This used to take the minimum lower bound and the maximum upper bound and
-            // call the span "the honest reading of OR within a criterion". It is not:
-            // lighting "≤ 400" and "≥ 6401" asked for two bands and returned every ISO
-            // 800 frame between them. Adjacent bands still collapse naturally, because
-            // adjacent BETWEENs cover the same rows either way.
-            query.isoRanges = isoBands.map { $0.range }.sorted { $0.lowerBound < $1.lowerBound }
-        }
-        switch stackState {
-        case .any: query.stackState = .any
-        case .collapsedTops: query.stackState = .collapsedTopsOnly
-        case .unstacked: query.stackState = .unstacked
-        }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        query.text = trimmed.isEmpty ? nil : trimmed
-        query.matchAny = matchAny
-        query.albumID = albumID
-        // The grid shows files that are on the disk. Rows for frames that have gone
-        // offline keep their edits and stay findable, but putting them in the contact
-        // sheet would put cells in it that cannot be opened.
-        query.includeMissing = false
-        query.sortKey = sort.sortKey
-        query.ascending = ascending
-        return query
+        query(sortKey: sort.sortKey, ascending: ascending, albumID: albumID)
     }
 }
 
@@ -458,7 +239,7 @@ enum SortOrder: String, CaseIterable, Identifiable, Sendable {
     /// disabled item in the menu: an ordering that silently does nothing is worse than
     /// one that says what it is waiting for.
     static let scoreSortsPending =
-        "waiting on the culling analysis pass, which does not run yet"
+        "waiting on the aesthetics pass, which is not built yet"
 }
 
 // MARK: - Library sections
@@ -471,6 +252,11 @@ struct CollectionItem: Identifiable, Equatable, Sendable {
     var name: String
     var count: Int
     var isTarget: Bool
+    /// A smart album: a saved filter rather than a membership list (D39).
+    var isSmart: Bool = false
+    /// The saved filter, or nil for a manual album — and for a smart album this build
+    /// cannot read whole (a newer format), which the sidebar says rather than guessing.
+    var filter: LibraryFilter? = nil
 }
 
 /// One value a metadata chip offers — a keyword, a camera body — and how many photos
@@ -540,7 +326,10 @@ final class AppState: ObservableObject {
         }
     }
     @Published var selection: Set<URL> = [] {
-        didSet { selectedPhotosCache = nil }
+        didSet {
+            selectedPhotosCache = nil
+            if selection != oldValue { refreshSelectionFrames() }
+        }
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
@@ -550,9 +339,11 @@ final class AppState: ObservableObject {
             // the second unlatch beside the watchdog).
             sliderGesture(active: false)
             primaryFrameSize = nil
-            // Which way up is a fact about THIS photograph: the next one starts without
-            // an answer rather than inheriting the previous one's.
-            primaryFrameTransposed = false
+            // Which way up is a fact about THIS photograph (KG-03): the next one starts
+            // from what is known about IT — never the previous one's answer, and never
+            // a forgotten one, which a cropped portrait had no way to learn back.
+            primaryFrameTransposed = primarySelection.flatMap {
+                frameOrientations.transposed(for: $0.id) } ?? false
             primaryAsShotNeutral = nil
             refreshPrimaryFrameSize()
             refreshPrimaryAsShotNeutral()
@@ -600,6 +391,12 @@ final class AppState: ObservableObject {
     /// source reports an oriented size — take exactly the path it took before.
     @Published private(set) var primaryFrameTransposed: Bool = false
 
+    /// Every photograph's answer, kept across selection changes (KG-03). The rule —
+    /// which evidence is admissible, which outranks which — lives in LumenCore
+    /// (`FrameOrientation.Memory`, with tests); `primaryFrameTransposed` is only its
+    /// reading for the primary selection.
+    private var frameOrientations = FrameOrientation.Memory()
+
     /// What the reported size MEANS, once reconciled: the frame the overlays, the crop
     /// arithmetic and the mask conversions all place themselves against.
     ///
@@ -613,11 +410,64 @@ final class AppState: ObservableObject {
                                            transposed: primaryFrameTransposed)
     }
 
-    /// Told by the loupe when a whole-frame delivery has answered the question.
-    /// Idempotent: writing the same answer publishes nothing.
-    func noteFrameTransposed(_ transposed: Bool) {
-        guard primaryFrameTransposed != transposed else { return }
-        primaryFrameTransposed = transposed
+    /// Told by the loupe with every delivered frame for `url`; only a whole-frame one
+    /// is evidence (`FrameOrientation.Memory.learn`). Idempotent: writing the same
+    /// answer publishes nothing.
+    func noteFrameDelivered(_ url: URL, reported: CGSize, delivered: CGSize,
+                            wholeFrame: Bool) {
+        frameOrientations.learn(url, reported: reported, delivered: delivered,
+                                wholeFrame: wholeFrame)
+        publishPrimaryFrameTransposed(for: url)
+    }
+
+    private func publishPrimaryFrameTransposed(for url: URL) {
+        guard primarySelection?.id == url else { return }
+        let answer = frameOrientations.transposed(for: url) ?? false
+        guard primaryFrameTransposed != answer else { return }
+        primaryFrameTransposed = answer
+    }
+
+    /// The catalog's frame for each selected photograph, for the framing writes that fan
+    /// out over a multi-selection (S-11 / KG-01). Read when the selection changes; a
+    /// photograph missing from it has its framing left alone rather than computed
+    /// against some other photograph's frame.
+    private var selectionFrames: [URL: BatchFraming.Frame] = [:]
+    private var selectionFramesGeneration: UInt64 = 0
+
+    private func refreshSelectionFrames() {
+        selectionFramesGeneration &+= 1
+        let generation = selectionFramesGeneration
+        let ids = selectedPhotos.compactMap { photo in photo.catalogID.map { (photo.id, $0) } }
+        guard let catalog, ids.count > 1 else {
+            selectionFrames = [:]
+            return
+        }
+        Task { [weak self] in
+            let frames = await catalog.frames(photoIDs: ids.map(\.1))
+            guard let self, self.selectionFramesGeneration == generation else { return }
+            var byURL: [URL: BatchFraming.Frame] = [:]
+            for (url, id) in ids { if let frame = frames[id] { byURL[url] = frame } }
+            self.selectionFrames = byURL
+        }
+    }
+
+    /// The frame a framing write should be computed against for ONE target.
+    ///
+    /// The primary's is the decoded, orientation-reconciled `sourceFrameSize`, exactly
+    /// as before; until that lands, the catalog's, then the caller's own fallback (the
+    /// crop panel's assumed 3:2, the loupe's delivered image). Every other target gets
+    /// its OWN catalog frame or nil — never the primary's, which is the defect.
+    func framingFrame(for photo: PhotoItem,
+                      primaryFallback: BatchFraming.Frame? = nil) -> BatchFraming.Frame? {
+        if photo.id == primarySelection?.id {
+            if let size = sourceFrameSize,
+               let frame = BatchFraming.Frame(width: Double(size.width),
+                                              height: Double(size.height)) {
+                return frame
+            }
+            return selectionFrames[photo.id] ?? primaryFallback
+        }
+        return selectionFrames[photo.id]
     }
 
     var primaryFrameAspect: Double? {
@@ -644,6 +494,9 @@ final class AppState: ObservableObject {
 
     private var maskOverlayGeneration: Int = 0
     private var maskOverlayTask: Task<Void, Never>?
+    /// What the overlay was last asked to rasterize FROM, beyond the recipe — see
+    /// `maskOverlaySourceKey`. Nil while no overlay is up.
+    private var maskOverlaySource: String?
 
     /// Rebuild it for the mask the panel is showing. Superseded by generation, like
     /// every other background render here, so a fast sequence of edits does not land
@@ -666,10 +519,15 @@ final class AppState: ObservableObject {
             // event of every drag — to set nil to nil, re-bodying the window for a
             // change that had not happened.
             if maskOverlayAlpha != nil { maskOverlayAlpha = nil }
+            maskOverlaySource = nil
             return
         }
         let recipe = recipe(for: photo)
         let strokes = strokeSets(for: recipe)
+        maskOverlaySource = Self.maskOverlaySourceKey(url: photo.id, maskID: maskID,
+                                                      recipe: recipe,
+                                                      sourceIdentity: SourceFileIdentity.read(photo.id),
+                                                      strokeSets: strokes)
         // IS A GESTURE RUNNING? Answered by the clock rather than by a flag, because
         // there is no one flag to read: a radial dragged on the CANVAS, an Edge slider
         // dragged in the panel and a brush stroke all arrive here as an ordinary edit,
@@ -718,6 +576,40 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Rebuild the overlay only if what it is a picture OF changed outside the recipe.
+    ///
+    /// Every edit already calls `refreshMaskOverlay`; two things that change the
+    /// overlay's picture are not edits and called nothing, so the overlay kept showing
+    /// the old selection until the next edit or selection change (the staleness 151d6d5
+    /// fixed for the mask thumbnails): a photograph REPLACED at the same path, which a
+    /// rescan notices, and a brush mask's stroke blob ARRIVING after the overlay was
+    /// first rasterized without it. Both triggers call this; an unchanged file and
+    /// unchanged strokes produce the same key, so neither costs a raster.
+    func refreshMaskOverlayIfSourceChanged() {
+        guard let maskID = soloMaskOverlay, let photo = primarySelection else { return }
+        let recipe = recipe(for: photo)
+        let key = Self.maskOverlaySourceKey(url: photo.id, maskID: maskID, recipe: recipe,
+                                            sourceIdentity: SourceFileIdentity.read(photo.id),
+                                            strokeSets: strokeSets(for: recipe))
+        guard key != maskOverlaySource else { return }
+        refreshMaskOverlay()
+    }
+
+    /// The overlay's inputs that are not the recipe: the file's identity and which
+    /// referenced stroke sets are loaded (-1 when not), for the shown mask of the shown
+    /// photograph. The same two terms `maskThumbnailKey` carries, for the same reasons;
+    /// the recipe is left out because every recipe edit refreshes the overlay anyway.
+    nonisolated static func maskOverlaySourceKey(url: URL, maskID: String, recipe: Recipe,
+                                                 sourceIdentity: SourceFileIdentity?,
+                                                 strokeSets: [String: BrushStrokeSet]) -> String {
+        let refs = Set(recipe.masks.flatMap { $0.components.compactMap(\.strokesRef) })
+        let loaded = refs.sorted()
+            .map { "\($0):\(strokeSets[$0]?.strokes.count ?? -1)" }
+            .joined(separator: ",")
+        return [url.absoluteString, maskID, sourceIdentity?.token ?? "?", loaded]
+            .joined(separator: "|")
+    }
+
     /// When the overlay was last asked to rebuild, so a drag can be told from an edit.
     private var maskOverlayLastRefresh: Date = .distantPast
     /// Refreshes closer together than this are one continuous gesture, in seconds.
@@ -757,6 +649,10 @@ final class AppState: ObservableObject {
     /// replaced from its answer on every pass and dropped when it says a file was
     /// evicted; nothing here decides on its own that a pass can be skipped.
     private var attemptedMattes: [URL: Set<String>] = [:]
+    /// Files whose last matte pass could not read the original. Published because
+    /// nothing else that changes with it is: a pass that cannot run changes neither
+    /// the available nor the attempted set, so the panel would never re-body to say so.
+    @Published private(set) var unreadableMatteSources: Set<URL> = []
     private var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
@@ -774,6 +670,8 @@ final class AppState: ObservableObject {
         case notFound
         /// Needs a Core ML model that is not bundled.
         case needsModel
+        /// Vision has nothing to look at: the original could not be read or decoded.
+        case unavailable
     }
 
     func matteStatus(for kind: MaskKind) -> MatteStatus {
@@ -788,8 +686,11 @@ final class AppState: ObservableObject {
             // NOTHING FOUND about a kind added after the pass ran — a specific,
             // actionable error message about a request that was never issued, which is
             // worse than a vague one.
-            return (attemptedMattes[url] ?? []).contains(kind.rawValue)
-                ? .notFound : .working
+            if (attemptedMattes[url] ?? []).contains(kind.rawValue) { return .notFound }
+            // Not attempted and not pending used to mean WORKING unconditionally, and a
+            // pass that cannot run is never pending and never attempts anything — so
+            // an original on an ejected volume said "Computing" forever (F5-09).
+            return unreadableMatteSources.contains(url) ? .unavailable : .working
         }
     }
 
@@ -866,6 +767,10 @@ final class AppState: ObservableObject {
             }
         }
         attemptedMattes[url] = pass.attempted
+        if pass.sourceUnavailable != unreadableMatteSources.contains(url) {
+            if pass.sourceUnavailable { unreadableMatteSources.insert(url) }
+            else { unreadableMatteSources.remove(url) }
+        }
         let before = availableMattes[url]
         if pass.available.isEmpty {
             if before != nil { availableMattes.removeValue(forKey: url) }
@@ -1007,19 +912,14 @@ final class AppState: ObservableObject {
             maskThumbnailKey = nil
             return
         }
-        // The masks themselves, minus their names — renaming a mask must not re-render
-        // ninety-six pixels — plus everything the mask SOURCE is a function of, which is
-        // what `PipelineRenderer.maskSourceFingerprint` already knows how to state.
-        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
-            .map(CanonicalJSON.serialize) ?? UUID().uuidString
-        let key = [photo.id.absoluteString, shape,
-                   PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-"]
-            .joined(separator: "|")
+        let strokes = strokeSets(for: recipe)
+        let key = Self.maskThumbnailKey(url: photo.id, recipe: recipe,
+                                        sourceIdentity: SourceFileIdentity.read(photo.id),
+                                        strokeSets: strokes)
         guard key != maskThumbnailKey else { return }
         maskThumbnailKey = key
 
         let ids = recipe.masks.map(\.id)
-        let strokes = strokeSets(for: recipe)
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
             guard let self else { return }
@@ -1051,6 +951,30 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
             self.maskThumbnails = built
         }
+    }
+
+    /// What a set of mask thumbnails is a picture OF.
+    ///
+    /// The masks themselves, minus their names — renaming a mask must not re-render
+    /// ninety-six pixels — plus everything the mask SOURCE is a function of, which is
+    /// what `PipelineRenderer.maskSourceFingerprint` already knows how to state. And two
+    /// terms that key used to lack: the FILE's identity, because a photograph replaced at
+    /// the same path keeps its url and its recipe while every picture-dependent mask
+    /// selects something else; and which stroke sets are actually LOADED, because a
+    /// brush mask drawn before its blob arrived is an empty picture of a mask that is
+    /// not empty, and the blob arriving changes nothing else in the key.
+    nonisolated static func maskThumbnailKey(url: URL, recipe: Recipe,
+                                             sourceIdentity: SourceFileIdentity?,
+                                             strokeSets: [String: BrushStrokeSet]) -> String {
+        let shape = (try? CanonicalJSON.tree(of: recipe.masks.map(\.withoutCosmetics)))
+            .map(CanonicalJSON.serialize) ?? UUID().uuidString
+        let refs = Set(recipe.masks.flatMap { $0.components.compactMap(\.strokesRef) })
+        let loaded = refs.sorted()
+            .map { "\($0):\(strokeSets[$0]?.strokes.count ?? -1)" }
+            .joined(separator: ",")
+        return [url.absoluteString, sourceIdentity?.token ?? "?", shape,
+                PipelineRenderer.maskSourceFingerprint(recipe: recipe) ?? "-", loaded]
+            .joined(separator: "|")
     }
 
     /// An alpha plane as a grey image a row can draw.
@@ -1334,7 +1258,18 @@ final class AppState: ObservableObject {
                   size.width > 0, size.height > 0 else { return }
             // The selection can have moved on across that hop.
             guard self.primarySelection?.id == url else { return }
-            self.primaryFrameSize = CGSize(width: size.width, height: size.height)
+            let reported = CGSize(width: size.width, height: size.height)
+            self.primaryFrameSize = reported
+            // The catalog's frame — stored extent turned by EXIF — describes the WHOLE
+            // photograph whatever its recipe crops, so a cropped portrait is reconciled
+            // without ever opening the crop tool (KG-03). It is the same frame every
+            // non-primary target of a framing write is computed against.
+            guard let catalog = self.catalog,
+                  let photoID = self.primarySelection?.catalogID,
+                  let frame = await catalog.frames(photoIDs: [photoID])[photoID]
+            else { return }
+            self.frameOrientations.learn(url, reported: reported, catalog: frame)
+            self.publishPrimaryFrameTransposed(for: url)
         }
     }
 
@@ -1660,7 +1595,14 @@ final class AppState: ObservableObject {
     /// Which folder scan is the current one. Opening B while A is still enumerating
     /// must not let A's results land on top of B's.
     var scanGeneration: UInt64 = 0
-    @Published var zoomLevel: Double = 0        // 0 = fit; otherwise a ratio like 1.0
+    /// Which multi-source walk is the current one: the newest `.expand` request wins,
+    /// whichever walk finishes first (`ExpansionRequests`, LumenCore).
+    var expansionRequests = ExpansionRequests()
+    // `zoomLevel` moved to `LoupeViewport.zoom`. It was `@Published` here and written
+    // once per gesture event, and this object is an `@EnvironmentObject` in twenty-two
+    // view files — so every pinch rebuilt the whole window and all seven menus. That is
+    // K-030, and it is the same defect `CommandState` and `PanelLayout` were each pulled
+    // off this object to cure. The viewport is observed by the loupe alone.
 
     // MARK: Services
 
@@ -1894,17 +1836,22 @@ final class AppState: ObservableObject {
     /// `PhotoItem`'s `==` is `a.id == b.id` and nothing else, so a lookup by URL is not
     /// an approximation of what those calls did — it is the same comparison, memoised.
     /// `RollCursor` verifies its own answer against the roll it is handed (the length
-    /// matches and the photograph is still standing at the remembered index) before it
-    /// returns, so this needs no hook in `invalidatePhotoCache()` and cannot warm around
-    /// a stale frame: an unverifiable memo rebuilds, because a miss is the one answer
-    /// that cannot be checked in constant time.
+    /// matches and the photograph is still standing at the remembered index) AND
+    /// against `rollRevision`, which changes every time `photos` is rebuilt — the
+    /// verification alone could not tell the first copy of a duplicated URL from a later
+    /// one, so the answer depended on the cursor's history (S-08).
     private var rollCursor = RollCursor()
+
+    /// Bumped each time `photos` is rebuilt, which is the only way the roll's contents
+    /// change. Every `RollCursor` over this roll keys its memo on it.
+    private(set) var rollRevision: UInt64 = 0
 
     /// The index of `photo` in the roll as it stands, or nil when the roll no longer
     /// holds it. Identical in result to `photos.firstIndex(of: photo)`.
     func rollIndex(of photo: PhotoItem) -> Int? {
         let list = photos
-        return rollCursor.index(of: photo.id, inRollOf: list.count) { list[$0].id }
+        return rollCursor.index(of: photo.id, inRollOf: list.count,
+                                revision: rollRevision) { list[$0].id }
     }
 
     func invalidatePhotoCache() {
@@ -1927,7 +1874,8 @@ final class AppState: ObservableObject {
         var flags: [PhotoFlag: Int] = [:]
         /// Index r = photos with rating ≥ r, for r in 1...5. Index 0 unused.
         var ratingAtLeast = [Int](repeating: 0, count: 6)
-        var labels: [ColorLabel: Int] = [:]
+        /// Keyed by `ColorLabel?`: the nil key counts the unlabelled photographs.
+        var labels: [ColorLabel?: Int] = [:]
 
         /// Pure and static so `LumenAppTests` can pin it without constructing an
         /// `AppState` — whose init opens the real catalog in Application Support,
@@ -1972,6 +1920,7 @@ final class AppState: ObservableObject {
         if let photoCache { return photoCache }
         let built = buildPhotos()
         photoCache = built
+        rollRevision &+= 1
         return built
     }
 
@@ -1999,7 +1948,7 @@ final class AppState: ObservableObject {
     /// running — an app that silently ignores a lit chip is worse than one that admits
     /// the catalog is gone.
     private func memoryOrdered() -> [PhotoItem] {
-        let filtered = filter.isActive ? allPhotos.filter(filter.matches) : allPhotos
+        let filtered = filter.isActive ? allPhotos.filter { filter.matches($0) } : allPhotos
         let ascending = sortAscending
         func by(_ ordered: Bool) -> Bool { ascending ? ordered : !ordered }
         switch sortOrder {
@@ -2008,7 +1957,12 @@ final class AppState: ObservableObject {
         case .flag:
             return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
         case .label:
-            return filtered.sorted { by($0.label.rawValue < $1.label.rawValue) }
+            // Unlabelled first, then key order — the order the old Int-raw app enum
+            // sorted in (`.none = 0, red, …, purple`). Not `rawValue`, which is the
+            // String name now and would sort alphabetically.
+            return filtered.sorted {
+                by(($0.label?.metaSlot ?? 0) < ($1.label?.metaSlot ?? 0))
+            }
         default:
             return filtered.sorted {
                 by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
@@ -2064,7 +2018,9 @@ final class AppState: ObservableObject {
         // is kept, filtered in memory, and put at the end rather than dropped.
         let strays = allPhotos.filter { $0.catalogID == nil && filter.matches($0) }
         Task { [weak self] in
-            let rows = await catalog.photos(matching: query, folderPath: folder.path)
+            // Ids and ISO only: the whole `PhotoRow` was read and thrown away here on
+            // every chip and every filtered cull decision.
+            let rows = await catalog.photoOrder(matching: query, folderPath: folder.path)
             guard let self, self.libraryQueryGeneration == generation else { return }
             var byID = [Int64: URL](minimumCapacity: self.allPhotos.count)
             for item in self.allPhotos {
@@ -2086,7 +2042,7 @@ final class AppState: ObservableObject {
     ///
     /// One assignment rather than one per row: `allPhotos` is `@Published` and a
     /// per-element write republishes the whole grid.
-    private func adoptCaptureISO(from rows: [PhotoRow]) {
+    private func adoptCaptureISO(from rows: [PhotoOrderRow]) {
         var isoByID: [Int64: Int] = [:]
         for row in rows {
             if let iso = row.iso { isoByID[row.id] = iso }
@@ -2109,6 +2065,56 @@ final class AppState: ObservableObject {
            fresh.iso != primary.iso {
             primarySelection = fresh
         }
+    }
+
+    // MARK: Culling assists (docs/10 §10.6)
+
+    /// The master switch (D5): off means no analysis runs, so no evidence reaches the
+    /// grid, and the evidence chips and the sharpness sort are not offered. Default ON,
+    /// per the spec's control table. There is no Settings pane in the app yet to put the
+    /// toggle in; `defaults write <bundle id> cullingAssists.enabled -bool NO` and a
+    /// relaunch is the switch until there is.
+    static let cullingAssistsKey = "cullingAssists.enabled"
+
+    /// Read ONCE, at launch. The filter bar's body asks this, and that body re-runs on
+    /// every cull keystroke; a defaults lookup there would be main-actor work per key.
+    let cullingAssistsEnabled: Bool =
+        UserDefaults.standard.object(forKey: AppState.cullingAssistsKey) as? Bool ?? true
+
+    /// Start (or restart) the background pass over `folder`. Everything heavy happens on
+    /// `CatalogService`'s background lane; this hops back once per batch of evidence.
+    func startCullingAnalysis(folder: URL) {
+        guard cullingAssistsEnabled, let catalog else { return }
+        catalog.analyzeCulling(folder: folder, detectFaces: true) { evidence, finished in
+            Task { @MainActor [weak self] in
+                guard let self, self.folderURL == folder else { return }
+                self.adoptCullingEvidence(evidence)
+                // A sort or a chip that reads the evidence was answered from the rows
+                // as they were when it ran; the finished pass is the moment to re-ask.
+                if finished && (self.sortOrder == .sharpness || self.filter.softFocus
+                                || self.filter.closedEyes || self.filter.burst != .any) {
+                    self.refreshLibraryQuery()
+                }
+            }
+        }
+    }
+
+    /// Put the evidence on the roll entries, in ONE assignment — `allPhotos` is
+    /// `@Published`, and a per-element write would republish the grid once per frame.
+    /// Frames whose evidence did not change are left alone, and a batch that changes
+    /// nothing publishes nothing.
+    private func adoptCullingEvidence(_ evidence: [Int64: CullingAttention]) {
+        var updated = allPhotos
+        var changed = false
+        for i in updated.indices {
+            guard let id = updated[i].catalogID else { continue }
+            let fresh = evidence[id]
+            guard updated[i].attention != fresh else { continue }
+            updated[i].attention = fresh
+            changed = true
+        }
+        guard changed else { return }
+        allPhotos = updated
     }
 
     /// An album is a source that spans folders, and only one folder is open at a time.
@@ -2134,9 +2140,27 @@ final class AppState: ObservableObject {
         refreshLibraryQuery()
     }
 
+    /// A typed word is ONE grid query, not one per letter. The query runs on the
+    /// catalog's serial queue in front of the thumbnails, so a keystroke-per-query
+    /// search field stalled the contact sheet it was searching. `LibraryQueryPacing`
+    /// holds the rule (chips at once, keystrokes after a pause, a newer one superseding);
+    /// this is its one caller. Not a LIMIT: `libraryOrder` is the whole roll.
+    private var pacedLibraryQuery: Task<Void, Never>?
+
     private func filterOrSortChanged(_ oldValue: LibraryFilter) {
         guard filter != oldValue else { return }
-        refreshLibraryQuery()
+        pacedLibraryQuery?.cancel()
+        pacedLibraryQuery = nil
+        guard let delay = LibraryQueryPacing.delay(from: oldValue, to: filter) else {
+            refreshLibraryQuery()
+            return
+        }
+        pacedLibraryQuery = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.pacedLibraryQuery = nil
+            self.refreshLibraryQuery()
+        }
     }
 
     // MARK: Per-source view state (docs/10 §10.2)
@@ -2223,7 +2247,7 @@ final class AppState: ObservableObject {
             return
         }
         Task { [weak self] in
-            let albums = await catalog.collections()
+            let albums = await catalog.collections(folderPath: folder.path)
             let keywords = await catalog.allKeywords()
             let cameras = await catalog.facets(.camera, folderPath: folder.path)
             let lenses = await catalog.facets(.lens, folderPath: folder.path)
@@ -2309,6 +2333,95 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Open a smart album: its saved filter goes into the bar, over the whole open
+    /// folder. The bar is then the editor (docs/10 §10.8: "Edit — reopens the bar
+    /// populated"), and "Update to Current Filter" saves it back.
+    func applySmartCollection(_ album: CollectionItem) {
+        guard let saved = album.filter else {
+            statusMessage = "\"\(album.name)\" was saved by a newer Lumen and cannot "
+                + "be opened by this one"
+            return
+        }
+        selectedCollectionID = nil
+        filter = saved
+        statusMessage = "\(album.name): " + saved.sentence(catalogLive: isLibraryQueryLive)
+    }
+
+    /// Save the bar as a smart album, named for what it asks — rename it after.
+    func saveFilterAsSmartCollection() {
+        guard let catalog, filter.isActive else { return }
+        let words = filter.sentence(catalogLive: true)
+            .replacingOccurrences(of: "  ", with: " ")
+        let name = words.count > 60 ? String(words.prefix(59)) + "…" : words
+        let query = filter.savedJSON()
+        Task { [weak self] in
+            let id = await catalog.createSmartCollection(name: name, query: query)
+            guard let self else { return }
+            self.statusMessage = id == nil
+                ? "Could not save the filter as a smart album"
+                : "Saved smart album \"\(name)\" — right-click it to rename"
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Save the bar over an existing smart album.
+    func updateSmartCollection(_ album: CollectionItem) {
+        guard let catalog, filter.isActive else { return }
+        let query = filter.savedJSON()
+        Task { [weak self] in
+            let saved = await catalog.updateSmartCollection(album.id, query: query)
+            guard let self else { return }
+            self.statusMessage = saved
+                ? "\"\(album.name)\" now asks: " + self.filter.sentence(catalogLive: true)
+                : "Could not update \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Rename an album from the sidebar. An unchanged or blank name writes nothing.
+    func renameCollection(_ albumID: Int64, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog,
+              let album = collections.first(where: { $0.id == albumID }),
+              album.name != trimmed else { return }
+        guard !trimmed.isEmpty else {
+            statusMessage = "An album needs a name — \"\(album.name)\" was kept"
+            return
+        }
+        Task { [weak self] in
+            let renamed = await catalog.renameCollection(albumID, to: trimmed)
+            guard let self else { return }
+            self.statusMessage = renamed
+                ? "Renamed \"\(album.name)\" to \"\(trimmed)\""
+                : "Could not rename \"\(album.name)\""
+            self.refreshLibrarySections()
+        }
+    }
+
+    /// Delete an album. The photographs are not touched; if the grid was showing the
+    /// album it goes back to the whole folder rather than to an empty source.
+    func deleteCollection(_ albumID: Int64) {
+        guard let catalog,
+              let album = collections.first(where: { $0.id == albumID }) else { return }
+        Task { [weak self] in
+            let deleted = await catalog.deleteCollection(albumID)
+            guard let self else { return }
+            if deleted, self.selectedCollectionID == albumID {
+                self.selectedCollectionID = nil
+            }
+            if !deleted {
+                self.statusMessage = "Could not delete \"\(album.name)\""
+            } else if album.isSmart {
+                self.statusMessage = "Deleted smart album \"\(album.name)\" — no "
+                    + "photograph was touched"
+            } else {
+                self.statusMessage = "Deleted album \"\(album.name)\" — its \(album.count) photo"
+                    + (album.count == 1 ? " is" : "s are") + " still in their folders"
+            }
+            self.refreshLibrarySections()
+        }
+    }
+
     func removeSelectionFromCollection(_ albumID: Int64) {
         let ids = editTargets.compactMap(\.catalogID)
         guard let catalog, !ids.isEmpty else { return }
@@ -2322,10 +2435,13 @@ final class AppState: ObservableObject {
 
     func addKeyword(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ids = editTargets.compactMap(\.catalogID)
+        let targets = editTargets.compactMap { item in
+            item.catalogID.map { (id: $0, url: item.id) }
+        }
+        let ids = targets.map { $0.id }
         guard let catalog, !trimmed.isEmpty, !ids.isEmpty else { return }
         Task { [weak self] in
-            await catalog.addKeyword(trimmed, photoIDs: ids)
+            await catalog.addKeyword(trimmed, targets: targets)
             guard let self else { return }
             self.statusMessage = "Keyworded \(ids.count) photo"
                 + (ids.count == 1 ? "" : "s") + " \"\(trimmed)\""
@@ -2337,11 +2453,28 @@ final class AppState: ObservableObject {
         }
     }
 
-    func removeKeyword(_ name: String) {
-        let ids = editTargets.compactMap(\.catalogID)
-        guard let catalog, !ids.isEmpty else { return }
+    /// Another word for a keyword: searching for it, filtering by it and typing it all
+    /// reach the keyword itself.
+    func addSynonym(_ synonym: String, toKeyword keyword: String) {
+        let word = synonym.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let catalog, !word.isEmpty else { return }
         Task { [weak self] in
-            await catalog.removeKeyword(name, photoIDs: ids)
+            let added = await catalog.addSynonym(word, toKeyword: keyword)
+            guard let self else { return }
+            self.statusMessage = added
+                ? "\"\(word)\" now finds \(keyword)"
+                : "\"\(word)\" was not added — it is blank or already \(keyword)'s name"
+            self.refreshLibrarySections()
+        }
+    }
+
+    func removeKeyword(_ name: String) {
+        let targets = editTargets.compactMap { item in
+            item.catalogID.map { (id: $0, url: item.id) }
+        }
+        guard let catalog, !targets.isEmpty else { return }
+        Task { [weak self] in
+            await catalog.removeKeyword(name, targets: targets)
             guard let self else { return }
             self.refreshLibrarySections()
             if !self.filter.keywords.isEmpty { self.refreshLibraryQuery() }
@@ -2368,6 +2501,27 @@ final class AppState: ObservableObject {
     }
 
     /// `⇧⌘G` — the grouping goes, the photographs stay.
+    /// Stack every burst in the open folder by capture time — frames from one body no
+    /// more than two seconds apart. A command, not a default: the spec's rule also asks
+    /// for a similarity check this build does not run, so a fast series of different
+    /// compositions can land in one stack, and ⇧⌘G undoes any of them.
+    func stackBursts() {
+        guard let catalog, let folder = folderURL else { return }
+        Task { [weak self] in
+            let made = await catalog.stackBursts(folderPath: folder.path)
+            guard let self else { return }
+            switch made {
+            case nil: self.statusMessage = "Could not stack the bursts in this folder"
+            case 0?: self.statusMessage = "No unstacked bursts in this folder — frames "
+                + "need capture times less than two seconds apart"
+            case let n?: self.statusMessage = "Stacked \(n) burst" + (n == 1 ? "" : "s")
+                + " — show one frame each with the Collapsed stacks filter"
+            }
+            self.refreshPrimaryLibraryDetail()
+            self.refreshLibraryQuery()
+        }
+    }
+
     func unstackSelection() {
         guard let catalog, let stack = primaryStack else {
             statusMessage = "That photo is not in a stack"
@@ -2427,6 +2581,10 @@ final class AppState: ObservableObject {
                 guard let ref = component.strokesRef, let set = strokeCache[ref] else { continue }
                 out[ref] = set
             }
+        }
+        // And the painted heal strokes' set, which S5 reads out of the same map.
+        if let ref = BrushStrokes.healReference(in: recipe), let set = strokeCache[ref] {
+            out[ref] = set
         }
         return out
     }
@@ -2495,10 +2653,11 @@ final class AppState: ObservableObject {
     /// can appear that this session did not write.
     func loadStrokeSets(for recipe: Recipe) {
         guard let blobs = catalog?.blobs else { return }
-        let missing = recipe.masks
+        let missing = (recipe.masks
             .flatMap(\.components)
             .filter { $0.kind == .brush }
             .compactMap(\.strokesRef)
+            + [BrushStrokes.healReference(in: recipe)].compactMap { $0 })
             .filter { strokeCache[$0] == nil }
         guard !missing.isEmpty else { return }
 
@@ -2517,6 +2676,12 @@ final class AppState: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 for (ref, set) in resolved { self.strokeCache[ref] = set }
+                // The rows' pictures of a brush mask drawn before its strokes arrived
+                // are empty; the thumbnail key now carries stroke availability, so
+                // this re-renders exactly when an arrival matters. The overlay is the
+                // same picture at loupe size, keyed the same way.
+                self.refreshMaskThumbnails()
+                self.refreshMaskOverlayIfSourceChanged()
             }
         }
     }
@@ -2557,6 +2722,14 @@ final class AppState: ObservableObject {
             // thing left is to say so. A healthy catalog has no notice and stays silent.
             catalogStatus = service.recovery.notice
             if let notice = service.recovery.notice { statusMessage = notice }
+            // The last quit's sidecar failures, which could not be shown at quit: the
+            // status hop never runs after `applicationWillTerminate` returns.
+            if let unsaved = service.unsavedSidecarNotice {
+                let combined = [service.recovery.notice, unsaved].compactMap { $0 }
+                    .joined(separator: " ")
+                catalogStatus = combined
+                statusMessage = combined
+            }
         } catch {
             catalog = nil
             catalogStatus = "Catalog unavailable — edits live in memory this session "
@@ -2566,15 +2739,130 @@ final class AppState: ObservableObject {
 
     // MARK: Folder scanning
 
+    /// FILES OR FOLDERS, AND AS MANY AS YOU LIKE.
+    ///
+    /// The owner: "When I press a button, I want to open up either a file or specific
+    /// photos. It doesn't have to be only a file. It can be inside of a folder or it can
+    /// be specific pictures as well."
+    ///
+    /// It was `canChooseFiles = false`, `allowsMultipleSelection = false`, and no
+    /// `allowedContentTypes` — so every RAW file in the panel was greyed out and
+    /// unselectable, and this one function is the front door for all four affordances
+    /// that reach it (File ▸ Open, the empty state, the sidebar's folder button and its
+    /// context menu). There was no path anywhere in the application by which an
+    /// individual photograph became a roll.
+    ///
+    /// `allowedContentTypes` is set from `PhotoFormats.browsable` rather than left open:
+    /// a picker that lets you choose a `.txt` and then silently opens nothing is worse
+    /// than one that greys it out. `directoryURL` seeds the panel at the folder already
+    /// open, because the common case for "open" is "open something near what I have".
     func chooseFolder() {
         let panel = NSOpenPanel()
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open Folder"
-        if panel.runModal() == .OK, let url = panel.url {
-            openFolder(url)
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = PhotoFormats.browsableContentTypes
+        panel.directoryURL = folderURL
+        panel.message = "Choose a folder, or the photographs you want to work on"
+        panel.prompt = "Open"
+        guard panel.runModal() == .OK else { return }
+        openSources(panel.urls)
+    }
+
+    /// What the picker chose, resolved into a roll.
+    ///
+    /// One directory is the folder it has always been. Anything else — a handful of
+    /// frames, several folders, or a mix — becomes an EXPLICIT roll: exactly the
+    /// photographs named, plus everything under any directory named, rooted at their
+    /// deepest common parent so the sidebar's header, the catalog's `folder` row and the
+    /// relative filenames it keys on all still mean something.
+    ///
+    /// The common parent rather than a synthetic root because `CatalogService` keys photo
+    /// rows on the path RELATIVE to the registered folder, precisely so that two frames
+    /// called `DSC_0001.NEF` in `day1/` and `day2/` do not collide on one row. A fake
+    /// root would make every relative path an absolute one and quietly defeat that.
+    ///
+    /// Named `openSources` rather than `open` because `SQLiteError.open(code:message:path:)`
+    /// exists two modules away, and a bare `open` on the app's central object shadows a
+    /// very common word — the surface checker caught the collision immediately, which is
+    /// the cheapest possible moment to learn it.
+    func openSources(_ urls: [URL]) {
+        // `SourceOpening` (LumenCore, tested) decides; this acts. Only file URLs of a
+        // type Lumen opens, or directories, count — a dropped web link or a stray
+        // `.txt` is not a source (V7 D7).
+        switch SourceOpening.plan(urls, extensions: Self.browsableExtensions,
+                                  isDirectory: { Self.isDirectory($0) }) {
+        case .nothing:
+            // NOTHING TO OPEN LEAVES THE ROLL ALONE. This guard existed and was lost
+            // when expansion moved off the main actor (b8d6d4f); without it a web link
+            // closed the open folder, opened an empty roll at the link's path, and
+            // remembered that for the next launch.
+            statusMessage = Self.nothingToOpenMessage
+        case .folder(let folder):
+            // The overwhelmingly common case, and the one that behaves exactly as before.
+            openFolder(folder)
+        case .files(let root, let files):
+            openFolder(root, restrictedTo: files)
+        case .expand(let root, let sources):
+            // A directory among the sources is expanded OFF the main actor — on the main
+            // thread it is the freeze `scan`'s own header exists to prevent ("a card with
+            // 5,000 frames must not freeze the window while it is enumerated"). And the
+            // roll on screen is not touched until the walk has said there is something
+            // to open: an empty answer keeps the open folder and says so, instead of
+            // replacing it with nothing.
+            let extensions = Self.browsableExtensions
+            // The ticket is taken NOW, when the request starts, not when the walk ends:
+            // two of these requested before either walk finished used to share one
+            // scan generation, and the first to finish discarded the newer one.
+            let ticket = expansionRequests.begin(scanGeneration: scanGeneration)
+            statusMessage = "Scanning…"
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let found = Self.expand(sources, extensions: extensions)
+                await MainActor.run {
+                    // Another open started meanwhile: that one is what the user wants.
+                    guard let self,
+                          self.expansionRequests.isCurrent(ticket,
+                                                           scanGeneration: self.scanGeneration)
+                    else { return }
+                    guard case .files(let expandedRoot, let files)? =
+                            SourceOpening.expansionOutcome(root: root, found: found) else {
+                        self.statusMessage = Self.nothingToOpenMessage
+                        return
+                    }
+                    self.openFolder(expandedRoot, restrictedTo: files)
+                }
+            }
         }
+    }
+
+    static let nothingToOpenMessage = "Nothing there Lumen can open"
+
+    /// Every photograph a set of sources names: a file as itself (when Lumen opens its
+    /// type), a directory as everything under it. Sorted the way a scan sorts, so the
+    /// grid's initial order does not depend on which door the photographs came through.
+    nonisolated static func expand(_ sources: Set<URL>, extensions: Set<String>) -> [URL] {
+        var explicit: Set<URL> = []
+        for source in sources {
+            if isDirectory(source) {
+                explicit.formUnion(scan(url: source, extensions: extensions))
+            } else if extensions.contains(source.pathExtension.lowercased()) {
+                explicit.insert(source)
+            }
+        }
+        return explicit.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+                == .orderedAscending
+        }
+    }
+
+    nonisolated static func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+    }
+
+    /// The deepest directory that contains every one of them. Nil only for an empty
+    /// list — two paths on different volumes still share `/`.
+    nonisolated static func commonParent(of urls: [URL]) -> URL? {
+        SourceOpening.commonParent(of: urls, isDirectory: { isDirectory($0) })
     }
 
     // MARK: Reopening the last folder
@@ -2608,11 +2896,52 @@ final class AppState: ObservableObject {
         guard let url else { return }
         _ = url.startAccessingSecurityScopedResource()
         guard FileManager.default.fileExists(atPath: url.path) else { return }
-        if stale { rememberFolder(url) }
-        openFolder(url)
+        if stale { rememberFolderBookmark(url) }
+        // A remembered file selection reopens as that selection, not as its parent
+        // folder — otherwise choosing six frames and relaunching would present the
+        // three thousand they were chosen out of.
+        let remembered = UserDefaults.standard.stringArray(forKey: Self.lastFolderFilesKey) ?? []
+        // `SourceOpening.relaunch` (LumenCore, tested) decides. A remembered selection
+        // with nothing left must NOT become "no restriction": the remembered folder is
+        // the picked files' common parent, which can be the home folder or `/` (V7 D6).
+        switch SourceOpening.relaunch(remembered: remembered,
+                                      exists: { FileManager.default.fileExists(atPath: $0) }) {
+        case .folder:
+            openFolder(url)
+        case .files(let files):
+            openFolder(url, restrictedTo: files)
+        case .nothing:
+            // The empty state, and a line saying why. The memory is kept rather than
+            // cleared: the files may be on a volume that is not mounted yet.
+            statusMessage = Self.pickedSetGoneMessage
+        }
     }
 
-    private func rememberFolder(_ url: URL) {
+    static let pickedSetGoneMessage =
+        "The photographs open last time are no longer there — choose what to open"
+
+    /// The chosen files, when the last roll was an explicit set rather than a folder.
+    ///
+    /// Stored beside the bookmark and as plain paths: a bookmark per file would be the
+    /// correct thing under a sandbox, and this application ships with no entitlements
+    /// file at all, so the parent's grant is what actually carries access today. When it
+    /// moves into the sandbox this becomes an array of bookmarks and nothing else changes.
+    private static let lastFolderFilesKey = "lumen.lastFolder.files"
+
+    private func rememberFolder(_ url: URL, restrictedTo restriction: Set<URL>? = nil) {
+        let defaults = UserDefaults.standard
+        if let restriction {
+            defaults.set(restriction.map(\.path).sorted(), forKey: Self.lastFolderFilesKey)
+        } else {
+            // A plain folder open CLEARS it. Without this, opening a folder after a file
+            // selection would reopen next launch as the old file selection inside the new
+            // folder — which is nothing at all, since none of those paths are under it.
+            defaults.removeObject(forKey: Self.lastFolderFilesKey)
+        }
+        rememberFolderBookmark(url)
+    }
+
+    private func rememberFolderBookmark(_ url: URL) {
         let data = (try? url.bookmarkData(options: [.withSecurityScope],
                                           includingResourceValuesForKeys: nil,
                                           relativeTo: nil))
@@ -2623,8 +2952,12 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(data, forKey: Self.lastFolderBookmarkKey)
     }
 
-    func openFolder(_ url: URL) {
-        rememberFolder(url)
+    /// - Parameter restrictedTo: when non-nil, the roll is exactly these files instead
+    ///   of everything under `url`. That is how a picked set of individual photographs
+    ///   becomes a roll: the folder is still a real folder — the catalog registers it and
+    ///   keys relative filenames on it — but the scan is replaced by the chosen list.
+    func openFolder(_ url: URL, restrictedTo restriction: Set<URL>? = nil) {
+        rememberFolder(url, restrictedTo: restriction)
         folderURL = url
         selection = []
         primarySelection = nil
@@ -2649,13 +2982,26 @@ final class AppState: ObservableObject {
         scanGeneration &+= 1
         let generation = scanGeneration
         let catalog = self.catalog
+        // The previous folder's culling pass is measuring photographs that are leaving
+        // the screen; it stops after the one it is on.
+        catalog?.cancelCullingAnalysis()
         Task.detached(priority: .userInitiated) { [weak self] in
-            let found = Self.scan(url: url, extensions: extensions)
+            // A restricted roll does not enumerate: the list IS the answer, sorted the
+            // same way a scan sorts so the grid's initial order does not depend on which
+            // door the photographs came through.
+            // A restricted roll is the chosen list rather than an enumeration of the
+            // root — except for any DIRECTORY in it, which contributes its contents, so
+            // "this folder and those three from next door" is one roll. Sorted the way a
+            // scan sorts, so the grid's initial order does not depend on which door the
+            // photographs came through.
+            let found: [URL] = restriction.map { Self.expand($0, extensions: extensions) }
+                ?? Self.scan(url: url, extensions: extensions)
             // Registration is thousands of SQL round-trips and a sidecar read per
             // file. It stays out here, on this thread: it used to run inside the
             // main-actor hop, which stopped the run loop for the whole of a 5,000
             // frame card.
-            let stored = catalog?.registerAndLoad(folder: url, files: found) ?? [:]
+            let stored = catalog?.registerAndLoad(folder: url, files: found,
+                                                   completeListing: restriction == nil) ?? [:]
             // Whether the roll this scan built is still the one the user wants —
             // decided on the main actor, and the BACKFILL LAUNCH depends on it too:
             // a superseded folder's scan used to fire its full EXIF pass anyway,
@@ -2692,6 +3038,9 @@ final class AppState: ObservableObject {
                     // in the catalog since seconds after it opened (session C, the
                     // owner's Sony a7 IV / Lumix GX85 report).
                     self.refreshLibrarySections()
+                    // AFTER the EXIF, because burst grouping reads capture time and
+                    // the body serial: started earlier, a fresh card would group nothing.
+                    self.startCullingAnalysis(folder: url)
                 }
             }
         }
@@ -2736,11 +3085,18 @@ final class AppState: ObservableObject {
                 items[i].rating = row.rating
                 items[i].label = row.label
                 items[i].iso = row.iso
+                items[i].sourceIdentity = row.sourceIdentity
                 if let recipe = row.recipe { loaded[items[i].id] = recipe }
             }
         }
         recipes = loaded
         allPhotos = items
+        sourceRevision &+= 1
+        // A rescan is where a same-path replacement is noticed. The thumbnail key
+        // carries the file's identity, so this costs nothing unless the bytes changed.
+        // The overlay's source key carries it too.
+        refreshMaskThumbnails()
+        refreshMaskOverlayIfSourceChanged()
         // The preview cache is keyed on `photo_id` and the loader is keyed on URL; this
         // dictionary is the join, and it has been coming back from `registerAndLoad`
         // unread for as long as both have existed.
@@ -2933,7 +3289,7 @@ final class AppState: ObservableObject {
     }
 
     func setFlag(_ flag: PhotoFlag) {
-        let target: PhotoFlag = referenceItem?.flag == flag ? .none : flag
+        let target: PhotoFlag = referenceItem?.flag == flag ? .unflagged : flag
         let from = cursorIndex
         mutateTargets("Flag") { $0.flag = target }
         advanceIfNeeded(from: from)
@@ -2948,7 +3304,7 @@ final class AppState: ObservableObject {
     }
 
     func setLabel(_ label: ColorLabel) {
-        let target: ColorLabel = referenceItem?.label == label ? .none : label
+        let target: ColorLabel? = referenceItem?.label == label ? nil : label
         let from = cursorIndex
         mutateTargets("Label") { $0.label = target }
         advanceIfNeeded(from: from)
@@ -3023,23 +3379,52 @@ final class AppState: ObservableObject {
         history.record(before: before, after: after, coalescingKey: nil, label: label)
         // A rejected frame under a "Picked" chip has just left the grid, and only the
         // catalog knows it: the badge lives in `allPhotos`, the membership does not.
-        if filter.isActive || sortOrder == .rating || sortOrder == .flag
-            || sortOrder == .label {
-            refreshLibraryQuery()
-        }
+        refreshLibraryQueryIfCullingShowsInTheGrid()
     }
 
-    /// Put a culling state back on a photo, wherever it currently sits in the roll.
-    private func restore(_ culling: HistoryStack.Culling, to url: URL) {
-        guard let i = allPhotos.firstIndex(where: { $0.id == url }) else { return }
-        let wasLabel = allPhotos[i].label
-        allPhotos[i].flag = culling.flag
-        allPhotos[i].rating = culling.rating
-        allPhotos[i].label = culling.label
-        catalog?.saveCullingState(allPhotos[i], labelChanged: wasLabel != culling.label)
-        if allPhotos[i].id == primarySelection?.id {
-            primarySelection = allPhotos[i]
+    /// A culling change moves grid MEMBERSHIP or ORDER whenever a filter is lit or the
+    /// sort reads flag, rating or label — and the grid's membership is the catalog's
+    /// answer, not `allPhotos`. Shared by the way in (`mutateTargets`) and the way back
+    /// (`apply`'s restore): undo of a reject under a "Rejected" chip left the restored
+    /// frame in the grid, because only the keystroke asked the catalog again.
+    private func refreshLibraryQueryIfCullingShowsInTheGrid() {
+        guard filter.isActive || sortOrder == .rating || sortOrder == .flag
+            || sortOrder == .label else { return }
+        refreshLibraryQuery()
+    }
+
+    /// Put every culling state of one history step back, wherever each photo sits in
+    /// the roll — in ONE pass over a local copy and ONE assignment.
+    ///
+    /// It was one call per photo, each doing a linear `firstIndex(where:)` over the
+    /// roll and then three separate element writes to `allPhotos`. `allPhotos` is
+    /// `@Published`, so every element write copies the whole roll and republishes the
+    /// grid: ⌘Z on a 200-frame reject in a 20,000-frame folder was 600 whole-roll
+    /// copies and 600 publishes (J2-02's undo half) — the cost `mutateTargets` above
+    /// was rid of on the way in, still paid on the way back.
+    private func restore(_ cullings: [URL: HistoryStack.Culling]) {
+        guard !cullings.isEmpty else { return }
+        var updated = allPhotos
+        var restored: [(item: PhotoItem, labelChanged: Bool)] = []
+        var freshPrimary: PhotoItem?
+        for i in updated.indices {
+            guard let culling = cullings[updated[i].id] else { continue }
+            let wasLabel = updated[i].label
+            updated[i].flag = culling.flag
+            updated[i].rating = culling.rating
+            updated[i].label = culling.label
+            restored.append((updated[i], wasLabel != culling.label))
+            if updated[i].id == primarySelection?.id {
+                freshPrimary = updated[i]
+            }
         }
+        guard !restored.isEmpty else { return }
+        allPhotos = updated
+        for entry in restored {
+            catalog?.saveCullingState(entry.item, labelChanged: entry.labelChanged)
+        }
+        if let freshPrimary { primarySelection = freshPrimary }
+        refreshLibraryQueryIfCullingShowsInTheGrid()
     }
 
     /// Advance from where the cursor WAS. `mutateTargets` may have just made the
@@ -3112,6 +3497,21 @@ final class AppState: ObservableObject {
     static func startingRecipe(for url: URL, iso: Int? = nil) -> Recipe {
         Recipe.asImported(from: Recipe.SourceFile(
             isRendered: PhotoFormats.isRendered(url), iso: iso))
+    }
+
+    /// Double-click on a Noise Reduction row: each target goes back to ITS OWN imported
+    /// value for that row, not to the primary photograph's.
+    ///
+    /// Through the photo-aware `updateRecipe`, because the value is per file — see
+    /// `Recipe.resetDenoise(_:from:)`. The key names the reset rather than the row, so a
+    /// drag followed by a double-click are two decisions and one ⌘Z does not take back
+    /// both. `targets` is the same narrowing `updateRecipe` offers; nil is the selection.
+    func resetDenoise(_ row: Recipe.DenoiseRow, targets: [PhotoItem]? = nil) {
+        updateRecipe(coalescingKey: "denoise.classic.\(row.rawValue).reset",
+                     targets: targets) { photo, recipe in
+            recipe.resetDenoise(row, from: Recipe.SourceFile(
+                isRendered: PhotoFormats.isRendered(photo.id), iso: photo.iso))
+        }
     }
 
     var currentRecipe: Recipe {
@@ -3218,11 +3618,26 @@ final class AppState: ObservableObject {
                 // the error grew with the edit (docs/23 dossier queue item 5).
                 let sample: RGB?
                 if target.samplesTheMaskStage {
+                    // A mask swatch reads after the mask's own exposure, tone, white
+                    // balance and earlier swatches; the next swatch's index is the
+                    // mask's current count, as `.maskPointColor` appends below.
+                    var swatch: (maskID: String, index: Int)?
+                    if case .maskPointColor(let maskID) = target,
+                       let mask = current.masks.first(where: { $0.id == maskID }) {
+                        swatch = (maskID, mask.adjust.pointColors.count)
+                    }
                     sample = await renderCoordinator.sampleMaskReference(
-                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                } else {
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
+                        pointColorSwatch: swatch)
+                } else if let tap = target.colorSelectionTap(
+                    existingPointColors: current.develop.pointColors.count) {
+                    // Through the colour stage as far as the selection reads (AI-02):
+                    // the stage input alone sits before the primaries and the Mixer.
                     sample = await renderCoordinator.samplePointColorReference(
-                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
+                        url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
+                        tap: tap)
+                } else {
+                    sample = nil
                 }
                 guard selectionStillOnPickedPhoto() else { return }
                 guard let sample else {
@@ -3426,6 +3841,8 @@ final class AppState: ObservableObject {
     /// 8-second watchdog all already call, so the deferred settle inherits all three
     /// safety nets rather than needing its own.
     @Published private(set) var settleTick: Int = 0
+    /// Re-key viewers on a completed rescan even when URL and recipe stayed equal.
+    @Published private(set) var sourceRevision: Int = 0
 
     private var pendingGesturePersist: [URL: Recipe] = [:]
     private var pendingGestureTouchedPixels = false
@@ -3615,7 +4032,11 @@ final class AppState: ObservableObject {
         // docs/10 §10.10: the photographer never hears about this — no menu item, no
         // confirmation, no "Optimize Catalog" ritual.
         previews?.prune()
-        catalog?.close()
+        // Synchronous: nothing dispatched from here runs again. `close` logs what it
+        // could not write and records it in the catalog for the next launch's notice.
+        if let unsaved = catalog?.close(), !unsaved.isEmpty {
+            statusMessage = "Sidecars not saved: " + unsaved.joined(separator: ", ")
+        }
     }
 
     /// A consistent snapshot of the catalog, via `VACUUM INTO`.
@@ -3628,13 +4049,22 @@ final class AppState: ObservableObject {
         statusMessage = "Backing up the catalog…"
     }
 
-    func undo() { apply(history.undo()) }
-    func redo() { apply(history.redo()) }
+    func undo() {
+        // End deferred persistence before restoring history, so a later release or
+        // quit cannot save the value that undo has just rejected.
+        sliderGesture(active: false)
+        apply(history.undo())
+    }
+    func redo() {
+        sliderGesture(active: false)
+        apply(history.redo())
+    }
 
     /// Put one history step back, restoring only the fields it recorded.
     private func apply(_ step: [URL: HistoryStack.PhotoEdit]?) {
         guard let step else { return }
         var recipeChanges: [URL: Recipe] = [:]
+        var cullings: [URL: HistoryStack.Culling] = [:]
         var touchedPixels = false
         for (url, edit) in step {
             if let recipe = edit.recipe {
@@ -3643,9 +4073,10 @@ final class AppState: ObservableObject {
                 touchedPixels = true
             }
             if let culling = edit.culling {
-                restore(culling, to: url)
+                cullings[url] = culling
             }
         }
+        restore(cullings)
         persist(recipeChanges)
         if touchedPixels {
             scheduleScopeRefresh()
@@ -3670,34 +4101,43 @@ final class AppState: ObservableObject {
     /// plain stored property does not tell SwiftUI to look again — so "Paste Masks"
     /// would stay greyed out until something else happened to redraw the menu bar.
     @Published private var copiedRecipe: Recipe?
-    private var copiedLook: Look?
+    /// Published for the same reason as `copiedRecipe`: Paste Look is `.disabled` on
+    /// whether it is nil, and a plain stored property does not tell SwiftUI to look
+    /// again. It was plain, so Paste Look was always enabled — and before anything had
+    /// been copied ⌥⌘V did nothing at all, no picture change and no message, which
+    /// reads as the app being wedged (W2/D1-04).
+    @Published private var copiedLook: Look?
 
-    func copySettings() { copiedRecipe = primarySelection.map(recipe(for:)) }
+    /// A copy with nothing selected copies NOTHING — it does not empty the clipboard.
+    /// `primarySelection.map` assigned nil, so a stray ⌘C or ⌥⌘C in the grid with the
+    /// selection cleared threw away what had been copied and the next paste was a no-op.
+    func copySettings() {
+        guard let photo = primarySelection else { return }
+        copiedRecipe = recipe(for: photo)
+    }
+
+    /// Whether Paste Settings carries Heal and Clone spots and heal strokes. OFF by
+    /// default (`RetouchPaste`): a spot is a position on one photograph's blemish, and
+    /// pasted across a shoot it lands on unrelated content in every other frame — LR's
+    /// sync leaves Spot Removal unchecked for the same reason. Session state, an
+    /// explicit opt-in, read by both whole-recipe paste commands. It LIVES on
+    /// `commands` because the Edit menu's checkable item is its only control and the
+    /// menu observes that object and not this one.
+    var pasteIncludesRetouch: Bool { commands.pasteIncludesRetouch }
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
+        // `Recipe.adoptingSettings` is the rule, in LumenCore where it is tested: the
+        // develop, the look less the one leaf that describes the target
+        // (`LookSubset.carriedRenderPreset` — four doors into a look, one decision),
+        // the masks WITH their folders, the target's own spots and strokes unless the
+        // photographer opted in (`pasteIncludesRetouch`), and the newer of the two
+        // version stamps, since the result now holds whatever the source could
+        // express (M-06) — less the spot vocabulary when the spots stayed behind.
+        let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings") { recipe in
-            recipe.develop = source.develop
-            // `.look` whole EXCEPT the one leaf in it that describes the target rather
-            // than the look. `LookSubset.carriedRenderPreset` is that rule, and it lives
-            // in LumenCore precisely because there are four doors into a look — this
-            // one, Paste Settings Without Masks, Paste Look, and `LookSubset.applied` —
-            // and a copy of the decision at each is how they drift. See that function's
-            // header: carrying `render.preset` across the tone-mapped boundary applies a
-            // second tone map (sRGB 32 goes to 13, 255 to 222) or clips two and a half
-            // stops, depending on direction.
-            // `own` is read BEFORE the assignment: after it, `recipe.look` IS
-            // `source.look` and the target's own preset is already gone.
-            let own = recipe.look.render.preset
-            recipe.look = source.look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
-            recipe.masks = source.masks
-            // The folders come with their masks. Without this line every pasted mask
-            // names a group the target photograph has not got, which `Recipe.effective`
-            // treats as ungrouped — so the edit survives and the organization silently
-            // does not, which is the kind of loss nobody notices until they go looking.
-            recipe.maskGroups = source.maskGroups
+            recipe = recipe.adoptingSettings(from: source, includingMasks: true,
+                                            includingRetouch: retouch)
         }
     }
 
@@ -3712,12 +4152,10 @@ final class AppState: ObservableObject {
     /// nine times out of ten. Two commands cost nothing and ask nothing.
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
+        let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
-            recipe.develop = source.develop
-            let own = recipe.look.render.preset
-            recipe.look = source.look
-            recipe.look.render.preset =
-                LookSubset.carriedRenderPreset(source.look.render.preset, onto: own)
+            recipe = recipe.adoptingSettings(from: source, includingMasks: false,
+                                            includingRetouch: retouch)
         }
     }
 
@@ -3744,12 +4182,16 @@ final class AppState: ObservableObject {
     /// for — the menu greys them out rather than offering a paste that does nothing.
     var hasCopiedMasks: Bool { !(copiedRecipe?.masks.isEmpty ?? true) }
     var hasCopiedSettings: Bool { copiedRecipe != nil }
+    var hasCopiedLook: Bool { copiedLook != nil }
 
     /// Copy Look copies exactly the look-tagged slice (D4) — grade, film stock,
     /// transform preset — and nothing else. Each target keeps its own white balance,
     /// exposure and denoise, which is what makes one look across 800 frames a
     /// selection gesture rather than a copy-paste-then-fix ritual.
-    func copyLook() { copiedLook = primarySelection.map { recipe(for: $0).look } }
+    func copyLook() {
+        guard let photo = primarySelection else { return }
+        copiedLook = recipe(for: photo).look
+    }
 
     func pasteLook() {
         guard let look = copiedLook else { return }

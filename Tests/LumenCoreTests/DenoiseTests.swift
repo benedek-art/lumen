@@ -138,7 +138,6 @@ final class DenoiseTests: XCTestCase {
     func testLuminanceDetailRaisesTheThresholdAndKeepsMoreNoise() {
         let profile = NoiseProfile.forISO(3200)
         let noisy = noisyField(level: 0.18, profile: profile)
-        let base = basisSigma(noisy).luma
 
         var previous = 0.0
         for detail in [0.0, 50.0, 100.0] {
@@ -458,6 +457,116 @@ final class DenoiseTests: XCTestCase {
         // A scale above 1 would be a caller bug, and must not amplify the profile.
         let silly = denoise.gpuPlan(width: 100, height: 100, noiseScale: 4)
         XCTAssertEqual(silly.profile.a, full.profile.a, accuracy: 1e-15)
+    }
+
+    // MARK: - Tiling: the halo is the stage's real reach
+
+    /// A noisy frame with structure in it — a luminance step, a pure-chroma step and
+    /// two hot pixels — so every pass that reads a neighbourhood has something to do
+    /// near a tile seam: the hot-pixel gate, the edge maps, every à-trous band and the
+    /// blotch filter.
+    private func structuredNoisyFrame(width: Int, height: Int,
+                                      profile: NoiseProfile) -> ImageBuffer {
+        var frame = noisyField(level: 0.18, profile: profile,
+                               width: width, height: height, seed: 0x711E)
+        for y in 0..<height {
+            for x in 0..<width {
+                var c = frame[x, y]
+                if x > width / 3 { c.r += 0.10; c.g += 0.10; c.b += 0.10 }
+                if y > height / 2 { c.r += 0.04; c.b -= 0.04 }
+                frame[x, y] = RGB(Swift.max(c.r, 0), Swift.max(c.g, 0), Swift.max(c.b, 0))
+            }
+        }
+        frame[17, 23] = RGB(gray: 0.95)
+        frame[width / 2, height / 2] = RGB(gray: 0.95)
+        return frame
+    }
+
+    /// Run the reference stage tile by tile, the way docs/14 §6.3's export tiler would,
+    /// and stitch the valid regions back together.
+    private func tiledApply(_ engine: ClassicalDenoise, _ frame: ImageBuffer,
+                            tile: Int, overlap: Int) -> ImageBuffer {
+        let plan = TilePlan(width: frame.width, height: frame.height,
+                            tile: tile, overlap: overlap)
+        var pieces: [(rect: TileRect, pixels: ImageBuffer)] = []
+        for rect in plan.tiles {
+            var piece = ImageBuffer(width: rect.width, height: rect.height)
+            for y in 0..<rect.height {
+                for x in 0..<rect.width {
+                    piece[x, y] = frame[rect.x + x, rect.y + y]
+                }
+            }
+            pieces.append((rect, engine.apply(piece)))
+        }
+        return TilePlan.stitch(pieces, width: frame.width, height: frame.height)
+    }
+
+    private func worstDifference(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+        var worst = 0.0
+        for y in 0..<a.height {
+            for x in 0..<a.width {
+                worst = Swift.max(worst, a[x, y].maxAbsDifference(b[x, y]))
+            }
+        }
+        return worst
+    }
+
+    /// The reach is counted, not guessed: hot pixels 1, five à-trous bands 2+4+8+16+32,
+    /// the blotch guided filter 2·8. Pinned, so a change to any of the three has to
+    /// come through here and be seen.
+    func testTheReceptiveFieldCountsEveryPass() {
+        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 5), 1 + 62 + 16)
+        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 6), 1 + 126 + 16)
+        // One band reaches 2; the edge map's three box passes and central difference
+        // reach 4, so there the edge map is the longer chain.
+        XCTAssertEqual(ClassicalDenoise.receptiveField(levels: 1), 1 + 4 + 16)
+        XCTAssertGreaterThanOrEqual(
+            TilePlan.classicOverlap,
+            ClassicalDenoise.receptiveField(levels: ClassicalDenoise.defaultLevels),
+            "the S3 export apron is shorter than the stage's own reach")
+    }
+
+    /// docs/14 §6.3: "Tiled and untiled renders must be bit-identical within stage
+    /// tolerance — a golden asserts exactly this." For S3 none did, and the declared
+    /// 24 px halo was a third of the stage's reach.
+    ///
+    /// The tile here is 240 px, small enough to put seams through the frame on both
+    /// axes and large enough that each tile keeps all five bands (`effectiveLevels`
+    /// needs 63 px), so the tiled and untiled stages run the same arithmetic. The only
+    /// thing left to differ is what a pixel near a seam can see, and at the stage's
+    /// own apron it sees everything it would have seen untiled. Measured: 0.0 at the
+    /// 79 px apron. The 1e-6 bar is there for the box blur's running sums, which start
+    /// at a different column in a tile than in the frame and may round differently on
+    /// another libm.
+    func testTilingTheStageOnItsOwnApronReproducesTheWholeFrame() {
+        let profile = NoiseProfile.forISO(6400)
+        let frame = structuredNoisyFrame(width: 320, height: 260, profile: profile)
+        let engine = ClassicalDenoise(
+            ClassicNR(luma: 60, chroma: 60, hotPixels: 60, colorSmoothness: 100),
+            profile: profile)
+        XCTAssertEqual(engine.effectiveLevels(width: 240, height: 240),
+                       engine.effectiveLevels(width: 320, height: 260),
+                       "a tile runs fewer bands than the frame; this compares two stages")
+
+        let whole = engine.apply(frame)
+        XCTAssertGreaterThan(worstDifference(whole, frame), 1e-2,
+                             "the stage barely moved the frame, so agreeing with it "
+                                 + "proves nothing")
+
+        let tiled = tiledApply(engine, frame, tile: 240, overlap: TilePlan.classicOverlap)
+        let seamError = worstDifference(tiled, whole)
+        XCTAssertLessThan(seamError, 1e-6,
+                          "tiling S3 on a \(TilePlan.classicOverlap) px apron moved a "
+                              + "pixel by \(seamError) against the untiled frame")
+
+        // And the test can see an apron that is too short: the old declared 24 px.
+        // Measured here at 1.58e-5 — small, because the reconstruction is exact
+        // whatever a band's border sees and only the SHRUNK part of a coarse band
+        // depends on it, but not the bit-identity docs/14 §6.3 promises.
+        let short = tiledApply(engine, frame, tile: 240, overlap: 24)
+        XCTAssertGreaterThan(worstDifference(short, whole), 1e-6,
+                             "a 24 px apron reproduced the frame, so this test cannot "
+                                 + "tell a sufficient apron from an insufficient one")
     }
 
     // MARK: - ISO-adaptive defaults

@@ -208,7 +208,7 @@ final class HistoryPanelTests: XCTestCase {
     /// A CULLING STEP CARRIES ITS VALUE, and it is the one kind of step that can: the
     /// value is `PhotoEdit.culling`, in the step, with no recipe diff to perform.
     func testACullingStepShowsTheValueItSet() {
-        let was = HistoryStack.Culling(flag: .none, rating: 0, label: .none)
+        let was = HistoryStack.Culling(flag: .unflagged, rating: 0, label: nil)
         var now = was
         now.rating = 3
         let rated = HistoryStack.Step(before: [a: HistoryStack.PhotoEdit(culling: was)],
@@ -222,6 +222,32 @@ final class HistoryPanelTests: XCTestCase {
                        "a culling row must say what it set — \"Rating\" alone leaves a "
                        + "photographer with three identical rows and no way to tell "
                        + "which star they are going back to")
+    }
+
+    /// The flag and label rows after the app's own enums were folded into LumenCore's:
+    /// the words are the ones the old cases produced, and a CLEARED label — nil now,
+    /// `.none` before — still reads "None" rather than vanishing from the row.
+    func testCullingRowsKeepTheirWordsAcrossTheEnumMerge() {
+        let was = HistoryStack.Culling(flag: .unflagged, rating: 0, label: .red)
+        func detail(_ now: HistoryStack.Culling) -> String? {
+            let edit = HistoryStack.Step(before: [a: HistoryStack.PhotoEdit(culling: was)],
+                                         after: [a: HistoryStack.PhotoEdit(culling: now)],
+                                         coalescingKey: nil, label: "Cull",
+                                         gestureEpoch: nil)
+            return HistoryStack.entries(steps: [edit], for: a).last?.detail
+        }
+        var picked = was
+        picked.flag = .pick
+        XCTAssertEqual(detail(picked), "Pick")
+        var rejected = was
+        rejected.flag = .reject
+        XCTAssertEqual(detail(rejected), "Reject")
+        var cleared = was
+        cleared.label = nil
+        XCTAssertEqual(detail(cleared), "None")
+        var blue = was
+        blue.label = .blue
+        XCTAssertEqual(detail(blue), "Blue")
     }
 
     /// And a step that moved a whole selection says how many frames it moved, because
@@ -340,28 +366,10 @@ final class HistoryPanelTests: XCTestCase {
     }
 
     /// Line and block comments out, so no assertion here can be satisfied by prose
-    /// about the thing it is looking for. `SurroundPaintTests.strippingComments`,
-    /// copied, and see this file's header for why it is not optional here.
+    /// about the thing it is looking for. The shared `blankingComments(in:)`,
+    /// and see this file's header for why it is not optional here.
     private static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix("*/") { inBlock = false; index = source.index(index, offsetBy: 2) }
-                else { index = source.index(after: index) }
-                continue
-            }
-            if rest.hasPrefix("/*") { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix("//") {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
+        blankingComments(in: source)
     }
 }
 #endif

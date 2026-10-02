@@ -120,19 +120,13 @@ public struct ControlIndex: Sendable {
                 aliases: ["preset", "presets", "look"]),
         Control(id: "look.render", title: "Display Transform", section: .looks,
                 aliases: ["render", "transform", "tone mapping", "preset"]),
-        // LUT is deliberately absent, for the same reason Retouch is (see below).
-        //
-        // It was here, and it was the index's one orphan: `look.lut` has no picker, no
-        // importer and NO STAGE — `Recipe.swift` says so in as many words and
-        // `renderIdentity` strips it. So typing "cube" or "film emulation" into ⌘K
-        // returned one confident result, and Return took the photographer to a Looks
-        // section containing Saved Looks and Display Transform and nothing else. The
-        // palette answered a named request by sending them somewhere it isn't, which is
-        // the one failure a palette must not have.
-        //
-        // "film emulation" moves to Film Lab, which is the control a photographer typing
-        // that phrase is actually looking for — and which it did not match, because
-        // "film emulation" is not a subsequence of "film lab".
+        // LUT is back, because there is now something to arrive at: the Creative LUT
+        // rows in the Looks section (`LookPanel.lutSection`) and a stage that renders
+        // them (`CreativeLUTStage`). It was removed as the index's one orphan when
+        // `look.lut` had no picker, no importer and no stage. "film emulation" stays
+        // with Film Lab, which is still what a photographer typing that phrase means.
+        Control(id: "look.lut", title: "Creative LUT", section: .looks,
+                aliases: ["lut", "cube", ".cube", "3d lut"]),
 
         // Grade — Colour
         Control(id: "mixer", title: "Colour Mixer", section: .color,
@@ -153,8 +147,10 @@ public struct ControlIndex: Sendable {
 
         // Grade — Film Lab
         Control(id: "look.filmLab", title: "Film Lab", section: .filmLab,
+                // "lut" and "cube" used to sit here as the nearest thing to a LUT the
+                // app had; they belong to `look.lut` now that one exists.
                 aliases: ["film", "stock", "halation", "push pull", "portra",
-                          "film emulation", "lut", "cube"]),
+                          "film emulation"]),
 
         // Grade — Effects
         Control(id: "look.vignette", title: "Vignette", section: .effects,
