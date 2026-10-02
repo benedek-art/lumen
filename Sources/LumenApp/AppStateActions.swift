@@ -306,6 +306,9 @@ extension AppState {
         // the exported file rendered to the working space, leaving ColorSync to clip
         // per channel at encode. The proof you approved was not the file you shipped.
         let proof = activeSoftProof
+        // Anything an export of THIS run claims is newer than this; an empty claim
+        // older than it, beside its partial, is one an interrupted run abandoned.
+        let runStart = Date()
 
         Task {
             var completed = 0.0
@@ -362,7 +365,10 @@ extension AppState {
                     // The recipe's collision policy decides about files that were
                     // there before the run; a name this run already claimed is always
                     // renamed (`ExportRecipe.placement` says why). Under the default,
-                    // Rename, this is the `disambiguated` call it replaced.
+                    // Rename, this is the `disambiguated` call it replaced. An empty
+                    // claim a crashed export left on a FAT/exFAT volume is not a
+                    // delivery, and is cleared before the policy is asked about it.
+                    ExclusivePublish.reclaimAbandonedClaim(at: wanted, olderThan: runStart)
                     let placement = ExportRecipe.placement(
                         for: wanted, policy: exportRecipe.collision,
                         claimedThisRun: { claimed.contains($0) },

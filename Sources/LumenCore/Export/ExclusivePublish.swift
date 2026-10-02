@@ -70,7 +70,8 @@ private func sysClose(_ fd: Int32) { _ = Glibc.close(fd) }
 ///   2. Where links are not supported either (FAT, exFAT), claim the name with
 ///      `open(destination, O_CREAT | O_EXCL)` — again EEXIST if it exists — and then
 ///      rename the partial over the empty file THIS call just created. If that rename
-///      fails, the claim is removed.
+///      fails, the claim is removed. If the process dies between the two, the empty
+///      claim is left behind; `reclaimAbandonedClaim` recognises it on the next run.
 /// Every other errno is a failure, kept and reported, never retried.
 public enum ExclusivePublish {
 
@@ -176,6 +177,42 @@ public enum ExclusivePublish {
             _ = calls.unlink(destination)
             throw ExportPublishError.failed(errno: moved)
         }
+    }
+
+    /// Removes a claim an earlier, interrupted export left under `destination`, and says
+    /// whether it did.
+    ///
+    /// Fallback 2 above must create the final name EMPTY before it renames the finished
+    /// partial over it: on a volume with neither RENAME_EXCL nor hard links, an
+    /// exclusive create is the only operation that refuses an existing name. A crash in
+    /// the instant between the two leaves a zero-byte file under the delivery's name,
+    /// and the batch's collision check then counted it as a delivery: Skip left the
+    /// photograph undelivered, Rename put it beside the empty file as `-1`.
+    ///
+    /// A file is that abandoned claim only when all three hold, so a real file is never
+    /// taken for one:
+    ///   · it is a regular file of zero bytes (no export is ever empty);
+    ///   · its partial is still beside it — `.<name>.…part`, the hidden sibling the
+    ///     renderer encodes into and which only the completing rename removes;
+    ///   · it was last modified before `runStart`, so it cannot be the live claim of an
+    ///     export in flight right now.
+    /// Called by the batch before it asks the collision policy about a name.
+    @discardableResult
+    public static func reclaimAbandonedClaim(at destination: URL, olderThan runStart: Date) -> Bool {
+        let manager = FileManager.default
+        // A fresh URL, so no resource value cached by an earlier look answers for it.
+        let fresh = URL(fileURLWithPath: destination.path)
+        guard let values = try? fresh.resourceValues(
+                  forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
+              values.isRegularFile == true, values.fileSize == 0,
+              let modified = values.contentModificationDate, modified < runStart
+        else { return false }
+        let prefix = "." + destination.lastPathComponent + "."
+        let siblings = (try? manager.contentsOfDirectory(
+            atPath: destination.deletingLastPathComponent().path)) ?? []
+        guard siblings.contains(where: { $0.hasPrefix(prefix) && $0.hasSuffix(".part") })
+        else { return false }
+        return (try? manager.removeItem(at: destination)) != nil
     }
 
     /// What the export status line says about a failed file, or nil when the error has

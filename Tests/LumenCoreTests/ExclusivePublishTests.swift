@@ -117,6 +117,84 @@ final class ExclusivePublishTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    // MARK: - A claim a crash abandoned is not a delivery
+
+    /// Drives fallback 2 on an injected FAT-like volume and "dies" between the claim and
+    /// the fill: the rename never happens and nothing cleans up. What is left is what a
+    /// crash leaves — an empty file under the final name, its partial beside it.
+    private func crashBetweenClaimAndFill(_ name: String) throws -> URL {
+        let partial = try write("photo", "." + name + ".lumen-1a2b3c4d.part")
+        let destination = directory.appendingPathComponent(name)
+        let dying = ExclusivePublish.Syscalls(renameExclusive: Self.answering(ENOTSUP),
+                                              link: Self.answering(EPERM),
+                                              rename: Self.answering(EIO),
+                                              unlink: { _ in 0 })
+        XCTAssertThrowsError(try ExclusivePublish.publish(partial, as: destination,
+                                                          allowOverwrite: false, using: dying))
+        let size = try FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber
+        XCTAssertEqual(size?.intValue, 0, "the fixture did not leave the empty claim a crash leaves")
+        try backdate(destination)
+        return destination
+    }
+
+    private func backdate(_ url: URL) throws {
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)],
+                                              ofItemAtPath: url.path)
+    }
+
+    func testAnAbandonedClaimIsReclaimedAndTheNextRunDelivers() throws {
+        let destination = try crashBetweenClaimAndFill("g.jpg")
+        let runStart = Date()
+        XCTAssertTrue(ExclusivePublish.reclaimAbandonedClaim(at: destination, olderThan: runStart),
+                      "an empty claim beside its partial was taken for a delivery")
+        // Under Skip the photograph is now delivered, not left as an empty file...
+        let exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+        XCTAssertEqual(ExportRecipe.placement(for: destination, policy: .skip,
+                                              claimedThisRun: { _ in false }, existsOnDisk: exists),
+                       .write(destination, replacing: false))
+        // ...and the same FAT-like volume publishes it under its own name.
+        let fresh = try write("photo again", ".g.jpg.lumen-5e6f7a8b.part")
+        try ExclusivePublish.publish(fresh, as: destination, allowOverwrite: false,
+                                     using: Self.noExclusiveRenameNoLinks)
+        XCTAssertEqual(try read(destination), "photo again")
+    }
+
+    func testOnlyAnAbandonedClaimIsReclaimed() throws {
+        let runStart = Date()
+        // Zero bytes but no partial: somebody's empty file, not ours.
+        let empty = try write("", "h.jpg")
+        try backdate(empty)
+        XCTAssertFalse(ExclusivePublish.reclaimAbandonedClaim(at: empty, olderThan: runStart))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: empty.path))
+        // A real file beside a partial: a delivery, never touched.
+        let real = try write("sentinel", "i.jpg")
+        _ = try write("photo", ".i.jpg.lumen-00000000.part")
+        try backdate(real)
+        XCTAssertFalse(ExclusivePublish.reclaimAbandonedClaim(at: real, olderThan: runStart))
+        XCTAssertEqual(try read(real), "sentinel")
+        // An empty claim made after the run started: an export in flight right now.
+        let live = try write("", "j.jpg")
+        _ = try write("photo", ".j.jpg.lumen-00000000.part")
+        XCTAssertFalse(ExclusivePublish.reclaimAbandonedClaim(
+            at: live, olderThan: Date(timeIntervalSinceNow: -3600)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: live.path))
+        // Nothing there at all.
+        XCTAssertFalse(ExclusivePublish.reclaimAbandonedClaim(
+            at: directory.appendingPathComponent("k.jpg"), olderThan: runStart))
+    }
+
+    func testTheBatchReclaimsAbandonedClaimsBeforeAskingThePolicy() throws {
+        let flat = ShellSource.squashed(try ShellSource.code("Sources/LumenApp/AppStateActions.swift"))
+        let reclaim = try XCTUnwrap(flat.range(
+            of: "ExclusivePublish.reclaimAbandonedClaim(at: wanted, olderThan: runStart)"),
+            "the batch no longer clears an abandoned claim, so Skip treats it as a delivery")
+        let placement = try XCTUnwrap(flat.range(of: "ExportRecipe.placement("))
+        XCTAssertLessThan(reclaim.lowerBound, placement.lowerBound,
+                          "the claim must be cleared before the collision policy sees the name")
+        XCTAssertTrue(flat.contains("let runStart = Date() Task"),
+                      "the run start must be taken once, just before the batch's task")
+    }
+
     // MARK: - Every other answer is kept, not retried
 
     func testOtherAnswersAreReportedAsTheyCame() throws {
