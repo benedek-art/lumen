@@ -1798,7 +1798,8 @@ public final class CatalogStore {
     }
 
     /// Older builds could publish the SQLite snapshot before copying its brushes.
-    /// A healthy database alone is therefore not evidence of a complete backup.
+    /// The payloads checked are every `strokesRef` (brush masks and painted heal) and
+    /// every creative LUT's `look.lut.ref` blob. A healthy database alone is therefore not evidence of a complete backup.
     /// Inspect references without migrating or rewriting the candidate. Live blobs
     /// may satisfy a legacy database-only snapshot, but their bytes must hash to the
     /// requested content address just like the backup's own payloads. Restore missing
@@ -1817,6 +1818,15 @@ public final class CatalogStore {
                 if let object = value as? [String: Any] {
                     for (key, child) in object {
                         if key == "strokesRef", let ref = child as? String, !ref.isEmpty {
+                            references.insert(ref)
+                        } else if key == "lut", let lut = child as? [String: Any],
+                                  let ref = lut["ref"] as? String,
+                                  BlobStore.filename(for: ref) != nil {
+                            // A creative LUT's cube lives on the same shelf as the
+                            // strokes (`look.lut.ref`); without it `CreativeLUTStage`
+                            // resolves to nil and the restored photograph silently
+                            // renders without its look. A ref that is not a blob
+                            // address names nothing in the store and is left alone.
                             references.insert(ref)
                         } else { collect(child) }
                     }

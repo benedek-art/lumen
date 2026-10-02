@@ -150,6 +150,126 @@ final class AuditSafetyTests: XCTestCase {
                        "The restored catalog's painting must exist where the live store reads it")
     }
 
+    /// The same two snapshots, but the newer one's recipe carries a creative LUT (or a
+    /// painted heal) instead of a brush mask. The cube is stored in the same BlobStore,
+    /// so the recovery pass has to hold it to the same standard as the strokes: a
+    /// restore whose LUT is missing or damaged renders every graded photograph without
+    /// its look, because `CreativeLUTStage` resolves to nil on a ref it cannot read.
+    private func payloadSnapshots(payload: Data, recipeFor: (String) -> Recipe,
+                                  backupBytes: ((Data) -> Data)?,
+                                  livePayload: Data? = nil) throws
+        -> (path: String, backups: URL, old: URL, newer: URL, live: URL, payload: Data) {
+        let root = try scratch()
+        let path = root.appendingPathComponent("lumen.db").path
+        let backups = root.appendingPathComponent("backups")
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let blobs = try BlobStore(directory: root.appendingPathComponent("blobs"))
+        let ref = try blobs.store(payload)
+        let live = try XCTUnwrap(blobs.url(for: ref))
+        let store = try CatalogStore(path: path, cachePath: root.appendingPathComponent("cache.db").path)
+        let folder = try store.registerFolder(path: root.path)
+        let id = try store.upsertPhoto(PhotoRow(folderID: folder, filename: "frame.jpg", rating: 1))
+        let old = backups.appendingPathComponent("lumen-2026-09-20T12-00-00Z.db")
+        try store.backup(to: old.path)
+        try store.saveRecipe(recipeFor(ref), photoID: id, isCurrent: true)
+        let newer = backups.appendingPathComponent("lumen-2026-09-21T12-00-00Z.db")
+        try store.backup(to: newer.path)
+        store.close()
+        if let backupBytes {
+            let newerBlobs = newer.deletingPathExtension().appendingPathExtension("blobs")
+            try FileManager.default.createDirectory(at: newerBlobs, withIntermediateDirectories: true)
+            try backupBytes(payload).write(to: newerBlobs.appendingPathComponent(live.lastPathComponent))
+        }
+        if let livePayload {
+            try livePayload.write(to: live)
+        } else {
+            try FileManager.default.removeItem(at: live)
+        }
+        try Data("damaged isolated catalog".utf8).write(to: URL(fileURLWithPath: path))
+        return (path, backups, old, newer, live, payload)
+    }
+
+    private static let cubeBytes = Data("""
+        LUT_3D_SIZE 2
+        1.0 0.0 0.0
+        0.0 0.0 0.0
+        1.0 1.0 0.0
+        0.0 1.0 0.0
+        1.0 0.0 1.0
+        0.0 0.0 1.0
+        1.0 1.0 1.0
+        0.0 1.0 1.0
+        """.utf8)
+
+    private func lutRecipe(_ ref: String) -> Recipe {
+        var recipe = Recipe()
+        recipe.look.lut = LUTReference(ref: ref, name: "Look", tap: .display, amount: 100)
+        return recipe
+    }
+
+    func testRecoveryRejectsSnapshotWhoseCreativeLUTIsMissing() throws {
+        let fixture = try payloadSnapshots(payload: Self.cubeBytes, recipeFor: lutRecipe,
+                                           backupBytes: nil)
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected older complete snapshot") }
+        XCTAssertEqual(chosen, fixture.old.path,
+                       "A snapshot whose LUT exists nowhere restores graded photographs without their look")
+    }
+
+    func testRecoveryRejectsSnapshotWhoseOnlyLUTCopyIsCorrupt() throws {
+        let fixture = try payloadSnapshots(payload: Self.cubeBytes, recipeFor: lutRecipe,
+                                           backupBytes: { _ in Data("LUT_3D_SIZE 2\n".utf8) })
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected older complete snapshot") }
+        XCTAssertEqual(chosen, fixture.old.path, "Bytes that do not hash to the LUT's ref are not the LUT")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.live.path),
+                       "Damaged backup bytes must not be published as the live LUT")
+    }
+
+    /// The bulk `BlobStore.restore` never overwrites, so a live cube that is present but
+    /// damaged would survive it. The recovery pass is what replaces it, and it keeps the
+    /// damaged bytes aside rather than discarding them.
+    func testRecoveryRepairsADamagedLiveLUTFromTheChosenSnapshot() throws {
+        let damaged = Data("not the cube".utf8)
+        let fixture = try payloadSnapshots(payload: Self.cubeBytes, recipeFor: lutRecipe,
+                                           backupBytes: { $0 }, livePayload: damaged)
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected newest snapshot") }
+        XCTAssertEqual(chosen, fixture.newer.path)
+        XCTAssertEqual(try Data(contentsOf: fixture.live), fixture.payload,
+                       "The restored catalog's LUT must be the cube its ref names")
+        let aside = try FileManager.default.contentsOfDirectory(
+            atPath: fixture.live.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix(fixture.live.lastPathComponent + ".damaged-") }
+        XCTAssertEqual(aside.count, 1, "the damaged live bytes were discarded: \(aside)")
+    }
+
+    /// A LUT ref that is not a blob address names nothing in the store; it must not
+    /// condemn an otherwise complete snapshot.
+    func testRecoveryIgnoresALUTRefThatIsNotABlobAddress() throws {
+        let fixture = try payloadSnapshots(payload: Self.cubeBytes,
+                                           recipeFor: { _ in self.lutRecipe("bundled.teal") },
+                                           backupBytes: nil)
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected newest snapshot") }
+        XCTAssertEqual(chosen, fixture.newer.path)
+    }
+
+    /// Painted heal (`develop.heal.strokesRef`) shares the brush's blob shelf and must
+    /// be held to the same standard.
+    func testRecoveryRejectsSnapshotWhoseHealStrokesAreMissing() throws {
+        let set = BrushStrokeSet(strokes: [BrushStroke(points: [BrushPoint(x: 0.3, y: 0.3),
+                                                                BrushPoint(x: 0.6, y: 0.6)])])
+        let fixture = try payloadSnapshots(payload: try set.encode(), recipeFor: { ref in
+            var recipe = Recipe()
+            recipe.develop.heal = Heal(strokesRef: ref, count: 1)
+            return recipe
+        }, backupBytes: nil)
+        let result = CatalogStore.recoverIfNeeded(path: fixture.path, backupDirectory: fixture.backups.path)
+        guard case .restored(let chosen, _) = result.outcome else { return XCTFail("Expected older complete snapshot") }
+        XCTAssertEqual(chosen, fixture.old.path, "A snapshot whose heal strokes exist nowhere is not complete")
+    }
+
     func testReadOnlyIntegrityProbeCannotCreateMissingBackups() throws {
         let path = try scratch().appendingPathComponent("missing.db").path
         XCTAssertFalse(CatalogStore.probeQuickCheck(path: path))
