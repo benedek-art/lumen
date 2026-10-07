@@ -711,7 +711,8 @@
       "owner": "history",
       "acceptance": "Mid-drag auto/reset/undo/switch/close retains intended value and durable state",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "partial-reset-interruption-green",
+      "evidence": "Reset during an unfinished slider gesture now closes its epoch before recording Reset; a failing real AppState undo/redo regression and adjacent 33 optimized tests pass. Remaining interruption matrix still planned."
     },
     {
       "id": "UX-04",
