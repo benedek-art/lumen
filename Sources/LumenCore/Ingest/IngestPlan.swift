@@ -231,9 +231,18 @@ public enum IngestLocation {
         return ([key] + remainder).joined(separator: "/")
     }
 
-    /// The identity of one file slot: its directory's identity and its name.
+    /// Existing files are identified by their device and inode, so case variants,
+    /// symbolic links and hard links cannot be counted as distinct deliveries. A
+    /// not-yet-created slot retains its directory/name identity; callers recording
+    /// a completed write must ask again after publication.
     public static func fileIdentity(of url: URL) -> String {
-        directoryIdentity(of: url.deletingLastPathComponent()) + "//" + url.lastPathComponent
+        let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: resolved.path),
+           let device = unsigned(attributes[.systemNumber]),
+           let inode = unsigned(attributes[.systemFileNumber]) {
+            return "file:\(device):\(inode)"
+        }
+        return directoryIdentity(of: url.deletingLastPathComponent()) + "//" + url.lastPathComponent
     }
 
     /// True when the two URLs are one directory under two spellings.

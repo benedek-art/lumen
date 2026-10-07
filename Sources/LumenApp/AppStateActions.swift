@@ -317,7 +317,7 @@ extension AppState {
             // file that was already there. The encoders truncate, so without this a
             // re-export replaced a delivery and two same-named frames from different
             // subfolders silently became one file.
-            var claimed: Set<URL> = []
+            var claimed: Set<String> = []
             var renamed = 0
             // The collision policy's two other answers, counted so the status line can
             // say what was left alone and what was replaced.
@@ -371,7 +371,7 @@ extension AppState {
                     ExclusivePublish.reclaimAbandonedClaim(at: wanted, olderThan: runStart)
                     let placement = ExportRecipe.placement(
                         for: wanted, policy: exportRecipe.collision,
-                        claimedThisRun: { claimed.contains($0) },
+                        claimedThisRun: { claimed.contains(IngestLocation.fileIdentity(of: $0)) },
                         existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) })
                     if case .skip = placement {
                         // Not written and not a failure: the file the policy keeps is
@@ -380,7 +380,7 @@ extension AppState {
                         // duplicate of a delivery that exists.
                         skipped += 1
                     } else if case .write(let destination, let replacing) = placement {
-                        claimed.insert(destination)
+                        claimed.insert(IngestLocation.fileIdentity(of: destination))
                         if destination != wanted { renamed += 1 }
                         do {
                             try FileManager.default.createDirectory(
@@ -390,6 +390,10 @@ extension AppState {
                                 url: job.url, recipe: job.recipe, to: destination,
                                 exportRecipe: exportRecipe, strokeSets: job.strokes,
                                 softProof: proof, allowOverwrite: replacing)
+                            // Publication changes a free name into an existing file.
+                            // Keep its real identity too: a later case/hard-link alias
+                            // is this batch's delivery even under Overwrite or Skip.
+                            claimed.insert(IngestLocation.fileIdentity(of: destination))
                             written += 1
                             if replacing { replaced += 1 }
                             if !missing.isEmpty {

@@ -3048,13 +3048,14 @@ final class AppState: ObservableObject {
 
     /// The scan itself runs off the main actor: a card with 5,000 frames must not
     /// freeze the window while it is enumerated.
-    nonisolated private static func scan(url: URL, extensions: Set<String>) -> [URL] {
+    nonisolated static func scan(url: URL, extensions: Set<String>) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: url, includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var found: [URL] = []
         for case let file as URL in enumerator {
-            if extensions.contains(file.pathExtension.lowercased()) {
+            if extensions.contains(file.pathExtension.lowercased()),
+               (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
                 found.append(file)
             }
         }
