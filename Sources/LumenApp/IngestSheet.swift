@@ -547,6 +547,7 @@ struct IngestSheet: View {
                     .foregroundStyle(canStart ? Lumen.primaryText : Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
+                OperationReportsButton(state: state)
                 Button("Ingest") { start() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canStart)
@@ -760,6 +761,14 @@ struct IngestSheet: View {
         let card = sourceURL
 
         Task {
+            let sources = request.files.map(\.url)
+            let roles: [IngestDestinationRole] = request.backupDestination == nil ? [.primary] : [.primary, .backup]
+            var durable = OperationReport(kind: .ingest, records: sources.enumerated().flatMap { index, source in
+                roles.enumerated().map { ordinal, role in
+                    OperationFileRecord(id: index * roles.count + ordinal, source: source, label: role.rawValue)
+                }
+            })
+            await state.checkpointOperationReport(durable)
             let outcome = await driver.run(request, cancellation: token, progress: { progress in
                 // The engine reports from the copy thread. `@State` is main-actor
                 // storage, so the hop is explicit.
@@ -771,9 +780,14 @@ struct IngestSheet: View {
             self.runProgress = nil
             switch outcome {
             case .refused(let reason):
+                durable.issues = [reason]
+                durable.finish(.refused)
+                await state.checkpointOperationReport(durable)
                 self.lastReport = nil
                 self.statusLine = reason
             case .finished(let report):
+                durable.finishIngest(report, sources: sources, expectedRoles: roles)
+                await state.checkpointOperationReport(durable)
                 self.lastReport = report
                 self.statusLine = report.summary
                     + ingestEjectNote(report, wanted: ejectWanted, source: card)

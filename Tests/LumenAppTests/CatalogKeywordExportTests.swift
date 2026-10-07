@@ -68,6 +68,13 @@ final class CatalogKeywordExportTests: XCTestCase {
             state.export(to: root)
             try await finish(state)
             XCTAssertEqual(Set(try keywords(root.appendingPathComponent("delivery.jpg"))), ["OldSource", "Iceland"])
+            let report = try XCTUnwrap(state.operationReports.first)
+            XCTAssertEqual(report.records.first?.outcome, .delivered)
+            XCTAssertEqual(report.records.first?.actualDestination, root.appendingPathComponent("delivery.jpg").path)
+            let path = try XCTUnwrap(state.operationReportFiles[report.id])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path.path))
+            let reopened = try await OperationReportStore(directory: path.deletingLastPathComponent()).load()
+            XCTAssertEqual(reopened.reports.first?.report, report)
         }
     }
 
@@ -85,7 +92,50 @@ final class CatalogKeywordExportTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("tags.jpg").path))
             XCTAssertEqual(try keywords(root.appendingPathComponent("stripped.jpg")), [])
             XCTAssertTrue((state.statusMessage ?? "").contains("Could not read catalog keywords"))
+            let report = try XCTUnwrap(state.operationReports.first)
+            XCTAssertEqual(report.state, .completed)
+            XCTAssertEqual(report.records.map(\.outcome), [.failed, .delivered])
+            XCTAssertNil(report.records[0].actualDestination)
+            XCTAssertTrue(report.summary.contains("1 failed"))
         }
     }
+    @MainActor
+    func testSkipCancellationLeavesRemainingDeliveriesNotAttempted() async throws {
+        try await withState { state, _, root in
+            let existing = root.appendingPathComponent("existing.jpg")
+            try Data("keep".utf8).write(to: existing)
+            state.exportRecipes = [
+                ExportRecipe(name: "Skip", filenameTemplate: "existing", collision: .skip),
+                ExportRecipe(name: "Next", filenameTemplate: "next")]
+            state.export(to: root)
+            state.cancelExport()
+            try await finish(state)
+            let report = try XCTUnwrap(state.operationReports.first)
+            XCTAssertEqual(report.state, .cancelled)
+            XCTAssertEqual(report.records.map(\.outcome), [.skipped, .notAttempted])
+            XCTAssertTrue(report.records.allSatisfy { $0.actualDestination == nil })
+            XCTAssertEqual(try Data(contentsOf: existing), Data("keep".utf8))
+        }
+    }
+
+    @MainActor
+    func testReportWriteFailureDoesNotReverseSuccessfulPublication() async throws {
+        try await withState { state, _, root in
+            let badDirectory = root.appendingPathComponent("blocked-reports")
+            try Data("file".utf8).write(to: badDirectory)
+            state.operationReportStore = OperationReportStore(directory: badDirectory)
+            state.exportRecipes = [ExportRecipe(name: "Delivered", filenameTemplate: "delivered")]
+            state.export(to: root)
+            try await finish(state)
+            let report = try XCTUnwrap(state.operationReports.first)
+            XCTAssertEqual(report.records.first?.outcome, .delivered)
+            XCTAssertEqual(report.state, .completed)
+            XCTAssertNotNil(state.operationReportWarning)
+            XCTAssertNil(state.operationReportFiles[report.id])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("delivered.jpg").path))
+            XCTAssertTrue((state.statusMessage ?? "").contains("Exported 1"))
+        }
+    }
+
 }
 #endif
