@@ -214,7 +214,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
-    "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject",
+    "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
     "NSCocoaErrorDomain", "NSFileReadNoSuchFileError", "NSPOSIXErrorDomain",
     "ENOENT", "NSFileReadNoPermissionError",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
