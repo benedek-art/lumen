@@ -166,8 +166,14 @@ The unavailable owner RAW set means real camera neutrality/colour, highlight rec
 - **PS-08, P1, targeted-green:** Require independent primary and backup file identities. Owner: app-ingest. Acceptance: Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent.
 - **PS-09, P1, targeted-green:** Reject source aliases as verified ingest deliveries. Owner: app-ingest. Acceptance: Source/hardlink/symlink destination never permits eject without independent landing.
 
-The current ledger contains 83 items. The additional four were found by deeper review and deterministic race/alias probes after the initial 79-item audit.
+The current ledger contains 84 items. The additional four were found by deeper review and deterministic race/alias probes after the initial 79-item audit.
 
 - **PS-10, P2, targeted-green:** restore a tag re-added in the catalog after an older durable removal. Regression requires the current disk tag to be absent, rather than assuming it already exists.
 
 Delivery keyword additions must merge with original embedded IPTC because those tags are not yet imported into the catalog. Removing embedded source tags requires a known imported baseline or explicit tombstones; an empty catalog must not silently delete them.
+
+- **RENDER-13, P1, targeted-green:** macOS 27 Core Image unary Boolean helper conversion omitted a generated Metal destination argument. Four equivalent comparisons compile primaries/mixer/point kernels. Existing 16 colour/roster tests pass; no math or bounds changed.
+
+## Qualification after integration
+
+The first full optimized run executed 3157 tests and exposed macOS 27 kernel conversion failures plus two stale source-test references and a SQLite diagnostic wording change. The kernel defect was repaired against unchanged independent GPU/CPU assertions; source-test references were updated; the index guard now permits SQLite’s optional EXISTS annotation and rejects a deliberately degraded query. A final full optimized rerun is required before completion. No proof tolerance or golden was altered.

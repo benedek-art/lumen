@@ -23,7 +23,7 @@ Apple's platform is what makes it one-person-sized *well*.
 
 ## Status
 
-For the October 7 consolidation, current verification, deferred photo checks and the 83-item backlog, see [the current state](docs/audits/2026-10-07-deep/CURRENT-STATE.md) and [master plan](docs/audits/2026-10-07-deep/MASTER-PLAN.md). Updater publication now requires an explicit validated-release dispatch.
+For the October 7 consolidation, current verification, deferred photo checks and the 84-item backlog, see [the current state](docs/audits/2026-10-07-deep/CURRENT-STATE.md) and [master plan](docs/audits/2026-10-07-deep/MASTER-PLAN.md). Updater publication now requires an explicit validated-release dispatch.
 
 **The app exists.** Roughly 50,000 lines of Swift across three targets: the engine, the
 Core Image render path, and the SwiftUI application. Browse a folder, cull it at key-repeat

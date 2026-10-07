@@ -19,7 +19,7 @@ The app has a substantial working engine and desktop workflow. The October 2 mai
 
 ## Honest completion accounting
 
-A connected feature, a passing regression, a passing full suite, and a photographer accepting the output are separate milestones. Today's ledger uses explicit states. It does not convert test counts to a completion percentage or call all 83 backlog entries defects.
+A connected feature, a passing regression, a passing full suite, and a photographer accepting the output are separate milestones. Today's ledger uses explicit states. It does not convert test counts to a completion percentage or call all 84 backlog entries defects.
 
 The repair priorities are data preservation and deterministic crashes first, workflow reliability second, synthetic quality characterization third, then product projects. Saved-look changes require an explicit compatibility policy and real-photo acceptance. That includes brush deposition, spatial colour models, film defaults and output sharpening.
 
@@ -37,3 +37,5 @@ The repair priorities are data preservation and deterministic crashes first, wor
 3. Investigate proof/platform metrics with fieldwise diagnostics and measure mask boundaries. Do not convert uncertainty into aesthetic repairs.
 4. Execute the detailed master plan in bounded waves: durable reports, relink, snapshots and scope; then metadata interoperability and performance; then visual product choices.
 5. When originals are available, qualify camera decoding, skin/sky/foliage/B&W/HDR, local-edge/brush quality, native controls and update installation. Record device, source, SHA and output format.
+
+The full integrated run discovered three baseline exact-colour kernels failing on macOS 27. A semantics-preserving Boolean syntax repair restored compilation and passed existing accuracy/parity tests. Reduced preview provenance refusal was correct and remains unchanged. The initial 3157-test run failed 42 assertions and skipped 78; it is not the final qualification result. The final rerun follows the kernel repair, source-assertion/citation maintenance and SQLite plan-format compatibility fix.

@@ -832,6 +832,23 @@
       "acceptance": "Old removal record plus current catalog membership and absent disk tag replay current leaf while preserving foreign additions",
       "gate": "Synthetic/macOS tests now",
       "status": "targeted-green"
+    },
+    {
+      "id": "RENDER-13",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Compile exact colour Boolean guards on macOS 27",
+      "owner": "rendering",
+      "acceptance": "All three previously unavailable kernels compile; unchanged existing RGB/half/Float32/signed HDR parity and accuracy assertions pass; preview provenance restored",
+      "gate": "Synthetic/macOS tests now",
+      "status": "targeted-green"
     }
-  ]
+  ],
+  "qualification": {
+    "source_revision": "885515f",
+    "release_run": "running",
+    "publication": "awaiting explicit destination approval after automatic review rejection",
+    "release_policy": "manual opt-in plus existing gates",
+    "raw_photos": "deferred"
+  }
 }
