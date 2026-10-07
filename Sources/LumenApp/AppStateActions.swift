@@ -219,6 +219,8 @@ extension AppState {
     /// the same gesture each land on their own starting point rather than on the
     /// primary selection's.
     func resetToImported() {
+        // Reset is its own undo decision even if a slider release was interrupted.
+        sliderGesture(active: false)
         updateRecipe(label: "Reset") { photo, recipe in
             recipe.resetToImported(from: AppState.sourceFile(for: photo))
         }

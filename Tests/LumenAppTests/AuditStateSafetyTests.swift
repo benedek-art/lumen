@@ -119,6 +119,33 @@ final class AuditStateSafetyTests: XCTestCase {
     }
 
     @MainActor
+    func testResetInterruptsGestureAndUndoRestoresPreResetValue() async throws {
+        try await withState { state, root in
+            let path = root.appendingPathComponent("photos/frame.png")
+            try png(path)
+            state.openFolder(path.deletingLastPathComponent())
+            try await scanned(state)
+            let photo = try XCTUnwrap(state.allPhotos.first)
+            state.select(photo)
+            let original = state.recipe(for: photo)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.exposure") { $0.develop.tone.exposure = 1.25 }
+            let dragged = state.recipe(for: photo)
+            state.resetToImported()
+            XCTAssertNil(state.recordingEpoch, "Reset must close an interrupted drag")
+            XCTAssertEqual(state.history.steps.count, 2, "Reset is a separate undo decision")
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo), dragged, "Undo Reset restores the pre-reset slider value")
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo), original)
+            state.redo()
+            XCTAssertEqual(state.recipe(for: photo), dragged)
+            state.redo()
+            XCTAssertEqual(state.recipe(for: photo), original)
+        }
+    }
+
+    @MainActor
     func testCommonParentStopsAtFirstDifferentComponent() async throws {
         try await withState { _, root in
             let a = root.appendingPathComponent("day1/photos/frame.png")
