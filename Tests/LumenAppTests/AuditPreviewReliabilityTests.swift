@@ -131,7 +131,8 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         let rendered = await coordinator.renderOneShot(url: url, recipe: recipe, maxLongEdge: 256, draft: false)
         let exact = try XCTUnwrap(rendered)
         XCTAssertFalse(exact.usedEmbeddedPreview)
-        XCTAssertEqual(exact.previewIdentity?.source, SourceFileIdentity.read(url))
+        XCTAssertEqual(exact.previewIdentity?.source, SourceFileIdentity.read(url),
+            "Preview diagnostic: note=\(String(describing: exact.note)), source=\(String(describing: exact.sourceIdentity)), draft=\(exact.isDraft), embedded=\(exact.usedEmbeddedPreview)")
         XCTAssertEqual(exact.previewIdentity?.recipeFingerprint, try RecipeFingerprint.fingerprint(recipe))
         let draft = await coordinator.renderOneShot(url: url, recipe: recipe, maxLongEdge: 256, draft: true)
         XCTAssertNil(draft?.previewIdentity)
@@ -151,7 +152,8 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertNil(early?.previewIdentity, "pixels without the matte were labelled as the developed recipe")
         _ = await coordinator.ensureMattes(url: url, recipe: recipe)
         let settled = await coordinator.renderOneShot(url: url, recipe: recipe, maxLongEdge: 256, draft: false)
-        XCTAssertEqual(settled?.previewIdentity?.recipeFingerprint, try RecipeFingerprint.fingerprint(recipe))
+        XCTAssertEqual(settled?.previewIdentity?.recipeFingerprint, try RecipeFingerprint.fingerprint(recipe),
+            "Preview diagnostic: note=\(String(describing: settled?.note)), source=\(String(describing: settled?.sourceIdentity)), draft=\(String(describing: settled?.isDraft)), embedded=\(String(describing: settled?.usedEmbeddedPreview))")
 
         XCTAssertTrue(RenderCoordinator.mayBecomeDevelopedPreview(
             draft: false, region: nil, showingUncropped: false, softProofing: false, note: nil, mattesPending: false))
