@@ -49,13 +49,15 @@ final class AuditExportMetadataTests: XCTestCase {
     }
 
     private func export(_ source: RenderedImageSource, to url: URL, format: ExportFormat,
-                        ppi: Double = 240, policy: MetadataPolicy, bitDepth: Int? = nil) throws {
+                        ppi: Double = 240, policy: MetadataPolicy, bitDepth: Int? = nil,
+                        catalogKeywords: [String]? = nil) throws {
         var recipe = Recipe.asImported(from: Recipe.SourceFile(isRendered: true))
         recipe.develop.denoise.mode = .off
         let output = ExportRecipe(name: "metadata proof", format: format, quality: 100,
             bitDepth: bitDepth ?? (format == .tiff || format == .png ? 16 : 8), resizeMode: .none,
             resolutionPPI: ppi, metadata: policy)
-        _ = try PipelineRenderer().export(source: source, recipe: recipe, to: url, using: output)
+        _ = try PipelineRenderer().export(source: source, recipe: recipe, to: url, using: output,
+            catalogKeywords: catalogKeywords)
     }
 
     func testRequestedPrintDensityIsWrittenWithoutChangingPixelDimensions() throws {
@@ -235,5 +237,61 @@ final class AuditExportMetadataTests: XCTestCase {
         let creator = nested(nested(properties, kCGImagePropertyIPTCDictionary), kCGImagePropertyIPTCCreatorContactInfo)
         XCTAssertEqual(creator[kCGImagePropertyIPTCContactInfoEmails as String] as? String, "studio@example.invalid")
     }
+    func testCatalogKeywordSnapshotAddsToSourceTagsAndPreservesOtherIPTC() throws {
+        let fixture = try fixture()
+        for format in ExportFormat.allCases {
+            let url = fixture.root.appendingPathComponent("catalog-tags.\(format.fileExtension)")
+            try export(fixture.source, to: url, format: format,
+                policy: MetadataPolicy(includeKeywords: true),
+                catalogKeywords: ["Places > Iceland", "Iceland", "People > Alex"])
+            let iptc = nested(try read(url), kCGImagePropertyIPTCDictionary)
+            XCTAssertEqual(Set(iptc[kCGImagePropertyIPTCKeywords as String] as? [String] ?? []),
+                ["source-keyword", "Iceland", "Alex"], "\(format): catalog edits must preserve original tags")
+            let contact = iptc[kCGImagePropertyIPTCCreatorContactInfo as String] as? [String: Any]
+            XCTAssertEqual(contact?[kCGImagePropertyIPTCContactInfoEmails as String] as? String,
+                "source@example.invalid", "\(format): preserve unrelated source metadata")
+        }
+    }
+
+    func testEmptyCatalogTagsPreserveSourceTagsAndKeywordSwitchStillWins() throws {
+        let fixture = try fixture()
+        for format in ExportFormat.allCases {
+            for keep in [true, false] {
+                let url = fixture.root.appendingPathComponent("empty-\(keep).\(format.fileExtension)")
+                try export(fixture.source, to: url, format: format,
+                    policy: MetadataPolicy(includeKeywords: keep),
+                    catalogKeywords: keep ? [] : ["Private"])
+                let iptc = nested(try read(url), kCGImagePropertyIPTCDictionary)
+                if keep {
+                    XCTAssertEqual(iptc[kCGImagePropertyIPTCKeywords as String] as? [String], ["source-keyword"])
+                } else {
+                    XCTAssertNil(iptc[kCGImagePropertyIPTCKeywords as String],
+                        "\(format): disabled catalog tags must not leak")
+                }
+            }
+        }
+    }
+
+    func testConventionalSourceKeywordFormsMergeAndUnfamiliarMetadataSurvives() {
+        let keywordKey = kCGImagePropertyIPTCKeywords as String
+        let iptcKey = kCGImagePropertyIPTCDictionary as String
+        for existing: Any in [["Source"] as [String], "Source", NSArray(array: ["Source"])] {
+            let image = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                .cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
+                .settingProperties([iptcKey: [keywordKey: existing]])
+            let prepared = PipelineRenderer.applyMetadataPolicy(image, MetadataPolicy(),
+                resolutionPPI: 300, catalogKeywords: ["Catalog"])
+            let iptc = prepared.properties[iptcKey] as? [String: Any]
+            XCTAssertEqual(iptc?[keywordKey] as? [String], ["Source", "Catalog"])
+        }
+        let image = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+            .cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
+            .settingProperties([iptcKey: [keywordKey: 42]])
+        let prepared = PipelineRenderer.applyMetadataPolicy(image, MetadataPolicy(),
+            resolutionPPI: 300, catalogKeywords: ["Catalog"])
+        let iptc = prepared.properties[iptcKey] as? [String: Any]
+        XCTAssertEqual(iptc?[keywordKey] as? Int, 42)
+    }
+
 }
 #endif

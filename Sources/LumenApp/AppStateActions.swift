@@ -306,6 +306,7 @@ extension AppState {
         // the exported file rendered to the working space, leaving ColorSync to clip
         // per channel at encode. The proof you approved was not the file you shipped.
         let proof = activeSoftProof
+        let exportCatalog = catalog
         // Anything an export of THIS run claims is newer than this; an empty claim
         // older than it, beside its partial, is one an interrupted run abandoned.
         let runStart = Date()
@@ -317,7 +318,7 @@ extension AppState {
             // file that was already there. The encoders truncate, so without this a
             // re-export replaced a delivery and two same-named frames from different
             // subfolders silently became one file.
-            var claimed: Set<URL> = []
+            var claimed: Set<String> = []
             var renamed = 0
             // The collision policy's two other answers, counted so the status line can
             // say what was left alone and what was replaced.
@@ -337,6 +338,16 @@ extension AppState {
                 // masks absent — the ".lrcat-data black mask" failure docs/08 §8.7
                 // exists to prevent, and the one failure mode a photographer cannot
                 // catch by looking at the export count.
+                var keywordFailure: String?
+                var catalogKeywords: [String]?
+                if job.refusal == nil, active.contains(where: { $0.metadata.includeKeywords }),
+                   let exportCatalog, let photoID = job.photo.catalogID {
+                    do {
+                        catalogKeywords = try await exportCatalog.exportKeywords(photoID: photoID)
+                    } catch {
+                        keywordFailure = "Could not read catalog keywords: \(error.localizedDescription)"
+                    }
+                }
                 if let refusal = job.refusal {
                     for exportRecipe in active {
                         failures.append(job.url.lastPathComponent + " → "
@@ -356,55 +367,64 @@ extension AppState {
                 let naming = Self.namingContext(for: job.photo, source: job.url,
                                                 recipeName: "", sequence: job.index)
                 for exportRecipe in active {
-                    var recipeNaming = naming
-                    recipeNaming.recipeName = exportRecipe.name
-                    recipeNaming.sequence = exportRecipe.sequenceNumber(forPhotoAt: job.index)
-                    let wanted = Self.destination(directory: directory,
-                                                  recipe: exportRecipe,
-                                                  naming: recipeNaming)
-                    // The recipe's collision policy decides about files that were
-                    // there before the run; a name this run already claimed is always
-                    // renamed (`ExportRecipe.placement` says why). Under the default,
-                    // Rename, this is the `disambiguated` call it replaced. An empty
-                    // claim a crashed export left on a FAT/exFAT volume is not a
-                    // delivery, and is cleared before the policy is asked about it.
-                    ExclusivePublish.reclaimAbandonedClaim(at: wanted, olderThan: runStart)
-                    let placement = ExportRecipe.placement(
-                        for: wanted, policy: exportRecipe.collision,
-                        claimedThisRun: { claimed.contains($0) },
-                        existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) })
-                    if case .skip = placement {
-                        // Not written and not a failure: the file the policy keeps is
-                        // already there. Not claimed either, so a second frame wanting
-                        // the same name is asked the same question, not renamed into a
-                        // duplicate of a delivery that exists.
-                        skipped += 1
-                    } else if case .write(let destination, let replacing) = placement {
-                        claimed.insert(destination)
-                        if destination != wanted { renamed += 1 }
-                        do {
-                            try FileManager.default.createDirectory(
-                                at: destination.deletingLastPathComponent(),
-                                withIntermediateDirectories: true)
-                            let missing = try await renderCoordinator.export(
-                                url: job.url, recipe: job.recipe, to: destination,
-                                exportRecipe: exportRecipe, strokeSets: job.strokes,
-                                softProof: proof, allowOverwrite: replacing)
-                            written += 1
-                            if replacing { replaced += 1 }
-                            if !missing.isEmpty {
-                                reducedFiles += 1
-                                reducedKernels.formUnion(missing)
+                    if exportRecipe.metadata.includeKeywords, let keywordFailure {
+                        failures.append(job.url.lastPathComponent + " → "
+                                            + exportRecipe.name + ": " + keywordFailure)
+                    } else {
+                        var recipeNaming = naming
+                        recipeNaming.recipeName = exportRecipe.name
+                        recipeNaming.sequence = exportRecipe.sequenceNumber(forPhotoAt: job.index)
+                        let wanted = Self.destination(directory: directory,
+                                                      recipe: exportRecipe,
+                                                      naming: recipeNaming)
+                        // The recipe's collision policy decides about files that were
+                        // there before the run; a name this run already claimed is always
+                        // renamed (`ExportRecipe.placement` says why). Under the default,
+                        // Rename, this is the `disambiguated` call it replaced. An empty
+                        // claim a crashed export left on a FAT/exFAT volume is not a
+                        // delivery, and is cleared before the policy is asked about it.
+                        ExclusivePublish.reclaimAbandonedClaim(at: wanted, olderThan: runStart)
+                        let placement = ExportRecipe.placement(
+                            for: wanted, policy: exportRecipe.collision,
+                            claimedThisRun: { claimed.contains(IngestLocation.fileIdentity(of: $0)) },
+                            existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) })
+                        if case .skip = placement {
+                            // Not written and not a failure: the file the policy keeps is
+                            // already there. Not claimed either, so a second frame wanting
+                            // the same name is asked the same question, not renamed into a
+                            // duplicate of a delivery that exists.
+                            skipped += 1
+                        } else if case .write(let destination, let replacing) = placement {
+                            claimed.insert(IngestLocation.fileIdentity(of: destination))
+                            if destination != wanted { renamed += 1 }
+                            do {
+                                try FileManager.default.createDirectory(
+                                    at: destination.deletingLastPathComponent(),
+                                    withIntermediateDirectories: true)
+                                let missing = try await renderCoordinator.export(
+                                    url: job.url, recipe: job.recipe, to: destination,
+                                    exportRecipe: exportRecipe, strokeSets: job.strokes,
+                                    softProof: proof, allowOverwrite: replacing,
+                                    catalogKeywords: catalogKeywords)
+                                // Publication changes a free name into an existing file.
+                                // Keep its real identity too so later aliases are renamed.
+                                claimed.insert(IngestLocation.fileIdentity(of: destination))
+                                written += 1
+                                if replacing { replaced += 1 }
+                                if !missing.isEmpty {
+                                    reducedFiles += 1
+                                    reducedKernels.formUnion(missing)
+                                }
+                            } catch {
+                                // WITH THE REASON when there is one a photographer can act on
+                                // (V6 note 2): a name that appeared during the export, a volume
+                                // that cannot publish without risking an overwrite, and a
+                                // refused contact all used to read as the same bare failure.
+                                let reason = ExclusivePublish.statusReason(for: error)
+                                failures.append(job.url.lastPathComponent + " → "
+                                                    + exportRecipe.name
+                                                    + (reason.map { ": " + $0 } ?? ""))
                             }
-                        } catch {
-                            // WITH THE REASON when there is one a photographer can act on
-                            // (V6 note 2): a name that appeared during the export, a volume
-                            // that cannot publish without risking an overwrite, and a
-                            // refused contact all used to read as the same bare failure.
-                            let reason = ExclusivePublish.statusReason(for: error)
-                            failures.append(job.url.lastPathComponent + " → "
-                                                + exportRecipe.name
-                                                + (reason.map { ": " + $0 } ?? ""))
                         }
                     }
                     completed += 1

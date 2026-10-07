@@ -61,7 +61,7 @@ final class ExportGainMapTests: XCTestCase {
         let export = try Self.body(of: "public func export(source:", in: source,
                                    upTo: "static func sourceImageProperties(")
         XCTAssertTrue(export.contains("exportedHDRImage(source: source"))
-        XCTAssertTrue(export.contains("hdrImage: hdr)"))
+        XCTAssertTrue(export.contains("hdrImage: hdr"))
 
         let write = try Self.body(of: "private func write(_ image: CIImage", in: source,
                                   upTo: "static func partialURL(")

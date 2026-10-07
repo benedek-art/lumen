@@ -82,10 +82,10 @@ public enum BatchFraming {
                                            sourceHeight: frame.height,
                                            degrees: geometry.angle)
         case .swapOrientation:
-            next.crop = CropGeometry.swappingOrientation(geometry.crop,
-                                                         sourceWidth: frame.width,
-                                                         sourceHeight: frame.height,
-                                                         degrees: geometry.angle)
+            guard let crop = CropGeometry.swapIfRepresentable(geometry.crop,
+                sourceWidth: frame.width, sourceHeight: frame.height,
+                degrees: geometry.angle) else { return nil }
+            next.crop = crop
         }
         return next
     }

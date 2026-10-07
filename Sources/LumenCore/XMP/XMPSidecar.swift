@@ -137,7 +137,7 @@ public struct SidecarStatedFields: OptionSet, Equatable, Sendable {
 /// Composes in time order: a keyword added and then removed before the flush is a
 /// removal, and removed-then-added is an addition — the later word wins, which is
 /// what the photographer saw last in the sidebar.
-public struct SidecarKeywordEdit: Equatable, Sendable {
+public struct SidecarKeywordEdit: Codable, Equatable, Sendable {
     public private(set) var added: Set<String> = []
     public private(set) var removed: Set<String> = []
 

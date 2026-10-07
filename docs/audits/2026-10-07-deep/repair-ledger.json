@@ -1,0 +1,866 @@
+{
+  "baseline": "56434971cf57dfc3f87f4603477d2d96ea3baab9",
+  "date": "2026-10-07",
+  "scope": "No owner RAWs available; independent native/synthetic qualification",
+  "items": [
+    {
+      "id": "PS-01",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Refuse XMP creation after a failed existing-document read",
+      "owner": "persistence",
+      "acceptance": "Read-error injection leaves foreign XMP byte-identical; owed edit survives retry and restart",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-02",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Retain owed sidecar edits on safe-write refusal",
+      "owner": "persistence",
+      "acceptance": "Malformed/UTF16/ownership failures retain queue and durable record; corrected document replays safely",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-03",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Persist and replay keyword removals",
+      "owner": "persistence",
+      "acceptance": "Remove/fail/quit/reopen does not resurrect tag; ordered delta composition preserves third-party additions",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-04",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Recover hierarchical tags using flat leaf projection",
+      "owner": "persistence",
+      "acceptance": "Normal successful save and failed-save recovery yield same dc:subject bag",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-05",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Keep shared leaf until last hierarchical membership is removed",
+      "owner": "persistence",
+      "acceptance": "Per-photo batch membership before/after determines leaf delta",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-06",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Use actual file identity for verified ingest claims",
+      "owner": "integration",
+      "acceptance": "Hard-link/case alias twins never share one proven landing; normal re-ingest remains idempotent",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-01",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Preflight discrete crop requests for every target",
+      "owner": "app-crop",
+      "acceptance": "Any unknown/ineligible target refuses whole request with no recipe/history write",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-02",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Never authorize crop mutations from guessed source dimensions",
+      "owner": "app-crop",
+      "acceptance": "Oriented metadata and source identity checked before/after async read",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-03",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Refuse unrepresentable reciprocal crop orientation",
+      "owner": "app-crop",
+      "acceptance": "Impossible swaps leave geometry/lock/history unchanged; feasible double swap roundtrips",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-04",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Derive effective crop lock after undo/source changes",
+      "owner": "app-crop",
+      "acceptance": "Reading lock does not mutate recipe; mismatched lock cannot snap next drag",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-05",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Keep app running when updated bundle relaunch fails",
+      "owner": "app-updater",
+      "acceptance": "Injected launch error never terminates; success terminates once; notice accurately says installed",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-06",
+      "priority": "P2",
+      "kind": "performance",
+      "title": "Move updater hashing and staging off main actor",
+      "owner": "app-updater",
+      "acceptance": "Slow file helper does not block actor heartbeat; checksum and staging failures preserve old bundle",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-07",
+      "priority": "P3",
+      "kind": "defect",
+      "title": "Clean updater extraction directories on every exit",
+      "owner": "app-updater",
+      "acceptance": "Success/failure/extract/signature paths remove only owned temporary directories",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-08",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Exclude image-extension directories from photo scans",
+      "owner": "integration",
+      "acceptance": "Nested regular image included; directory/broken link not catalogued as photo",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "APP-09",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Stage release candidate before replacing known-good updater release",
+      "owner": "release",
+      "acceptance": "Mock failures at create/upload/promote preserve known-good delivery; no release performed during audit",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "APP-10",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Require exact-revision release qualification across workflows",
+      "owner": "release",
+      "acceptance": "Old/missing/cancelled checks never qualify new SHA; classify corpus noise before required gate",
+      "gate": "Synthetic/macOS tests now",
+      "status": "partial-release-opt-in"
+    },
+    {
+      "id": "APP-11",
+      "priority": "P2",
+      "kind": "documentation",
+      "title": "Publish one current feature and verification ledger",
+      "owner": "integration",
+      "acceptance": "Every implemented claim has code/test evidence; historical BUILDING notes clearly dated",
+      "gate": "Synthetic/macOS tests now",
+      "status": "documented"
+    },
+    {
+      "id": "APP-12",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Persist per-photo named snapshots with blob dependencies",
+      "owner": "library",
+      "acceptance": "Two-photo save/reopen/restore/delete/backup tests; snapshots not global session array",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "APP-13",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Keep durable per-file ingest/export result reports",
+      "owner": "workflow",
+      "acceptance": "Report destinations/collisions/skips/failures/cancel outcome; counts reflect delivered files",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "APP-14",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Add explicit missing-original relinking",
+      "owner": "library",
+      "acceptance": "Identity/size/signature preflight, ambiguity refusal, transaction rollback and cache invalidation",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "APP-15",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Inspect native accessibility and keyboard interaction",
+      "owner": "accessibility",
+      "acceptance": "Generated-image launched-window action/value/tab-order tests; physical VoiceOver review later",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "APP-16",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Benchmark interactive latency and memory on generated large catalog",
+      "owner": "performance",
+      "acceptance": "5k/20k roll, cold/warm next-photo, p50/p95/p99 drag/selection/cancel, memory bounded",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "APP-17",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Expose applied parametric curve limiter without changing pixels",
+      "owner": "app-controls",
+      "acceptance": "Readout shares bake calculation, ordinary and adversarial fixtures byte-identical",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-01",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Bound healing geometry before integer conversions",
+      "owner": "rendering",
+      "acceptance": "Huge finite/nonfinite/overflowed lengths/offsets do not crash; valid off-canvas and ordinary strokes unchanged",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "RENDER-02",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Measure tiny-mask resolution boundary aliasing",
+      "owner": "mask-quality",
+      "acceptance": "Resolution matrix around 2048/2049/2050/2550/2730; area and cell error tracked separately",
+      "gate": "Synthetic/macOS tests now",
+      "status": "characterized"
+    },
+    {
+      "id": "RENDER-03",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Measure hard tiny-brush preview/export differences",
+      "owner": "mask-quality",
+      "acceptance": "Feather0/10/50/100 and flow/pressure compared to independent high-resolution coverage",
+      "gate": "Synthetic/macOS tests now",
+      "status": "characterized"
+    },
+    {
+      "id": "RENDER-04",
+      "priority": "P2",
+      "kind": "product",
+      "title": "Define endpoint deposition rule for brush strokes",
+      "owner": "mask-quality",
+      "acceptance": "Spacing boundary and reversed-path probes; proposed change needs saved-look version policy",
+      "gate": "Synthetic/macOS tests now",
+      "status": "characterized"
+    },
+    {
+      "id": "RENDER-05",
+      "priority": "P2",
+      "kind": "performance",
+      "title": "Bound mixed thin/ordinary brush cold and settle cost",
+      "owner": "mask-performance",
+      "acceptance": "10/60/200 strokes and 1/3/8 components, evictions/timings/peak memory measured",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-06",
+      "priority": "P2",
+      "kind": "product",
+      "title": "Prototype spatial Uniformity/Variance preserving colour texture",
+      "owner": "colour",
+      "acceptance": "Guided local mean/residual comparison, scale/edge/mask parity; no default look change without review",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-07",
+      "priority": "P2",
+      "kind": "product",
+      "title": "Define normalized mixer overlap versus own-centre authority",
+      "owner": "colour",
+      "acceptance": "Legal core/feather sweeps; choose disclosure or geometry cap with matching ring",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-08",
+      "priority": "P2",
+      "kind": "product",
+      "title": "Decide B&W common gain, band centres and H-K strength",
+      "owner": "colour",
+      "acceptance": "Independent wedges and saved-look migration tests; separate decisions rather than one broad rewrite",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-09",
+      "priority": "P2",
+      "kind": "investigation",
+      "title": "Locate downstream saturation/density hue rotation",
+      "owner": "colour",
+      "acceptance": "Stage-isolated in/out-of-gamut patches identify first responsible stage before repair",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-10",
+      "priority": "P2",
+      "kind": "performance",
+      "title": "Share compatible upstream work across output recipes/HDR renditions",
+      "owner": "export-render",
+      "acceptance": "Before/after output equality incl grain/resize/watermark/dither; bounded master cache",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-11",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Add painted-heal source drag and re-pick",
+      "owner": "heal-ui",
+      "acceptance": "Coordinate transforms, undo/reopen/blob backup, async stale-result guards",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "RENDER-12",
+      "priority": "P1",
+      "kind": "investigation",
+      "title": "Classify confirmed unrenderable RAW and uncertain chroma alarms",
+      "owner": "raw",
+      "acceptance": "No blanket all-black refusal; capability/fixture-backed rejection; known-neutral references",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "CORE-01",
+      "priority": "P1",
+      "kind": "validation",
+      "title": "Requalify contrast intersection inherited from unpublished September tests",
+      "owner": "colour",
+      "acceptance": "Whites+100/Pivot+4/Contrast-100 exact and native GPU; preserve original numerical limits",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "CORE-02",
+      "priority": "P1",
+      "kind": "investigation",
+      "title": "Resolve macOS versus Linux proof-record drift",
+      "owner": "proof",
+      "acceptance": "Emit fieldwise differences on protectSkin/red hue/BW red; repeated native and Linux runs; no blind re-pinning",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-01",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Prevent same-batch overwrite through case/hard-link aliases",
+      "owner": "integration",
+      "acceptance": "Prior delivery alias always renamed under all policies; normal pre-run overwrite remains opt-in",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "OUT-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Merge Lumen catalog keyword additions into delivery metadata",
+      "owner": "export-metadata",
+      "acceptance": "Catalog leaf additions merge with embedded source IPTC; keyword switch strips; source removal authority deferred until import/tombstone model",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green-additions-only"
+    },
+    {
+      "id": "OUT-03",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Implement destination-specific gamut mapping intent",
+      "owner": "export-colour",
+      "acceptance": "Opt-in per recipe; in-gamut unchanged; saturated wedges finite/hue-controlled; real-photo review later",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-04",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Support fit-within W\u00d7H and percent resizing",
+      "owner": "export-ui",
+      "acceptance": "Portrait/landscape no-enlarge, zero/extreme dimensions, units and roundtrip presets",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-05",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Offer TIFF LZW/ZIP encoding",
+      "owner": "export-codec",
+      "acceptance": "Generated image pixel readback, declared compression tags and unsupported option handling",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-06",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Reveal/open delivery and save recipe sets",
+      "owner": "workflow",
+      "acceptance": "Correct destinations for renamed/skipped outputs; persistence compatibility",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-07",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Verify HDR delivery metadata and image roundtrip",
+      "owner": "hdr",
+      "acceptance": "Gain map present, SDR base unchanged, HDR peak>1, geometry/resize/watermark correct",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-08",
+      "priority": "P2",
+      "kind": "product",
+      "title": "Separate viewing soft proof from delivery gamut policy",
+      "owner": "export-colour",
+      "acceptance": "Export intent explicit; toggling screen proof does not unexpectedly change delivery",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-09",
+      "priority": "P2",
+      "kind": "product",
+      "title": "Evaluate luminance-only output sharpening",
+      "owner": "detail",
+      "acceptance": "No chroma fringe/halo, screen/matte/glossy fixtures; version saved-output behaviour",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "OUT-10",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Persistent cancellable export queue",
+      "owner": "workflow",
+      "acceptance": "Pause/resume/order/relaunch, atomic completed files and accurate partial report",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-01",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Roundtrip hierarchical keywords in Lightroom XMP",
+      "owner": "interop",
+      "acceptance": "lr:hierarchicalSubject with foreign namespaces and same-leaf tags; documented precedence",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Persist smart album scope and matching count",
+      "owner": "library",
+      "acceptance": "Current/subtree/catalog results and count match including offline sources",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-03",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Add IPTC title/caption/copyright/job editing",
+      "owner": "metadata",
+      "acceptance": "Schema migration, batch edit/undo/XMP/export/backup coherence",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-04",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Save ingest naming/metadata presets",
+      "owner": "ingest-ui",
+      "acceptance": "Versioned tolerant preset decode; preview and final plan share grammar",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-05",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Expose storage health and backup locations",
+      "owner": "backup-ui",
+      "acceptance": "Last successful backup, usable payload verification, explicit restore preview",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-06",
+      "priority": "P3",
+      "kind": "performance",
+      "title": "Cache unchanged sidecar classification during scans",
+      "owner": "library-performance",
+      "acceptance": "mtime/size/generation invalidation, large synthetic directory benchmark",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-07",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Album sets and user ordering",
+      "owner": "library",
+      "acceptance": "Tree moves/reparent/delete/target album survive reopen; query order correct",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-08",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Calibrate sharpness/burst/closed-eye assistance",
+      "owner": "culling",
+      "acceptance": "Generated ground truth and frozen thresholds; never automatically flag/reject photos",
+      "gate": "Synthetic characterization now; real photos/display/model corpus required before acceptance",
+      "status": "planned"
+    },
+    {
+      "id": "LIB-09",
+      "priority": "P2",
+      "kind": "performance",
+      "title": "Incremental first-card opening",
+      "owner": "library-performance",
+      "acceptance": "First usable rows before complete walk; cancellation newer-folder wins and scan completeness remains honest",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "MASK-01",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Prove mask pick coordinates across geometry/EDR",
+      "owner": "mask-quality",
+      "acceptance": "Crop/flip/rotate/orient generated grid; click samples same stage displayed",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "MASK-02",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Adversarial source/matte/brush cache invalidation",
+      "owner": "render-cache",
+      "acceptance": "Replacement and paused stale worker publication never contaminate settled pixels",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "MASK-03",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Model-backed sky/object/landscape/depth masks",
+      "owner": "ai-models",
+      "acceptance": "License/model provenance, quality corpus, cancellation/cache/refusal, bounded memory",
+      "gate": "Synthetic characterization now; real photos/display/model corpus required before acceptance",
+      "status": "planned"
+    },
+    {
+      "id": "NR-01",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Measure luminance ISO anchors and texture retention",
+      "owner": "denoise",
+      "acceptance": "Known clean/noisy fields/edges/fine texture; stronger slider not judged only by lower sigma",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "NR-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Dedicated local AI denoise model",
+      "owner": "ai-models",
+      "acceptance": "Licensed model bake-off, artifact identity, tiles/halo/cache, quality/speed/memory on real RAWs",
+      "gate": "Synthetic characterization now; real photos/display/model corpus required before acceptance",
+      "status": "planned"
+    },
+    {
+      "id": "DETAIL-01",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Requalify Texture band strength and edge coherence",
+      "owner": "detail",
+      "acceptance": "Fine texture/steep gradient/edge wedges, independent band decomposition truth",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "DETAIL-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Decide proper capture deconvolution or honest supported scope",
+      "owner": "detail",
+      "acceptance": "Richardson-Lucy ringing/noise/amplitude/invariance tests; real camera quality gate",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "DETAIL-03",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Measure sharpening halo suppression and grain shipping paths",
+      "owner": "detail",
+      "acceptance": "Graph output authority and halo/grain frequency independent oracle, preview/delivery scaling",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "GEOM-01",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Perspective/Upright correction",
+      "owner": "geometry",
+      "acceptance": "Grid/vanishing-line fixtures, crop coverage/interpolation/mask inverse/persistence",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "GEOM-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Chromatic aberration/defringe implementation",
+      "owner": "geometry",
+      "acceptance": "Channel-offset procedural edges, hue range/threshold, identity when off and localized effect",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "HDR-01",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Verify EDR display orientation/headroom transitions",
+      "owner": "hdr",
+      "acceptance": "Native compatible panel, layer raises headroom, overlays align, SDR instruments remain explicit",
+      "gate": "Synthetic characterization now; real photos/display/model corpus required before acceptance",
+      "status": "planned"
+    },
+    {
+      "id": "HDR-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "HDR delivery preview at reduced display headroom",
+      "owner": "hdr",
+      "acceptance": "Gain-map reconstruction rather than alternate transform, SDR/full/intermediate reference equality",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "UX-01",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Whole synthetic shoot lifecycle smoke test",
+      "owner": "integration",
+      "acceptance": "Import/cull/edit/mask/heal/LUT/export/quit/reopen restores all recipe and payload identities",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "UX-02",
+      "priority": "P2",
+      "kind": "feature",
+      "title": "Discoverable supported shortcuts and tool modes",
+      "owner": "app-controls",
+      "acceptance": "No conflicting bare keys; disabled/unbuilt actions omitted; keyboard and menus agree",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "UX-03",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Slider drag/coalescing/undo interruption matrix",
+      "owner": "history",
+      "acceptance": "Mid-drag auto/reset/undo/switch/close retains intended value and durable state",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "UX-04",
+      "priority": "P3",
+      "kind": "feature",
+      "title": "Speed Edit keyboard-held adjustment",
+      "owner": "app-controls",
+      "acceptance": "Mode conflict/focus/latency/undo correctness; implement only after interaction benchmarks",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "QA-01",
+      "priority": "P1",
+      "kind": "validation",
+      "title": "Integration release build and full optimized suite",
+      "owner": "integration",
+      "acceptance": "All fixes together; baseline failures tracked separately; expected failures/skips reported",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "QA-02",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Linux portable-core verification",
+      "owner": "ci",
+      "acceptance": "SQLite code active, complete diagnostics parse both XCTest formats; exact SHA",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "QA-03",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Fault injection for disconnected/full/read-only volumes",
+      "owner": "filesystem",
+      "acceptance": "No partial final outputs, no false success/eject, retry-safe reports",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "QA-04",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Recipe/version migration across oldest supported catalogs",
+      "owner": "compatibility",
+      "acceptance": "Unknown fields/presets retained, unsupported blobs/recipes explicit, no silent downgrade",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "QA-05",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Mutation checks for high-risk regressions",
+      "owner": "integration",
+      "acceptance": "Remove repair and regression goes red for intended reason; no broad test mirroring",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "QA-06",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Owner real-shoot acceptance and Lightroom comparison",
+      "owner": "owner",
+      "acceptance": "Preserve original bytes, difficult skin/highlights/noise/brush/heal/film, reliable completion",
+      "gate": "Synthetic characterization now; real photos/display/model corpus required before acceptance",
+      "status": "planned"
+    },
+    {
+      "id": "QA-07",
+      "priority": "P2",
+      "kind": "validation",
+      "title": "Installed build identity and packaging smoke",
+      "owner": "release",
+      "acceptance": "Visible SHA/version matches source; signed bundle launch/update manually qualified",
+      "gate": "Synthetic/macOS tests now",
+      "status": "planned"
+    },
+    {
+      "id": "PS-07",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Merge newer pending edits after a refused concurrent sidecar flush",
+      "owner": "persistence",
+      "acceptance": "Fault-injected read enqueues newer rating while older keyword flush fails; both fields persist/replay",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-08",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Require independent primary and backup file identities",
+      "owner": "app-ingest",
+      "acceptance": "Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-09",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Reject source aliases as verified ingest deliveries",
+      "owner": "app-ingest",
+      "acceptance": "Source/hardlink/symlink destination never permits eject without independent landing",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "PS-10",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Restore a catalog tag re-added after an older durable removal",
+      "owner": "persistence",
+      "acceptance": "Old removal record plus current catalog membership and absent disk tag replay current leaf while preserving foreign additions",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    },
+    {
+      "id": "RENDER-13",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Compile exact colour Boolean guards on macOS 27",
+      "owner": "rendering",
+      "acceptance": "All three previously unavailable kernels compile; unchanged existing RGB/half/Float32/signed HDR parity and accuracy assertions pass; preview provenance restored",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green"
+    }
+  ],
+  "qualification": {
+    "production_test_revision": "885515f",
+    "diagnostic_only_followup": "3939a29",
+    "full_optimized_tests": 3158,
+    "passed": 3135,
+    "skipped": 22,
+    "failed": 1,
+    "remaining_failure": "ControlProofTests committed-record drift; baseline reproducible platform differences",
+    "source_surface": "All passes green, exit 0",
+    "publication": "awaiting explicit GitHub destination approval after automatic review rejection",
+    "release_policy": "manual opt-in plus existing gates",
+    "raw_photos": "deferred",
+    "diagnostic_followup_tests": {
+      "configuration": "release",
+      "tests": 19,
+      "failures": 0
+    },
+    "local_main": "consolidated tree prepared; remote main unchanged pending destination approval"
+  }
+}

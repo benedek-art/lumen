@@ -252,6 +252,8 @@ public struct IngestReport: Sendable {
             && !results.isEmpty
             && results.allSatisfy(\.isProven)
             && !twoFramesShareOneFile
+            && !twoCopiesShareOneFile
+            && !destinationAliasesSource
     }
 
     /// Two different frames on the card standing on ONE file at the destination. Each
@@ -266,6 +268,25 @@ public struct IngestReport: Sendable {
             owner[slot] = result.source
         }
         return false
+    }
+
+    /// A primary and backup for one source must not be two links to the same file.
+    /// Also defend legacy/manually constructed reports independently of the driver.
+    public var twoCopiesShareOneFile: Bool {
+        var owners: [String: IngestFileResult] = [:]
+        for result in results where result.isProven {
+            let identity = IngestLocation.fileIdentity(of: result.destination)
+            if let other = owners[identity], other.role != result.role { return true }
+            owners[identity] = result
+        }
+        return false
+    }
+
+    public var destinationAliasesSource: Bool {
+        results.contains { result in
+            result.isProven && IngestLocation.fileIdentity(of: result.destination)
+                == IngestLocation.fileIdentity(of: result.source)
+        }
     }
 
     /// One line, true, and specific enough to act on.
@@ -319,6 +340,12 @@ public struct IngestReport: Sendable {
         }
         if twoFramesShareOneFile {
             sentence += " · two different frames point at one file on the destination"
+        }
+        if twoCopiesShareOneFile {
+            sentence += " · primary and backup point at one file; an independent copy is still needed"
+        }
+        if destinationAliasesSource {
+            sentence += " · a destination is the source itself; an independent copy is still needed"
         }
         return sentence
     }
@@ -454,12 +481,16 @@ public struct VerifiedCopyDriver: Sendable {
                          onChunk: (Int64) -> Void) -> FrameOutcome {
         let fm = FileManager.default
         var results: [IngestFileResult] = []
+        var landedDestinations: Set<String> = []
+        let sourceIdentity = IngestLocation.fileIdentity(of: copy.source)
 
         func verdict(_ planned: URL, _ landed: URL, _ role: IngestDestinationRole,
                      _ outcome: IngestCopyOutcome) -> IngestFileResult {
             switch outcome {
             case .verified, .copied, .alreadyPresent:
-                claims[IngestLocation.fileIdentity(of: landed)] = copy.source
+                let identity = IngestLocation.fileIdentity(of: landed)
+                claims[identity] = copy.source
+                landedDestinations.insert(identity)
             case .failed:
                 break
             }
@@ -539,7 +570,13 @@ public struct VerifiedCopyDriver: Sendable {
                 var earlierCopy: URL?
                 var earlierDigest: IngestDigest?
                 func holdsThisFrame(_ candidate: URL) -> Bool {
-                    guard !claimedByAnotherFrame(candidate),
+                    // A second role needs its own file, and the source itself is
+                    // never an already-ingested copy. Walk past those aliases without
+                    // modifying them, just like any other occupied collision slot.
+                    let identity = IngestLocation.fileIdentity(of: candidate)
+                    guard identity != sourceIdentity,
+                          !landedDestinations.contains(identity),
+                          !claimedByAnotherFrame(candidate),
                           let mine = digestOfSource(),
                           let size = try? candidate.resourceValues(forKeys: [.fileSizeKey])
                               .fileSize,

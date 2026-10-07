@@ -22,16 +22,23 @@ public enum StrokeSourceSearch {
 
     public static func window(for stroke: BrushStroke, sourceWidth: Int,
                               sourceHeight: Int) -> SpotSourceSearch.Window {
+        // The API returns a window, so malformed input gets a harmless one-pixel
+        // sentinel. autoOffset independently rejects it before any image search.
+        let refused = SpotSourceSearch.Window(x: 0, y: 0, width: 1, height: 1, scale: 1)
+        guard sourceWidth > 0, sourceHeight > 0, stroke.size.isFinite,
+              !stroke.points.isEmpty else { return refused }
         let w = Double(sourceWidth), h = Double(sourceHeight)
+        let points = stroke.points.map { StrokeHeal.Point($0.x * w, $0.y * h) }
+        guard points.allSatisfy(StrokeHeal.usable) else { return refused }
         let radius = Swift.max(
             Num.clamp(stroke.size / 2, HealSpot.radiusRange.lowerBound,
                       HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
         let extent = radius * SpotSourceSearch.reach
-        let xs = stroke.points.map { $0.x * w }, ys = stroke.points.map { $0.y * h }
-        let x0 = Swift.max(Int(floor((xs.min() ?? 0) - extent)), 0)
-        let y0 = Swift.max(Int(floor((ys.min() ?? 0) - extent)), 0)
-        let x1 = Swift.min(Int(ceil((xs.max() ?? 0) + extent)), sourceWidth)
-        let y1 = Swift.min(Int(ceil((ys.max() ?? 0) + extent)), sourceHeight)
+        let xs = points.map { $0.x }, ys = points.map { $0.y }
+        let x0 = StrokeHeal.boundedIndex(floor((xs.min() ?? 0) - extent), lower: 0, upper: sourceWidth - 1)
+        let y0 = StrokeHeal.boundedIndex(floor((ys.min() ?? 0) - extent), lower: 0, upper: sourceHeight - 1)
+        let x1 = StrokeHeal.boundedIndex(ceil((xs.max() ?? 0) + extent), lower: 0, upper: sourceWidth)
+        let y1 = StrokeHeal.boundedIndex(ceil((ys.max() ?? 0) + extent), lower: 0, upper: sourceHeight)
         return SpotSourceSearch.Window(
             x: x0, y: y0, width: Swift.max(x1 - x0, 1), height: Swift.max(y1 - y0, 1),
             scale: Swift.min(1, SpotSourceSearch.workingRadius / radius))
@@ -45,7 +52,13 @@ public enum StrokeSourceSearch {
     public static func autoOffset(for stroke: BrushStroke, in buffer: ImageBuffer,
                                   window: SpotSourceSearch.Window, sourceWidth: Int,
                                   sourceHeight: Int) -> (dx: Double, dy: Double)? {
-        guard !stroke.points.isEmpty else { return nil }
+        guard !stroke.points.isEmpty, stroke.size.isFinite,
+              sourceWidth > 0, sourceHeight > 0,
+              window.width > 0, window.height > 0,
+              stroke.points.allSatisfy({
+                  StrokeHeal.usable(.init($0.x * Double(sourceWidth),
+                                         $0.y * Double(sourceHeight)))
+              }) else { return nil }
         let w = Double(sourceWidth), h = Double(sourceHeight)
         let toX = Double(buffer.width) / Double(window.width)
         let toY = Double(buffer.height) / Double(window.height)
@@ -76,9 +89,12 @@ public enum StrokeSourceSearch {
     public static func bestOffset(in image: ImageBuffer, points: [StrokeHeal.Point],
                                   radius: Double,
                                   mode: HealMode) -> (dx: Double, dy: Double)? {
-        guard radius.isFinite, radius > 0, !points.isEmpty,
+        guard image.width > 0, image.height > 0,
+              radius.isFinite, radius > 0, !points.isEmpty,
               points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+        guard radius <= StrokeHeal.coordinateLimit else { return nil }
         let vertices = StrokeHeal.resample(points, spacing: radius * 0.5)
+        guard !vertices.isEmpty else { return nil }
         let scorer = TubeScorer(image: image.map { LumenLog.encode($0) },
                                 vertices: vertices, radius: radius, heal: mode == .heal)
         var best: (dx: Double, dy: Double, score: Double)?
@@ -136,7 +152,7 @@ public enum StrokeSourceSearch {
                 interior.append(StrokeHeal.Point(v.x - 0.5 * radius * nx, v.y - 0.5 * radius * ny))
             }
             self.interior = interior
-            let samples = ring.map { image.bilinear($0.x, $0.y) }
+            let samples = ring.map { StrokeHeal.sample(image, $0.x, $0.y) }
             self.destinationRing = samples
             let mean = SpotSourceSearch.Scorer.mean(samples)
             self.destinationRingMean = mean
@@ -155,7 +171,7 @@ public enum StrokeSourceSearch {
                 guard StrokeHeal.distance(StrokeHeal.Point(v.x + dx, v.y + dy),
                                           to: vertices) >= 2 * radius else { return nil }
             }
-            let shifted = ring.map { image.bilinear($0.x + dx, $0.y + dy) }
+            let shifted = ring.map { StrokeHeal.sample(image, $0.x + dx, $0.y + dy) }
             let shiftedMean = SpotSourceSearch.Scorer.mean(shifted)
             var ssd = 0.0
             for i in 0..<shifted.count {
@@ -164,7 +180,7 @@ public enum StrokeSourceSearch {
                 ssd += d.r * d.r + d.g * d.g + d.b * d.b
             }
             ssd /= Double(Swift.max(shifted.count, 1))
-            let inside = interior.map { image.bilinear($0.x + dx, $0.y + dy) }
+            let inside = interior.map { StrokeHeal.sample(image, $0.x + dx, $0.y + dy) }
             let insideVariance = SpotSourceSearch.Scorer.variance(
                 inside, mean: SpotSourceSearch.Scorer.mean(inside))
             let penalty = Swift.max(insideVariance - 2 * destinationRingVariance

@@ -559,6 +559,10 @@ public enum ExactColorKernelSource {
 
     /// Helpers that need no uniforms. Matrices are expanded inline at each use because a
     /// kernel-language helper cannot see the kernel's parameters.
+    // Keep negative finite checks as `lumenFinite(v) == false`. On macOS 27 the
+    // CIKL-to-Metal converter adds a destination parameter to this bool helper but
+    // fails to pass it at unary-negated calls (`!lumenFinite(v)`). The equivalent
+    // comparison compiles without changing the finite predicate or colour math.
     static let prelude = """
     float lumenSgn(float x) { return x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0); }
     bool lumenFinite(vec3 v) { return abs(v.x) < 3.0e38 && abs(v.y) < 3.0e38 && abs(v.z) < 3.0e38; }
@@ -642,7 +646,7 @@ public enum ExactColorKernelSource {
     kernel vec4 lumenColourPrimaries(__sample s, \(conversionParameters),
                                      vec4 r0, vec4 r1, vec4 r2, vec4 flags, vec4 luma) {
         vec3 c = s.rgb;
-        if (!lumenFinite(c)) { return s; }
+        if (lumenFinite(c) == false) { return s; }
         vec3 res = c;
         if (flags.z > 0.5) {
             res = vec3(r0.x * c.x + r0.y * c.y + r0.z * c.z,
@@ -708,7 +712,7 @@ public enum ExactColorKernelSource {
                                      \(arcs), \(moves), vec4 t0, vec4 t1, vec4 q) {
             vec3 c = s.rgb;
             vec3 l = lumenLCh(\(toLab("c")));
-            if (!lumenFinite(l)) { return s; }
+            if (lumenFinite(l) == false) { return s; }
             float h = l.z;
         \(weights)
             float total = \(total);
@@ -739,7 +743,7 @@ public enum ExactColorKernelSource {
                                  vec4 t, vec4 sg, vec4 k) {
         vec3 c = s.rgb;
         vec3 l = lumenLCh(\(toLab("c")));
-        if (!lumenFinite(l)) { return s; }
+        if (lumenFinite(l) == false) { return s; }
         float dL = l.x - t.x;
         float dC = l.y - t.y;
         float dh = lumenHueDelta(t.z, l.z);
@@ -755,7 +759,7 @@ public enum ExactColorKernelSource {
         if (qq != 0.0) {
             vec3 rc = ref.rgb;
             vec3 mu = lumenLCh(\(toLab("rc")));
-            if (!lumenFinite(mu)) { mu = l; }
+            if (lumenFinite(mu) == false) { mu = l; }
             h = lumenWrap(h + qq * (weight * g) * lumenHueDelta(t.z, mu.z));
             C = C + qq * weight * (mu.y - t.y);
             L = L + qq * 0.5 * weight * (mu.x - t.x);

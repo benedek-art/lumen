@@ -7,10 +7,10 @@
 // entry was dropped. Nothing durable said that the portable copy of an edit was behind
 // the catalog, so the photographer could not know to fix the volume.
 //
-// The record names the photograph and which fields were owed, not the content: the next
-// launch rebuilds those fields from the catalog, which is the newer truth by then, so a
-// record that outlives its write (a crash after a later success) only causes a redundant,
-// correct rewrite and never resurrects an older state.
+// Scalar fields are rebuilt from the current catalog. Keyword deltas are persisted
+// because a flat bag cannot express an owed removal through the remaining catalog
+// members alone. Recovery reconciles those deltas with current membership so a record
+// that outlives its write cannot reverse a newer catalog edit.
 //
 // In LumenCore so its codec runs on the lane that runs every push.
 
@@ -22,11 +22,14 @@ public struct UnsavedSidecarRecord: Codable, Equatable, Sendable {
     public var photoID: Int64?
     /// `SidecarStatedFields.rawValue` of the fields the failed write was stating.
     public var stated: Int
+    /// Optional for records produced before keyword deltas were persisted.
+    public var keywordEdit: SidecarKeywordEdit?
 
-    public init(photoPath: String, photoID: Int64?, stated: SidecarStatedFields) {
+    public init(photoPath: String, photoID: Int64?, stated: SidecarStatedFields, keywordEdit: SidecarKeywordEdit? = nil) {
         self.photoPath = photoPath
         self.photoID = photoID
         self.stated = stated.rawValue
+        self.keywordEdit = keywordEdit
     }
 
     public var statedFields: SidecarStatedFields { SidecarStatedFields(rawValue: stated) }
@@ -53,7 +56,9 @@ public struct UnsavedSidecarRecord: Codable, Equatable, Sendable {
     /// Merge two records for one photograph: every field either one owed is owed.
     public func merged(with other: UnsavedSidecarRecord) -> UnsavedSidecarRecord {
         UnsavedSidecarRecord(photoPath: photoPath, photoID: photoID ?? other.photoID,
-                             stated: statedFields.union(other.statedFields))
+                             stated: statedFields.union(other.statedFields),
+                             keywordEdit: keywordEdit.map { $0.then(other.keywordEdit ?? SidecarKeywordEdit()) }
+                                ?? other.keywordEdit)
     }
 
     /// The launch notice for a set of records; nil when there are none.
@@ -62,8 +67,8 @@ public struct UnsavedSidecarRecord: Codable, Equatable, Sendable {
         let names = records.map { URL(fileURLWithPath: $0.photoPath).lastPathComponent }.sorted()
         let shown = names.prefix(5).joined(separator: ", ")
         let more = names.count > 5 ? " and \(names.count - 5) more" : ""
-        return "The portable sidecar for \(shown)\(more) could not be saved when Lumen last "
-            + "quit. The catalog has the edits; Lumen is writing the sidecar again now and "
-            + "will keep retrying while the photo's volume is unavailable."
+        return "The portable sidecar for \(shown)\(more) could not be saved during Lumen’s last "
+            + "session. The catalog has the edits; Lumen is writing the sidecar again now and "
+            + "will keep retrying while the sidecar is unavailable or cannot be safely updated."
     }
 }

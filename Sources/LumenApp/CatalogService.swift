@@ -77,6 +77,8 @@ final class CatalogService: @unchecked Sendable {
     private var pendingSidecars:
         [URL: (photoID: Int64?, content: SidecarContent,
                stated: SidecarStatedFields)] = [:]
+    /// Read adapter permits deterministic filesystem failures in service regressions.
+    var sidecarDataReader: (URL) throws -> Data = { try Data(contentsOf: $0) }
     private var sidecarFlushScheduled = false
     private var sidecarsClosed = false
     /// One actionable notice per photo/outage, reset after a successful write.
@@ -218,12 +220,20 @@ final class CatalogService: @unchecked Sendable {
             case .reject: flag = stated.contains(.flag) ? .reject : nil
             case .unflagged: flag = stated.contains(.flag) ? SidecarFlag.none : nil
             }
-            // Keywords come back as additions only: the record names the field, not
-            // the delta, and the catalog's list is the newer truth. A removal that was
-            // still owed when Lumen quit is the one thing this cannot replay.
             var keywordEdit: SidecarKeywordEdit?
             if stated.contains(.keywords), let words = try? store.keywords(photoID: id) {
-                keywordEdit = SidecarKeywordEdit(added: words)
+                let leaves = Set(words.map(KeywordPath.leaf))
+                if let owed = record.keywordEdit {
+                    // The catalog may have changed after this durable record was made.
+                    // Never resurrect a removed tag or replay an outlived removal.
+                    keywordEdit = SidecarKeywordEdit(
+                        added: Array(leaves),
+                        removed: owed.removed.filter { !leaves.contains($0) })
+                } else {
+                    // Older records did not carry removals; preserve their additive
+                    // recovery while projecting hierarchy paths into flat dc:subject.
+                    keywordEdit = SidecarKeywordEdit(added: Array(leaves))
+                }
             }
             enqueueSidecar(for: url, photoID: id,
                            rating: stated.contains(.rating) ? row.rating : nil,
@@ -375,7 +385,14 @@ final class CatalogService: @unchecked Sendable {
                         // Read ONCE. The merge and the stroke restore each read the
                         // file for themselves; the keyword import below would have
                         // made it three reads per photograph per folder open.
-                        let sidecar = Self.readSidecar(for: file)
+                        var sidecar = Self.readSidecar(for: file)
+                        sidecarLock.lock()
+                        let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit
+                        sidecarLock.unlock()
+                        if let pendingKeywordEdit, var projected = sidecar {
+                            projected.keywords = pendingKeywordEdit.apply(to: projected.keywords ?? [])
+                            sidecar = projected
+                        }
                         let resolution = Self.merge(row: row, recipe: recipe,
                                                     recipeFingerprint: fingerprint,
                                                     hasUnflushedEdits: unflushed,
@@ -1288,6 +1305,24 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("keyword read", fallback: []) { try $0.keywords(photoID: photoID) }
     }
 
+    /// Authoritative flat tags for delivery. Unlike UI reads, a failure throws so
+    /// export cannot quietly substitute missing catalog edits with source metadata.
+    func exportKeywords(photoID: Int64) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                do {
+                    guard try store.photo(id: photoID) != nil else {
+                        throw CatalogError.invalid("the photo is no longer in the catalog")
+                    }
+                    let words = try store.keywords(photoID: photoID).map(KeywordPath.leaf)
+                    continuation.resume(returning: Array(Set(words)).sorted())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     func allKeywords() async -> [FacetValue] {
         await onQueue("keyword list", fallback: []) { try $0.allKeywords() }
     }
@@ -1322,12 +1357,18 @@ final class CatalogService: @unchecked Sendable {
         // On the catalog's queue, after the row write, like every other sidecar
         // enqueue in this file: a sidecar is never told something the catalog was not.
         await onQueue("keyword write", fallback: ()) { [self] store in
+            var before: [Int64: Set<String>] = [:]
+            for target in targets {
+                before[target.id] = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+            }
             try store.removeKeyword(name, photoIDs: ids)
             for target in targets {
+                let after = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+                let removed = (before[target.id] ?? []).subtracting(after)
                 self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
                                     label: nil, recipe: nil,
                                     keywordEdit: SidecarKeywordEdit(
-                                        removed: [KeywordPath.leaf(name)]))
+                                        removed: Array(removed)))
             }
         }
     }
@@ -1529,19 +1570,34 @@ final class CatalogService: @unchecked Sendable {
             // Refusing costs this frame's rating in the sidecar and nothing else. The
             // catalog keeps it, and the next write after somebody repairs the file
             // carries it across.
-            if !content.parsedCleanly {
-                NSLog("Lumen: left %@ untouched — it did not parse completely, and "
-                      + "rewriting it would delete whatever lies past the damage",
-                      path.lastPathComponent)
-                continue
+            func refuse(_ reason: String) {
+                failed.append((url, entry))
+                sidecarLock.lock()
+                let first = reportedSidecarFailures.insert(url).inserted
+                sidecarLock.unlock()
+                if first {
+                    report("Could not save portable sidecar \(path.lastPathComponent): \(reason). "
+                           + "The existing file was left untouched; the catalog has the edit and Lumen will retry.")
+                }
             }
 
+            let document: XMPSidecar.SidecarDocument
+            do {
+                document = XMPSidecar.classify(try sidecarDataReader(path))
+            } catch {
+                let failure = error as NSError
+                if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)
+                    || (failure.domain == NSPOSIXErrorDomain && failure.code == ENOENT) {
+                    document = .absent
+                } else {
+                    refuse("the existing sidecar could not be read (\(error.localizedDescription))")
+                    continue
+                }
+            }
             let text: String
-            switch XMPSidecar.classify(try? Data(contentsOf: path)) {
+            switch document {
             case .unreadable:
-                NSLog("Lumen: left %@ untouched — its bytes are not UTF-8 text, and "
-                      + "editing a document this version cannot decode would damage it",
-                      path.lastPathComponent)
+                refuse("its encoding cannot be safely edited")
                 continue
             case .document(let existing):
                 // THE FILE AS IT IS NOW, not as it was when the keystroke landed.
@@ -1559,8 +1615,7 @@ final class CatalogService: @unchecked Sendable {
                 if let fresh = XMPSidecar.parse(existing) {
                     guard fresh.sourceExtension == nil
                             || fresh.sourceExtension == url.pathExtension.lowercased() else {
-                        report("Sidecar ownership mismatch for \(path.lastPathComponent); "
-                               + "it was left untouched. The catalog edit remains separate.")
+                        refuse("its ownership does not match this photo")
                         continue
                     }
                     // Same interlock as the stale read's, applied to the fresh one:
@@ -1568,9 +1623,7 @@ final class CatalogService: @unchecked Sendable {
                     // past the damage just as surely, and this read is the one being
                     // written back.
                     guard fresh.parsedCleanly else {
-                        NSLog("Lumen: left %@ untouched — it did not parse completely "
-                              + "on re-read, and rewriting it would delete whatever "
-                              + "lies past the damage", path.lastPathComponent)
+                        refuse("the existing document does not parse completely")
                         continue
                     }
                     // And a document from a build newer than this one keeps its own
@@ -1589,9 +1642,7 @@ final class CatalogService: @unchecked Sendable {
                     content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
                 }
                 guard let merged = XMPSidecar.update(existing, with: content) else {
-                    NSLog("Lumen: left %@ untouched — it is not a sidecar this "
-                          + "version knows how to edit without losing its contents",
-                          path.lastPathComponent)
+                    refuse("the existing document cannot be safely merged")
                     continue
                 }
                 text = merged
@@ -1637,15 +1688,31 @@ final class CatalogService: @unchecked Sendable {
 
         guard !failed.isEmpty else { return }
         sidecarLock.lock()
-        // Re-queue only where no NEWER entry arrived during the flush: an entry
-        // enqueued meanwhile was built on a fresh read and its own edits, and
-        // clobbering it with the failed one would resurrect the older state.
-        for (url, entry) in failed where pendingSidecars[url] == nil {
-            pendingSidecars[url] = entry
+        // A newer entry can state only one field. Preserve the older debt in
+        // fields it did not replace, with newer values winning and keyword deltas
+        // composed in time order. Dropping the older entry loses unrelated edits.
+        for (url, entry) in failed {
+            if let newer = pendingSidecars[url] {
+                var combined = XMPSidecar.reseed(newer.content, fields: newer.stated,
+                                                onto: entry.content)
+                combined.keywordEdit = entry.content.keywordEdit.then(newer.content.keywordEdit)
+                pendingSidecars[url] = (photoID: newer.photoID ?? entry.photoID,
+                    content: combined, stated: entry.stated.union(newer.stated))
+            } else {
+                pendingSidecars[url] = entry
+            }
+        }
+        for (url, _) in failed {
+            if let entry = pendingSidecars[url] {
+                unsavedSidecars[url.path] = UnsavedSidecarRecord(
+                    photoPath: url.path, photoID: entry.photoID, stated: entry.stated,
+                    keywordEdit: entry.stated.contains(.keywords) ? entry.content.keywordEdit : nil)
+            }
         }
         let shouldSchedule = !sidecarFlushScheduled && !pendingSidecars.isEmpty
         if shouldSchedule { sidecarFlushScheduled = true }
         sidecarLock.unlock()
+        queue.async { [weak self] in self?.persistUnsavedSidecars() }
         if shouldSchedule {
             queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) { [weak self] in
                 self?.flushSidecars()
@@ -2184,9 +2251,10 @@ final class CatalogService: @unchecked Sendable {
             // flush re-queues failures and nothing else can enqueue past this point.
             for (url, entry) in pendingSidecars {
                 let record = UnsavedSidecarRecord(photoPath: url.path, photoID: entry.photoID,
-                                                  stated: entry.stated)
-                unsavedSidecars[url.path] = unsavedSidecars[url.path].map { $0.merged(with: record) }
-                    ?? record
+                                                  stated: entry.stated,
+                                                  keywordEdit: entry.stated.contains(.keywords)
+                                                    ? entry.content.keywordEdit : nil)
+                unsavedSidecars[url.path] = record
             }
             let names = pendingSidecars.keys.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
             sidecarLock.unlock()

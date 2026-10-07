@@ -467,7 +467,7 @@ enum SliderInventory {
         SliderSpec("Magenta", "ColorPanel.swift:718", .developTop, -100...100, step: 1),
 
         // Crop.
-        SliderSpec("Angle", "CropPanel.swift:356", .developTop, -45...45,
+        SliderSpec("Angle", "CropPanel.swift:361", .developTop, -45...45,
                    step: 0.1, decimals: 1),
 
         // Curve — the four parametric regions, all one shape.

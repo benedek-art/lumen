@@ -106,17 +106,52 @@ final class CullingEvidenceCatalogTests: XCTestCase {
         XCTAssertEqual(try raw.userVersion(), 3)
     }
 
-    /// The sort and the chip stay index-backed (§15.2).
+    /// SQLite adds planner annotations across releases (3.54 uses EXISTS here).
+    /// Keep the lookup invariant strict without pinning that optional annotation.
+    private static func isFramePrimaryKeyLookup(_ detail: String) -> Bool {
+        detail.range(of: "^SEARCH f(?: EXISTS)? USING INTEGER PRIMARY KEY \\(rowid=\\?\\)$",
+                     options: .regularExpression) != nil
+    }
+
+    /// Both burst chips stay backed by a direct frame_score photo-id lookup (§15.2).
     func testTheBurstChipIsIndexBacked() throws {
         let store = try makeStore()
         defer { store.close() }
         _ = try seed(store, count: 3)
-        var query = PhotoQuery()
-        query.burstState = .inBurst
-        let plan = try store.queryPlan(for: query).joined(separator: " | ")
-        XCTAssertTrue(plan.contains("SEARCH f USING INTEGER PRIMARY KEY"), plan)
-        XCTAssertFalse(plan.contains("SCAN f ") || plan.contains("SCAN cache.frame_score"),
-                       "the burst chip scans frame_score: \(plan)")
+        for state: PhotoQuery.BurstState in [.inBurst, .notInBurst] {
+            var query = PhotoQuery()
+            query.burstState = state
+            let details = try store.queryPlan(for: query)
+            let plan = details.joined(separator: " | ")
+            XCTAssertTrue(details.contains(where: Self.isFramePrimaryKeyLookup), plan)
+            XCTAssertFalse(plan.contains("SCAN f ") || plan.contains("SCAN cache.frame_score"),
+                           "the burst chip scans frame_score: \(plan)")
+        }
+    }
+
+    func testBurstPlanCheckRejectsLossOfThePhotoIDLookup() throws {
+        let store = try makeStore()
+        defer { store.close() }
+        _ = try seed(store, count: 3)
+        let raw = try SQLiteDatabase(path: lumenPath)
+        defer { raw.close() }
+        try raw.run("ATTACH DATABASE ? AS cache;", [.text(cachePath)])
+        // Algebraically equivalent, but deliberately no longer sargable: removing
+        // the direct key lookup must still fail this performance invariant.
+        let statement = try raw.prepare("""
+        EXPLAIN QUERY PLAN SELECT photo.id FROM photo
+          WHERE EXISTS (SELECT 1 FROM cache.frame_score f
+            WHERE f.photo_id + 0 = photo.id AND f.burst_id IS NOT NULL);
+        """)
+        var details: [String] = []
+        while try statement.step() { details.append(statement.string(3) ?? "") }
+        XCTAssertFalse(details.contains(where: Self.isFramePrimaryKeyLookup), details.joined(separator: " | "))
+        XCTAssertTrue(Self.isFramePrimaryKeyLookup("SEARCH f USING INTEGER PRIMARY KEY (rowid=?)"))
+        XCTAssertTrue(Self.isFramePrimaryKeyLookup("SEARCH f EXISTS USING INTEGER PRIMARY KEY (rowid=?)"))
+        XCTAssertFalse(Self.isFramePrimaryKeyLookup("SCAN f USING INTEGER PRIMARY KEY (rowid=?)"))
+        XCTAssertFalse(Self.isFramePrimaryKeyLookup("SEARCH other USING INTEGER PRIMARY KEY (rowid=?)"))
+        let sqliteVersion = try raw.scalarText("SELECT sqlite_version();") ?? "unknown"
+        print("BURST QUERY PLAN SQLite \(sqliteVersion): \(details.joined(separator: " | "))")
     }
 
     // MARK: - Writer and reader

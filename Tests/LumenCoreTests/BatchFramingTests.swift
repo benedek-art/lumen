@@ -12,6 +12,13 @@ private let crop = Crop(x: 0.1, y: 0.1, w: 0.8, h: 0.8)
 
 final class BatchFramingTests: XCTestCase {
 
+    func testOrientationSwapRefusesAnImpossibleReciprocal() {
+        let wide = BatchFraming.Frame(width: 7000, height: 1000)!
+        let geometry = Geometry(crop: Crop(x: 0, y: 0, w: 1, h: 0.05))
+        XCTAssertNil(BatchFraming.apply(.swapOrientation, to: geometry, frame: wide),
+                     "140:1 cannot turn into 1:140 while keeping both crop edges at least 5%")
+    }
+
     private func pixelAspect(_ g: Geometry, _ f: BatchFraming.Frame) -> Double {
         CropGeometry.displayedAspect(g.crop, sourceWidth: f.width, sourceHeight: f.height,
                                      degrees: g.angle) ?? .nan
@@ -131,7 +138,7 @@ final class BatchFramingTests: XCTestCase {
         XCTAssertTrue(panel.contains("let frame = state.framingFrame(for: photo,"),
                       "the panel's framing write does not resolve the frame per target")
         XCTAssertTrue(panel.contains("BatchFraming.apply(edit, to: recipe.develop.geometry,"))
-        for edit in ["applyFraming(.aspect(ratio)", "applyFraming(.swapOrientation",
+        for edit in ["requestAspect(.ratio(ratio)", "requestAspect(.swap",
                      "CropSection.applyFraming(.angle(angle), key: \"geometry.angle\""] {
             XCTAssertTrue(panel.contains(edit), "CropPanel lost \(edit)")
         }

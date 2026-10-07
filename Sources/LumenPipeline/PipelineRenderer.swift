@@ -813,7 +813,8 @@ public final class PipelineRenderer {
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
                        softProof: SoftProof? = nil,
-                       allowOverwrite: Bool = false) throws -> [String] {
+                       allowOverwrite: Bool = false,
+                       catalogKeywords: [String]? = nil) throws -> [String] {
         try exportRecipe.metadata.validateContact()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
@@ -825,7 +826,8 @@ public final class PipelineRenderer {
                                        softProof: softProof)
         try write(image, to: destination, using: exportRecipe,
                   sourceProperties: Self.sourceImageProperties(source.url),
-                  allowOverwrite: allowOverwrite, hdrImage: hdr)
+                  allowOverwrite: allowOverwrite, hdrImage: hdr,
+                  catalogKeywords: catalogKeywords)
         return availability.unavailable
     }
 
@@ -1201,7 +1203,8 @@ public final class PipelineRenderer {
     static func applyMetadataPolicy(_ image: CIImage,
                                     _ policy: MetadataPolicy,
                                     resolutionPPI: Double,
-                                    sourceProperties: [String: Any]? = nil) -> CIImage {
+                                    sourceProperties: [String: Any]? = nil,
+                                    catalogKeywords: [String]? = nil) -> CIImage {
         var properties = sourceProperties ?? image.properties
 
         func drop(_ key: CFString) {
@@ -1219,6 +1222,29 @@ public final class PipelineRenderer {
         }
         if !policy.includeKeywords {
             drop(kCGImagePropertyIPTCDictionary)
+        } else if let catalogKeywords {
+            // The catalog has not imported embedded IPTC, so its current leaves
+            // are additions to source metadata, not authority to delete source tags.
+            // Nil/empty snapshots preserve standalone/source behaviour. Removing
+            // embedded tags needs a future imported baseline or durable tombstones.
+            let key = kCGImagePropertyIPTCDictionary as String
+            var iptc = properties[key] as? [String: Any] ?? [:]
+            let words = Array(Set(catalogKeywords.map(KeywordPath.leaf))).sorted()
+            if !words.isEmpty {
+                let keywordKey = kCGImagePropertyIPTCKeywords as String
+                let sourceWords: [String]?
+                if let value = iptc[keywordKey] {
+                    if let strings = value as? [String] { sourceWords = strings }
+                    else if let string = value as? String { sourceWords = [string] }
+                    else { sourceWords = nil } // Preserve an unfamiliar representation.
+                } else {
+                    sourceWords = []
+                }
+                if let sourceWords {
+                    iptc[keywordKey] = SidecarKeywordEdit(added: words).apply(to: sourceWords)
+                }
+            }
+            properties[key] = iptc
         }
         if !policy.includeCameraSerial {
             // The body's serial identifies the camera across every frame it ever shot,
@@ -1363,14 +1389,16 @@ public final class PipelineRenderer {
                        using recipe: ExportRecipe,
                        sourceProperties: [String: Any]? = nil,
                        allowOverwrite: Bool = false,
-                       hdrImage: CIImage? = nil) throws {
+                       hdrImage: CIImage? = nil,
+                       catalogKeywords: [String]? = nil) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
         let partial = Self.partialURL(for: destination)
         let prepared = Self.applyMetadataPolicy(image, recipe.metadata,
                                                 resolutionPPI: recipe.resolutionPPI,
-                                                sourceProperties: sourceProperties)
+                                                sourceProperties: sourceProperties,
+                                                catalogKeywords: catalogKeywords)
         let quality = Num.clamp(recipe.quality / 100.0, 0, 1)
         let qualityKey = CIImageRepresentationOption(
             rawValue: kCGImageDestinationLossyCompressionQuality as String)

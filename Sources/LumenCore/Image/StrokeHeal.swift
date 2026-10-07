@@ -92,6 +92,33 @@ public enum StrokeHeal {
 
     // MARK: Resolution
 
+    // Leave headroom for coordinate differences, squared distances and rim offsets.
+    // This is an arithmetic bound, not a 0...1 clipping rule: ordinary overdraw
+    // must retain its original centreline.
+    static let coordinateLimit = Double.greatestFiniteMagnitude.squareRoot() / 1024
+
+    static func usable(_ point: Point) -> Bool {
+        point.x.isFinite && point.y.isFinite
+            && abs(point.x) <= coordinateLimit && abs(point.y) <= coordinateLimit
+    }
+
+    /// Intersect in floating point BEFORE Int conversion. Even finite coordinates
+    /// from a decoded blob need not fit in Int.
+    static func boundedIndex(_ value: Double, lower: Int, upper: Int) -> Int {
+        if value <= Double(lower) { return lower }
+        if value >= Double(upper) { return upper }
+        guard value.isFinite else { return lower }
+        return Int(value)
+    }
+
+    /// ImageBuffer's sampler converts to Int before extending the edge. Intersect
+    /// sample coordinates first so a valid off-canvas source cannot overflow it.
+    static func sample(_ image: ImageBuffer, _ x: Double, _ y: Double) -> RGB {
+        guard image.width > 0, image.height > 0, x.isFinite, y.isFinite else { return .zero }
+        return image.bilinear(Num.clamp(x, 0.5, Double(image.width) - 0.5),
+                              Num.clamp(y, 0.5, Double(image.height) - 0.5))
+    }
+
     public static func resolve(_ stroke: BrushStroke, width: Int,
                                height: Int) -> StrokeGeometry? {
         guard width > 0, height > 0, let retouch = stroke.retouch,
@@ -110,8 +137,11 @@ public enum StrokeHeal {
         let pixelGuard = Num.saturate(1.0 / Swift.max(radius, 1))
         let rin = Num.clamp(Swift.max(1 - feather, pixelGuard), 0, 1 - 1e-6)
 
-        let vertices = resample(stroke.points.map { Point($0.x * w, $0.y * h) },
-                                spacing: radius * 0.5)
+        let points = stroke.points.map { Point($0.x * w, $0.y * h) }
+        let offset = Point(retouch.dx * w, retouch.dy * h)
+        guard points.allSatisfy(usable), usable(offset) else { return nil }
+        let vertices = resample(points, spacing: radius * 0.5)
+        guard !vertices.isEmpty else { return nil }
         let (rim, steps) = rimSamples(vertices, radius: radius)
 
         var minX = Double.infinity, minY = Double.infinity
@@ -122,27 +152,30 @@ public enum StrokeHeal {
         }
         let geometry = StrokeGeometry(
             vertices: vertices, rim: rim, rimSteps: steps,
-            dx: retouch.dx * w, dy: retouch.dy * h,
+            dx: offset.x, dy: offset.y,
             radius: radius, rin: rin, opacity: opacity, heal: retouch.mode == .heal,
-            minX: Swift.max(Int(floor(minX - radius)), 0),
-            minY: Swift.max(Int(floor(minY - radius)), 0),
-            maxX: Swift.min(Int(ceil(maxX + radius)), width),
-            maxY: Swift.min(Int(ceil(maxY + radius)), height))
+            minX: boundedIndex(floor(minX - radius), lower: 0, upper: width),
+            minY: boundedIndex(floor(minY - radius), lower: 0, upper: height),
+            maxX: boundedIndex(ceil(maxX + radius), lower: 0, upper: width),
+            maxY: boundedIndex(ceil(maxY + radius), lower: 0, upper: height))
         return geometry.isEmpty ? nil : geometry
     }
 
     /// Evenly spaced vertices along the polyline, at most `maxVertices`, the first and
     /// last on the stroke's own ends. A stroke with no length is one vertex.
     static func resample(_ points: [Point], spacing: Double) -> [Point] {
+        guard !points.isEmpty, points.allSatisfy(usable), spacing.isFinite,
+              spacing > 0 else { return [] }
         var lengths: [Double] = [0]
         for i in 1..<Swift.max(points.count, 1) {
             lengths.append(lengths[i - 1]
                            + hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y))
         }
         let total = lengths.last ?? 0
+        guard total.isFinite else { return [] }
         guard points.count > 1, total > 1e-9 else { return [points[0]] }
-        let segments = Swift.min(Swift.max(Int(ceil(total / Swift.max(spacing, 1e-9))), 1),
-                                 maxVertices - 1)
+        let segments = Int(Swift.min(Swift.max(ceil(total / Swift.max(spacing, 1e-9)), 1),
+                                     Double(maxVertices - 1)))
         var out: [Point] = []
         out.reserveCapacity(segments + 1)
         var j = 1
@@ -160,6 +193,8 @@ public enum StrokeHeal {
     /// The rim: two side samples per vertex and `capSamples` round each end, minus any
     /// that land inside the tube.
     static func rimSamples(_ vertices: [Point], radius: Double) -> ([Point], [Point]) {
+        guard !vertices.isEmpty, vertices.allSatisfy(usable), radius.isFinite,
+              radius > 0, radius <= coordinateLimit else { return ([], []) }
         let n = vertices.count
         func tangent(_ i: Int) -> Point {
             guard n > 1 else { return Point(1, 0) }
@@ -206,6 +241,7 @@ public enum StrokeHeal {
 
     /// Distance from `p` to the polyline through `vertices` (a point when there is one).
     public static func distance(_ p: Point, to vertices: [Point]) -> Double {
+        guard !vertices.isEmpty else { return .infinity }
         guard vertices.count > 1 else {
             return hypot(p.x - vertices[0].x, p.y - vertices[0].y)
         }
@@ -235,12 +271,16 @@ public enum StrokeHeal {
     /// bounding box's times the vertex count.
     public static func alphaPlane(_ g: StrokeGeometry) -> [Float] {
         let bw = g.width, bh = g.height
-        var nearest = [Double](repeating: .infinity, count: bw * bh)
+        guard bw > 0, bh > 0, !g.vertices.isEmpty,
+              g.vertices.allSatisfy(usable) else { return [] }
+        let (count, overflow) = bw.multipliedReportingOverflow(by: bh)
+        guard !overflow else { return [] }
+        var nearest = [Double](repeating: .infinity, count: count)
         func visit(_ a: Point, _ b: Point) {
-            let x0 = Swift.max(Int(floor(Swift.min(a.x, b.x) - g.radius)), g.minX)
-            let x1 = Swift.min(Int(ceil(Swift.max(a.x, b.x) + g.radius)), g.maxX)
-            let y0 = Swift.max(Int(floor(Swift.min(a.y, b.y) - g.radius)), g.minY)
-            let y1 = Swift.min(Int(ceil(Swift.max(a.y, b.y) + g.radius)), g.maxY)
+            let x0 = boundedIndex(floor(Swift.min(a.x, b.x) - g.radius), lower: g.minX, upper: g.maxX)
+            let x1 = boundedIndex(ceil(Swift.max(a.x, b.x) + g.radius), lower: g.minX, upper: g.maxX)
+            let y0 = boundedIndex(floor(Swift.min(a.y, b.y) - g.radius), lower: g.minY, upper: g.maxY)
+            let y1 = boundedIndex(ceil(Swift.max(a.y, b.y) + g.radius), lower: g.minY, upper: g.maxY)
             guard x0 < x1, y0 < y1 else { return }
             for y in y0..<y1 {
                 for x in x0..<x1 {
@@ -272,7 +312,7 @@ public enum StrokeHeal {
             for j in -half...half {
                 let px = g.rim[k].x + Double(j) * g.rimSteps[k].x
                 let py = g.rim[k].y + Double(j) * g.rimSteps[k].y
-                acc = acc + image.bilinear(px, py) - image.bilinear(px + g.dx, py + g.dy)
+                acc = acc + sample(image, px, py) - sample(image, px + g.dx, py + g.dy)
             }
             return acc / Double(subsamples)
         }
@@ -310,6 +350,7 @@ public enum StrokeHeal {
 
     public static func apply(_ input: ImageBuffer, _ g: StrokeGeometry) -> ImageBuffer {
         let alpha = alphaPlane(g)
+        guard !alpha.isEmpty else { return input }
         let boundary = g.heal ? boundaryDifferences(input, g) : []
         var out = input
         for y in g.minY..<g.maxY {
@@ -318,7 +359,7 @@ public enum StrokeHeal {
                 let a = Double(alpha[(y - g.minY) * g.width + (x - g.minX)])
                 guard a > 0 else { continue }
                 let px = Double(x) + 0.5
-                var fill = input.bilinear(px + g.dx, py + g.dy)
+                var fill = sample(input, px + g.dx, py + g.dy)
                 if g.heal { fill = fill + membrane(px: px, py: py, g, boundary: boundary) }
                 out[x, y] = input[x, y].mix(fill, a)
             }
