@@ -18,7 +18,8 @@ final class FolderScanFileKindTests: XCTestCase {
         try fm.createSymbolicLink(at: root.appendingPathComponent("missing.jpg"),
                                   withDestinationURL: root.appendingPathComponent("absent"))
         let found = AppState.scan(url: root, extensions: ["jpg", "png"])
-        XCTAssertEqual(Set(found), Set([nested, regular]))
+        XCTAssertEqual(Set(found.map { $0.resolvingSymlinksInPath() }),
+                       Set([nested, regular].map { $0.resolvingSymlinksInPath() }))
         XCTAssertFalse(found.contains(directory))
     }
 }
