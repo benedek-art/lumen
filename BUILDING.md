@@ -1,3 +1,5 @@
+> Historical build notes. For the October 7 audit and exact verification limitations, see [current state](docs/audits/2026-10-07-deep/CURRENT-STATE.md) and [master plan](docs/audits/2026-10-07-deep/MASTER-PLAN.md).
+
 # Building Lumen
 
 This is the honest ledger: what exists, where it has been verified, and what to do

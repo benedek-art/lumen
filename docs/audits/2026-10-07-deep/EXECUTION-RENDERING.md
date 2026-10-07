@@ -44,3 +44,32 @@ Hard-brush area drops by~5.3 percentage points crossing2048→2049 and is~7.1% b
 Forward/reversed strokes at2048/2049/2550 produce maximum pixel-alpha differences0.213663/0.240866/0.350980 while area ratio is1.000038/1.000853/1.000880. This measures raster direction/phase sensitivity across the entire line; it does not isolate last-stamp omission. No endpoint or hard-brush look was changed.
 
 Reproducible characterization class saved outside repository in work/BrushBoundaryCharacterizationTests.swift. It is deliberately not committed as a permanently passing test with a weak tolerance for a known unresolved discrepancy. Place temporarily in Tests/LumenCoreTests and select BrushBoundaryCharacterizationTests to reproduce. Main regression commit includes only behaviorally meaningful healing robustness tests.
+
+## GPU gate resolved: same bundle passes outside sandbox
+
+Parent requested a service-access check through automatic escalation review. Exact same compiled test bundle, no source edits or recompilation between attempts: `xcrun xctest -XCTest LumenPipelineTests.StrokeHealGPUParityTests` with sandbox_permissions=require_escalated passed **all four tests in9.617s**. Previously three image tests returned nil readback under sandbox; kernel compilation passed in both. This confirms the local failures were a sandbox/service-access limitation, and verifies current healing parity in the escalated synthetic lane. It is not real-photograph acceptance. Log: /private/tmp/lumen-oct07-rendering-gpu-unsandboxed.log.
+
+## Proof portability investigation and safe diagnostic improvement
+
+Proof fixtures/tolerance unchanged. Added full field names, committed and measured values, absolute delta and tolerance to drift failures. The boolean gate and diagnostics now share one comparator, with four focused tests covering all numeric fields, optional missing values, identity/discrete fields and nonfinite values. All four pass. Native build passes; no renderer/recipe/proof fixtures changed.
+
+### Reproduced baseline differences
+
+| Record | Field | Committed Linux | macOS CI release and local debug | Delta |
+|---|---|---:|---:|---:|
+| color.protectSkin | frontLoading | 0.4390639459131562 | 0.4390627432834667 | −1.2026296894451782e−6 |
+| color.protectSkin | meanSeparation | 1.3650580354770752 | 1.3650571180485989 | −9.174284762991647e−7 (within gate) |
+| mixer.red.hue | meanSeparation | 4.430364179862741 | 4.43036303694729 | −1.1429154502806682e−6 |
+| bw.red | meanSeparation | 19.936793222387614 | 19.936794653171145 | +1.4307835307647565e−6 |
+
+Every other compared metric for these three records is unchanged. Local macOS27 arm64 / Swift6.4 **debug** probes reproduce all published macOS15.7.9 arm64 release-job values exactly, despite different optimization/toolchain/OS version. The original record commit36ce8fa explicitly states Linux/Swift6.1 recording provenance. October7 Ubuntu24.04 proof job112714048135 checked the exact untouched56434971 SHA; `LUMEN_RECORD_PROOFS` was empty, and committed-record drift test passed. It did not silently regenerate records.
+
+Evidence supports reproducible platform-dependent floating behavior, rather than a newly introduced rendering regression or optimization-only effect. `ExactColorStage` CPU twin uses Float32 math and platform Foundation pow/cos/sin/atan2. The exact primitive/architecture contribution has not been isolated; don't claim a specific libm bug. Mac and Linux rendering outputs are not bit-identical at this threshold. Skin's dimensionless frontLoading difference corresponds to ~3.4294e−5 code values in its midpoint peak; mean differences are ~1e−6 code values.
+
+Sources: [original release run](https://github.com/benedek-art/lumen/actions/runs/37054817326/job/110996801392), [same-SHA Linux proof run](https://github.com/benedek-art/lumen/actions/runs/37597640088/job/112714048135), commit36ce8fa. Exact local measured records and deltas saved to work/proof-platform-differences.json.
+
+### Unresolved release policy
+
+The proof gate uses the same absolute1e−6 for code values, ratios and degrees, and currently compares Linux-generated f32 results on macOS. Documentation's billionth-of-a-code-value description was corrected to millionth; tolerance remains1e−6. Release drift is still expected to fail for these three records. A durable fix needs an explicit cross-platform contract: either calibrated field-specific numeric error bounds verified on both platforms, or platform-authoritative baselines with protected provenance. Rewriting fixtures to whichever machine ran last or raising a blanket tolerance to fit the failures would hide rather than settle this contract. No such change made here.
+
+Existing Docker CLI was present but daemon unavailable, so local Linux rerun was not practical. GitHub's same-SHA Linux passing run supplies independent platform evidence. No Docker daemon started and no runtime installed.

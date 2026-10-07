@@ -1,4 +1,4 @@
-# October 7 — independent ingest landing identities (PS-07/08)
+# October 7 — independent ingest landing identities (PS-08/09)
 
 Review of the inode-based landing identity repair found two remaining cases: one source's primary and backup could be hard links to one file in different directories, and a destination could be the source itself or a link to it. Both existing files matched the source digest and were credited as already ingested; the report could enable eject without an independent landing.
 

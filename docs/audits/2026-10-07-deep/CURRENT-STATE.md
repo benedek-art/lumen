@@ -13,13 +13,13 @@ The app has a substantial working engine and desktop workflow. The October 2 mai
 | Framing | Per-photo batch crop/angle/reset/Original controls | All-or-none ratio/reciprocal safety repaired today; physical interaction review later |
 | History | Session undo/redo and discrete edit boundaries | Named per-photo snapshots are not persisted/wired despite an old README stage claim |
 | Portable edits | XMP field-preserving merge, sidecar ownership, keyword leaf projection, durable owed-edit recovery | Refusal/removal recovery repaired today; full hierarchical interoperability remains separate |
-| Delivery | Multiple output formats, collision policies, HDR path, density metadata, contact sheet support | Catalog keyword snapshot integration; persistent per-file report/queue and more output controls |
+| Delivery | Multiple output formats, collision policies, HDR path, density metadata, contact sheet support | Catalog keyword additions merged into delivery; embedded-source removal needs authority; persistent per-file report/queue and more output controls |
 | Updater | Public rolling-release lookup, digest check, signature integrity, staged bundle replacement | Relaunch/cleanup/main-actor work repaired today; actual installation/relaunch/volume qualification later |
 | Engineering | macOS compilation, Linux engine/fixtures, GPU parity, proof and UI-layout workflows | Full optimized proof drift blocks existing publication; separate corpus/UI checks need aggregate exact-SHA qualification |
 
 ## Honest completion accounting
 
-A connected feature, a passing regression, a passing full suite, and a photographer accepting the output are separate milestones. Today's ledger uses explicit states. It does not convert test counts to a completion percentage or call all 79 backlog entries defects.
+A connected feature, a passing regression, a passing full suite, and a photographer accepting the output are separate milestones. Today's ledger uses explicit states. It does not convert test counts to a completion percentage or call all 83 backlog entries defects.
 
 The repair priorities are data preservation and deterministic crashes first, workflow reliability second, synthetic quality characterization third, then product projects. Saved-look changes require an explicit compatibility policy and real-photo acceptance. That includes brush deposition, spatial colour models, film defaults and output sharpening.
 
@@ -27,7 +27,7 @@ The repair priorities are data preservation and deterministic crashes first, wor
 
 - Hosted main release validation already failed ControlProofTests on three metric records. Rounded reports hid differences slightly above 1e-6. Do not blindly loosen the bound or overwrite goldens.
 - The public RAW corpus showed a Leica Monochrom black decode also present through Apple-default/ImageIO paths, and Nikon Z30/GH5S neutral-patch alarms against an explicitly guessed chroma threshold. These require scoped decoder refusal and threshold investigation, not general black-image rejection or automatic camera-colour correction.
-- Local sandbox Core Image readbacks/encoders need capability verification. A nil readback cannot demonstrate numerical disagreement, and policy-only metadata tests do not prove full-pipeline file delivery.
+- Local sandbox service restrictions caused nil Core Image readbacks/encoder failures. The same compiled healing GPU suite passed 4/4 outside the sandbox; actual generated-image metadata exports also passed. Final integrated testing must use service access rather than interpret nil readback as numerical disagreement.
 - Default Swift/Xcode dSYM generation was blocked by sandbox permissions. Native Swift build system with isolated caches compiles the whole app; keep actual test outcomes separate from compilation.
 
 ## Next sequence

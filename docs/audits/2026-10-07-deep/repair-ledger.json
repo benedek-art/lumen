@@ -61,7 +61,7 @@
       "owner": "integration",
       "acceptance": "Hard-link/case alias twins never share one proven landing; normal re-ingest remains idempotent",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "targeted-green"
     },
     {
       "id": "APP-01",
@@ -111,7 +111,7 @@
       "owner": "app-updater",
       "acceptance": "Injected launch error never terminates; success terminates once; notice accurately says installed",
       "gate": "Synthetic/macOS tests now",
-      "status": "implementing"
+      "status": "targeted-green"
     },
     {
       "id": "APP-06",
@@ -121,7 +121,7 @@
       "owner": "app-updater",
       "acceptance": "Slow file helper does not block actor heartbeat; checksum and staging failures preserve old bundle",
       "gate": "Synthetic/macOS tests now",
-      "status": "implementing"
+      "status": "targeted-green"
     },
     {
       "id": "APP-07",
@@ -131,7 +131,7 @@
       "owner": "app-updater",
       "acceptance": "Success/failure/extract/signature paths remove only owned temporary directories",
       "gate": "Synthetic/macOS tests now",
-      "status": "implementing"
+      "status": "targeted-green"
     },
     {
       "id": "APP-08",
@@ -171,7 +171,7 @@
       "owner": "integration",
       "acceptance": "Every implemented claim has code/test evidence; historical BUILDING notes clearly dated",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "documented"
     },
     {
       "id": "APP-12",
@@ -381,17 +381,17 @@
       "owner": "integration",
       "acceptance": "Prior delivery alias always renamed under all policies; normal pre-run overwrite remains opt-in",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "targeted-green"
     },
     {
       "id": "OUT-02",
       "priority": "P2",
       "kind": "feature",
-      "title": "Include Lumen catalog keywords in delivery metadata",
+      "title": "Merge Lumen catalog keyword additions into delivery metadata",
       "owner": "export-metadata",
-      "acceptance": "Immutable per-job metadata snapshot; generated JPEG/HEIC/TIFF/PNG readback plus stripping policy",
+      "acceptance": "Catalog leaf additions merge with embedded source IPTC; keyword switch strips; source removal authority deferred until import/tombstone model",
       "gate": "Synthetic/macOS tests now",
-      "status": "implementing"
+      "status": "targeted-green-additions-only"
     },
     {
       "id": "OUT-03",
@@ -792,6 +792,46 @@
       "acceptance": "Visible SHA/version matches source; signed bundle launch/update manually qualified",
       "gate": "Synthetic/macOS tests now",
       "status": "planned"
+    },
+    {
+      "id": "PS-07",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Merge newer pending edits after a refused concurrent sidecar flush",
+      "owner": "persistence",
+      "acceptance": "Fault-injected read enqueues newer rating while older keyword flush fails; both fields persist/replay",
+      "gate": "Synthetic/macOS tests now",
+      "status": "targeted-green"
+    },
+    {
+      "id": "PS-08",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Require independent primary and backup file identities",
+      "owner": "app-ingest",
+      "acceptance": "Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent",
+      "gate": "Synthetic/macOS tests now",
+      "status": "targeted-green"
+    },
+    {
+      "id": "PS-09",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Reject source aliases as verified ingest deliveries",
+      "owner": "app-ingest",
+      "acceptance": "Source/hardlink/symlink destination never permits eject without independent landing",
+      "gate": "Synthetic/macOS tests now",
+      "status": "targeted-green"
+    },
+    {
+      "id": "PS-10",
+      "priority": "P2",
+      "kind": "defect",
+      "title": "Restore a catalog tag re-added after an older durable removal",
+      "owner": "persistence",
+      "acceptance": "Old removal record plus current catalog membership and absent disk tag replay current leaf while preserving foreign additions",
+      "gate": "Synthetic/macOS tests now",
+      "status": "targeted-green"
     }
   ]
 }
