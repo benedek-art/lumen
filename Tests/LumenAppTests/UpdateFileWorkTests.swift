@@ -11,7 +11,7 @@ final class UpdateFileWorkTests: XCTestCase {
     func testFailedRelaunchNeverTerminatesTheRunningProcess() async {
         var terminated = false
         do {
-            try await UpdateRelaunch.perform(open: { throw ExpectedFailure() },
+            try await UpdateRelaunch.launchThenTerminate(open: { throw ExpectedFailure() },
                                             terminate: { terminated = true })
             XCTFail("Launch error must reach the installed-but-not-relaunched UI")
         } catch { XCTAssertTrue(error is ExpectedFailure) }
@@ -22,7 +22,7 @@ final class UpdateFileWorkTests: XCTestCase {
     func testSuccessfulRelaunchTerminatesOnlyAfterLaunchCompletes() async throws {
         var launched = false
         var terminated = false
-        try await UpdateRelaunch.perform(open: { launched = true }, terminate: {
+        try await UpdateRelaunch.launchThenTerminate(open: { launched = true }, terminate: {
             XCTAssertTrue(launched)
             terminated = true
         })

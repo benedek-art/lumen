@@ -297,7 +297,7 @@ final class AppUpdater {
                 let config = NSWorkspace.OpenConfiguration()
                 config.createsNewApplicationInstance = true
                 do {
-                    try await UpdateRelaunch.perform(open: {
+                    try await UpdateRelaunch.launchThenTerminate(open: {
                         _ = try await NSWorkspace.shared.openApplication(at: current,
                                                                         configuration: config)
                     }, terminate: { NSApp.terminate(nil) })

@@ -69,7 +69,7 @@ enum UpdateFileWork {
 @MainActor
 enum UpdateRelaunch {
     /// A failed launch leaves the current process running.
-    static func perform(open: () async throws -> Void, terminate: () -> Void) async throws {
+    static func launchThenTerminate(open: () async throws -> Void, terminate: () -> Void) async throws {
         try await open()
         terminate()
     }
