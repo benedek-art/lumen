@@ -134,6 +134,7 @@ enum ProofNumericalDiagnostics {
                 "powSeeds": floats(seeds), "doublePowSeeds": floats(doubleSeeds),
                 "NewtonRoots": floats(roots), "Lab": floats(lab), "LCh": floats(lch),
                 "atan2": scalar(atan2(lab.z, lab.y)),
+                "doubleAtan2": scalar(portableAngle(y: lab.z, x: lab.y)),
                 "radians": scalar(radians), "cos": scalar(cos(radians)),
                 "sin": scalar(sin(radians))
             ])
@@ -147,6 +148,11 @@ enum ProofNumericalDiagnostics {
 
     private static func scalar(_ value: Float) -> [String: Any] {
         ["double": Double(value), "floatBits": value.bitPattern]
+    }
+
+    /// Proposed precision experiment only; production keeps its existing Float call.
+    static func portableAngle(y: Float, x: Float) -> Float {
+        Float(atan2(Double(y), Double(x)))
     }
 
     static func frontLoadingFraction(steps: Int) -> Double {
