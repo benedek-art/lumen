@@ -2644,6 +2644,44 @@ public final class CatalogStore {
                     [.integer(photoID)], CatalogStore.decodeEdit)
     }
 
+    public func namedSnapshots(photoID: Int64) throws -> [EditRow] {
+        try edits(photoID: photoID).filter { $0.kind == .snapshot }
+    }
+
+    public func namedSnapshot(id: Int64, photoID: Int64) throws -> EditRow {
+        guard let row = try namedSnapshots(photoID: photoID).first(where: { $0.id == id }) else {
+            throw CatalogError.notFound("snapshot for this photograph")
+        }
+        return row
+    }
+
+    @discardableResult
+    public func createNamedSnapshot(_ recipe: Recipe, photoID: Int64, name: String) throws -> Int64 {
+        guard let clean = LookSubset.normalizedName(name), clean.count <= 120 else {
+            throw CatalogError.invalid("a snapshot needs a name of at most 120 characters")
+        }
+        guard recipe.pipelineVersion <= supportedPipelineVersion else {
+            throw CatalogError.invalid("this snapshot requires a newer pipeline")
+        }
+        return try db.transaction {
+            guard try self.photo(id: photoID) != nil else { throw CatalogError.notFound("photo") }
+            guard try !self.namedSnapshots(photoID: photoID).contains(where: { $0.name == clean }) else {
+                throw CatalogError.invalid("a snapshot with this name already exists for this photograph")
+            }
+            return try self.saveRecipe(recipe, photoID: photoID, kind: .snapshot,
+                                       name: clean, isCurrent: false)
+        }
+    }
+
+    public func deleteNamedSnapshot(id: Int64, photoID: Int64) throws {
+        let row = try namedSnapshot(id: id, photoID: photoID)
+        guard !row.isCurrent else { throw CatalogError.invalid("cannot delete a current snapshot") }
+        try db.run("DELETE FROM edit WHERE id = ? AND photo_id = ? AND kind = 'snapshot' AND is_current = 0;",
+                   [.integer(id), .integer(photoID)])
+        // Content-addressed blobs may be shared by working edits, other snapshots,
+        // or backups. Deleting a named row never deletes those payloads.
+    }
+
     /// The `recipe_fp` every cache is keyed on. Empty string = as-shot.
     public func currentRecipeFingerprint(photoID: Int64) throws -> String {
         (try db.scalarText(
@@ -5064,6 +5102,10 @@ public final class CatalogStore {
     public func currentEdit(photoID: Int64) throws -> EditRow? {
         throw CatalogError.unavailable
     }
+    public func namedSnapshots(photoID: Int64) throws -> [EditRow] { throw CatalogError.unavailable }
+    public func namedSnapshot(id: Int64, photoID: Int64) throws -> EditRow { throw CatalogError.unavailable }
+    public func createNamedSnapshot(_ recipe: Recipe, photoID: Int64, name: String) throws -> Int64 { throw CatalogError.unavailable }
+    public func deleteNamedSnapshot(id: Int64, photoID: Int64) throws { throw CatalogError.unavailable }
     public func edits(photoID: Int64) throws -> [EditRow] { throw CatalogError.unavailable }
     public func currentRecipeFingerprint(photoID: Int64) throws -> String {
         throw CatalogError.unavailable

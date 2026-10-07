@@ -23,7 +23,7 @@
 // tooltip says so, because that is the one thing about a history list a photographer has
 // to be able to trust.
 //
-// THE THREE THINGS THIS PANEL DOES NOT DO, each because it cannot be done honestly from
+// THE TWO THINGS THIS PANEL DOES NOT DO, each because it cannot be done honestly from
 // here rather than because nobody thought of it:
 //
 //   · **It does not preview the photograph on hover.** The house has two hover idioms
@@ -36,13 +36,6 @@
 //     saved-look browser carries the identical limitation with the identical note, and
 //     for the identical reason. So the row answers the pointer with a fill, a pointing
 //     hand, and a tooltip naming exactly where the click lands and how far it is.
-//   · **It does not offer snapshots.** `HistoryStack` carries `Snapshot`, `snapshots`
-//     and two verbs for them, all four unreferenced — and the audit that found them
-//     (L-05) is explicit about the condition: wire them "plus persistence — snapshots
-//     that die with the process are worse than none". They would die with the process:
-//     there is no catalog table, no `CatalogService` reader or writer, and `Snapshot`
-//     carries no URL, so a snapshot taken on one photograph would list under every
-//     other one. That is four changes across three files this panel does not own.
 //   · **It does not scroll on its own.** The develop column is ONE scroll surface on
 //     purpose (`DevelopPanel.scrollColumn`: four panels used to own their own
 //     `ScrollView`, which inside an accordion is a scroll trap — the column stops
@@ -51,12 +44,10 @@
 //     pointer. The list scrolls because the column scrolls, and it is bounded instead:
 //     the most recent `visibleSteps` rows, with the rest one click away.
 //
-// WHAT IT RETAINS: nothing. Every row is a `HistoryStack.Entry` — an Int and two
-// Strings — built inside `body` and thrown away. No `@State` in this file holds a
-// `Recipe`, a `Step` or a `PhotoEdit`, and the rows are derived from `history.steps`
-// rather than copied out of it, so a thousand-frame session costs this panel the same as
-// a two-frame one. The only place a recipe lives is the stack's own 400-step ring, which
-// is a bound this file neither raises nor duplicates.
+// History step rows are derived from the existing bounded undo stack. Named
+// snapshots are loaded separately for the selected catalog photo; their immutable
+// recipes live in edit.kind=snapshot rows and are restored through normal undoable
+// edits, rather than becoming mutable working rows.
 
 #if os(macOS)
 
@@ -150,6 +141,7 @@ struct HistoryPanel: View {
                 if rows.count > Self.visibleSteps { moreRows(rows.count) }
                 footnote
             }
+            PhotoSnapshotsView(model: state.photoSnapshots)
         }
         // A photograph switch is a new list, so a reading position taken on the old one
         // means nothing. Without this, opening "all steps" on a heavily worked frame and

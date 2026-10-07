@@ -216,24 +216,7 @@ final class HistoryStack: ObservableObject {
         lastEditTime = .distantPast
     }
 
-    // MARK: - Snapshots
 
-    struct Snapshot: Identifiable {
-        let id = UUID()
-        var name: String
-        var recipe: Recipe
-        var created: Date
-    }
-
-    @Published var snapshots: [Snapshot] = []
-
-    func snapshot(_ recipe: Recipe, named name: String) {
-        snapshots.append(Snapshot(name: name, recipe: recipe, created: Date()))
-    }
-
-    func removeSnapshot(_ id: UUID) {
-        snapshots.removeAll { $0.id == id }
-    }
 }
 
 // MARK: - What the history list draws

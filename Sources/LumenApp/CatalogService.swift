@@ -2282,4 +2282,50 @@ final class CatalogService: @unchecked Sendable {
     }
 }
 
+// Named snapshots never become current rows: restoration uses the app's normal
+// undoable edit path, keeping each named recipe immutable across later edits.
+extension CatalogService {
+    func photoSnapshots(photoID: Int64) async throws -> [EditRow] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { continuation.resume(with: Result { try self.store.namedSnapshots(photoID: photoID) }) }
+        }
+    }
+
+    func createPhotoSnapshot(recipe: Recipe, photoID: Int64, name: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result {
+                    try PhotoSnapshotDependencies.validate(recipe, blobs: self.blobs)
+                    _ = try self.store.createNamedSnapshot(recipe, photoID: photoID, name: name)
+                })
+            }
+        }
+    }
+
+    func photoSnapshotRecipe(id: Int64, photoID: Int64) async throws -> Recipe {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result {
+                    let row = try self.store.namedSnapshot(id: id, photoID: photoID)
+                    guard row.pipelineVersion <= supportedPipelineVersion else {
+                        throw CatalogError.invalid("snapshot requires a newer pipeline")
+                    }
+                    let recipe = try CanonicalJSON.decodeRecipe(from: Data(row.recipeJSON.utf8))
+                    guard recipe.pipelineVersion <= supportedPipelineVersion else {
+                        throw CatalogError.invalid("snapshot requires a newer pipeline")
+                    }
+                    try PhotoSnapshotDependencies.validate(recipe, blobs: self.blobs)
+                    return recipe
+                })
+            }
+        }
+    }
+
+    func deletePhotoSnapshot(id: Int64, photoID: Int64) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async { continuation.resume(with: Result { try self.store.deleteNamedSnapshot(id: id, photoID: photoID) }) }
+        }
+    }
+}
+
 #endif

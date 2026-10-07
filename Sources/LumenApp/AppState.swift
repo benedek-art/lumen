@@ -333,6 +333,9 @@ final class AppState: ObservableObject {
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
+            if primarySelection?.id == oldValue?.id && primarySelection?.catalogID != oldValue?.catalogID {
+                refreshPhotoSnapshots()
+            }
             guard primarySelection?.id != oldValue?.id else { return }
             // A gesture cannot span photos: if a drag's release was dropped, the
             // switch is the moment its deferred writes land (audit queue item 4 —
@@ -348,6 +351,7 @@ final class AppState: ObservableObject {
             refreshPrimaryFrameSize()
             refreshPrimaryAsShotNeutral()
             refreshPrimaryLibraryDetail()
+            refreshPhotoSnapshots()
             // A photo whose recipe already carries a Subject mask needs its matte
             // before the first frame is worth looking at; the call is a no-op for the
             // overwhelming majority of photographs, which have no AI component at all.
@@ -1608,6 +1612,7 @@ final class AppState: ObservableObject {
 
     let thumbnails = ThumbnailLoader()
     let history = HistoryStack()
+    let photoSnapshots = PhotoSnapshotsModel()
     private(set) var catalog: CatalogService? {
         didSet { refreshCommandState() }
     }
