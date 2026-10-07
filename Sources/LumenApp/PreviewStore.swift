@@ -125,6 +125,13 @@ final class PreviewStore: @unchecked Sendable {
         lock.unlock()
     }
 
+    func relinkSource(from old: URL, to new: URL, photoID: Int64) {
+        lock.lock()
+        photoIDs.removeValue(forKey: old)
+        photoIDs[new] = photoID
+        lock.unlock()
+    }
+
     func photoID(for url: URL) -> Int64? {
         lock.lock()
         defer { lock.unlock() }

@@ -296,6 +296,7 @@ final class AppState: ObservableObject {
 
     // MARK: Library
 
+    @Published var isRelinkingOriginal = false
     @Published var folderURL: URL?
     @Published private(set) var allPhotos: [PhotoItem] = [] {
         didSet { selectionMembershipIndex = nil; invalidatePhotoCache() }
@@ -3081,6 +3082,44 @@ final class AppState: ObservableObject {
             }
         }
         return found.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// Commit the URL join only after the catalog transaction succeeds. The row ID,
+    /// recipe, brush references and undo values continue to describe the same photo.
+    func applyOriginalRelink(_ completion: CatalogService.OriginalRelinkCompletion) {
+        let stored = completion.state
+        let existing = allPhotos.first { $0.catalogID == stored.catalogID }
+            ?? (primarySelection?.catalogID == stored.catalogID ? primarySelection : nil)
+        let old = existing?.id ?? completion.result.original
+        let new = completion.result.destination
+        let item = PhotoItem(id: new, catalogID: stored.catalogID, flag: existing?.flag ?? stored.flag,
+            rating: existing?.rating ?? stored.rating, label: existing.map(\.label) ?? stored.label,
+            iso: existing?.iso ?? stored.iso, sourceIdentity: stored.sourceIdentity)
+        if let index = allPhotos.firstIndex(where: { $0.id == old }) {
+            var updated = allPhotos; updated[index] = item; allPhotos = updated
+        }
+        var updatedRecipes = recipes
+        let current = updatedRecipes.removeValue(forKey: old) ?? stored.recipe
+        if let current { updatedRecipes[new] = current }
+        recipes = updatedRecipes
+        history.relinkSource(from: old, to: new)
+        if selection.remove(old) != nil { selection.insert(new) }
+        if primarySelection?.id == old { primarySelection = item }
+        if let order = libraryOrder { libraryOrder = order.map { $0 == old ? new : $0 } }
+        availableMattes.removeValue(forKey: old); availableMattes.removeValue(forKey: new)
+        attemptedMattes.removeValue(forKey: old); attemptedMattes.removeValue(forKey: new)
+        pendingMattes.remove(old); pendingMattes.remove(new)
+        unreadableMatteSources.remove(old); unreadableMatteSources.remove(new)
+        previews?.relinkSource(from: old, to: new, photoID: stored.catalogID)
+        sourceRevision &+= 1
+        refreshSelectionFrames()
+        refreshMaskThumbnails()
+        refreshMaskOverlayIfSourceChanged()
+        refreshLibrarySections()
+        Task {
+            await renderCoordinator.invalidate(url: old)
+            await renderCoordinator.invalidate(url: new)
+        }
     }
 
     private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState]) {

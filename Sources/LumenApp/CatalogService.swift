@@ -22,7 +22,7 @@ import LumenPipeline
 
 final class CatalogService: @unchecked Sendable {
 
-    struct StoredState {
+    struct StoredState: Sendable {
         var catalogID: Int64
         var flag: PhotoFlag
         var rating: Int
@@ -34,6 +34,7 @@ final class CatalogService: @unchecked Sendable {
         var sourceIdentity: SourceFileIdentity? = nil
     }
 
+    private var relinkedSources: [Int64: URL] = [:]
     private let store: CatalogStore
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
 
@@ -1467,6 +1468,7 @@ final class CatalogService: @unchecked Sendable {
                                 recipe: (json: String, fingerprint: String, version: Int)?,
                                 strokes: String?? = nil,
                                 keywordEdit: SidecarKeywordEdit? = nil) {
+        let url = photoID.flatMap { relinkedSources[$0] } ?? url
         sidecarLock.lock()
         guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let queued = pendingSidecars[url]
@@ -2327,5 +2329,161 @@ extension CatalogService {
         }
     }
 }
+
+
+extension CatalogService {
+    struct OriginalRelinkPreparation: Sendable {
+        let target: OriginalRelinkTarget
+        let candidate: OriginalRelinkCandidate
+        let sidecar: URL
+        let sidecarIdentity: SourceFileIdentity?
+    }
+    struct OriginalRelinkCompletion: Sendable {
+        let result: OriginalRelinkResult
+        let state: StoredState
+    }
+
+    func missingOriginals(includePhotoID: Int64? = nil) async throws -> [OriginalRelinkTarget] {
+        try await withCheckedThrowingContinuation { continuation in
+            maintenance.async {
+                do {
+                    let rows = try self.queue.sync { try self.store.missingOriginalTargets(includePhotoID: includePhotoID) }
+                    continuation.resume(returning: rows.filter { (try? OriginalRelink.requireMissing($0.original)) != nil })
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    func prepareOriginalRelink(photoID: Int64, candidateURL: URL) async throws -> OriginalRelinkPreparation {
+        try await withCheckedThrowingContinuation { continuation in
+            maintenance.async {
+                do {
+                    let target = try self.queue.sync { try self.store.originalRelinkTarget(photoID: photoID) }
+                    guard target.original.pathExtension.lowercased() == candidateURL.pathExtension.lowercased() else {
+                        throw OriginalRelinkError.mismatch
+                    }
+                    if let full = target.fullHash, !full.isEmpty, !full.hasPrefix("xxh64:") { throw OriginalRelinkError.unsupportedHash }
+                    let candidate = try OriginalRelinkCandidate.inspect(candidateURL,
+                        fullHashRequired: target.fullHash?.isEmpty == false)
+                    let preparation = try self.queue.sync {
+                        try self.store.validateOriginalRelink(target, candidate: candidate)
+                        Self.forgetSiblings()
+                        let sidecar = Self.sidecarURL(for: candidate.url)
+                        try self.validateRelinkSidecar(sidecar, photoID: photoID, source: candidate.url)
+                        return OriginalRelinkPreparation(target: target, candidate: candidate, sidecar: sidecar,
+                            sidecarIdentity: SourceFileIdentity.read(sidecar))
+                    }
+                    continuation.resume(returning: preparation)
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private func validateRelinkSidecar(_ url: URL, photoID: Int64, source: URL) throws {
+        if (try? OriginalRelink.requireMissing(url)) != nil { return }
+        guard let bytes = try? sidecarDataReader(url),
+              case .document = XMPSidecar.classify(bytes),
+              let content = XMPSidecar.parse(bytes), content.parsedCleanly,
+              content.sourceExtension == nil || content.sourceExtension == source.pathExtension.lowercased(),
+              let row = try store.photo(id: photoID) else { throw OriginalRelinkError.incompatibleSidecar }
+        if let json = content.recipeJSON {
+            guard content.pipelineVersion <= currentPipelineVersion,
+                  let incoming = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8)),
+                  let current = try store.currentRecipe(photoID: photoID),
+                  incoming.rendersSameAs(current) else { throw OriginalRelinkError.incompatibleSidecar }
+        }
+        guard (content.rating == 0 || content.rating == row.rating),
+              (content.flag == .none || content.flag == SidecarFlag(row.flag)),
+              (content.label == nil || content.label == row.label) else { throw OriginalRelinkError.incompatibleSidecar }
+    }
+
+    func commitOriginalRelink(_ preparation: OriginalRelinkPreparation) async throws -> OriginalRelinkCompletion {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let target = preparation.target
+                    let candidate = preparation.candidate
+                    Self.forgetSiblings()
+                    guard Self.sidecarURL(for: candidate.url) == preparation.sidecar,
+                          SourceFileIdentity.read(preparation.sidecar) == preparation.sidecarIdentity else {
+                        throw OriginalRelinkError.incompatibleSidecar
+                    }
+                    try self.validateRelinkSidecar(preparation.sidecar, photoID: target.photoID, source: candidate.url)
+                    // Decode before committing so an unsupported edit cannot leave the
+                    // database relinked while the caller receives an apparent failure.
+                    if let edit = try self.store.currentEdit(photoID: target.photoID), edit.pipelineVersion > supportedPipelineVersion {
+                        throw OriginalRelinkError.unavailableEditPayload
+                    }
+                    let recipe = try self.store.currentRecipe(photoID: target.photoID)
+                    if let recipe {
+                        let refs = recipe.masks.flatMap(\.components).filter { $0.kind == .brush }
+                            .compactMap(\.strokesRef).filter { !$0.isEmpty }
+                            + [BrushStrokes.healReference(in: recipe)].compactMap { $0 }
+                        guard refs.allSatisfy({ self.blobs.strokeSet(for: $0) != nil }),
+                              self.sidecarStrokes(for: recipe, url: candidate.url) != nil else {
+                            throw OriginalRelinkError.unavailableEditPayload
+                        }
+                    }
+                    guard let row = try self.store.photo(id: target.photoID) else { throw OriginalRelinkError.changedMapping }
+                    self.sidecarLock.lock()
+                    let result: OriginalRelinkResult
+                    do {
+                        let oldIdentity = IngestLocation.fileIdentity(of: target.original)
+                        let newIdentity = IngestLocation.fileIdentity(of: candidate.url)
+                        let matchingPending = self.pendingSidecars.filter {
+                            $0.value.photoID == target.photoID || IngestLocation.fileIdentity(of: $0.key) == oldIdentity
+                        }
+                        let matchingOwed = self.unsavedSidecars.filter {
+                            $0.value.photoID == target.photoID || IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.key)) == oldIdentity
+                        }
+                        guard matchingPending.count <= 1, matchingOwed.count <= 1,
+                              matchingPending.allSatisfy({ $0.value.photoID == target.photoID && IngestLocation.fileIdentity(of: $0.key) == oldIdentity }),
+                              matchingOwed.allSatisfy({ $0.value.photoID == target.photoID && IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.key)) == oldIdentity }),
+                              !self.pendingSidecars.keys.contains(where: { IngestLocation.fileIdentity(of: $0) == newIdentity }),
+                              !self.unsavedSidecars.keys.contains(where: { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0)) == newIdentity }) else { throw OriginalRelinkError.unsafeDebt }
+                        let pending = matchingPending.first?.value
+                        // Even a previously settled sidecar may remain beside the old
+                        // path. Owe a portable copy beside the chosen original before
+                        // committing, so a crash before enqueueing still recovers it.
+                        var fields: SidecarStatedFields = [.rating, .flag, .label, .keywords]
+                        if recipe != nil { fields.formUnion([.recipe, .strokes]) }
+                        fields.formUnion(pending?.stated ?? [])
+                        let extra = [UnsavedSidecarRecord(photoPath: target.original.path, photoID: target.photoID,
+                            stated: fields, keywordEdit: pending?.content.keywordEdit)]
+                        result = try self.store.relinkOriginal(target, candidate: candidate, additionalSidecarDebt: extra,
+                            sidecarMTime: Self.modificationTime(of: preparation.sidecar))
+                        if let pending {
+                            self.pendingSidecars.removeValue(forKey: matchingPending.first!.key)
+                            self.pendingSidecars[candidate.url] = pending
+                        }
+                        if let entry = matchingOwed.first, var owed = self.unsavedSidecars.removeValue(forKey: entry.key) {
+                            owed.photoPath = candidate.url.path
+                            self.unsavedSidecars[candidate.url.path] = owed
+                        }
+                        if let moving = extra.first {
+                            var moved = moving; moved.photoPath = candidate.url.path
+                            if let previous = self.unsavedSidecars[candidate.url.path] { moved = previous.merged(with: moved) }
+                            self.unsavedSidecars[candidate.url.path] = moved
+                        }
+                        self.reportedSidecarFailures.remove(target.original)
+                        self.sidecarLock.unlock()
+                    } catch { self.sidecarLock.unlock(); throw error }
+                    // A queued edit carrying the former URL still belongs to this ID.
+                    self.relinkedSources[target.photoID] = candidate.url
+                    self.sidecarLock.lock()
+                    let owed = self.unsavedSidecars[candidate.url.path]
+                    self.sidecarLock.unlock()
+                    if let owed { self.requeueUnsavedSidecars([owed]) }
+                    self.onInvalidatedPreviews?(result.invalidatedPreviews)
+                    continuation.resume(returning: OriginalRelinkCompletion(result: result,
+                        state: StoredState(catalogID: row.id, flag: row.flag, rating: row.rating,
+                            label: row.label.flatMap(ColorLabel.init(rawValue:)), recipe: recipe,
+                            iso: row.iso, sourceIdentity: candidate.identity)))
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+}
+
 
 #endif

@@ -2177,6 +2177,116 @@ public final class CatalogStore {
         }
     }
 
+    // MARK: - Explicit missing-original relinking
+
+    public func missingOriginalTargets(includePhotoID: Int64? = nil) throws -> [OriginalRelinkTarget] {
+        try allRows("""
+            SELECT p.id, f.path, p.filename, p.file_size, p.quick_sig, p.full_hash
+            FROM photo p JOIN folder f ON f.id = p.folder_id
+            WHERE p.missing = 1 OR f.online = 0 OR p.id = ? ORDER BY p.id;
+            """, [.optionalInteger(includePhotoID)]) { s in
+                OriginalRelinkTarget(photoID: s.int(0),
+                    original: URL(fileURLWithPath: s.string(1) ?? "").appendingPathComponent(s.string(2) ?? ""),
+                    fileSize: s.int(3), quickSignature: s.string(4) ?? "", fullHash: s.string(5))
+            }
+    }
+
+    public func originalRelinkTarget(photoID: Int64) throws -> OriginalRelinkTarget {
+        guard let row = try photo(id: photoID), let folder = try folder(id: row.folderID) else {
+            throw CatalogError.notFound("photo \(photoID)")
+        }
+        return OriginalRelinkTarget(photoID: photoID,
+            original: URL(fileURLWithPath: folder.path).appendingPathComponent(row.filename),
+            fileSize: row.fileSize, quickSignature: row.quickSig ?? "", fullHash: row.fullHash)
+    }
+
+    public func validateOriginalRelink(_ target: OriginalRelinkTarget,
+                                      candidate: OriginalRelinkCandidate) throws {
+        guard try originalRelinkTarget(photoID: target.photoID) == target else { throw OriginalRelinkError.changedMapping }
+        try OriginalRelink.requireMissing(target.original)
+        guard target.fileSize > 0, !target.quickSignature.isEmpty else { throw OriginalRelinkError.unavailableIdentity }
+        guard target.original.pathExtension.lowercased() == candidate.url.pathExtension.lowercased() else { throw OriginalRelinkError.mismatch }
+        try candidate.verifyUnchanged()
+        guard target.fileSize == candidate.fileSize, target.quickSignature == candidate.quickSignature else {
+            throw OriginalRelinkError.mismatch
+        }
+        if let full = target.fullHash, !full.isEmpty {
+            guard full.hasPrefix("xxh64:") else { throw OriginalRelinkError.unsupportedHash }
+            guard candidate.fullHash == full else { throw OriginalRelinkError.mismatch }
+        }
+        guard try db.scalarInt("SELECT COUNT(*) FROM photo WHERE file_size = ? AND quick_sig = ?;",
+            [.integer(target.fileSize), .text(target.quickSignature)]) == 1 else { throw OriginalRelinkError.ambiguous }
+        let rows = try db.prepare("SELECT p.id, f.path, p.filename FROM photo p JOIN folder f ON f.id = p.folder_id WHERE p.id <> ?;")
+        try rows.bind(1, target.photoID)
+        let candidateIdentity = IngestLocation.fileIdentity(of: candidate.url)
+        while try rows.step() {
+            let url = URL(fileURLWithPath: rows.string(1) ?? "").appendingPathComponent(rows.string(2) ?? "")
+            if IngestLocation.fileIdentity(of: url) == candidateIdentity { throw OriginalRelinkError.alreadyRegistered }
+        }
+    }
+
+    /// Only database mappings/debt/cache rows change here. No sidecar or original is
+    /// written. Any SQL failure rolls all those changes back together.
+    public func relinkOriginal(_ target: OriginalRelinkTarget, candidate: OriginalRelinkCandidate,
+                               additionalSidecarDebt: [UnsavedSidecarRecord] = [],
+                               sidecarMTime: Int64? = nil) throws -> OriginalRelinkResult {
+        try db.transaction {
+            try self.validateOriginalRelink(target, candidate: candidate)
+            var debt: [UnsavedSidecarRecord] = []
+            if let raw = try self.metaValue(UnsavedSidecarRecord.metaKey) {
+                guard let objects = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]],
+                      objects.allSatisfy({ object in
+                          guard Set(object.keys).isSubset(of: ["photoPath", "photoID", "stated", "keywordEdit"]) else { return false }
+                          if let edit = object["keywordEdit"] as? [String: Any], !Set(edit.keys).isSubset(of: ["added", "removed"]) { return false }
+                          return true
+                      }),
+                      let parsed = try? JSONDecoder().decode([UnsavedSidecarRecord].self, from: Data(raw.utf8)),
+                      Set(parsed.map { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) }).count == parsed.count,
+                      parsed.allSatisfy({ $0.stated & ~SidecarStatedFields([.rating, .flag, .label, .recipe, .strokes, .keywords]).rawValue == 0 }) else {
+                    throw OriginalRelinkError.unsafeDebt
+                }
+                debt = parsed
+            }
+            for record in additionalSidecarDebt {
+                guard record.photoID == target.photoID,
+                      IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: target.original) else {
+                    throw OriginalRelinkError.unsafeDebt
+                }
+                if let index = debt.firstIndex(where: { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) == IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) }) {
+                    guard debt[index].photoID == target.photoID else { throw OriginalRelinkError.unsafeDebt }
+                    debt[index] = debt[index].merged(with: record)
+                } else { debt.append(record) }
+            }
+            for index in debt.indices {
+                let record = debt[index]
+                if IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: candidate.url) { throw OriginalRelinkError.unsafeDebt }
+                if IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: target.original) || record.photoID == target.photoID {
+                    guard IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: target.original), record.photoID == target.photoID else {
+                        throw OriginalRelinkError.unsafeDebt
+                    }
+                    debt[index].photoPath = candidate.url.path
+                }
+            }
+            let folder = try self.registerFolder(path: candidate.url.deletingLastPathComponent().path)
+            let previews = try self.previews(photoID: target.photoID)
+            try self.db.run("""
+                UPDATE photo SET folder_id = ?, filename = ?, file_size = ?, file_mtime = ?,
+                  quick_sig = ?, missing = 0, sidecar_mtime = ? WHERE id = ?;
+                """, [.integer(folder), .text(candidate.url.lastPathComponent), .integer(candidate.fileSize),
+                      .integer(candidate.fileMTime), .text(candidate.quickSignature),
+                      .optionalInteger(sidecarMTime), .integer(target.photoID)])
+            try self.setMetaValue("source_identity_\(target.photoID)", candidate.identity.token)
+            try self.setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode(debt))
+            for table in ["preview", "artifact", "raw_stats", "frame_score", "face", "feature_print"] {
+                try self.db.run("DELETE FROM cache.\(table) WHERE photo_id = ?;", [.integer(target.photoID)])
+            }
+            self.reindexText(photoID: target.photoID)
+            try candidate.verifyUnchanged()
+            return OriginalRelinkResult(photoID: target.photoID, original: target.original,
+                destination: candidate.url, invalidatedPreviews: previews)
+        }
+    }
+
     // MARK: - Scan reconciliation
 
     /// Which of the listed files could possibly be a relocation, so the scanner can
@@ -5055,6 +5165,10 @@ public final class CatalogStore {
     public func upsertPhoto(_ photo: PhotoRow) throws -> Int64 {
         throw CatalogError.unavailable
     }
+    public func missingOriginalTargets(includePhotoID: Int64? = nil) throws -> [OriginalRelinkTarget] { throw CatalogError.unavailable }
+    public func originalRelinkTarget(photoID: Int64) throws -> OriginalRelinkTarget { throw CatalogError.unavailable }
+    public func validateOriginalRelink(_ target: OriginalRelinkTarget, candidate: OriginalRelinkCandidate) throws { throw CatalogError.unavailable }
+    public func relinkOriginal(_ target: OriginalRelinkTarget, candidate: OriginalRelinkCandidate, additionalSidecarDebt: [UnsavedSidecarRecord] = [], sidecarMTime: Int64? = nil) throws -> OriginalRelinkResult { throw CatalogError.unavailable }
     public func photo(id: Int64) throws -> PhotoRow? { throw CatalogError.unavailable }
     public func photo(folderID: Int64, filename: String) throws -> PhotoRow? {
         throw CatalogError.unavailable
