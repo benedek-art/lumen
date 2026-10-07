@@ -150,7 +150,8 @@ final class CullingEvidenceCatalogTests: XCTestCase {
         XCTAssertTrue(Self.isFramePrimaryKeyLookup("SEARCH f EXISTS USING INTEGER PRIMARY KEY (rowid=?)"))
         XCTAssertFalse(Self.isFramePrimaryKeyLookup("SCAN f USING INTEGER PRIMARY KEY (rowid=?)"))
         XCTAssertFalse(Self.isFramePrimaryKeyLookup("SEARCH other USING INTEGER PRIMARY KEY (rowid=?)"))
-        print("BURST QUERY PLAN SQLite \(try raw.scalarText("SELECT sqlite_version();") ?? "unknown"): \(details.joined(separator: " | "))")
+        let sqliteVersion = try raw.scalarText("SELECT sqlite_version();") ?? "unknown"
+        print("BURST QUERY PLAN SQLite \(sqliteVersion): \(details.joined(separator: " | "))")
     }
 
     // MARK: - Writer and reader
