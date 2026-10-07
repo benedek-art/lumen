@@ -55,4 +55,16 @@ final class UnsavedSidecarRecordTests: XCTestCase {
         }
         XCTAssertTrue(try XCTUnwrap(UnsavedSidecarRecord.notice(for: many)).contains("and 2 more"))
     }
+    func testKeywordDeltasSurviveCodecAndComposeInTimeOrder() throws {
+        let a = UnsavedSidecarRecord(photoPath: "/p/a.JPG", photoID: 1, stated: [.keywords],
+            keywordEdit: SidecarKeywordEdit(added: ["A"], removed: ["B"]))
+        let b = UnsavedSidecarRecord(photoPath: "/p/a.JPG", photoID: 1, stated: [.keywords],
+            keywordEdit: SidecarKeywordEdit(added: ["B"], removed: ["A"]))
+        let decoded = try XCTUnwrap(UnsavedSidecarRecord.decode(UnsavedSidecarRecord.encode([a.merged(with: b)])).first)
+        XCTAssertEqual(decoded.keywordEdit?.apply(to: ["A", "Other"]), ["Other", "B"])
+        let legacy = UnsavedSidecarRecord.decode("[{\"photoPath\":\"/p/a.JPG\",\"photoID\":1,\"stated\":32}]")
+        XCTAssertEqual(legacy.count, 1)
+        XCTAssertNil(legacy.first?.keywordEdit)
+    }
+
 }

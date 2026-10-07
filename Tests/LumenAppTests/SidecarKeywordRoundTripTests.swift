@@ -70,5 +70,140 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
             try Data(contentsOf: CatalogService.sidecarURL(for: jpg))))
         XCTAssertEqual(written.keywords, ["pier"])
     }
+    func testRemovingOneBranchKeepsSharedLeaf() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("shared.JPG")
+        try Data([1]).write(to: photo)
+        let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
+        let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        await service.addKeyword("People > Alex", targets: [(id, photo)])
+        await service.addKeyword("Places > Alex", targets: [(id, photo)])
+        await service.removeKeyword("People > Alex", targets: [(id, photo)])
+        service.close()
+        let content = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: CatalogService.sidecarURL(for: photo))))
+        XCTAssertEqual(content.keywords, ["Alex"])
+    }
+
+    func testFailedRemovalReplaysBeforeImportWithoutLosingForeignAddition() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("remove.JPG")
+        try Data([1]).write(to: photo)
+        let catalog = root.appendingPathComponent("catalog")
+        let first = try CatalogService(directory: catalog)
+        let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        await first.addKeyword("Dawn", targets: [(id, photo)])
+        first.flushSidecars()
+        let path = CatalogService.sidecarURL(for: photo)
+        let original = try Data(contentsOf: path)
+        try FileManager.default.removeItem(at: path)
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        await first.removeKeyword("Dawn", targets: [(id, photo)])
+        XCTAssertEqual(first.close(), ["remove.JPG.xmp"])
+        try FileManager.default.removeItem(at: path)
+        var foreign = try XCTUnwrap(XMPSidecar.parse(original))
+        foreign.keywords = ["Dawn", "External"]
+        try Data(XMPSidecar.serialize(foreign).utf8).write(to: path)
+        let second = try CatalogService(directory: catalog)
+        _ = second.registerAndLoad(folder: root, files: [photo])
+        let recovered = await second.keywords(photoID: id)
+        XCTAssertEqual(recovered, ["External"])
+        second.close()
+        XCTAssertEqual(XMPSidecar.parse(try Data(contentsOf: path))?.keywords, ["External"])
+    }
+
+    func testFailedNestedAdditionReplaysAsLeaf() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("nested.JPG")
+        try Data([1]).write(to: photo)
+        let path = photo.appendingPathExtension("xmp")
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        let catalog = root.appendingPathComponent("catalog")
+        let first = try CatalogService(directory: catalog)
+        let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        await first.addKeyword("Places > Iceland", targets: [(id, photo)])
+        XCTAssertEqual(first.close(), ["nested.JPG.xmp"])
+        try FileManager.default.removeItem(at: path)
+        let second = try CatalogService(directory: catalog)
+        second.close()
+        XCTAssertEqual(XMPSidecar.parse(try Data(contentsOf: path))?.keywords, ["Iceland"])
+    }
+
+    private func ownedByNEF() -> SidecarContent {
+        var content = SidecarContent()
+        content.sourceExtension = "nef"
+        return content
+    }
+
+    func testRefusedDocumentsRemainOwedAndRecoverWhenRepaired() async throws {
+        for bytes in [Data("<broken>".utf8), Data([0xff, 0xfe, 0x41, 0x00]),
+                      Data(XMPSidecar.serialize(ownedByNEF()).utf8)] {
+            let root = try scratch()
+            let photo = root.appendingPathComponent("refused.JPG")
+            try Data([1]).write(to: photo)
+            let catalog = root.appendingPathComponent("catalog")
+            let service = try CatalogService(directory: catalog)
+            let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+            let path = CatalogService.sidecarURL(for: photo)
+            try bytes.write(to: path)
+            await service.addKeyword("Kept", targets: [(id, photo)])
+            var notices: [String] = []
+            service.onFailure = { notices.append($0) }
+            service.flushSidecars()
+            service.flushSidecars()
+            XCTAssertEqual(try Data(contentsOf: path), bytes)
+            XCTAssertEqual(notices.count, 1)
+            XCTAssertEqual(service.close(), ["refused.JPG.xmp"])
+            let second = try CatalogService(directory: catalog)
+            XCTAssertNotNil(second.unsavedSidecarNotice)
+            try Data(XMPSidecar.serialize(SidecarContent()).utf8).write(to: path)
+            second.close()
+            XCTAssertEqual(XMPSidecar.parse(try Data(contentsOf: path))?.keywords, ["Kept"])
+        }
+    }
+
+    func testReadFailureNeverReplacesExistingDocumentAndRetriesFreshBytes() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("read.JPG")
+        try Data([1]).write(to: photo)
+        let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
+        let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        let path = CatalogService.sidecarURL(for: photo)
+        var original = SidecarContent()
+        original.keywords = ["Foreign"]
+        try Data(XMPSidecar.serialize(original).utf8).write(to: path)
+        let bytes = try Data(contentsOf: path)
+        await service.addKeyword("Lumen", targets: [(id, photo)])
+        service.sidecarDataReader = { _ in throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError) }
+        service.flushSidecars()
+        XCTAssertEqual(try Data(contentsOf: path), bytes)
+        service.sidecarDataReader = { try Data(contentsOf: $0) }
+        service.flushSidecars()
+        XCTAssertEqual(Set(XMPSidecar.parse(try Data(contentsOf: path))?.keywords ?? []), ["Foreign", "Lumen"])
+        XCTAssertEqual(service.close(), [])
+    }
+
+    func testOutlivedRecoveryDeltaCannotReverseNewerCatalogMembership() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("stale.JPG")
+        try Data([1]).write(to: photo)
+        let catalog = root.appendingPathComponent("catalog")
+        let first = try CatalogService(directory: catalog)
+        let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        await first.addKeyword("Kept", targets: [(id, photo)])
+        first.close()
+        let store = try CatalogStore(path: catalog.appendingPathComponent("lumen.db").path,
+            cachePath: catalog.appendingPathComponent("cache.db").path)
+        let stale = UnsavedSidecarRecord(photoPath: photo.path, photoID: id, stated: [.keywords],
+            keywordEdit: SidecarKeywordEdit(added: ["Gone"], removed: ["Kept"]))
+        try store.setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode([stale]))
+        store.close()
+        let second = try CatalogService(directory: catalog)
+        _ = second.registerAndLoad(folder: root, files: [photo])
+        let memberships = await second.keywords(photoID: id)
+        XCTAssertEqual(memberships, ["Kept"])
+        second.close()
+        XCTAssertEqual(XMPSidecar.parse(try Data(contentsOf: CatalogService.sidecarURL(for: photo)))?.keywords, ["Kept"])
+    }
+
 }
 #endif
