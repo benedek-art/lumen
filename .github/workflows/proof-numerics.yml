@@ -1,0 +1,75 @@
+name: Proof numerical fingerprints
+
+# Explicitly diagnostic: no record-writing input, push/schedule trigger or release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proof-numerics-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fingerprint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Linux toolchain
+        if: runner.os == 'Linux'
+        run: sh scripts/install-linux-toolchain.sh
+      - name: Capture toolchain and immutable source identity
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            echo /opt/swift/usr/bin >> "$GITHUB_PATH"
+            export PATH="/opt/swift/usr/bin:$PATH"
+          fi
+          mkdir -p "$RUNNER_TEMP/proof-numerics"
+          git rev-parse HEAD > "$RUNNER_TEMP/proof-numerics/source.txt"
+          swift --version > "$RUNNER_TEMP/proof-numerics/toolchain.txt"
+          uname -a >> "$RUNNER_TEMP/proof-numerics/toolchain.txt"
+      - name: Compare the same three controls without writing fixtures
+        shell: bash
+        env:
+          LUMEN_PROBE_NUMERICS: '1'
+          LUMEN_RECORD_PROOFS: '0'
+        run: |
+          export LUMEN_PROBE_NUMERICS_DIR="$RUNNER_TEMP/proof-numerics"
+          export LUMEN_PROBE_EVIDENCE_DIR="$RUNNER_TEMP/proof-numerics-evidence"
+          for control in color.protectSkin mixer.red.hue bw.red; do
+            export LUMEN_PROBE_CONTROL="$control"
+            swift test -c release --filter ControlProbeHarness/testProbeOneControl \
+              > "$RUNNER_TEMP/proof-numerics/$control.log" 2>&1
+          done
+      - name: Verify the committed ruler was not modified
+        if: always()
+        run: git diff --exit-code -- Tests/LumenCoreTests/Proof/records
+      - name: Validate machine-readable stage fingerprints
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'proof-numerics'
+          controls = ['color.protectSkin', 'mixer.red.hue', 'bw.red']
+          if sorted(path.stem for path in directory.glob('*.json')) != sorted(controls):
+              raise RuntimeError('Expected exactly three control fingerprints')
+          def invalid_constant(value):
+              raise ValueError(f'Nonfinite JSON constant: {value}')
+          for control in controls:
+              data = json.loads((directory / (control + '.json')).read_text(), parse_constant=invalid_constant)
+              if data.get('id') != control or len(data.get('samples', [])) != 72:
+                  raise RuntimeError(f'Incomplete numerical fingerprint for {control}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proof-numerics-${{ matrix.os }}
+          path: ${{ runner.temp }}/proof-numerics/
+          if-no-files-found: error
