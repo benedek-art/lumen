@@ -87,4 +87,61 @@ final class FileLandingIdentityTests: XCTestCase {
         }
         XCTAssertEqual(try Data(contentsOf: delivery), Data([1, 3, 7, 11]))
     }
+    func testOneSourcesHardlinkedPrimaryAndBackupMustLandIndependently() throws {
+        let source = try write("source.RAF")
+        let primaryFolder = file("primary"), backupFolder = file("backup")
+        for directory in [primaryFolder, backupFolder] {
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let primary = primaryFolder.appendingPathComponent("frame.RAF")
+        let backup = backupFolder.appendingPathComponent("frame.RAF")
+        try Data(contentsOf: source).write(to: primary)
+        try fm.linkItem(at: primary, to: backup)
+        let plan = IngestPlan(copies: [IngestPlannedCopy(source: source, byteCount: 4,
+            destinations: [IngestPlannedDestination(url: primary, role: .primary),
+                           IngestPlannedDestination(url: backup, role: .backup)])])
+        let report = VerifiedCopyDriver(chunkSize: 16).run(plan)
+        XCTAssertTrue(report.allVerified, report.summary)
+        XCTAssertEqual(report.results.count, 2)
+        XCTAssertNotEqual(IngestLocation.fileIdentity(of: report.results[0].destination),
+                          IngestLocation.fileIdentity(of: report.results[1].destination))
+        XCTAssertEqual(try Data(contentsOf: primary), Data([1, 3, 7, 11]))
+        XCTAssertEqual(try Data(contentsOf: backup), Data([1, 3, 7, 11]))
+        let rerun = VerifiedCopyDriver(chunkSize: 16).run(plan)
+        XCTAssertTrue(rerun.allVerified, rerun.summary)
+        XCTAssertEqual(rerun.results.map(\.destination), report.results.map(\.destination))
+        XCTAssertEqual(rerun.alreadyPresent.count, 2, "The independent prior backup must be reused")
+        XCTAssertEqual(rerun.bytesCopied, 0)
+    }
+
+    func testAnExistingSourceAliasIsNotCountedAsAnIndependentIngest() throws {
+        let source = try write("source.RAF"), linked = file("source-alias.RAF")
+        try fm.linkItem(at: source, to: linked)
+        for destination in [source, linked] {
+            let report = VerifiedCopyDriver(chunkSize: 16).run(IngestPlan(copies: [
+                IngestPlannedCopy(source: source, byteCount: 4,
+                    destinations: [IngestPlannedDestination(url: destination, role: .primary)])]))
+            XCTAssertTrue(report.allVerified, report.summary)
+            let landed = try XCTUnwrap(report.results.first?.destination)
+            XCTAssertNotEqual(IngestLocation.fileIdentity(of: source), IngestLocation.fileIdentity(of: landed))
+            XCTAssertEqual(try Data(contentsOf: source), Data([1, 3, 7, 11]))
+            XCTAssertEqual(try Data(contentsOf: landed), Data([1, 3, 7, 11]))
+        }
+    }
+
+    func testLegacyProvenReportsCannotPermitEjectWithAliasedCopiesOrSource() throws {
+        let source = try write("source.RAF"), primary = try write("primary.RAF"), backup = file("backup.RAF")
+        try fm.linkItem(at: primary, to: backup)
+        let digest = try IngestFileDigest.digest(of: source, chunkSize: 16)
+        func result(_ destination: URL, _ role: IngestDestinationRole) -> IngestFileResult {
+            IngestFileResult(source: source, plannedDestination: destination, destination: destination,
+                             role: role, outcome: .alreadyPresent(digest))
+        }
+        for results in [[result(primary, .primary), result(backup, .backup)], [result(source, .primary)]] {
+            let report = IngestReport(results: results, refusals: [], wasCancelled: false,
+                filesAttempted: 1, filesPlanned: 1, bytesCopied: 0)
+            XCTAssertFalse(report.allVerified, report.summary)
+        }
+    }
+
 }
