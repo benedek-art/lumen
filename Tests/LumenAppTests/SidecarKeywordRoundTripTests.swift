@@ -253,6 +253,10 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
         await service.addKeyword("People > Alex", targets: [(id, photo)])
         let words = try await service.exportKeywords(photoID: id)
         XCTAssertEqual(words, ["Alex"])
+        do {
+            _ = try await service.exportKeywords(photoID: Int64.max)
+            XCTFail("a missing catalog photo must refuse the metadata snapshot")
+        } catch {}
         service.close()
         do {
             _ = try await service.exportKeywords(photoID: id)

@@ -1223,16 +1223,26 @@ public final class PipelineRenderer {
         if !policy.includeKeywords {
             drop(kCGImagePropertyIPTCDictionary)
         } else if let catalogKeywords {
-            // A snapshot (including an empty one) is authoritative for keyword edits.
-            // Preserve all unrelated source IPTC fields; nil keeps standalone exports
-            // unchanged. Hierarchy paths project to the same flat leaves as XMP.
+            // The catalog has not imported embedded IPTC, so its current leaves
+            // are additions to source metadata, not authority to delete source tags.
+            // Nil/empty snapshots preserve standalone/source behaviour. Removing
+            // embedded tags needs a future imported baseline or durable tombstones.
             let key = kCGImagePropertyIPTCDictionary as String
             var iptc = properties[key] as? [String: Any] ?? [:]
             let words = Array(Set(catalogKeywords.map(KeywordPath.leaf))).sorted()
-            if words.isEmpty {
-                iptc.removeValue(forKey: kCGImagePropertyIPTCKeywords as String)
-            } else {
-                iptc[kCGImagePropertyIPTCKeywords as String] = words
+            if !words.isEmpty {
+                let keywordKey = kCGImagePropertyIPTCKeywords as String
+                let sourceWords: [String]?
+                if let value = iptc[keywordKey] {
+                    if let strings = value as? [String] { sourceWords = strings }
+                    else if let string = value as? String { sourceWords = [string] }
+                    else { sourceWords = nil } // Preserve an unfamiliar representation.
+                } else {
+                    sourceWords = []
+                }
+                if let sourceWords {
+                    iptc[keywordKey] = SidecarKeywordEdit(added: words).apply(to: sourceWords)
+                }
             }
             properties[key] = iptc
         }

@@ -67,7 +67,7 @@ final class CatalogKeywordExportTests: XCTestCase {
             state.exportRecipes = [ExportRecipe(name: "Tags", filenameTemplate: "delivery")]
             state.export(to: root)
             try await finish(state)
-            XCTAssertEqual(try keywords(root.appendingPathComponent("delivery.jpg")), ["Iceland"])
+            XCTAssertEqual(Set(try keywords(root.appendingPathComponent("delivery.jpg"))), ["OldSource", "Iceland"])
         }
     }
 

@@ -1311,6 +1311,9 @@ final class CatalogService: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 do {
+                    guard try store.photo(id: photoID) != nil else {
+                        throw CatalogError.invalid("the photo is no longer in the catalog")
+                    }
                     let words = try store.keywords(photoID: photoID).map(KeywordPath.leaf)
                     continuation.resume(returning: Array(Set(words)).sorted())
                 } catch {
