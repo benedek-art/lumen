@@ -227,7 +227,7 @@ final class CatalogService: @unchecked Sendable {
                     // The catalog may have changed after this durable record was made.
                     // Never resurrect a removed tag or replay an outlived removal.
                     keywordEdit = SidecarKeywordEdit(
-                        added: owed.added.filter { leaves.contains($0) },
+                        added: Array(leaves),
                         removed: owed.removed.filter { !leaves.contains($0) })
                 } else {
                     // Older records did not carry removals; preserve their additive

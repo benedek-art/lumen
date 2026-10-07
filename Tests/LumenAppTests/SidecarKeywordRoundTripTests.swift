@@ -191,6 +191,10 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
         let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
         await first.addKeyword("Kept", targets: [(id, photo)])
         first.close()
+        // The stale removal reached disk before a later re-add was durably queued.
+        // The newer catalog membership must restore this now-missing flat leaf.
+        try Data(XMPSidecar.serialize(SidecarContent()).utf8)
+            .write(to: CatalogService.sidecarURL(for: photo))
         let store = try CatalogStore(path: catalog.appendingPathComponent("lumen.db").path,
             cachePath: catalog.appendingPathComponent("cache.db").path)
         let stale = UnsavedSidecarRecord(photoPath: photo.path, photoID: id, stated: [.keywords],
