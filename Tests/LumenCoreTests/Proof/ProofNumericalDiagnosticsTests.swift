@@ -2,6 +2,30 @@ import XCTest
 import LumenCore
 
 final class ProofNumericalDiagnosticsTests: XCTestCase {
+    func testDoubleAngleRoundsTheLocalizedInputToTheIndependentNearestFloat() {
+        // 90-digit Decimal atan2(y,x):
+        // 0.7962799833472703003176036267359247563875901598652596064155446…
+        // Nearest Float32 is 1061935361; glibc atan2f currently returns nextUp.
+        let y = Float(bitPattern: 1026310640), x = Float(bitPattern: 1026067584)
+        XCTAssertEqual(ProofNumericalDiagnostics.portableAngle(y: y, x: x).bitPattern,
+                       1061935361)
+    }
+
+    func testDoubleAnglePreservesQuadrantsSignedZeroAndNonfiniteSemantics() {
+        for y: Float in [-1, 0, 1] {
+            for x: Float in [-1, 0, 1] {
+                XCTAssertEqual(ProofNumericalDiagnostics.portableAngle(y: y, x: x),
+                               atan2(y, x), accuracy: 1e-6)
+            }
+        }
+        XCTAssertEqual(ProofNumericalDiagnostics.portableAngle(y: -0.0, x: 1).bitPattern,
+                       Float(-0.0).bitPattern)
+        XCTAssertEqual(ProofNumericalDiagnostics.portableAngle(y: 0.0, x: -1), Float(Double.pi))
+        XCTAssertTrue(ProofNumericalDiagnostics.portableAngle(y: .nan, x: 1).isNaN)
+        XCTAssertTrue(ProofNumericalDiagnostics.portableAngle(y: 1, x: .nan).isNaN)
+        XCTAssertEqual(ProofNumericalDiagnostics.portableAngle(y: 1, x: .infinity), 0)
+    }
+
     func testFingerprintFrontSettingMatchesTheExistingCumulativeIndexContract() {
         let sweep = ProofMetrics.Sweep(stepDeltas: Array(repeating: 1, count: 20),
                                        cumulative: (1...20).map(Double.init))
