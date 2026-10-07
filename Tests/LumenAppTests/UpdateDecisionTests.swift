@@ -120,9 +120,9 @@ final class UpdateDecisionTests: XCTestCase {
         let updater = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LumenApp/AppUpdater.swift")
+            .appendingPathComponent("Sources/LumenApp/UpdateFileWork.swift")
         guard let raw = try? String(contentsOf: updater, encoding: .utf8) else {
-            return XCTFail("AppUpdater.swift not found — move this scan with it")
+            return XCTFail("UpdateFileWork.swift not found — move this scan with it")
         }
         // Comments out: this file now explains at length what it used to do, and the
         // explanation contains the very call the check is looking for. `DesignSystemTests`

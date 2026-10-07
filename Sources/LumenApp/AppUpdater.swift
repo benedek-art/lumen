@@ -248,73 +248,45 @@ final class AppUpdater {
         do {
             let (tempFile, _) = try await URLSession.shared
                 .download(from: asset.browser_download_url)
-            let attrs = try FileManager.default.attributesOfItem(atPath: tempFile.path)
-            guard (attrs[.size] as? Int) == asset.size else {
-                throw UpdateError("the download's size doesn't match the release's")
-            }
-            // THE DIGEST, BEFORE ANYTHING IS UNPACKED. The size check above compares the
-            // download against a number from the same JSON that supplied its URL, which
-            // is arithmetic rather than verification; this compares it against a hash CI
-            // computed from the bytes it uploaded.
-            //
-            // It has to be here rather than after extraction because `ditto -x -k` runs
-            // over the archive, and an archive is a program's input: verifying afterwards
-            // means the unpacker has already read whatever arrived.
-            let downloaded = try Data(contentsOf: tempFile, options: .mappedIfSafe)
-            let actual = SHA256.hash(data: downloaded)
-                .map { String(format: "%02x", $0) }.joined()
-            guard actual == digest else {
-                throw UpdateError("the download's SHA-256 doesn't match the release's "
-                                  + "(expected \(digest.prefix(12))…, got "
-                                  + "\(actual.prefix(12))…)")
-            }
-
-            let work = FileManager.default.temporaryDirectory
-                .appendingPathComponent("lumen-update-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: work,
-                                                    withIntermediateDirectories: true)
-            // Ditto for the same reason CI zips with it: it preserves the signature.
-            try await run("/usr/bin/ditto", "-x", "-k", tempFile.path, work.path)
-            let newApp = work.appendingPathComponent("Lumen.app")
-            guard FileManager.default.fileExists(
-                atPath: newApp.appendingPathComponent("Contents/MacOS/Lumen").path)
-            else { throw UpdateError("the archive doesn't contain a runnable Lumen.app") }
-            // Kept, and worth being precise about what it is worth: this proves the
-            // extracted bundle's signature is internally consistent with its contents,
-            // which catches a truncated or tampered EXTRACTION. It proves nothing about
-            // who signed it — these builds are ad-hoc signed, so an ad-hoc signature
-            // made by anybody satisfies it. The digest above is the identity check.
-            try await run("/usr/bin/codesign", "--verify", "--deep", "--strict", newApp.path)
-
-            // THE INSTALLED BUNDLE IS NEVER MOVED OUT OF THE WAY (L-04).
-            //
-            // It used to be: move `current` to a backup, move the new one into its
-            // place, and on failure `try?` the old one back. Three things were wrong
-            // with that, and the third is the one that would have hurt.
-            //
-            // The backup lived in `FileManager.temporaryDirectory` while `current`
-            // lives wherever the app is installed, so BOTH moves were cross-volume
-            // whenever those differ — cross-volume moves are copy-then-delete, not
-            // renames, and they fail for ordinary reasons like space. The rollback was
-            // `try?`, so its failure was discarded. And the handler it threw into told
-            // the photographer "The running build is untouched" and suggested
-            // rebuilding from source — on the one path where the installed app had
-            // been moved away and nothing had replaced it. An alert asserting the
-            // opposite of the truth, then a Finder with no Lumen in it.
-            //
-            // `replaceItemAt` is the API for this and it leaves the original in place
-            // when it fails, so "untouched" is now true by construction rather than by
-            // assertion. It is atomic only WITHIN a volume, which is why the new bundle
-            // is staged beside the installed one first: the copy is the part that can
-            // fail slowly and it happens before anything is at risk.
+            try await UpdateFileWork.verifyDownload(tempFile, expectedSize: asset.size, digest: digest)
             let current = Bundle.main.bundleURL
-            let staged = current.deletingLastPathComponent()
-                .appendingPathComponent("Lumen-update-\(UUID().uuidString).app")
-            // On success `replaceItemAt` consumes the staged bundle, so this cleans up
-            // after a failure and is a no-op after a success.
-            defer { try? FileManager.default.removeItem(at: staged) }
-            try FileManager.default.copyItem(at: newApp, to: staged)
-            _ = try FileManager.default.replaceItemAt(current, withItemAt: staged)
+            try await UpdateFileWork.withScratch { work in
+                // Ditto for the same reason CI zips with it: it preserves the signature.
+                try await run("/usr/bin/ditto", "-x", "-k", tempFile.path, work.path)
+                let newApp = work.appendingPathComponent("Lumen.app")
+                guard FileManager.default.fileExists(
+                    atPath: newApp.appendingPathComponent("Contents/MacOS/Lumen").path)
+                else { throw UpdateError("the archive doesn't contain a runnable Lumen.app") }
+                // Kept, and worth being precise about what it is worth: this proves the
+                // extracted bundle's signature is internally consistent with its contents,
+                // which catches a truncated or tampered EXTRACTION. It proves nothing about
+                // who signed it — these builds are ad-hoc signed, so an ad-hoc signature
+                // made by anybody satisfies it. The digest above is the identity check.
+                try await run("/usr/bin/codesign", "--verify", "--deep", "--strict", newApp.path)
+
+                // THE INSTALLED BUNDLE IS NEVER MOVED OUT OF THE WAY (L-04).
+                //
+                // It used to be: move `current` to a backup, move the new one into its
+                // place, and on failure `try?` the old one back. Three things were wrong
+                // with that, and the third is the one that would have hurt.
+                //
+                // The backup lived in `FileManager.temporaryDirectory` while `current`
+                // lives wherever the app is installed, so BOTH moves were cross-volume
+                // whenever those differ — cross-volume moves are copy-then-delete, not
+                // renames, and they fail for ordinary reasons like space. The rollback was
+                // `try?`, so its failure was discarded. And the handler it threw into told
+                // the photographer "The running build is untouched" and suggested
+                // rebuilding from source — on the one path where the installed app had
+                // been moved away and nothing had replaced it. An alert asserting the
+                // opposite of the truth, then a Finder with no Lumen in it.
+                //
+                // `replaceItemAt` is the API for this and it leaves the original in place
+                // when it fails, so "untouched" is now true by construction rather than by
+                // assertion. It is atomic only WITHIN a volume, which is why the new bundle
+                // is staged beside the installed one first: the copy is the part that can
+                // fail slowly and it happens before anything is at risk.
+                try await UpdateFileWork.replaceBundle(newApp, current: current)
+            }
 
             let alert = NSAlert()
             alert.messageText = "Updated to build \(String(commit.prefix(12)))"
@@ -324,9 +296,16 @@ final class AppUpdater {
             if alert.runModal() == .alertFirstButtonReturn {
                 let config = NSWorkspace.OpenConfiguration()
                 config.createsNewApplicationInstance = true
-                try? await NSWorkspace.shared.openApplication(at: current,
-                                                              configuration: config)
-                NSApp.terminate(nil)
+                do {
+                    try await UpdateRelaunch.perform(open: {
+                        _ = try await NSWorkspace.shared.openApplication(at: current,
+                                                                        configuration: config)
+                    }, terminate: { NSApp.terminate(nil) })
+                } catch {
+                    inform("The update installed, but relaunch failed",
+                           "\(error.localizedDescription)\n\nLumen is still running. "
+                               + "Quit and open Lumen again to use the installed update.")
+                }
             }
         } catch {
             inform("The update didn't install",
