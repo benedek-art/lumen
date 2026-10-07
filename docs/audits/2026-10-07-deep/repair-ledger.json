@@ -11,7 +11,7 @@
       "owner": "persistence",
       "acceptance": "Read-error injection leaves foreign XMP byte-identical; owed edit survives retry and restart",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-02",
@@ -21,7 +21,7 @@
       "owner": "persistence",
       "acceptance": "Malformed/UTF16/ownership failures retain queue and durable record; corrected document replays safely",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-03",
@@ -31,7 +31,7 @@
       "owner": "persistence",
       "acceptance": "Remove/fail/quit/reopen does not resurrect tag; ordered delta composition preserves third-party additions",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-04",
@@ -41,7 +41,7 @@
       "owner": "persistence",
       "acceptance": "Normal successful save and failed-save recovery yield same dc:subject bag",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-05",
@@ -51,7 +51,7 @@
       "owner": "persistence",
       "acceptance": "Per-photo batch membership before/after determines leaf delta",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-06",
@@ -61,7 +61,7 @@
       "owner": "integration",
       "acceptance": "Hard-link/case alias twins never share one proven landing; normal re-ingest remains idempotent",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-01",
@@ -71,7 +71,7 @@
       "owner": "app-crop",
       "acceptance": "Any unknown/ineligible target refuses whole request with no recipe/history write",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-02",
@@ -81,7 +81,7 @@
       "owner": "app-crop",
       "acceptance": "Oriented metadata and source identity checked before/after async read",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-03",
@@ -91,7 +91,7 @@
       "owner": "app-crop",
       "acceptance": "Impossible swaps leave geometry/lock/history unchanged; feasible double swap roundtrips",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-04",
@@ -101,7 +101,7 @@
       "owner": "app-crop",
       "acceptance": "Reading lock does not mutate recipe; mismatched lock cannot snap next drag",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-05",
@@ -111,7 +111,7 @@
       "owner": "app-updater",
       "acceptance": "Injected launch error never terminates; success terminates once; notice accurately says installed",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-06",
@@ -121,7 +121,7 @@
       "owner": "app-updater",
       "acceptance": "Slow file helper does not block actor heartbeat; checksum and staging failures preserve old bundle",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-07",
@@ -131,7 +131,7 @@
       "owner": "app-updater",
       "acceptance": "Success/failure/extract/signature paths remove only owned temporary directories",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "APP-08",
@@ -141,7 +141,7 @@
       "owner": "integration",
       "acceptance": "Nested regular image included; directory/broken link not catalogued as photo",
       "gate": "Synthetic/macOS tests now",
-      "status": "implementing"
+      "status": "integrated-green"
     },
     {
       "id": "APP-09",
@@ -241,7 +241,7 @@
       "owner": "rendering",
       "acceptance": "Huge finite/nonfinite/overflowed lengths/offsets do not crash; valid off-canvas and ordinary strokes unchanged",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "RENDER-02",
@@ -381,7 +381,7 @@
       "owner": "integration",
       "acceptance": "Prior delivery alias always renamed under all policies; normal pre-run overwrite remains opt-in",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "OUT-02",
@@ -391,7 +391,7 @@
       "owner": "export-metadata",
       "acceptance": "Catalog leaf additions merge with embedded source IPTC; keyword switch strips; source removal authority deferred until import/tombstone model",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green-additions-only"
+      "status": "integrated-green-additions-only"
     },
     {
       "id": "OUT-03",
@@ -801,7 +801,7 @@
       "owner": "persistence",
       "acceptance": "Fault-injected read enqueues newer rating while older keyword flush fails; both fields persist/replay",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-08",
@@ -811,7 +811,7 @@
       "owner": "app-ingest",
       "acceptance": "Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-09",
@@ -821,7 +821,7 @@
       "owner": "app-ingest",
       "acceptance": "Source/hardlink/symlink destination never permits eject without independent landing",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "PS-10",
@@ -831,7 +831,7 @@
       "owner": "persistence",
       "acceptance": "Old removal record plus current catalog membership and absent disk tag replay current leaf while preserving foreign additions",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     },
     {
       "id": "RENDER-13",
@@ -841,14 +841,26 @@
       "owner": "rendering",
       "acceptance": "All three previously unavailable kernels compile; unchanged existing RGB/half/Float32/signed HDR parity and accuracy assertions pass; preview provenance restored",
       "gate": "Synthetic/macOS tests now",
-      "status": "targeted-green"
+      "status": "integrated-green"
     }
   ],
   "qualification": {
-    "source_revision": "885515f",
-    "release_run": "running",
-    "publication": "awaiting explicit destination approval after automatic review rejection",
+    "production_test_revision": "885515f",
+    "diagnostic_only_followup": "3939a29",
+    "full_optimized_tests": 3158,
+    "passed": 3135,
+    "skipped": 22,
+    "failed": 1,
+    "remaining_failure": "ControlProofTests committed-record drift; baseline reproducible platform differences",
+    "source_surface": "All passes green, exit 0",
+    "publication": "awaiting explicit GitHub destination approval after automatic review rejection",
     "release_policy": "manual opt-in plus existing gates",
-    "raw_photos": "deferred"
+    "raw_photos": "deferred",
+    "diagnostic_followup_tests": {
+      "configuration": "release",
+      "tests": 19,
+      "failures": 0
+    },
+    "local_main": "consolidated tree prepared; remote main unchanged pending destination approval"
   }
 }

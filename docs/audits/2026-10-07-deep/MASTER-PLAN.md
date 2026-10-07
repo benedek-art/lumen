@@ -64,20 +64,20 @@ For each implemented item record: current trigger; baseline reproduction and its
 
 | ID | Priority | Kind | Work | Owner | Acceptance | Gate | State |
 |---|---|---|---|---|---|---|---|
-| PS-01 | P1 | defect | Refuse XMP creation after a failed existing-document read | persistence | Read-error injection leaves foreign XMP byte-identical; owed edit survives retry and restart | Synthetic/macOS tests now | targeted-green |
-| PS-02 | P1 | defect | Retain owed sidecar edits on safe-write refusal | persistence | Malformed/UTF16/ownership failures retain queue and durable record; corrected document replays safely | Synthetic/macOS tests now | targeted-green |
-| PS-03 | P1 | defect | Persist and replay keyword removals | persistence | Remove/fail/quit/reopen does not resurrect tag; ordered delta composition preserves third-party additions | Synthetic/macOS tests now | targeted-green |
-| PS-04 | P2 | defect | Recover hierarchical tags using flat leaf projection | persistence | Normal successful save and failed-save recovery yield same dc:subject bag | Synthetic/macOS tests now | targeted-green |
-| PS-05 | P2 | defect | Keep shared leaf until last hierarchical membership is removed | persistence | Per-photo batch membership before/after determines leaf delta | Synthetic/macOS tests now | targeted-green |
-| PS-06 | P1 | defect | Use actual file identity for verified ingest claims | integration | Hard-link/case alias twins never share one proven landing; normal re-ingest remains idempotent | Synthetic/macOS tests now | targeted-green |
-| APP-01 | P1 | defect | Preflight discrete crop requests for every target | app-crop | Any unknown/ineligible target refuses whole request with no recipe/history write | Synthetic/macOS tests now | targeted-green |
-| APP-02 | P1 | defect | Never authorize crop mutations from guessed source dimensions | app-crop | Oriented metadata and source identity checked before/after async read | Synthetic/macOS tests now | targeted-green |
-| APP-03 | P2 | defect | Refuse unrepresentable reciprocal crop orientation | app-crop | Impossible swaps leave geometry/lock/history unchanged; feasible double swap roundtrips | Synthetic/macOS tests now | targeted-green |
-| APP-04 | P2 | defect | Derive effective crop lock after undo/source changes | app-crop | Reading lock does not mutate recipe; mismatched lock cannot snap next drag | Synthetic/macOS tests now | targeted-green |
-| APP-05 | P2 | defect | Keep app running when updated bundle relaunch fails | app-updater | Injected launch error never terminates; success terminates once; notice accurately says installed | Synthetic/macOS tests now | targeted-green |
-| APP-06 | P2 | performance | Move updater hashing and staging off main actor | app-updater | Slow file helper does not block actor heartbeat; checksum and staging failures preserve old bundle | Synthetic/macOS tests now | targeted-green |
-| APP-07 | P3 | defect | Clean updater extraction directories on every exit | app-updater | Success/failure/extract/signature paths remove only owned temporary directories | Synthetic/macOS tests now | targeted-green |
-| APP-08 | P2 | defect | Exclude image-extension directories from photo scans | integration | Nested regular image included; directory/broken link not catalogued as photo | Synthetic/macOS tests now | implementing |
+| PS-01 | P1 | defect | Refuse XMP creation after a failed existing-document read | persistence | Read-error injection leaves foreign XMP byte-identical; owed edit survives retry and restart | Synthetic/macOS tests now | integrated-green |
+| PS-02 | P1 | defect | Retain owed sidecar edits on safe-write refusal | persistence | Malformed/UTF16/ownership failures retain queue and durable record; corrected document replays safely | Synthetic/macOS tests now | integrated-green |
+| PS-03 | P1 | defect | Persist and replay keyword removals | persistence | Remove/fail/quit/reopen does not resurrect tag; ordered delta composition preserves third-party additions | Synthetic/macOS tests now | integrated-green |
+| PS-04 | P2 | defect | Recover hierarchical tags using flat leaf projection | persistence | Normal successful save and failed-save recovery yield same dc:subject bag | Synthetic/macOS tests now | integrated-green |
+| PS-05 | P2 | defect | Keep shared leaf until last hierarchical membership is removed | persistence | Per-photo batch membership before/after determines leaf delta | Synthetic/macOS tests now | integrated-green |
+| PS-06 | P1 | defect | Use actual file identity for verified ingest claims | integration | Hard-link/case alias twins never share one proven landing; normal re-ingest remains idempotent | Synthetic/macOS tests now | integrated-green |
+| APP-01 | P1 | defect | Preflight discrete crop requests for every target | app-crop | Any unknown/ineligible target refuses whole request with no recipe/history write | Synthetic/macOS tests now | integrated-green |
+| APP-02 | P1 | defect | Never authorize crop mutations from guessed source dimensions | app-crop | Oriented metadata and source identity checked before/after async read | Synthetic/macOS tests now | integrated-green |
+| APP-03 | P2 | defect | Refuse unrepresentable reciprocal crop orientation | app-crop | Impossible swaps leave geometry/lock/history unchanged; feasible double swap roundtrips | Synthetic/macOS tests now | integrated-green |
+| APP-04 | P2 | defect | Derive effective crop lock after undo/source changes | app-crop | Reading lock does not mutate recipe; mismatched lock cannot snap next drag | Synthetic/macOS tests now | integrated-green |
+| APP-05 | P2 | defect | Keep app running when updated bundle relaunch fails | app-updater | Injected launch error never terminates; success terminates once; notice accurately says installed | Synthetic/macOS tests now | integrated-green |
+| APP-06 | P2 | performance | Move updater hashing and staging off main actor | app-updater | Slow file helper does not block actor heartbeat; checksum and staging failures preserve old bundle | Synthetic/macOS tests now | integrated-green |
+| APP-07 | P3 | defect | Clean updater extraction directories on every exit | app-updater | Success/failure/extract/signature paths remove only owned temporary directories | Synthetic/macOS tests now | integrated-green |
+| APP-08 | P2 | defect | Exclude image-extension directories from photo scans | integration | Nested regular image included; directory/broken link not catalogued as photo | Synthetic/macOS tests now | integrated-green |
 | APP-09 | P2 | defect | Stage release candidate before replacing known-good updater release | release | Mock failures at create/upload/promote preserve known-good delivery; no release performed during audit | Synthetic/macOS tests now | planned |
 | APP-10 | P2 | validation | Require exact-revision release qualification across workflows | release | Old/missing/cancelled checks never qualify new SHA; classify corpus noise before required gate | Synthetic/macOS tests now | partial-release-opt-in |
 | APP-11 | P2 | documentation | Publish one current feature and verification ledger | integration | Every implemented claim has code/test evidence; historical BUILDING notes clearly dated | Synthetic/macOS tests now | documented |
@@ -87,7 +87,7 @@ For each implemented item record: current trigger; baseline reproduction and its
 | APP-15 | P2 | validation | Inspect native accessibility and keyboard interaction | accessibility | Generated-image launched-window action/value/tab-order tests; physical VoiceOver review later | Synthetic/macOS tests now | planned |
 | APP-16 | P2 | validation | Benchmark interactive latency and memory on generated large catalog | performance | 5k/20k roll, cold/warm next-photo, p50/p95/p99 drag/selection/cancel, memory bounded | Synthetic/macOS tests now | planned |
 | APP-17 | P3 | feature | Expose applied parametric curve limiter without changing pixels | app-controls | Readout shares bake calculation, ordinary and adversarial fixtures byte-identical | Synthetic/macOS tests now | planned |
-| RENDER-01 | P1 | defect | Bound healing geometry before integer conversions | rendering | Huge finite/nonfinite/overflowed lengths/offsets do not crash; valid off-canvas and ordinary strokes unchanged | Synthetic/macOS tests now | targeted-green |
+| RENDER-01 | P1 | defect | Bound healing geometry before integer conversions | rendering | Huge finite/nonfinite/overflowed lengths/offsets do not crash; valid off-canvas and ordinary strokes unchanged | Synthetic/macOS tests now | integrated-green |
 | RENDER-02 | P2 | validation | Measure tiny-mask resolution boundary aliasing | mask-quality | Resolution matrix around 2048/2049/2050/2550/2730; area and cell error tracked separately | Synthetic/macOS tests now | characterized |
 | RENDER-03 | P2 | validation | Measure hard tiny-brush preview/export differences | mask-quality | Feather0/10/50/100 and flow/pressure compared to independent high-resolution coverage | Synthetic/macOS tests now | characterized |
 | RENDER-04 | P2 | product | Define endpoint deposition rule for brush strokes | mask-quality | Spacing boundary and reversed-path probes; proposed change needs saved-look version policy | Synthetic/macOS tests now | characterized |
@@ -101,8 +101,8 @@ For each implemented item record: current trigger; baseline reproduction and its
 | RENDER-12 | P1 | investigation | Classify confirmed unrenderable RAW and uncertain chroma alarms | raw | No blanket all-black refusal; capability/fixture-backed rejection; known-neutral references | Synthetic/macOS tests now | planned |
 | CORE-01 | P1 | validation | Requalify contrast intersection inherited from unpublished September tests | colour | Whites+100/Pivot+4/Contrast-100 exact and native GPU; preserve original numerical limits | Synthetic/macOS tests now | planned |
 | CORE-02 | P1 | investigation | Resolve macOS versus Linux proof-record drift | proof | Emit fieldwise differences on protectSkin/red hue/BW red; repeated native and Linux runs; no blind re-pinning | Synthetic/macOS tests now | planned |
-| OUT-01 | P1 | defect | Prevent same-batch overwrite through case/hard-link aliases | integration | Prior delivery alias always renamed under all policies; normal pre-run overwrite remains opt-in | Synthetic/macOS tests now | targeted-green |
-| OUT-02 | P2 | feature | Merge Lumen catalog keyword additions into delivery metadata | export-metadata | Catalog leaf additions merge with embedded source IPTC; keyword switch strips; source removal authority deferred until import/tombstone model | Synthetic/macOS tests now | targeted-green-additions-only |
+| OUT-01 | P1 | defect | Prevent same-batch overwrite through case/hard-link aliases | integration | Prior delivery alias always renamed under all policies; normal pre-run overwrite remains opt-in | Synthetic/macOS tests now | integrated-green |
+| OUT-02 | P2 | feature | Merge Lumen catalog keyword additions into delivery metadata | export-metadata | Catalog leaf additions merge with embedded source IPTC; keyword switch strips; source removal authority deferred until import/tombstone model | Synthetic/macOS tests now | integrated-green-additions-only |
 | OUT-03 | P2 | feature | Implement destination-specific gamut mapping intent | export-colour | Opt-in per recipe; in-gamut unchanged; saturated wedges finite/hue-controlled; real-photo review later | Synthetic/macOS tests now | planned |
 | OUT-04 | P3 | feature | Support fit-within W×H and percent resizing | export-ui | Portrait/landscape no-enlarge, zero/extreme dimensions, units and roundtrip presets | Synthetic/macOS tests now | planned |
 | OUT-05 | P3 | feature | Offer TIFF LZW/ZIP encoding | export-codec | Generated image pixel readback, declared compression tags and unsupported option handling | Synthetic/macOS tests now | planned |
@@ -162,18 +162,18 @@ The unavailable owner RAW set means real camera neutrality/colour, highlight rec
 
 ## Additional defects discovered during repair review
 
-- **PS-07, P1, targeted-green:** Merge newer pending edits after a refused concurrent sidecar flush. Owner: persistence. Acceptance: Fault-injected read enqueues newer rating while older keyword flush fails; both fields persist/replay.
-- **PS-08, P1, targeted-green:** Require independent primary and backup file identities. Owner: app-ingest. Acceptance: Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent.
-- **PS-09, P1, targeted-green:** Reject source aliases as verified ingest deliveries. Owner: app-ingest. Acceptance: Source/hardlink/symlink destination never permits eject without independent landing.
+- **PS-07, P1, integrated-green:** Merge newer pending edits after a refused concurrent sidecar flush. Owner: persistence. Acceptance: Fault-injected read enqueues newer rating while older keyword flush fails; both fields persist/replay.
+- **PS-08, P1, integrated-green:** Require independent primary and backup file identities. Owner: app-ingest. Acceptance: Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent.
+- **PS-09, P1, integrated-green:** Reject source aliases as verified ingest deliveries. Owner: app-ingest. Acceptance: Source/hardlink/symlink destination never permits eject without independent landing.
 
 The current ledger contains 84 items. The additional four were found by deeper review and deterministic race/alias probes after the initial 79-item audit.
 
-- **PS-10, P2, targeted-green:** restore a tag re-added in the catalog after an older durable removal. Regression requires the current disk tag to be absent, rather than assuming it already exists.
+- **PS-10, P2, integrated-green:** restore a tag re-added in the catalog after an older durable removal. Regression requires the current disk tag to be absent, rather than assuming it already exists.
 
 Delivery keyword additions must merge with original embedded IPTC because those tags are not yet imported into the catalog. Removing embedded source tags requires a known imported baseline or explicit tombstones; an empty catalog must not silently delete them.
 
-- **RENDER-13, P1, targeted-green:** macOS 27 Core Image unary Boolean helper conversion omitted a generated Metal destination argument. Four equivalent comparisons compile primaries/mixer/point kernels. Existing 16 colour/roster tests pass; no math or bounds changed.
+- **RENDER-13, P1, integrated-green:** macOS 27 Core Image unary Boolean helper conversion omitted a generated Metal destination argument. Four equivalent comparisons compile primaries/mixer/point kernels. Existing 16 colour/roster tests pass; no math or bounds changed.
 
 ## Qualification after integration
 
-The first full optimized run executed 3157 tests and exposed macOS 27 kernel conversion failures plus two stale source-test references and a SQLite diagnostic wording change. The kernel defect was repaired against unchanged independent GPU/CPU assertions; source-test references were updated; the index guard now permits SQLite’s optional EXISTS annotation and rejects a deliberately degraded query. A final full optimized rerun is required before completion. No proof tolerance or golden was altered.
+The first full optimized run executed 3157 tests and exposed macOS 27 kernel conversion failures plus two stale source-test references and a SQLite diagnostic wording change. The kernel defect was repaired against unchanged independent GPU/CPU assertions; source-test references were updated; the index guard now permits SQLite’s optional EXISTS annotation and rejects a deliberately degraded query. The final full optimized rerun executed 3158 tests: 3135 passed, 22 intentional skips and the one reproduced baseline proof-drift failure. All repair-related checks passed. No proof tolerance or golden was altered.
