@@ -306,6 +306,7 @@ extension AppState {
         // the exported file rendered to the working space, leaving ColorSync to clip
         // per channel at encode. The proof you approved was not the file you shipped.
         let proof = activeSoftProof
+        let exportCatalog = catalog
         // Anything an export of THIS run claims is newer than this; an empty claim
         // older than it, beside its partial, is one an interrupted run abandoned.
         let runStart = Date()
@@ -337,7 +338,17 @@ extension AppState {
                 // masks absent — the ".lrcat-data black mask" failure docs/08 §8.7
                 // exists to prevent, and the one failure mode a photographer cannot
                 // catch by looking at the export count.
-                if let refusal = job.refusal {
+                var refusal = job.refusal
+                var catalogKeywords: [String]?
+                if refusal == nil, active.contains(where: { $0.metadata.includeKeywords }),
+                   let exportCatalog, let photoID = job.photo.catalogID {
+                    do {
+                        catalogKeywords = try await exportCatalog.exportKeywords(photoID: photoID)
+                    } catch {
+                        refusal = "Could not read catalog keywords: \(error.localizedDescription)"
+                    }
+                }
+                if let refusal {
                     for exportRecipe in active {
                         failures.append(job.url.lastPathComponent + " → "
                                             + exportRecipe.name + ": " + refusal)
@@ -389,7 +400,8 @@ extension AppState {
                             let missing = try await renderCoordinator.export(
                                 url: job.url, recipe: job.recipe, to: destination,
                                 exportRecipe: exportRecipe, strokeSets: job.strokes,
-                                softProof: proof, allowOverwrite: replacing)
+                                softProof: proof, allowOverwrite: replacing,
+                                catalogKeywords: catalogKeywords)
                             // Publication changes a free name into an existing file.
                             // Keep its real identity too: a later case/hard-link alias
                             // is this batch's delivery even under Overwrite or Skip.

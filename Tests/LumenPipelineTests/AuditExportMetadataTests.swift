@@ -49,13 +49,15 @@ final class AuditExportMetadataTests: XCTestCase {
     }
 
     private func export(_ source: RenderedImageSource, to url: URL, format: ExportFormat,
-                        ppi: Double = 240, policy: MetadataPolicy, bitDepth: Int? = nil) throws {
+                        ppi: Double = 240, policy: MetadataPolicy, bitDepth: Int? = nil,
+                        catalogKeywords: [String]? = nil) throws {
         var recipe = Recipe.asImported(from: Recipe.SourceFile(isRendered: true))
         recipe.develop.denoise.mode = .off
         let output = ExportRecipe(name: "metadata proof", format: format, quality: 100,
             bitDepth: bitDepth ?? (format == .tiff || format == .png ? 16 : 8), resizeMode: .none,
             resolutionPPI: ppi, metadata: policy)
-        _ = try PipelineRenderer().export(source: source, recipe: recipe, to: url, using: output)
+        _ = try PipelineRenderer().export(source: source, recipe: recipe, to: url, using: output,
+            catalogKeywords: catalogKeywords)
     }
 
     func testRequestedPrintDensityIsWrittenWithoutChangingPixelDimensions() throws {
@@ -235,5 +237,36 @@ final class AuditExportMetadataTests: XCTestCase {
         let creator = nested(nested(properties, kCGImagePropertyIPTCDictionary), kCGImagePropertyIPTCCreatorContactInfo)
         XCTAssertEqual(creator[kCGImagePropertyIPTCContactInfoEmails as String] as? String, "studio@example.invalid")
     }
+    func testCatalogKeywordSnapshotReplacesSourceTagsAndPreservesOtherIPTC() throws {
+        let fixture = try fixture()
+        for format in ExportFormat.allCases {
+            let url = fixture.root.appendingPathComponent("catalog-tags.\(format.fileExtension)")
+            try export(fixture.source, to: url, format: format,
+                policy: MetadataPolicy(includeKeywords: true),
+                catalogKeywords: ["Places > Iceland", "Iceland", "People > Alex"])
+            let iptc = nested(try read(url), kCGImagePropertyIPTCDictionary)
+            XCTAssertEqual(Set(iptc[kCGImagePropertyIPTCKeywords as String] as? [String] ?? []),
+                ["Iceland", "Alex"], "\(format): catalog edits must replace original tags")
+            let contact = iptc[kCGImagePropertyIPTCCreatorContactInfo as String] as? [String: Any]
+            XCTAssertEqual(contact?[kCGImagePropertyIPTCContactInfoEmails as String] as? String,
+                "source@example.invalid", "\(format): preserve unrelated source metadata")
+        }
+    }
+
+    func testEmptyCatalogTagsRemoveOldTagsAndKeywordSwitchStillWins() throws {
+        let fixture = try fixture()
+        for format in ExportFormat.allCases {
+            for keep in [true, false] {
+                let url = fixture.root.appendingPathComponent("empty-\(keep).\(format.fileExtension)")
+                try export(fixture.source, to: url, format: format,
+                    policy: MetadataPolicy(includeKeywords: keep),
+                    catalogKeywords: keep ? [] : ["Private"])
+                let iptc = nested(try read(url), kCGImagePropertyIPTCDictionary)
+                XCTAssertNil(iptc[kCGImagePropertyIPTCKeywords as String],
+                    "\(format): removed/disabled catalog tags must not leak")
+            }
+        }
+    }
+
 }
 #endif

@@ -1305,6 +1305,21 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("keyword read", fallback: []) { try $0.keywords(photoID: photoID) }
     }
 
+    /// Authoritative flat tags for delivery. Unlike UI reads, a failure throws so
+    /// export cannot quietly substitute missing catalog edits with source metadata.
+    func exportKeywords(photoID: Int64) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                do {
+                    let words = try store.keywords(photoID: photoID).map(KeywordPath.leaf)
+                    continuation.resume(returning: Array(Set(words)).sorted())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     func allKeywords() async -> [FacetValue] {
         await onQueue("keyword list", fallback: []) { try $0.allKeywords() }
     }

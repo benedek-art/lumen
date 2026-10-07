@@ -522,7 +522,8 @@ actor RenderCoordinator {
                 exportRecipe: ExportRecipe,
                 strokeSets: [String: BrushStrokeSet] = [:],
                 softProof: SoftProof? = nil,
-                allowOverwrite: Bool = false) throws -> [String] {
+                allowOverwrite: Bool = false,
+                catalogKeywords: [String]? = nil) throws -> [String] {
         let source = try self.source(for: url)
         // Same reason as `renderFullSize`, and more so for a batch: two hundred files
         // through this call is two hundred native decodes, each one bounded by the trim
@@ -535,7 +536,8 @@ actor RenderCoordinator {
                                    // True only for a recipe whose collision policy is
                                    // Overwrite, on a file that was there before the run
                                    // (`ExportRecipe.placement`).
-                                   allowOverwrite: allowOverwrite)
+                                   allowOverwrite: allowOverwrite,
+                                   catalogKeywords: catalogKeywords)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.
