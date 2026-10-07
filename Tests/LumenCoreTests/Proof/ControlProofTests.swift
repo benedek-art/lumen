@@ -236,6 +236,9 @@ final class ControlProofTests: XCTestCase {
             if !fresh.agrees(with: committed) {
                 drifted.append("  \(spec.id)\n    committed: \(committed.summary)"
                                + "\n    now:       \(fresh.summary)"
+                               + "\n    differences:\n      "
+                               + fresh.comparisonDifferences(with: committed)
+                                   .joined(separator: "\n      ")
                                // The new record in full, byte-identical to what
                                // `ProofRecordStore.write` would put on disk, so a
                                // DELIBERATE change can be committed straight out of a

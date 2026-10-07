@@ -80,29 +80,54 @@ struct ProofRecord: Codable, Equatable {
     var baselineTier: String?
     var baselineNote: String?
 
-    /// Records agree when every number agrees to within a tolerance far below any real
-    /// behaviour change. 1e-6 code values is a billionth of a level.
+    /// Every numeric metric uses the same absolute tolerance in its own units
+    /// (code values, ratios, or degrees). 1e-6 code values is one millionth of a level.
     func agrees(with other: ProofRecord, tolerance: Double = 1e-6) -> Bool {
-        func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) <= tolerance }
-        func near(_ a: Double?, _ b: Double?) -> Bool {
-            switch (a, b) {
-            case (nil, nil): return true
-            case let (x?, y?): return near(x, y)
-            default: return false
+        comparisonDifferences(with: other, tolerance: tolerance).isEmpty
+    }
+
+    /// Fieldwise diagnostics use the SAME comparisons as the drift gate. Rounded
+    /// summaries cannot explain a 1.2e-6 difference, and a fresh JSON record alone
+    /// makes the reader subtract every field by hand. Keep the tolerance unchanged.
+    func comparisonDifferences(with other: ProofRecord,
+                               tolerance: Double = 1e-6) -> [String] {
+        var differences: [String] = []
+        func compare(_ field: String, _ measured: Double, _ committed: Double) {
+            let delta = abs(measured - committed)
+            if !(delta <= tolerance) {
+                differences.append("\(field): committed \(committed), measured \(measured), "
+                    + "absolute delta \(delta), tolerance \(tolerance)")
             }
         }
-        return id == other.id && frame == other.frame
-            && deadSteps == other.deadSteps
-            && near(smallestLiveStep, other.smallestLiveStep)
-            && near(authority, other.authority)
-            && near(meanSeparation, other.meanSeparation)
-            && near(frontLoading, other.frontLoading)
-            && isMonotone == other.isMonotone
-            && near(givenBack, other.givenBack)
-            && near(overshoot, other.overshoot)
-            && near(overshootAbove, other.overshootAbove)
-            && near(overshootBelow, other.overshootBelow)
-            && near(hueRotation, other.hueRotation)
+        func compare(_ field: String, _ measured: Double?, _ committed: Double?) {
+            switch (measured, committed) {
+            case (nil, nil): break
+            case let (a?, b?): compare(field, a, b)
+            default:
+                differences.append("\(field): committed \(String(describing: committed)), "
+                    + "measured \(String(describing: measured))")
+            }
+        }
+        if id != other.id { differences.append("id: committed \(other.id), measured \(id)") }
+        if frame != other.frame {
+            differences.append("frame: committed \(other.frame), measured \(frame)")
+        }
+        if deadSteps != other.deadSteps {
+            differences.append("deadSteps: committed \(other.deadSteps), measured \(deadSteps)")
+        }
+        compare("smallestLiveStep", smallestLiveStep, other.smallestLiveStep)
+        compare("authority", authority, other.authority)
+        compare("meanSeparation", meanSeparation, other.meanSeparation)
+        compare("frontLoading", frontLoading, other.frontLoading)
+        if isMonotone != other.isMonotone {
+            differences.append("isMonotone: committed \(other.isMonotone), measured \(isMonotone)")
+        }
+        compare("givenBack", givenBack, other.givenBack)
+        compare("overshoot", overshoot, other.overshoot)
+        compare("overshootAbove", overshootAbove, other.overshootAbove)
+        compare("overshootBelow", overshootBelow, other.overshootBelow)
+        compare("hueRotation", hueRotation, other.hueRotation)
+        return differences
     }
 
     /// One line, for a failure message a human can read without opening the JSON.
