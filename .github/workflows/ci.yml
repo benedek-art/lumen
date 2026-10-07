@@ -19,6 +19,12 @@ on:
   # itself; the GPU goldens moved to gpu-parity.yml, which triggers itself on the
   # paths that can break parity instead of waiting for a human who never came.
   workflow_dispatch:
+    inputs:
+      publish_validated_release:
+        description: "Publish after completing the documented RAW and native UI qualification"
+        type: boolean
+        required: false
+        default: false
 
 # One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
 # burst of pushes queues rounds whose answers nobody will read by the time they land —
@@ -185,7 +191,7 @@ jobs:
 
   publish-release:
     needs: [app-bundle, build-macos, test-fast, fixtures-linux, engine-linux, release-validation]
-    if: success() && github.ref == 'refs/heads/main'
+    if: success() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_validated_release == true
     runs-on: macos-15
     timeout-minutes: 10
     permissions:
@@ -210,7 +216,7 @@ jobs:
           fi
       - name: Publish the rolling dev release the in-app updater reads
         # One moving pre-release, `dev-latest`, holding the newest build of the
-        # validated main branch. The app's updater polls the PUBLIC releases API for it —
+        # validated main branch after explicit release dispatch. The app's updater polls the PUBLIC releases API for it —
         # release assets need no auth on a public repo, unlike Actions artifacts,
         # which is the whole reason this exists. The body's `commit:` and `sha256:`
         # lines are the updater's contract; change either and the updater goes blind —
