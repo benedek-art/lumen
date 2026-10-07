@@ -205,5 +205,58 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
         XCTAssertEqual(XMPSidecar.parse(try Data(contentsOf: CatalogService.sidecarURL(for: photo)))?.keywords, ["Kept"])
     }
 
+    func testFailedFlushRetainsOlderFieldsWhenNewerEditArrivesDuringRead() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("overlap.JPG")
+        try Data([1]).write(to: photo)
+        let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
+        let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        let path = CatalogService.sidecarURL(for: photo)
+        try Data(XMPSidecar.serialize(SidecarContent()).utf8).write(to: path)
+        await service.addKeyword("OlderKeyword", targets: [(id, photo)])
+        var older = PhotoItem(id: photo)
+        older.catalogID = id
+        older.rating = 2
+        service.saveCullingState(older, labelChanged: false)
+        _ = service.registerAndLoad(folder: root, files: [photo])
+        service.sidecarDataReader = { _ in
+            // The production queue normally serializes these operations, but a flush
+            // can also run at an explicit barrier. Force the newer queue entry to land
+            // before the old batch reports its failure.
+            var item = PhotoItem(id: photo)
+            item.catalogID = id
+            item.rating = 5
+            service.saveCullingState(item, labelChanged: false)
+            _ = service.registerAndLoad(folder: root, files: [photo])
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+        }
+        service.flushSidecars()
+        service.sidecarDataReader = { try Data(contentsOf: $0) }
+        service.flushSidecars()
+        service.close()
+        let content = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: path)))
+        XCTAssertEqual(content.rating, 5)
+        XCTAssertEqual(content.keywords, ["OlderKeyword"])
+    }
+
+    func testExportKeywordSnapshotUsesLeavesAndPropagatesReadFailures() async throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("snapshot.JPG")
+        try Data([1]).write(to: photo)
+        let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
+        let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        await service.addKeyword("Places > Alex", targets: [(id, photo)])
+        await service.addKeyword("People > Alex", targets: [(id, photo)])
+        let words = try await service.exportKeywords(photoID: id)
+        XCTAssertEqual(words, ["Alex"])
+        service.close()
+        do {
+            _ = try await service.exportKeywords(photoID: id)
+            XCTFail("an unavailable catalog must refuse the metadata snapshot")
+        } catch {
+            // An export must not silently substitute an empty list on failure.
+        }
+    }
+
 }
 #endif

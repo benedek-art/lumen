@@ -1685,11 +1685,19 @@ final class CatalogService: @unchecked Sendable {
 
         guard !failed.isEmpty else { return }
         sidecarLock.lock()
-        // Re-queue only where no NEWER entry arrived during the flush: an entry
-        // enqueued meanwhile was built on a fresh read and its own edits, and
-        // clobbering it with the failed one would resurrect the older state.
-        for (url, entry) in failed where pendingSidecars[url] == nil {
-            pendingSidecars[url] = entry
+        // A newer entry can state only one field. Preserve the older debt in
+        // fields it did not replace, with newer values winning and keyword deltas
+        // composed in time order. Dropping the older entry loses unrelated edits.
+        for (url, entry) in failed {
+            if let newer = pendingSidecars[url] {
+                var combined = XMPSidecar.reseed(newer.content, fields: newer.stated,
+                                                onto: entry.content)
+                combined.keywordEdit = entry.content.keywordEdit.then(newer.content.keywordEdit)
+                pendingSidecars[url] = (photoID: newer.photoID ?? entry.photoID,
+                    content: combined, stated: entry.stated.union(newer.stated))
+            } else {
+                pendingSidecars[url] = entry
+            }
         }
         for (url, _) in failed {
             if let entry = pendingSidecars[url] {
