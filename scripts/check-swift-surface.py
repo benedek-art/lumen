@@ -260,6 +260,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # configuration, and `#if DEBUG` is how a probe says which build its numbers
     # came from.
     "DEBUG", "SWIFT_PACKAGE",
+    # Built-in Swift platform condition, used by #elseif os(Linux).
+    "Linux",
     # Vision + CoreVideo: the subject / person mattes (docs/08 §8.8). Listed
     # individually rather than by prefix, so a typo in a request's name is still a
     # failure here; the prefixes below are what make the IMPORT check work.
@@ -1213,7 +1215,12 @@ def pass_actor_await():
                 pattern = r"(?<![\w.])(?:self\.)?%s\.%s\s*\(" % (var, member)
                 for m in re.finditer(pattern, text):
                     head = text.rfind("\n", 0, m.start())
-                    if "await" in text[head + 1:m.start()]:
+                    prefix = text[head + 1:m.start()]
+                    if "await" in prefix:
+                        continue
+                    # A direct async-let initializer starts a child task and permits
+                    # an implicit await. Do not exempt calls nested in closures.
+                    if re.search(r"\basync\s+let\s+\w+(?:\s*:[^=;\n]+)?\s*=\s*(?:try[?!]?\s+)?$", prefix):
                         continue
                     previous = text.rfind("\n", 0, head)
                     if previous != -1 and "await" in text[previous + 1:head]:
@@ -1889,6 +1896,10 @@ def _declaration_list_names(text):
 def _bindings(scope):
     """Every name this scope binds, by any of the forms Swift offers."""
     names = _declaration_list_names(scope)
+    # Swift supplies `error` in an unpatterned catch block. Like other local
+    # binders, this pass collects it at any depth of the enclosing function.
+    if re.search(r"\bcatch\s*\{", scope):
+        names.add("error")
     for pattern in BINDERS:
         for hit in pattern.findall(scope):
             for part in hit.split(","):
@@ -2160,6 +2171,10 @@ consume copy discard let var func init deinit subscript
 def _value_bindings(scope):
     """Every name in scope, WITHOUT reading call-site labels as parameters."""
     names = _declaration_list_names(scope)
+    # Swift supplies `error` in an unpatterned catch block. Like other local
+    # binders, this pass collects it at any depth of the enclosing function.
+    if re.search(r"\bcatch\s*\{", scope):
+        names.add("error")
     for pattern in BINDERS:
         if pattern.pattern == LABEL_BINDER.pattern:
             continue
