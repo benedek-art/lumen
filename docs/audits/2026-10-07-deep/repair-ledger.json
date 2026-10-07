@@ -151,7 +151,8 @@
       "owner": "release",
       "acceptance": "Mock failures at create/upload/promote preserve known-good delivery; no release performed during audit",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-mock-green",
+      "evidence": "18 offline stage/promotion/recovery scenarios,31 policy negative controls and8 updater decision tests passed; no live release promotion performed."
     },
     {
       "id": "APP-10",
@@ -191,7 +192,8 @@
       "owner": "workflow",
       "acceptance": "Report destinations/collisions/skips/failures/cancel outcome; counts reflect delivered files",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "Versioned durable report store, truthful export checkpoints, source/role ingest start/final reports and Recent results access.26 native contracts/cancellation tests and4 real synthetic export tests pass. Midrun ingest crash outcomes remain unknown until result callbacks exist."
     },
     {
       "id": "APP-14",
@@ -711,7 +713,8 @@
       "owner": "history",
       "acceptance": "Mid-drag auto/reset/undo/switch/close retains intended value and durable state",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "partial-reset-interruption-green",
+      "evidence": "Reset during an unfinished slider gesture now closes its epoch before recording Reset; a failing real AppState undo/redo regression and adjacent 33 optimized tests pass. Remaining interruption matrix still planned."
     },
     {
       "id": "UX-04",

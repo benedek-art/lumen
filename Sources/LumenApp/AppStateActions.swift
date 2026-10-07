@@ -219,6 +219,8 @@ extension AppState {
     /// the same gesture each land on their own starting point rather than on the
     /// primary selection's.
     func resetToImported() {
+        // Reset is its own undo decision even if a slider release was interrupted.
+        sliderGesture(active: false)
         updateRecipe(label: "Reset") { photo, recipe in
             recipe.resetToImported(from: AppState.sourceFile(for: photo))
         }
@@ -312,6 +314,12 @@ extension AppState {
         let runStart = Date()
 
         Task {
+            var report = OperationReport(kind: .export, records: jobs.flatMap { job in
+                active.enumerated().map { ordinal, preset in
+                    OperationFileRecord(id: job.index * active.count + ordinal, source: job.url, label: preset.name)
+                }
+            })
+            await checkpointOperationReport(report)
             var completed = 0.0
             var failures: [String] = []
             // Nothing this run writes may land on a path an earlier job claimed or on a
@@ -349,7 +357,10 @@ extension AppState {
                     }
                 }
                 if let refusal = job.refusal {
-                    for exportRecipe in active {
+                    for (ordinal, exportRecipe) in active.enumerated() {
+                        report.settle(OperationFileRecord(id: job.index * active.count + ordinal,
+                            source: job.url, label: exportRecipe.name, outcome: .failed, detail: refusal))
+                        await checkpointOperationReport(report, force: false)
                         failures.append(job.url.lastPathComponent + " → "
                                             + exportRecipe.name + ": " + refusal)
                         completed += 1
@@ -366,8 +377,12 @@ extension AppState {
                 // its date, body and sequence number.
                 let naming = Self.namingContext(for: job.photo, source: job.url,
                                                 recipeName: "", sequence: job.index)
-                for exportRecipe in active {
+                for (ordinal, exportRecipe) in active.enumerated() {
+                    var record = OperationFileRecord(id: job.index * active.count + ordinal,
+                        source: job.url, label: exportRecipe.name)
                     if exportRecipe.metadata.includeKeywords, let keywordFailure {
+                        record.outcome = .failed
+                        record.detail = keywordFailure
                         failures.append(job.url.lastPathComponent + " → "
                                             + exportRecipe.name + ": " + keywordFailure)
                     } else {
@@ -383,6 +398,7 @@ extension AppState {
                         // Rename, this is the `disambiguated` call it replaced. An empty
                         // claim a crashed export left on a FAT/exFAT volume is not a
                         // delivery, and is cleared before the policy is asked about it.
+                        record.plannedDestination = wanted.path
                         ExclusivePublish.reclaimAbandonedClaim(at: wanted, olderThan: runStart)
                         let placement = ExportRecipe.placement(
                             for: wanted, policy: exportRecipe.collision,
@@ -394,7 +410,10 @@ extension AppState {
                             // the same name is asked the same question, not renamed into a
                             // duplicate of a delivery that exists.
                             skipped += 1
+                            record.outcome = .skipped
+                            record.attemptedDestination = wanted.path
                         } else if case .write(let destination, let replacing) = placement {
+                            record.attemptedDestination = destination.path
                             claimed.insert(IngestLocation.fileIdentity(of: destination))
                             if destination != wanted { renamed += 1 }
                             do {
@@ -410,6 +429,11 @@ extension AppState {
                                 // Keep its real identity too so later aliases are renamed.
                                 claimed.insert(IngestLocation.fileIdentity(of: destination))
                                 written += 1
+                                record.outcome = .delivered
+                                record.actualDestination = destination.path
+                                record.renamed = destination != wanted
+                                record.replaced = replacing
+                                record.reducedKernels = missing.sorted()
                                 if replacing { replaced += 1 }
                                 if !missing.isEmpty {
                                     reducedFiles += 1
@@ -420,6 +444,8 @@ extension AppState {
                                 // (V6 note 2): a name that appeared during the export, a volume
                                 // that cannot publish without risking an overwrite, and a
                                 // refused contact all used to read as the same bare failure.
+                                record.outcome = .failed
+                                record.detail = error.localizedDescription
                                 let reason = ExclusivePublish.statusReason(for: error)
                                 failures.append(job.url.lastPathComponent + " → "
                                                     + exportRecipe.name
@@ -427,6 +453,8 @@ extension AppState {
                             }
                         }
                     }
+                    report.settle(record)
+                    await checkpointOperationReport(report, force: false)
                     completed += 1
                     let progress = completed / total
                     await MainActor.run { self.exportProgress = progress }
@@ -440,6 +468,8 @@ extension AppState {
                     }
                 }
             }
+            report.finish(stopped && completed < total ? .cancelled : .completed)
+            await checkpointOperationReport(report)
             await MainActor.run {
                 self.isExporting = false
                 self.exportProgress = 0

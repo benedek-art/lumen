@@ -128,6 +128,26 @@ final class ControlProbeHarness: XCTestCase {
 
         let steps = Int(Self.flag("LUMEN_PROBE_STEPS") ?? "") ?? 21
         let frame = spec.frame()
+        // Stage fingerprints and an output-ULP sensitivity experiment are opt-in;
+        // ordinary probes and the committed-record gate keep their existing ruler.
+        if Self.flag("LUMEN_PROBE_NUMERICS") != nil {
+            let diagnostic = try ProofNumericalDiagnostics.description(spec, steps: steps)
+            let data = try JSONSerialization.data(withJSONObject: diagnostic,
+                options: [.prettyPrinted, .sortedKeys])
+            if let path = Self.flag("LUMEN_PROBE_NUMERICS_DIR") {
+                let directory = URL(fileURLWithPath: path, isDirectory: true)
+                try FileManager.default.createDirectory(at: directory,
+                                                        withIntermediateDirectories: true)
+                try data.write(to: directory.appendingPathComponent(spec.id + ".json"))
+            } else {
+                print("NUMERICS_BEGIN")
+                print(String(data: data, encoding: .utf8) ?? "{}")
+                print("NUMERICS_END")
+            }
+            // Fingerprint mode renders three diagnostic settings only. The ordinary
+            // probe and full proof gate remain separate, with their full 21-step sweep.
+            return
+        }
         let record = ProofRunner.measure(spec, steps: steps)
         let neutral = ProofRunner.neutralRender(spec, frame: frame)
 

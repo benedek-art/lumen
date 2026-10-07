@@ -1669,6 +1669,11 @@ final class AppState: ObservableObject {
         }
         UserDefaults.standard.set(data, forKey: exportRecipesKey)
     }
+    @Published var operationReports: [OperationReport] = []
+    @Published var operationReportWarning: String?
+    var operationReportStore: OperationReportStore?
+    var operationReportFiles: [UUID: URL] = [:]
+    var operationReportSavedRevisions: [UUID: Int] = [:]
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
 
@@ -2699,6 +2704,7 @@ final class AppState: ObservableObject {
     private func openCatalog() {
         do {
             let directory = try catalogDirectory()
+            configureOperationReports(directory: directory)
             let service = try CatalogService(directory: directory)
             service.onFailure = { [weak self] message in
                 Task { @MainActor in
