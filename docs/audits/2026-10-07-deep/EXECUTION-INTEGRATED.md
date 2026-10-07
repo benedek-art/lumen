@@ -37,7 +37,7 @@ Full-run production/test revision: `885515f`. Subsequent `3939a29` changes only 
 
 Updater publication now requires explicit workflow-dispatch opt-in plus every previous success/main/current-tip gate. No release, tag, app installation or real relaunch was performed. Existing proof drift still blocks release validation. Real RAW decoding, look acceptance, native accessibility/interaction, volume disconnect and actual update installation remain unearned gates.
 
-GitHub push was rejected by automatic approval review because the remote source/audit publication needed explicit destination approval. An approval request to push to `github.com/benedek-art/lumen` and merge main is pending. No connector or alternate transport was used to bypass it. Local main contains the consolidated tree; its prior pointer is preserved as `codex/lumen-main-before-oct07`. Remote main remains unchanged until approval and publication.
+Published after explicit owner approval through [PR #7](https://github.com/benedek-art/lumen/pull/7), merged into GitHub main as `1a0c91a122bd684e9716f5e9b468b928cc908ea8`. Local main is synchronized; its prior pointer is preserved as `codex/lumen-main-before-oct07`. Hosted macOS compilation, app bundle and layout checks passed before merge. Longer GPU/Linux/fast checks remained running; the ordinary merge path did not bypass repository-required protections. This documentation update does not change tested production code. No updater release was published.
 
 ## Recommended next work
 

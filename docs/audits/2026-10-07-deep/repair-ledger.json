@@ -853,7 +853,7 @@
     "failed": 1,
     "remaining_failure": "ControlProofTests committed-record drift; baseline reproducible platform differences",
     "source_surface": "All passes green, exit 0",
-    "publication": "awaiting explicit GitHub destination approval after automatic review rejection",
+    "publication": "Merged PR #7 after explicit owner approval",
     "release_policy": "manual opt-in plus existing gates",
     "raw_photos": "deferred",
     "diagnostic_followup_tests": {
@@ -861,6 +861,9 @@
       "tests": 19,
       "failures": 0
     },
-    "local_main": "consolidated tree prepared; remote main unchanged pending destination approval"
+    "local_main": "Synchronized with GitHub main",
+    "pull_request": "https://github.com/benedek-art/lumen/pull/7",
+    "merge_commit": "1a0c91a122bd684e9716f5e9b468b928cc908ea8",
+    "hosted_ci": "macOS build, app bundle and layout passed; remaining GPU/Linux/fast checks running at publication"
   }
 }
