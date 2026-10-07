@@ -30,8 +30,10 @@ on:
 # burst of pushes queues rounds whose answers nobody will read by the time they land —
 # and the newest push, the only one that matters, waits behind all of them.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Qualification dispatches serialize separately: a new push must not cancel a
+  # publisher halfway through release/tag promotion. Ordinary builds still cancel.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.publish_validated_release && 'release' || 'validation' }}
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish_validated_release) }}
 
 jobs:
   # Compile every target on macOS. This is the ONLY compiler that ever sees
@@ -214,32 +216,21 @@ jobs:
             echo "::error::This run built ${GITHUB_SHA}, but main is at ${TIP:-an unknown commit}. Refusing to publish an older build as dev-latest."
             exit 1
           fi
-      - name: Publish the rolling dev release the in-app updater reads
-        # One moving pre-release, `dev-latest`, holding the newest build of the
-        # validated main branch after explicit release dispatch. The app's updater polls the PUBLIC releases API for it —
-        # release assets need no auth on a public repo, unlike Actions artifacts,
-        # which is the whole reason this exists. The body's `commit:` and `sha256:`
-        # lines are the updater's contract; change either and the updater goes blind —
-        # `sha256:` fails CLOSED, so a release published without it cannot install.
+      - name: Stage, verify and promote the qualified release
+        # The script preserves the existing release and its prior asset. The updater
+        # still reads commit: <sha>, sha256: <digest> and exactly Lumen.app.zip.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          git tag -f dev-latest
-          git push -f origin dev-latest
-          gh release delete dev-latest -y || true
-          # THE DIGEST OF THE ASSET WE ARE ABOUT TO UPLOAD. The app verifies against
-          # this and refuses the install if it does not match, which is the only
-          # identity check available to an ad-hoc-signed bundle: `codesign --verify`
-          # answers "is this signature internally consistent", and an ad-hoc signature
-          # made by anybody passes it (L-03).
-          DIGEST=$(shasum -a 256 Lumen.app.zip | cut -d' ' -f1)
-          gh release create dev-latest Lumen.app.zip \
-            --prerelease \
-            --title "Dev build ${GITHUB_SHA}" \
-            --notes "commit: ${GITHUB_SHA}
-          sha256: ${DIGEST}
-          Rolling development build, replaced on every push. Installed copies of
-          Lumen update themselves from this release."
+          LUMEN_PUBLISH_QUALIFIED: 'true'
+        run: python3 scripts/publish-staged-release.py
+      - name: Preserve release recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-recovery.json
+          if-no-files-found: ignore
+
 
   # Linux lane: recompute every fixture with the Python reference and fail if the
   # committed fixtures no longer agree with it.
@@ -262,6 +253,8 @@ jobs:
         # the engine at all. The tolerance --check uses is documented in the script
         # and is six orders of magnitude below anything a real change produces.
         run: python3 scripts/gen-fixtures.py --check
+      - name: Exercise release promotion and recovery offline
+        run: python3 scripts/test-publish-staged-release.py
 
       # Six mechanical passes over the Swift, on the lane that has no Swift. Not a
       # type checker and no substitute for the macOS build — it catches undeclared

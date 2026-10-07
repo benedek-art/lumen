@@ -155,11 +155,15 @@ final class UpdateDecisionTests: XCTestCase {
         guard let text = try? String(contentsOf: ci, encoding: .utf8) else {
             return XCTFail("ci.yml not found — if it moved, move this scan with it")
         }
-        XCTAssertTrue(text.contains("shasum -a 256 Lumen.app.zip"),
-                      "the release step no longer computes the asset's digest, so every "
-                          + "published build now fails the installer's own check")
-        XCTAssertTrue(text.contains("sha256: ${DIGEST}"),
-                      "the digest is computed and not written into the release body")
+        XCTAssertTrue(text.contains("python3 scripts/publish-staged-release.py"))
+        let publisher = ci.deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("scripts/publish-staged-release.py")
+        guard let script = try? String(contentsOf: publisher, encoding: .utf8) else {
+            return XCTFail("staged publisher not found")
+        }
+        XCTAssertTrue(script.contains("hashlib.sha256()"))
+        XCTAssertTrue(script.contains("sha256: {digest}"),
+                      "computed asset digest must reach the release body")
     }
 }
 

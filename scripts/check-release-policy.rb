@@ -22,11 +22,21 @@ def violations(workflow)
     run.include?('ls-remote origin refs/heads/main') && run.include?('"$TIP" != "$GITHUB_SHA"') &&
       run.include?('exit 1') && !run.match?(/\|\|\s*true|\bexit 0\b/)
   end
-  publish_step = steps.index { |s| s['run'].to_s.include?('gh release create') }
+  publish_step = steps.index { |s| s['run'].to_s == 'python3 scripts/publish-staged-release.py' }
   unless tip_check && publish_step && tip_check < publish_step &&
          !steps[tip_check].key?('if') && !steps[tip_check]['continue-on-error']
     errors << 'publisher must refuse a run that is not the current tip of main'
   end
+  invocation = publish_step && steps[publish_step]
+  unless invocation && invocation.dig('env', 'LUMEN_PUBLISH_QUALIFIED') == 'true' &&
+         !invocation.key?('if') && !invocation['continue-on-error']
+    errors << 'publisher must invoke the staged script with explicit qualification'
+  end
+  errors << 'publisher must not delete or directly publish releases' if steps.any? { |s| s['run'].to_s.match?(/gh release|git push.*dev-latest/) }
+  expected_group = "ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.publish_validated_release && 'release' || 'validation' }}"
+  expected_cancel = "${{ !(github.event_name == 'workflow_dispatch' && inputs.publish_validated_release) }}"
+  errors << 'qualified publishers must serialize without cancellation' unless workflow.dig('concurrency', 'group') == expected_group && workflow.dig('concurrency', 'cancel-in-progress') == expected_cancel
+  errors << 'release failure mocks must run in required checks' unless Array(jobs.dig('fixtures-linux', 'steps')).any? { |s| s['run'] == 'python3 scripts/test-publish-staged-release.py' }
   required.each do |name|
     job = jobs[name]
     if !job
@@ -62,7 +72,7 @@ def violations(workflow)
     next if name == 'publish-release'
     errors << "#{name} must not have contents write access" if job.dig('permissions', 'contents') == 'write'
     Array(job['steps']).each do |step|
-      errors << "#{name} must not publish" if step['run'].to_s.match?(/gh release|git push.*dev-latest/)
+      errors << "#{name} must not publish" if step['run'].to_s.match?(/gh release|git push.*dev-latest|python3 scripts\/publish-staged-release\.py/)
     end
   end
   errors
@@ -102,7 +112,15 @@ mutations = [
   ->(w) { w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }['if'] = 'false' },
   ->(w) { w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }['continue-on-error'] = true },
   ->(w) { s = w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }; s['run'] = s['run'].sub('exit 1', 'exit 0') },
-  ->(w) { s = w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }; s['run'] = s['run'].sub('!=', '=') }
+  ->(w) { s = w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('ls-remote') }; s['run'] = s['run'].sub('!=', '=') },
+  ->(w) { w['jobs']['publish-release']['steps'].reject! { |x| x['run'] == 'python3 scripts/publish-staged-release.py' } },
+  ->(w) { w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('publish-staged-release') }['env']['LUMEN_PUBLISH_QUALIFIED'] = 'false' },
+  ->(w) { w['jobs']['publish-release']['steps'] << { 'run' => 'gh release delete dev-latest --yes' } },
+  ->(w) { w['concurrency']['cancel-in-progress'] = true },
+  ->(w) { w['concurrency']['group'] = 'ci-${{ github.ref }}' },
+  ->(w) { w['jobs']['fixtures-linux']['steps'].reject! { |x| x['run'] == 'python3 scripts/test-publish-staged-release.py' } },
+  ->(w) { w['jobs']['publish-release']['steps'].find { |x| x['run'].to_s.include?('publish-staged-release') }['if'] = 'false' }
+
 ]
 mutations.each_with_index do |mutate, index|
   changed = Marshal.load(Marshal.dump(workflow))
