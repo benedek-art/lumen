@@ -2045,7 +2045,8 @@ struct CropOverlayView: View {
                     origin, handle: handle,
                     dx: Double(value.translation.width / frame.width),
                     dy: Double(value.translation.height / frame.height),
-                    lockedAspect: tool.lockedAspect(for: photoID), frameAspect: frameAspect)
+                    lockedAspect: tool.effectiveLockedAspect(for: photoID, crop: origin,
+                        frameAspect: frameAspect), frameAspect: frameAspect)
             }
             .onEnded { _ in
                 dragOrigin = nil

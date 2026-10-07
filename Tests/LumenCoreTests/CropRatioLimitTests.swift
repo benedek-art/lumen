@@ -100,24 +100,9 @@ final class CropRatioLimitTests: XCTestCase {
         }
     }
 
-    /// The panel half, which is macOS-only, as a source contract that runs on Linux:
-    /// the custom field may not read the frame-blind parser any more, and the one
-    /// function every ratio write goes through refuses what `canHold` refuses.
-    func testTheCropPanelGatesEveryRatioWriteOnTheFrame() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LumenApp/CropPanel.swift")
-        let panel = try String(contentsOf: url, encoding: .utf8)
-        XCTAssertFalse(panel.contains("CropGeometry.aspect(fromText: customRatio)"),
-                       "the custom field reads the parser that does not know the frame")
-        XCTAssertTrue(panel.contains("CropGeometry.aspect(fromText: customRatio, sourceWidth:"),
-                      "the custom field does not ask the frame")
-        let apply = try XCTUnwrap(panel.range(of: "private func applyAspect("))
-        let body = panel[apply.upperBound...].prefix(900)
-        XCTAssertTrue(body.contains("guard canHold(ratio) else { return }"),
-                      "applyAspect writes ratios the frame cannot hold")
-    }
+    // UI requests now use asynchronous per-source metadata preflight. Its production
+    // refusal/race/undo behavior is tested by LumenAppTests.CropAspectEditTests rather
+    // than requiring the custom text parser to know the decoded primary's dimensions.
 
     func testDegenerateFramesHoldNothing() {
         XCTAssertNil(CropGeometry.achievableAspects(sourceWidth: 0, sourceHeight: 4000,

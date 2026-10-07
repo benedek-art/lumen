@@ -113,6 +113,11 @@ final class CropTool: ObservableObject {
         return activeLock.aspect
     }
 
+    func effectiveLockedAspect(for photo: URL, crop: Crop, frameAspect: Double) -> Double? {
+        CropGeometry.effectiveLockedAspect(lockedAspect(for: photo), crop: crop,
+                                            frameAspect: frameAspect)
+    }
+
     func setLock(_ aspect: Double?, for photo: URL) {
         guard let aspect, aspect.isFinite, aspect > 0 else {
             activeLock = nil
@@ -560,10 +565,7 @@ struct CropSection: View {
     /// away", which the rectangle on the picture only says as an area.
     @ViewBuilder
     private var sizeRow: some View {
-        // The DECODED size only. `frameSizeForCrop` falls back to a bare 3:2 so the
-        // ratio arithmetic has something to measure against before the decode lands, and
-        // a pixel count derived from that would read "2 × 1 px" — a number that is not
-        // an assumption but a lie.
+        // Display an output pixel count only after the source extent is known.
         if let frame = state.sourceFrameSize, frame.width > 0, frame.height > 0 {
             let resolved = CropGeometry.resolve(sourceWidth: Double(frame.width),
                                                 sourceHeight: Double(frame.height),
@@ -631,7 +633,11 @@ struct CropSection: View {
 
     private var isLocked: Bool {
         guard let photoID else { return false }
-        return tool.lockedAspect(for: photoID) != nil
+        guard let size = state.sourceFrameSize, size.width > 0, size.height > 0 else { return false }
+        let usable = CropGeometry.usableSize(width: Double(size.width), height: Double(size.height),
+                                             degrees: recipe.develop.geometry.angle)
+        return tool.effectiveLockedAspect(for: photoID, crop: recipe.develop.geometry.crop,
+            frameAspect: usable.width / usable.height) != nil
     }
 
     /// The rectangle's own width ÷ height in pixels, against the USABLE frame at the
@@ -687,7 +693,7 @@ struct CropSection: View {
         if let size = state.sourceFrameSize, size.width > 0, size.height > 0 {
             return (Double(size.width), Double(size.height))
         }
-        return (assumedFrameAspect, 1)
+        return nil
     }
 
     // MARK: Writing it
@@ -700,15 +706,24 @@ struct CropSection: View {
     /// your mind about the ratio cost you the composition — `CropGeometry.refit` keeps
     /// the centre and the scale, and is the same call for all nine entries.
     private func applyAspect(_ ratio: Double) {
-        guard frameSizeForCrop != nil, let photoID, ratio > 0 else { return }
-        // No lock on a shape the frame cannot hold (M12): the padlock would name one
-        // ratio while the rectangle, floored at 5 % of an edge, held another.
-        guard canHold(ratio) else { return }
-        tool.setLock(ratio, for: photoID)
-        // PER TARGET (S-11 / KG-01): each selected photograph refits against its OWN
-        // frame, and one that cannot hold the ratio, or whose frame is not known, is
-        // left as it was rather than refit against the primary's.
-        applyFraming(.aspect(ratio), key: "geometry.crop.aspect")
+        requestAspect(.ratio(ratio))
+    }
+
+    private func requestAspect(_ action: CropAspectEdit.Action, remember: Bool = false) {
+        let validLock = isLocked ? state.primarySelection.flatMap { tool.lockedAspect(for: $0.id) } : nil
+        Task { @MainActor in
+            switch await CropAspectEdit.apply(action, in: state) {
+            case .failure(let issue): state.statusMessage = issue.message
+            case .success:
+                guard let photo = state.primarySelection else { return }
+                if case .ratio(let ratio) = action {
+                    tool.setLock(ratio, for: photo.id)
+                    if remember { tool.rememberCustom(ratio) }
+                } else {
+                    tool.setLock(validLock.map { 1 / $0 }, for: photo.id)
+                }
+            }
+        }
     }
 
     /// One framing write over the edit targets, each computed against its own frame by
@@ -759,15 +774,13 @@ struct CropSection: View {
     /// (M12): `60:1` passes the typo guard but a crop of a 3:2 frame bottoms out at
     /// 30:1, and writing it anyway padlocked a ratio the rectangle did not have.
     private var typedRatio: Double? {
-        guard let size = frameSizeForCrop else { return nil }
-        return CropGeometry.aspect(fromText: customRatio, sourceWidth: size.width,
-                                   sourceHeight: size.height,
-                                   degrees: recipe.develop.geometry.angle)
+        CropGeometry.aspect(fromText: customRatio)
     }
 
-    /// Whether the primary's frame can hold `ratio` — the gate the menu's entries read.
+    /// Known dimensions reject impossible choices immediately. Otherwise the async
+    /// source preflight checks eligibility before changing any selected photograph.
     private func canHold(_ ratio: Double) -> Bool {
-        guard let size = frameSizeForCrop else { return false }
+        guard let size = frameSizeForCrop else { return true }
         return CropGeometry.canHold(aspect: ratio, sourceWidth: size.width,
                                     sourceHeight: size.height,
                                     degrees: recipe.develop.geometry.angle)
@@ -775,20 +788,12 @@ struct CropSection: View {
 
     private func commitCustomRatio() {
         guard let ratio = typedRatio else { return }
-        tool.rememberCustom(ratio)
-        applyAspect(ratio)
+        requestAspect(.ratio(ratio), remember: true)
         showsCustomField = false
     }
 
     private func swapOrientation() {
-        guard frameSizeForCrop != nil, let photoID else { return }
-        applyFraming(.swapOrientation, key: "geometry.crop.orientation")
-        // The lock turns with the rectangle, or the next drag would fight the swap —
-        // and it takes the ratio the rectangle actually holds now, which is the
-        // reciprocal except where the frame could not hold that (M12).
-        if let locked = tool.lockedAspect(for: photoID), locked > 0 {
-            tool.setLock(currentRatio ?? 1 / locked, for: photoID)
-        }
+        requestAspect(.swap)
     }
 
     private var isGeometryModified: Bool {
