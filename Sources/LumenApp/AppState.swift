@@ -298,7 +298,7 @@ final class AppState: ObservableObject {
 
     @Published var folderURL: URL?
     @Published private(set) var allPhotos: [PhotoItem] = [] {
-        didSet { invalidatePhotoCache() }
+        didSet { selectionMembershipIndex = nil; invalidatePhotoCache() }
     }
     @Published var filter = LibraryFilter() {
         didSet {
@@ -1984,9 +1984,19 @@ final class AppState: ObservableObject {
     /// it. Deriving this from the filtered list meant narrowing a filter after
     /// selecting forty frames quietly shrank both the export and the count that
     /// promised what would be exported.
+    private var selectionMembershipIndex: SelectionMembershipIndex<URL>?
+
     var selectedPhotos: [PhotoItem] {
         if let selectedPhotosCache { return selectedPhotosCache }
-        let selected = allPhotos.filter { selection.contains($0.id) }
+        if selectionMembershipIndex == nil {
+            selectionMembershipIndex = SelectionMembershipIndex(allPhotos.map(\.id))
+        }
+        let selected: [PhotoItem]
+        if let positions = selectionMembershipIndex?.positions(for: selection) {
+            selected = positions.map { allPhotos[$0] }
+        } else {
+            selected = allPhotos.filter { selection.contains($0.id) }
+        }
         selectedPhotosCache = selected
         return selected
     }
