@@ -13,7 +13,7 @@ The app has a substantial working engine and desktop workflow. The October 2 mai
 | Framing | Per-photo batch crop/angle/reset/Original controls | All-or-none ratio/reciprocal safety repaired today; physical interaction review later |
 | History | Session undo/redo and discrete edit boundaries | Named per-photo snapshots are not persisted/wired despite an old README stage claim |
 | Portable edits | XMP field-preserving merge, sidecar ownership, keyword leaf projection, durable owed-edit recovery | Refusal/removal recovery repaired today; full hierarchical interoperability remains separate |
-| Delivery | Multiple output formats, collision policies, HDR path, density metadata, contact sheet support | Catalog keyword additions merged into delivery; embedded-source removal needs authority; persistent per-file report/queue and more output controls |
+| Delivery | Multiple output formats, collision policies, HDR path, density metadata, contact sheet support | Catalog keyword additions merged into delivery; embedded-source removal needs authority; persistent cancellable queue and more output controls; durable per-file reports are now implemented |
 | Updater | Public rolling-release lookup, digest check, signature integrity, staged bundle replacement | Relaunch/cleanup/main-actor work repaired today; actual installation/relaunch/volume qualification later |
 | Engineering | macOS compilation, Linux engine/fixtures, GPU parity, proof and UI-layout workflows | Full optimized proof drift blocks existing publication; separate corpus/UI checks need aggregate exact-SHA qualification |
 
@@ -46,4 +46,4 @@ Final consolidation status: 20 confirmed defects repaired, catalog keyword addit
 
 Reset now ends an interrupted slider gesture before recording its own undo step. Ingest/export reports survive restart and expose truthful per-file outcomes through Recent results. Release staging verifies a new candidate before promotion and retains the old release/assets/tag object with recovery evidence; no live promotion occurred. A manual Linux/macOS numerical fingerprint workflow supports investigation without changing proof records or the1e-6 gate.
 
-Combined optimized qualification:3174 tests,3151 passed,22 intentional skips,one unchanged proof-drift failure. All-source checks pass;35 checker fixtures,31 release-policy controls and18 mocked release recovery scenarios pass. See EXECUTION-SECOND-WAVE.md for contracts and limits. Per-file ingest crash checkpoints, live promotion, private RAW appearance and native daily-use acceptance remain open.
+Combined optimized qualification: 3,174 tests, 3,151 passed, 22 intentional skips, one unchanged proof-drift failure. All-source checks pass; 35 checker fixtures, 31 release-policy controls and 18 mocked release recovery scenarios pass. See EXECUTION-SECOND-WAVE.md for contracts and limits. Per-file ingest crash checkpoints, live promotion, private RAW appearance and native daily-use acceptance remain open.
