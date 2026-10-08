@@ -415,7 +415,8 @@ public struct VerifiedCopyDriver: Sendable {
                 return lstat(path, &info)
             }
             guard status == 0, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else { return nil }
-            return InstalledOwnership(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+            return InstalledOwnership(device: UInt64(truncatingIfNeeded: info.st_dev),
+                                      inode: UInt64(truncatingIfNeeded: info.st_ino))
             #else
             return nil
             #endif
