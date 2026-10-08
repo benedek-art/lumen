@@ -476,63 +476,111 @@ private struct Sidebar: View {
     /// carries it in full, and the context menu offers both plus the folder change — three
     /// affordances on a block that had none, none of them a keyboard-only secret because
     /// the button beside it does the one that matters.
-    private var folderHeader: some View {
-        HStack(spacing: 6) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(state.activeSmartCollection?.name ?? state.folderURL?.lastPathComponent ?? "No folder open")
-                    .font(.lumenBodyStrong)
-                    .foregroundStyle(state.folderURL == nil && state.activeSmartCollection == nil
-                                     ? Lumen.tertiaryText : Lumen.primaryText)
-                    .lineLimit(1)
-                if state.folderURL != nil || state.activeSmartCollection != nil {
-                    // One line, not two. At 230 pt a second line of head-truncated path
-                    // buys about twenty more characters of a string whose informative end
-                    // is already visible, and costs the header its shape.
-                    Text(state.activeSmartCollection?.unavailableReason ?? state.activeSmartCollection?.scope?.label ?? state.folderURL?.deletingLastPathComponent().path ?? "")
-                        .font(.lumenCaption)
-                        .foregroundStyle(Lumen.tertiaryText)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-            }
-            Spacer(minLength: 0)
-            Button {
-                state.chooseFolder()
-            } label: {
-                Image(systemName: "folder")
-                    .font(.lumenGlyphCaption)
-                    // A real target. The glyph's own bounds are 10 pt and this app's own
-                    // convention for a glyph-only button is a 16 pt box with an explicit
-                    // content shape.
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Lumen.secondaryText)
-            .lumenClickCursor()
-            .help("Open photographs, or a different folder")
+    // Keep the source presentation strings outside the result builder. Swift 6.1
+    // otherwise solves several optional chains together with the full header view.
+    private var folderHeaderTitle: String {
+        if let album = state.activeSmartCollection { return album.name }
+        return state.folderURL?.lastPathComponent ?? "No folder open"
+    }
+
+    private var folderHeaderSubtitle: String {
+        if let album = state.activeSmartCollection {
+            if let reason = album.unavailableReason { return reason }
+            if let scope = album.scope { return scope.label }
         }
-        .padding(.horizontal, 6)
-        .frame(height: Lumen.rowHeight)
-        .contentShape(Rectangle())
-        .help(state.activeSmartCollection.map { $0.name + ": " + ($0.unavailableReason ?? $0.scope?.label ?? "Unavailable scope") } ?? state.folderURL?.path ?? "No folder open")
-        .onTapGesture { if state.activeSmartCollection == nil { revealFolderInFinder() } }
-        .lumenClickCursor(state.folderURL != nil && state.activeSmartCollection == nil)
-        .contextMenu {
+        return state.folderURL?.deletingLastPathComponent().path ?? ""
+    }
+
+    private var folderHeaderHelp: String {
+        if let album = state.activeSmartCollection {
+            let scope = album.unavailableReason ?? album.scope?.label ?? "Unavailable scope"
+            return album.name + ": " + scope
+        }
+        return state.folderURL?.path ?? "No folder open"
+    }
+
+    private var folderHeaderAccessibilityLabel: String {
+        if let album = state.activeSmartCollection {
+            let scope = album.scope?.label ?? "unavailable scope"
+            return "Smart album \(album.name), \(scope)"
+        }
+        if let folder = state.folderURL { return "Folder \(folder.lastPathComponent), \(folder.path)" }
+        return "No folder open"
+    }
+
+    private var folderHeaderCanReveal: Bool {
+        state.folderURL != nil && state.activeSmartCollection == nil
+    }
+
+    private var folderHeaderText: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(folderHeaderTitle)
+                .font(.lumenBodyStrong)
+                .foregroundStyle(state.folderURL == nil && state.activeSmartCollection == nil
+                                 ? Lumen.tertiaryText : Lumen.primaryText)
+                .lineLimit(1)
+            if state.folderURL != nil || state.activeSmartCollection != nil {
+                // One line, not two. At 230 pt a second line of head-truncated path
+                // buys about twenty more characters of a string whose informative end
+                // is already visible, and costs the header its shape.
+                Text(folderHeaderSubtitle)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.tertiaryText)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+        }
+    }
+
+    private var folderHeaderOpenButton: some View {
+        Button {
+            state.chooseFolder()
+        } label: {
+            Image(systemName: "folder")
+                .font(.lumenGlyphCaption)
+                // A real target, with the same glyph-only box as the other buttons.
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Lumen.secondaryText)
+        .lumenClickCursor()
+        .help("Open photographs, or a different folder")
+    }
+
+    private var folderHeaderRow: some View {
+        HStack(spacing: 6) {
+            folderHeaderText
+            Spacer(minLength: 0)
+            folderHeaderOpenButton
+        }
+    }
+
+    private var folderHeaderMenu: some View {
+        Group {
             Button("Reveal in Finder") { revealFolderInFinder() }
-                .disabled(state.folderURL == nil || state.activeSmartCollection != nil)
+                .disabled(!folderHeaderCanReveal)
             Button("Copy Path") {
                 guard let path = state.folderURL?.path else { return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(path, forType: .string)
             }
-            .disabled(state.folderURL == nil || state.activeSmartCollection != nil)
+            .disabled(!folderHeaderCanReveal)
             Divider()
             Button("Open…") { state.chooseFolder() }
         }
-        .accessibilityLabel(Text(state.activeSmartCollection.map { "Smart album \($0.name), \($0.scope?.label ?? "unavailable scope")" } ?? state.folderURL
-                                 .map { "Folder \($0.lastPathComponent), \($0.path)" }
-                                 ?? "No folder open"))
+    }
+
+    private var folderHeader: some View {
+        folderHeaderRow
+            .padding(.horizontal, 6)
+            .frame(height: Lumen.rowHeight)
+            .contentShape(Rectangle())
+            .help(folderHeaderHelp)
+            .onTapGesture { if state.activeSmartCollection == nil { revealFolderInFinder() } }
+            .lumenClickCursor(folderHeaderCanReveal)
+            .contextMenu { folderHeaderMenu }
+            .accessibilityLabel(Text(folderHeaderAccessibilityLabel))
     }
 
     private func revealFolderInFinder() {
