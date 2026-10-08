@@ -2313,7 +2313,7 @@ NESTED_TYPE = re.compile(
     r"\b(?:enum|struct|class|actor|extension)\s+[A-Z]\w*(?:\s*:[^{]*)?\s*\{")
 SWITCH_HEAD = re.compile(r"(?<![\w.])switch\s+[^\n{]{1,200}\{")
 SWITCH_CASE = re.compile(r"(?:^|\n)\s*case\s+((?:\.\w+(?:\([^)]*\))?\s*,?\s*)+):")
-HAS_DEFAULT = re.compile(r"(?:^|\n)\s*(?:@unknown\s+)?default\s*:")
+HAS_DEFAULT = re.compile(r"(?:^|\n|;|})\s*(?:@unknown\s+)?default\s*:")
 CASE_WHERE = re.compile(r"case[^:\n]*\bwhere\b")
 
 
@@ -2345,7 +2345,9 @@ def _enum_index():
             brace = text.find("{", m.end() - 1)
             if brace == -1:
                 continue
-            body = _own_body(brace_body(text, brace))
+            # Only declaration-depth cases belong to the enum. Initializer
+            # switches can contain patterns such as nil/let, not new cases.
+            body = _depth0_mask(_own_body(brace_body(text, brace)))
             found = set()
             for line in CASE_LINE.findall(body):
                 for part in line.split(","):

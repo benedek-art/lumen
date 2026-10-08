@@ -8,15 +8,18 @@ final class ProofRecordComparisonTests: XCTestCase {
     func testTinyDriftHiddenBySummaryNamesTheFieldAndExactDelta() throws {
         let committed = try record()
         var measured = committed
-        measured.frontLoading = 0.4390627432834667
+        // Plant drift relative to the ruler: an intentional numerical correction
+        // must not accidentally turn the negative control into self-comparison.
+        measured.frontLoading -= 1.2e-6
         XCTAssertEqual(measured.summary, committed.summary)
         XCTAssertFalse(measured.agrees(with: committed))
         let differences = measured.comparisonDifferences(with: committed)
         XCTAssertEqual(differences.count, 1)
-        XCTAssertTrue(differences[0].hasPrefix("frontLoading:"))
-        XCTAssertTrue(differences[0].contains("0.4390627432834667"))
-        XCTAssertTrue(differences[0].contains("absolute delta"))
-        XCTAssertTrue(differences[0].contains("tolerance 1e-06"))
+        let difference = try XCTUnwrap(differences.first)
+        XCTAssertTrue(difference.hasPrefix("frontLoading:"))
+        XCTAssertTrue(difference.contains(String(measured.frontLoading)))
+        XCTAssertTrue(difference.contains("absolute delta"))
+        XCTAssertTrue(difference.contains("tolerance 1e-06"))
     }
 
     func testEveryNumericalFieldUsesTheExistingAbsoluteTolerance() throws {
