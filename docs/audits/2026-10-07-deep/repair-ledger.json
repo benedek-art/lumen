@@ -182,7 +182,8 @@
       "owner": "library",
       "acceptance": "Two-photo save/reopen/restore/delete/backup tests; snapshots not global session array",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "34311af named per-photo immutable snapshot rows and dependency-aware restore; 106 expanded plus20 focused isolated tests, combined qualification pending."
     },
     {
       "id": "APP-13",
@@ -203,7 +204,8 @@
       "owner": "library",
       "acceptance": "Identity/size/signature preflight, ambiguity refusal, transaction rollback and cache invalidation",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "d9527ce explicit missing-original review, preserved catalog ID/undo/debt/cache joins;38 isolated native tests. Combined qualification pending. Prefix identity is not full-byte equality."
     },
     {
       "id": "APP-15",
@@ -223,7 +225,8 @@
       "owner": "performance",
       "acceptance": "5k/20k roll, cold/warm next-photo, p50/p95/p99 drag/selection/cancel, memory bounded",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "partial-selection-performance-green",
+      "evidence": "5k/20k generated bookkeeping probe;20k navigation median23.57ms to0.079ms, p99 51.27ms to0.770ms.3 actual AppState correctness regressions and3 core tests. Display latency/cancel/bounded memory still open."
     },
     {
       "id": "APP-17",
@@ -493,7 +496,8 @@
       "owner": "library",
       "acceptance": "Current/subtree/catalog results and count match including offline sources",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "in-progress",
+      "evidence": "Database scope fields exist but service counts and app selection ignore them; implementing shared scope queries and catalog source universe with NULL legacy current-folder behavior."
     },
     {
       "id": "LIB-03",

@@ -6,12 +6,12 @@ The app has a substantial working engine and desktop workflow. The October 2 mai
 
 | Area | Current capabilities | Remaining practical gate or gap |
 |---|---|---|
-| Library | SQLite catalog, folder scans, ratings/flags/labels, hierarchical catalog keywords, filters/albums and culling | Explicit missing-original relink; smart-album scope; large-catalog native performance |
+| Library | SQLite catalog, folder scans, ratings/flags/labels, hierarchical catalog keywords, filters/albums and culling | Explicit relink integrated with isolated tests; smart-album scope wiring in progress; display latency and memory qualification remain |
 | Ingest | Streaming copy/digest verification, disambiguation, independent landing checks, cancellation and eject refusal | Filesystem alias coverage strengthened today; actual disconnect/volume tests later |
 | Develop engine | White balance, tone, zones, curves, presence, sharpening, film, colour mixer/B&W and exact S9 colour path | Real photos; platform proof record drift; spatial Uniformity/Variance product choice |
 | Local edits | Painted masks and healing, source search, local controls and reusable blobs | Hard minimum brush size has a measured resolution boundary; manual heal-source UI; target-device latency |
 | Framing | Per-photo batch crop/angle/reset/Original controls | All-or-none ratio/reciprocal safety repaired today; physical interaction review later |
-| History | Session undo/redo and discrete edit boundaries | Named per-photo snapshots are not persisted/wired despite an old README stage claim |
+| History | Session undo/redo and discrete edit boundaries | Named per-photo snapshots now persist and restore through normal undo; combined qualification pending |
 | Portable edits | XMP field-preserving merge, sidecar ownership, keyword leaf projection, durable owed-edit recovery | Refusal/removal recovery repaired today; full hierarchical interoperability remains separate |
 | Delivery | Multiple output formats, collision policies, HDR path, density metadata, contact sheet support | Catalog keyword additions merged into delivery; embedded-source removal needs authority; persistent cancellable queue and more output controls; durable per-file reports are now implemented |
 | Updater | Public rolling-release lookup, digest check, signature integrity, staged bundle replacement | Relaunch/cleanup/main-actor work repaired today; actual installation/relaunch/volume qualification later |
@@ -49,3 +49,7 @@ Reset now ends an interrupted slider gesture before recording its own undo step.
 Combined optimized qualification: 3,174 tests, 3,151 passed, 22 intentional skips, one unchanged proof-drift failure. All-source checks pass; 35 checker fixtures, 31 release-policy controls and 18 mocked release recovery scenarios pass. See EXECUTION-SECOND-WAVE.md for contracts and limits. Per-file ingest crash checkpoints, live promotion, private RAW appearance and native daily-use acceptance remain open.
 
 The second wave is consolidated on local and GitHub main through [PR #8](https://github.com/benedek-art/lumen/pull/8), merge revision bff081457a1560a537b59a37e43345b065997b41. Hosted CI is running against the merge; the [Linux/macOS numerical fingerprint run](https://github.com/benedek-art/lumen/actions/runs/37697215629) was dispatched against that same source. Local optimized qualification remains 3,151 passes, 22 intentional skips and one unchanged proof failure. No release or installation occurred.
+
+## Autonomous third wave in progress
+
+Snapshots, explicit missing-original relinking, and an indexed sparse-selection path are combined on `codex/lumen-third-wave`, not yet published. Independent workflow tests and25 combined optimized workflow tests passed; full optimized qualification remains pending. The generated 20k-roll navigation bookkeeping probe improved from 23.57 ms median /51.27 ms p99 to0.079 ms /0.770 ms. This does not establish display latency or bounded memory. Smart-album scope fields exist in the database but are ignored by current service counts and photo loading; a complete shared-query implementation is in progress. A connected generated-shoot lifecycle test is also being added. Proof investigation isolated the numerical cause to platform Float atan2 rounding; a precise correction is being validated without widening tolerances. See EXECUTION-THIRD-WAVE.md for current evidence and limits.

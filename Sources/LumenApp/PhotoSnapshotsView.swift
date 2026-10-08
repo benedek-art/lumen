@@ -27,8 +27,9 @@ struct PhotoSnapshotsView: View {
             }
             if let error = model.error { DevelopNote(error, prominent: true) }
             ForEach(model.rows, id: \.id) { snapshot in
+                let snapshotName = snapshot.name ?? "Snapshot"
                 HStack {
-                    Button(snapshot.name ?? "Snapshot") {
+                    Button(snapshotName) {
                         Task { await state.restorePhotoSnapshot(snapshot) }
                     }
                     .buttonStyle(.plain)
@@ -36,7 +37,7 @@ struct PhotoSnapshotsView: View {
                     Spacer()
                     Button { pendingDelete = snapshot } label: { Image(systemName: "trash") }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Delete snapshot \(snapshot.name ?? "Snapshot")")
+                        .accessibilityLabel("Delete snapshot \(snapshotName)")
                 }
                 .disabled(model.busy)
             }
