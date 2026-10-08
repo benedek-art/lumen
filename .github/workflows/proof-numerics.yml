@@ -3,6 +3,11 @@ name: Proof numerical fingerprints
 # Explicitly diagnostic: no record-writing input, push/schedule trigger or release.
 on:
   workflow_dispatch:
+    inputs:
+      full_registry:
+        description: 'Also capture all 144 measured records as diagnostic artifacts'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +53,29 @@ jobs:
             swift test -c release --filter ControlProbeHarness/testProbeOneControl \
               > "$RUNNER_TEMP/proof-numerics/$control.log" 2>&1
           done
+      - name: Capture the complete registry without writing fixtures
+        if: inputs.full_registry
+        shell: bash
+        env:
+          LUMEN_RECORD_PROOFS: '0'
+        run: |
+          export LUMEN_PROBE_RECORDS_DIR="$RUNNER_TEMP/proof-numerics/records"
+          export LUMEN_PROBE_EVIDENCE_DIR="$RUNNER_TEMP/proof-numerics-evidence"
+          swift test -c release --filter ControlProbeHarness/testDumpTheRegistry \
+            > "$RUNNER_TEMP/proof-numerics/registry.log" 2>&1
+          python3 - <<'PY'
+          import json, os, pathlib
+          directory = pathlib.Path(os.environ['LUMEN_PROBE_RECORDS_DIR'])
+          files = list(directory.glob('*.json'))
+          if len(files) != 144:
+              raise RuntimeError(f'Expected 144 complete records, got {len(files)}')
+          def invalid_constant(value):
+              raise ValueError(f'Nonfinite JSON constant: {value}')
+          for path in files:
+              data = json.loads(path.read_text(), parse_constant=invalid_constant)
+              if data.get('id') != path.stem:
+                  raise RuntimeError(f'Mismatched record identity: {path}')
+          PY
       - name: Verify the committed ruler was not modified
         if: always()
         run: git diff --exit-code -- Tests/LumenCoreTests/Proof/records
