@@ -19,6 +19,9 @@ public struct CurveStack: Sendable {
     public let encoding: TransferFunction
 
     private let parametric: LUT1D
+    /// Multiplier actually used by the combined parametric monotonicity solve.
+    /// Read-only UI provenance; reporting it never changes the baked curve.
+    public let parametricAppliedScale: Double
     private let point: MonotoneCubic?
     private let luma: MonotoneCubic?
     private let rCurve: MonotoneCubic?
@@ -51,7 +54,9 @@ public struct CurveStack: Sendable {
     public init(_ set: CurveSet, encoding: TransferFunction = .srgb) {
         self.set = set
         self.encoding = encoding
-        let baked = CurveStack.bakeParametric(set.parametric)
+        let solved = CurveStack.bakeParametricWithScale(set.parametric)
+        let baked = solved.lut
+        self.parametricAppliedScale = solved.scale
         self.parametric = baked
         self.parametricIsIdentity = baked.isIdentity()
         let point = set.point.map { MonotoneCubic(points: $0) }
@@ -183,11 +188,16 @@ public struct CurveStack: Sendable {
     /// the whole app — and an envelope pins both endpoints so the curve can never
     /// move black or white.
     static func bakeParametric(_ p: ParametricCurve, size: Int = 1024) -> LUT1D {
+        bakeParametricWithScale(p, size: size).lut
+    }
+
+    private static func bakeParametricWithScale(_ p: ParametricCurve, size: Int = 1024)
+        -> (lut: LUT1D, scale: Double) {
         let amounts = [p.shadows, p.darks, p.lights, p.highlights].map {
             Num.clamp($0, -100, 100) / 100
         }
         guard amounts.contains(where: { $0 != 0 }) else {
-            return LUT1D(size: size) { $0 }
+            return (LUT1D(size: size) { $0 }, 1)
         }
         let centres = regionCentres(p.splits)
         let bumps = parametricBumps(centres)
@@ -249,7 +259,7 @@ public struct CurveStack: Sendable {
             running = Swift.max(running, Num.saturate(x + d * envelope * scale))
             samples[i] = running
         }
-        return LUT1D(samples: samples)
+        return (LUT1D(samples: samples), scale)
     }
 
     // MARK: - Evaluation on the encoded axis

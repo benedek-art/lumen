@@ -20,6 +20,15 @@ import Foundation
 
 public enum AppliedReadout {
 
+    /// The shared curve bake's applied strength, quiet while it rounds to 100%.
+    /// This describes the combined parametric shift, not the point curve or a
+    /// different estimate of individual region amplitudes.
+    public static func parametricEasingCaption(appliedScale: Double) -> String? {
+        guard appliedScale.isFinite, appliedScale >= 0, appliedScale < 0.995 else { return nil }
+        let percent = Int((appliedScale * 100).rounded())
+        return "Combined curve strength: \(percent)% — reduced to keep tones in order."
+    }
+
     // MARK: - Zones (Astra AI-07)
 
     /// The band of input tones the Zones clamp renders as one value, placed on the
