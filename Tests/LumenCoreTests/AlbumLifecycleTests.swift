@@ -115,7 +115,7 @@ final class AlbumLifecycleTests: XCTestCase {
         XCTAssertEqual(try store.collection(id: child)?.parentID, nil,
                        "a child album was orphaned under a parent that no longer exists")
         let scoped = try store.collection(id: smart)
-        XCTAssertEqual(scoped?.scope, "album")
+        XCTAssertEqual(scoped?.scope, "deleted-album")
         XCTAssertEqual(scoped?.scopeID, set)
         var query = PhotoQuery(); query.sourceScope = .album(set)
         XCTAssertThrowsError(try store.countPhotos(matching: query))

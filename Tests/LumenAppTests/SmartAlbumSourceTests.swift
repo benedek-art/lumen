@@ -150,13 +150,13 @@ final class SmartAlbumSourceTests: XCTestCase {
             let until = Date().addingTimeInterval(5)
             while state.activeSmartCollection?.unavailableReason == nil && Date() < until { try await Task.sleep(nanoseconds: 10_000_000) }
             XCTAssertNotNil(state.activeSmartCollection?.unavailableReason)
-            XCTAssertEqual(state.activeSmartCollection?.scope, .album(manual))
+            XCTAssertEqual(state.activeSmartCollection?.scope, .deletedAlbum(manual))
             XCTAssertTrue(state.photos.isEmpty)
             XCTAssertTrue(state.selection.isEmpty)
             XCTAssertNil(state.primarySelection)
             let current = await catalog.collections(folderPath: folders[0].path)
             XCTAssertNotNil(current.first { $0.id == smartID }?.unavailableReason)
-            XCTAssertEqual(current.first { $0.id == smartID }?.scope, .album(manual))
+            XCTAssertEqual(current.first { $0.id == smartID }?.scope, .deletedAlbum(manual))
             state.showWholeFolder()
             try await self.settle(state)
             XCTAssertEqual(state.photos.count, 1)
@@ -254,6 +254,68 @@ final class SmartAlbumSourceTests: XCTestCase {
             let entries = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
             XCTAssertEqual(entries.first { $0.state.catalogID == id }?.state.recipe, catalogRecipe)
             XCTAssertEqual(try Data(contentsOf: sidecar), data)
+        }
+    }
+
+    func testPausedScopeSourceCannotRestoreOldURLAfterActualRelink() async throws {
+        try await fixture { state, catalog, folders, _, root in
+            let photo = try XCTUnwrap(state.allPhotos.first)
+            let id = try XCTUnwrap(photo.catalogID)
+            let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            try db.setQuickSig(QuickSignature.compute(url: photo.id), photoID: id)
+            db.close()
+            let oldEntries = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            let destination = root.appendingPathComponent("relinked/original.JPG")
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: photo.id, to: destination)
+            let prepared = try await catalog.prepareOriginalRelink(photoID: id, candidateURL: destination)
+            var resume: CheckedContinuation<[CatalogService.SourceEntry], Error>?
+            state.querySourceLoader = { _, _ in try await withCheckedThrowingContinuation { resume = $0 } }
+            let created = await catalog.createSmartCollection(name: "Paused", query: LibraryFilter().savedJSON(), scope: .everywhere)
+            let idOfAlbum = try XCTUnwrap(created)
+            let albums = await catalog.collections(folderPath: folders[0].path)
+            state.applySmartCollection(try XCTUnwrap(albums.first { $0.id == idOfAlbum }))
+            while resume == nil { await Task.yield() }
+            try await state.relinkOriginal(prepared)
+            let current = try XCTUnwrap(state.allPhotos.first { $0.catalogID == id })
+            XCTAssertEqual(current.id, destination.standardizedFileURL.resolvingSymlinksInPath())
+            resume!.resume(returning: oldEntries)
+            try await self.settle(state)
+            let after = try XCTUnwrap(state.allPhotos.first { $0.catalogID == id })
+            XCTAssertEqual(after.id, current.id, "source acquisition must not restore missing old URL")
+            XCTAssertFalse(state.allPhotos.contains { $0.id == photo.id })
+        }
+    }
+
+    func testPausedSubtreeRechecksMembershipWhenRelinkMovesOutsideItsRoot() async throws {
+        try await fixture { state, catalog, folders, _, root in
+            let photo = try XCTUnwrap(state.allPhotos.first)
+            let id = try XCTUnwrap(photo.catalogID)
+            let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            let folderID = try XCTUnwrap(db.folder(path: folders[0].path)?.id)
+            try db.setQuickSig(QuickSignature.compute(url: photo.id), photoID: id)
+            db.close()
+            let scope = CollectionQueryScope.folderSubtree(folderID)
+            let oldEntries = try await catalog.querySource(scope: scope, folderPath: folders[0].path)
+            let destination = root.appendingPathComponent("outside/original.JPG")
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: photo.id, to: destination)
+            let prepared = try await catalog.prepareOriginalRelink(photoID: id, candidateURL: destination)
+            let created = await catalog.createSmartCollection(name: "Subtree", query: LibraryFilter().savedJSON(), scope: scope)
+            let smartID = try XCTUnwrap(created)
+            let albums = await catalog.collections(folderPath: folders[0].path)
+            var resume: CheckedContinuation<[CatalogService.SourceEntry], Error>?
+            state.querySourceLoader = { _, _ in try await withCheckedThrowingContinuation { resume = $0 } }
+            state.applySmartCollection(try XCTUnwrap(albums.first { $0.id == smartID }))
+            while resume == nil { await Task.yield() }
+            try await state.relinkOriginal(prepared)
+            resume!.resume(returning: oldEntries)
+            try await self.settle(state)
+            XCTAssertFalse(state.allPhotos.contains { $0.catalogID == id })
+            XCTAssertFalse(state.photos.contains { $0.catalogID == id })
+            XCTAssertEqual(state.allPhotos.count, 1)
+            let current = await catalog.collections(folderPath: folders[0].path)
+            XCTAssertEqual(current.first { $0.id == smartID }?.count, state.photos.count)
         }
     }
 

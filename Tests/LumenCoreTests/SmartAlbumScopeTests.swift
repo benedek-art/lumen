@@ -91,5 +91,23 @@ final class SmartAlbumScopeTests: XCTestCase {
             XCTAssertThrowsError(try store.photoOrder(matching: query))
         }
     }
+    func testDeletingHighestAlbumIDCannotReviveItsScopeWhenSQLiteReusesTheID() throws {
+        try fixture { store, _, _, ids in
+            let smart = try store.createCollection(name: "Smart first", kind: "smart", query: LibraryFilter().savedJSON())
+            let source = try store.createCollection(name: "Original source")
+            try store.addToCollection(source, photoIDs: [ids[0]])
+            try store.updateCollectionScope(id: smart, scope: .album(source))
+            try store.deleteCollection(id: source)
+            let unrelated = try store.createCollection(name: "Unrelated")
+            XCTAssertEqual(unrelated, source, "fixture must actually reproduce recycled ROWID")
+            try store.addToCollection(unrelated, photoIDs: [ids.last!])
+            let row = try XCTUnwrap(store.collection(id: smart))
+            var query = PhotoQuery(); query.sourceScope = try CollectionQueryScope(stored: row.scope, id: row.scopeID)
+            XCTAssertThrowsError(try store.countPhotos(matching: query), "deleted source must not resolve the unrelated replacement")
+            XCTAssertEqual(row.query, LibraryFilter().savedJSON())
+            XCTAssertEqual(row.scopeID, source)
+        }
+    }
+
 }
 #endif

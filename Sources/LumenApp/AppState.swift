@@ -2055,16 +2055,26 @@ final class AppState: ObservableObject {
         libraryQueryGeneration &+= 1
         let generation = scanGeneration
         let mutation = sourceMutationRevision
+        let mappingRevision = sourceRevision
         let folder = folderURL
         let loader = querySourceLoader
         isScanning = true
         statusMessage = "Opening smart album source…"
         Task { [weak self] in
             do {
-                let entries: [CatalogService.SourceEntry]
+                var entries: [CatalogService.SourceEntry]
                 if let loader { entries = try await loader(scope, folder?.path) }
                 else { entries = try await catalog.querySource(scope: scope, folderPath: folder?.path) }
                 guard let self, self.scanGeneration == generation, self.folderURL == folder else { return }
+                // A relink can already be pending when source acquisition starts.
+                // Reload catalog truth after any mapping change; simply rebasing old
+                // URLs would retain wrong subtree membership after an actual move.
+                var observedMapping = mappingRevision
+                while self.sourceRevision != observedMapping {
+                    observedMapping = self.sourceRevision
+                    entries = try await catalog.querySource(scope: scope, folderPath: folder?.path)
+                    guard self.scanGeneration == generation, self.folderURL == folder else { return }
+                }
                 // Edits made while reading belong to the old visible roll. Flush them
                 // and retain its latest values for overlapping catalog identities.
                 self.sliderGesture(active: false)

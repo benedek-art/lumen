@@ -3299,8 +3299,9 @@ public final class CatalogStore {
     ///     the catalog runs with `foreign_keys=ON`, so deleting the row alone fails.
     ///   · its place as a parent. Album sets nest one level (docs/10 §10.9); a child
     ///     of a deleted set moves up to the set's own parent rather than vanishing.
-    ///   · its place as a smart album's scope. The explicit reference is retained;
-    ///     the query becomes unavailable until its owner deliberately changes scope.
+    ///   · its place as a smart album's scope. A deleted-source tombstone retains
+    ///     the reference and query without allowing recycled SQLite ROWIDs to revive
+    ///     it. The query remains unavailable until its owner changes scope.
     ///     Deleting an album must never silently broaden another saved query.
     /// If it was the target album there is then no target, and `B` says so rather
     /// than silently promoting another album the photographer did not choose.
@@ -3312,6 +3313,7 @@ public final class CatalogStore {
             try self.db.run("DELETE FROM album_photo WHERE album_id = ?;", [.integer(id)])
             try self.db.run("UPDATE album SET parent_id = ? WHERE parent_id = ?;",
                             [.optionalInteger(row.parentID), .integer(id)])
+            try self.db.run("UPDATE album SET scope = 'deleted-album' WHERE scope = 'album' AND scope_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM album WHERE id = ?;", [.integer(id)])
         }
     }
@@ -4458,6 +4460,8 @@ public final class CatalogStore {
             }
             return (["photo.folder_id = ?"], [.integer(folderID)])
         case .everywhere: return ([], [])
+        case .deletedAlbum(let id):
+            throw CatalogError.notFound("deleted manual album source #\(id); choose a new scope explicitly")
         case .album(let id):
             guard let row = try collection(id: id), row.kind == "manual" else {
                 throw CatalogError.notFound("manual album scope")
