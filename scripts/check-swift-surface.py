@@ -97,6 +97,25 @@ def _scan(text, blank_strings):
                     j += 1
             blank(i, j)
             i = j
+        elif text[i] == "#" and (raw := re.match(r'(#+)("""|")', text[i:])):
+            # Swift raw literals end at the matching quote/hash delimiter; XML
+            # attribute quotes inside them are prose, not Swift identifiers.
+            hashes, quotes = raw.groups()
+            delimiter = quotes + hashes
+            j = i + len(raw.group(0))
+            while True:
+                end = text.find(delimiter, j)
+                if end == -1:
+                    j = n
+                    break
+                if text[max(i, end - len(hashes) - 1):end] == "\\" + hashes:
+                    j = end + len(delimiter)
+                    continue
+                j = end + len(delimiter)
+                break
+            if blank_strings:
+                blank(i, j)
+            i = j
         elif text[i:i + 3] == '"""':
             j = text.find('"""', i + 3)
             j = n if j == -1 else j + 3
@@ -216,7 +235,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
     "NSCocoaErrorDomain", "NSFileReadNoSuchFileError", "NSPOSIXErrorDomain",
-    "ENOENT", "NSFileReadNoPermissionError",
+    "ENOENT", "ENOTDIR", "NSFileReadNoPermissionError",
+    "NSPopUpButton", "NSRect", "FileAttributeType",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
