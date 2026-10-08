@@ -182,8 +182,8 @@
       "owner": "library",
       "acceptance": "Two-photo save/reopen/restore/delete/backup tests; snapshots not global session array",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
-      "evidence": "34311af named per-photo immutable snapshot rows and dependency-aware restore; 106 expanded plus20 focused isolated tests, combined qualification pending."
+      "status": "integrated-green",
+      "evidence": "34311af named per-photo immutable snapshot rows and dependency-aware restore; 106 expanded plus20 focused isolated tests, combined optimized suite passed at 351a6ac (3228 tests, 23 skips, 0 failures)."
     },
     {
       "id": "APP-13",
@@ -193,7 +193,7 @@
       "owner": "workflow",
       "acceptance": "Report destinations/collisions/skips/failures/cancel outcome; counts reflect delivered files",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
+      "status": "integrated-green",
       "evidence": "Versioned durable report store, truthful export checkpoints, source/role ingest start/final reports and Recent results access.26 native contracts/cancellation tests and4 real synthetic export tests pass. Midrun ingest crash outcomes remain unknown until result callbacks exist."
     },
     {
@@ -204,8 +204,8 @@
       "owner": "library",
       "acceptance": "Identity/size/signature preflight, ambiguity refusal, transaction rollback and cache invalidation",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
-      "evidence": "d9527ce explicit missing-original review, preserved catalog ID/undo/debt/cache joins;38 isolated native tests. Combined qualification pending. Prefix identity is not full-byte equality."
+      "status": "integrated-green",
+      "evidence": "d9527ce explicit missing-original review, preserved catalog ID/undo/debt/cache joins;38 isolated native tests. Combined optimized suite passed at 351a6ac (3228 tests, 23 skips, 0 failures). Prefix identity is not full-byte equality."
     },
     {
       "id": "APP-15",
@@ -236,7 +236,7 @@
       "owner": "app-controls",
       "acceptance": "Readout shares bake calculation, ordinary and adversarial fixtures byte-identical",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
+      "status": "integrated-green",
       "evidence": "ec7c87b read-only actual shared curve bake multiplier; ten original Darwin LUT byte fingerprints unchanged (all1024 samples each),3 focused tests green. Combined20-test color/curve/relink/generated lifecycle run passed."
     },
     {
@@ -497,8 +497,8 @@
       "owner": "library",
       "acceptance": "Current/subtree/catalog results and count match including offline sources",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
-      "evidence": "4d5b82e scope acquisition/shared rows-order-count-facets;f7ec1d6 unavailable tombstones prevent ROWID reuse and reread after relink preserves actual source membership.52 isolated native tests passed; combined suite pending."
+      "status": "integrated-green",
+      "evidence": "4d5b82e scope acquisition/shared rows-order-count-facets;f7ec1d6 unavailable tombstones prevent ROWID reuse and reread after relink preserves actual source membership.52 isolated native tests passed; combined optimized suite passed at 351a6ac (3228 tests, 23 skips, 0 failures)."
     },
     {
       "id": "LIB-03",
@@ -698,7 +698,7 @@
       "owner": "integration",
       "acceptance": "Import/cull/edit/mask/heal/LUT/export/quit/reopen restores all recipe and payload identities",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
+      "status": "integrated-green",
       "evidence": "c46d780 generated two-photo verified primary/backup ingest to AppState cull, edits, brush/heal/LUT/snapshot, actual exports, quit backup and reconstructed AppState. Original/copy bytes unchanged; decoded before/after export pixels identical. Native isolated test passes. Same-process reconstruction does not qualify process restart or real RAW/native UI."
     },
     {
@@ -740,8 +740,8 @@
       "owner": "integration",
       "acceptance": "All fixes together; baseline failures tracked separately; expected failures/skips reported",
       "gate": "Synthetic/macOS tests now",
-      "status": "in-progress",
-      "evidence": "Full combined optimized release suite running onf7ec1d6; prior three-wave targeted lanes and proof correction pass. No final count claimed yet."
+      "status": "integrated-green",
+      "evidence": "Complete optimized native 351a6ac and hosted 8ee85b8 each passed 3228 tests with 23 intentional skips and 0 failures. Final header 53 native/layout 19/GPU 216 tests independently green. All enabled CI jobs and complete optimized proof green; source identities recorded. PR9 merged."
     },
     {
       "id": "QA-02",
@@ -751,7 +751,8 @@
       "owner": "ci",
       "acceptance": "SQLite code active, complete diagnostics parse both XCTest formats; exact SHA",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-green",
+      "evidence": "Hosted8ee85b8 engine-linux completed 2600 selected core tests successfully with real SQLite; optimized full proof 4a56a27 passed 6 original tests. Identical core/test trees; existing opt-in skips not counted as passes."
     },
     {
       "id": "QA-03",
@@ -762,7 +763,7 @@
       "acceptance": "No partial final outputs, no false success/eject, retry-safe reports",
       "gate": "Synthetic/macOS tests now",
       "status": "partial-filesystem-targeted-green",
-      "evidence": "PS-07/PS-08 ingest cleanup/ownership repairs and actual AppState partial/cancel/blocked output reports verified. Real ENOSPC/disconnect/removable volumes/eject remain hardware gates."
+      "evidence": "PS-08 independent-copy identity and PS-11/PS-12 ingest cleanup/ownership repairs and actual AppState partial/cancel/blocked output reports verified. Real ENOSPC/disconnect/removable volumes/eject remain hardware gates."
     },
     {
       "id": "QA-04",
@@ -823,8 +824,7 @@
       "owner": "app-ingest",
       "acceptance": "Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-targeted-green",
-      "evidence": "b5586a2 no-follow device/inode ownership pre/post readback plus stable generation before verified verdict;2624d0e safe signed-device identity conversion. Mismatch/error replacement and matching-digest replacement red;45 targeted green including same-inode mutation/symlink/read-only controls. Stat-to-unlink race remains bounded, not atomic."
+      "status": "integrated-green"
     },
     {
       "id": "PS-09",
@@ -855,28 +855,133 @@
       "acceptance": "All three previously unavailable kernels compile; unchanged existing RGB/half/Float32/signed HDR parity and accuracy assertions pass; preview provenance restored",
       "gate": "Synthetic/macOS tests now",
       "status": "integrated-green"
+    },
+    {
+      "id": "PS-11",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Report failed cleanup of unverified ingest files truthfully",
+      "owner": "ingest",
+      "acceptance": "Readback mismatch/error with destination becoming read-only leaves failed/unejectable result and explicit retained-file warning; originals unchanged",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green",
+      "evidence": "6c2a751: seven causal assertions red before repair; 38 core and 21 native app tests green afterward."
+    },
+    {
+      "id": "PS-12",
+      "priority": "P1",
+      "kind": "defect",
+      "title": "Reject destination replacement or mutation during ingest verification",
+      "owner": "ingest",
+      "acceptance": "Mismatched/error/matching digest replacement never deletes unrelated file or certifies delivery; owned corrupted-copy cleanup remains valid",
+      "gate": "Synthetic/macOS tests now",
+      "status": "integrated-green",
+      "evidence": "b5586a2 no-follow device/inode ownership pre/post readback plus stable generation before verified verdict;2624d0e safe signed-device identity conversion. Mismatch/error replacement and matching-digest replacement red;45 targeted green including same-inode mutation/symlink/read-only controls. Stat-to-unlink race remains bounded, not atomic."
     }
   ],
-  "qualification": {
-    "production_test_revision": "885515f",
-    "diagnostic_only_followup": "3939a29",
-    "full_optimized_tests": 3158,
-    "passed": 3135,
-    "skipped": 22,
-    "failed": 1,
-    "remaining_failure": "ControlProofTests committed-record drift; baseline reproducible platform differences",
-    "source_surface": "All passes green, exit 0",
-    "publication": "Merged PR #7 after explicit owner approval",
-    "release_policy": "manual opt-in plus existing gates",
-    "raw_photos": "deferred",
-    "diagnostic_followup_tests": {
-      "configuration": "release",
-      "tests": 19,
-      "failures": 0
+  "qualification_history": {
+    "first_wave": {
+      "production_test_revision": "885515f",
+      "diagnostic_only_followup": "3939a29",
+      "full_optimized_tests": 3158,
+      "passed": 3135,
+      "skipped": 22,
+      "failed": 1,
+      "remaining_failure": "ControlProofTests committed-record drift; baseline reproducible platform differences",
+      "source_surface": "All passes green, exit 0",
+      "publication": "Merged PR #7 after explicit owner approval",
+      "release_policy": "manual opt-in plus existing gates",
+      "raw_photos": "deferred",
+      "diagnostic_followup_tests": {
+        "configuration": "release",
+        "tests": 19,
+        "failures": 0
+      },
+      "local_main": "Synchronized with GitHub main",
+      "pull_request": "https://github.com/benedek-art/lumen/pull/7",
+      "merge_commit": "1a0c91a122bd684e9716f5e9b468b928cc908ea8",
+      "hosted_ci": "macOS build, app bundle and layout passed; remaining GPU/Linux/fast checks running at publication"
     },
-    "local_main": "Synchronized with GitHub main",
-    "pull_request": "https://github.com/benedek-art/lumen/pull/7",
-    "merge_commit": "1a0c91a122bd684e9716f5e9b468b928cc908ea8",
-    "hosted_ci": "macOS build, app bundle and layout passed; remaining GPU/Linux/fast checks running at publication"
+    "second_wave": {
+      "revision": "bff081457a1560a537b59a37e43345b065997b41",
+      "tests": 3174,
+      "passed": 3151,
+      "skipped": 22,
+      "failed": 1,
+      "remaining_failure": "Known proof drift; independently traced and corrected in third wave",
+      "pull_request": "https://github.com/benedek-art/lumen/pull/8"
+    }
+  },
+  "qualification": {
+    "full_optimized_revision": "351a6ac1e53e5fb07addca66912709e5352fb886",
+    "full_optimized_tests": 3228,
+    "passed": 3205,
+    "skipped": 23,
+    "failed": 0,
+    "source_surface": "all passes green, exit 0 at 351a6ac",
+    "checker_fixtures": 41,
+    "final_header_revision": "a9029e3",
+    "hosted_ci": "success: all enabled CI jobs passed; release validation/publication intentionally skipped",
+    "pull_request": "https://github.com/benedek-art/lumen/pull/9",
+    "raw_photos": "deferred",
+    "final_header_targeted_tests": {
+      "configuration": "release native",
+      "tests": 53,
+      "failed": 0
+    },
+    "retained_expected_failures": "Three narrowly matched existing slider precision-floor layout assertions; unchanged",
+    "final_header_source_surface": "all passes green, exit 0 at a9029e3",
+    "hosted_gpu": {
+      "run": 37709638957,
+      "tests": 216,
+      "skipped": 17,
+      "failed": 0,
+      "conclusion": "success"
+    },
+    "hosted_layout": {
+      "revision": "8ee85b8",
+      "run": 37711580198,
+      "tests": 19,
+      "failed": 0,
+      "conclusion": "success"
+    },
+    "hosted_engine_linux": {
+      "revision": "8ee85b8",
+      "run": 37711580182,
+      "conclusion": "success",
+      "selected_tests": 2600,
+      "description": "SwiftPM parallel selection counter; includes declared opt-in skips, not a fabricated pass total"
+    },
+    "hosted_build_and_bundle": {
+      "revision": "8ee85b8",
+      "run": 37711580182,
+      "conclusion": "success"
+    },
+    "hosted_proof": {
+      "run": 37710960640,
+      "revision": "4a56a27",
+      "configuration": "release",
+      "tests": 6,
+      "failed": 0,
+      "conclusion": "success",
+      "job_seconds": 580,
+      "started_at": "2026-10-08T01:03:46Z",
+      "completed_at": "2026-10-08T01:13:26Z"
+    },
+    "final_workflow_revision": "8ee85b8",
+    "production_test_revision": "8ee85b8f33e9e9ed5add93373cadd4146da43378",
+    "publication": "Merged PR #9; final documentation update on main",
+    "merge_commit": "9c6d78f828fada3a1dd5977eff1041be7d34304f",
+    "local_main": "Synchronized with GitHub main; final documentation-only update changes no qualified code",
+    "hosted_full_optimized": {
+      "revision": "8ee85b8",
+      "run": 37711580182,
+      "tests": 3228,
+      "passed": 3205,
+      "skipped": 23,
+      "failed": 0,
+      "job_seconds": 958,
+      "conclusion": "success"
+    }
   }
 }
