@@ -1,55 +1,46 @@
-# Current product and qualification state — 7 October 2026
+# Lumen current state — 7 October 2026
 
-The app has a substantial working engine and desktop workflow. The October 2 main merge is newer than the saved September repair checkout. Treat the newest implementation as the baseline and preserve older safety contracts and evidence selectively; merging every branch wholesale would restore obsolete experiments.
+Lumen has a substantial working macOS editor and a connected catalog, ingest, develop and delivery workflow. Three audit/repair waves now combine on `codex/lumen-third-wave` at `f7ec1d6`; the full optimized app suite and source checks are running. GitHub main currently contains the first two waves through PR #8 (`c4923aa` including the subsequent audit update). Publication of the third wave follows combined qualification.
 
-## Built and connected
+## What is built
 
-| Area | Current capabilities | Remaining practical gate or gap |
+| Area | Connected capabilities | Remaining practical gate or gap |
 |---|---|---|
-| Library | SQLite catalog, folder scans, ratings/flags/labels, hierarchical catalog keywords, filters/albums and culling | Explicit relink integrated with isolated tests; smart-album scope wiring in progress; display latency and memory qualification remain |
-| Ingest | Streaming copy/digest verification, disambiguation, independent landing checks, cancellation and eject refusal | Filesystem alias coverage strengthened today; actual disconnect/volume tests later |
-| Develop engine | White balance, tone, zones, curves, presence, sharpening, film, colour mixer/B&W and exact S9 colour path | Real photos; platform proof record drift; spatial Uniformity/Variance product choice |
-| Local edits | Painted masks and healing, source search, local controls and reusable blobs | Hard minimum brush size has a measured resolution boundary; manual heal-source UI; target-device latency |
-| Framing | Per-photo batch crop/angle/reset/Original controls | All-or-none ratio/reciprocal safety repaired today; physical interaction review later |
-| History | Session undo/redo and discrete edit boundaries | Named per-photo snapshots now persist and restore through normal undo; combined qualification pending |
-| Portable edits | XMP field-preserving merge, sidecar ownership, keyword leaf projection, durable owed-edit recovery | Refusal/removal recovery repaired today; full hierarchical interoperability remains separate |
-| Delivery | Multiple output formats, collision policies, HDR path, density metadata, contact sheet support | Catalog keyword additions merged into delivery; embedded-source removal needs authority; persistent cancellable queue and more output controls; durable per-file reports are now implemented |
-| Updater | Public rolling-release lookup, digest check, signature integrity, staged bundle replacement | Relaunch/cleanup/main-actor work repaired today; actual installation/relaunch/volume qualification later |
-| Engineering | macOS compilation, Linux engine/fixtures, GPU parity, proof and UI-layout workflows | Full optimized proof drift blocks existing publication; separate corpus/UI checks need aggregate exact-SHA qualification |
+| Library | SQLite catalog, scans, culling metadata, filters/manual albums, keywords, scoped smart albums and explicit original relinking | Native scope/relink dialogs; catalog-wide paging and memory; safer per-photo unreadable-recipe containment |
+| Ingest | Streaming primary/backup copy, digest readback, independent landing identities, cancellation/eject refusal and durable results | Real disconnected/full/removable volumes and independent physical backup; per-file crash checkpoint depth |
+| Develop | White balance, tone/zones/curves, presence, detail, film, mixer/B&W and exact S9 color path | Owner RAWs and camera/display acceptance; spatial color-model and capture-detail product decisions |
+| Local edits | Painted masks, healing, source search, local controls and reusable blobs | Hard tiny-brush resolution boundary and endpoint semantics; manual heal-source interaction; real-image edge quality |
+| Framing | Batch crop, angle, reset, Original and orientation controls with source preflight | Native interaction; perspective and chromatic-aberration feature projects |
+| History | Undo/redo, durable edits and per-photo named snapshots with dependency validation | Photographer acceptance of restore/delete flows; process-level restart validation beyond AppState reconstruction |
+| Portable edits | Conservative XMP merge, hierarchical catalog tags, durable sidecar debt/removal recovery | Full hierarchical Lightroom interoperability; explicit authority before removing source-embedded delivery tags |
+| Delivery | Multiple formats, density metadata, HDR path, contact-sheet support and durable per-file reports | Persistent cancellable queue and additional controls; real HDR/delivery output qualification |
+| Updater | Digest/signature checks, bundle staging, launch-failure handling and recovery-aware release publisher | Actual candidate promotion, installation/relaunch and volume behavior; no release was published |
+| Engineering | macOS optimized app tests, Linux portable core, GPU parity, proof registry and UI-layout checks | Final exact-source hosted integration; owner/native acceptance and existing physical/corpus gates |
 
-## Honest completion accounting
+## Repairs and additions made during this run
 
-A connected feature, a passing regression, a passing full suite, and a photographer accepting the output are separate milestones. Today's ledger uses explicit states. It does not convert test counts to a completion percentage or call all 84 backlog entries defects.
+The first wave repaired data preservation, ingest aliases, crop safety, updater responsiveness/cleanup, healing geometry, output collisions and macOS kernel syntax. The second added durable ingest/export reports, interrupted-gesture Reset undo, and a mocked release recovery publisher. The third adds named snapshots, explicit missing-original relinking, complete smart-album scope acquisition, sparse-selection indexing, a read-only curve-limiter caption and a connected generated-shoot lifecycle regression.
 
-The repair priorities are data preservation and deterministic crashes first, workflow reliability second, synthetic quality characterization third, then product projects. Saved-look changes require an explicit compatibility policy and real-photo acceptance. That includes brush deposition, spatial colour models, film defaults and output sharpening.
+Further adversarial review repaired misleading ingest cleanup reports, replaced/mutated verification destinations, relink-time gesture persistence, recycled smart-source IDs and source reads returning stale paths after relink. Each has a causal regression and focused verification. The master ledger records confidence rather than treating a feature implementation, full test pass and photographer acceptance as the same milestone. It retains the original 84-item roadmap and two additionally discovered ingest defects.
 
-## Known baseline and environment issues
+## Numerical proof and measured performance
 
-- Hosted main release validation already failed ControlProofTests on three metric records. Rounded reports hid differences slightly above 1e-6. Do not blindly loosen the bound or overwrite goldens.
-- The public RAW corpus showed a Leica Monochrom black decode also present through Apple-default/ImageIO paths, and Nikon Z30/GH5S neutral-patch alarms against an explicitly guessed chroma threshold. These require scoped decoder refusal and threshold investigation, not general black-image rejection or automatic camera-colour correction.
-- Local sandbox service restrictions caused nil Core Image readbacks/encoder failures. The same compiled healing GPU suite passed 4/4 outside the sandbox; actual generated-image metadata exports also passed. Final integrated testing must use service access rather than interpret nil readback as numerical disagreement.
-- Default Swift/Xcode dSYM generation was blocked by sandbox permissions. Native Swift build system with isolated caches compiles the whole app; keep actual test outcomes separate from compilation.
+The old proof failure is understood and corrected. Linux/Darwin atan2f returned neighboring Float values for one chart hue input; a 90-digit independent oracle selected the Darwin value. Evaluating the same angle in Double before rounding to Float makes that input agree across platforms. All 144 hosted controls were measured on the same patched source. Only three records/four fields were corrected; the remaining 141 records and the existing `1e-6` tolerance were retained. Both hosted snapshots satisfy the corrected ruler; the original optimized six-test complete proof suite passed. See the separate proof-numerics report for raw differences, artifact digests and source/toolchain provenance.
 
-## Next sequence
+Generated 20k-photo navigation bookkeeping improved from median 23.57 ms and p99 51.27 ms to 0.079 ms and 0.770 ms. This measures main-actor selection/order bookkeeping, not displayed-frame or RAW decode latency. The earlier baseline predates snapshots, so it is not an otherwise identical-source performance comparison. Scan/sort/release costs and ending RSS remain separately recorded; two RSS readings do not prove bounded memory. The index preserves source order, hidden selections, duplicate-ID fallback and metadata freshness.
 
-1. Integrate the proven safety and workflow repairs, review the combined tree and run exact-revision meaningful tests.
-2. Keep release publication opt-in while RAW/native UI qualification is deferred. A push to main remains a code consolidation, not implicit photo acceptance.
-3. Investigate proof/platform metrics with fieldwise diagnostics and measure mask boundaries. Do not convert uncertainty into aesthetic repairs.
-4. Execute the detailed master plan in bounded waves: durable reports, relink, snapshots and scope; then metadata interoperability and performance; then visual product choices.
-5. When originals are available, qualify camera decoding, skin/sky/foliage/B&W/HDR, local-edge/brush quality, native controls and update installation. Record device, source, SHA and output format.
+The connected two-photo generated lifecycle passes verified primary/backup ingest, AppState culling/gesture edits, brush/heal/LUT references, snapshots, actual exports, quit backup and reconstructed AppState. Source/copy bytes remain unchanged; exported decoded pixels match exactly before/after reconstruction. This does not replace a new-process, real-card or real-RAW test.
 
-The full integrated run discovered three baseline exact-colour kernels failing on macOS 27. A semantics-preserving Boolean syntax repair restored compilation and passed existing accuracy/parity tests. Reduced preview provenance refusal was correct and remains unchanged. The initial 3157-test run failed 42 assertions and skipped 78; it is not the final qualification result. The final rerun after those repairs executed 3158 tests: 3135 passed, 22 intentional skips, one reproduced baseline proof-drift failure. All repair-related checks passed.
+## Qualification currently available
 
-Final consolidation status: 20 confirmed defects repaired, catalog keyword additions delivered without deleting embedded source tags, all source checks green, and 3158 optimized tests with only the known baseline proof-drift failure. Local and GitHub main are consolidated through [PR #7](https://github.com/benedek-art/lumen/pull/7). No updater release was published; longer hosted checks remain visible on the PR/main workflows.
+First/second-wave combined optimized testing reached 3,174 tests: 3,151 passes, 22 intentional skips and the old proof failure. Hosted main CI reproduced only that failure; GPU parity, UI layout and full proof sweep passed. Third-wave combined workflow testing passed 25 tests; the color/curve/relink/generated lifecycle lane passed 20, with all ten recorded pre-readout LUT fingerprints unchanged. Independent final scope review passed 52 tests and ingest ownership review 45. Thirty-nine source-checker positive/negative fixtures pass. The full third-wave optimized run and exact-source source checks are in progress; their final counts will replace this pending statement after completion.
 
-## Autonomous second wave
+## What still needs work
 
-Reset now ends an interrupted slider gesture before recording its own undo step. Ingest/export reports survive restart and expose truthful per-file outcomes through Recent results. Release staging verifies a new candidate before promotion and retains the old release/assets/tag object with recovery evidence; no live promotion occurred. A manual Linux/macOS numerical fingerprint workflow supports investigation without changing proof records or the1e-6 gate.
+1. Owner acceptance: camera decode, skin/highlights/noise/foliage/B&W/HDR, local-edge/brush/heal quality, native keyboard/pointer/accessibility and update installation. Record device, source, revision and delivery format.
+2. Recipe compatibility: a malformed current recipe currently refuses an entire scoped source. Preserve this explicit safe refusal until a per-photo unavailable/read-only model guards editing/export and retains raw edit/payloads; a nil/default fallback would hide the problem.
+3. Scale: broad smart sources materialize catalog rows/recipes; paging, first-card latency, cold/settled rendering and bounded residency need further qualification. The selection scan repair does not settle these other costs.
+4. Metadata/delivery: hierarchical interoperability, IPTC editing, source-tag removal authority and persistent queue behavior remain concrete independent projects.
+5. Rendering product choices: tiny-brush deposition/resolution, spatial Uniformity/Variance, deconvolution and AI models need compatibility decisions and useful image corpora. Avoid changing saved looks solely to improve synthetic metrics.
 
-Combined optimized qualification: 3,174 tests, 3,151 passed, 22 intentional skips, one unchanged proof-drift failure. All-source checks pass; 35 checker fixtures, 31 release-policy controls and 18 mocked release recovery scenarios pass. See EXECUTION-SECOND-WAVE.md for contracts and limits. Per-file ingest crash checkpoints, live promotion, private RAW appearance and native daily-use acceptance remain open.
-
-The second wave is consolidated on local and GitHub main through [PR #8](https://github.com/benedek-art/lumen/pull/8), merge revision bff081457a1560a537b59a37e43345b065997b41. Hosted CI is running against the merge; the [Linux/macOS numerical fingerprint run](https://github.com/benedek-art/lumen/actions/runs/37697215629) was dispatched against that same source. Local optimized qualification remains 3,151 passes, 22 intentional skips and one unchanged proof failure. No release or installation occurred.
-
-## Autonomous third wave in progress
-
-Snapshots, explicit missing-original relinking, and an indexed sparse-selection path are combined on `codex/lumen-third-wave`, not yet published. Independent workflow tests and25 combined optimized workflow tests passed; full optimized qualification remains pending. The generated 20k-roll navigation bookkeeping probe improved from 23.57 ms median /51.27 ms p99 to0.079 ms /0.770 ms. This does not establish display latency or bounded memory. Smart-album scope fields exist in the database but are ignored by current service counts and photo loading; a complete shared-query implementation is in progress. A connected generated-shoot lifecycle test is also being added. Proof investigation isolated the numerical cause to platform Float atan2 rounding; a precise correction is being validated without widening tolerances. See EXECUTION-THIRD-WAVE.md for current evidence and limits.
+The master plan gives each remaining item acceptance criteria and its synthetic or owner/hardware gate. No private RAWs, user catalogs, installed app or updater release were changed by this audit.
