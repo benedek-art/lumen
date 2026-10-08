@@ -235,7 +235,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
     "NSCocoaErrorDomain", "NSFileReadNoSuchFileError", "NSPOSIXErrorDomain",
-    "ENOENT", "ENOTDIR", "NSFileReadNoPermissionError",
+    "ENOENT", "ENOTDIR", "S_IFMT", "S_IFREG", "NSFileReadNoPermissionError",
     "NSPopUpButton", "NSRect", "FileAttributeType",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
@@ -250,7 +250,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "SingleValueDecodingContainer", "SingleValueEncodingContainer",
     "UnkeyedDecodingContainer", "UnkeyedEncodingContainer",
     # XCTest
-    "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
+    "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless", "XCTSkipIf",
     # `XCTWaiter` for a test that must bound how long it waits rather than
     # assert on a value — a hang produces no failing test to assert on.
     "XCTWaiter", "XCTExpectFailure", "XCTExpectedFailure",
@@ -1859,6 +1859,9 @@ BINDERS = [
     re.compile(r"(?:^|[^\w.])(?:let|var)\s*\(\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)"),
     # `for x in`, `for (a, b) in`
     re.compile(r"\bfor\s+(?:case\s+)?\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
+    # A loop pattern may carry an explicit type: `for x: Float in values`.
+    # The `for` and `in` boundaries keep call-site labels from binding themselves.
+    re.compile(r"\bfor\s+([a-z_]\w*)\s*:\s*[^{}\n]+?\s+in\b"),
     # closure parameters: `{ raw in`, `{ u, v in`, `{ (a, b) in`
     re.compile(r"[{(]\s*\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
     # …and with a return type in the way: `{ raw -> Bool in`, `{ photo -> (…) in`,
