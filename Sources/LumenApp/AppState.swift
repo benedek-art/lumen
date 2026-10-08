@@ -3224,6 +3224,10 @@ final class AppState: ObservableObject {
     /// Commit the URL join only after the catalog transaction succeeds. The row ID,
     /// recipe, brush references and undo values continue to describe the same photo.
     func applyOriginalRelink(_ completion: CatalogService.OriginalRelinkCompletion) {
+        // A new gesture may have started while the catalog commit was awaited.
+        // Flush while the former URL still resolves its catalog ID; the service
+        // routes that ID to the committed destination before the URL joins move.
+        sliderGesture(active: false)
         let stored = completion.state
         let existing = allPhotos.first { $0.catalogID == stored.catalogID }
             ?? (primarySelection?.catalogID == stored.catalogID ? primarySelection : nil)

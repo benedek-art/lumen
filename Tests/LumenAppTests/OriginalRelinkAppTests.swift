@@ -57,6 +57,44 @@ final class OriginalRelinkAppTests: XCTestCase {
     }
 
     @MainActor
+    func testGestureStartedDuringRelinkCommitPersistsToMovedPhotoID() async throws {
+        try await withState { state, catalog, first, _, root in
+            let id = try XCTUnwrap(first.catalogID)
+            let destination = try move(first, root: root).standardizedFileURL.resolvingSymlinksInPath()
+            let prepared = try await catalog.prepareOriginalRelink(photoID: id, candidateURL: destination)
+            // Split the real catalog commit from its main-actor application to
+            // deterministically exercise an edit made while relink awaits completion.
+            let completion = try await catalog.commitOriginalRelink(prepared)
+            let previous = state.recipe(for: first)
+            state.sliderGesture(active: true)
+            state.updateRecipe { $0.develop.tone.exposure = 1.75 }
+            let expected = state.recipe(for: first)
+            state.applyOriginalRelink(completion)
+            XCTAssertFalse(state.sliderGestureActive)
+            XCTAssertEqual(state.recipes[destination], expected)
+            _ = try await catalog.exportKeywords(photoID: id)
+            catalog.flushSidecars()
+            _ = try await catalog.exportKeywords(photoID: id)
+            let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            defer { db.close() }
+            XCTAssertEqual(try db.currentRecipe(photoID: id), expected,
+                           "the gesture must remain durable after the old URL disappears from allPhotos")
+            let portable = try XCTUnwrap(CatalogService.readSidecar(for: destination)?.recipeJSON)
+            XCTAssertEqual(try CanonicalJSON.decodeRecipe(from: Data(portable.utf8)), expected)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: first.id.appendingPathExtension("xmp").path),
+                           "the pending gesture must not recreate a sidecar at the former source")
+            let moved = try XCTUnwrap(state.primarySelection)
+            state.undo()
+            XCTAssertEqual(state.recipe(for: moved), previous)
+            state.redo()
+            XCTAssertEqual(state.recipe(for: moved), expected)
+            _ = try await catalog.exportKeywords(photoID: id)
+            XCTAssertEqual(try db.currentRecipe(photoID: id), expected)
+
+        }
+    }
+
+    @MainActor
     func testProductionRelinkPreservesTwoPhotoRecipesBrushUndoSelectionAndPreviewJoin() async throws {
         try await withState { state, catalog, first, second, root in
             let otherRecipe = state.recipe(for: second)
