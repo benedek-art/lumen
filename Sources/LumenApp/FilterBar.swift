@@ -202,6 +202,8 @@ struct FilterBar: View {
         var filter: LibraryFilter
         var folderPath: String?
         var albumID: Int64?
+        var scope: CollectionQueryScope?
+        var unavailable: String?
         var culling: AppState.CullCounts
     }
 
@@ -209,6 +211,8 @@ struct FilterBar: View {
         CountRequest(filter: state.filter,
                      folderPath: state.folderURL?.path,
                      albumID: state.selectedCollectionID,
+                     scope: state.activeSmartCollection?.scope,
+                     unavailable: state.activeSmartCollection?.unavailableReason,
                      culling: state.cullCounts)
     }
 
@@ -219,22 +223,22 @@ struct FilterBar: View {
     /// hand-assembled query would be a second definition of what is on screen, and two
     /// definitions of what is on screen is the whole defect this closes.
     private func loadFacetCounts() async {
-        guard let catalog = state.catalog, let folder = state.folderURL else {
+        guard let catalog = state.catalog,
+              state.folderURL != nil || state.activeSmartCollection != nil,
+              state.activeSmartCollection?.unavailableReason == nil else {
             facets = FacetCounts()
             facetsCounted = true
             countedSource = nil
             return
         }
-        let source = folder.path + "#"
-            + (state.selectedCollectionID.map { String($0) } ?? "")
+        let source = (state.folderURL?.path ?? "catalog") + "#"
+            + (state.selectedCollectionID.map { String($0) } ?? "") + "#" + String(describing: state.activeSmartCollection?.scope)
         if countedSource != source {
             facets = FacetCounts()
             facetsCounted = false
         }
-        let query = state.filter.query(sort: state.sortOrder,
-                                       ascending: state.sortAscending,
-                                       albumID: state.selectedCollectionID)
-        let counted = await catalog.facetCounts(for: query, folderPath: folder.path)
+        let query = state.libraryPhotoQuery
+        let counted = await catalog.facetCounts(for: query, folderPath: state.folderURL?.path)
         // A chip clicked while the counts were in flight has already asked for its own
         // pass; letting this one land would put the previous filter's numbers under the
         // new filter's chips for as long as the newer read takes.

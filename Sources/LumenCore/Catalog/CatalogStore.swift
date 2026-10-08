@@ -895,6 +895,7 @@ public enum BackupRetention {
 /// All/Any toggle). Scope predicates (folder, album, missing) always AND — they are
 /// the source, not a chip.
 public struct PhotoQuery: Sendable {
+    public var sourceScope: CollectionQueryScope? = nil
 
     public enum RatingComparison: String, Sendable {
         case atLeast, exactly, atMost
@@ -3298,9 +3299,9 @@ public final class CatalogStore {
     ///     the catalog runs with `foreign_keys=ON`, so deleting the row alone fails.
     ///   · its place as a parent. Album sets nest one level (docs/10 §10.9); a child
     ///     of a deleted set moves up to the set's own parent rather than vanishing.
-    ///   · its place as a smart album's scope. A smart album scoped to this album is
-    ///     left with no scope, which reads "everywhere" — the broader answer, never a
-    ///     query pointed at a row that no longer exists.
+    ///   · its place as a smart album's scope. The explicit reference is retained;
+    ///     the query becomes unavailable until its owner deliberately changes scope.
+    ///     Deleting an album must never silently broaden another saved query.
     /// If it was the target album there is then no target, and `B` says so rather
     /// than silently promoting another album the photographer did not choose.
     public func deleteCollection(id: Int64) throws {
@@ -3311,10 +3312,6 @@ public final class CatalogStore {
             try self.db.run("DELETE FROM album_photo WHERE album_id = ?;", [.integer(id)])
             try self.db.run("UPDATE album SET parent_id = ? WHERE parent_id = ?;",
                             [.optionalInteger(row.parentID), .integer(id)])
-            try self.db.run("""
-            UPDATE album SET scope = NULL, scope_id = NULL
-             WHERE scope = 'album' AND scope_id = ?;
-            """, [.integer(id)])
             try self.db.run("DELETE FROM album WHERE id = ?;", [.integer(id)])
         }
     }
@@ -3831,10 +3828,9 @@ public final class CatalogStore {
         var conditions = ["photo.\(facet.column) IS NOT NULL"]
         var parameters: [SQLiteValue] = []
         if !query.includeMissing { conditions.append("photo.missing = 0") }
-        if let folderID = folderID {
-            conditions.append("photo.folder_id = ?")
-            parameters.append(.integer(folderID))
-        }
+        let source = try sourcePredicates(query.sourceScope, folderID: folderID)
+        conditions.append(contentsOf: source.conditions)
+        parameters.append(contentsOf: source.parameters)
         parameters.append(.int(limit))
         return try allRows("""
         SELECT photo.\(facet.column) FROM photo
@@ -3856,10 +3852,9 @@ public final class CatalogStore {
         var conditions: [String] = []
         var parameters: [SQLiteValue] = []
         if !query.includeMissing { conditions.append("photo.missing = 0") }
-        if let folderID = folderID {
-            conditions.append("photo.folder_id = ?")
-            parameters.append(.integer(folderID))
-        }
+        let source = try sourcePredicates(query.sourceScope, folderID: folderID)
+        conditions.append(contentsOf: source.conditions)
+        parameters.append(contentsOf: source.parameters)
         let scope = conditions.isEmpty
             ? "" : "WHERE " + conditions.joined(separator: " AND ")
         parameters.append(.int(limit))
@@ -4406,7 +4401,7 @@ public final class CatalogStore {
     /// interpolated fragments are compile-time constants chosen by an enum.
     public func photos(matching query: PhotoQuery,
                        folderID: Int64? = nil) throws -> [PhotoRow] {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows(built.sql, built.parameters, CatalogStore.decodePhoto)
     }
 
@@ -4423,7 +4418,7 @@ public final class CatalogStore {
     /// sort key.
     public func photoOrder(matching query: PhotoQuery,
                            folderID: Int64? = nil) throws -> [PhotoOrderRow] {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .order)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .order)
         return try allRows(built.sql, built.parameters) {
             PhotoOrderRow(id: $0.int(0), iso: $0.optionalIntValue(1))
         }
@@ -4432,14 +4427,14 @@ public final class CatalogStore {
     /// Live chip counts ride the same predicates and the same indexes.
     public func countPhotos(matching query: PhotoQuery,
                             folderID: Int64? = nil) throws -> Int {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .count)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .count)
         return Int((try db.scalarInt(built.sql, built.parameters)) ?? 0)
     }
 
     /// The `EXPLAIN QUERY PLAN` rows for a query — the CI assertion surface that keeps
     /// every UI-visible query index-backed (§15.2).
     public func queryPlan(for query: PhotoQuery, folderID: Int64? = nil) throws -> [String] {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows("EXPLAIN QUERY PLAN " + built.sql, built.parameters) {
             $0.string(3) ?? ""
         }
@@ -4449,18 +4444,71 @@ public final class CatalogStore {
     /// all three; only the projection differs.
     private enum PhotoProjection { case rows, order, count }
 
+    /// Shared by rows, order, counts and facet domains. Source restrictions always
+    /// AND with chips, including Match Any, and absent references are errors.
+    private func sourcePredicates(_ scope: CollectionQueryScope?, folderID: Int64?) throws
+        -> (conditions: [String], parameters: [SQLiteValue]) {
+        guard let scope else {
+            return folderID.map { (["photo.folder_id = ?"], [.integer($0)]) } ?? ([], [])
+        }
+        switch scope {
+        case .currentFolder:
+            guard let folderID, try folder(id: folderID) != nil else {
+                throw CatalogError.notFound("current folder for smart query")
+            }
+            return (["photo.folder_id = ?"], [.integer(folderID)])
+        case .everywhere: return ([], [])
+        case .album(let id):
+            guard let row = try collection(id: id), row.kind == "manual" else {
+                throw CatalogError.notFound("manual album scope")
+            }
+            return (["EXISTS (SELECT 1 FROM album_photo AS scope_ap WHERE scope_ap.photo_id = photo.id AND scope_ap.album_id = ?)"], [.integer(id)])
+        case .folderSubtree(let id):
+            guard let root = try folder(id: id) else { throw CatalogError.notFound("folder scope") }
+            let rootPath = URL(fileURLWithPath: root.path).standardizedFileURL.resolvingSymlinksInPath().path
+            var parts: [String] = []; var values: [SQLiteValue] = []
+            for row in try folders() {
+                let path = URL(fileURLWithPath: row.path).standardizedFileURL.resolvingSymlinksInPath().path
+                let prefix = path == "/" ? "/" : path + "/"
+                if path == rootPath || path.hasPrefix(rootPath == "/" ? "/" : rootPath + "/") {
+                    parts.append("photo.folder_id = ?"); values.append(.integer(row.id))
+                } else if rootPath.hasPrefix(prefix) {
+                    let relative = String(rootPath.dropFirst(prefix.count)) + "/"
+                    parts.append("(photo.folder_id = ? AND substr(photo.filename, 1, length(?)) = ?)")
+                    values += [.integer(row.id), .text(relative), .text(relative)]
+                }
+            }
+            return (["(" + parts.joined(separator: " OR ") + ")"], values)
+        }
+    }
+
+    public func updateCollectionScope(id: Int64, scope: CollectionQueryScope) throws {
+        guard try collection(id: id)?.kind == CollectionRow.smartKind else {
+            throw CatalogError.invalid("scope belongs to a smart album")
+        }
+        // Validation shares the query resolver; current-folder needs runtime context.
+        if scope != .currentFolder { _ = try sourcePredicates(scope, folderID: nil) }
+        try db.run("UPDATE album SET scope = ?, scope_id = ? WHERE id = ?;",
+                   [scope.storedName.map(SQLiteValue.text) ?? .null,
+                    scope.storedID.map(SQLiteValue.integer) ?? .null, .integer(id)])
+    }
+
     private func buildPhotoQuery(_ query: PhotoQuery, folderID: Int64?,
-                                 projection: PhotoProjection)
+                                 projection: PhotoProjection) throws
         -> (sql: String, parameters: [SQLiteValue]) {
 
         var parameters: [SQLiteValue] = []
         var joins: [String] = []
 
         let needsScoreJoin = (query.sortKey == .sharpness || query.sortKey == .aesthetic)
-        let hasAlbum = query.albumID != nil
+        let scopedOrderAlbum: Int64?
+        if query.sortKey == .userOrder, case .album(let id)? = query.sourceScope { scopedOrderAlbum = id }
+        else { scopedOrderAlbum = nil }
+        let joinedAlbumID = query.albumID ?? scopedOrderAlbum
+        let hasAlbum = joinedAlbumID != nil
 
         // JOIN parameters bind before WHERE parameters — keep this block first.
-        if let albumID = query.albumID {
+        if let albumID = joinedAlbumID {
             joins.append("JOIN album_photo AS ap ON ap.photo_id = photo.id "
                          + "AND ap.album_id = ?")
             parameters.append(.integer(albumID))
@@ -4471,10 +4519,9 @@ public final class CatalogStore {
 
         // Scope predicates always AND: they are the source, not a chip.
         var scope: [String] = []
-        if let folderID = folderID {
-            scope.append("photo.folder_id = ?")
-            parameters.append(.integer(folderID))
-        }
+        let source = try sourcePredicates(query.sourceScope, folderID: folderID)
+        scope.append(contentsOf: source.conditions)
+        parameters.append(contentsOf: source.parameters)
         if !query.includeMissing {
             scope.append("photo.missing = 0")
         }
@@ -5456,6 +5503,7 @@ public final class CatalogStore {
                             folderID: Int64? = nil) throws -> Int {
         throw CatalogError.unavailable
     }
+    public func updateCollectionScope(id: Int64, scope: CollectionQueryScope) throws { throw CatalogError.unavailable }
     public func queryPlan(for query: PhotoQuery, folderID: Int64? = nil) throws -> [String] {
         throw CatalogError.unavailable
     }

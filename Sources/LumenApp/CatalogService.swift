@@ -1180,9 +1180,9 @@ final class CatalogService: @unchecked Sendable {
     /// through the same query builder the grid uses, so an album row and the grid it
     /// opens can never report different numbers.
     ///
-    /// A smart album has no members; its number is its saved filter run over the open
-    /// folder — the grid it produces when clicked, which is the invariant every other
-    /// count in this column keeps.
+    /// A smart album has no members; its saved query runs over its explicit source.
+    /// NULL scopes retain the legacy current-folder source. Unavailable scopes carry
+    /// a reason so the sidebar can show a dash rather than claiming an empty result.
     func collections(folderPath: String?) async -> [CollectionItem] {
         await onQueue("album list", fallback: []) { store in
             let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
@@ -1191,15 +1191,18 @@ final class CatalogService: @unchecked Sendable {
                 if album.kind == CollectionRow.smartKind {
                     let filter = album.query.flatMap { LibraryFilter(savedJSON: $0) }
                     var count = 0
-                    if let filter {
-                        count = try store.countPhotos(
-                            matching: filter.query(sortKey: .captureTime, ascending: true,
-                                                   albumID: nil),
-                            folderID: folderID)
-                    }
+                    var scope: CollectionQueryScope?
+                    var unavailable: String?
+                    do {
+                        scope = try CollectionQueryScope(stored: album.scope, id: album.scopeID)
+                        guard let filter else { throw CatalogError.invalid("saved query format") }
+                        var query = filter.query(sortKey: .captureTime, ascending: true, albumID: nil)
+                        query.sourceScope = scope
+                        count = try store.countPhotos(matching: query, folderID: folderID)
+                    } catch { unavailable = String(describing: error) }
                     out.append(CollectionItem(id: album.id, name: album.name, count: count,
                                               isTarget: false, isSmart: true,
-                                              filter: filter))
+                                              filter: filter, scope: scope, unavailableReason: unavailable))
                     continue
                 }
                 var query = PhotoQuery()
@@ -1212,10 +1215,14 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    func createSmartCollection(name: String, query: String) async -> Int64? {
+    func createSmartCollection(name: String, query: String, scope: CollectionQueryScope = .currentFolder) async -> Int64? {
         await onQueue("smart album creation", fallback: nil) { (store: CatalogStore) -> Int64? in
-            try store.createCollection(name: name, kind: CollectionRow.smartKind,
-                                       query: query, pinned: true)
+            if scope != .currentFolder {
+                var source = PhotoQuery(); source.sourceScope = scope
+                _ = try store.countPhotos(matching: source)
+            }
+            return try store.createCollection(name: name, kind: CollectionRow.smartKind,
+                                       query: query, scope: scope.storedName, scopeID: scope.storedID, pinned: true)
         }
     }
 
@@ -2486,4 +2493,63 @@ extension CatalogService {
 }
 
 
+
+extension CatalogService {
+    struct SourceEntry: Sendable {
+        let url: URL
+        var state: StoredState
+    }
+
+    /// Read catalog truth without a filesystem scan or sidecar import. The serial
+    /// queue drains earlier edits before this read; unavailable originals stay usable
+    /// through their stable catalog IDs and cached previews.
+    func querySource(scope: CollectionQueryScope, folderPath: String?) async throws -> [SourceEntry] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let folderID = try folderPath.flatMap { try self.store.folder(path: $0)?.id }
+                    var query = PhotoQuery(); query.sourceScope = scope
+                    let rows = try self.store.photos(matching: query, folderID: folderID)
+                    let paths = Dictionary(uniqueKeysWithValues: try self.store.folders().map { ($0.id, $0.path) })
+                    var identities = Set<URL>()
+                    let entries = try rows.map { row -> SourceEntry in
+                        guard let path = paths[row.folderID] else { throw CatalogError.notFound("source folder") }
+                        let url = URL(fileURLWithPath: path).appendingPathComponent(row.filename).standardizedFileURL.resolvingSymlinksInPath()
+                        guard identities.insert(url).inserted else {
+                            throw CatalogError.invalid("multiple catalog rows identify the same source file; repair overlapping folder registrations before opening this scope")
+                        }
+                        return SourceEntry(url: url, state: StoredState(catalogID: row.id,
+                            flag: row.flag, rating: row.rating, label: ColorLabel(storedName: row.label),
+                            recipe: try self.store.currentRecipe(photoID: row.id), iso: row.iso,
+                            sourceIdentity: SourceFileIdentity.read(url)))
+                    }
+                    continuation.resume(returning: entries)
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    func smartScopeChoices(folderPath: String?) async -> [(String, CollectionQueryScope)] {
+        await onQueue("smart album scopes", fallback: []) { store in
+            var choices: [(String, CollectionQueryScope)] = [("Entire catalog", .everywhere)]
+            if folderPath != nil { choices.insert(("Current folder", .currentFolder), at: 0) }
+            if let path = folderPath, let folder = try store.folder(path: path) {
+                choices.append(("Folder and subfolders: " + URL(fileURLWithPath: path).lastPathComponent, .folderSubtree(folder.id)))
+            }
+            for row in try store.folders() where row.path != folderPath {
+                choices.append(("Folder and subfolders: " + row.path, .folderSubtree(row.id)))
+            }
+            for row in try store.collections() where row.kind == "manual" {
+                choices.append(("Album: " + row.name, .album(row.id)))
+            }
+            return choices
+        }
+    }
+
+    func updateSmartScope(_ id: Int64, scope: CollectionQueryScope) async -> Bool {
+        await onQueue("smart album scope", fallback: false) { store in
+            try store.updateCollectionScope(id: id, scope: scope); return true
+        }
+    }
+}
 #endif

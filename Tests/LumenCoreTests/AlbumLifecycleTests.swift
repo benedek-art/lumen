@@ -99,8 +99,8 @@ final class AlbumLifecycleTests: XCTestCase {
     }
 
     /// Sets nest one level: the children of a deleted set move up, and a smart album
-    /// scoped to the deleted album widens to everywhere instead of pointing at nothing.
-    func testDeletingASetReparentsItsChildrenAndClearsScopesThatNamedIt() throws {
+    /// scoped to the deleted album keeps its reference and refuses to widen.
+    func testDeletingASetReparentsItsChildrenAndPreservesUnavailableScopes() throws {
         let store = try makeStore()
         let set = try store.createCollection(name: "2026")
         let child = try store.createCollection(name: "Iceland", parentID: set)
@@ -115,8 +115,10 @@ final class AlbumLifecycleTests: XCTestCase {
         XCTAssertEqual(try store.collection(id: child)?.parentID, nil,
                        "a child album was orphaned under a parent that no longer exists")
         let scoped = try store.collection(id: smart)
-        XCTAssertNil(scoped?.scope)
-        XCTAssertNil(scoped?.scopeID)
+        XCTAssertEqual(scoped?.scope, "album")
+        XCTAssertEqual(scoped?.scopeID, set)
+        var query = PhotoQuery(); query.sourceScope = .album(set)
+        XCTAssertThrowsError(try store.countPhotos(matching: query))
         // A FOLDER scope that happens to carry the same number is not this album.
         XCTAssertEqual(try store.collection(id: elsewhere)?.scope, "folder")
         XCTAssertEqual(try store.collection(id: elsewhere)?.scopeID, set)
