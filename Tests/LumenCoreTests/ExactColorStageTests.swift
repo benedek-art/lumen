@@ -12,6 +12,34 @@ import XCTest
 
 final class ExactColorStageTests: XCTestCase {
 
+    func testLChHueUsesTheIndependentNearestFloatAngle() {
+        // Decimal (90 digits): atan2(0.04205507040023804, 0.04114961624145508)
+        // = 0.7962799833472703003176036267359247563875901598652596064155446…
+        // This lies 1.3286e-8 below the Float midpoint; nearest bits = 1061935361.
+        let lab = SIMD3<Float>(0.5, Float(bitPattern: 1026067584),
+                               Float(bitPattern: 1026310640))
+        let hue = ExactColorTwin.lch(lab).z
+        let expected = Float(bitPattern: 1061935361) * Float(57.2957795)
+        XCTAssertEqual(hue.bitPattern, expected.bitPattern)
+        XCTAssertNotEqual(hue.bitPattern,
+                          (Float(bitPattern: 1061935362) * Float(57.2957795)).bitPattern)
+    }
+
+    func testLChHuePreservesAxesWrapNeutralAndNonfiniteContract() {
+        let axes: [(Float, Float, Float)] =
+            [(1, 0, 0), (0, 1, 90), (-1, 0, 180), (0, -1, 270), (-1, -0.0, 180)]
+        for (a, b, expected) in axes {
+            XCTAssertEqual(ExactColorTwin.lch(SIMD3(0.5, a, b)).z,
+                           expected, accuracy: 0.00002)
+        }
+        XCTAssertEqual(ExactColorTwin.lch(SIMD3<Float>(0.5, 0, 0)).z, 0)
+        XCTAssertEqual(ExactColorTwin.lch(SIMD3<Float>(0.5, .nan, 1)).z, 0)
+        XCTAssertEqual(ExactColorTwin.lch(SIMD3<Float>(0.5, 1, .nan)).z, 0)
+        XCTAssertEqual(ExactColorTwin.lch(SIMD3<Float>(0.5, .infinity, 1)).z, 0)
+        XCTAssertEqual(ExactColorTwin.lch(SIMD3<Float>(0.5, 1, .infinity)).z,
+                       90, accuracy: 0.00002)
+    }
+
     // MARK: - Corpus
 
     /// Float32-quantized, like every pixel the stage ever sees: neutrals from −20 to +12

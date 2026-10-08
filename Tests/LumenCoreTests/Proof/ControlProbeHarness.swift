@@ -74,6 +74,21 @@ final class ControlProbeHarness: XCTestCase {
     /// Same guard shape as the probe below: nothing happens without the variable, so
     /// every lane skips it.
     func testDumpTheRegistry() throws {
+        if let directory = Self.flag("LUMEN_PROBE_RECORDS_DIR") {
+            // Diagnostic snapshots live outside the committed ruler. Never call
+            // ProofRecordStore.write or enable LUMEN_RECORD_PROOFS in this mode.
+            let destination = URL(fileURLWithPath: directory, isDirectory: true)
+            try FileManager.default.createDirectory(at: destination,
+                                                     withIntermediateDirectories: true)
+            for spec in ProofRegistry.all {
+                let record = ProofRunner.measure(spec)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                try encoder.encode(record).write(to:
+                    destination.appendingPathComponent(spec.id + ".json"), options: .atomic)
+            }
+            return
+        }
         guard Self.flag("LUMEN_PROBE_DUMP_REGISTRY") != nil else {
             throw XCTSkip("set LUMEN_PROBE_DUMP_REGISTRY=1 to print ProofRegistry as JSON")
         }
