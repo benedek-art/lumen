@@ -32,6 +32,11 @@
 //     are on disk.
 
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// A stop button, in the shape the copy loop can read.
 ///
@@ -105,6 +110,9 @@ public enum IngestCopyFailure: Sendable, Equatable {
     case unreadableSource(String)
     case unwritableDestination(String)
     case unreadableCopy(String)
+    case destinationChanged
+    /// Verification failed and removing the installed, unusable file also failed.
+    case unverifiedCopyRemains(verificationFailure: String, cleanupFailure: String)
     case verificationMismatch(expected: IngestDigest, found: IngestDigest)
     /// The source delivered fewer bytes than the card scan recorded, without raising an
     /// error — a clean premature EOF. Distinct from `verificationMismatch` because
@@ -126,6 +134,14 @@ public enum IngestCopyFailure: Sendable, Equatable {
             return "could not be written to the destination: " + why
         case .unreadableCopy(let why):
             return "landed but could not be read back to verify it: " + why
+        case .destinationChanged:
+            return "destination ownership changed or the file generation could not be verified. "
+                + "The current destination was left untouched; its bytes are not a verified delivery. "
+                + "Keep the source and inspect the destination before trying again."
+        case .unverifiedCopyRemains(let verificationFailure, let cleanupFailure):
+            return "the copy could not be verified (" + verificationFailure
+                + ") and could not be removed: " + cleanupFailure
+                + ". The unverified file remains at the destination; do not use it or eject the source."
         case .shortRead(let expected, let read):
             return "the source ended early — the card said \(expected) bytes and only "
                 + "\(read) arrived, so nothing was written"
@@ -384,6 +400,47 @@ public struct VerifiedCopyDriver: Sendable {
         self.verify = verify
         self.chunkSize = max(1, chunkSize)
         self.readback = readback
+    }
+
+    /// No-follow ownership: a replacement symlink must never authorize removal.
+    private struct InstalledOwnership: Equatable {
+        let device: UInt64
+        let inode: UInt64
+
+        static func read(_ url: URL) -> InstalledOwnership? {
+            #if canImport(Darwin) || canImport(Glibc)
+            var info = stat()
+            let status = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+                guard let path else { return -1 }
+                return lstat(path, &info)
+            }
+            guard status == 0, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else { return nil }
+            return InstalledOwnership(device: UInt64(truncatingIfNeeded: info.st_dev),
+                                      inode: UInt64(truncatingIfNeeded: info.st_ino))
+            #else
+            return nil
+            #endif
+        }
+    }
+
+    private func cleanupUnverifiedCopy(at url: URL, owner: InstalledOwnership?,
+                                       failure: IngestCopyFailure) -> IngestCopyFailure {
+        // This narrows the path race; filesystem APIs do not offer conditional unlink.
+        guard let owner, InstalledOwnership.read(url) == owner else { return .destinationChanged }
+        do {
+            try FileManager.default.removeItem(at: url)
+            return failure
+        } catch {
+            // Keep digests out of durable report details, as for ordinary mismatch reports.
+            let reason: String
+            switch failure {
+            case .verificationMismatch: reason = "Verification mismatch"
+            case .unreadableCopy(let why): reason = "Read-back failed: " + why
+            default: reason = "Verification failed"
+            }
+            return .unverifiedCopyRemains(verificationFailure: reason,
+                                          cleanupFailure: error.localizedDescription)
+        }
     }
 
     /// Copy the whole plan. Returns when every frame has a verdict, or as soon as
@@ -712,6 +769,7 @@ public struct VerifiedCopyDriver: Sendable {
         }
 
         for writer in live {
+            let installedOwner = InstalledOwnership.read(writer.temp)
             var landed = writer.final
             do {
                 // The window between planning the name and finishing the bytes is long
@@ -733,24 +791,35 @@ public struct VerifiedCopyDriver: Sendable {
                 continue
             }
 
+            guard let installedOwner, InstalledOwnership.read(landed) == installedOwner,
+                  let generation = SourceFileIdentity.read(landed) else {
+                results.append(verdict(writer.planned, landed, writer.role, .failed(.destinationChanged)))
+                continue
+            }
             let found: IngestDigest
             do {
                 found = try readback.digest(of: landed, chunkSize: chunkSize)
             } catch let error {
-                try? fm.removeItem(at: landed)
-                results.append(verdict(writer.planned, landed, writer.role,
-                                       .failed(.unreadableCopy(error.localizedDescription))))
+                let failure = cleanupUnverifiedCopy(at: landed, owner: installedOwner,
+                    failure: .unreadableCopy(error.localizedDescription))
+                results.append(verdict(writer.planned, landed, writer.role, .failed(failure)))
+                continue
+            }
+            guard InstalledOwnership.read(landed) == installedOwner else {
+                results.append(verdict(writer.planned, landed, writer.role, .failed(.destinationChanged)))
                 continue
             }
             guard found == inFlight else {
-                // DELETED, not kept. A file that failed its read-back is not evidence
-                // of anything, and leaving it at the destination is precisely how a
-                // truncated frame gets counted as ingested by the next run and by the
-                // photographer about to format the card.
-                try? fm.removeItem(at: landed)
-                results.append(verdict(writer.planned, landed, writer.role,
-                                       .failed(.verificationMismatch(expected: inFlight,
-                                                                     found: found))))
+                // Attempt removal; if the volume became unwritable, explicitly report
+                // the retained unusable file rather than claiming it was deleted.
+                let failure = cleanupUnverifiedCopy(at: landed, owner: installedOwner,
+                    failure: .verificationMismatch(expected: inFlight, found: found))
+                results.append(verdict(writer.planned, landed, writer.role, .failed(failure)))
+                continue
+            }
+            guard SourceFileIdentity.read(landed) == generation else {
+                // Same-inode writes during read-back also invalidate its digest.
+                results.append(verdict(writer.planned, landed, writer.role, .failed(.destinationChanged)))
                 continue
             }
             results.append(verdict(writer.planned, landed, writer.role, .verified(inFlight)))

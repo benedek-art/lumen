@@ -182,7 +182,8 @@
       "owner": "library",
       "acceptance": "Two-photo save/reopen/restore/delete/backup tests; snapshots not global session array",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "34311af named per-photo immutable snapshot rows and dependency-aware restore; 106 expanded plus20 focused isolated tests, combined qualification pending."
     },
     {
       "id": "APP-13",
@@ -203,7 +204,8 @@
       "owner": "library",
       "acceptance": "Identity/size/signature preflight, ambiguity refusal, transaction rollback and cache invalidation",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "d9527ce explicit missing-original review, preserved catalog ID/undo/debt/cache joins;38 isolated native tests. Combined qualification pending. Prefix identity is not full-byte equality."
     },
     {
       "id": "APP-15",
@@ -223,7 +225,8 @@
       "owner": "performance",
       "acceptance": "5k/20k roll, cold/warm next-photo, p50/p95/p99 drag/selection/cancel, memory bounded",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "partial-selection-performance-green",
+      "evidence": "5k/20k generated bookkeeping probe;20k navigation median23.57ms to0.079ms, p99 51.27ms to0.770ms.3 actual AppState correctness regressions and3 core tests. Display latency/cancel/bounded memory still open."
     },
     {
       "id": "APP-17",
@@ -233,7 +236,8 @@
       "owner": "app-controls",
       "acceptance": "Readout shares bake calculation, ordinary and adversarial fixtures byte-identical",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "ec7c87b read-only actual shared curve bake multiplier; ten original Darwin LUT byte fingerprints unchanged (all1024 samples each),3 focused tests green. Combined20-test color/curve/relink/generated lifecycle run passed."
     },
     {
       "id": "RENDER-01",
@@ -493,7 +497,8 @@
       "owner": "library",
       "acceptance": "Current/subtree/catalog results and count match including offline sources",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "4d5b82e scope acquisition/shared rows-order-count-facets;f7ec1d6 unavailable tombstones prevent ROWID reuse and reread after relink preserves actual source membership.52 isolated native tests passed; combined suite pending."
     },
     {
       "id": "LIB-03",
@@ -693,7 +698,8 @@
       "owner": "integration",
       "acceptance": "Import/cull/edit/mask/heal/LUT/export/quit/reopen restores all recipe and payload identities",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-targeted-green",
+      "evidence": "c46d780 generated two-photo verified primary/backup ingest to AppState cull, edits, brush/heal/LUT/snapshot, actual exports, quit backup and reconstructed AppState. Original/copy bytes unchanged; decoded before/after export pixels identical. Native isolated test passes. Same-process reconstruction does not qualify process restart or real RAW/native UI."
     },
     {
       "id": "UX-02",
@@ -734,7 +740,8 @@
       "owner": "integration",
       "acceptance": "All fixes together; baseline failures tracked separately; expected failures/skips reported",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "in-progress",
+      "evidence": "Full combined optimized release suite running onf7ec1d6; prior three-wave targeted lanes and proof correction pass. No final count claimed yet."
     },
     {
       "id": "QA-02",
@@ -754,7 +761,8 @@
       "owner": "filesystem",
       "acceptance": "No partial final outputs, no false success/eject, retry-safe reports",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "partial-filesystem-targeted-green",
+      "evidence": "PS-07/PS-08 ingest cleanup/ownership repairs and actual AppState partial/cancel/blocked output reports verified. Real ENOSPC/disconnect/removable volumes/eject remain hardware gates."
     },
     {
       "id": "QA-04",
@@ -764,7 +772,8 @@
       "owner": "compatibility",
       "acceptance": "Unknown fields/presets retained, unsupported blobs/recipes explicit, no silent downgrade",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "planned",
+      "evidence": "Scoped source refuses wholly if one current recipe is malformed; explicit safe refusal retained. Future per-photo unavailable/read-only containment must guard edit/export and preserve raw edit/payload, not nil/default fallback."
     },
     {
       "id": "QA-05",
@@ -814,7 +823,8 @@
       "owner": "app-ingest",
       "acceptance": "Same-source cross-directory hardlinks cannot count as two verified copies; ordinary re-ingest stays idempotent",
       "gate": "Synthetic/macOS tests now",
-      "status": "integrated-green"
+      "status": "integrated-targeted-green",
+      "evidence": "b5586a2 no-follow device/inode ownership pre/post readback plus stable generation before verified verdict;2624d0e safe signed-device identity conversion. Mismatch/error replacement and matching-digest replacement red;45 targeted green including same-inode mutation/symlink/read-only controls. Stat-to-unlink race remains bounded, not atomic."
     },
     {
       "id": "PS-09",

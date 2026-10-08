@@ -1,0 +1,246 @@
+{
+  "recordCount": 144,
+  "linuxVsCommitted": [
+    {
+      "id": "bw.orange",
+      "field": "meanSeparation",
+      "before": 19.501258660607725,
+      "after": 19.501257918621405,
+      "delta": -7.419863194968457e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "bw.red",
+      "field": "meanSeparation",
+      "before": 19.936793222387614,
+      "after": 19.936794653171145,
+      "delta": 1.4307835307647565e-06,
+      "exceeds1e6": true
+    },
+    {
+      "id": "cb.brilliance.mid",
+      "field": "meanSeparation",
+      "before": 29.471925822549597,
+      "after": 29.471925822362323,
+      "delta": -1.872741961506108e-10,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.density",
+      "field": "meanSeparation",
+      "before": 6.961254247414102,
+      "after": 6.961254528514393,
+      "delta": 2.8110029148820104e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.protectSkin",
+      "field": "frontLoading",
+      "before": 0.4390639459131562,
+      "after": 0.4390627432834667,
+      "delta": -1.2026296894451782e-06,
+      "exceeds1e6": true
+    },
+    {
+      "id": "color.protectSkin",
+      "field": "meanSeparation",
+      "before": 1.3650580354770752,
+      "after": 1.3650571180485989,
+      "delta": -9.174284762991647e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.saturation",
+      "field": "meanSeparation",
+      "before": 29.93437390941747,
+      "after": 29.934373871203647,
+      "delta": -3.8213823216892706e-08,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.vibrance",
+      "field": "meanSeparation",
+      "before": 22.076586628391524,
+      "after": 22.07658702443247,
+      "delta": 3.96040945815912e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "mixer.red.hue",
+      "field": "meanSeparation",
+      "before": 4.430364179862741,
+      "after": 4.43036303694729,
+      "delta": -1.1429154502806682e-06,
+      "exceeds1e6": true
+    },
+    {
+      "id": "mixer.red.sat",
+      "field": "meanSeparation",
+      "before": 6.974965180916494,
+      "after": 6.974965752807257,
+      "delta": 5.718907623020186e-07,
+      "exceeds1e6": false
+    }
+  ],
+  "macosVsCommitted": [
+    {
+      "id": "bw.orange",
+      "field": "meanSeparation",
+      "before": 19.501258660607725,
+      "after": 19.501257918621405,
+      "delta": -7.419863194968457e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "bw.red",
+      "field": "meanSeparation",
+      "before": 19.936793222387614,
+      "after": 19.936794653171145,
+      "delta": 1.4307835307647565e-06,
+      "exceeds1e6": true
+    },
+    {
+      "id": "cb.brilliance.mid",
+      "field": "meanSeparation",
+      "before": 29.471925822549597,
+      "after": 29.471925822362323,
+      "delta": -1.872741961506108e-10,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.density",
+      "field": "meanSeparation",
+      "before": 6.961254247414102,
+      "after": 6.961254512123935,
+      "delta": 2.647098327202002e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.protectSkin",
+      "field": "frontLoading",
+      "before": 0.4390639459131562,
+      "after": 0.4390627432834667,
+      "delta": -1.2026296894451782e-06,
+      "exceeds1e6": true
+    },
+    {
+      "id": "color.protectSkin",
+      "field": "meanSeparation",
+      "before": 1.3650580354770752,
+      "after": 1.3650571180485989,
+      "delta": -9.174284762991647e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.saturation",
+      "field": "meanSeparation",
+      "before": 29.93437390941747,
+      "after": 29.934373871203647,
+      "delta": -3.8213823216892706e-08,
+      "exceeds1e6": false
+    },
+    {
+      "id": "color.vibrance",
+      "field": "meanSeparation",
+      "before": 22.076586628391524,
+      "after": 22.07658702443247,
+      "delta": 3.96040945815912e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "denoise.colorDetail",
+      "field": "meanSeparation",
+      "before": 0.1846338881225259,
+      "after": 0.18463388812252599,
+      "delta": 8.326672684688674e-17,
+      "exceeds1e6": false
+    },
+    {
+      "id": "mixer.red.hue",
+      "field": "meanSeparation",
+      "before": 4.430364179862741,
+      "after": 4.43036303694729,
+      "delta": -1.1429154502806682e-06,
+      "exceeds1e6": true
+    },
+    {
+      "id": "mixer.red.sat",
+      "field": "meanSeparation",
+      "before": 6.974965180916494,
+      "after": 6.974965752807257,
+      "delta": 5.718907623020186e-07,
+      "exceeds1e6": false
+    },
+    {
+      "id": "primaries.tintHue",
+      "field": "meanSeparation",
+      "before": 2.100762808934675,
+      "after": 2.100762798577524,
+      "delta": -1.0357150692641426e-08,
+      "exceeds1e6": false
+    },
+    {
+      "id": "primaries.tintPurity",
+      "field": "meanSeparation",
+      "before": 2.633614899264273,
+      "after": 2.633614901726744,
+      "delta": 2.4624711159049184e-09,
+      "exceeds1e6": false
+    },
+    {
+      "id": "zones.bright.ev",
+      "field": "frontLoading",
+      "before": 0.9976190251055395,
+      "after": 0.9976190251055401,
+      "delta": 6.661338147750939e-16,
+      "exceeds1e6": false
+    }
+  ],
+  "patchedLinuxVsMacos": [
+    {
+      "id": "color.density",
+      "field": "meanSeparation",
+      "before": 6.961254528514393,
+      "after": 6.961254512123935,
+      "delta": -1.6390458768000826e-08,
+      "exceeds1e6": false
+    },
+    {
+      "id": "denoise.colorDetail",
+      "field": "meanSeparation",
+      "before": 0.1846338881225259,
+      "after": 0.18463388812252599,
+      "delta": 8.326672684688674e-17,
+      "exceeds1e6": false
+    },
+    {
+      "id": "primaries.tintHue",
+      "field": "meanSeparation",
+      "before": 2.100762808934675,
+      "after": 2.100762798577524,
+      "delta": -1.0357150692641426e-08,
+      "exceeds1e6": false
+    },
+    {
+      "id": "primaries.tintPurity",
+      "field": "meanSeparation",
+      "before": 2.633614899264273,
+      "after": 2.633614901726744,
+      "delta": 2.4624711159049184e-09,
+      "exceeds1e6": false
+    },
+    {
+      "id": "zones.bright.ev",
+      "field": "frontLoading",
+      "before": 0.9976190251055395,
+      "after": 0.9976190251055401,
+      "delta": 6.661338147750939e-16,
+      "exceeds1e6": false
+    }
+  ],
+  "sourceSHA": "6eaf06eaf6a5afad0e323fd60e492f0eba3a0132",
+  "artifactDirectorySHA256": {
+    "ubuntu-24.04": "e55bc8ea6854aac03c351486242f85db26ac7ee15eece6fa8ea7f7e41c3099ad",
+    "macos-15": "371467ab56d940c806266ee347e40f434d1201f7ba20f98be879f4200e2d6c9b"
+  }
+}

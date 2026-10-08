@@ -22,7 +22,7 @@ import LumenPipeline
 
 final class CatalogService: @unchecked Sendable {
 
-    struct StoredState {
+    struct StoredState: Sendable {
         var catalogID: Int64
         var flag: PhotoFlag
         var rating: Int
@@ -34,6 +34,7 @@ final class CatalogService: @unchecked Sendable {
         var sourceIdentity: SourceFileIdentity? = nil
     }
 
+    private var relinkedSources: [Int64: URL] = [:]
     private let store: CatalogStore
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
 
@@ -1179,9 +1180,9 @@ final class CatalogService: @unchecked Sendable {
     /// through the same query builder the grid uses, so an album row and the grid it
     /// opens can never report different numbers.
     ///
-    /// A smart album has no members; its number is its saved filter run over the open
-    /// folder — the grid it produces when clicked, which is the invariant every other
-    /// count in this column keeps.
+    /// A smart album has no members; its saved query runs over its explicit source.
+    /// NULL scopes retain the legacy current-folder source. Unavailable scopes carry
+    /// a reason so the sidebar can show a dash rather than claiming an empty result.
     func collections(folderPath: String?) async -> [CollectionItem] {
         await onQueue("album list", fallback: []) { store in
             let folderID = try folderPath.flatMap { try store.folder(path: $0)?.id }
@@ -1190,15 +1191,18 @@ final class CatalogService: @unchecked Sendable {
                 if album.kind == CollectionRow.smartKind {
                     let filter = album.query.flatMap { LibraryFilter(savedJSON: $0) }
                     var count = 0
-                    if let filter {
-                        count = try store.countPhotos(
-                            matching: filter.query(sortKey: .captureTime, ascending: true,
-                                                   albumID: nil),
-                            folderID: folderID)
-                    }
+                    var scope: CollectionQueryScope?
+                    var unavailable: String?
+                    do {
+                        scope = try CollectionQueryScope(stored: album.scope, id: album.scopeID)
+                        guard let filter else { throw CatalogError.invalid("saved query format") }
+                        var query = filter.query(sortKey: .captureTime, ascending: true, albumID: nil)
+                        query.sourceScope = scope
+                        count = try store.countPhotos(matching: query, folderID: folderID)
+                    } catch { unavailable = String(describing: error) }
                     out.append(CollectionItem(id: album.id, name: album.name, count: count,
                                               isTarget: false, isSmart: true,
-                                              filter: filter))
+                                              filter: filter, scope: scope, unavailableReason: unavailable))
                     continue
                 }
                 var query = PhotoQuery()
@@ -1211,10 +1215,14 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    func createSmartCollection(name: String, query: String) async -> Int64? {
+    func createSmartCollection(name: String, query: String, scope: CollectionQueryScope = .currentFolder) async -> Int64? {
         await onQueue("smart album creation", fallback: nil) { (store: CatalogStore) -> Int64? in
-            try store.createCollection(name: name, kind: CollectionRow.smartKind,
-                                       query: query, pinned: true)
+            if scope != .currentFolder {
+                var source = PhotoQuery(); source.sourceScope = scope
+                _ = try store.countPhotos(matching: source)
+            }
+            return try store.createCollection(name: name, kind: CollectionRow.smartKind,
+                                       query: query, scope: scope.storedName, scopeID: scope.storedID, pinned: true)
         }
     }
 
@@ -1467,6 +1475,7 @@ final class CatalogService: @unchecked Sendable {
                                 recipe: (json: String, fingerprint: String, version: Int)?,
                                 strokes: String?? = nil,
                                 keywordEdit: SidecarKeywordEdit? = nil) {
+        let url = photoID.flatMap { relinkedSources[$0] } ?? url
         sidecarLock.lock()
         guard !sidecarsClosed else { sidecarLock.unlock(); return }
         let queued = pendingSidecars[url]
@@ -2282,4 +2291,265 @@ final class CatalogService: @unchecked Sendable {
     }
 }
 
+// Named snapshots never become current rows: restoration uses the app's normal
+// undoable edit path, keeping each named recipe immutable across later edits.
+extension CatalogService {
+    func photoSnapshots(photoID: Int64) async throws -> [EditRow] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { continuation.resume(with: Result { try self.store.namedSnapshots(photoID: photoID) }) }
+        }
+    }
+
+    func createPhotoSnapshot(recipe: Recipe, photoID: Int64, name: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result {
+                    try PhotoSnapshotDependencies.validate(recipe, blobs: self.blobs)
+                    _ = try self.store.createNamedSnapshot(recipe, photoID: photoID, name: name)
+                })
+            }
+        }
+    }
+
+    func photoSnapshotRecipe(id: Int64, photoID: Int64) async throws -> Recipe {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result {
+                    let row = try self.store.namedSnapshot(id: id, photoID: photoID)
+                    guard row.pipelineVersion <= supportedPipelineVersion else {
+                        throw CatalogError.invalid("snapshot requires a newer pipeline")
+                    }
+                    let recipe = try CanonicalJSON.decodeRecipe(from: Data(row.recipeJSON.utf8))
+                    guard recipe.pipelineVersion <= supportedPipelineVersion else {
+                        throw CatalogError.invalid("snapshot requires a newer pipeline")
+                    }
+                    try PhotoSnapshotDependencies.validate(recipe, blobs: self.blobs)
+                    return recipe
+                })
+            }
+        }
+    }
+
+    func deletePhotoSnapshot(id: Int64, photoID: Int64) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async { continuation.resume(with: Result { try self.store.deleteNamedSnapshot(id: id, photoID: photoID) }) }
+        }
+    }
+}
+
+
+extension CatalogService {
+    struct OriginalRelinkPreparation: Sendable {
+        let target: OriginalRelinkTarget
+        let candidate: OriginalRelinkCandidate
+        let sidecar: URL
+        let sidecarIdentity: SourceFileIdentity?
+    }
+    struct OriginalRelinkCompletion: Sendable {
+        let result: OriginalRelinkResult
+        let state: StoredState
+    }
+
+    func missingOriginals(includePhotoID: Int64? = nil) async throws -> [OriginalRelinkTarget] {
+        try await withCheckedThrowingContinuation { continuation in
+            maintenance.async {
+                do {
+                    let rows = try self.queue.sync { try self.store.missingOriginalTargets(includePhotoID: includePhotoID) }
+                    continuation.resume(returning: rows.filter { (try? OriginalRelink.requireMissing($0.original)) != nil })
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    func prepareOriginalRelink(photoID: Int64, candidateURL: URL) async throws -> OriginalRelinkPreparation {
+        try await withCheckedThrowingContinuation { continuation in
+            maintenance.async {
+                do {
+                    let target = try self.queue.sync { try self.store.originalRelinkTarget(photoID: photoID) }
+                    guard target.original.pathExtension.lowercased() == candidateURL.pathExtension.lowercased() else {
+                        throw OriginalRelinkError.mismatch
+                    }
+                    if let full = target.fullHash, !full.isEmpty, !full.hasPrefix("xxh64:") { throw OriginalRelinkError.unsupportedHash }
+                    let candidate = try OriginalRelinkCandidate.inspect(candidateURL,
+                        fullHashRequired: target.fullHash?.isEmpty == false)
+                    let preparation = try self.queue.sync {
+                        try self.store.validateOriginalRelink(target, candidate: candidate)
+                        Self.forgetSiblings()
+                        let sidecar = Self.sidecarURL(for: candidate.url)
+                        try self.validateRelinkSidecar(sidecar, photoID: photoID, source: candidate.url)
+                        return OriginalRelinkPreparation(target: target, candidate: candidate, sidecar: sidecar,
+                            sidecarIdentity: SourceFileIdentity.read(sidecar))
+                    }
+                    continuation.resume(returning: preparation)
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    private func validateRelinkSidecar(_ url: URL, photoID: Int64, source: URL) throws {
+        if (try? OriginalRelink.requireMissing(url)) != nil { return }
+        guard let bytes = try? sidecarDataReader(url),
+              case .document = XMPSidecar.classify(bytes),
+              let content = XMPSidecar.parse(bytes), content.parsedCleanly,
+              content.sourceExtension == nil || content.sourceExtension == source.pathExtension.lowercased(),
+              let row = try store.photo(id: photoID) else { throw OriginalRelinkError.incompatibleSidecar }
+        if let json = content.recipeJSON {
+            guard content.pipelineVersion <= currentPipelineVersion,
+                  let incoming = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8)),
+                  let current = try store.currentRecipe(photoID: photoID),
+                  incoming.rendersSameAs(current) else { throw OriginalRelinkError.incompatibleSidecar }
+        }
+        guard (content.rating == 0 || content.rating == row.rating),
+              (content.flag == .none || content.flag == SidecarFlag(row.flag)),
+              (content.label == nil || content.label == row.label) else { throw OriginalRelinkError.incompatibleSidecar }
+    }
+
+    func commitOriginalRelink(_ preparation: OriginalRelinkPreparation) async throws -> OriginalRelinkCompletion {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let target = preparation.target
+                    let candidate = preparation.candidate
+                    Self.forgetSiblings()
+                    guard Self.sidecarURL(for: candidate.url) == preparation.sidecar,
+                          SourceFileIdentity.read(preparation.sidecar) == preparation.sidecarIdentity else {
+                        throw OriginalRelinkError.incompatibleSidecar
+                    }
+                    try self.validateRelinkSidecar(preparation.sidecar, photoID: target.photoID, source: candidate.url)
+                    // Decode before committing so an unsupported edit cannot leave the
+                    // database relinked while the caller receives an apparent failure.
+                    if let edit = try self.store.currentEdit(photoID: target.photoID), edit.pipelineVersion > supportedPipelineVersion {
+                        throw OriginalRelinkError.unavailableEditPayload
+                    }
+                    let recipe = try self.store.currentRecipe(photoID: target.photoID)
+                    if let recipe {
+                        let refs = recipe.masks.flatMap(\.components).filter { $0.kind == .brush }
+                            .compactMap(\.strokesRef).filter { !$0.isEmpty }
+                            + [BrushStrokes.healReference(in: recipe)].compactMap { $0 }
+                        guard refs.allSatisfy({ self.blobs.strokeSet(for: $0) != nil }),
+                              self.sidecarStrokes(for: recipe, url: candidate.url) != nil else {
+                            throw OriginalRelinkError.unavailableEditPayload
+                        }
+                    }
+                    guard let row = try self.store.photo(id: target.photoID) else { throw OriginalRelinkError.changedMapping }
+                    self.sidecarLock.lock()
+                    let result: OriginalRelinkResult
+                    do {
+                        let oldIdentity = IngestLocation.fileIdentity(of: target.original)
+                        let newIdentity = IngestLocation.fileIdentity(of: candidate.url)
+                        let matchingPending = self.pendingSidecars.filter {
+                            $0.value.photoID == target.photoID || IngestLocation.fileIdentity(of: $0.key) == oldIdentity
+                        }
+                        let matchingOwed = self.unsavedSidecars.filter {
+                            $0.value.photoID == target.photoID || IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.key)) == oldIdentity
+                        }
+                        guard matchingPending.count <= 1, matchingOwed.count <= 1,
+                              matchingPending.allSatisfy({ $0.value.photoID == target.photoID && IngestLocation.fileIdentity(of: $0.key) == oldIdentity }),
+                              matchingOwed.allSatisfy({ $0.value.photoID == target.photoID && IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.key)) == oldIdentity }),
+                              !self.pendingSidecars.keys.contains(where: { IngestLocation.fileIdentity(of: $0) == newIdentity }),
+                              !self.unsavedSidecars.keys.contains(where: { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0)) == newIdentity }) else { throw OriginalRelinkError.unsafeDebt }
+                        let pending = matchingPending.first?.value
+                        // Even a previously settled sidecar may remain beside the old
+                        // path. Owe a portable copy beside the chosen original before
+                        // committing, so a crash before enqueueing still recovers it.
+                        var fields: SidecarStatedFields = [.rating, .flag, .label, .keywords]
+                        if recipe != nil { fields.formUnion([.recipe, .strokes]) }
+                        fields.formUnion(pending?.stated ?? [])
+                        let extra = [UnsavedSidecarRecord(photoPath: target.original.path, photoID: target.photoID,
+                            stated: fields, keywordEdit: pending?.content.keywordEdit)]
+                        result = try self.store.relinkOriginal(target, candidate: candidate, additionalSidecarDebt: extra,
+                            sidecarMTime: Self.modificationTime(of: preparation.sidecar))
+                        if let pending {
+                            self.pendingSidecars.removeValue(forKey: matchingPending.first!.key)
+                            self.pendingSidecars[candidate.url] = pending
+                        }
+                        if let entry = matchingOwed.first, var owed = self.unsavedSidecars.removeValue(forKey: entry.key) {
+                            owed.photoPath = candidate.url.path
+                            self.unsavedSidecars[candidate.url.path] = owed
+                        }
+                        if let moving = extra.first {
+                            var moved = moving; moved.photoPath = candidate.url.path
+                            if let previous = self.unsavedSidecars[candidate.url.path] { moved = previous.merged(with: moved) }
+                            self.unsavedSidecars[candidate.url.path] = moved
+                        }
+                        self.reportedSidecarFailures.remove(target.original)
+                        self.sidecarLock.unlock()
+                    } catch { self.sidecarLock.unlock(); throw error }
+                    // A queued edit carrying the former URL still belongs to this ID.
+                    self.relinkedSources[target.photoID] = candidate.url
+                    self.sidecarLock.lock()
+                    let owed = self.unsavedSidecars[candidate.url.path]
+                    self.sidecarLock.unlock()
+                    if let owed { self.requeueUnsavedSidecars([owed]) }
+                    self.onInvalidatedPreviews?(result.invalidatedPreviews)
+                    continuation.resume(returning: OriginalRelinkCompletion(result: result,
+                        state: StoredState(catalogID: row.id, flag: row.flag, rating: row.rating,
+                            label: row.label.flatMap(ColorLabel.init(rawValue:)), recipe: recipe,
+                            iso: row.iso, sourceIdentity: candidate.identity)))
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+}
+
+
+
+extension CatalogService {
+    struct SourceEntry: Sendable {
+        let url: URL
+        var state: StoredState
+    }
+
+    /// Read catalog truth without a filesystem scan or sidecar import. The serial
+    /// queue drains earlier edits before this read; unavailable originals stay usable
+    /// through their stable catalog IDs and cached previews.
+    func querySource(scope: CollectionQueryScope, folderPath: String?) async throws -> [SourceEntry] {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let folderID = try folderPath.flatMap { try self.store.folder(path: $0)?.id }
+                    var query = PhotoQuery(); query.sourceScope = scope
+                    let rows = try self.store.photos(matching: query, folderID: folderID)
+                    let paths = Dictionary(uniqueKeysWithValues: try self.store.folders().map { ($0.id, $0.path) })
+                    var identities = Set<URL>()
+                    let entries = try rows.map { row -> SourceEntry in
+                        guard let path = paths[row.folderID] else { throw CatalogError.notFound("source folder") }
+                        let url = URL(fileURLWithPath: path).appendingPathComponent(row.filename).standardizedFileURL.resolvingSymlinksInPath()
+                        guard identities.insert(url).inserted else {
+                            throw CatalogError.invalid("multiple catalog rows identify the same source file; repair overlapping folder registrations before opening this scope")
+                        }
+                        return SourceEntry(url: url, state: StoredState(catalogID: row.id,
+                            flag: row.flag, rating: row.rating, label: ColorLabel(storedName: row.label),
+                            recipe: try self.store.currentRecipe(photoID: row.id), iso: row.iso,
+                            sourceIdentity: SourceFileIdentity.read(url)))
+                    }
+                    continuation.resume(returning: entries)
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    func smartScopeChoices(folderPath: String?) async -> [(String, CollectionQueryScope)] {
+        await onQueue("smart album scopes", fallback: []) { store in
+            var choices: [(String, CollectionQueryScope)] = [("Entire catalog", .everywhere)]
+            if folderPath != nil { choices.insert(("Current folder", .currentFolder), at: 0) }
+            if let path = folderPath, let folder = try store.folder(path: path) {
+                choices.append(("Folder and subfolders: " + URL(fileURLWithPath: path).lastPathComponent, .folderSubtree(folder.id)))
+            }
+            for row in try store.folders() where row.path != folderPath {
+                choices.append(("Folder and subfolders: " + row.path, .folderSubtree(row.id)))
+            }
+            for row in try store.collections() where row.kind == "manual" {
+                choices.append(("Album: " + row.name, .album(row.id)))
+            }
+            return choices
+        }
+    }
+
+    func updateSmartScope(_ id: Int64, scope: CollectionQueryScope) async -> Bool {
+        await onQueue("smart album scope", fallback: false) { store in
+            try store.updateCollectionScope(id: id, scope: scope); return true
+        }
+    }
+}
 #endif

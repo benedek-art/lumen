@@ -640,6 +640,9 @@ struct CurveEditorView: View {
                              help: "Raises or lowers the darkest of the four bands, "
                                  + "below the first split. Both ends of the curve are "
                                  + "pinned, so this cannot move black itself.")
+            if let caption = AppliedReadout.parametricEasingCaption(appliedScale: stack.parametricAppliedScale) {
+                DevelopNote(caption)
+            }
         }
     }
 

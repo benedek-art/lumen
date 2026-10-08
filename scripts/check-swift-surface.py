@@ -97,6 +97,25 @@ def _scan(text, blank_strings):
                     j += 1
             blank(i, j)
             i = j
+        elif text[i] == "#" and (raw := re.match(r'(#+)("""|")', text[i:])):
+            # Swift raw literals end at the matching quote/hash delimiter; XML
+            # attribute quotes inside them are prose, not Swift identifiers.
+            hashes, quotes = raw.groups()
+            delimiter = quotes + hashes
+            j = i + len(raw.group(0))
+            while True:
+                end = text.find(delimiter, j)
+                if end == -1:
+                    j = n
+                    break
+                if text[max(i, end - len(hashes) - 1):end] == "\\" + hashes:
+                    j = end + len(delimiter)
+                    continue
+                j = end + len(delimiter)
+                break
+            if blank_strings:
+                blank(i, j)
+            i = j
         elif text[i:i + 3] == '"""':
             j = text.find('"""', i + 3)
             j = n if j == -1 else j + 3
@@ -216,7 +235,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
     "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
     "NSCocoaErrorDomain", "NSFileReadNoSuchFileError", "NSPOSIXErrorDomain",
-    "ENOENT", "NSFileReadNoPermissionError",
+    "ENOENT", "ENOTDIR", "S_IFMT", "S_IFREG", "NSFileReadNoPermissionError",
+    "NSPopUpButton", "NSRect", "FileAttributeType",
     "NSCondition", "NSLock", "NSRecursiveLock", "NSRegularExpression", "NSRange",
     "NSLog", "NSAttributedString",
     "NSItemProvider", "NSSize", "NSPoint", "Notification", "NotificationCenter", "Locale",
@@ -230,7 +250,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "SingleValueDecodingContainer", "SingleValueEncodingContainer",
     "UnkeyedDecodingContainer", "UnkeyedEncodingContainer",
     # XCTest
-    "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless",
+    "XCTest", "XCTestCase", "XCTestExpectation", "XCTSkip", "XCTSkipUnless", "XCTSkipIf",
     # `XCTWaiter` for a test that must bound how long it waits rather than
     # assert on a value — a hang produces no failing test to assert on.
     "XCTWaiter", "XCTExpectFailure", "XCTExpectedFailure",
@@ -1839,6 +1859,9 @@ BINDERS = [
     re.compile(r"(?:^|[^\w.])(?:let|var)\s*\(\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)"),
     # `for x in`, `for (a, b) in`
     re.compile(r"\bfor\s+(?:case\s+)?\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
+    # A loop pattern may carry an explicit type: `for x: Float in values`.
+    # The `for` and `in` boundaries keep call-site labels from binding themselves.
+    re.compile(r"\bfor\s+([a-z_]\w*)\s*:\s*[^{}\n]+?\s+in\b"),
     # closure parameters: `{ raw in`, `{ u, v in`, `{ (a, b) in`
     re.compile(r"[{(]\s*\(?\s*((?:[a-z_]\w*\s*,\s*)*[a-z_]\w*)\s*\)?\s+in\b"),
     # …and with a return type in the way: `{ raw -> Bool in`, `{ photo -> (…) in`,
@@ -2290,7 +2313,7 @@ NESTED_TYPE = re.compile(
     r"\b(?:enum|struct|class|actor|extension)\s+[A-Z]\w*(?:\s*:[^{]*)?\s*\{")
 SWITCH_HEAD = re.compile(r"(?<![\w.])switch\s+[^\n{]{1,200}\{")
 SWITCH_CASE = re.compile(r"(?:^|\n)\s*case\s+((?:\.\w+(?:\([^)]*\))?\s*,?\s*)+):")
-HAS_DEFAULT = re.compile(r"(?:^|\n)\s*(?:@unknown\s+)?default\s*:")
+HAS_DEFAULT = re.compile(r"(?:^|\n|;|})\s*(?:@unknown\s+)?default\s*:")
 CASE_WHERE = re.compile(r"case[^:\n]*\bwhere\b")
 
 
@@ -2322,7 +2345,9 @@ def _enum_index():
             brace = text.find("{", m.end() - 1)
             if brace == -1:
                 continue
-            body = _own_body(brace_body(text, brace))
+            # Only declaration-depth cases belong to the enum. Initializer
+            # switches can contain patterns such as nil/let, not new cases.
+            body = _depth0_mask(_own_body(brace_body(text, brace)))
             found = set()
             for line in CASE_LINE.findall(body):
                 for part in line.split(","):

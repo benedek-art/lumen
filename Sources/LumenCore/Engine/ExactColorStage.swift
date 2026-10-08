@@ -269,7 +269,11 @@ enum ExactColorTwin {
     /// not promise it.
     @inline(__always) static func lch(_ lab: F3) -> F3 {
         let C = (lab.y * lab.y + lab.z * lab.z).squareRoot()
-        var h: Float = C > 0 ? atan2(lab.z, lab.y) * 57.2957795 : 0
+        // Widen the exact Float inputs, then round the angle once before the existing
+        // Float degree conversion. atan2f differs by one ULP across libm platforms
+        // for the proof chart's red patch; Double evaluation gives its independently
+        // verified nearest Float and avoids that upstream hue discrepancy.
+        var h: Float = C > 0 ? Float(atan2(Double(lab.z), Double(lab.y))) * 57.2957795 : 0
         if h < 0 { h += 360 }
         if h >= 360 { h = 0 }
         return F3(lab.x, C, h)

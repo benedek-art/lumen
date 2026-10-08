@@ -257,6 +257,8 @@ struct CollectionItem: Identifiable, Equatable, Sendable {
     /// The saved filter, or nil for a manual album — and for a smart album this build
     /// cannot read whole (a newer format), which the sidebar says rather than guessing.
     var filter: LibraryFilter? = nil
+    var scope: CollectionQueryScope? = nil
+    var unavailableReason: String? = nil
 }
 
 /// One value a metadata chip offers — a keyword, a camera body — and how many photos
@@ -296,9 +298,10 @@ final class AppState: ObservableObject {
 
     // MARK: Library
 
+    @Published var isRelinkingOriginal = false
     @Published var folderURL: URL?
     @Published private(set) var allPhotos: [PhotoItem] = [] {
-        didSet { invalidatePhotoCache() }
+        didSet { selectionMembershipIndex = nil; invalidatePhotoCache() }
     }
     @Published var filter = LibraryFilter() {
         didSet {
@@ -333,6 +336,9 @@ final class AppState: ObservableObject {
     }
     @Published var primarySelection: PhotoItem? {
         didSet {
+            if primarySelection?.id == oldValue?.id && primarySelection?.catalogID != oldValue?.catalogID {
+                refreshPhotoSnapshots()
+            }
             guard primarySelection?.id != oldValue?.id else { return }
             // A gesture cannot span photos: if a drag's release was dropped, the
             // switch is the moment its deferred writes land (audit queue item 4 —
@@ -348,6 +354,7 @@ final class AppState: ObservableObject {
             refreshPrimaryFrameSize()
             refreshPrimaryAsShotNeutral()
             refreshPrimaryLibraryDetail()
+            refreshPhotoSnapshots()
             // A photo whose recipe already carries a Subject mask needs its matte
             // before the first frame is worth looking at; the call is a no-op for the
             // overwhelming majority of photographs, which have no AI component at all.
@@ -1476,7 +1483,7 @@ final class AppState: ObservableObject {
     /// the signal now, and its header has the whole argument, including the rule for
     /// any view added later that reads a recipe.
     var recipes: [URL: Recipe] = [:] {
-        didSet { edits.bump() }
+        didSet { edits.bump(); sourceMutationRevision &+= 1 }
     }
 
     /// The invalidation the twelve edit-facing views subscribe to. Hung off `recipes`'
@@ -1608,6 +1615,7 @@ final class AppState: ObservableObject {
 
     let thumbnails = ThumbnailLoader()
     let history = HistoryStack()
+    let photoSnapshots = PhotoSnapshotsModel()
     private(set) var catalog: CatalogService? {
         didSet { refreshCommandState() }
     }
@@ -1779,6 +1787,7 @@ final class AppState: ObservableObject {
         // it on every event and publishes on none of them.
         history.onChange = { [weak self] in self?.refreshCommandState() }
         refreshCommandState()
+        refreshLibrarySections()
     }
 
     /// Bring `commands` up to date. Cheap and idempotent by construction, so it is
@@ -1859,7 +1868,10 @@ final class AppState: ObservableObject {
                                 revision: rollRevision) { list[$0].id }
     }
 
+    var sourceMutationRevision: UInt64 = 0
+
     func invalidatePhotoCache() {
+        sourceMutationRevision &+= 1
         photoCache = nil
         catalogIDCache = nil
         cullCountsCache = nil
@@ -1979,9 +1991,19 @@ final class AppState: ObservableObject {
     /// it. Deriving this from the filtered list meant narrowing a filter after
     /// selecting forty frames quietly shrank both the export and the count that
     /// promised what would be exported.
+    private var selectionMembershipIndex: SelectionMembershipIndex<URL>?
+
     var selectedPhotos: [PhotoItem] {
         if let selectedPhotosCache { return selectedPhotosCache }
-        let selected = allPhotos.filter { selection.contains($0.id) }
+        if selectionMembershipIndex == nil {
+            selectionMembershipIndex = SelectionMembershipIndex(allPhotos.map(\.id))
+        }
+        let selected: [PhotoItem]
+        if let positions = selectionMembershipIndex?.positions(for: selection) {
+            selected = positions.map { allPhotos[$0] }
+        } else {
+            selected = allPhotos.filter { selection.contains($0.id) }
+        }
         selectedPhotosCache = selected
         return selected
     }
@@ -2002,21 +2024,103 @@ final class AppState: ObservableObject {
 
     /// Which album is the source, or nil for the whole open folder.
     @Published var selectedCollectionID: Int64? {
-        didSet { if selectedCollectionID != oldValue { refreshLibraryQuery() } }
+        didSet {
+            guard selectedCollectionID != oldValue else { return }
+            if activeSmartCollection != nil && !isApplyingQuerySource {
+                let requested = selectedCollectionID
+                acquireQuerySource(scope: .currentFolder, album: nil, manualAlbumID: requested)
+            } else { refreshLibraryQuery() }
+        }
     }
 
     /// Re-run the grid query. Cheap enough to call on every chip, keystroke and cull
     /// decision: it is one indexed statement on the catalog's own serial queue, and a
     /// generation stamp drops anything that lands after a newer request.
+    private var isApplyingQuerySource = false
+    @Published private(set) var activeSmartCollection: CollectionItem?
+    /// A localized test seam for deterministic source-read races; production always
+    /// reads the catalog on its serial queue.
+    var querySourceLoader: ((CollectionQueryScope, String?) async throws -> [CatalogService.SourceEntry])?
+
+    var libraryPhotoQuery: PhotoQuery {
+        var query = filter.query(sort: sortOrder, ascending: sortAscending, albumID: selectedCollectionID)
+        query.sourceScope = activeSmartCollection?.scope
+        return query
+    }
+
+    private func acquireQuerySource(scope: CollectionQueryScope, album: CollectionItem?, manualAlbumID: Int64? = nil) {
+        guard let catalog else { return }
+        sliderGesture(active: false)
+        scanGeneration &+= 1
+        libraryQueryGeneration &+= 1
+        let generation = scanGeneration
+        let mutation = sourceMutationRevision
+        let mappingRevision = sourceRevision
+        let folder = folderURL
+        let loader = querySourceLoader
+        isScanning = true
+        statusMessage = "Opening smart album source…"
+        Task { [weak self] in
+            do {
+                var entries: [CatalogService.SourceEntry]
+                if let loader { entries = try await loader(scope, folder?.path) }
+                else { entries = try await catalog.querySource(scope: scope, folderPath: folder?.path) }
+                guard let self, self.scanGeneration == generation, self.folderURL == folder else { return }
+                // A relink can already be pending when source acquisition starts.
+                // Reload catalog truth after any mapping change; simply rebasing old
+                // URLs would retain wrong subtree membership after an actual move.
+                var observedMapping = mappingRevision
+                while self.sourceRevision != observedMapping {
+                    observedMapping = self.sourceRevision
+                    entries = try await catalog.querySource(scope: scope, folderPath: folder?.path)
+                    guard self.scanGeneration == generation, self.folderURL == folder else { return }
+                }
+                // Edits made while reading belong to the old visible roll. Flush them
+                // and retain its latest values for overlapping catalog identities.
+                self.sliderGesture(active: false)
+                let changed = self.sourceMutationRevision != mutation
+                var oldByID: [Int64: PhotoItem] = [:]
+                if changed { for item in self.allPhotos { if let id = item.catalogID { oldByID[id] = item } } }
+                var states: [URL: CatalogService.StoredState] = [:]
+                for entry in entries {
+                    var state = entry.state
+                    if let old = oldByID[state.catalogID] {
+                        state.flag = old.flag; state.rating = old.rating; state.label = old.label
+                        state.recipe = self.recipes[old.id]
+                    }
+                    states[entry.url] = state
+                }
+                self.isApplyingQuerySource = true
+                self.activeSmartCollection = album
+                // Suppress the source-switch observer while assigning its final source.
+                self.selectedCollectionID = nil
+                self.selection = []; self.primarySelection = nil
+                if let saved = album?.filter { self.filter = saved }
+                self.applyScan(entries.map(\.url), stored: states, restoreSourceState: false)
+                self.selectedCollectionID = manualAlbumID
+                self.isApplyingQuerySource = false
+                self.statusMessage = album.map { $0.name + ": " + scope.label }
+            } catch {
+                guard let self, self.scanGeneration == generation else { return }
+                self.isScanning = false
+                self.isApplyingQuerySource = true
+                if self.activeSmartCollection != nil { self.selectedCollectionID = nil }
+                self.isApplyingQuerySource = false
+                self.statusMessage = "Could not open smart album source: " + String(describing: error)
+            }
+        }
+    }
+
     func refreshLibraryQuery() {
-        guard let catalog, let folder = folderURL else {
+        guard let catalog, folderURL != nil || activeSmartCollection != nil else {
             libraryOrder = nil
             return
         }
         libraryQueryGeneration &+= 1
         let generation = libraryQueryGeneration
-        let query = filter.query(sort: sortOrder, ascending: sortAscending,
-                                 albumID: selectedCollectionID)
+        guard activeSmartCollection?.unavailableReason == nil else { libraryOrder = []; return }
+        let folderPath = folderURL?.path
+        let query = libraryPhotoQuery
         // Photos the catalog has no row for cannot be ordered by it. There should be
         // none — registration runs before the grid appears — but a photograph silently
         // missing from a contact sheet is the worst failure this app has, so any stray
@@ -2025,7 +2129,7 @@ final class AppState: ObservableObject {
         Task { [weak self] in
             // Ids and ISO only: the whole `PhotoRow` was read and thrown away here on
             // every chip and every filtered cull decision.
-            let rows = await catalog.photoOrder(matching: query, folderPath: folder.path)
+            let rows = await catalog.photoOrder(matching: query, folderPath: folderPath)
             guard let self, self.libraryQueryGeneration == generation else { return }
             var byID = [Int64: URL](minimumCapacity: self.allPhotos.count)
             for item in self.allPhotos {
@@ -2175,7 +2279,7 @@ final class AppState: ObservableObject {
     /// name and small ones, and re-choosing on every visit is the friction the spec
     /// calls out. `source_state` has held these columns since migration 2 with nothing
     /// reading or writing them.
-    private var sourceKey: String? { folderURL.map { "folder:" + $0.path } }
+    private var sourceKey: String? { activeSmartCollection.map { "smart:" + String($0.id) } ?? folderURL.map { "folder:" + $0.path } }
 
     /// True while the stored state is being applied, so restoring it does not
     /// immediately write it back.
@@ -2244,32 +2348,54 @@ final class AppState: ObservableObject {
     /// anything that could change membership — never on a timer, because a list that
     /// refreshes on its own while you are reading it is its own kind of wrong.
     func refreshLibrarySections() {
-        guard let catalog, let folder = folderURL else {
+        guard let catalog else {
             collections = []
             keywordVocabulary = []
             cameraChoices = []
             lensChoices = []
             return
         }
+        let folder = folderURL
+        let activeID = activeSmartCollection?.id
+        let activeScope = activeSmartCollection?.scope
+        let query = libraryPhotoQuery
         Task { [weak self] in
-            let albums = await catalog.collections(folderPath: folder.path)
+            let albums = await catalog.collections(folderPath: folder?.path)
             let keywords = await catalog.allKeywords()
-            let cameras = await catalog.facets(.camera, folderPath: folder.path)
-            let lenses = await catalog.facets(.lens, folderPath: folder.path)
+            let scopedFacets = folder != nil || activeScope != nil
+                ? await catalog.facetCounts(for: query, folderPath: folder?.path) : FacetCounts()
+            let cameras = scopedFacets.cameras
+            let lenses = scopedFacets.lenses
             guard let self else { return }
             // The folder guard its siblings all carry: two overlapping refreshes
             // (folder A then B) can resume out of order, and A's chips must not
             // replace B's. Membership changes re-call this, so a dropped stale
             // answer costs nothing.
-            guard self.folderURL == folder else { return }
+            guard self.folderURL == folder, self.activeSmartCollection?.scope == activeScope, self.activeSmartCollection?.id == activeID else { return }
+            if let active = self.activeSmartCollection {
+                if let current = albums.first(where: { $0.id == active.id }) {
+                    self.activeSmartCollection = current
+                } else {
+                    var unavailable = active; unavailable.unavailableReason = "Smart album was deleted"
+                    self.activeSmartCollection = unavailable
+                }
+                if let reason = self.activeSmartCollection?.unavailableReason {
+                    self.sliderGesture(active: false)
+                    self.selection = []; self.primarySelection = nil
+                    self.libraryQueryGeneration &+= 1
+                    self.libraryOrder = []
+                    self.sourceRevision &+= 1
+                    self.statusMessage = "Smart album source unavailable: " + reason
+                }
+            }
             self.collections = albums
             self.keywordVocabulary = keywords.map {
                 LibraryFacet(name: $0.value, count: $0.count)
             }
-            self.cameraChoices = cameras.map {
+            self.cameraChoices = (self.activeSmartCollection?.unavailableReason == nil ? cameras : []).map {
                 LibraryFacet(name: $0.value, count: $0.count)
             }
-            self.lensChoices = lenses.map {
+            self.lensChoices = (self.activeSmartCollection?.unavailableReason == nil ? lenses : []).map {
                 LibraryFacet(name: $0.value, count: $0.count)
             }
         }
@@ -2338,34 +2464,70 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Open a smart album: its saved filter goes into the bar, over the whole open
-    /// folder. The bar is then the editor (docs/10 §10.8: "Edit — reopens the bar
-    /// populated"), and "Update to Current Filter" saves it back.
+    /// Acquire the saved query's actual source before presenting its filter. A scope
+    /// failure keeps the previous roll and refuses to widen the requested source.
+    func showWholeFolder() {
+        guard folderURL != nil else { chooseFolder(); return }
+        if activeSmartCollection != nil { acquireQuerySource(scope: .currentFolder, album: nil) }
+        else { selectedCollectionID = nil }
+    }
+
     func applySmartCollection(_ album: CollectionItem) {
         guard let saved = album.filter else {
             statusMessage = "\"\(album.name)\" was saved by a newer Lumen and cannot "
                 + "be opened by this one"
             return
         }
-        selectedCollectionID = nil
-        filter = saved
-        statusMessage = "\(album.name): " + saved.sentence(catalogLive: isLibraryQueryLive)
+        guard let scope = album.scope, album.unavailableReason == nil else {
+            statusMessage = album.unavailableReason ?? "Smart album scope is unavailable"
+            return
+        }
+        _ = saved
+        acquireQuerySource(scope: scope, album: album)
     }
 
     /// Save the bar as a smart album, named for what it asks — rename it after.
-    func saveFilterAsSmartCollection() {
+    func saveFilterAsSmartCollection(scope: CollectionQueryScope = .currentFolder) {
         guard let catalog, filter.isActive else { return }
         let words = filter.sentence(catalogLive: true)
             .replacingOccurrences(of: "  ", with: " ")
         let name = words.count > 60 ? String(words.prefix(59)) + "…" : words
         let query = filter.savedJSON()
         Task { [weak self] in
-            let id = await catalog.createSmartCollection(name: name, query: query)
+            let id = await catalog.createSmartCollection(name: name, query: query, scope: scope)
             guard let self else { return }
             self.statusMessage = id == nil
                 ? "Could not save the filter as a smart album"
                 : "Saved smart album \"\(name)\" — right-click it to rename"
             self.refreshLibrarySections()
+        }
+    }
+
+    func chooseSmartCollectionScope(_ album: CollectionItem? = nil) {
+        guard let catalog else { return }
+        let folder = folderURL
+        Task { [weak self] in
+            let choices = await catalog.smartScopeChoices(folderPath: folder?.path)
+            guard let self, self.folderURL == folder, !choices.isEmpty else { return }
+            let alert = NSAlert()
+            alert.messageText = album == nil ? "Save Smart Album" : "Change Smart Album Scope"
+            alert.informativeText = "Choose where this saved filter searches. Offline originals remain in the catalog; missing-photo filters still apply."
+            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 420, height: 26))
+            popup.addItems(withTitles: choices.map(\.0))
+            if let current = album?.scope, let index = choices.firstIndex(where: { $0.1 == current }) { popup.selectItem(at: index) }
+            alert.accessoryView = popup
+            alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            let scope = choices[popup.indexOfSelectedItem].1
+            if let album {
+                let success = await catalog.updateSmartScope(album.id, scope: scope)
+                self.statusMessage = success ? "Updated smart album scope" : "Could not change smart album scope"
+                self.refreshLibrarySections()
+                if success, self.activeSmartCollection?.id == album.id {
+                    var changed = album; changed.scope = scope; changed.unavailableReason = nil
+                    self.applySmartCollection(changed)
+                }
+            } else { self.saveFilterAsSmartCollection(scope: scope) }
         }
     }
 
@@ -2964,6 +3126,7 @@ final class AppState: ObservableObject {
     ///   keys relative filenames on it — but the scan is replaced by the chosen list.
     func openFolder(_ url: URL, restrictedTo restriction: Set<URL>? = nil) {
         rememberFolder(url, restrictedTo: restriction)
+        activeSmartCollection = nil
         folderURL = url
         selection = []
         primarySelection = nil
@@ -3068,7 +3231,49 @@ final class AppState: ObservableObject {
         return found.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
-    private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState]) {
+    /// Commit the URL join only after the catalog transaction succeeds. The row ID,
+    /// recipe, brush references and undo values continue to describe the same photo.
+    func applyOriginalRelink(_ completion: CatalogService.OriginalRelinkCompletion) {
+        // A new gesture may have started while the catalog commit was awaited.
+        // Flush while the former URL still resolves its catalog ID; the service
+        // routes that ID to the committed destination before the URL joins move.
+        sliderGesture(active: false)
+        let stored = completion.state
+        let existing = allPhotos.first { $0.catalogID == stored.catalogID }
+            ?? (primarySelection?.catalogID == stored.catalogID ? primarySelection : nil)
+        let old = existing?.id ?? completion.result.original
+        let new = completion.result.destination
+        let item = PhotoItem(id: new, catalogID: stored.catalogID, flag: existing?.flag ?? stored.flag,
+            rating: existing?.rating ?? stored.rating, label: existing.map(\.label) ?? stored.label,
+            iso: existing?.iso ?? stored.iso, sourceIdentity: stored.sourceIdentity)
+        if let index = allPhotos.firstIndex(where: { $0.id == old }) {
+            var updated = allPhotos; updated[index] = item; allPhotos = updated
+        }
+        var updatedRecipes = recipes
+        let current = updatedRecipes.removeValue(forKey: old) ?? stored.recipe
+        if let current { updatedRecipes[new] = current }
+        recipes = updatedRecipes
+        history.relinkSource(from: old, to: new)
+        if selection.remove(old) != nil { selection.insert(new) }
+        if primarySelection?.id == old { primarySelection = item }
+        if let order = libraryOrder { libraryOrder = order.map { $0 == old ? new : $0 } }
+        availableMattes.removeValue(forKey: old); availableMattes.removeValue(forKey: new)
+        attemptedMattes.removeValue(forKey: old); attemptedMattes.removeValue(forKey: new)
+        pendingMattes.remove(old); pendingMattes.remove(new)
+        unreadableMatteSources.remove(old); unreadableMatteSources.remove(new)
+        previews?.relinkSource(from: old, to: new, photoID: stored.catalogID)
+        sourceRevision &+= 1
+        refreshSelectionFrames()
+        refreshMaskThumbnails()
+        refreshMaskOverlayIfSourceChanged()
+        refreshLibrarySections()
+        Task {
+            await renderCoordinator.invalidate(url: old)
+            await renderCoordinator.invalidate(url: new)
+        }
+    }
+
+    private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState], restoreSourceState: Bool = true) {
         // The old roll's last deferred writes land BEFORE its state is wiped — a
         // gesture whose release never arrived must not lose its edit to a folder
         // switch (the same promise `prepareToQuit` makes at the other exit).
@@ -3112,7 +3317,7 @@ final class AppState: ObservableObject {
             loadStrokeSets(for: recipe)
         }
         // The grid's order and membership are the catalog's answer from here on.
-        loadSourceState()
+        if restoreSourceState { loadSourceState() }
         refreshLibraryQuery()
         refreshLibrarySections()
         isScanning = false

@@ -895,6 +895,7 @@ public enum BackupRetention {
 /// All/Any toggle). Scope predicates (folder, album, missing) always AND — they are
 /// the source, not a chip.
 public struct PhotoQuery: Sendable {
+    public var sourceScope: CollectionQueryScope? = nil
 
     public enum RatingComparison: String, Sendable {
         case atLeast, exactly, atMost
@@ -2177,6 +2178,117 @@ public final class CatalogStore {
         }
     }
 
+    // MARK: - Explicit missing-original relinking
+
+    public func missingOriginalTargets(includePhotoID: Int64? = nil) throws -> [OriginalRelinkTarget] {
+        try allRows("""
+            SELECT p.id, f.path, p.filename, p.file_size, p.quick_sig, p.full_hash
+            FROM photo p JOIN folder f ON f.id = p.folder_id
+            WHERE p.missing = 1 OR f.online = 0 OR p.id = ? ORDER BY p.id;
+            """, [.optionalInteger(includePhotoID)]) { s in
+                OriginalRelinkTarget(photoID: s.int(0),
+                    original: URL(fileURLWithPath: s.string(1) ?? "").appendingPathComponent(s.string(2) ?? ""),
+                    fileSize: s.int(3), quickSignature: s.string(4) ?? "", fullHash: s.string(5))
+            }
+    }
+
+    public func originalRelinkTarget(photoID: Int64) throws -> OriginalRelinkTarget {
+        guard let row = try photo(id: photoID), let folder = try folder(id: row.folderID) else {
+            throw CatalogError.notFound("photo \(photoID)")
+        }
+        return OriginalRelinkTarget(photoID: photoID,
+            original: URL(fileURLWithPath: folder.path).appendingPathComponent(row.filename),
+            fileSize: row.fileSize, quickSignature: row.quickSig ?? "", fullHash: row.fullHash)
+    }
+
+    public func validateOriginalRelink(_ target: OriginalRelinkTarget,
+                                      candidate: OriginalRelinkCandidate) throws {
+        guard try originalRelinkTarget(photoID: target.photoID) == target else { throw OriginalRelinkError.changedMapping }
+        try OriginalRelink.requireMissing(target.original)
+        guard target.fileSize > 0, !target.quickSignature.isEmpty else { throw OriginalRelinkError.unavailableIdentity }
+        guard target.original.pathExtension.lowercased() == candidate.url.pathExtension.lowercased() else { throw OriginalRelinkError.mismatch }
+        try candidate.verifyUnchanged()
+        guard target.fileSize == candidate.fileSize, target.quickSignature == candidate.quickSignature else {
+            throw OriginalRelinkError.mismatch
+        }
+        if let full = target.fullHash, !full.isEmpty {
+            guard full.hasPrefix("xxh64:") else { throw OriginalRelinkError.unsupportedHash }
+            guard candidate.fullHash == full else { throw OriginalRelinkError.mismatch }
+        }
+        guard try db.scalarInt("SELECT COUNT(*) FROM photo WHERE file_size = ? AND quick_sig = ?;",
+            [.integer(target.fileSize), .text(target.quickSignature)]) == 1 else { throw OriginalRelinkError.ambiguous }
+        let rows = try db.prepare("SELECT p.id, f.path, p.filename FROM photo p JOIN folder f ON f.id = p.folder_id WHERE p.id <> ?;")
+        try rows.bind(1, target.photoID)
+        let candidateIdentity = IngestLocation.fileIdentity(of: candidate.url)
+        while try rows.step() {
+            let url = URL(fileURLWithPath: rows.string(1) ?? "").appendingPathComponent(rows.string(2) ?? "")
+            if IngestLocation.fileIdentity(of: url) == candidateIdentity { throw OriginalRelinkError.alreadyRegistered }
+        }
+    }
+
+    /// Only database mappings/debt/cache rows change here. No sidecar or original is
+    /// written. Any SQL failure rolls all those changes back together.
+    public func relinkOriginal(_ target: OriginalRelinkTarget, candidate: OriginalRelinkCandidate,
+                               additionalSidecarDebt: [UnsavedSidecarRecord] = [],
+                               sidecarMTime: Int64? = nil) throws -> OriginalRelinkResult {
+        try db.transaction {
+            try self.validateOriginalRelink(target, candidate: candidate)
+            var debt: [UnsavedSidecarRecord] = []
+            if let raw = try self.metaValue(UnsavedSidecarRecord.metaKey) {
+                let supportedFields: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes, .keywords]
+                guard let objects = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]],
+                      objects.allSatisfy({ object in
+                          guard Set(object.keys).isSubset(of: ["photoPath", "photoID", "stated", "keywordEdit"]) else { return false }
+                          if let edit = object["keywordEdit"] as? [String: Any], !Set(edit.keys).isSubset(of: ["added", "removed"]) { return false }
+                          return true
+                      }),
+                      let parsed = try? JSONDecoder().decode([UnsavedSidecarRecord].self, from: Data(raw.utf8)),
+                      Set(parsed.map { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) }).count == parsed.count,
+                      parsed.allSatisfy({ $0.stated & ~supportedFields.rawValue == 0 }) else {
+                    throw OriginalRelinkError.unsafeDebt
+                }
+                debt = parsed
+            }
+            for record in additionalSidecarDebt {
+                guard record.photoID == target.photoID,
+                      IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: target.original) else {
+                    throw OriginalRelinkError.unsafeDebt
+                }
+                if let index = debt.firstIndex(where: { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) == IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) }) {
+                    guard debt[index].photoID == target.photoID else { throw OriginalRelinkError.unsafeDebt }
+                    debt[index] = debt[index].merged(with: record)
+                } else { debt.append(record) }
+            }
+            for index in debt.indices {
+                let record = debt[index]
+                if IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: candidate.url) { throw OriginalRelinkError.unsafeDebt }
+                if IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: target.original) || record.photoID == target.photoID {
+                    guard IngestLocation.fileIdentity(of: URL(fileURLWithPath: record.photoPath)) == IngestLocation.fileIdentity(of: target.original), record.photoID == target.photoID else {
+                        throw OriginalRelinkError.unsafeDebt
+                    }
+                    debt[index].photoPath = candidate.url.path
+                }
+            }
+            let folder = try self.registerFolder(path: candidate.url.deletingLastPathComponent().path)
+            let previews = try self.previews(photoID: target.photoID)
+            try self.db.run("""
+                UPDATE photo SET folder_id = ?, filename = ?, file_size = ?, file_mtime = ?,
+                  quick_sig = ?, missing = 0, sidecar_mtime = ? WHERE id = ?;
+                """, [.integer(folder), .text(candidate.url.lastPathComponent), .integer(candidate.fileSize),
+                      .integer(candidate.fileMTime), .text(candidate.quickSignature),
+                      .optionalInteger(sidecarMTime), .integer(target.photoID)])
+            try self.setMetaValue("source_identity_\(target.photoID)", candidate.identity.token)
+            try self.setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode(debt))
+            for table in ["preview", "artifact", "raw_stats", "frame_score", "face", "feature_print"] {
+                try self.db.run("DELETE FROM cache.\(table) WHERE photo_id = ?;", [.integer(target.photoID)])
+            }
+            self.reindexText(photoID: target.photoID)
+            try candidate.verifyUnchanged()
+            return OriginalRelinkResult(photoID: target.photoID, original: target.original,
+                destination: candidate.url, invalidatedPreviews: previews)
+        }
+    }
+
     // MARK: - Scan reconciliation
 
     /// Which of the listed files could possibly be a relocation, so the scanner can
@@ -2642,6 +2754,44 @@ public final class CatalogStore {
         try allRows("SELECT \(CatalogStore.editColumns) FROM edit "
                     + "WHERE photo_id = ? ORDER BY id;",
                     [.integer(photoID)], CatalogStore.decodeEdit)
+    }
+
+    public func namedSnapshots(photoID: Int64) throws -> [EditRow] {
+        try edits(photoID: photoID).filter { $0.kind == .snapshot }
+    }
+
+    public func namedSnapshot(id: Int64, photoID: Int64) throws -> EditRow {
+        guard let row = try namedSnapshots(photoID: photoID).first(where: { $0.id == id }) else {
+            throw CatalogError.notFound("snapshot for this photograph")
+        }
+        return row
+    }
+
+    @discardableResult
+    public func createNamedSnapshot(_ recipe: Recipe, photoID: Int64, name: String) throws -> Int64 {
+        guard let clean = LookSubset.normalizedName(name), clean.count <= 120 else {
+            throw CatalogError.invalid("a snapshot needs a name of at most 120 characters")
+        }
+        guard recipe.pipelineVersion <= supportedPipelineVersion else {
+            throw CatalogError.invalid("this snapshot requires a newer pipeline")
+        }
+        return try db.transaction {
+            guard try self.photo(id: photoID) != nil else { throw CatalogError.notFound("photo") }
+            guard try !self.namedSnapshots(photoID: photoID).contains(where: { $0.name == clean }) else {
+                throw CatalogError.invalid("a snapshot with this name already exists for this photograph")
+            }
+            return try self.saveRecipe(recipe, photoID: photoID, kind: .snapshot,
+                                       name: clean, isCurrent: false)
+        }
+    }
+
+    public func deleteNamedSnapshot(id: Int64, photoID: Int64) throws {
+        let row = try namedSnapshot(id: id, photoID: photoID)
+        guard !row.isCurrent else { throw CatalogError.invalid("cannot delete a current snapshot") }
+        try db.run("DELETE FROM edit WHERE id = ? AND photo_id = ? AND kind = 'snapshot' AND is_current = 0;",
+                   [.integer(id), .integer(photoID)])
+        // Content-addressed blobs may be shared by working edits, other snapshots,
+        // or backups. Deleting a named row never deletes those payloads.
     }
 
     /// The `recipe_fp` every cache is keyed on. Empty string = as-shot.
@@ -3149,9 +3299,10 @@ public final class CatalogStore {
     ///     the catalog runs with `foreign_keys=ON`, so deleting the row alone fails.
     ///   · its place as a parent. Album sets nest one level (docs/10 §10.9); a child
     ///     of a deleted set moves up to the set's own parent rather than vanishing.
-    ///   · its place as a smart album's scope. A smart album scoped to this album is
-    ///     left with no scope, which reads "everywhere" — the broader answer, never a
-    ///     query pointed at a row that no longer exists.
+    ///   · its place as a smart album's scope. A deleted-source tombstone retains
+    ///     the reference and query without allowing recycled SQLite ROWIDs to revive
+    ///     it. The query remains unavailable until its owner changes scope.
+    ///     Deleting an album must never silently broaden another saved query.
     /// If it was the target album there is then no target, and `B` says so rather
     /// than silently promoting another album the photographer did not choose.
     public func deleteCollection(id: Int64) throws {
@@ -3162,10 +3313,7 @@ public final class CatalogStore {
             try self.db.run("DELETE FROM album_photo WHERE album_id = ?;", [.integer(id)])
             try self.db.run("UPDATE album SET parent_id = ? WHERE parent_id = ?;",
                             [.optionalInteger(row.parentID), .integer(id)])
-            try self.db.run("""
-            UPDATE album SET scope = NULL, scope_id = NULL
-             WHERE scope = 'album' AND scope_id = ?;
-            """, [.integer(id)])
+            try self.db.run("UPDATE album SET scope = 'deleted-album' WHERE scope = 'album' AND scope_id = ?;", [.integer(id)])
             try self.db.run("DELETE FROM album WHERE id = ?;", [.integer(id)])
         }
     }
@@ -3682,10 +3830,9 @@ public final class CatalogStore {
         var conditions = ["photo.\(facet.column) IS NOT NULL"]
         var parameters: [SQLiteValue] = []
         if !query.includeMissing { conditions.append("photo.missing = 0") }
-        if let folderID = folderID {
-            conditions.append("photo.folder_id = ?")
-            parameters.append(.integer(folderID))
-        }
+        let source = try sourcePredicates(query.sourceScope, folderID: folderID)
+        conditions.append(contentsOf: source.conditions)
+        parameters.append(contentsOf: source.parameters)
         parameters.append(.int(limit))
         return try allRows("""
         SELECT photo.\(facet.column) FROM photo
@@ -3707,10 +3854,9 @@ public final class CatalogStore {
         var conditions: [String] = []
         var parameters: [SQLiteValue] = []
         if !query.includeMissing { conditions.append("photo.missing = 0") }
-        if let folderID = folderID {
-            conditions.append("photo.folder_id = ?")
-            parameters.append(.integer(folderID))
-        }
+        let source = try sourcePredicates(query.sourceScope, folderID: folderID)
+        conditions.append(contentsOf: source.conditions)
+        parameters.append(contentsOf: source.parameters)
         let scope = conditions.isEmpty
             ? "" : "WHERE " + conditions.joined(separator: " AND ")
         parameters.append(.int(limit))
@@ -4257,7 +4403,7 @@ public final class CatalogStore {
     /// interpolated fragments are compile-time constants chosen by an enum.
     public func photos(matching query: PhotoQuery,
                        folderID: Int64? = nil) throws -> [PhotoRow] {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows(built.sql, built.parameters, CatalogStore.decodePhoto)
     }
 
@@ -4274,7 +4420,7 @@ public final class CatalogStore {
     /// sort key.
     public func photoOrder(matching query: PhotoQuery,
                            folderID: Int64? = nil) throws -> [PhotoOrderRow] {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .order)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .order)
         return try allRows(built.sql, built.parameters) {
             PhotoOrderRow(id: $0.int(0), iso: $0.optionalIntValue(1))
         }
@@ -4283,14 +4429,14 @@ public final class CatalogStore {
     /// Live chip counts ride the same predicates and the same indexes.
     public func countPhotos(matching query: PhotoQuery,
                             folderID: Int64? = nil) throws -> Int {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .count)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .count)
         return Int((try db.scalarInt(built.sql, built.parameters)) ?? 0)
     }
 
     /// The `EXPLAIN QUERY PLAN` rows for a query — the CI assertion surface that keeps
     /// every UI-visible query index-backed (§15.2).
     public func queryPlan(for query: PhotoQuery, folderID: Int64? = nil) throws -> [String] {
-        let built = buildPhotoQuery(query, folderID: folderID, projection: .rows)
+        let built = try buildPhotoQuery(query, folderID: folderID, projection: .rows)
         return try allRows("EXPLAIN QUERY PLAN " + built.sql, built.parameters) {
             $0.string(3) ?? ""
         }
@@ -4300,18 +4446,73 @@ public final class CatalogStore {
     /// all three; only the projection differs.
     private enum PhotoProjection { case rows, order, count }
 
+    /// Shared by rows, order, counts and facet domains. Source restrictions always
+    /// AND with chips, including Match Any, and absent references are errors.
+    private func sourcePredicates(_ scope: CollectionQueryScope?, folderID: Int64?) throws
+        -> (conditions: [String], parameters: [SQLiteValue]) {
+        guard let scope else {
+            return folderID.map { (["photo.folder_id = ?"], [.integer($0)]) } ?? ([], [])
+        }
+        switch scope {
+        case .currentFolder:
+            guard let folderID, try folder(id: folderID) != nil else {
+                throw CatalogError.notFound("current folder for smart query")
+            }
+            return (["photo.folder_id = ?"], [.integer(folderID)])
+        case .everywhere: return ([], [])
+        case .deletedAlbum(let id):
+            throw CatalogError.notFound("deleted manual album source #\(id); choose a new scope explicitly")
+        case .album(let id):
+            guard let row = try collection(id: id), row.kind == "manual" else {
+                throw CatalogError.notFound("manual album scope")
+            }
+            return (["EXISTS (SELECT 1 FROM album_photo AS scope_ap WHERE scope_ap.photo_id = photo.id AND scope_ap.album_id = ?)"], [.integer(id)])
+        case .folderSubtree(let id):
+            guard let root = try folder(id: id) else { throw CatalogError.notFound("folder scope") }
+            let rootPath = URL(fileURLWithPath: root.path).standardizedFileURL.resolvingSymlinksInPath().path
+            var parts: [String] = []; var values: [SQLiteValue] = []
+            for row in try folders() {
+                let path = URL(fileURLWithPath: row.path).standardizedFileURL.resolvingSymlinksInPath().path
+                let prefix = path == "/" ? "/" : path + "/"
+                if path == rootPath || path.hasPrefix(rootPath == "/" ? "/" : rootPath + "/") {
+                    parts.append("photo.folder_id = ?"); values.append(.integer(row.id))
+                } else if rootPath.hasPrefix(prefix) {
+                    let relative = String(rootPath.dropFirst(prefix.count)) + "/"
+                    parts.append("(photo.folder_id = ? AND substr(photo.filename, 1, length(?)) = ?)")
+                    values += [.integer(row.id), .text(relative), .text(relative)]
+                }
+            }
+            return (["(" + parts.joined(separator: " OR ") + ")"], values)
+        }
+    }
+
+    public func updateCollectionScope(id: Int64, scope: CollectionQueryScope) throws {
+        guard try collection(id: id)?.kind == CollectionRow.smartKind else {
+            throw CatalogError.invalid("scope belongs to a smart album")
+        }
+        // Validation shares the query resolver; current-folder needs runtime context.
+        if scope != .currentFolder { _ = try sourcePredicates(scope, folderID: nil) }
+        try db.run("UPDATE album SET scope = ?, scope_id = ? WHERE id = ?;",
+                   [scope.storedName.map(SQLiteValue.text) ?? .null,
+                    scope.storedID.map(SQLiteValue.integer) ?? .null, .integer(id)])
+    }
+
     private func buildPhotoQuery(_ query: PhotoQuery, folderID: Int64?,
-                                 projection: PhotoProjection)
+                                 projection: PhotoProjection) throws
         -> (sql: String, parameters: [SQLiteValue]) {
 
         var parameters: [SQLiteValue] = []
         var joins: [String] = []
 
         let needsScoreJoin = (query.sortKey == .sharpness || query.sortKey == .aesthetic)
-        let hasAlbum = query.albumID != nil
+        let scopedOrderAlbum: Int64?
+        if query.sortKey == .userOrder, case .album(let id)? = query.sourceScope { scopedOrderAlbum = id }
+        else { scopedOrderAlbum = nil }
+        let joinedAlbumID = query.albumID ?? scopedOrderAlbum
+        let hasAlbum = joinedAlbumID != nil
 
         // JOIN parameters bind before WHERE parameters — keep this block first.
-        if let albumID = query.albumID {
+        if let albumID = joinedAlbumID {
             joins.append("JOIN album_photo AS ap ON ap.photo_id = photo.id "
                          + "AND ap.album_id = ?")
             parameters.append(.integer(albumID))
@@ -4322,10 +4523,9 @@ public final class CatalogStore {
 
         // Scope predicates always AND: they are the source, not a chip.
         var scope: [String] = []
-        if let folderID = folderID {
-            scope.append("photo.folder_id = ?")
-            parameters.append(.integer(folderID))
-        }
+        let source = try sourcePredicates(query.sourceScope, folderID: folderID)
+        scope.append(contentsOf: source.conditions)
+        parameters.append(contentsOf: source.parameters)
         if !query.includeMissing {
             scope.append("photo.missing = 0")
         }
@@ -5017,6 +5217,10 @@ public final class CatalogStore {
     public func upsertPhoto(_ photo: PhotoRow) throws -> Int64 {
         throw CatalogError.unavailable
     }
+    public func missingOriginalTargets(includePhotoID: Int64? = nil) throws -> [OriginalRelinkTarget] { throw CatalogError.unavailable }
+    public func originalRelinkTarget(photoID: Int64) throws -> OriginalRelinkTarget { throw CatalogError.unavailable }
+    public func validateOriginalRelink(_ target: OriginalRelinkTarget, candidate: OriginalRelinkCandidate) throws { throw CatalogError.unavailable }
+    public func relinkOriginal(_ target: OriginalRelinkTarget, candidate: OriginalRelinkCandidate, additionalSidecarDebt: [UnsavedSidecarRecord] = [], sidecarMTime: Int64? = nil) throws -> OriginalRelinkResult { throw CatalogError.unavailable }
     public func photo(id: Int64) throws -> PhotoRow? { throw CatalogError.unavailable }
     public func photo(folderID: Int64, filename: String) throws -> PhotoRow? {
         throw CatalogError.unavailable
@@ -5064,6 +5268,10 @@ public final class CatalogStore {
     public func currentEdit(photoID: Int64) throws -> EditRow? {
         throw CatalogError.unavailable
     }
+    public func namedSnapshots(photoID: Int64) throws -> [EditRow] { throw CatalogError.unavailable }
+    public func namedSnapshot(id: Int64, photoID: Int64) throws -> EditRow { throw CatalogError.unavailable }
+    public func createNamedSnapshot(_ recipe: Recipe, photoID: Int64, name: String) throws -> Int64 { throw CatalogError.unavailable }
+    public func deleteNamedSnapshot(id: Int64, photoID: Int64) throws { throw CatalogError.unavailable }
     public func edits(photoID: Int64) throws -> [EditRow] { throw CatalogError.unavailable }
     public func currentRecipeFingerprint(photoID: Int64) throws -> String {
         throw CatalogError.unavailable
@@ -5299,6 +5507,7 @@ public final class CatalogStore {
                             folderID: Int64? = nil) throws -> Int {
         throw CatalogError.unavailable
     }
+    public func updateCollectionScope(id: Int64, scope: CollectionQueryScope) throws { throw CatalogError.unavailable }
     public func queryPlan(for query: PhotoQuery, folderID: Int64? = nil) throws -> [String] {
         throw CatalogError.unavailable
     }

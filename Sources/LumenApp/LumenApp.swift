@@ -169,6 +169,8 @@ private struct LumenCommands: Commands {
                 // `VACUUM INTO` was implemented in CatalogService and had no caller, so
                 // the one maintenance action a photographer actually wants was
                 // unreachable from inside the app.
+                Button("Relink Missing Original…") { state.chooseOriginalRelink() }
+                    .disabled(!commands.hasCatalog || state.isExporting || state.isScanning || state.isRelinkingOriginal)
                 Button("Back Up Catalog") { state.backUpCatalog() }
                     .disabled(!commands.hasCatalog)
             }

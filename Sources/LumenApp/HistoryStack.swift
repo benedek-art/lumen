@@ -205,6 +205,20 @@ final class HistoryStack: ObservableObject {
         return step.after
     }
 
+    /// URL keys follow the original's explicit catalog relink; undo/redo retains its
+    /// recipes and culling decisions instead of writing back to the vanished path.
+    func relinkSource(from old: URL, to new: URL) {
+        func move(_ values: [URL: PhotoEdit]) -> [URL: PhotoEdit] {
+            var result = values
+            if let value = result.removeValue(forKey: old) { result[new] = value }
+            return result
+        }
+        atomically {
+            steps = steps.map { Step(before: move($0.before), after: move($0.after),
+                coalescingKey: $0.coalescingKey, label: $0.label, gestureEpoch: $0.gestureEpoch) }
+        }
+    }
+
     func clear() {
         // Emptying `steps` while `position` still points into it leaves `canUndo` true
         // against an empty array, and `undoLabel` subscripts `steps[position - 1]`.
@@ -216,24 +230,7 @@ final class HistoryStack: ObservableObject {
         lastEditTime = .distantPast
     }
 
-    // MARK: - Snapshots
 
-    struct Snapshot: Identifiable {
-        let id = UUID()
-        var name: String
-        var recipe: Recipe
-        var created: Date
-    }
-
-    @Published var snapshots: [Snapshot] = []
-
-    func snapshot(_ recipe: Recipe, named name: String) {
-        snapshots.append(Snapshot(name: name, recipe: recipe, created: Date()))
-    }
-
-    func removeSnapshot(_ id: UUID) {
-        snapshots.removeAll { $0.id == id }
-    }
 }
 
 // MARK: - What the history list draws

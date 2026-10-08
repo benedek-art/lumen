@@ -1,5 +1,5 @@
 import Foundation
-import LumenCore
+@testable import LumenCore
 
 /// Opt-in evidence for comparing the same proof on different CPU runtimes. This is
 /// a diagnostic, not a new tolerance: an output-ULP sensitivity experiment cannot
@@ -47,7 +47,7 @@ enum ProofNumericalDiagnostics {
                 }
                 let graded = plan.colorGraded(tone)
                 let finishEncoded = LumenLog.encode(graded)
-                samples.append([
+                var sample: [String: Any] = [
                     "setting": setting, "patch": patch,
                     "source": channels(source), "linearAndTone": channels(tone),
                     "exactColorTwin": channels(plan.colorStage.apply(tone)),
@@ -56,7 +56,12 @@ enum ProofNumericalDiagnostics {
                     "finishSampled": channels(plan.finishedColor(encoded: finishEncoded)),
                     "referenceColor": channels(plan.referenceColor(source)),
                     "renderedFloat": channels(render[p.x, p.y])
-                ])
+                ]
+                // The first exact-source Linux/Darwin comparison isolated all drift
+                // to chart patch 2, before grade/finish. Trace only that patch's twin
+                // arithmetic, not a second implementation of the renderer.
+                if patch == 2 { sample["twinArithmetic"] = twinArithmetic(plan.colorStage, tone) }
+                samples.append(sample)
             }
         }
         let low = renders[0], mid = renders[1], high = renders[2]
@@ -98,6 +103,56 @@ enum ProofNumericalDiagnostics {
             ],
             "interpretation": "Every finite RGB output is moved one Float32 ULP away from the low endpoint. This measures sensitivity only; it does not establish an upstream platform error bound. Alpha is unchanged."
         ]
+    }
+
+    private static func twinArithmetic(_ stage: ExactColorStage, _ input: RGB) -> [[String: Any]] {
+        let original = SIMD3<Float>(Float(input.r), Float(input.g), Float(input.b))
+        var traces: [[String: Any]] = []
+        for (index, pass) in stage.passes.enumerated() {
+            let before = ExactColorTwin.run(Array(stage.passes.prefix(index)), original)
+            let after = ExactColorTwin.run(Array(stage.passes.prefix(index + 1)), original)
+            let lms = ExactColorTwin.mul(pass.uniforms, 0, before)
+            let exponent: Float = 0.333333333
+            let seeds = SIMD3<Float>(
+                ExactColorTwin.sgn(lms.x) * pow(abs(lms.x), exponent),
+                ExactColorTwin.sgn(lms.y) * pow(abs(lms.y), exponent),
+                ExactColorTwin.sgn(lms.z) * pow(abs(lms.z), exponent))
+            let doubleSeeds = SIMD3<Float>(
+                ExactColorTwin.sgn(lms.x) * Float(pow(Double(abs(lms.x)), Double(exponent))),
+                ExactColorTwin.sgn(lms.y) * Float(pow(Double(abs(lms.y)), Double(exponent))),
+                ExactColorTwin.sgn(lms.z) * Float(pow(Double(abs(lms.z)), Double(exponent))))
+            let roots = ExactColorTwin.cbrt3(lms)
+            let lab = ExactColorTwin.mul(pass.uniforms, 9, roots)
+            let lch = ExactColorTwin.lch(lab)
+            let radians = lch.z * Float(0.0174532925)
+            traces.append([
+                "kernel": String(describing: pass.kernel),
+                "uniformBits": pass.uniforms.flatMap { [$0.x.bitPattern, $0.y.bitPattern,
+                                                       $0.z.bitPattern, $0.w.bitPattern] },
+                "before": floats(before), "after": floats(after),
+                "LMS": floats(lms), "powExponent": scalar(exponent),
+                "powSeeds": floats(seeds), "doublePowSeeds": floats(doubleSeeds),
+                "NewtonRoots": floats(roots), "Lab": floats(lab), "LCh": floats(lch),
+                "atan2": scalar(atan2(lab.z, lab.y)),
+                "doubleAtan2": scalar(portableAngle(y: lab.z, x: lab.y)),
+                "radians": scalar(radians), "cos": scalar(cos(radians)),
+                "sin": scalar(sin(radians))
+            ])
+        }
+        return traces
+    }
+
+    private static func floats(_ value: SIMD3<Float>) -> [String: Any] {
+        channels(RGB(Double(value.x), Double(value.y), Double(value.z)))
+    }
+
+    private static func scalar(_ value: Float) -> [String: Any] {
+        ["double": Double(value), "floatBits": value.bitPattern]
+    }
+
+    /// Proposed precision experiment only; production keeps its existing Float call.
+    static func portableAngle(y: Float, x: Float) -> Float {
+        Float(atan2(Double(y), Double(x)))
     }
 
     static func frontLoadingFraction(steps: Int) -> Double {
