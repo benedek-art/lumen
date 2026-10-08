@@ -1,7 +1,8 @@
 # The control-sweep drift check (docs/20), moved out of ci.yml's push path.
 #
-# At 80 minutes it never survived a working session on the push trigger — the next push
-# cancelled it, so during exactly the bursts where drift happens it reported nothing.
+# The former debug sweep took 66–80 minutes and was often cancelled by the next push.
+# Release optimization now exercises the shipping arithmetic without shrinking the
+# 144-control registry or its 21-setting sweeps. Debug remains a manual diagnostic option.
 # Now it runs where it can finish: on pushes that touch the engine or the proof harness
 # (its own file included), nightly on the default branch, and on demand. The per-push
 # tripwire that replaced it in the fast lanes is ProofSmokeTests inside engine-linux —
@@ -21,9 +22,8 @@ on:
       # panels that decide what a slider writes and over what range. A change to either
       # can move what a control does to a photograph, and neither fired this lane.
       #
-      # Cheap to be wrong in this direction: the job is ~66-80 minutes but it is a
-      # separate workflow with its own concurrency group, so it costs a queued Linux
-      # runner and never blocks `ci.yml`.
+      # The full sweep has its own concurrency group and never blocks `ci.yml`.
+      # Release optimization changes execution cost, not coverage or drift tolerances.
       - "Sources/LumenPipeline/**"
       - "Sources/LumenApp/**"
       - "Tests/LumenCoreTests/Proof/**"
@@ -36,6 +36,11 @@ on:
     - cron: "30 2 * * *"
   workflow_dispatch:
     inputs:
+      configuration:
+        description: 'Build configuration for the complete proof sweep'
+        type: choice
+        options: [release, debug]
+        default: release
       record_proofs:
         description: >-
           Re-record the committed proof records instead of checking them. Use after a
@@ -57,11 +62,12 @@ jobs:
   # committing them, since every defect docs/19 found was invisible until somebody
   # thought to measure and none would have surfaced in a code review.
   #
-  # It is slow because it is doing real work: each setting bakes a 65-cubed colour cube.
-  # That is the cost of the answer, and the lever is the size of the registry rather
-  # than the concurrency — `LUT3D` already parallelises its own bake, so a concurrent
-  # outer loop oversubscribes instead of helping. If the sweep grows again the honest
-  # lever is still the registry, not the clock.
+  # Each setting still bakes the full 65-cubed colour cube. The optimizer is the
+  # useful cost lever: the unchanged optimized 144-control suite passed locally in
+  # 184 seconds, and hosted Linux/macOS full-registry snapshots agreed with the ruler.
+  # That is evidence for release coverage, not a promised hosted runtime. Keep the
+  # complete registry; LUT3D already parallelizes each bake, so adding an outer fleet
+  # would oversubscribe the runner.
   proof-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -95,13 +101,20 @@ jobs:
           # parses; the run-creation service rejects it anyway. This env: form had run
           # 181 times before the change.
           LUMEN_RECORD_PROOFS: ${{ inputs.record_proofs && '1' || '' }}
+          # Push/nightly always use release; only a manual dispatch can choose debug.
+          PROOF_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'release' }}
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
+          case "$PROOF_CONFIGURATION" in
+            release|debug) ;;
+            *) echo "Unsupported proof build configuration" >&2; exit 1 ;;
+          esac
+          echo "Full proof sweep configuration: $PROOF_CONFIGURATION"
           if [ "$LUMEN_RECORD_PROOFS" = "1" ]; then
             echo "RECORDING — this run rewrites the records and proves nothing."
           fi
           set +e
-          swift test --filter ControlProofTests 2>&1 | tee proof.log
+          swift test -c "$PROOF_CONFIGURATION" --filter ControlProofTests 2>&1 | tee proof.log
           # `$?` and not `${PIPESTATUS[0]}` because GitHub runs `shell: bash` as
           # `bash --noprofile --norc -eo pipefail`, so the pipeline already carries the
           # first non-zero status and `set +e` above turns off errexit without touching
