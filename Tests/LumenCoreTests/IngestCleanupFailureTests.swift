@@ -12,7 +12,92 @@ private struct ReadbackMakesDestinationReadOnly: IngestReadback {
     }
 }
 
+private struct ReadbackReplacesDestination: IngestReadback {
+    var unreadable: Bool
+    var matching = false
+    func digest(of url: URL, chunkSize: Int) throws -> IngestDigest {
+        let originalDigest = try IngestFileDigest.digest(of: url, chunkSize: chunkSize)
+        try FileManager.default.moveItem(at: url, to: url.appendingPathExtension("original"))
+        try Data("unrelated replacement".utf8).write(to: url)
+        if unreadable { throw CocoaError(.fileReadUnknown) }
+        return matching ? originalDigest : try IngestFileDigest.digest(of: url, chunkSize: chunkSize)
+    }
+}
+
+private struct MatchingReadbackMutatesDestination: IngestReadback {
+    var useSymlink: Bool
+    func digest(of url: URL, chunkSize: Int) throws -> IngestDigest {
+        let digest = try IngestFileDigest.digest(of: url, chunkSize: chunkSize)
+        if useSymlink {
+            let original = url.appendingPathExtension("original")
+            try FileManager.default.moveItem(at: url, to: original)
+            try FileManager.default.createSymbolicLink(at: url, withDestinationURL: original)
+        } else {
+            let file = try FileHandle(forWritingTo: url)
+            defer { try? file.close() }
+            try file.write(contentsOf: Data([99]))
+        }
+        return digest
+    }
+}
+
 final class IngestCleanupFailureTests: XCTestCase {
+    func testMatchingDigestCannotCertifyInPlaceWriteOrReplacementSymlink() throws {
+        for useSymlink in [false, true] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-copy-generation-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let source = root.appendingPathComponent("source.JPG")
+            let landed = root.appendingPathComponent("copy.JPG")
+            let bytes = Data(repeating: 42, count: 2048)
+            try bytes.write(to: source)
+            let plan = IngestPlan(copies: [IngestPlannedCopy(source: source, byteCount: Int64(bytes.count),
+                destinations: [IngestPlannedDestination(url: landed, role: .primary)])])
+            let result = VerifiedCopyDriver(readback: MatchingReadbackMutatesDestination(useSymlink: useSymlink)).run(plan)
+            XCTAssertFalse(result.allVerified)
+            XCTAssertEqual(result.framesVerified, 0)
+            XCTAssertEqual(try Data(contentsOf: source), bytes)
+            let failure = try XCTUnwrap(result.failures.first?.failure)
+            XCTAssertTrue(failure.message.contains("file generation could not be verified"), failure.message)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: landed.path))
+            if useSymlink {
+                XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: landed.path),
+                               landed.appendingPathExtension("original").path)
+                XCTAssertEqual(try Data(contentsOf: landed), bytes)
+            } else {
+                var changed = bytes
+                changed[0] = 99
+                XCTAssertEqual(try Data(contentsOf: landed), changed)
+            }
+        }
+    }
+
+    func testReadbackReplacementIsNeverRemovedOrCalledOurRetainedCopy() throws {
+        for (unreadable, matching) in [(false, false), (true, false), (false, true)] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-copy-replacement-\(UUID())")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let source = root.appendingPathComponent("source.JPG")
+            let landed = root.appendingPathComponent("copy.JPG")
+            let bytes = Data(repeating: 42, count: 2048)
+            try bytes.write(to: source)
+            let plan = IngestPlan(copies: [IngestPlannedCopy(source: source, byteCount: Int64(bytes.count),
+                destinations: [IngestPlannedDestination(url: landed, role: .primary)])])
+            let result = VerifiedCopyDriver(readback: ReadbackReplacesDestination(unreadable: unreadable, matching: matching)).run(plan)
+            XCTAssertFalse(result.allVerified)
+            XCTAssertEqual(try? Data(contentsOf: landed), Data("unrelated replacement".utf8))
+            XCTAssertEqual(try Data(contentsOf: landed.appendingPathExtension("original")), bytes)
+            XCTAssertEqual(try Data(contentsOf: source), bytes)
+            let failure = try XCTUnwrap(result.failures.first?.failure)
+            XCTAssertTrue(failure.message.contains("ownership changed"), failure.message)
+            XCTAssertFalse(failure.message.contains("unverified file remains"))
+            var durable = OperationReport(kind: .ingest, records: [])
+            durable.finishIngest(result, sources: [source])
+            XCTAssertNil(durable.records.first?.actualDestination)
+            XCTAssertTrue(durable.records.first?.detail?.contains("ownership changed") == true)
+        }
+    }
+
     func testFailedReadbackCleanupReportsRetainedUnverifiedCopyAndNeverOffersEject() throws {
         for unreadable in [false, true] {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-readonly-copy-\(UUID())")
