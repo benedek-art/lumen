@@ -2234,6 +2234,7 @@ public final class CatalogStore {
             try self.validateOriginalRelink(target, candidate: candidate)
             var debt: [UnsavedSidecarRecord] = []
             if let raw = try self.metaValue(UnsavedSidecarRecord.metaKey) {
+                let supportedFields: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes, .keywords]
                 guard let objects = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]],
                       objects.allSatisfy({ object in
                           guard Set(object.keys).isSubset(of: ["photoPath", "photoID", "stated", "keywordEdit"]) else { return false }
@@ -2242,7 +2243,7 @@ public final class CatalogStore {
                       }),
                       let parsed = try? JSONDecoder().decode([UnsavedSidecarRecord].self, from: Data(raw.utf8)),
                       Set(parsed.map { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) }).count == parsed.count,
-                      parsed.allSatisfy({ $0.stated & ~SidecarStatedFields([.rating, .flag, .label, .recipe, .strokes, .keywords]).rawValue == 0 }) else {
+                      parsed.allSatisfy({ $0.stated & ~supportedFields.rawValue == 0 }) else {
                     throw OriginalRelinkError.unsafeDebt
                 }
                 debt = parsed
