@@ -186,5 +186,32 @@ final class MaskCanvasTargetIntegrityTests: XCTestCase {
         }
     }
 
+    func testCapturedMaskMappingRefusesChangedBasisWithoutLifecycleCallbacks() {
+        let rect = CGRect(x: 13, y: 17, width: 500, height: 300)
+        let source = CGSize(width: 6000, height: 4000)
+        let mapping = MaskCanvasMapping(imageRect: rect, sourceSize: source)
+        XCTAssertTrue(mapping.accepts(imageRect: rect, sourceSize: source))
+        XCTAssertFalse(mapping.accepts(imageRect: rect.offsetBy(dx: 0, dy: 1), sourceSize: source))
+        XCTAssertFalse(mapping.accepts(imageRect: CGRect(x: 13, y: 17, width: 500, height: 301),
+                                       sourceSize: source))
+        XCTAssertFalse(mapping.accepts(imageRect: rect, sourceSize: CGSize(width: 6001, height: 4000)))
+        XCTAssertFalse(mapping.accepts(imageRect: rect, sourceSize: CGSize(width: 4000, height: 6000)))
+        XCTAssertTrue(mapping.accepts(imageRect: rect, sourceSize: source))
+    }
+
+    /// Source wiring contract, not native event delivery acceptance. The actual
+    /// mapping method above is the mathematical comparison this wiring must invoke.
+    func testChangedEndedAndCommitCallbacksCheckCapturedMaskMappingSynchronously() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/LumenApp/MaskCanvas.swift"),
+                                encoding: .utf8)
+        XCTAssertTrue(source.contains("pressMapping?.accepts(imageRect: imageRect, sourceSize: sourceSize) == true"))
+        XCTAssertTrue(source.contains("pressMapping = MaskCanvasMapping(imageRect: imageRect, sourceSize: sourceSize)"))
+        XCTAssertTrue(source.contains(".onChanged { value in\n                guard continuePress() else { return }"))
+        XCTAssertTrue(source.contains(".onEnded { value in\n                defer { finishPress() }\n                guard continuePress() else { return }"))
+        XCTAssertTrue(source.contains("guard continuePress(), var context = pressContext else { return }"))
+    }
+
 }
 #endif

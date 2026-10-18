@@ -32,7 +32,11 @@ final class SmartAlbumSourceTests: XCTestCase {
             CGImageDestinationAddImage(out, try XCTUnwrap(ctx.makeImage()), nil)
             XCTAssertTrue(CGImageDestinationFinalize(out)); urls.append(url)
         }
-        let state = AppState(catalogDirectory: { root.appendingPathComponent("catalog") }, previewDirectory: { root.appendingPathComponent("preview") })
+        // Match the production directory factory, which creates its cache before
+        // returning it. This fixture can quit before any payload write creates it.
+        let preview = root.appendingPathComponent("preview")
+        try FileManager.default.createDirectory(at: preview, withIntermediateDirectories: true)
+        let state = AppState(catalogDirectory: { root.appendingPathComponent("catalog") }, previewDirectory: { preview })
         defer {
             state.prepareToQuit()
             for (key, value) in zip(keys, defaults) {

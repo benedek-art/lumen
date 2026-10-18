@@ -110,10 +110,14 @@ jobs:
         shell: bash
         env:
           LUMEN_APP_BENCH: '1'
+          LUMEN_APP_BENCH_LARGE_SELECTIONS: ${{ github.ref == 'refs/heads/codex/raw-accuracy-qualification' && '1' || '0' }}
         run: |
           set -o pipefail
           swift test -c release --filter GeneratedWorkflowCostTests 2>&1 | tee workflow-cost.log
-          test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq 28
+          expected_records=28
+          if [ "$LUMEN_APP_BENCH_LARGE_SELECTIONS" = '1' ]; then expected_records=48; fi
+          test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq "$expected_records"
+          test "$(grep -c '^CATALOGINDEXBENCH ' workflow-cost.log)" -eq 4
           grep -q 'Executed 1 test, with 0 failures' workflow-cost.log
       - name: Keep generated workflow cost
         if: always()

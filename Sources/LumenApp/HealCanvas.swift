@@ -57,9 +57,142 @@ final class HealTool: ObservableObject {
     @Published var selectedStrokeIndex: Int?
 }
 
+struct HealCanvasToolSettings: Equatable {
+    let mode: HealMode
+    let radius: Double
+    let feather: Double
+    let opacity: Double
+    let brush: Bool
+
+    @MainActor init() {
+        let tool = HealTool.shared
+        mode = tool.mode
+        radius = tool.radius
+        feather = tool.feather
+        opacity = tool.opacity
+        brush = tool.brush
+    }
+}
+
+/// The coordinate basis used to interpret the press, checked synchronously on
+/// every changed/released callback rather than waiting for lifecycle observation.
+struct HealCanvasMapping: Equatable {
+    let imageRect: CGRect
+    let sourceSize: CGSize
+
+    func accepts(imageRect: CGRect, sourceSize: CGSize) -> Bool {
+        self.imageRect == imageRect && self.sourceSize == sourceSize
+    }
+}
+
+/// The photograph and retouch state a pointer press actually began on. Whole-heal
+/// equality also catches undo, deleted/replaced spots and changes to prior donors.
+struct HealCanvasEditContext: Equatable {
+    let url: URL
+    let catalogID: Int64?
+    let source: SourceFileIdentity?
+    let geometry: Geometry
+    var expected: Heal
+    let tool: HealCanvasToolSettings
+
+    @MainActor init(photo: PhotoItem, recipe: Recipe) {
+        url = photo.id
+        catalogID = photo.catalogID
+        source = photo.sourceIdentity ?? SourceFileIdentity.read(photo.id)
+        geometry = recipe.develop.geometry
+        expected = recipe.develop.heal
+        tool = HealCanvasToolSettings()
+    }
+
+    func sameTarget(as other: Self) -> Bool {
+        url == other.url && catalogID == other.catalogID && source == other.source
+            && geometry == other.geometry && tool == other.tool
+    }
+
+    @MainActor
+    func isCurrent(in state: AppState) -> Bool {
+        state.healCanvasContextIsCurrent(self)
+    }
+}
+
+enum HealCanvasEdit {
+    case move(HealSpot)
+    case add(x: Double, y: Double)
+    case paint([BrushPoint])
+}
+
 // MARK: - Verbs
 
 extension AppState {
+    /// Kept on AppState so the non-View context only delegates. HealCanvas is the
+    /// observing leaf; toolbar actions invoke this check directly on the main actor.
+    func healCanvasContextIsCurrent(_ context: HealCanvasEditContext) -> Bool {
+        guard let photo = primarySelection, photo.id == context.url,
+              photo.catalogID == context.catalogID, let source = context.source,
+              SourceFileIdentity.read(context.url) == source else { return false }
+        let current = recipe(for: photo)
+        return current.develop.geometry == context.geometry
+            && current.develop.heal == context.expected
+    }
+
+    /// Canvas-only boundary. Toolbar verbs remain independent, explicit actions.
+    /// A reachable original is required, just as for mask gestures. This stat token
+    /// detects filesystem generations, not byte-level content equivalence.
+    func applyHealCanvasEdit(_ edit: HealCanvasEdit,
+                             context: HealCanvasEditContext) -> Heal? {
+        func refuse() -> Heal? {
+            if statusMessage == nil {
+                statusMessage = "Heal gesture cancelled because its photograph, original or retouch state changed"
+            }
+            return nil
+        }
+        guard context.isCurrent(in: self), context.tool == HealCanvasToolSettings(),
+              let photo = primarySelection else { return refuse() }
+        let before = context.expected
+        switch edit {
+        case .move(let spot):
+            let values: [Double] = [spot.x, spot.y, spot.sourceX, spot.sourceY,
+                                    spot.radius, spot.feather, spot.opacity]
+            guard values.allSatisfy({ $0.isFinite }) else { return refuse() }
+            guard let index = before.spots.firstIndex(where: { $0.id == spot.id }) else { return refuse() }
+            var requested = before
+            requested.spots[index] = spot
+            updateSpot(id: spot.id, coalescingKey: "heal.drag.\(spot.id)", label: "Move Spot") { $0 = spot }
+            guard recipe(for: photo).develop.heal == requested else { return refuse() }
+        case .add(let x, let y):
+            guard x.isFinite, y.isFinite, (0...1).contains(x), (0...1).contains(y)
+            else { return refuse() }
+            addSpot(sourceX: x, sourceY: y)
+            let result = recipe(for: photo).develop.heal
+            guard result.spots.count == before.spots.count + 1,
+                  Array(result.spots.dropLast()) == before.spots,
+                  result.spots.last?.x == x, result.spots.last?.y == y,
+                  result.strokesRef == before.strokesRef, result.count == before.count
+            else { return refuse() }
+        case .paint(let points):
+            guard !points.isEmpty,
+                  points.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.pressure.isFinite })
+            else { return refuse() }
+            // Never replace an unreadable old painting with a newly appended empty
+            // base. Payload availability is checked before the verb publishes bytes.
+            let prior: BrushStrokeSet
+            if let ref = before.strokesRef {
+                guard let loaded = strokeSet(ref: ref) else { return refuse() }
+                prior = loaded
+            } else { prior = BrushStrokeSet() }
+            addHealStroke(points: points)
+            let result = recipe(for: photo).develop.heal
+            guard let ref = result.strokesRef, let set = strokeSet(ref: ref),
+                  set.strokes.count == prior.strokes.count + 1,
+                  Array(set.strokes.dropLast()) == prior.strokes,
+                  set.strokes.last?.points == points,
+                  result.count == set.strokes.count, result.spots == before.spots
+            else { return refuse() }
+        }
+        // ACK only a value that the synchronous verb actually made visible.
+        return recipe(for: photo).develop.heal
+    }
+
 
     /// `Q`: a round trip. Arming leaves masking and puts the crop rectangle away, for the
     /// reason `enterMasking` puts it away — two tools that both take the drags on the
@@ -115,11 +248,12 @@ extension AppState {
 
         let url = photo.id
         let current = recipe(for: photo)
+        let searchContext = HealCanvasEditContext(photo: photo, recipe: current)
         Task {
             let found = await renderCoordinator.healAutoSource(url: url, recipe: current,
                                                                spot: placed,
                                                                priorSpots: prior)
-            guard let found, primarySelection?.id == url else { return }
+            guard let found, searchContext.isCurrent(in: self) else { return }
             updateRecipe(coalescingKey: key, label: "Add Spot", targets: [photo]) { _, recipe in
                 guard let i = recipe.develop.heal.spots.firstIndex(where: { $0.id == placed.id }),
                       recipe.develop.heal.spots[i].sourceX == provisional.x,
@@ -157,10 +291,11 @@ extension AppState {
         let size = sourceFrameSize ?? CGSize(width: 1, height: 1)
         let width = Int(size.width.rounded()), height = Int(size.height.rounded())
         let url = photo.id
+        let searchContext = HealCanvasEditContext(photo: photo, recipe: current)
         Task {
             let candidates = await renderCoordinator.healSourceCandidates(
                 url: url, recipe: current, spot: spot, priorSpots: prior)
-            guard primarySelection?.id == url,
+            guard searchContext.isCurrent(in: self),
                   let next = SpotSourceSearch.nextSource(for: spot, candidates: candidates,
                                                          sourceWidth: width,
                                                          sourceHeight: height)
@@ -237,10 +372,11 @@ extension AppState {
 
         let url = photo.id
         let current = recipe(for: photo)
+        let searchContext = HealCanvasEditContext(photo: photo, recipe: current)
         Task {
             let found = await renderCoordinator.healStrokeAutoOffset(
                 url: url, recipe: current, stroke: stroke, priorStrokes: prior)
-            guard let found, primarySelection?.id == url else { return }
+            guard let found, searchContext.isCurrent(in: self) else { return }
             // Only onto the stroke as it was placed: same index, same points, the
             // provisional offset untouched.
             var live = BrushStrokeSet(strokes: primaryHealStrokes)
@@ -275,6 +411,8 @@ extension AppState {
 // MARK: - Canvas
 
 struct HealCanvas: View {
+    @EnvironmentObject private var edits: EditRevision
+
     let imageRect: CGRect
     let sourceSize: CGSize
     let geometry: Geometry
@@ -286,12 +424,10 @@ struct HealCanvas: View {
     var brush: Bool = false
     /// The diameter a new stroke is painted at, fraction of the long edge.
     var brushSize: Double = HealSpot.defaultRadius * 2
-    var paint: ([BrushPoint]) -> Void = { _ in }
     var selectStroke: (Int?) -> Void = { _ in }
-    let add: (Double, Double) -> Void
     let select: (String?) -> Void
-    /// The spot as the drag has it now; `finished` on the last event.
-    let drag: (HealSpot, Bool) -> Void
+    let editContext: HealCanvasEditContext
+    let commit: (HealCanvasEdit, HealCanvasEditContext) -> Heal?
 
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
@@ -303,6 +439,10 @@ struct HealCanvas: View {
 
     @State private var grab: Grab?
     @State private var pressed: Bool = false
+    @State private var pressContext: HealCanvasEditContext?
+    @State private var pressMapping: HealCanvasMapping?
+    @State private var cancelled = false
+    @State private var gestureSignalled = false
     /// The stroke being painted, source-normalized, and when it started.
     @State private var painting: [BrushPoint] = []
     @State private var paintStarted: Date?
@@ -331,11 +471,62 @@ struct HealCanvas: View {
         .help("Click a blemish to heal it. Drag the solid circle to move the spot, the "
               + "dashed one to choose where it borrows from; / re-picks it. ⌫ deletes "
               + "the selected spot; Q or Esc puts the tool away.")
+        .onChange(of: editContext) { _, next in
+            if let pressContext, !pressContext.sameTarget(as: next) { cancelPress() }
+        }
+        .onChange(of: imageRect) { _, _ in cancelPress() }
+        .onChange(of: sourceSize) { _, _ in cancelPress() }
+        .onAppear {
+            // A hidden view can miss mouse-up. Recover only after the physical
+            // press ended; reappearing under a held button must stay cancelled.
+            if NSEvent.pressedMouseButtons == 0 { finishPress() }
+        }
+        .onDisappear { cancelPress() }
+    }
+
+    private func continuePress() -> Bool {
+        guard !cancelled else { return false }
+        if let pressContext {
+            guard pressContext.sameTarget(as: editContext),
+                  pressMapping?.accepts(imageRect: imageRect, sourceSize: sourceSize) == true
+            else { cancelPress(); return false }
+        } else {
+            pressContext = editContext
+            pressMapping = HealCanvasMapping(imageRect: imageRect, sourceSize: sourceSize)
+        }
+        return true
+    }
+
+    private func submit(_ edit: HealCanvasEdit) {
+        guard continuePress(), var context = pressContext else { return }
+        guard let applied = commit(edit, context) else { cancelPress(); return }
+        context.expected = applied
+        pressContext = context
+    }
+
+    private func cancelPress() {
+        if pressContext != nil { cancelled = true }
+        grab = nil
+        painting = []
+        paintStarted = nil
+        if gestureSignalled {
+            gestureSignalled = false
+            sliderGestureChanged(false)
+        }
+    }
+
+    private func finishPress() {
+        cancelPress()
+        pressContext = nil
+        pressMapping = nil
+        cancelled = false
+        pressed = false
     }
 
     private var press: some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
+                guard continuePress() else { return }
                 if !pressed {
                     pressed = true
                     let n = normalized(value.startLocation)
@@ -347,6 +538,7 @@ struct HealCanvas: View {
                        let spot = spots.first(where: { $0.id == hit.id }) {
                         select(hit.id)
                         grab = Grab(part: hit.part, origin: spot, start: n)
+                        gestureSignalled = true
                         sliderGestureChanged(true)
                     } else {
                         grab = nil
@@ -373,23 +565,18 @@ struct HealCanvas: View {
                 }
                 guard let grab else { return }
                 let now = normalized(value.location)
-                drag(SpotHandles.dragged(grab.origin, part: grab.part,
+                submit(.move(SpotHandles.dragged(grab.origin, part: grab.part,
                                          dx: Double(now.x - grab.start.x),
-                                         dy: Double(now.y - grab.start.y)), false)
+                                         dy: Double(now.y - grab.start.y))))
             }
             .onEnded { value in
-                defer {
-                    grab = nil
-                    pressed = false
-                    painting = []
-                    paintStarted = nil
-                }
+                defer { finishPress() }
+                guard continuePress() else { return }
                 if let grab {
                     let now = normalized(value.location)
-                    drag(SpotHandles.dragged(grab.origin, part: grab.part,
+                    submit(.move(SpotHandles.dragged(grab.origin, part: grab.part,
                                              dx: Double(now.x - grab.start.x),
-                                             dy: Double(now.y - grab.start.y)), true)
-                    sliderGestureChanged(false)
+                                             dy: Double(now.y - grab.start.y))))
                     return
                 }
                 let travel = hypot(value.location.x - value.startLocation.x,
@@ -404,7 +591,7 @@ struct HealCanvas: View {
                     }
                     guard n.x >= 0, n.x <= 1, n.y >= 0, n.y <= 1, !points.isEmpty
                     else { return }
-                    paint(points)
+                    submit(.paint(points))
                     return
                 }
                 // A click on a painted stroke selects it.
@@ -419,7 +606,7 @@ struct HealCanvas: View {
                 // so a photographer reaching to pan does not litter the frame.
                 guard travel < 4 else { return }
                 guard n.x >= 0, n.x <= 1, n.y >= 0, n.y <= 1 else { return }
-                add(Double(n.x), Double(n.y))
+                submit(.add(x: Double(n.x), y: Double(n.y)))
             }
     }
 

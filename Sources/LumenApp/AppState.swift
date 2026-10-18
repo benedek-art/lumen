@@ -1763,6 +1763,8 @@ final class AppState: ObservableObject {
     /// past, so a test that redirected only the catalog would still leave a directory
     /// behind in the owner's Library and would still not be an isolated test.
     private let previewDirectory: () -> URL?
+    /// Read on the main actor: a stationary physical press is not a lost release.
+    private let primaryButtonPressed: @MainActor () -> Bool
 
     /// Production's catalog location: `~/Library/Application Support/Lumen`, created if
     /// it is not there. Lifted verbatim out of `openCatalog` — same lookup, same
@@ -1784,9 +1786,13 @@ final class AppState: ObservableObject {
     /// outside them.
     init(catalogDirectory: @escaping () throws -> URL
             = AppState.applicationSupportCatalogDirectory,
-         previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory) {
+         previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory,
+         primaryButtonPressed: @escaping @MainActor () -> Bool = {
+             NSEvent.pressedMouseButtons & 1 != 0
+         }) {
         self.catalogDirectory = catalogDirectory
         self.previewDirectory = previewDirectory
+        self.primaryButtonPressed = primaryButtonPressed
         openCatalog()
         // Every history mutation, and nothing else. `refresh` is equality-guarded, so
         // a drag — one coalesced step, label "Edit" from first event to last — reaches
@@ -4144,10 +4150,12 @@ final class AppState: ObservableObject {
     /// rebuild never delivers it, and the latch used to stay shut — every LATER edit,
     /// gesture or not, deferred its catalog write until the next completed gesture,
     /// a folder switch, or quit. A real drag's events are milliseconds apart, so
-    /// silence this long means the release is not coming; the watchdog closes the
-    /// gesture and lands the deferred writes. The photo switch in
+    /// silence alone cannot distinguish a stationary held press from a lost release.
+    /// Once silent, the watchdog waits for the primary button to be up before it
+    /// closes the gesture and lands the deferred writes. The photo switch in
     /// `primarySelection.didSet` is the second unlatch: a gesture cannot span photos.
     static let gestureSilenceTimeout: TimeInterval = 8
+    private static let gestureHeldPollNanoseconds: UInt64 = 100_000_000
     private var lastGestureEventAt = Date.distantPast
     private var gestureWatchdog: Task<Void, Never>?
 
@@ -4257,6 +4265,13 @@ final class AppState: ObservableObject {
                 let silence = Date().timeIntervalSince(self.lastGestureEventAt)
                 let remaining = Self.gestureSilenceTimeout - silence
                 if remaining <= 0 {
+                    if self.primaryButtonPressed() {
+                        // Do not rewrite the actual-event clock: after button-up a
+                        // lost release needs one short poll, not another eight seconds.
+                        try? await Task.sleep(nanoseconds: Self.gestureHeldPollNanoseconds)
+                        if Task.isCancelled { return }
+                        continue
+                    }
                     self.sliderGestureActive = false
                     self.gestureWatchdog = nil
                     self.flushSliderGesture()

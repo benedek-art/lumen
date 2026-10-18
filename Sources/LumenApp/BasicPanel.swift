@@ -366,13 +366,7 @@ struct BasicPanel: View {
     /// so daylight editing never grows a caption.
     private func boundedTintCaption(
         display: WhiteBalanceEngine.AsShotDisplay) -> String? {
-        let shown = display.tint
-        guard shown > 0 else { return nil }
-        let effective = ColorTemperature.clampedTint(kelvin: display.temperature,
-                                                     tint: shown)
-        guard effective < shown - 0.5 else { return nil }
-        return "Magenta is bounded by physics at +\(Int(effective.rounded())) for "
-            + "\(Int(display.temperature.rounded())) K — the render uses that value."
+        WhiteBalanceTintCaption.text(kelvin: display.temperature, tint: display.tint)
     }
 
     /// Says which neutral the render is adapting from, because "Temp 5500" means

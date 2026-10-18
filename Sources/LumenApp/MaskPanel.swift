@@ -2885,7 +2885,9 @@ struct MaskPanel: View {
     /// Every competitor's local white balance is a relative shift, which is correct
     /// until the global row moves and then silently wrong — a mask built to neutralize a
     /// tungsten window is a fixed nudge, so re-balancing the photograph re-lights the
-    /// window too. Kelvin says "this region is lit at 5600 K" and holds.
+    /// window too. Kelvin sets an absolute adaptation target. Adjacent global and
+    /// local adaptations compose to that target; intervening tone, presence, colour
+    /// and grading can still change the region, so this is not full-pipeline invariance.
     ///
     /// Entering Kelvin starts at the current balanced neutral; leaving it restores
     /// the stored relative shift. These are different corrections, not lossless unit
@@ -2978,6 +2980,14 @@ struct MaskPanel: View {
                                      + "reach, for the selected area: positive is "
                                      + "magenta, negative green. Reset is the "
                                      + "photograph's own white balance.")
+            if let caption = WhiteBalanceTintCaption.text(
+                kelvin: mask.adjust.kelvin ?? neutral.kelvin,
+                tint: mask.adjust.kelvinTint ?? neutral.tint, atFullStrength: true) {
+                Text(caption)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } else {
             adjustSlider(mask.id, "Temp", \.temp, -100...100,
                          help: "Warms or cools the selected area RELATIVE to however "

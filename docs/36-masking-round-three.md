@@ -361,7 +361,7 @@ the third table, not the first.
 | **A band can read six channels** | `MaskChannel` | Red separates what luma cannot, on one fixed −10…+4 EV axis |
 | **A mask can point at another mask** | `MaskKind.maskRef` | Cycles terminate, an orphan selects NOTHING, a disabled source still lends its selection. 833 assertions |
 | **Colour Pick has the point it is named after** | `SimilarityPoint` | 6 assertions |
-| **Per-mask absolute white balance** | `LocalWhiteBalance.resolve`, `RenderPlan.balancedNeutral` | Local ∘ global = one adaptation from as-shot straight to the mask's Kelvin, whatever the global row says. 26 assertions |
+| **Per-mask absolute white balance** | `LocalWhiteBalance.resolve`, `RenderPlan.balancedNeutral` | Adjacent local/global adaptations compose from as-shot to the mask's Kelvin. The isolated S6→S11 test bypasses intervening tone, presence, colour and grading; it does not certify full-pipeline invariance. 26 original assertions |
 | **Kuyper's luminosity series** | `MaskKind.luminosity` | Self-feathering as a bounded difference over a 401-step sweep; continuous level; midtones peak at 1. 363 assertions |
 | **Outline / lasso** | `MaskKind.polygon` | Ramp centred on the boundary at every feather; even-odd winding; isotropic on a 3:2 frame. 17 tests |
 | **Folders** | `MaskGroup`, `Recipe.effective` | Enable and Amount compose rather than override; a missing folder does not hide its masks. 12 tests |

@@ -517,9 +517,11 @@ public enum ReferenceRenderer {
         /// `balanced` by S6, so the incremental matrix is the one that re-balances FROM
         /// there TO the mask's target. That is what makes the number stable: drag the
         /// global temperature and `balanced` moves, this matrix moves the opposite way,
-        /// and the masked region renders at the Kelvin it is labelled with. Neither
-        /// Lightroom nor Capture One offers this; both give a relative shift only, and a
-        /// relative shift silently re-lights every mask the moment the global row moves.
+        /// and these adjacent adaptation matrices compose to the labelled target.
+        /// In the complete pipeline, tone, presence, colour and grading act between
+        /// S6 and S11; those intervening edits need not commute with white balance.
+        /// The isolated S6-to-S11 composition test does not certify full-pipeline
+        /// invariance. Relative shift is a different correction mode.
         ///
         /// AMOUNT interpolates in MIRED, not in Kelvin. Half of "3200 K" is not 1600 K —
         /// mired is the space colour temperature is perceptually even in, and it is the

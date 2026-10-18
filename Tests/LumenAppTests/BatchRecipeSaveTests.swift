@@ -230,6 +230,10 @@ final class BatchRecipeSaveTests: XCTestCase {
         let oldBytes = try photos.map { try Data(contentsOf: CatalogService.sidecarURL(for: $0)) }
         let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
         defer { service.close() }
+        // Startup reconstructs durable intent asynchronously on the catalog queue.
+        // flushSidecars snapshots only already-enqueued writes; join recovery first,
+        // just as release/undo probes join their queued saves before publication.
+        try await service.requireAvailablePhoto(photoID: ids[0])
         service.flushSidecars()
         for index in photos.indices {
             let bytes = try Data(contentsOf: CatalogService.sidecarURL(for: photos[index]))

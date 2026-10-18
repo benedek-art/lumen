@@ -1973,20 +1973,17 @@ struct LoupeView: View {
                            selectedStroke: healTool.selectedStrokeIndex,
                            brush: healTool.brush,
                            brushSize: healTool.radius * 2,
-                           paint: { points in state.addHealStroke(points: points) },
                            selectStroke: { index in
                                HealTool.shared.selectedStrokeIndex = index
                                HealTool.shared.selectedSpotID = nil
                            },
-                           add: { x, y in state.addSpot(sourceX: x, sourceY: y) },
                            select: { id in
                                HealTool.shared.selectedSpotID = id
                                HealTool.shared.selectedStrokeIndex = nil
                            },
-                           drag: { spot, _ in
-                               state.updateSpot(id: spot.id,
-                                                coalescingKey: "heal.drag.\(spot.id)",
-                                                label: "Move Spot") { $0 = spot }
+                           editContext: HealCanvasEditContext(photo: photo, recipe: recipe),
+                           commit: { edit, context in
+                               state.applyHealCanvasEdit(edit, context: context)
                            })
                     .frame(width: drawn.width, height: drawn.height)
             }

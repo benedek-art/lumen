@@ -15,12 +15,12 @@ final class GeneratedWorkflowCostTests: XCTestCase {
         return Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
     }
 
-    private func describe(_ name: String, count: Int, samples: [Double]) {
+    private func describe(_ name: String, count: Int, samples: [Double], prefix: String = "WORKFLOWBENCH") {
         let sorted = samples.sorted()
         func percentile(_ p: Double) -> Double {
             sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * p)) - 1)]
         }
-        print(String(format: "WORKFLOWBENCH count=%d %@ p50=%.4f p95=%.4f p99=%.4f ms", count,
+        print(String(format: "%@ count=%d %@ p50=%.4f p95=%.4f p99=%.4f ms", prefix as NSString, count,
                      name as NSString, percentile(0.50), percentile(0.95), percentile(0.99)))
     }
 
@@ -104,7 +104,13 @@ final class GeneratedWorkflowCostTests: XCTestCase {
             // availability read is queued behind writes; it does not query the roll.
             try await catalog.requireAvailablePhoto(photoID: barrierID)
             catalog.flushSidecars()
-            for selectedCount in [1, 40] {
+            // The extra cells are separately opt-in: 120 events across 1,000
+            // targets exercise much more AppState/history work than the default.
+            // Run sequentially and drain undo between cells rather than overlapping
+            // catalog work or retaining an additional roll-sized AppState.
+            let selectedCounts = ProcessInfo.processInfo.environment["LUMEN_APP_BENCH_LARGE_SELECTIONS"] == "1"
+                ? [1, 40, 200, 1_000] : [1, 40]
+            for selectedCount in selectedCounts {
                 state.selection = Set(items.suffix(selectedCount).map(\.id))
                 state.primarySelection = items.last
                 _ = state.selectedPhotos
@@ -127,6 +133,9 @@ final class GeneratedWorkflowCostTests: XCTestCase {
                 // Release enqueues every selected save synchronously. The catalog's
                 // serial-queue read therefore completes after those commit attempts,
                 // including their durable publication intent, without a 20k-row scan.
+                // This is completion of the entire released selection, not the
+                // first 64-input durable prefix. Untouched tail inputs remain at
+                // risk if the process disappears before their chunk commits.
                 try await catalog.requireAvailablePhoto(photoID: barrierID)
                 let commitMs = Double(DispatchTime.now().uptimeNanoseconds - releaseStarted) / 1e6
                 print(String(format: "WORKFLOWBENCH count=%d catalog-commit-selected=%d release-to-barrier=%.4f ms", count,
@@ -154,6 +163,28 @@ final class GeneratedWorkflowCostTests: XCTestCase {
                 try await catalog.requireAvailablePhoto(photoID: barrierID)
                 catalog.flushSidecars()
             }
+            // Diagnose the actual AppState lookup only after every measured edit
+            // and undo has drained. These explicit resets are not timings of a
+            // user changing sort/filter, and cannot prewarm earlier release cells.
+            let indexPhoto = try XCTUnwrap(items.last)
+            let expectedID = try XCTUnwrap(indexPhoto.catalogID)
+            var coldIndexSamples: [Double] = []
+            for _ in 0..<21 {
+                state.invalidatePhotoCache()
+                var actualID: Int64?
+                coldIndexSamples.append(milliseconds { actualID = state.catalogID(for: indexPhoto.id) })
+                XCTAssertEqual(actualID, expectedID)
+            }
+            describe("catalog-id-explicit-reset-cold", count: count, samples: coldIndexSamples,
+                     prefix: "CATALOGINDEXBENCH")
+            var warmIndexSamples: [Double] = []
+            for _ in 0..<1_001 {
+                var actualID: Int64?
+                warmIndexSamples.append(milliseconds { actualID = state.catalogID(for: indexPhoto.id) })
+                XCTAssertEqual(actualID, expectedID)
+            }
+            describe("catalog-id-warm", count: count, samples: warmIndexSamples,
+                     prefix: "CATALOGINDEXBENCH")
             print("WORKFLOWBENCH count=\(count) rss-before=\(rssBefore) rss-after=\(try residentBytes()) bytes")
             state.prepareToQuit()
             XCTAssertEqual(try Data(contentsOf: items[0].id), bytes, "original bytes must be preserved")

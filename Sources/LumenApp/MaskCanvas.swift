@@ -116,6 +116,17 @@ enum MaskCanvasEdit {
                  ref: String?, payload: Data?)
 }
 
+/// The exact view-to-source coordinate basis captured at a mask press. Checked
+/// synchronously so a pointer callback cannot outrun SwiftUI's onChange delivery.
+struct MaskCanvasMapping: Equatable {
+    let imageRect: CGRect
+    let sourceSize: CGSize
+
+    func accepts(imageRect: CGRect, sourceSize: CGSize) -> Bool {
+        self.imageRect == imageRect && self.sourceSize == sourceSize
+    }
+}
+
 /// Identity captured at the press. The component advances only after our own edit
 /// is acknowledged; an intervening edit must never be overwritten by a stale drag.
 struct MaskCanvasEditContext: Equatable {
@@ -189,6 +200,7 @@ struct MaskCanvas: View {
     let editContext: MaskCanvasEditContext
     let commit: (MaskCanvasEdit, MaskCanvasEditContext) -> Bool
     @State private var pressContext: MaskCanvasEditContext?
+    @State private var pressMapping: MaskCanvasMapping?
     @State private var pressCancelled = false
     @State private var gestureSignalled = false
 
@@ -244,11 +256,15 @@ struct MaskCanvas: View {
     private func continuePress() -> Bool {
         guard !pressCancelled else { return false }
         if let pressContext {
-            guard pressContext.sameTarget(as: editContext) else {
+            guard pressContext.sameTarget(as: editContext),
+                  pressMapping?.accepts(imageRect: imageRect, sourceSize: sourceSize) == true else {
                 cancelPress()
                 return false
             }
-        } else { pressContext = editContext }
+        } else {
+            pressContext = editContext
+            pressMapping = MaskCanvasMapping(imageRect: imageRect, sourceSize: sourceSize)
+        }
         return true
     }
 
@@ -281,6 +297,7 @@ struct MaskCanvas: View {
     private func finishPress() {
         cancelPress()
         pressContext = nil
+        pressMapping = nil
         pressCancelled = false
     }
 
@@ -387,6 +404,11 @@ struct MaskCanvas: View {
         }
         .onChange(of: imageRect) { _, _ in cancelPress() }
         .onChange(of: sourceSize) { _, _ in cancelPress() }
+        .onAppear {
+            // Match scalar controls: a hidden view may never receive mouse-up.
+            // Never revive the old press while a physical button remains down.
+            if NSEvent.pressedMouseButtons == 0 { finishPress() }
+        }
         .onDisappear { cancelPress() }
     }
 
