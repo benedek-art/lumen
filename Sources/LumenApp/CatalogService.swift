@@ -500,10 +500,22 @@ final class CatalogService: @unchecked Sendable {
                             legacyDivergence = incomingJSON != (try CanonicalJSON.canonicalRecipeJSON(recipe))
                         } else { legacyDivergence = false }
                         sidecarLock.lock()
-                        let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit
+                        // An explicit flush temporarily owns the pending entry.
+                        // Its committed delta still governs imports until settled.
+                        let owedKeywordEdit = unsavedSidecars[file.path].flatMap {
+                            $0.photoID == row.id ? $0.keywordEdit : nil
+                        }
+                        let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit ?? owedKeywordEdit
                         sidecarLock.unlock()
-                        if let pendingKeywordEdit, var projected = sidecar {
-                            projected.keywords = pendingKeywordEdit.apply(to: projected.keywords ?? [])
+                        if let pendingKeywordEdit, !pendingKeywordEdit.isEmpty, var projected = sidecar {
+                            // Match recovery's outlived-intent policy, including
+                            // legacy records: do not revive an obsolete addition
+                            // or replay a removal after the tag was added again.
+                            let leaves = Set(try store.keywords(photoID: row.id).map(KeywordPath.leaf))
+                            let currentEdit = SidecarKeywordEdit(
+                                added: pendingKeywordEdit.added.filter { leaves.contains($0) },
+                                removed: pendingKeywordEdit.removed.filter { !leaves.contains($0) })
+                            projected.keywords = currentEdit.apply(to: projected.keywords ?? [])
                             sidecar = projected
                         }
                         let resolution = Self.merge(row: row, recipe: recipe,

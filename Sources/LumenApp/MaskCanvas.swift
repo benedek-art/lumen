@@ -1455,10 +1455,14 @@ struct MaskCanvas: View {
         // (there is nothing to be inside of yet), but a reader should not have to prove
         // that to know the eraser flag is set.
         if isNew {
-            stabilizer = BrushStabilizer(strength: brush.stabilize)
+            stabilizer = BrushStabilizer(strength: brush.stabilize,
+                                         sourceWidth: Double(sourceSize.width),
+                                         sourceHeight: Double(sourceSize.height))
             eraseHeld = Self.optionHeld()
         }
-        var smoother = stabilizer ?? BrushStabilizer(strength: brush.stabilize)
+        var smoother = stabilizer ?? BrushStabilizer(strength: brush.stabilize,
+                                                    sourceWidth: Double(sourceSize.width),
+                                                    sourceHeight: Double(sourceSize.height))
         // A stroke that began on another mask's pin starts where the hand went down,
         // not where it was when the press stopped being a pin press (F1-05).
         if isNew, let seed {

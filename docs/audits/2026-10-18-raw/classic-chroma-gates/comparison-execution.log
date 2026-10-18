@@ -1,0 +1,123 @@
+[
+  {
+    "mode": "original",
+    "block": "iso-default-chroma-only",
+    "detail": 50,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "b191a448bea6644e82b9c0c3c61571fbc42296efbede8e2d00beef26d5afd0ff",
+    "b_sha256": "b191a448bea6644e82b9c0c3c61571fbc42296efbede8e2d00beef26d5afd0ff"
+  },
+  {
+    "mode": "original",
+    "block": "iso-default-chroma-only",
+    "detail": 100,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "b191a448bea6644e82b9c0c3c61571fbc42296efbede8e2d00beef26d5afd0ff",
+    "b_sha256": "b191a448bea6644e82b9c0c3c61571fbc42296efbede8e2d00beef26d5afd0ff"
+  },
+  {
+    "mode": "original",
+    "block": "maximum-chroma-only",
+    "detail": 50,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "32ae9bd6d8f55514f8d7a0467fbd562cd162fd90e2be944f71b217d4ce755fac",
+    "b_sha256": "32ae9bd6d8f55514f8d7a0467fbd562cd162fd90e2be944f71b217d4ce755fac"
+  },
+  {
+    "mode": "original",
+    "block": "maximum-chroma-only",
+    "detail": 100,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "32ae9bd6d8f55514f8d7a0467fbd562cd162fd90e2be944f71b217d4ce755fac",
+    "b_sha256": "32ae9bd6d8f55514f8d7a0467fbd562cd162fd90e2be944f71b217d4ce755fac"
+  },
+  {
+    "mode": "E",
+    "block": "iso-default-chroma-only",
+    "detail": 50,
+    "byteExact": false,
+    "floatArrayExact": false,
+    "maxFloatDifference": 0.01449333131313324,
+    "a_sha256": "b191a448bea6644e82b9c0c3c61571fbc42296efbede8e2d00beef26d5afd0ff",
+    "b_sha256": "689c6d08e7dad4e211aca673a287153bdfe980651fb97302e634f8ebeab428bd"
+  },
+  {
+    "mode": "E",
+    "block": "iso-default-chroma-only",
+    "detail": 100,
+    "byteExact": false,
+    "floatArrayExact": false,
+    "maxFloatDifference": 0.0305318683385849,
+    "a_sha256": "b191a448bea6644e82b9c0c3c61571fbc42296efbede8e2d00beef26d5afd0ff",
+    "b_sha256": "bc9d69a6a6954af7bf6b162402dc2a7b29217b5aa1e9bccda281701ff0a188bb"
+  },
+  {
+    "mode": "E",
+    "block": "maximum-chroma-only",
+    "detail": 50,
+    "byteExact": false,
+    "floatArrayExact": false,
+    "maxFloatDifference": 0.018487438559532166,
+    "a_sha256": "32ae9bd6d8f55514f8d7a0467fbd562cd162fd90e2be944f71b217d4ce755fac",
+    "b_sha256": "89d16d8337f8e3232d6aa2b0611f35497d550b9ab119a4204a6b95591c2c8fe2"
+  },
+  {
+    "mode": "E",
+    "block": "maximum-chroma-only",
+    "detail": 100,
+    "byteExact": false,
+    "floatArrayExact": false,
+    "maxFloatDifference": 0.04025542736053467,
+    "a_sha256": "32ae9bd6d8f55514f8d7a0467fbd562cd162fd90e2be944f71b217d4ce755fac",
+    "b_sha256": "4304b7f52d52bdb376de35764b6a0b80bbbd71aa35ef44bb5e86cd66daa10ac2"
+  },
+  {
+    "mode": "S",
+    "block": "iso-default-chroma-only",
+    "detail": 50,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "0cdde3aabc28c80b9e32fd4b451ffc0f872288b40bde18c74edd951409aacc9e",
+    "b_sha256": "0cdde3aabc28c80b9e32fd4b451ffc0f872288b40bde18c74edd951409aacc9e"
+  },
+  {
+    "mode": "S",
+    "block": "iso-default-chroma-only",
+    "detail": 100,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "0cdde3aabc28c80b9e32fd4b451ffc0f872288b40bde18c74edd951409aacc9e",
+    "b_sha256": "0cdde3aabc28c80b9e32fd4b451ffc0f872288b40bde18c74edd951409aacc9e"
+  },
+  {
+    "mode": "S",
+    "block": "maximum-chroma-only",
+    "detail": 50,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "e25e82ade4e9f4304b1d97610e98a61e46c602ac89ed66812f97db809aafb99b",
+    "b_sha256": "e25e82ade4e9f4304b1d97610e98a61e46c602ac89ed66812f97db809aafb99b"
+  },
+  {
+    "mode": "S",
+    "block": "maximum-chroma-only",
+    "detail": 100,
+    "byteExact": true,
+    "floatArrayExact": true,
+    "maxFloatDifference": 0.0,
+    "a_sha256": "e25e82ade4e9f4304b1d97610e98a61e46c602ac89ed66812f97db809aafb99b",
+    "b_sha256": "e25e82ade4e9f4304b1d97610e98a61e46c602ac89ed66812f97db809aafb99b"
+  }
+]
+controls pass

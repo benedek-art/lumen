@@ -1,0 +1,29 @@
+diff --git a/Sources/LumenCore/Image/DenoiseEngine.swift b/Sources/LumenCore/Image/DenoiseEngine.swift
+index 67eb775..0acea0c 100644
+--- a/Sources/LumenCore/Image/DenoiseEngine.swift
++++ b/Sources/LumenCore/Image/DenoiseEngine.swift
+@@ -869,6 +869,14 @@ public struct ClassicalDenoise: Sendable {
+                                                   hi: ClassicalDenoise.edgeKneeHigh)
+         }
+ 
++        // AUDIT-ONLY OBSERVATION: scalar summary of the actual computed gate.
++        if kC > 0 {
++            let gateMinimum = chromaEdge.values.min() ?? 0
++            let gateMaximum = chromaEdge.values.max() ?? 0
++            let gateNonzero = chromaEdge.values.filter { $0 != 0 }.count
++            print("CHROMA-GATE-OBSERVATION detail=\(colorDetail) chroma=\(chroma) min=\(gateMinimum) max=\(gateMaximum) nonzero=\(gateNonzero) count=\(chromaEdge.values.count)")
++        }
++
+         // 3. Shrinkage, per plane, in VST space.
+         if kL > 0 {
+             p0 = shrink(p0, thresholds: lumaThresholds(levels: levelCount),
+@@ -892,7 +900,8 @@ public struct ClassicalDenoise: Sendable {
+             let blotch = Num.saturate(smooth) * Num.saturate(chroma / 100)
+             if blotch > 0 {
+                 let guide = work.luminancePlane(space: space)
+-                let mixAmount = ClassicalDenoise.blotchMaxMix * blotch
++                // AUDIT-ONLY SINGLE GATE MUTATION: retain shrinkage, disable only late mix.
++                let mixAmount = 0.0
+                 let f1 = SpatialOps.guidedFilter(input: p1, guide: guide,
+                                                  radius: ClassicalDenoise.blotchRadius,
+                                                  epsilon: ClassicalDenoise.blotchEpsilon)

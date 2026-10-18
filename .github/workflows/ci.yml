@@ -100,13 +100,14 @@ jobs:
   # Optional audit evidence stays separate from required release verification.
   # Existing required jobs retain their unconditional steps and negative controls.
   # Commit markers select a new measurement/question, avoiding repeated expensive
-  # sweeps after unrelated source changes. Dispatch deliberately runs both probes.
+  # sweeps after unrelated source changes. Dispatch deliberately runs the optional probes.
   workflow-cost-audit:
     if: >-
       github.ref == 'refs/heads/codex/raw-accuracy-qualification' &&
       (github.event_name == 'workflow_dispatch' ||
        contains(github.event.head_commit.message, '[workflow-cost]') ||
-       contains(github.event.head_commit.message, '[export-source-causal]'))
+       contains(github.event.head_commit.message, '[export-source-causal]') ||
+       contains(github.event.head_commit.message, '[keyword-scan-causal]'))
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -162,6 +163,56 @@ jobs:
           cmp -s "$source_backup" "$source_file"
           shasum -a 256 "$source_file" >> export-source-mutation-provenance.log
           echo "EXPORT-SOURCE-CAUSAL baseline=GREEN final-check-removed=RED source-restored=true"
+      - name: Prove in-flight keyword scan fencing and current-membership filtering
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[keyword-scan-causal]')
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=InflightKeywordScanTests
+          swift test -c release --filter "$target" 2>&1 | tee keyword-scan-baseline.log
+          grep -q 'Executed 2 tests, with 0 failures' keyword-scan-baseline.log
+          source_file=Sources/LumenApp/CatalogService.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/keyword-scan-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > keyword-scan-mutation-provenance.log
+          shasum -a 256 "$source_file" >> keyword-scan-mutation-provenance.log
+          for mutation in pending-only unfiltered; do
+            cp "$source_backup" "$source_file"
+            KEYWORD_SCAN_MUTATION="$mutation" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('Sources/LumenApp/CatalogService.swift')
+          source = path.read_text()
+          if os.environ['KEYWORD_SCAN_MUTATION'] == 'pending-only':
+              old = 'let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit ?? owedKeywordEdit'
+              new = 'let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit'
+          else:
+              old = 'projected.keywords = currentEdit.apply(to: projected.keywords ?? [])'
+              new = 'projected.keywords = pendingKeywordEdit.apply(to: projected.keywords ?? [])'
+          assert source.count(old) == 1, 'mutation must target one exact scan expression'
+          path.write_text(source.replace(old, new))
+          PY
+            git diff -- "$source_file" >> keyword-scan-mutation-provenance.log
+            set +e
+            swift test -c release --filter "$target" > "keyword-scan-$mutation.log" 2>&1
+            mutant_status=$?
+            set -e
+            cat "keyword-scan-$mutation.log"
+            test "$mutant_status" -ne 0
+            grep -q 'XCTAssertEqual failed' "keyword-scan-$mutation.log"
+            grep -Eq 'Executed 2 tests, with [1-9][0-9]* failure' "keyword-scan-$mutation.log"
+            if [ "$mutation" = pending-only ]; then
+              grep -Fq "testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' failed" "keyword-scan-$mutation.log"
+            else
+              grep -Fq "testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' failed" "keyword-scan-$mutation.log"
+            fi
+          done
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> keyword-scan-mutation-provenance.log
+          echo "KEYWORD-SCAN-CAUSAL baseline=GREEN pending-only=RED unfiltered=RED source-restored=true"
       - name: Keep generated workflow cost
         if: always()
         uses: actions/upload-artifact@v4
@@ -172,6 +223,10 @@ jobs:
             export-source-baseline.log
             export-source-mutant.log
             export-source-mutation-provenance.log
+            keyword-scan-baseline.log
+            keyword-scan-pending-only.log
+            keyword-scan-unfiltered.log
+            keyword-scan-mutation-provenance.log
           if-no-files-found: warn
           retention-days: 14
 

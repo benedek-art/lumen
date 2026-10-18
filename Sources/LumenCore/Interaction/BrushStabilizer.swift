@@ -55,16 +55,32 @@ public struct BrushStabilizer: Sendable {
     public let length: Double
 
     private var brush: (x: Double, y: Double)?
+    private let scaleX: Double
+    private let scaleY: Double
 
     /// `strength` is the panel's 0…100. `maxLength` is what 100 means.
-    public init(strength: Double, maxLength: Double = BrushStabilizer.maxLength) {
+    public init(strength: Double, maxLength: Double = BrushStabilizer.maxLength,
+                sourceWidth: Double = 1, sourceHeight: Double = 1) {
+        // Stored points use a fraction of EACH axis, while the rope uses a fraction
+        // of the LONG edge. Convert before measuring distances, not after smoothing:
+        // otherwise a landscape frame gives vertical motion a shorter physical rope.
+        if sourceWidth.isFinite, sourceHeight.isFinite,
+           sourceWidth > 0, sourceHeight > 0,
+           Swift.min(sourceWidth, sourceHeight) / Swift.max(sourceWidth, sourceHeight) > 0 {
+            let long = Swift.max(sourceWidth, sourceHeight)
+            scaleX = sourceWidth / long
+            scaleY = sourceHeight / long
+        } else {
+            scaleX = 1
+            scaleY = 1
+        }
         let s = strength.isFinite ? Num.saturate(strength / 100) : 0
         // SQUARED, not linear. The useful range of a stabilizer is bunched at the bottom
         // — the difference between 0 and 10 is the difference between a jittery edge and
         // a clean one, and the difference between 60 and 70 is two flavours of "very
         // smooth". A linear slider spends four fifths of its travel where nobody can
         // tell the settings apart.
-        self.length = s * s * Swift.max(maxLength, 0)
+        self.length = s * s * (maxLength.isFinite ? Swift.max(maxLength, 0) : 0)
     }
 
     /// What 100 means: 2% of the long edge, which is about 90 px on a 45 MP frame and
@@ -78,6 +94,13 @@ public struct BrushStabilizer: Sendable {
     /// nothing, which is also what keeps a held-still pointer from filling the stroke
     /// with duplicate points.
     public mutating func next(x: Double, y: Double) -> (x: Double, y: Double)? {
+        let wasFirst = brush == nil
+        guard let point = nextIsotropic(x: x * scaleX, y: y * scaleY) else { return nil }
+        if wasFirst || length == 0 { return (x, y) }
+        return (point.x / scaleX, point.y / scaleY)
+    }
+
+    private mutating func nextIsotropic(x: Double, y: Double) -> (x: Double, y: Double)? {
         guard x.isFinite, y.isFinite else { return nil }
         guard let current = brush else {
             // The first sample places the brush under the pointer. Starting it `length`
@@ -107,6 +130,11 @@ public struct BrushStabilizer: Sendable {
     /// released, every time — which is a systematic error rather than smoothing, and on
     /// a stroke drawn to meet another one it is a visible gap.
     public mutating func finish(x: Double, y: Double) -> (x: Double, y: Double)? {
+        guard finishIsotropic(x: x * scaleX, y: y * scaleY) != nil else { return nil }
+        return (x, y)
+    }
+
+    private mutating func finishIsotropic(x: Double, y: Double) -> (x: Double, y: Double)? {
         guard x.isFinite, y.isFinite else { return nil }
         guard let current = brush else { return nil }
         guard abs(current.x - x) > 1e-12 || abs(current.y - y) > 1e-12 else { return nil }

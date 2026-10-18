@@ -1,0 +1,169 @@
+2026-10-18T12:41:31.7313010Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault]' skipped (0.001 seconds).
+2026-10-18T12:41:31.7317160Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode]' skipped (0.000 seconds).
+2026-10-18T12:41:31.7320790Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels]' skipped (0.000 seconds).
+2026-10-18T12:41:31.7324130Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeCachePromotionPrecisionEvidence]' skipped (0.000 seconds).
+2026-10-18T12:41:31.7327540Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache]' skipped (0.000 seconds).
+2026-10-18T12:41:31.7331380Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix]' skipped (0.000 seconds).
+2026-10-18T12:41:31.7334770Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile]' skipped (0.000 seconds).
+2026-10-18T12:41:46.2018330Z Test Case '-[LumenAppTests.BatchRecipeSaveTests testChunkBoundaryChildFixture]' skipped (0.001 seconds).
+2026-10-18T12:41:46.2099920Z Test Case '-[LumenPipelineTests.BroadRawQualificationTests testBroadCameraDecodeAndDefaultPreview]' skipped (0.001 seconds).
+2026-10-18T12:41:50.7601980Z Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testPublicRawEligibleFailureRetriesWithoutCachingAnAlternateImage]' skipped (0.001 seconds).
+2026-10-18T12:41:52.9759540Z Test Case '-[LumenPipelineTests.CaptureDecodeCorpusTests testCaptureAmountAndLensCacheAgreeWithFreshDecoders]' skipped (0.000 seconds).
+2026-10-18T12:47:22.6726820Z Test Case '-[LumenCoreTests.ControlProbeHarness testDumpTheRegistry]' skipped (0.001 seconds).
+2026-10-18T12:47:22.6732860Z Test Case '-[LumenCoreTests.ControlProbeHarness testProbeOneControl]' skipped (0.000 seconds).
+2026-10-18T12:48:12.6117490Z Test Case '-[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes]' skipped (0.002 seconds).
+2026-10-18T12:48:43.8944280Z Test Suite 'DurableSidecarIntentTests' started at 2026-10-18 12:48:43.531.
+2026-10-18T12:48:43.8945000Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testAbruptExitChildFixture]' started.
+2026-10-18T12:48:43.8949440Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/DurableSidecarIntentTests.swift:16: -[LumenAppTests.DurableSidecarIntentTests testAbruptExitChildFixture] : Test skipped - subprocess fixture; exercised by the killed-process parent
+2026-10-18T12:48:43.8951920Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testAbruptExitChildFixture]' skipped (0.002 seconds).
+2026-10-18T12:48:43.8952760Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testCloseRetainsIntentAndPreventsLatePreparedPublication]' started.
+2026-10-18T12:48:43.8958530Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testCloseRetainsIntentAndPreventsLatePreparedPublication]' passed (0.091 seconds).
+2026-10-18T12:48:43.8959480Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testKilledKeywordOnlyIntentDoesNotResurrectUnrelatedExternalRemoval]' started.
+2026-10-18T12:48:46.6561090Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testKilledKeywordOnlyIntentDoesNotResurrectUnrelatedExternalRemoval]' passed (0.269 seconds).
+2026-10-18T12:48:46.6562700Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testKilledProcessRetainsCommittedRecipeAndPortableIntentAcrossExternalRewrite]' started.
+2026-10-18T12:48:46.6566010Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testKilledProcessRetainsCommittedRecipeAndPortableIntentAcrossExternalRewrite]' passed (0.246 seconds).
+2026-10-18T12:48:46.6610220Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testLegacyFailedReadCannotRecreateSettledOlderIntent]' started.
+2026-10-18T12:48:46.6618720Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testLegacyFailedReadCannotRecreateSettledOlderIntent]' passed (0.069 seconds).
+2026-10-18T12:48:46.6619860Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testLegacyNilGenerationCannotWriteAfterNewerGenerationSettles]' started.
+2026-10-18T12:48:46.6624790Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testLegacyNilGenerationCannotWriteAfterNewerGenerationSettles]' passed (0.062 seconds).
+2026-10-18T12:48:46.6626180Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testMalformedJournalSurvivesOpenCloseAndRefusesNewMutations]' started.
+2026-10-18T12:48:46.6661930Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testMalformedJournalSurvivesOpenCloseAndRefusesNewMutations]' passed (0.071 seconds).
+2026-10-18T12:48:46.6662880Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testNewerRatingPublicationCarriesInflightRecipeAndRejectsOlderWrite]' started.
+2026-10-18T12:48:46.6664900Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testNewerRatingPublicationCarriesInflightRecipeAndRejectsOlderWrite]' passed (0.053 seconds).
+2026-10-18T12:48:46.6665800Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testNewKeywordIntentDoesNotResurrectUnrelatedExternalRemoval]' started.
+2026-10-18T12:48:46.6667910Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testNewKeywordIntentDoesNotResurrectUnrelatedExternalRemoval]' passed (0.031 seconds).
+2026-10-18T12:48:46.6668890Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testOlderSuccessfulFlushDoesNotSettleNewerRecipeIntent]' started.
+2026-10-18T12:48:46.6670820Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testOlderSuccessfulFlushDoesNotSettleNewerRecipeIntent]' passed (0.049 seconds).
+2026-10-18T12:48:46.6671760Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testRejectedIntentRollsBackCatalogAndDoesNotEnqueuePortableEdit]' started.
+2026-10-18T12:48:46.6675200Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testRejectedIntentRollsBackCatalogAndDoesNotEnqueuePortableEdit]' passed (0.047 seconds).
+2026-10-18T12:48:46.6675870Z Test Suite 'DurableSidecarIntentTests' passed at 2026-10-18 12:48:44.521.
+2026-10-18T12:48:53.3793190Z Test Suite 'ExportCleanupDiagnosticTests' started at 2026-10-18 12:48:50.444.
+2026-10-18T12:48:53.3793720Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testDevicePNGCleanAndOverwrite]' started.
+2026-10-18T12:48:53.3794780Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testDevicePNGCleanAndOverwrite]' passed (0.465 seconds).
+2026-10-18T12:48:53.3795430Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testDeviceTenBitHEIC]' started.
+2026-10-18T12:48:53.3796100Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testDeviceTenBitHEIC]' passed (0.242 seconds).
+2026-10-18T12:48:53.3796760Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testMissingPlaceholderPNGCleanAndOverwrite]' started.
+2026-10-18T12:48:53.3797500Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testMissingPlaceholderPNGCleanAndOverwrite]' passed (0.435 seconds).
+2026-10-18T12:48:53.3798200Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testMissingPlaceholderTenBitHEIC]' started.
+2026-10-18T12:48:53.3798870Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testMissingPlaceholderTenBitHEIC]' passed (0.294 seconds).
+2026-10-18T12:48:53.3799550Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testStablePNGSourceCleanAndOverwrite]' started.
+2026-10-18T12:48:53.3800250Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testStablePNGSourceCleanAndOverwrite]' passed (0.449 seconds).
+2026-10-18T12:48:53.3800930Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testStablePNGSourceTenBitHEIC]' started.
+2026-10-18T12:48:53.3801590Z Test Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testStablePNGSourceTenBitHEIC]' passed (0.270 seconds).
+2026-10-18T12:48:53.3802200Z Test Suite 'ExportCleanupDiagnosticTests' passed at 2026-10-18 12:48:52.599.
+2026-10-18T12:48:55.0077900Z Test Suite 'ExportSourceGenerationTests' started at 2026-10-18 12:48:54.864.
+2026-10-18T12:48:55.0078570Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testExplicitStaleGenerationRefusesBeforeDecodeAndPreservesDelivery]' started.
+2026-10-18T12:48:55.0079530Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testExplicitStaleGenerationRefusesBeforeDecodeAndPreservesDelivery]' passed (0.021 seconds).
+2026-10-18T12:48:55.0080490Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testGenerationValidationRefusesReplacementAndMissingOriginal]' started.
+2026-10-18T12:48:55.0081700Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testGenerationValidationRefusesReplacementAndMissingOriginal]' passed (0.001 seconds).
+2026-10-18T12:48:55.0082950Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial]' started.
+2026-10-18T12:48:55.0084450Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial]' passed (0.050 seconds).
+2026-10-18T12:48:55.0085790Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testReplacementDuringDecodeRefusesPublicationWithImplicitRealFileBinding]' started.
+2026-10-18T12:48:55.0086980Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testReplacementDuringDecodeRefusesPublicationWithImplicitRealFileBinding]' passed (0.018 seconds).
+2026-10-18T12:48:55.0087960Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testStableGenerationPublishesHealthyDeliveryWithoutChangingSourceOrXMP]' started.
+2026-10-18T12:48:56.7085290Z Test Case '-[LumenPipelineTests.ExportSourceGenerationTests testStableGenerationPublishesHealthyDeliveryWithoutChangingSourceOrXMP]' passed (0.043 seconds).
+2026-10-18T12:48:56.7087540Z Test Suite 'ExportSourceGenerationTests' passed at 2026-10-18 12:48:54.997.
+2026-10-18T12:49:00.9363300Z Test Case '-[LumenAppTests.GeneratedWorkflowCostTests testGeneratedLargeRollBookkeepingLatencyAndMemory]' skipped (0.001 seconds).
+2026-10-18T12:49:34.4830570Z Test Case '-[LumenCoreTests.InteractiveCostBenchTests testCatalogQueriesOnATwentyThousandPhotoRoll]' skipped (0.001 seconds).
+2026-10-18T12:49:34.4833370Z Test Case '-[LumenCoreTests.InteractiveCostBenchTests testDecomposeOneSliderTick]' skipped (0.000 seconds).
+2026-10-18T12:49:34.4843240Z Test Case '-[LumenPipelineTests.KernelGoldenTests testAnExportNamesTheStagesThatSilentlyDidNothing]' started.
+2026-10-18T12:49:34.4844260Z Test Case '-[LumenPipelineTests.KernelGoldenTests testAnExportNamesTheStagesThatSilentlyDidNothing]' passed (0.421 seconds).
+2026-10-18T12:49:34.4937070Z Test Case '-[LumenPipelineTests.KernelGoldenTests testTenBitHEICWritesTenDeepOrRefusesLoudly]' started.
+2026-10-18T12:49:34.4937790Z Test Case '-[LumenPipelineTests.KernelGoldenTests testTenBitHEICWritesTenDeepOrRefusesLoudly]' passed (0.232 seconds).
+2026-10-18T12:49:50.8634070Z Test Case '-[LumenPipelineTests.LocalRawControlSweepTests testLocalControlsOnNativeRawROIs]' skipped (0.001 seconds).
+2026-10-18T12:50:06.8761110Z Test Suite 'MatteSourceFreshnessTests' started at 2026-10-18 12:50:04.889.
+2026-10-18T12:50:06.8761690Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testCallerAutomaticallyRetriesReplacementAndPublishesFreshPlane]' started.
+2026-10-18T12:50:06.8778790Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testCallerAutomaticallyRetriesReplacementAndPublishesFreshPlane]' passed (0.302 seconds).
+2026-10-18T12:50:06.8779650Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testCallerMissingFileIsUnavailableWithoutRetryingProducer]' started.
+2026-10-18T12:50:06.8780580Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testCallerMissingFileIsUnavailableWithoutRetryingProducer]' passed (0.163 seconds).
+2026-10-18T12:50:06.8781520Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testCallerStopsAfterOneReplacementRetryWhenSourceKeepsChanging]' started.
+2026-10-18T12:50:06.8782450Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testCallerStopsAfterOneReplacementRetryWhenSourceKeepsChanging]' passed (0.410 seconds).
+2026-10-18T12:50:06.8783340Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testExplicitInvalidationRejectsSuspendedMatteEvenWithUnchangedStat]' started.
+2026-10-18T12:50:06.8784260Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testExplicitInvalidationRejectsSuspendedMatteEvenWithUnchangedStat]' passed (0.234 seconds).
+2026-10-18T12:50:06.8785120Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testFullyAttemptedEntryRefreshesSourceBeforeFastReturn]' started.
+2026-10-18T12:50:06.8785930Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testFullyAttemptedEntryRefreshesSourceBeforeFastReturn]' passed (0.253 seconds).
+2026-10-18T12:50:06.8786710Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testLateOldCompletionDoesNotClearNewerMatte]' started.
+2026-10-18T12:50:06.8787430Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testLateOldCompletionDoesNotClearNewerMatte]' passed (0.236 seconds).
+2026-10-18T12:50:06.8788220Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testReplacementDetectedByAnotherConsumerRejectsSuspendedMatte]' started.
+2026-10-18T12:50:06.8789070Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testReplacementDetectedByAnotherConsumerRejectsSuspendedMatte]' passed (0.210 seconds).
+2026-10-18T12:50:06.8789920Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testReplacementWithoutActorLookupRejectsSuspendedMatte]' started.
+2026-10-18T12:50:06.8790680Z Test Case '-[LumenAppTests.MatteSourceFreshnessTests testReplacementWithoutActorLookupRejectsSuspendedMatte]' passed (0.170 seconds).
+2026-10-18T12:50:06.8791260Z Test Suite 'MatteSourceFreshnessTests' passed at 2026-10-18 12:50:06.868.
+2026-10-18T12:50:08.1051420Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testCroppedNativeTIFF16WriteReadbackFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T12:50:08.1062670Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testEDRHalfFloatFirstRepeatAndBoundaryPolicies]' skipped (0.000 seconds).
+2026-10-18T12:50:08.1069290Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies]' skipped (0.000 seconds).
+2026-10-18T12:50:08.1078470Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies]' skipped (0.000 seconds).
+2026-10-18T12:50:08.1085450Z Test Case '-[LumenPipelineTests.NativeDenoiseQualificationTests testNativeDenoiseRegions]' skipped (0.000 seconds).
+2026-10-18T12:50:22.9505300Z Test Suite 'PickSourceFreshnessTests' started at 2026-10-18 12:50:19.175.
+2026-10-18T12:50:22.9505990Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testKnownPhotoGenerationReplacementBeforeClickRefusesWithoutSamplingOrWrites]' started.
+2026-10-18T12:50:22.9506910Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testKnownPhotoGenerationReplacementBeforeClickRefusesWithoutSamplingOrWrites]' passed (0.019 seconds).
+2026-10-18T12:50:22.9507810Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testPrimaryRemovalRejectsSampleWithoutRecipeOrHistoryWrites]' started.
+2026-10-18T12:50:22.9508940Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testPrimaryRemovalRejectsSampleWithoutRecipeOrHistoryWrites]' passed (0.134 seconds).
+2026-10-18T12:50:22.9509850Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testPrimaryReplacementRejectsSampleAndNeutralWithoutRecipeOrHistoryWrites]' started.
+2026-10-18T12:50:22.9511220Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testPrimaryReplacementRejectsSampleAndNeutralWithoutRecipeOrHistoryWrites]' passed (0.234 seconds).
+2026-10-18T12:50:22.9512060Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testSecondaryBatchReplacementRejectsEntirePick]' started.
+2026-10-18T12:50:22.9512760Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testSecondaryBatchReplacementRejectsEntirePick]' passed (0.147 seconds).
+2026-10-18T12:50:22.9513570Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testUnchangedSourcesRetainSampleNeutralAndBatchHistoryBehavior]' started.
+2026-10-18T12:50:22.9514400Z Test Case '-[LumenAppTests.PickSourceFreshnessTests testUnchangedSourcesRetainSampleNeutralAndBatchHistoryBehavior]' passed (0.215 seconds).
+2026-10-18T12:50:22.9515080Z Test Suite 'PickSourceFreshnessTests' passed at 2026-10-18 12:50:19.924.
+2026-10-18T12:50:30.2072370Z Test Case '-[LumenPipelineTests.RawCorpusTests testAMonochromeSensorProducesNoColour]' skipped (0.001 seconds).
+2026-10-18T12:50:30.2075350Z Test Case '-[LumenPipelineTests.RawCorpusTests testAnExportReopensWithTheDimensionsItClaims]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2086980Z Test Case '-[LumenPipelineTests.RawCorpusTests testAPortraitFrameComesOutPortrait]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2090120Z Test Case '-[LumenPipelineTests.RawCorpusTests testATruncatedFileIsRefusedRatherThanHalfDecoded]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2093500Z Test Case '-[LumenPipelineTests.RawCorpusTests testDeliveredDimensionsArePlausibleAgainstTheFilesOwnEXIF]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2096900Z Test Case '-[LumenPipelineTests.RawCorpusTests testEveryFileEitherDecodesCleanlyOrRefusesCleanly]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2099700Z Test Case '-[LumenPipelineTests.RawCorpusTests testMonochromeDecodeOptionSweep]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2102630Z Test Case '-[LumenPipelineTests.RawCorpusTests testMonochromeExactDecoderContextMatrix]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2105560Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheDecoderVersionPinIsPresentAndStable]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2108530Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheMetadataReaderGetsRealFilesRight]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2111590Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheMostNeutralPatchInEachFrameIsNeutral]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2114510Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheRenderAgreesWithTheCamerasOwnPreview]' skipped (0.000 seconds).
+2026-10-18T12:50:30.2117340Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheRenderIsNeitherBlankNorPoisoned]' skipped (0.000 seconds).
+2026-10-18T12:50:30.9316590Z Test Case '-[LumenCoreTests.RealRawColorAccuracyTests testRegisteredColourControlsAgainstIndependentOracleOnCameraSamples]' skipped (0.000 seconds).
+2026-10-18T12:50:30.9322130Z Test Case '-[LumenCoreTests.RealRawControlQualificationTests testEveryRegisteredControlOnPrivateCameraPhotographs]' skipped (0.000 seconds).
+2026-10-18T12:50:30.9351830Z Test Suite 'RegularSourceFileIdentityTests' started at 2026-10-18 12:50:30.641.
+2026-10-18T12:50:30.9352640Z Test Case '-[LumenCoreTests.RegularSourceFileIdentityTests testDirectoriesDevicesAndMissingPlaceholdersDoNotBindImplicitly]' started.
+2026-10-18T12:50:30.9353600Z Test Case '-[LumenCoreTests.RegularSourceFileIdentityTests testDirectoriesDevicesAndMissingPlaceholdersDoNotBindImplicitly]' passed (0.001 seconds).
+2026-10-18T12:50:30.9354580Z Test Case '-[LumenCoreTests.RegularSourceFileIdentityTests testRegularOriginalAndSymlinkUseTheSameGeneration]' started.
+2026-10-18T12:50:30.9355430Z Test Case '-[LumenCoreTests.RegularSourceFileIdentityTests testRegularOriginalAndSymlinkUseTheSameGeneration]' passed (0.001 seconds).
+2026-10-18T12:50:30.9356320Z Test Case '-[LumenCoreTests.RegularSourceFileIdentityTests testReplacementStillChangesGenerationAndBrokenSymlinkIsUnbound]' started.
+2026-10-18T12:50:30.9357260Z Test Case '-[LumenCoreTests.RegularSourceFileIdentityTests testReplacementStillChangesGenerationAndBrokenSymlinkIsUnbound]' passed (0.001 seconds).
+2026-10-18T12:50:30.9358380Z Test Suite 'RegularSourceFileIdentityTests' passed at 2026-10-18 12:50:30.643.
+2026-10-18T12:50:45.0017910Z Test Suite 'SidecarBatchPublicationTests' started at 2026-10-18 12:50:44.561.
+2026-10-18T12:50:45.0018810Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testFailedPhysicalFileKeepsOnlyItsWholeIntentWhileOtherFilesSettle]' started.
+2026-10-18T12:50:45.0042290Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testFailedPhysicalFileKeepsOnlyItsWholeIntentWhileOtherFilesSettle]' passed (0.086 seconds).
+2026-10-18T12:50:45.0043340Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterAdapterCloseLeavesAllPreparedAndRemainingEntriesDurablyOwedWithoutWriting]' started.
+2026-10-18T12:50:45.0048270Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterAdapterCloseLeavesAllPreparedAndRemainingEntriesDurablyOwedWithoutWriting]' passed (0.136 seconds).
+2026-10-18T12:50:45.0049390Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterAdapterRemovingEarlierPaintingDependencyPreservesItsPortablePayload]' started.
+2026-10-18T12:50:45.0055130Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterAdapterRemovingEarlierPaintingDependencyPreservesItsPortablePayload]' passed (0.128 seconds).
+2026-10-18T12:50:45.0056210Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterAdapterRewriteCannotOverwriteEarlierPreparedExternalBytes]' started.
+2026-10-18T12:50:53.9164930Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterAdapterRewriteCannotOverwriteEarlierPreparedExternalBytes]' passed (0.095 seconds).
+2026-10-18T12:50:53.9167860Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterCatalogImportDoesNotFalselyAcknowledgeEarlierPreparedCullingBytes]' started.
+2026-10-18T12:50:53.9170210Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterCatalogImportDoesNotFalselyAcknowledgeEarlierPreparedCullingBytes]' passed (0.086 seconds).
+2026-10-18T12:50:53.9171180Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterUnavailableMarkerRefusesEarlierPreparedRecipeWithoutChangingItsBytes]' started.
+2026-10-18T12:50:53.9176180Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testLaterUnavailableMarkerRefusesEarlierPreparedRecipeWithoutChangingItsBytes]' passed (0.080 seconds).
+2026-10-18T12:50:53.9177480Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testObservationOrFinalJournalSQLFailureRetainsEveryWrittenWholeIntentUntilRetry]' started.
+2026-10-18T12:50:53.9198000Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testObservationOrFinalJournalSQLFailureRetainsEveryWrittenWholeIntentUntilRetry]' passed (0.256 seconds).
+2026-10-18T12:50:53.9199000Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testPreparedByteBudgetPublishesBoundedGroupsWithoutTruncatingOversizedDocuments]' started.
+2026-10-18T12:50:53.9200960Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testPreparedByteBudgetPublishesBoundedGroupsWithoutTruncatingOversizedDocuments]' passed (7.458 seconds).
+2026-10-18T12:50:53.9201930Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testRestartAfterWrittenBatchSQLFailureRetainsDebtAndCompletesPublication]' started.
+2026-10-18T12:50:53.9219790Z Test Case '-[LumenAppTests.SidecarBatchPublicationTests testRestartAfterWrittenBatchSQLFailureRetainsDebtAndCompletesPublication]' passed (0.152 seconds).
+2026-10-18T12:50:53.9220490Z Test Suite 'SidecarBatchPublicationTests' passed at 2026-10-18 12:50:53.038.
+2026-10-18T12:50:53.9221280Z Test Suite 'SidecarBatchSettlementTests' started at 2026-10-18 12:50:53.038.
+2026-10-18T12:50:53.9221940Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testExactPathPhotoIDAndOptionalGenerationMatchIncludingExplicitLegacyNil]' started.
+2026-10-18T12:50:53.9222870Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testExactPathPhotoIDAndOptionalGenerationMatchIncludingExplicitLegacyNil]' passed (0.040 seconds).
+2026-10-18T12:50:53.9223840Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testMalformedJournalAndDuplicatePublicationPathsRefuseWithoutObservationOrDebtLoss]' started.
+2026-10-18T12:50:53.9224850Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testMalformedJournalAndDuplicatePublicationPathsRefuseWithoutObservationOrDebtLoss]' passed (0.039 seconds).
+2026-10-18T12:50:53.9225800Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testNewerIntentCannotBeObservedOrSettledByPreparedOlderPublication]' started.
+2026-10-18T12:50:53.9226700Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testNewerIntentCannotBeObservedOrSettledByPreparedOlderPublication]' passed (0.043 seconds).
+2026-10-18T12:50:53.9227700Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testObservationAndJournalSQLFailuresRollBackWholeGroupAndRetainWrittenFilesForRetry]' started.
+2026-10-18T12:50:53.9228730Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testObservationAndJournalSQLFailuresRollBackWholeGroupAndRetainWrittenFilesForRetry]' passed (0.085 seconds).
+2026-10-18T12:50:53.9229820Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testPartialGroupJournalUpsertFailureRollsBackObservationsAndPreservesExactRemainder]' started.
+2026-10-18T12:50:53.9231060Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testPartialGroupJournalUpsertFailureRollsBackObservationsAndPreservesExactRemainder]' passed (0.046 seconds).
+2026-10-18T12:50:53.9232160Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testUnacknowledgedExternalRecipeKeepsPreviousObservationWhileSettlingPublication]' started.
+2026-10-18T12:50:53.9233160Z Test Case '-[LumenCoreTests.SidecarBatchSettlementTests testUnacknowledgedExternalRecipeKeepsPreviousObservationWhileSettlingPublication]' passed (0.040 seconds).
+2026-10-18T12:50:53.9233950Z Test Suite 'SidecarBatchSettlementTests' passed at 2026-10-18 12:50:53.332.
+2026-10-18T12:51:04.3035680Z Test Case '-[LumenCoreTests.SpeedBenchTests testInteractiveCPUPath]' skipped (0.001 seconds).
+2026-10-18T12:51:11.9900970Z 	 Executed 3494 tests, with 40 tests skipped and 0 failures (0 unexpected) in 279.898 (606.453) seconds
+2026-10-18T12:51:11.9902280Z 	 Executed 3494 tests, with 40 tests skipped and 0 failures (0 unexpected) in 279.898 (606.459) seconds
+2026-10-18T12:51:12.1923530Z 	 Executed 3494 tests, with 40 tests skipped and 0 failures (0 unexpected) in 279.898 (606.459) seconds

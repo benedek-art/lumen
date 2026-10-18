@@ -1,0 +1,7 @@
+/workspace/scratch/2982a056243e/lumen-inflight-keyword-review/docs/audits/2026-10-18-raw/inflight-keyword-scan/no-filter-executed.swift:55:33: warning: initialization of immutable value 'currentEdit' was never used; consider replacing with assignment to '_' or removing it
+53 |                             // or replay a removal after the tag was added again.
+54 |                             let leaves = Set(try store.keywords(photoID: row.id).map(KeywordPath.leaf))
+55 |                             let currentEdit = SidecarKeywordEdit(
+   |                                 `- warning: initialization of immutable value 'currentEdit' was never used; consider replacing with assignment to '_' or removing it
+56 |                                 added: pendingKeywordEdit.added.filter { leaves.contains($0) },
+57 |                                 removed: pendingKeywordEdit.removed.filter { !leaves.contains($0) })

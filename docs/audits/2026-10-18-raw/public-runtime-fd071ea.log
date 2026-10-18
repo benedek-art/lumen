@@ -1,0 +1,75 @@
+2026-10-18T12:36:23.9247220Z 27.0.1
+2026-10-18T12:36:23.9247580Z 26A434
+2026-10-18T12:36:27.7575920Z ProductVersion:		27.0.1
+2026-10-18T12:36:27.7576270Z BuildVersion:		26A434
+2026-10-18T12:36:28.2816280Z Xcode 27.0
+2026-10-18T12:36:28.2830160Z Build version 27A266a
+2026-10-18T12:36:32.7576240Z swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+2026-10-18T12:36:34.3194190Z [36;1m  echo "verified CC0 fixture $id sha256=$actual bytes=$actual_bytes"[0m
+2026-10-18T12:36:36.2394820Z verified CC0 fixture 1087 sha256=3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977 bytes=21700096
+2026-10-18T12:36:37.7651560Z verified CC0 fixture 1116 sha256=44508f7df4191aacaecb6461e1841dae002e5b71a4f95a00aa3f52d1c6d6bc5f bytes=10317264
+2026-10-18T12:36:39.0729520Z verified CC0 fixture 1346 sha256=b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee bytes=12841893
+2026-10-18T12:36:40.4328060Z verified CC0 fixture 2102 sha256=ba644e7dd2abe74eca260e67f0206ff113bf0f62e710f8130611e964d6be5bf1 bytes=5805950
+2026-10-18T12:36:41.6110810Z verified CC0 fixture 2239 sha256=e35ae4154a468be3154f5f462e884ba5941f010d3e8f23d347fbec14809f44d3 bytes=9561139
+2026-10-18T12:36:42.9445860Z verified CC0 fixture 2349 sha256=7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad bytes=14712832
+2026-10-18T12:36:44.5795320Z verified CC0 fixture 2607 sha256=c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e bytes=19166720
+2026-10-18T12:36:45.8968920Z verified CC0 fixture 2767 sha256=69fc81e92360a45920158f7d6238eed0cd6260cd32aa4a0beec2ac79273add80 bytes=11591029
+2026-10-18T12:36:46.9656680Z verified CC0 fixture 3949 sha256=bfd992594af380748f3d46e37814dae595356cb6fce182d4188230ca978e6a9f bytes=4073376
+2026-10-18T12:36:48.7747920Z verified CC0 fixture 4264 sha256=e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2 bytes=29195592
+2026-10-18T12:36:49.9513270Z verified CC0 fixture 4671 sha256=4a859ab137f792aedaf3416b0aad1497ebaab02052a49453902e226699154aa7 bytes=7395184
+2026-10-18T12:36:51.5939820Z verified CC0 fixture 5283 sha256=bf2eef6becc0851e48231617c3e2eac27a2cdb44c75b93035c561d837952c18b bytes=21820729
+2026-10-18T12:36:53.2309880Z verified CC0 fixture 5812 sha256=75249c11a3a845367c7a322a1c4e7076f33c785ec2518fc6594c34c185b41161 bytes=19789738
+2026-10-18T12:36:55.1371610Z verified CC0 fixture 6001 sha256=caeadb2666f6c5d9bbe32fbe692c2079b6a7e028f8514a13173f360656d08507 bytes=28948064
+2026-10-18T12:36:56.4747530Z verified CC0 fixture 6168 sha256=6b921558944db5fdb4f1c63dc64919b6666ef700857a187e18500099c6e7c6c6 bytes=12243982
+2026-10-18T12:36:57.9372620Z verified CC0 fixture 824 sha256=d468895b0b30a60d05a7f6468d69f2f15830dd49b2d82698b34245072a22e747 bytes=16106536
+2026-10-18T12:36:57.9454930Z [36;1m    print("runtime-decoder-json: " + String(decoding: json, as: UTF8.self))[0m
+2026-10-18T12:36:57.9459120Z [36;1mprefix = 'runtime-decoder-json: '[0m
+2026-10-18T12:36:57.9472780Z [36;1msummary = (f'Metadata-only discovery: {len(capabilities)} public fixtures, '[0m
+2026-10-18T12:37:09.3049910Z runtime-decoder-json: {"default":"6","id":"1087","opened":true,"supported":["6","6.dng","7.dng","8.dng","9.dng"]}
+2026-10-18T12:37:09.3051360Z runtime-decoder-json: {"default":"","id":"1116","opened":true,"supported":["None"]}
+2026-10-18T12:37:09.3052000Z runtime-decoder-json: {"default":"8","id":"1346","opened":true,"supported":["6","7","8","9"]}
+2026-10-18T12:37:09.3052560Z runtime-decoder-json: {"default":"6","id":"2102","opened":true,"supported":["6"]}
+2026-10-18T12:37:09.3053120Z runtime-decoder-json: {"default":"7","id":"2239","opened":true,"supported":["6","7"]}
+2026-10-18T12:37:09.3053630Z runtime-decoder-json: {"default":"7","id":"2349","opened":true,"supported":["6","7"]}
+2026-10-18T12:37:09.3054200Z runtime-decoder-json: {"default":"8","id":"2607","opened":true,"supported":["7","8"]}
+2026-10-18T12:37:09.3054850Z runtime-decoder-json: {"default":"","id":"2767","opened":true,"supported":["None"]}
+2026-10-18T12:37:09.3055360Z runtime-decoder-json: {"default":"","id":"3949","opened":true,"supported":["None"]}
+2026-10-18T12:37:09.3055990Z runtime-decoder-json: {"default":"8.dng","id":"4264","opened":true,"supported":["6.dng","7.dng","8.dng","9.dng"]}
+2026-10-18T12:37:09.3056540Z runtime-decoder-json: {"default":"8","id":"4671","opened":true,"supported":["7","8","9"]}
+2026-10-18T12:37:09.3057100Z runtime-decoder-json: {"default":"8","id":"5283","opened":true,"supported":["7","8"]}
+2026-10-18T12:37:09.3057550Z runtime-decoder-json: {"default":"8","id":"5812","opened":true,"supported":["7","8"]}
+2026-10-18T12:37:09.3058180Z runtime-decoder-json: {"default":"8","id":"6001","opened":true,"supported":["7","8"]}
+2026-10-18T12:37:09.3058720Z runtime-decoder-json: {"default":"8.dng","id":"6168","opened":true,"supported":["6.dng","7.dng","8.dng","9.dng"]}
+2026-10-18T12:37:09.3059320Z runtime-decoder-json: {"default":"8","id":"824","opened":true,"supported":["6","7","8"]}
+2026-10-18T12:37:09.3998280Z Metadata-only discovery: 16 public fixtures, 5 RAW9 advertisers; pixel-test IDs: 1087,1346. No full pixel corpus was run.
+2026-10-18T12:42:31.9135200Z raw-pixel-check: RAW9 preview corpus1087 pass0 samples=613120 maxAbsolute=0.000244140625 normalized=0.12152037372680466
+2026-10-18T12:42:31.9145440Z raw-pixel-check: RAW9 preview corpus1087 pass1 samples=613120 maxAbsolute=0.000244140625 normalized=0.12152037372680466
+2026-10-18T12:42:31.9147150Z audit-raw-file: raw9-preview corpus1087 decoded
+2026-10-18T12:42:31.9202760Z raw-pixel-check: RAW9 preview corpus1346 pass0 samples=326200 maxAbsolute=0.00041031837463378906 normalized=0.1538032844374133
+2026-10-18T12:42:31.9207560Z raw-pixel-check: RAW9 preview corpus1346 pass1 samples=326200 maxAbsolute=0.00041031837463378906 normalized=0.1538032844374133
+2026-10-18T12:42:31.9208450Z audit-raw-file: raw9-preview corpus1346 decoded
+2026-10-18T12:42:31.9210510Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode]' passed (7.206 seconds).
+2026-10-18T12:42:31.9213900Z raw-pixel-check: RAW9 native corpus1087 pass0 tile0.25 samples=4096 maxAbsolute=7.6089054346084595e-06 normalized=0.005013041258095315
+2026-10-18T12:42:31.9218230Z raw-pixel-check: RAW9 native corpus1087 pass0 tile0.5 samples=4096 maxAbsolute=6.08786940574646e-05 normalized=0.036939364225756936
+2026-10-18T12:42:31.9254780Z raw-pixel-check: RAW9 native corpus1087 pass0 tile0.75 samples=4096 maxAbsolute=6.08786940574646e-05 normalized=0.036939364225756936
+2026-10-18T12:42:31.9265580Z raw-pixel-check: RAW9 native corpus1087 pass1 tile0.25 samples=4096 maxAbsolute=7.6089054346084595e-06 normalized=0.005013041258095315
+2026-10-18T12:42:31.9266940Z raw-pixel-check: RAW9 native corpus1087 pass1 tile0.5 samples=4096 maxAbsolute=6.08786940574646e-05 normalized=0.036939364225756936
+2026-10-18T12:42:31.9268140Z raw-pixel-check: RAW9 native corpus1087 pass1 tile0.75 samples=4096 maxAbsolute=6.08786940574646e-05 normalized=0.036939364225756936
+2026-10-18T12:42:31.9269300Z audit-raw-file: raw9-native corpus1087 decoded
+2026-10-18T12:42:31.9281800Z raw-pixel-check: RAW9 native corpus1346 pass0 tile0.25 samples=4096 maxAbsolute=0.00041037797927856445 normalized=0.15382561970276287
+2026-10-18T12:42:31.9282630Z raw-pixel-check: RAW9 native corpus1346 pass0 tile0.5 samples=4096 maxAbsolute=0.00041037797927856445 normalized=0.15382561970276287
+2026-10-18T12:42:31.9283500Z raw-pixel-check: RAW9 native corpus1346 pass0 tile0.75 samples=4096 maxAbsolute=0.00041037797927856445 normalized=0.15382561970276287
+2026-10-18T12:42:31.9284230Z raw-pixel-check: RAW9 native corpus1346 pass1 tile0.25 samples=4096 maxAbsolute=0.00041037797927856445 normalized=0.15382561970276287
+2026-10-18T12:42:31.9285140Z raw-pixel-check: RAW9 native corpus1346 pass1 tile0.5 samples=4096 maxAbsolute=0.00041037797927856445 normalized=0.15382561970276287
+2026-10-18T12:42:31.9286070Z raw-pixel-check: RAW9 native corpus1346 pass1 tile0.75 samples=4096 maxAbsolute=0.00041037797927856445 normalized=0.15382561970276287
+2026-10-18T12:42:31.9286800Z audit-raw-file: raw9-native corpus1346 decoded
+2026-10-18T12:42:31.9287710Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels]' passed (1.724 seconds).
+2026-10-18T12:42:31.9289460Z raw-pixel-check: default corpus1087 samples=613120 maxAbsolute=0.0002440810203552246 normalized=0.12097621029882219
+2026-10-18T12:42:31.9290380Z audit-raw-file: unpinned corpus1087 decoded default=6 supported=6,6.dng,7.dng,8.dng,9.dng default-is-not-last
+2026-10-18T12:42:31.9291100Z raw-pixel-check: default corpus1346 samples=326200 maxAbsolute=0.0009758472442626953 normalized=0.2774203177408158
+2026-10-18T12:42:31.9291910Z audit-raw-file: unpinned corpus1346 decoded default=8 supported=6,7,8,9 default-is-not-last
+2026-10-18T12:42:31.9293000Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile]' passed (1.535 seconds).
+2026-10-18T12:42:31.9294700Z 	 Executed 3 tests, with 0 failures (0 unexpected) in 10.466 (10.466) seconds
+2026-10-18T12:42:31.9295920Z 	 Executed 3 tests, with 0 failures (0 unexpected) in 10.466 (10.467) seconds
+2026-10-18T12:42:31.9297710Z 	 Executed 3 tests, with 0 failures (0 unexpected) in 10.466 (10.470) seconds
+2026-10-18T12:42:31.9668080Z [36;1m    if not line.startswith('audit-raw-file: '):[0m

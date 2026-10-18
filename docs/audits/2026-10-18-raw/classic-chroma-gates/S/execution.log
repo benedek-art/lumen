@@ -1,0 +1,7 @@
+CHROMA-GATE-OBSERVATION detail=0.0 chroma=25.0 min=0.0 max=0.0 nonzero=0 count=4096
+CHROMA-GATE-OBSERVATION detail=50.0 chroma=25.0 min=0.0 max=0.0 nonzero=0 count=4096
+CHROMA-GATE-OBSERVATION detail=100.0 chroma=25.0 min=0.0 max=0.0 nonzero=0 count=4096
+CHROMA-GATE-OBSERVATION detail=0.0 chroma=100.0 min=0.0 max=0.0 nonzero=0 count=4096
+CHROMA-GATE-OBSERVATION detail=50.0 chroma=100.0 min=0.0 max=0.0 nonzero=0 count=4096
+CHROMA-GATE-OBSERVATION detail=100.0 chroma=100.0 min=0.0 max=0.0 nonzero=0 count=4096
+CHROMA-GATE-CAUSAL calls=7 finite=7 zeroExact=1 input=4177df68f4a227fc qualityAcceptance=false

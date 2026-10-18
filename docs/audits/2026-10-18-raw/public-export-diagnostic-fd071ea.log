@@ -1,0 +1,66 @@
+2026-10-18T12:44:07.6793900Z EXPORT-DIAGNOSTIC PNG device clean before source=/dev/null token=328:0:1792327387:425311000:1792327387:425311000 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-25816443-4531-4A90-BB95-7ABD08C4CB4E.png exists=false
+2026-10-18T12:44:07.6795130Z EXPORT-DIAGNOSTIC PNG device clean before partials=[]
+2026-10-18T12:44:07.6796030Z EXPORT-DIAGNOSTIC PNG device clean success source=/dev/null token=328:0:1792327388:422418000:1792327388:422418000 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-25816443-4531-4A90-BB95-7ABD08C4CB4E.png exists=true
+2026-10-18T12:44:07.6797000Z EXPORT-DIAGNOSTIC PNG device clean success partials=[]
+2026-10-18T12:44:07.6797420Z EXPORT-DIAGNOSTIC PNG device clean unavailable=[]
+2026-10-18T12:44:07.6798310Z EXPORT-DIAGNOSTIC PNG device overwrite before source=/dev/null token=328:0:1792327388:422418000:1792327388:422418000 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-25816443-4531-4A90-BB95-7ABD08C4CB4E.png exists=true
+2026-10-18T12:44:07.6799290Z EXPORT-DIAGNOSTIC PNG device overwrite before partials=[]
+2026-10-18T12:44:07.6800220Z EXPORT-DIAGNOSTIC PNG device overwrite success source=/dev/null token=328:0:1792327389:426186000:1792327389:426186000 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-25816443-4531-4A90-BB95-7ABD08C4CB4E.png exists=true
+2026-10-18T12:44:07.6801190Z EXPORT-DIAGNOSTIC PNG device overwrite success partials=[]
+2026-10-18T12:44:07.6801620Z EXPORT-DIAGNOSTIC PNG device overwrite unavailable=["grain", "vignette"]
+2026-10-18T12:44:07.6802420Z EXPORT-DIAGNOSTIC cleanup PNG device removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-25816443-4531-4A90-BB95-7ABD08C4CB4E.png
+2026-10-18T12:44:07.6803440Z EXPORT-DIAGNOSTIC cleanup fixture removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-D6DDD6F5-5251-47D4-B84E-8C9E3A16A5A9
+2026-10-18T12:44:07.6804080Z EXPORT-DIAGNOSTIC HEIC device canWriteTenBitHEIC=true
+2026-10-18T12:44:07.6805170Z EXPORT-DIAGNOSTIC HEIC device ten-bit before source=/dev/null token=328:0:1792327389:426186000:1792327389:426186000 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-158DD31D-E550-4C28-A974-986F98549F5D.heic exists=false
+2026-10-18T12:44:07.6806090Z EXPORT-DIAGNOSTIC HEIC device ten-bit before partials=[]
+2026-10-18T12:44:07.6807070Z EXPORT-DIAGNOSTIC HEIC device ten-bit success source=/dev/null token=328:0:1792327390:426649000:1792327390:426649000 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-158DD31D-E550-4C28-A974-986F98549F5D.heic exists=true
+2026-10-18T12:44:07.6808150Z EXPORT-DIAGNOSTIC HEIC device ten-bit success partials=[]
+2026-10-18T12:44:07.6808600Z EXPORT-DIAGNOSTIC HEIC device ten-bit unavailable=[]
+2026-10-18T12:44:07.6808970Z EXPORT-DIAGNOSTIC HEIC device deliveredDepth=10
+2026-10-18T12:44:07.6809700Z EXPORT-DIAGNOSTIC cleanup HEIC device removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-device-158DD31D-E550-4C28-A974-986F98549F5D.heic
+2026-10-18T12:44:07.6810820Z EXPORT-DIAGNOSTIC cleanup fixture removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gnTest Case '-[LumenPipelineTests.ExportCleanupDiagnosticTests testDeviceTenBitHEIC]' passed (0.744 seconds).
+2026-10-18T12:49:45.3997360Z 	 Executed 257 tests, with 30 tests skipped and 0 failures (0 unexpected) in 518.901 (518.932) seconds
+2026-10-18T12:49:45.3998590Z 	 Executed 257 tests, with 30 tests skipped and 0 failures (0 unexpected) in 518.901 (518.936) seconds
+2026-10-18T12:49:45.4001350Z EXPORT-DIAGNOSTIC PNG missingPlaceholder clean before source=/dev/null/export-cleanup-diagnostic token=nil destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-1D738F25-50DD-4430-ACA6-4E8311142C00.png exists=false
+2026-10-18T12:49:45.4002590Z EXPORT-DIAGNOSTIC PNG missingPlaceholder clean before partials=[]
+2026-10-18T12:49:45.6131910Z EXPORT-DIAGNOSTIC PNG missingPlaceholder clean success source=/dev/null/export-cleanup-diagnostic token=nil destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-1D738F25-50DD-4430-ACA6-4E8311142C00.png exists=true
+2026-10-18T12:49:45.6135470Z EXPORT-DIAGNOSTIC PNG missingPlaceholder clean success partials=[]
+2026-10-18T12:49:45.6135970Z EXPORT-DIAGNOSTIC PNG missingPlaceholder clean unavailable=[]
+2026-10-18T12:49:45.6138550Z EXPORT-DIAGNOSTIC PNG missingPlaceholder overwrite before source=/dev/null/export-cleanup-diagnostic token=nil destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-1D738F25-50DD-4430-ACA6-4E8311142C00.png exists=true
+2026-10-18T12:49:45.6139940Z EXPORT-DIAGNOSTIC PNG missingPlaceholder overwrite before partials=[]
+2026-10-18T12:49:45.6141090Z EXPORT-DIAGNOSTIC PNG missingPlaceholder overwrite success source=/dev/null/export-cleanup-diagnostic token=nil destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-1D738F25-50DD-4430-ACA6-4E8311142C00.png exists=true
+2026-10-18T12:49:45.6142400Z EXPORT-DIAGNOSTIC PNG missingPlaceholder overwrite success partials=[]
+2026-10-18T12:49:45.6143050Z EXPORT-DIAGNOSTIC PNG missingPlaceholder overwrite unavailable=["grain", "vignette"]
+2026-10-18T12:49:45.6144060Z EXPORT-DIAGNOSTIC cleanup PNG missingPlaceholder removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-1D738F25-50DD-4430-ACA6-4E8311142C00.png
+2026-10-18T12:49:45.6145340Z EXPORT-DIAGNOSTIC cleanup fixture removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-31CB09E7-3476-4465-B851-EE2B40A64059
+2026-10-18T12:49:45.6146120Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder canWriteTenBitHEIC=true
+2026-10-18T12:49:45.6147560Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder ten-bit before source=/dev/null/export-cleanup-diagnostic token=nil destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-F0FD3F55-51F2-4820-BEE1-9F7219214ED2.heic exists=false
+2026-10-18T12:49:45.6148570Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder ten-bit before partials=[]
+2026-10-18T12:49:45.6149700Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder ten-bit success source=/dev/null/export-cleanup-diagnostic token=nil destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-F0FD3F55-51F2-4820-BEE1-9F7219214ED2.heic exists=true
+2026-10-18T12:49:45.6150810Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder ten-bit success partials=[]
+2026-10-18T12:49:45.6151280Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder ten-bit unavailable=[]
+2026-10-18T12:49:45.6151970Z EXPORT-DIAGNOSTIC HEIC missingPlaceholder deliveredDepth=10
+2026-10-18T12:49:45.6152750Z EXPORT-DIAGNOSTIC cleanup HEIC missingPlaceholder removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-missingPlaceholder-F0FD3F55-51F2-4820-BEE1-9F7219214ED2.heic
+2026-10-18T12:49:45.6154030Z EXPORT-DIAGNOSTIC cleanup fixture removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-451EC987-0F3D-4466-9634-C28408A21DB9
+2026-10-18T12:49:45.6156520Z EXPORT-DIAGNOSTIC PNG stablePNG clean before source=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-1B3BEE3C-C04F-4876-BCD7-7DC5D0521F72/stable-source.png token=3533944:198:1792327392:666555313:1792327392:666810273 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-A145A11B-9398-46B5-A8ED-FDE406603E2E.png exists=false
+2026-10-18T12:49:45.6158050Z EXPORT-DIAGNOSTIC PNG stablePNG clean before partials=[]
+2026-10-18T12:49:45.6159760Z EXPORT-DIAGNOSTIC PNG stablePNG clean success source=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-1B3BEE3C-C04F-4876-BCD7-7DC5D0521F72/stable-source.png token=3533944:198:1792327392:666555313:1792327392:666810273 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-A145A11B-9398-46B5-A8ED-FDE406603E2E.png exists=true
+2026-10-18T12:49:45.6161410Z EXPORT-DIAGNOSTIC PNG stablePNG clean success partials=[]
+2026-10-18T12:49:45.6161880Z EXPORT-DIAGNOSTIC PNG stablePNG clean unavailable=[]
+2026-10-18T12:49:45.6163170Z EXPORT-DIAGNOSTIC PNG stablePNG overwrite before source=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-1B3BEE3C-C04F-4876-BCD7-7DC5D0521F72/stable-source.png token=3533944:198:1792327392:666555313:1792327392:666810273 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-A145A11B-9398-46B5-A8ED-FDE406603E2E.png exists=true
+2026-10-18T12:49:45.6207710Z EXPORT-DIAGNOSTIC PNG stablePNG overwrite before partials=[]
+2026-10-18T12:49:45.6209490Z EXPORT-DIAGNOSTIC PNG stablePNG overwrite success source=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-1B3BEE3C-C04F-4876-BCD7-7DC5D0521F72/stable-source.png token=3533944:198:1792327392:666555313:1792327392:666810273 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-A145A11B-9398-46B5-A8ED-FDE406603E2E.png exists=true
+2026-10-18T12:49:45.6211120Z EXPORT-DIAGNOSTIC PNG stablePNG overwrite success partials=[]
+2026-10-18T12:49:45.6211590Z EXPORT-DIAGNOSTIC PNG stablePNG overwrite unavailable=["grain", "vignette"]
+2026-10-18T12:49:45.6212800Z EXPORT-DIAGNOSTIC cleanup PNG stablePNG removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-A145A11B-9398-46B5-A8ED-FDE406603E2E.png
+2026-10-18T12:49:45.6214040Z EXPORT-DIAGNOSTIC cleanup fixture removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-1B3BEE3C-C04F-4876-BCD7-7DC5D0521F72
+2026-10-18T12:49:45.6214990Z EXPORT-DIAGNOSTIC HEIC stablePNG canWriteTenBitHEIC=true
+2026-10-18T12:49:45.6216530Z EXPORT-DIAGNOSTIC HEIC stablePNG ten-bit before source=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-CE8C1FFF-3899-4098-8ED5-49FE34FFA7A3/stable-source.png token=3533948:453:1792327393:997522128:1792327393:997825905 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-219C4FC3-348C-4EEE-A26C-F2DB98650D06.heic exists=false
+2026-10-18T12:49:45.6217870Z EXPORT-DIAGNOSTIC HEIC stablePNG ten-bit before partials=[]
+2026-10-18T12:49:45.6219380Z EXPORT-DIAGNOSTIC HEIC stablePNG ten-bit success source=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-CE8C1FFF-3899-4098-8ED5-49FE34FFA7A3/stable-source.png token=3533948:453:1792327393:997522128:1792327393:997825905 destination=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-219C4FC3-348C-4EEE-A26C-F2DB98650D06.heic exists=true
+2026-10-18T12:49:45.6220820Z EXPORT-DIAGNOSTIC HEIC stablePNG ten-bit success partials=[]
+2026-10-18T12:49:45.6221560Z EXPORT-DIAGNOSTIC HEIC stablePNG ten-bit unavailable=[]
+2026-10-18T12:49:45.6222020Z EXPORT-DIAGNOSTIC HEIC stablePNG deliveredDepth=10
+2026-10-18T12:49:45.6223450Z EXPORT-DIAGNOSTIC cleanup HEIC stablePNG removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/lumen-diagnostic-stablePNG-219C4FC3-348C-4EEE-A26C-F2DB98650D06.heic
+2026-10-18T12:49:45.6224580Z EXPORT-DIAGNOSTIC cleanup fixture removed=/var/folders/nj/vtw8zd2j31d1gdrtntc5y4600000gn/T/export-cleanup-source-CE8C1FFF-3899-4098-8ED5-49FE34FFA7A3
+2026-10-18T12:49:45.6671820Z 	 Executed 257 tests, with 30 tests skipped and 0 failures (0 unexpected) in 518.901 (518.936) seconds
