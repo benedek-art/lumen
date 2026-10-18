@@ -1,0 +1,20 @@
+2026-10-18T13:19:59.0353390Z Test Case '-[LumenAppTests.InflightKeywordScanTests testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' passed (0.136 seconds).
+2026-10-18T13:19:59.0358360Z Test Case '-[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' passed (0.075 seconds).
+2026-10-18T13:19:59.0359990Z 	 Executed 2 tests, with 0 failures (0 unexpected) in 0.211 (0.211) seconds
+2026-10-18T13:19:59.0361240Z 	 Executed 2 tests, with 0 failures (0 unexpected) in 0.211 (0.212) seconds
+2026-10-18T13:19:59.0364260Z 	 Executed 2 tests, with 0 failures (0 unexpected) in 0.211 (0.213) seconds
+2026-10-18T13:22:13.3832020Z Test Case '-[LumenAppTests.InflightKeywordScanTests testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' passed (0.094 seconds).
+2026-10-18T13:22:13.3836620Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/InflightKeywordScanTests.swift:42: error: -[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword] : XCTAssertEqual failed: ("Optional(["Kept", "Private"])") is not equal to ("Optional(["Kept"])") - an old sidecar cannot undo a committed in-flight removal
+2026-10-18T13:22:13.3839220Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/InflightKeywordScanTests.swift:43: error: -[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword] : XCTAssertEqual failed: ("["Kept", "Private"]") is not equal to ("["Kept"]")
+2026-10-18T13:22:13.3841110Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/InflightKeywordScanTests.swift:50: error: -[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword] : XCTAssertEqual failed: ("["Kept", "Private"]") is not equal to ("["Kept"]")
+2026-10-18T13:22:13.3842420Z Test Case '-[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' failed (0.792 seconds).
+2026-10-18T13:22:13.3843510Z 	 Executed 2 tests, with 3 failures (0 unexpected) in 0.886 (0.886) seconds
+2026-10-18T13:22:13.3844400Z 	 Executed 2 tests, with 3 failures (0 unexpected) in 0.886 (0.886) seconds
+2026-10-18T13:22:13.3845290Z 	 Executed 2 tests, with 3 failures (0 unexpected) in 0.886 (0.888) seconds
+2026-10-18T13:24:04.6270590Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/InflightKeywordScanTests.swift:81: error: -[LumenAppTests.InflightKeywordScanTests testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported] : XCTAssertEqual failed: ("["Kept", "Removed"]") is not equal to ("["Kept"]")
+2026-10-18T13:24:04.6271980Z Test Case '-[LumenAppTests.InflightKeywordScanTests testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' failed (0.753 seconds).
+2026-10-18T13:24:04.6275820Z Test Case '-[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' passed (0.076 seconds).
+2026-10-18T13:24:04.6277110Z 	 Executed 2 tests, with 1 failure (0 unexpected) in 0.829 (0.829) seconds
+2026-10-18T13:24:04.6278180Z 	 Executed 2 tests, with 1 failure (0 unexpected) in 0.829 (0.829) seconds
+2026-10-18T13:24:04.6279120Z 	 Executed 2 tests, with 1 failure (0 unexpected) in 0.829 (0.831) seconds
+2026-10-18T13:24:04.6823480Z KEYWORD-SCAN-CAUSAL baseline=GREEN pending-only=RED unfiltered=RED source-restored=true

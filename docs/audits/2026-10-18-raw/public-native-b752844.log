@@ -1,0 +1,495 @@
+2026-10-18T13:29:51.2041600Z canonical-decode-retry: attempts=2 held=112265216 first-refused retry-canonical cache-identical
+2026-10-18T13:29:57.3277050Z native-precision: fixture1 decoder=7 first-repeat=0.0 explicit-materialization=0.0 first-cache=0.0 materialized-cache=0.0 cache-repeat=0.0 held-bytes=112265216 materialize-ms=204.999458
+2026-10-18T13:29:57.3279590Z native-precision: fixture2 decoder=8 first-repeat=0.0 explicit-materialization=0.0 first-cache=0.0 materialized-cache=0.0 cache-repeat=0.0 held-bytes=81254400 materialize-ms=91.854375
+2026-10-18T13:30:07.5686920Z displayed-denoise fixture1 region=0 mode=off rmsCodes=0.0
+2026-10-18T13:30:07.5687440Z displayed-denoise fixture1 region=1 mode=off rmsCodes=0.0
+2026-10-18T13:30:07.5687860Z displayed-denoise fixture1 region=2 mode=off rmsCodes=0.0
+2026-10-18T13:30:07.5689270Z displayed-denoise fixture1 region=0 mode=imported-classic-default rmsCodes=0.7696147172357253
+2026-10-18T13:30:07.5690390Z displayed-denoise fixture1 region=1 mode=imported-classic-default rmsCodes=0.7208805289783053
+2026-10-18T13:30:07.5691270Z displayed-denoise fixture1 region=2 mode=imported-classic-default rmsCodes=0.7474492062519652
+2026-10-18T13:30:07.5691950Z displayed-denoise fixture1 region=0 mode=classic25 rmsCodes=0.9247832455293
+2026-10-18T13:30:07.5692500Z displayed-denoise fixture1 region=1 mode=classic25 rmsCodes=0.8702981728079306
+2026-10-18T13:30:07.5693130Z displayed-denoise fixture1 region=2 mode=classic25 rmsCodes=0.8989680457468897
+2026-10-18T13:30:07.5693650Z displayed-denoise fixture1 region=0 mode=classic50 rmsCodes=1.1035580040268798
+2026-10-18T13:30:07.5694260Z displayed-denoise fixture1 region=1 mode=classic50 rmsCodes=1.0335507388712626
+2026-10-18T13:30:07.5694820Z displayed-denoise fixture1 region=2 mode=classic50 rmsCodes=1.0677979536890931
+2026-10-18T13:30:07.5695770Z displayed-denoise fixture1 region=0 mode=classic100 rmsCodes=1.315336359783686
+2026-10-18T13:30:07.5696380Z displayed-denoise fixture1 region=1 mode=classic100 rmsCodes=1.2264888825067515
+2026-10-18T13:30:07.5697050Z displayed-denoise fixture1 region=2 mode=classic100 rmsCodes=1.2655519776538406
+2026-10-18T13:30:07.5698930Z displayed-denoise fixture1 region=0 mode=AI-Apple-standin0 rmsCodes=0.0
+2026-10-18T13:30:07.5699430Z displayed-denoise fixture1 region=1 mode=AI-Apple-standin0 rmsCodes=0.0
+2026-10-18T13:30:07.5700070Z displayed-denoise fixture1 region=2 mode=AI-Apple-standin0 rmsCodes=0.0
+2026-10-18T13:30:07.5700610Z displayed-denoise fixture1 region=0 mode=AI-Apple-standin25 rmsCodes=1.5489338290276622
+2026-10-18T13:30:07.5701310Z displayed-denoise fixture1 region=1 mode=AI-Apple-standin25 rmsCodes=1.368679749737764
+2026-10-18T13:30:07.5701870Z displayed-denoise fixture1 region=2 mode=AI-Apple-standin25 rmsCodes=1.4065475077008134
+2026-10-18T13:30:07.5704310Z displayed-denoise fixture1 region=0 mode=AI-Apple-standin50 rmsCodes=1.6427003411800252
+2026-10-18T13:30:07.5705640Z displayed-denoise fixture1 region=1 mode=AI-Apple-standin50 rmsCodes=1.4660877833689985
+2026-10-18T13:30:07.5706320Z displayed-denoise fixture1 region=2 mode=AI-Apple-standin50 rmsCodes=1.499904145392171
+2026-10-18T13:30:07.5706950Z displayed-denoise fixture1 region=0 mode=AI-Apple-standin100 rmsCodes=2.0360220067448678
+2026-10-18T13:30:07.5707520Z displayed-denoise fixture1 region=1 mode=AI-Apple-standin100 rmsCodes=1.7728375544313895
+2026-10-18T13:30:07.5708230Z displayed-denoise fixture1 region=2 mode=AI-Apple-standin100 rmsCodes=1.8949027392932412
+2026-10-18T13:30:07.5708770Z displayed-denoise fixture1 region=0 mode=off-return rmsCodes=0.0
+2026-10-18T13:30:07.5709580Z displayed-denoise fixture1 region=1 mode=off-return rmsCodes=0.0
+2026-10-18T13:30:07.5710240Z displayed-denoise fixture1 region=2 mode=off-return rmsCodes=0.0
+2026-10-18T13:30:07.5710820Z displayed-denoise fixture2 region=0 mode=off rmsCodes=0.0
+2026-10-18T13:30:07.5711370Z displayed-denoise fixture2 region=1 mode=off rmsCodes=0.0
+2026-10-18T13:30:07.5711760Z displayed-denoise fixture2 region=2 mode=off rmsCodes=0.0
+2026-10-18T13:30:07.5712320Z displayed-denoise fixture2 region=0 mode=imported-classic-default rmsCodes=1.048571827808809
+2026-10-18T13:30:07.5712990Z displayed-denoise fixture2 region=1 mode=imported-classic-default rmsCodes=1.1598665543336666
+2026-10-18T13:30:07.5713730Z displayed-denoise fixture2 region=2 mode=imported-classic-default rmsCodes=1.3652735789457344
+2026-10-18T13:30:07.5714470Z displayed-denoise fixture2 region=0 mode=classic25 rmsCodes=1.156907677452985
+2026-10-18T13:30:07.5715110Z displayed-denoise fixture2 region=1 mode=classic25 rmsCodes=1.2154271730455506
+2026-10-18T13:30:07.5715790Z displayed-denoise fixture2 region=2 mode=classic25 rmsCodes=1.4951273491656376
+2026-10-18T13:30:07.5716420Z displayed-denoise fixture2 region=0 mode=classic50 rmsCodes=1.3492444151780147
+2026-10-18T13:30:07.5716940Z displayed-denoise fixture2 region=1 mode=classic50 rmsCodes=1.3515887893008303
+2026-10-18T13:30:07.5717510Z displayed-denoise fixture2 region=2 mode=classic50 rmsCodes=1.7571018911393825
+2026-10-18T13:30:07.5718010Z displayed-denoise fixture2 region=0 mode=classic100 rmsCodes=1.6297373886746158
+2026-10-18T13:30:07.5718590Z displayed-denoise fixture2 region=1 mode=classic100 rmsCodes=1.525056724031043
+2026-10-18T13:30:07.5719200Z displayed-denoise fixture2 region=2 mode=classic100 rmsCodes=2.1013577197142337
+2026-10-18T13:30:07.5719690Z displayed-denoise fixture2 region=0 mode=AI-Apple-standin0 rmsCodes=0.0
+2026-10-18T13:30:07.5720270Z displayed-denoise fixture2 region=1 mode=AI-Apple-standin0 rmsCodes=0.0
+2026-10-18T13:30:07.5720730Z displayed-denoise fixture2 region=2 mode=AI-Apple-standin0 rmsCodes=0.0
+2026-10-18T13:30:07.5721300Z displayed-denoise fixture2 region=0 mode=AI-Apple-standin25 rmsCodes=1.1042826104425434
+2026-10-18T13:30:07.5721860Z displayed-denoise fixture2 region=1 mode=AI-Apple-standin25 rmsCodes=1.1033818903820312
+2026-10-18T13:30:07.5722490Z displayed-denoise fixture2 region=2 mode=AI-Apple-standin25 rmsCodes=1.5355565346879638
+2026-10-18T13:30:07.5723040Z displayed-denoise fixture2 region=0 mode=AI-Apple-standin50 rmsCodes=1.3189438078190432
+2026-10-18T13:30:07.5723650Z displayed-denoise fixture2 region=1 mode=AI-Apple-standin50 rmsCodes=1.4494806807444474
+2026-10-18T13:30:07.5724260Z displayed-denoise fixture2 region=2 mode=AI-Apple-standin50 rmsCodes=1.9856841434861559
+2026-10-18T13:30:07.5724830Z displayed-denoise fixture2 region=0 mode=AI-Apple-standin100 rmsCodes=1.645204565955529
+2026-10-18T13:30:07.5725530Z displayed-denoise fixture2 region=1 mode=AI-Apple-standin100 rmsCodes=1.889538524254414
+2026-10-18T13:30:07.5726080Z displayed-denoise fixture2 region=2 mode=AI-Apple-standin100 rmsCodes=2.6005285059496686
+2026-10-18T13:30:07.5726690Z displayed-denoise fixture2 region=0 mode=off-return rmsCodes=0.0
+2026-10-18T13:30:07.5727110Z displayed-denoise fixture2 region=1 mode=off-return rmsCodes=0.0
+2026-10-18T13:30:07.5728140Z displayed-denoise fixture2 region=2 mode=off-return rmsCodes=0.0
+2026-10-18T13:30:16.0841650Z native-causal-timing: fixture1 render=1 total-ms=690.337833 decode-call-ms=571.803041 width=108 height=162
+2026-10-18T13:30:16.0842370Z native-causal-timing: fixture1 render=2 total-ms=7.906125 decode-call-ms=0.003875 width=108 height=162
+2026-10-18T13:30:16.0844730Z native-causal: fixture1 off-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0845420Z native-causal-timing: fixture1 render=3 total-ms=10.192416 decode-call-ms=0.004125 width=108 height=162
+2026-10-18T13:30:16.0846120Z native-causal: fixture1 off-repeat-vs-ai0 changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0846780Z native-causal-timing: fixture1 render=4 total-ms=314.587334 decode-call-ms=243.09225 width=108 height=162
+2026-10-18T13:30:16.0847660Z native-causal-timing: fixture1 render=5 total-ms=8.893959 decode-call-ms=0.007916 width=108 height=162
+2026-10-18T13:30:16.0848410Z native-causal: fixture1 ai0-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0850890Z native-causal-timing: fixture1 render=6 total-ms=60.49125 decode-call-ms=0.000417 width=108 height=162
+2026-10-18T13:30:16.0851710Z native-causal-timing: fixture1 render=7 total-ms=6.919208 decode-call-ms=0.000166 width=108 height=162
+2026-10-18T13:30:16.0852430Z native-causal: fixture1 fixed-first-source-same-renderer-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0853310Z native-causal-timing: fixture1 render=8 total-ms=6.37025 decode-call-ms=0.0005 width=108 height=162
+2026-10-18T13:30:16.0854040Z native-causal: fixture1 fixed-first-source-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0854900Z native-causal-timing: fixture1 render=9 total-ms=77.804542 decode-call-ms=4.1e-05 width=108 height=162
+2026-10-18T13:30:16.0855770Z native-causal: fixture1 fixed-first-source-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0857530Z native-causal-timing: fixture1 render=10 total-ms=24.1455 decode-call-ms=0.000333 width=108 height=162
+2026-10-18T13:30:16.0858370Z native-causal: fixture1 fixed-first-source-vs-explicit-plane changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0859050Z native-causal-timing: fixture1 render=11 total-ms=9.985292 decode-call-ms=0.000833 width=108 height=162
+2026-10-18T13:30:16.0859790Z native-causal: fixture1 fixed-plane-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0860560Z native-causal-timing: fixture1 render=12 total-ms=17.272375 decode-call-ms=0.000542 width=108 height=162
+2026-10-18T13:30:16.0861250Z native-causal: fixture1 fixed-plane-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0862010Z native-causal-timing: fixture1 render=13 total-ms=87.111209 decode-call-ms=0.000208 width=108 height=162
+2026-10-18T13:30:16.0862670Z native-causal: fixture1 fixed-plane-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0863390Z native-causal-timing: fixture1 render=14 total-ms=33.9455 decode-call-ms=0.000125 width=108 height=162
+2026-10-18T13:30:16.0864190Z native-causal: fixture1 inserted-intermediate-vs-explicit-plane changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0864900Z native-causal-timing: fixture1 render=15 total-ms=15.34975 decode-call-ms=0.000375 width=108 height=162
+2026-10-18T13:30:16.0865720Z native-causal: fixture1 inserted-intermediate-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0866430Z native-causal-timing: fixture1 render=16 total-ms=88.460667 decode-call-ms=8.3e-05 width=108 height=162
+2026-10-18T13:30:16.0867680Z native-causal: fixture1 inserted-intermediate-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+2026-10-18T13:30:16.0869100Z native-causal-timing: fixture2 render=1 total-ms=1448.775708 decode-call-ms=1358.402375 width=130 height=98
+2026-10-18T13:30:16.0869910Z native-causal-timing: fixture2 render=2 total-ms=15.984125 decode-call-ms=0.005041 width=130 height=98
+2026-10-18T13:30:16.0871240Z native-causal: fixture2 off-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0872140Z native-causal-timing: fixture2 render=3 total-ms=19.765792 decode-call-ms=0.005708 width=130 height=98
+2026-10-18T13:30:16.0872840Z native-causal: fixture2 off-repeat-vs-ai0 changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0873620Z native-causal-timing: fixture2 render=4 total-ms=247.263792 decode-call-ms=187.492167 width=130 height=98
+2026-10-18T13:30:16.0874230Z native-causal-timing: fixture2 render=5 total-ms=8.151 decode-call-ms=0.0095 width=130 height=98
+2026-10-18T13:30:16.0874900Z native-causal: fixture2 ai0-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0875490Z native-causal-timing: fixture2 render=6 total-ms=61.719458 decode-call-ms=8.3e-05 width=130 height=98
+2026-10-18T13:30:16.0876160Z native-causal-timing: fixture2 render=7 total-ms=9.298166 decode-call-ms=0.00025 width=130 height=98
+2026-10-18T13:30:16.0877190Z native-causal: fixture2 fixed-first-source-same-renderer-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0877870Z native-causal-timing: fixture2 render=8 total-ms=12.55 decode-call-ms=0.00075 width=130 height=98
+2026-10-18T13:30:16.0878620Z native-causal: fixture2 fixed-first-source-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0879290Z native-causal-timing: fixture2 render=9 total-ms=80.474584 decode-call-ms=0.00025 width=130 height=98
+2026-10-18T13:30:16.0880130Z native-causal: fixture2 fixed-first-source-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0880990Z native-causal-timing: fixture2 render=10 total-ms=22.641625 decode-call-ms=0.000208 width=130 height=98
+2026-10-18T13:30:16.0881720Z native-causal: fixture2 fixed-first-source-vs-explicit-plane changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0882530Z native-causal-timing: fixture2 render=11 total-ms=24.6265 decode-call-ms=0.000166 width=130 height=98
+2026-10-18T13:30:16.0883180Z native-causal: fixture2 fixed-plane-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0883950Z native-causal-timing: fixture2 render=12 total-ms=37.921666 decode-call-ms=0.000209 width=130 height=98
+2026-10-18T13:30:16.0884790Z native-causal: fixture2 fixed-plane-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0885530Z native-causal-timing: fixture2 render=13 total-ms=88.07725 decode-call-ms=0.000334 width=130 height=98
+2026-10-18T13:30:16.0886240Z native-causal: fixture2 fixed-plane-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0886960Z native-causal-timing: fixture2 render=14 total-ms=36.471291 decode-call-ms=0.000209 width=130 height=98
+2026-10-18T13:30:16.0887810Z native-causal: fixture2 inserted-intermediate-vs-explicit-plane changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0888570Z native-causal-timing: fixture2 render=15 total-ms=7.0385 decode-call-ms=0.000125 width=130 height=98
+2026-10-18T13:30:16.0889410Z native-causal: fixture2 inserted-intermediate-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:16.0890250Z native-causal-timing: fixture2 render=16 total-ms=61.134708 decode-call-ms=8.4e-05 width=130 height=98
+2026-10-18T13:30:16.0890990Z native-causal: fixture2 inserted-intermediate-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+2026-10-18T13:30:43.5691740Z native-consumer-timing: fixture1 consumer=croppedTIFF16 policy=unchanged decoder=8 edge=4368.0 constructMs=410.803333 firstMs=767.567209 repeatMs=118.425208 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:30:43.5695620Z native-consumer-pair: fixture1 croppedTIFF16 unchanged first-repeat shape=220x146:bpc16:bpp64:bitmap4097/220x146:bpc16:bpp64:bitmap4097 bytes=256960/256960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5741780Z native-consumer-timing: fixture1 consumer=croppedTIFF16 policy=intermediate decoder=8 edge=4368.0 constructMs=49.334625 firstMs=299.071333 repeatMs=127.559208 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:30:43.5748240Z native-consumer-pair: fixture1 croppedTIFF16 intermediate first-repeat shape=220x146:bpc16:bpp64:bitmap4097/220x146:bpc16:bpp64:bitmap4097 bytes=256960/256960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5752210Z native-consumer-timing: fixture1 consumer=croppedTIFF16 policy=eager decoder=8 edge=4368.0 constructMs=54.053541 firstMs=535.91225 repeatMs=286.864083 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:30:43.5755830Z native-consumer-pair: fixture1 croppedTIFF16 eager first-repeat shape=220x146:bpc16:bpp64:bitmap4097/220x146:bpc16:bpp64:bitmap4097 bytes=256960/256960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5761330Z native-consumer-pair: fixture1 croppedTIFF16 intermediate-eager first shape=220x146:bpc16:bpp64:bitmap4097/220x146:bpc16:bpp64:bitmap4097 bytes=256960/256960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5763200Z native-consumer-pair: fixture1 croppedTIFF16 intermediate-eager repeat shape=220x146:bpc16:bpp64:bitmap4097/220x146:bpc16:bpp64:bitmap4097 bytes=256960/256960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5764320Z native-consumer-file: fixture1 consumer=croppedTIFF16 policies=3
+2026-10-18T13:30:43.5796540Z native-consumer-timing: fixture2 consumer=croppedTIFF16 policy=unchanged decoder=7 edge=4592.0 constructMs=40.251167 firstMs=534.971583 repeatMs=121.871667 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:30:43.5797910Z native-consumer-pair: fixture2 croppedTIFF16 unchanged first-repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5799200Z native-consumer-timing: fixture2 consumer=croppedTIFF16 policy=intermediate decoder=7 edge=4592.0 constructMs=40.926875 firstMs=392.476417 repeatMs=138.533292 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:30:43.5800520Z native-consumer-pair: fixture2 croppedTIFF16 intermediate first-repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5801680Z native-consumer-timing: fixture2 consumer=croppedTIFF16 policy=eager decoder=7 edge=4592.0 constructMs=45.019917 firstMs=494.678166 repeatMs=232.268791 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:30:43.5802900Z native-consumer-pair: fixture2 croppedTIFF16 eager first-repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5804270Z native-consumer-pair: fixture2 croppedTIFF16 intermediate-eager first shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5805610Z native-consumer-pair: fixture2 croppedTIFF16 intermediate-eager repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5806510Z native-consumer-file: fixture2 consumer=croppedTIFF16 policies=3
+2026-10-18T13:30:43.5807960Z native-consumer-timing: fixture3 consumer=croppedTIFF16 policy=unchanged decoder=8 edge=3680.0 constructMs=278.797375 firstMs=1488.736208 repeatMs=142.517125 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:30:43.5809190Z native-consumer-pair: fixture3 croppedTIFF16 unchanged first-repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5810430Z native-consumer-timing: fixture3 consumer=croppedTIFF16 policy=intermediate decoder=8 edge=3680.0 constructMs=352.346042 firstMs=422.734584 repeatMs=151.435458 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:30:43.5811670Z native-consumer-pair: fixture3 croppedTIFF16 intermediate first-repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5813190Z native-consumer-timing: fixture3 consumer=croppedTIFF16 policy=eager decoder=8 edge=3680.0 constructMs=200.404167 firstMs=354.830958 repeatMs=215.158958 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:30:43.5814460Z native-consumer-pair: fixture3 croppedTIFF16 eager first-repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5815760Z native-consumer-pair: fixture3 croppedTIFF16 intermediate-eager first shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5817240Z native-consumer-pair: fixture3 croppedTIFF16 intermediate-eager repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5818320Z native-consumer-file: fixture3 consumer=croppedTIFF16 policies=3
+2026-10-18T13:30:43.5819020Z native-consumer-timing: fixture4 consumer=croppedTIFF16 policy=unchanged decoder=8 edge=5184.0 constructMs=149.844125 firstMs=2300.0585 repeatMs=152.18375 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:30:43.5820270Z native-consumer-pair: fixture4 croppedTIFF16 unchanged first-repeat shape=260x196:bpc16:bpp64:bitmap4097/260x196:bpc16:bpp64:bitmap4097 bytes=407680/407680 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5821630Z native-consumer-timing: fixture4 consumer=croppedTIFF16 policy=intermediate decoder=8 edge=5184.0 constructMs=137.358417 firstMs=767.791667 repeatMs=133.344208 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:30:43.5822910Z native-consumer-pair: fixture4 croppedTIFF16 intermediate first-repeat shape=260x196:bpc16:bpp64:bitmap4097/260x196:bpc16:bpp64:bitmap4097 bytes=407680/407680 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5824200Z native-consumer-timing: fixture4 consumer=croppedTIFF16 policy=eager decoder=8 edge=5184.0 constructMs=112.154916 firstMs=983.331042 repeatMs=352.987958 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:30:43.5825360Z native-consumer-pair: fixture4 croppedTIFF16 eager first-repeat shape=260x196:bpc16:bpp64:bitmap4097/260x196:bpc16:bpp64:bitmap4097 bytes=407680/407680 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5827030Z native-consumer-pair: fixture4 croppedTIFF16 intermediate-eager first shape=260x196:bpc16:bpp64:bitmap4097/260x196:bpc16:bpp64:bitmap4097 bytes=407680/407680 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5828730Z native-consumer-pair: fixture4 croppedTIFF16 intermediate-eager repeat shape=260x196:bpc16:bpp64:bitmap4097/260x196:bpc16:bpp64:bitmap4097 bytes=407680/407680 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5829530Z native-consumer-file: fixture4 consumer=croppedTIFF16 policies=3
+2026-10-18T13:30:43.5830300Z native-consumer-timing: fixture5 consumer=croppedTIFF16 policy=unchanged decoder=8 edge=5568.0 constructMs=68.35575 firstMs=1381.546208 repeatMs=121.611875 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:30:43.5831540Z native-consumer-pair: fixture5 croppedTIFF16 unchanged first-repeat shape=186x280:bpc16:bpp64:bitmap4097/186x280:bpc16:bpp64:bitmap4097 bytes=416640/416640 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5832900Z native-consumer-timing: fixture5 consumer=croppedTIFF16 policy=intermediate decoder=8 edge=5568.0 constructMs=62.863333 firstMs=610.395375 repeatMs=142.902917 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:30:43.5834210Z native-consumer-pair: fixture5 croppedTIFF16 intermediate first-repeat shape=186x280:bpc16:bpp64:bitmap4097/186x280:bpc16:bpp64:bitmap4097 bytes=416640/416640 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5835440Z native-consumer-timing: fixture5 consumer=croppedTIFF16 policy=eager decoder=8 edge=5568.0 constructMs=83.866292 firstMs=911.341042 repeatMs=296.394834 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:30:43.5836580Z native-consumer-pair: fixture5 croppedTIFF16 eager first-repeat shape=186x280:bpc16:bpp64:bitmap4097/186x280:bpc16:bpp64:bitmap4097 bytes=416640/416640 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5837900Z native-consumer-pair: fixture5 croppedTIFF16 intermediate-eager first shape=186x280:bpc16:bpp64:bitmap4097/186x280:bpc16:bpp64:bitmap4097 bytes=416640/416640 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5839320Z native-consumer-pair: fixture5 croppedTIFF16 intermediate-eager repeat shape=186x280:bpc16:bpp64:bitmap4097/186x280:bpc16:bpp64:bitmap4097 bytes=416640/416640 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5840290Z native-consumer-file: fixture5 consumer=croppedTIFF16 policies=3
+2026-10-18T13:30:43.5843610Z native-consumer-timing: fixture1 consumer=EDRhalf policy=unchanged decoder=8 edge=4368.0 constructMs=45.469542 firstMs=388.919375 repeatMs=6.381625 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:30:43.5844810Z native-consumer-pair: fixture1 EDRhalf unchanged first-repeat shape=154x102:bpc16:bpp64:bitmap4353/154x102:bpc16:bpp64:bitmap4353 bytes=125664/125664 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5846070Z native-consumer-timing: fixture1 consumer=EDRhalf policy=intermediate decoder=8 edge=4368.0 constructMs=53.119625 firstMs=256.88975 repeatMs=5.375125 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:30:43.5847530Z native-consumer-pair: fixture1 EDRhalf intermediate first-repeat shape=154x102:bpc16:bpp64:bitmap4353/154x102:bpc16:bpp64:bitmap4353 bytes=125664/125664 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5848780Z native-consumer-timing: fixture1 consumer=EDRhalf policy=eager decoder=8 edge=4368.0 constructMs=48.417291 firstMs=231.580208 repeatMs=157.31075 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:30:43.5850010Z native-consumer-pair: fixture1 EDRhalf eager first-repeat shape=154x102:bpc16:bpp64:bitmap4353/154x102:bpc16:bpp64:bitmap4353 bytes=125664/125664 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5851390Z native-consumer-pair: fixture1 EDRhalf intermediate-eager first shape=154x102:bpc16:bpp64:bitmap4353/154x102:bpc16:bpp64:bitmap4353 bytes=125664/125664 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5852920Z native-consumer-pair: fixture1 EDRhalf intermediate-eager repeat shape=154x102:bpc16:bpp64:bitmap4353/154x102:bpc16:bpp64:bitmap4353 bytes=125664/125664 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5853840Z native-consumer-file: fixture1 consumer=EDRhalf policies=3
+2026-10-18T13:30:43.5854580Z native-consumer-timing: fixture2 consumer=EDRhalf policy=unchanged decoder=7 edge=4592.0 constructMs=38.75825 firstMs=376.567167 repeatMs=6.896708 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:30:43.5855800Z native-consumer-pair: fixture2 EDRhalf unchanged first-repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5857050Z native-consumer-timing: fixture2 consumer=EDRhalf policy=intermediate decoder=7 edge=4592.0 constructMs=34.139375 firstMs=281.328583 repeatMs=8.153 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:30:43.5858220Z native-consumer-pair: fixture2 EDRhalf intermediate first-repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5859430Z native-consumer-timing: fixture2 consumer=EDRhalf policy=eager decoder=7 edge=4592.0 constructMs=38.961958 firstMs=408.03975 repeatMs=194.750292 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:30:43.5860650Z native-consumer-pair: fixture2 EDRhalf eager first-repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5862000Z native-consumer-pair: fixture2 EDRhalf intermediate-eager first shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5863370Z native-consumer-pair: fixture2 EDRhalf intermediate-eager repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5864210Z native-consumer-file: fixture2 consumer=EDRhalf policies=3
+2026-10-18T13:30:43.5865050Z native-consumer-timing: fixture3 consumer=EDRhalf policy=unchanged decoder=8 edge=3680.0 constructMs=222.959459 firstMs=600.868792 repeatMs=4.417042 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:30:43.5866440Z native-consumer-pair: fixture3 EDRhalf unchanged first-repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5867920Z native-consumer-timing: fixture3 consumer=EDRhalf policy=intermediate decoder=8 edge=3680.0 constructMs=195.643375 firstMs=170.2155 repeatMs=3.865125 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:30:43.5869230Z native-consumer-pair: fixture3 EDRhalf intermediate first-repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5870480Z native-consumer-timing: fixture3 consumer=EDRhalf policy=eager decoder=8 edge=3680.0 constructMs=293.410667 firstMs=291.544917 repeatMs=104.7325 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:30:43.5872120Z native-consumer-pair: fixture3 EDRhalf eager first-repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5874330Z native-consumer-pair: fixture3 EDRhalf intermediate-eager first shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5875740Z native-consumer-pair: fixture3 EDRhalf intermediate-eager repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5876680Z native-consumer-file: fixture3 consumer=EDRhalf policies=3
+2026-10-18T13:30:43.5877580Z native-consumer-timing: fixture4 consumer=EDRhalf policy=unchanged decoder=8 edge=5184.0 constructMs=151.600583 firstMs=870.054167 repeatMs=9.523417 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:30:43.5878960Z native-consumer-pair: fixture4 EDRhalf unchanged first-repeat shape=182x138:bpc16:bpp64:bitmap4353/182x138:bpc16:bpp64:bitmap4353 bytes=200928/200928 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5880240Z native-consumer-timing: fixture4 consumer=EDRhalf policy=intermediate decoder=8 edge=5184.0 constructMs=147.348792 firstMs=664.597916 repeatMs=8.394 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:30:43.5881480Z native-consumer-pair: fixture4 EDRhalf intermediate first-repeat shape=182x138:bpc16:bpp64:bitmap4353/182x138:bpc16:bpp64:bitmap4353 bytes=200928/200928 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:30:43.5882690Z native-consumer-timing: fixture4 consumer=EDRhalf policy=eager decoder=8 edge=5184.0 constructMs=164.434334 firstMs=818.463833 repeatMs=193.28675 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:30:43.5883980Z native-consumer-pair: fixture4 EDRhalf eager first-repeat shape=182x138:bpc16:bpp64:bitmap4353/182x138:bpc16:bpp64:bitmap4353 bytes=200928/200928 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4220540Z native-consumer-pair: fixture4 EDRhalf intermediate-eager first shape=182x138:bpc16:bpp64:bitmap4353/182x138:bpc16:bpp64:bitmap4353 bytes=200928/200928 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4222870Z native-consumer-pair: fixture4 EDRhalf intermediate-eager repeat shape=182x138:bpc16:bpp64:bitmap4353/182x138:bpc16:bpp64:bitmap4353 bytes=200928/200928 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4225440Z native-consumer-file: fixture4 consumer=EDRhalf policies=3
+2026-10-18T13:31:13.4226260Z native-consumer-timing: fixture5 consumer=EDRhalf policy=unchanged decoder=8 edge=5568.0 constructMs=77.197875 firstMs=918.14275 repeatMs=10.493541 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:13.4227500Z native-consumer-pair: fixture5 EDRhalf unchanged first-repeat shape=130x196:bpc16:bpp64:bitmap4353/130x196:bpc16:bpp64:bitmap4353 bytes=203840/203840 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4228690Z native-consumer-timing: fixture5 consumer=EDRhalf policy=intermediate decoder=8 edge=5568.0 constructMs=91.453 firstMs=530.058042 repeatMs=8.494833 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:13.4230140Z native-consumer-pair: fixture5 EDRhalf intermediate first-repeat shape=130x196:bpc16:bpp64:bitmap4353/130x196:bpc16:bpp64:bitmap4353 bytes=203840/203840 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4237570Z native-consumer-timing: fixture5 consumer=EDRhalf policy=eager decoder=8 edge=5568.0 constructMs=102.12725 firstMs=645.131458 repeatMs=186.720083 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:13.4239830Z native-consumer-pair: fixture5 EDRhalf eager first-repeat shape=130x196:bpc16:bpp64:bitmap4353/130x196:bpc16:bpp64:bitmap4353 bytes=203840/203840 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4241440Z native-consumer-pair: fixture5 EDRhalf intermediate-eager first shape=130x196:bpc16:bpp64:bitmap4353/130x196:bpc16:bpp64:bitmap4353 bytes=203840/203840 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4242950Z native-consumer-pair: fixture5 EDRhalf intermediate-eager repeat shape=130x196:bpc16:bpp64:bitmap4353/130x196:bpc16:bpp64:bitmap4353 bytes=203840/203840 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4243970Z native-consumer-file: fixture5 consumer=EDRhalf policies=3
+2026-10-18T13:31:13.4247220Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=unchanged decoder=8 edge=4368.0 constructMs=63.569375 firstMs=1977.09725 repeatMs=32.526125 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:13.4248550Z native-consumer-pair: fixture1 dehazeSDR unchanged first-repeat shape=154x102:bpc8:bpp32:bitmap1/154x102:bpc8:bpp32:bitmap1 bytes=62832/62832 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4249820Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=intermediate decoder=8 edge=4368.0 constructMs=61.47 firstMs=587.683417 repeatMs=18.180833 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:13.4250980Z native-consumer-pair: fixture1 dehazeSDR intermediate first-repeat shape=154x102:bpc8:bpp32:bitmap1/154x102:bpc8:bpp32:bitmap1 bytes=62832/62832 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4252190Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=eager decoder=8 edge=4368.0 constructMs=61.784083 firstMs=519.53125 repeatMs=225.942708 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:13.4253610Z native-consumer-pair: fixture1 dehazeSDR eager first-repeat shape=154x102:bpc8:bpp32:bitmap1/154x102:bpc8:bpp32:bitmap1 bytes=62832/62832 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4254920Z native-consumer-pair: fixture1 dehazeSDR intermediate-eager first shape=154x102:bpc8:bpp32:bitmap1/154x102:bpc8:bpp32:bitmap1 bytes=62832/62832 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4256250Z native-consumer-pair: fixture1 dehazeSDR intermediate-eager repeat shape=154x102:bpc8:bpp32:bitmap1/154x102:bpc8:bpp32:bitmap1 bytes=62832/62832 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4257240Z native-consumer-file: fixture1 consumer=dehazeSDR policies=3
+2026-10-18T13:31:13.4258080Z native-consumer-timing: fixture2 consumer=dehazeSDR policy=unchanged decoder=7 edge=4592.0 constructMs=51.63675 firstMs=1602.217292 repeatMs=18.047 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:13.4259490Z native-consumer-pair: fixture2 dehazeSDR unchanged first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4260630Z native-consumer-timing: fixture2 consumer=dehazeSDR policy=intermediate decoder=7 edge=4592.0 constructMs=42.58375 firstMs=725.479 repeatMs=14.923 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:13.4261840Z native-consumer-pair: fixture2 dehazeSDR intermediate first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4263000Z native-consumer-timing: fixture2 consumer=dehazeSDR policy=eager decoder=7 edge=4592.0 constructMs=30.601 firstMs=635.253875 repeatMs=264.163417 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:13.4264250Z native-consumer-pair: fixture2 dehazeSDR eager first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4265680Z native-consumer-pair: fixture2 dehazeSDR intermediate-eager first shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4266950Z native-consumer-pair: fixture2 dehazeSDR intermediate-eager repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4267870Z native-consumer-file: fixture2 consumer=dehazeSDR policies=3
+2026-10-18T13:31:13.4268910Z native-consumer-timing: fixture3 consumer=dehazeSDR policy=unchanged decoder=8 edge=3680.0 constructMs=206.168333 firstMs=1875.221875 repeatMs=20.867542 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:13.4270050Z native-consumer-pair: fixture3 dehazeSDR unchanged first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4271280Z native-consumer-timing: fixture3 consumer=dehazeSDR policy=intermediate decoder=8 edge=3680.0 constructMs=150.331125 firstMs=432.550167 repeatMs=24.301625 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:13.4272450Z native-consumer-pair: fixture3 dehazeSDR intermediate first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4273860Z native-consumer-timing: fixture3 consumer=dehazeSDR policy=eager decoder=8 edge=3680.0 constructMs=205.139791 firstMs=501.461959 repeatMs=150.273041 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:13.4275050Z native-consumer-pair: fixture3 dehazeSDR eager first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4276340Z native-consumer-pair: fixture3 dehazeSDR intermediate-eager first shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4278020Z native-consumer-pair: fixture3 dehazeSDR intermediate-eager repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4279180Z native-consumer-file: fixture3 consumer=dehazeSDR policies=3
+2026-10-18T13:31:13.4280040Z native-consumer-timing: fixture4 consumer=dehazeSDR policy=unchanged decoder=8 edge=5184.0 constructMs=103.690166 firstMs=3272.775167 repeatMs=163.156542 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:13.4281200Z native-consumer-pair: fixture4 dehazeSDR unchanged first-repeat shape=182x138:bpc8:bpp32:bitmap1/182x138:bpc8:bpp32:bitmap1 bytes=100464/100464 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4282810Z native-consumer-timing: fixture4 consumer=dehazeSDR policy=intermediate decoder=8 edge=5184.0 constructMs=178.075042 firstMs=1300.2945 repeatMs=157.84375 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:13.4284270Z native-consumer-pair: fixture4 dehazeSDR intermediate first-repeat shape=182x138:bpc8:bpp32:bitmap1/182x138:bpc8:bpp32:bitmap1 bytes=100464/100464 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4285420Z native-consumer-timing: fixture4 consumer=dehazeSDR policy=eager decoder=8 edge=5184.0 constructMs=179.086125 firstMs=1467.564375 repeatMs=380.415084 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:13.4287030Z native-consumer-pair: fixture4 dehazeSDR eager first-repeat shape=182x138:bpc8:bpp32:bitmap1/182x138:bpc8:bpp32:bitmap1 bytes=100464/100464 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4288240Z native-consumer-pair: fixture4 dehazeSDR intermediate-eager first shape=182x138:bpc8:bpp32:bitmap1/182x138:bpc8:bpp32:bitmap1 bytes=100464/100464 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4289650Z native-consumer-pair: fixture4 dehazeSDR intermediate-eager repeat shape=182x138:bpc8:bpp32:bitmap1/182x138:bpc8:bpp32:bitmap1 bytes=100464/100464 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4290650Z native-consumer-file: fixture4 consumer=dehazeSDR policies=3
+2026-10-18T13:31:13.4291380Z native-consumer-timing: fixture5 consumer=dehazeSDR policy=unchanged decoder=8 edge=5568.0 constructMs=93.099375 firstMs=2289.589333 repeatMs=21.6565 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:13.4292630Z native-consumer-pair: fixture5 dehazeSDR unchanged first-repeat shape=130x196:bpc8:bpp32:bitmap1/130x196:bpc8:bpp32:bitmap1 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4293860Z native-consumer-timing: fixture5 consumer=dehazeSDR policy=intermediate decoder=8 edge=5568.0 constructMs=149.733458 firstMs=941.289584 repeatMs=165.817708 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:13.4295150Z native-consumer-pair: fixture5 dehazeSDR intermediate first-repeat shape=130x196:bpc8:bpp32:bitmap1/130x196:bpc8:bpp32:bitmap1 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4296350Z native-consumer-timing: fixture5 consumer=dehazeSDR policy=eager decoder=8 edge=5568.0 constructMs=88.082 firstMs=1184.968584 repeatMs=621.269167 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:13.4297470Z native-consumer-pair: fixture5 dehazeSDR eager first-repeat shape=130x196:bpc8:bpp32:bitmap1/130x196:bpc8:bpp32:bitmap1 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4298950Z native-consumer-pair: fixture5 dehazeSDR intermediate-eager first shape=130x196:bpc8:bpp32:bitmap1/130x196:bpc8:bpp32:bitmap1 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4300240Z native-consumer-pair: fixture5 dehazeSDR intermediate-eager repeat shape=130x196:bpc8:bpp32:bitmap1/130x196:bpc8:bpp32:bitmap1 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:31:13.4301060Z native-consumer-file: fixture5 consumer=dehazeSDR policies=3
+2026-10-18T13:31:13.4306730Z native-consumer-timing: fixture1 consumer=sample-scene policy=unchanged decoder=8 edge=4368.0 constructMs=48.516083 firstMs=331.739625 repeatMs=17.624958 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:13.4307860Z native-consumer-pair: fixture1 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4309130Z native-consumer-timing: fixture1 consumer=sample-scene policy=intermediate decoder=8 edge=4368.0 constructMs=47.756125 firstMs=204.540708 repeatMs=22.830375 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:13.4310370Z native-consumer-pair: fixture1 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4311600Z native-consumer-timing: fixture1 consumer=sample-scene policy=eager decoder=8 edge=4368.0 constructMs=60.604583 firstMs=288.238375 repeatMs=102.53125 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:13.4312770Z native-consumer-pair: fixture1 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4314070Z native-consumer-pair: fixture1 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4315390Z native-consumer-pair: fixture1 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4316350Z native-consumer-file: fixture1 consumer=sample-scene policies=3
+2026-10-18T13:31:13.4317580Z native-consumer-timing: fixture2 consumer=sample-scene policy=unchanged decoder=7 edge=4592.0 constructMs=59.158167 firstMs=398.416666 repeatMs=26.30775 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:13.4318770Z native-consumer-pair: fixture2 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4320120Z native-consumer-timing: fixture2 consumer=sample-scene policy=intermediate decoder=7 edge=4592.0 constructMs=38.698167 firstMs=213.064042 repeatMs=11.796 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:13.4321260Z native-consumer-pair: fixture2 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4322450Z native-consumer-timing: fixture2 consumer=sample-scene policy=eager decoder=7 edge=4592.0 constructMs=46.749917 firstMs=415.5345 repeatMs=134.376541 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:13.4323630Z native-consumer-pair: fixture2 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4324910Z native-consumer-pair: fixture2 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4326250Z native-consumer-pair: fixture2 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4327130Z native-consumer-file: fixture2 consumer=sample-scene policies=3
+2026-10-18T13:31:13.4328040Z native-consumer-timing: fixture3 consumer=sample-scene policy=unchanged decoder=8 edge=3680.0 constructMs=269.883958 firstMs=244.14975 repeatMs=8.084166 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:13.4329290Z native-consumer-pair: fixture3 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4330430Z native-consumer-timing: fixture3 consumer=sample-scene policy=intermediate decoder=8 edge=3680.0 constructMs=114.786166 firstMs=140.097167 repeatMs=8.45075 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:13.4331890Z native-consumer-pair: fixture3 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4333110Z native-consumer-timing: fixture3 consumer=sample-scene policy=eager decoder=8 edge=3680.0 constructMs=125.842 firstMs=183.990458 repeatMs=60.323875 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:13.4334280Z native-consumer-pair: fixture3 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:13.4335870Z native-consumer-pair: fixture3 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6489620Z native-consumer-pair: fixture3 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6491690Z native-consumer-file: fixture3 consumer=sample-scene policies=3
+2026-10-18T13:31:31.6492870Z native-consumer-timing: fixture4 consumer=sample-scene policy=unchanged decoder=8 edge=5184.0 constructMs=101.202833 firstMs=676.81375 repeatMs=27.617583 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:31.6509450Z native-consumer-pair: fixture4 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6511770Z native-consumer-timing: fixture4 consumer=sample-scene policy=intermediate decoder=8 edge=5184.0 constructMs=94.602584 firstMs=1020.985042 repeatMs=15.78275 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:31.6513260Z native-consumer-pair: fixture4 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6514590Z native-consumer-timing: fixture4 consumer=sample-scene policy=eager decoder=8 edge=5184.0 constructMs=110.474417 firstMs=650.521958 repeatMs=120.71425 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:31.6516020Z native-consumer-pair: fixture4 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6517440Z native-consumer-pair: fixture4 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6518930Z native-consumer-pair: fixture4 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6520200Z native-consumer-file: fixture4 consumer=sample-scene policies=3
+2026-10-18T13:31:31.6521040Z native-consumer-timing: fixture5 consumer=sample-scene policy=unchanged decoder=8 edge=5568.0 constructMs=94.872042 firstMs=494.393791 repeatMs=30.630625 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:31.6522460Z native-consumer-pair: fixture5 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6523720Z native-consumer-timing: fixture5 consumer=sample-scene policy=intermediate decoder=8 edge=5568.0 constructMs=67.2365 firstMs=356.131875 repeatMs=16.826333 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:31.6525130Z native-consumer-pair: fixture5 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6526410Z native-consumer-timing: fixture5 consumer=sample-scene policy=eager decoder=8 edge=5568.0 constructMs=74.969666 firstMs=443.059958 repeatMs=157.480875 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:31.6556130Z native-consumer-pair: fixture5 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6557560Z native-consumer-pair: fixture5 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6559240Z native-consumer-pair: fixture5 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6560510Z native-consumer-file: fixture5 consumer=sample-scene policies=3
+2026-10-18T13:31:31.6562590Z native-consumer-timing: fixture1 consumer=sample-color policy=unchanged decoder=8 edge=4368.0 constructMs=40.942541 firstMs=255.270459 repeatMs=7.89625 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:31.6564140Z native-consumer-pair: fixture1 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6565480Z native-consumer-timing: fixture1 consumer=sample-color policy=intermediate decoder=8 edge=4368.0 constructMs=38.487667 firstMs=142.022417 repeatMs=8.994292 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:31.6567030Z native-consumer-pair: fixture1 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6568300Z native-consumer-timing: fixture1 consumer=sample-color policy=eager decoder=8 edge=4368.0 constructMs=39.913542 firstMs=252.841791 repeatMs=96.265917 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:31.6569750Z native-consumer-pair: fixture1 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6571340Z native-consumer-pair: fixture1 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6572940Z native-consumer-pair: fixture1 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6574430Z native-consumer-file: fixture1 consumer=sample-color policies=3
+2026-10-18T13:31:31.6575560Z native-consumer-timing: fixture2 consumer=sample-color policy=unchanged decoder=7 edge=4592.0 constructMs=45.298083 firstMs=278.869083 repeatMs=12.015084 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:31.6577100Z native-consumer-pair: fixture2 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6578560Z native-consumer-timing: fixture2 consumer=sample-color policy=intermediate decoder=7 edge=4592.0 constructMs=82.765666 firstMs=178.878875 repeatMs=10.094542 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:31.6580040Z native-consumer-pair: fixture2 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6581470Z native-consumer-timing: fixture2 consumer=sample-color policy=eager decoder=7 edge=4592.0 constructMs=34.843875 firstMs=248.784792 repeatMs=80.028375 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:31.6582830Z native-consumer-pair: fixture2 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6584120Z native-consumer-pair: fixture2 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6586090Z native-consumer-pair: fixture2 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6587020Z native-consumer-file: fixture2 consumer=sample-color policies=3
+2026-10-18T13:31:31.6587990Z native-consumer-timing: fixture3 consumer=sample-color policy=unchanged decoder=8 edge=3680.0 constructMs=153.821667 firstMs=241.822583 repeatMs=16.196292 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:31.6589420Z native-consumer-pair: fixture3 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6590750Z native-consumer-timing: fixture3 consumer=sample-color policy=intermediate decoder=8 edge=3680.0 constructMs=140.14425 firstMs=155.403375 repeatMs=8.625083 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:31.6592160Z native-consumer-pair: fixture3 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.6593550Z native-consumer-timing: fixture3 consumer=sample-color policy=eager decoder=8 edge=3680.0 constructMs=152.606125 firstMs=237.079875 repeatMs=77.63775 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:31.7013180Z native-consumer-pair: fixture3 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7015590Z native-consumer-pair: fixture3 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7017120Z native-consumer-pair: fixture3 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7020130Z native-consumer-file: fixture3 consumer=sample-color policies=3
+2026-10-18T13:31:31.7022020Z native-consumer-timing: fixture4 consumer=sample-color policy=unchanged decoder=8 edge=5184.0 constructMs=114.479333 firstMs=765.900667 repeatMs=47.318625 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:31.7024150Z native-consumer-pair: fixture4 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7064140Z native-consumer-timing: fixture4 consumer=sample-color policy=intermediate decoder=8 edge=5184.0 constructMs=159.320125 firstMs=611.659792 repeatMs=21.178875 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:31.7065650Z native-consumer-pair: fixture4 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7067030Z native-consumer-timing: fixture4 consumer=sample-color policy=eager decoder=8 edge=5184.0 constructMs=157.888625 firstMs=1072.292959 repeatMs=213.4755 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:31:31.7068810Z native-consumer-pair: fixture4 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7070350Z native-consumer-pair: fixture4 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7071840Z native-consumer-pair: fixture4 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7072960Z native-consumer-file: fixture4 consumer=sample-color policies=3
+2026-10-18T13:31:31.7073870Z native-consumer-timing: fixture5 consumer=sample-color policy=unchanged decoder=8 edge=5568.0 constructMs=103.892666 firstMs=753.221792 repeatMs=44.015583 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:31.7075480Z native-consumer-pair: fixture5 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7076740Z native-consumer-timing: fixture5 consumer=sample-color policy=intermediate decoder=8 edge=5568.0 constructMs=129.8795 firstMs=415.05425 repeatMs=15.327625 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:31.7078130Z native-consumer-pair: fixture5 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7079970Z native-consumer-timing: fixture5 consumer=sample-color policy=eager decoder=8 edge=5568.0 constructMs=77.882667 firstMs=655.318666 repeatMs=199.943542 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:31:31.7081180Z native-consumer-pair: fixture5 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7082690Z native-consumer-pair: fixture5 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7084200Z native-consumer-pair: fixture5 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7086000Z native-consumer-file: fixture5 consumer=sample-color policies=3
+2026-10-18T13:31:31.7087560Z native-consumer-timing: fixture1 consumer=sample-mask policy=unchanged decoder=8 edge=4368.0 constructMs=69.117084 firstMs=387.352291 repeatMs=20.735875 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:31.7089640Z native-consumer-pair: fixture1 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7090900Z native-consumer-timing: fixture1 consumer=sample-mask policy=intermediate decoder=8 edge=4368.0 constructMs=45.380417 firstMs=204.542458 repeatMs=15.894458 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:31.7092300Z native-consumer-pair: fixture1 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7093510Z native-consumer-timing: fixture1 consumer=sample-mask policy=eager decoder=8 edge=4368.0 constructMs=100.662042 firstMs=343.778167 repeatMs=108.804209 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:31:31.7095050Z native-consumer-pair: fixture1 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7096560Z native-consumer-pair: fixture1 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7097800Z native-consumer-pair: fixture1 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7098790Z native-consumer-file: fixture1 consumer=sample-mask policies=3
+2026-10-18T13:31:31.7099600Z native-consumer-timing: fixture2 consumer=sample-mask policy=unchanged decoder=7 edge=4592.0 constructMs=58.980459 firstMs=353.115791 repeatMs=19.522041 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:31.7101040Z native-consumer-pair: fixture2 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7102580Z native-consumer-timing: fixture2 consumer=sample-mask policy=intermediate decoder=7 edge=4592.0 constructMs=56.811959 firstMs=242.278416 repeatMs=14.580792 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:31.7103800Z native-consumer-pair: fixture2 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7105140Z native-consumer-timing: fixture2 consumer=sample-mask policy=eager decoder=7 edge=4592.0 constructMs=58.907625 firstMs=458.169208 repeatMs=164.73175 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:31:31.7106510Z native-consumer-pair: fixture2 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7108010Z native-consumer-pair: fixture2 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7109400Z native-consumer-pair: fixture2 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7110550Z native-consumer-file: fixture2 consumer=sample-mask policies=3
+2026-10-18T13:31:31.7111540Z native-consumer-timing: fixture3 consumer=sample-mask policy=unchanged decoder=8 edge=3680.0 constructMs=314.546958 firstMs=671.633708 repeatMs=14.469292 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:31.7112950Z native-consumer-pair: fixture3 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7114230Z native-consumer-timing: fixture3 consumer=sample-mask policy=intermediate decoder=8 edge=3680.0 constructMs=235.759875 firstMs=245.591667 repeatMs=15.929667 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:31.7117380Z native-consumer-pair: fixture3 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:31:31.7122640Z native-consumer-timing: fixture3 consumer=sample-mask policy=eager decoder=8 edge=3680.0 constructMs=201.4425 firstMs=374.721542 repeatMs=115.765375 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:31:31.7126330Z native-consumer-pair: fixture3 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.4984240Z native-consumer-pair: fixture3 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.4992010Z native-consumer-pair: fixture3 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.4999240Z native-consumer-file: fixture3 consumer=sample-mask policies=3
+2026-10-18T13:32:05.5000270Z native-consumer-timing: fixture4 consumer=sample-mask policy=unchanged decoder=8 edge=5184.0 constructMs=197.048084 firstMs=1022.712417 repeatMs=16.869167 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:32:05.5002630Z native-consumer-pair: fixture4 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5004470Z native-consumer-timing: fixture4 consumer=sample-mask policy=intermediate decoder=8 edge=5184.0 constructMs=246.683375 firstMs=963.148125 repeatMs=22.206333 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:32:05.5008570Z native-consumer-pair: fixture4 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5010960Z native-consumer-timing: fixture4 consumer=sample-mask policy=eager decoder=8 edge=5184.0 constructMs=179.137584 firstMs=983.489333 repeatMs=211.032167 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:32:05.5012980Z native-consumer-pair: fixture4 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5014530Z native-consumer-pair: fixture4 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5196480Z native-consumer-pair: fixture4 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5199060Z native-consumer-file: fixture4 consumer=sample-mask policies=3
+2026-10-18T13:32:05.5201360Z native-consumer-timing: fixture5 consumer=sample-mask policy=unchanged decoder=8 edge=5568.0 constructMs=110.146375 firstMs=926.875834 repeatMs=36.554584 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:32:05.5203150Z native-consumer-pair: fixture5 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5209650Z native-consumer-timing: fixture5 consumer=sample-mask policy=intermediate decoder=8 edge=5568.0 constructMs=100.729167 firstMs=466.959833 repeatMs=22.539917 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:32:05.5402230Z native-consumer-pair: fixture5 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5413820Z native-consumer-timing: fixture5 consumer=sample-mask policy=eager decoder=8 edge=5568.0 constructMs=89.316458 firstMs=709.873 repeatMs=201.381959 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:32:05.5415230Z native-consumer-pair: fixture5 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5417330Z native-consumer-pair: fixture5 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5418860Z native-consumer-pair: fixture5 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5419990Z native-consumer-file: fixture5 consumer=sample-mask policies=3
+2026-10-18T13:32:05.5421690Z native-consumer-timing: fixture1 consumer=sample-point-color policy=unchanged decoder=8 edge=4368.0 constructMs=66.027458 firstMs=1402.097041 repeatMs=31.466042 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:32:05.5423410Z native-consumer-pair: fixture1 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5424820Z native-consumer-timing: fixture1 consumer=sample-point-color policy=intermediate decoder=8 edge=4368.0 constructMs=50.34975 firstMs=433.628958 repeatMs=24.251792 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:32:05.5426880Z native-consumer-pair: fixture1 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5428600Z native-consumer-timing: fixture1 consumer=sample-point-color policy=eager decoder=8 edge=4368.0 constructMs=59.831959 firstMs=604.369083 repeatMs=264.656542 firstHeld=101756928 repeatHeld=101756928
+2026-10-18T13:32:05.5429950Z native-consumer-pair: fixture1 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5432880Z native-consumer-pair: fixture1 sample-point-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5434480Z native-consumer-pair: fixture1 sample-point-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5435920Z native-consumer-pair: fixture1 sample-point-color production-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5438360Z native-consumer-file: fixture1 consumer=sample-point-color policies=3
+2026-10-18T13:32:05.5439760Z native-consumer-timing: fixture2 consumer=sample-point-color policy=unchanged decoder=7 edge=4592.0 constructMs=74.994917 firstMs=5189.91125 repeatMs=34.72625 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:05.5441280Z native-consumer-pair: fixture2 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5442780Z native-consumer-timing: fixture2 consumer=sample-point-color policy=intermediate decoder=7 edge=4592.0 constructMs=50.868792 firstMs=649.265625 repeatMs=34.103833 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:05.5444380Z native-consumer-pair: fixture2 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5447040Z native-consumer-timing: fixture2 consumer=sample-point-color policy=eager decoder=7 edge=4592.0 constructMs=49.266458 firstMs=471.307583 repeatMs=268.111333 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:05.5448530Z native-consumer-pair: fixture2 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5452840Z native-consumer-pair: fixture2 sample-point-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5454520Z native-consumer-pair: fixture2 sample-point-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5455990Z native-consumer-pair: fixture2 sample-point-color production-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5459230Z native-consumer-file: fixture2 consumer=sample-point-color policies=3
+2026-10-18T13:32:05.5460850Z native-consumer-timing: fixture3 consumer=sample-point-color policy=unchanged decoder=8 edge=3680.0 constructMs=230.397375 firstMs=1611.679958 repeatMs=28.038292 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:05.5462560Z native-consumer-pair: fixture3 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5466060Z native-consumer-timing: fixture3 consumer=sample-point-color policy=intermediate decoder=8 edge=3680.0 constructMs=159.026458 firstMs=450.628834 repeatMs=21.725875 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:05.5467820Z native-consumer-pair: fixture3 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5469570Z native-consumer-timing: fixture3 consumer=sample-point-color policy=eager decoder=8 edge=3680.0 constructMs=221.363583 firstMs=562.91275 repeatMs=249.008709 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:05.5471050Z native-consumer-pair: fixture3 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5473160Z native-consumer-pair: fixture3 sample-point-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5475220Z native-consumer-pair: fixture3 sample-point-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5477310Z native-consumer-pair: fixture3 sample-point-color production-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5478290Z native-consumer-file: fixture3 consumer=sample-point-color policies=3
+2026-10-18T13:32:05.5479640Z native-consumer-timing: fixture4 consumer=sample-point-color policy=unchanged decoder=8 edge=5184.0 constructMs=141.403292 firstMs=2505.941 repeatMs=34.093708 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:32:05.5481620Z native-consumer-pair: fixture4 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5484230Z native-consumer-timing: fixture4 consumer=sample-point-color policy=intermediate decoder=8 edge=5184.0 constructMs=158.417084 firstMs=1687.311958 repeatMs=46.172416 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:32:05.5486220Z native-consumer-pair: fixture4 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5488190Z native-consumer-timing: fixture4 consumer=sample-point-color policy=eager decoder=8 edge=5184.0 constructMs=168.154041 firstMs=1344.378167 repeatMs=421.89675 firstHeld=161243136 repeatHeld=161243136
+2026-10-18T13:32:05.5490580Z native-consumer-pair: fixture4 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5492240Z native-consumer-pair: fixture4 sample-point-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5495780Z native-consumer-pair: fixture4 sample-point-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5497730Z native-consumer-pair: fixture4 sample-point-color production-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5499010Z native-consumer-file: fixture4 consumer=sample-point-color policies=3
+2026-10-18T13:32:05.5500180Z native-consumer-timing: fixture5 consumer=sample-point-color policy=unchanged decoder=8 edge=5568.0 constructMs=114.495917 firstMs=2431.558541 repeatMs=306.169625 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:32:05.5504950Z native-consumer-pair: fixture5 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5510030Z native-consumer-timing: fixture5 consumer=sample-point-color policy=intermediate decoder=8 edge=5568.0 constructMs=117.002916 firstMs=1199.806666 repeatMs=35.610458 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:32:05.5512050Z native-consumer-pair: fixture5 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5513410Z native-consumer-timing: fixture5 consumer=sample-point-color policy=eager decoder=8 edge=5568.0 constructMs=104.973459 firstMs=1209.154209 repeatMs=483.768416 firstHeld=165347328 repeatHeld=165347328
+2026-10-18T13:32:05.5514950Z native-consumer-pair: fixture5 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5519090Z native-consumer-pair: fixture5 sample-point-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5520510Z native-consumer-pair: fixture5 sample-point-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5522950Z native-consumer-pair: fixture5 sample-point-color production-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:05.5524390Z native-consumer-file: fixture5 consumer=sample-point-color policies=3
+2026-10-18T13:32:12.2831160Z native-consumer-timing: fixture1 consumer=sample-scene policy=unchanged decoder=7 edge=4592.0 constructMs=640.704334 firstMs=610.245959 repeatMs=33.819458 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:12.2836560Z native-consumer-pair: fixture1 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:12.2839810Z native-consumer-file: fixture1 consumer=sample-scene policies=1
+2026-10-18T13:32:15.0423980Z native-consumer-timing: fixture1 consumer=sample-scene policy=intermediate decoder=7 edge=4592.0 constructMs=372.23075 firstMs=542.886334 repeatMs=17.060667 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:15.0426650Z native-consumer-pair: fixture1 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:15.0427820Z native-consumer-file: fixture1 consumer=sample-scene policies=1
+2026-10-18T13:32:18.1947330Z native-consumer-timing: fixture1 consumer=sample-scene policy=eager decoder=7 edge=4592.0 constructMs=394.167583 firstMs=536.196333 repeatMs=151.799667 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:18.1950580Z native-consumer-pair: fixture1 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:18.1952960Z native-consumer-file: fixture1 consumer=sample-scene policies=1
+2026-10-18T13:32:22.1506120Z native-consumer-timing: fixture1 consumer=sample-point-color policy=unchanged decoder=7 edge=4592.0 constructMs=377.504166 firstMs=1525.172292 repeatMs=22.138375 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:22.1508780Z native-consumer-pair: fixture1 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:22.1511730Z native-consumer-file: fixture1 consumer=sample-point-color policies=1
+2026-10-18T13:32:26.7830380Z native-consumer-timing: fixture1 consumer=sample-point-color policy=intermediate decoder=7 edge=4592.0 constructMs=330.500416 firstMs=1389.62325 repeatMs=29.999625 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:26.7832020Z native-consumer-pair: fixture1 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:26.7833030Z native-consumer-file: fixture1 consumer=sample-point-color policies=1
+2026-10-18T13:32:31.0698920Z native-consumer-timing: fixture1 consumer=sample-point-color policy=eager decoder=7 edge=4592.0 constructMs=379.628333 firstMs=1694.914542 repeatMs=275.792292 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:31.0701560Z native-consumer-pair: fixture1 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:31.0702440Z native-consumer-file: fixture1 consumer=sample-point-color policies=1
+2026-10-18T13:32:34.8402110Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=unchanged decoder=7 edge=4592.0 constructMs=384.419792 firstMs=1454.797458 repeatMs=31.347125 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:34.8405660Z native-consumer-pair: fixture1 dehazeSDR unchanged first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:32:34.8408150Z native-consumer-file: fixture1 consumer=dehazeSDR policies=1
+2026-10-18T13:32:38.6426650Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=intermediate decoder=7 edge=4592.0 constructMs=386.260917 firstMs=1498.515292 repeatMs=18.025667 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:38.6428510Z native-consumer-pair: fixture1 dehazeSDR intermediate first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:32:38.6429540Z native-consumer-file: fixture1 consumer=dehazeSDR policies=1
+2026-10-18T13:32:42.4029280Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=eager decoder=7 edge=4592.0 constructMs=318.293958 firstMs=1298.479417 repeatMs=305.390375 firstHeld=112265216 repeatHeld=112265216
+2026-10-18T13:32:42.4030660Z native-consumer-pair: fixture1 dehazeSDR eager first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:32:42.4031740Z native-consumer-file: fixture1 consumer=dehazeSDR policies=1
+2026-10-18T13:32:45.7101980Z native-consumer-timing: fixture1 consumer=sample-scene policy=unchanged decoder=8 edge=3680.0 constructMs=468.177125 firstMs=1051.176041 repeatMs=20.648375 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:45.7104840Z native-consumer-pair: fixture1 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:45.7108930Z native-consumer-file: fixture1 consumer=sample-scene policies=1
+2026-10-18T13:32:48.8676480Z native-consumer-timing: fixture1 consumer=sample-scene policy=intermediate decoder=8 edge=3680.0 constructMs=387.873542 firstMs=1199.907083 repeatMs=13.821708 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:48.8678530Z native-consumer-pair: fixture1 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:48.8679470Z native-consumer-file: fixture1 consumer=sample-scene policies=1
+2026-10-18T13:32:52.1341070Z native-consumer-timing: fixture1 consumer=sample-scene policy=eager decoder=8 edge=3680.0 constructMs=382.491709 firstMs=1360.865541 repeatMs=78.085417 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:52.1343010Z native-consumer-pair: fixture1 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:52.1343970Z native-consumer-file: fixture1 consumer=sample-scene policies=1
+2026-10-18T13:32:56.0444880Z native-consumer-timing: fixture1 consumer=sample-point-color policy=unchanged decoder=8 edge=3680.0 constructMs=442.74 firstMs=1881.110625 repeatMs=25.661833 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:56.0447800Z native-consumer-pair: fixture1 sample-point-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:56.0449020Z native-consumer-file: fixture1 consumer=sample-point-color policies=1
+2026-10-18T13:32:59.6810340Z native-consumer-timing: fixture1 consumer=sample-point-color policy=intermediate decoder=8 edge=3680.0 constructMs=443.930375 firstMs=1585.156833 repeatMs=16.2665 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:32:59.6811880Z native-consumer-pair: fixture1 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:32:59.6813420Z native-consumer-file: fixture1 consumer=sample-point-color policies=1
+2026-10-18T13:33:03.8153360Z native-consumer-timing: fixture1 consumer=sample-point-color policy=eager decoder=8 edge=3680.0 constructMs=415.794417 firstMs=1987.551 repeatMs=184.506792 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:33:03.8155420Z native-consumer-pair: fixture1 sample-point-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+2026-10-18T13:33:03.8156420Z native-consumer-file: fixture1 consumer=sample-point-color policies=1
+2026-10-18T13:33:08.0271080Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=unchanged decoder=8 edge=3680.0 constructMs=427.843791 firstMs=1926.792834 repeatMs=15.033708 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:33:08.0442600Z native-consumer-pair: fixture1 dehazeSDR unchanged first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:33:08.0652210Z native-consumer-file: fixture1 consumer=dehazeSDR policies=1
+2026-10-18T13:33:11.7071040Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=intermediate decoder=8 edge=3680.0 constructMs=442.767167 firstMs=1533.616292 repeatMs=10.486417 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:33:11.7072570Z native-consumer-pair: fixture1 dehazeSDR intermediate first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:33:11.7073490Z native-consumer-file: fixture1 consumer=dehazeSDR policies=1
+2026-10-18T13:33:15.5564020Z native-consumer-timing: fixture1 consumer=dehazeSDR policy=eager decoder=8 edge=3680.0 constructMs=429.800583 firstMs=1788.209541 repeatMs=148.23125 firstHeld=81254400 repeatHeld=81254400
+2026-10-18T13:33:15.5565480Z native-consumer-pair: fixture1 dehazeSDR eager first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=not-applicable
+2026-10-18T13:33:15.5566980Z native-consumer-file: fixture1 consumer=dehazeSDR policies=1

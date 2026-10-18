@@ -107,7 +107,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        contains(github.event.head_commit.message, '[workflow-cost]') ||
        contains(github.event.head_commit.message, '[export-source-causal]') ||
-       contains(github.event.head_commit.message, '[keyword-scan-causal]'))
+       contains(github.event.head_commit.message, '[keyword-scan-causal]') ||
+       contains(github.event.head_commit.message, '[mask-composition-causal]'))
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -213,6 +214,49 @@ jobs:
           cmp -s "$source_backup" "$source_file"
           shasum -a 256 "$source_file" >> keyword-scan-mutation-provenance.log
           echo "KEYWORD-SCAN-CAUSAL baseline=GREEN pending-only=RED unfiltered=RED source-restored=true"
+      - name: Prove composed mask geometry adds independent coverage
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[mask-composition-causal]')
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='MaskGeometryOracleTests|MaskGeometryCompositionOracleTests'
+          swift test -c release --filter "$target" 2>&1 | tee mask-composition-baseline.log
+          grep -q 'Executed 5 tests, with 0 failures' mask-composition-baseline.log
+          source_file=Sources/LumenPipeline/PipelineRenderer.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/mask-composition-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > mask-composition-mutation-provenance.log
+          shasum -a 256 "$source_file" >> mask-composition-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenPipeline/PipelineRenderer.swift')
+          source = path.read_text()
+          flip = '        if geo.flipH { orientation = orientation.scaledBy(x: -1, y: 1) }\n'
+          turn = '        if geo.angle != 0 { orientation = orientation.rotated(by: -geo.angle * .pi / 180) }\n'
+          assert source.count(flip + turn) == 1, 'must mutate one exact geometry composition'
+          path.write_text(source.replace(flip + turn, turn + flip))
+          PY
+          git diff -- "$source_file" >> mask-composition-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > mask-composition-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat mask-composition-mutant.log
+          test "$mutant_status" -ne 0
+          grep -q 'XCTAssertEqual failed' mask-composition-mutant.log
+          grep -Eq 'Executed 5 tests, with [1-9][0-9]* failure' mask-composition-mutant.log
+          for method in testMaskPixelsFollowIndependentCropReflectionAndQuarterTurnOracle testPointerCoordinatesFollowIndependentPixelPermutationOracle; do
+            grep -Fq "$method]' passed" mask-composition-mutant.log
+          done
+          for method in testShippingGeometryMatchesCombinedArrayPermutationAtEveryPixel testInversePointerAndStoredEndpointUseTheSameIndependentSourcePixels testMaskInteriorAndExteriorFollowCombinedPermutation; do
+            grep -Fq "$method]' failed" mask-composition-mutant.log
+          done
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> mask-composition-mutation-provenance.log
+          echo "MASK-COMPOSITION-CAUSAL baseline=GREEN wrong-order=RED old-oracle=GREEN source-restored=true"
       - name: Keep generated workflow cost
         if: always()
         uses: actions/upload-artifact@v4
@@ -227,6 +271,9 @@ jobs:
             keyword-scan-pending-only.log
             keyword-scan-unfiltered.log
             keyword-scan-mutation-provenance.log
+            mask-composition-baseline.log
+            mask-composition-mutant.log
+            mask-composition-mutation-provenance.log
           if-no-files-found: warn
           retention-days: 14
 

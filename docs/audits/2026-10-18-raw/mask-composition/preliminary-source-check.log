@@ -1,0 +1,35 @@
+symbols:  every capitalized identifier resolves
+
+inits:    2 of 7879 call sites match NO declared or memberwise initializer (1 unparseable, skipped; 260 memberwise signatures synthesized, 86 raw-value enums, 0 structs too odd to synthesize)
+
+  Tests/LumenPipelineTests/MaskGeometryCompositionOracleTests.swift:45  Pixel(x, y)
+      declared: init(x)
+
+  Tests/LumenPipelineTests/MaskGeometryCompositionOracleTests.swift:72  Pixel(x, y)
+      declared: init(x)
+
+
+actors:   every call to the 43 isolated members of MatteProducerBarrier, OperationReportStore, PickSamplePause, PickSourceBarrier, RenderCoordinator, VisionMatteWorker is awaited
+labels:   19615 method call sites match a declared signature
+
+members:  every TypeName.member reference resolves (1269 types)
+
+imports:  every platform symbol whose module is identifiable is used in a file that imports it
+          uses seen: CoreImage 584, CoreVideo 17, CryptoKit 0, ImageIO 339, Metal 3, SQLite3 56, Vision 10
+
+targets:  every in-tree type is used in a file whose module imports its own (1039 unambiguously placed)
+
+values:   2 members read off a value whose type does not have them
+
+  pixel.y                      pixel is Pixel, which has no y   Tests/LumenPipelineTests/MaskGeometryCompositionOracleTests.swift:66
+  pixel.y                      pixel is Pixel, which has no y   Tests/LumenPipelineTests/MaskGeometryCompositionOracleTests.swift:67
+
+scopes:   every lowercase receiver is bound by a parameter, a local, a member or a global
+
+access:   every cross-module TypeName.member reference is public (779 type/module pairs)
+
+args:     every bare name passed as an argument is bound in its scope
+
+switches: 185 switches over 135 in-tree enums handle every case
+
+kernels:  48 kernel sources declare no reserved-word identifier
