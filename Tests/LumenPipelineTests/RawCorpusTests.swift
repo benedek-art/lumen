@@ -1603,6 +1603,69 @@ final class RawCorpusTests: XCTestCase {
         }
     }
 
+    /// Diagnostic only: exact decoder identifiers are not interchangeable merely
+    /// because recipes persist their numeric prefix. Keep selected-default without a
+    /// setter separate from explicitly assigning that SAME exact identifier. Each
+    /// state starts from a fresh filter, and every lazy graph is evaluated through
+    /// both contexts. No luminance target or camera calibration is inferred here.
+    func testMonochromeExactDecoderContextMatrix() throws {
+        let mono = try corpus().filter { $0.isMono }
+        XCTAssertFalse(mono.isEmpty, "No monochrome manifest fixture for decoder/context matrix")
+        let rec2020 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020))
+        let linearSRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        // A common explicit output space makes differences about evaluation, rather
+        // than comparing the numerical coordinates of two different output spaces.
+        let contexts: [(String, CIContext)] = [
+            ("rec2020-f16", CIContext(options: [
+                .workingColorSpace: rec2020, .outputColorSpace: rec2020,
+                .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false])),
+            ("linear-srgb-f32", CIContext(options: [
+                .workingColorSpace: linearSRGB, .outputColorSpace: rec2020,
+                .workingFormat: CIFormat.RGBAf, .cacheIntermediates: false])),
+        ]
+        for entry in mono where FileManager.default.fileExists(atPath: entry.url.path) {
+            let selected = try XCTUnwrap(CIRAWFilter(imageURL: entry.url))
+            let exactDefault = selected.decoderVersion
+            var variants: [(String, CIRAWDecoderVersion?)] = [
+                ("no-version-set", nil), ("assign-current", exactDefault),
+            ]
+            var seen = Set<String>()
+            for version in selected.supportedDecoderVersions where seen.insert(version.rawValue).inserted {
+                variants.append(("assign-supported-" + version.rawValue, version))
+            }
+            var rows = 0
+            for (label, version) in variants {
+                for flat in [false, true] {
+                    try autoreleasepool {
+                        let filter = try XCTUnwrap(CIRAWFilter(imageURL: entry.url))
+                        if let version { filter.decoderVersion = version }
+                        filter.scaleFactor = 0.125
+                        filter.isDraftModeEnabled = false
+                        if flat {
+                            Self.applyMonoFlat(filter, kelvin: selected.neutralTemperature,
+                                tint: selected.neutralTint, except: nil)
+                        }
+                        let image = filter.outputImage
+                        for (contextName, context) in contexts {
+                            let stats = image.map { Self.monoStatistics($0, context: context, outputSpace: rec2020) }
+                                ?? "outputImage=nil"
+                            Self.emit("corpus-mono-decoder: " + entry.id
+                                + " variant=" + label + " flat=" + String(flat)
+                                + " requested=" + (version?.rawValue ?? "unset")
+                                + " selected-default=" + exactDefault.rawValue
+                                + " actual=" + filter.decoderVersion.rawValue
+                                + " context=" + contextName + " " + stats)
+                            rows += 1
+                        }
+                    }
+                }
+            }
+            Self.emit("corpus-mono-decoder-summary: " + entry.id
+                + " decoderVariants=\(variants.count) settingVariants=2 contexts=2 rows=\(rows)")
+            XCTAssertEqual(rows, variants.count * 4, "Every decoder/context state must be reported")
+        }
+    }
+
     /// Every option `AppleRawSource.decode` writes besides the decoder pin, scale and
     /// draft flag (the sweep holds those at the per-file default, 0.125 and false).
     private static let monoFlatOptions = [
@@ -1663,10 +1726,29 @@ final class RawCorpusTests: XCTestCase {
 
     /// Per-channel means, channel-0 min/max/std and the non-finite count, read back as
     /// RGBAf through the same context `readFiniteness` uses.
-    private static func monoStatistics(_ image: CIImage) -> String {
+    private static func monoStatistics(_ image: CIImage,
+                                       context: CIContext = DecodeMaterializer.context,
+                                       outputSpace: CGColorSpace? = nil) -> String {
         let extent = image.extent
-        guard let buffer = PipelineRenderer.buffer(from: image,
-                                                   context: DecodeMaterializer.context)
+        let readback: ImageBuffer?
+        if let outputSpace {
+            let bounds = extent.integral
+            guard bounds.width >= 1, bounds.height >= 1,
+                  bounds.width.isFinite, bounds.height.isFinite else {
+                return "extent=\(extent.width)x\(extent.height) readback=failed-invalid-extent"
+            }
+            let width = Int(bounds.width), height = Int(bounds.height)
+            var pixels = [Float](repeating: 0, count: width * height * 4)
+            pixels.withUnsafeMutableBytes { raw in
+                context.render(image, toBitmap: raw.baseAddress!, rowBytes: width * 16,
+                    bounds: bounds, format: .RGBAf, colorSpace: outputSpace)
+            }
+            readback = ImageBuffer(width: width, height: height, pixels: pixels)
+        } else {
+            // Preserve the original sweep's readback path exactly.
+            readback = PipelineRenderer.buffer(from: image, context: context)
+        }
+        guard let buffer = readback
         else { return "extent=\(extent.width)x\(extent.height) readback=failed" }
         var sums = [0.0, 0.0, 0.0]
         var count = 0

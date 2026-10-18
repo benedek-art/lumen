@@ -80,3 +80,32 @@ Exact follow-up runs (pending when recorded):
 Local opt-in CPU bookkeeping benchmark on frozen follow-up source, Swift6.1.2 Linux release: `LUMEN_BENCH=1 swift test -c release --scratch-path ... --skip-build --filter SpeedBenchTests` passed one test. RenderPlan default0.037ms, exposure0.026ms, moving-slider cache-miss0.028ms, grade wheel0.063ms, vignette0.027ms,parametric curve0.058ms. These are a small hosted CPU microbenchmark with no baseline comparison, not displayed latency, RAW decode cost or photographer responsiveness. Denoise-plan values rounded to0.000ms and are below this print resolution, not zero-cost processing.
 
 Continue from fa79116's hosted diagnostics before a production decode change. Keep same-timestamp sidecar detection, ordinary recipe publication with missing painting blobs, decoder identifier aliases6/6.dng, and the Leica platform failure as explicit independent investigations. Do not convert guessed chroma alarms to passes or blacklist all dark photographs.
+
+## Reproduced displayed cache defect at fa79116
+
+RAW run39107765012 executed the repaired public setup and strict displayed checks. Sony A4502349 (native edge4592) reproduced the owner's pattern: AI-zero differs from initial Off only in region0, maximum1 encoded code; regions1/2 and Off-return exactly match. Panasonic GH5S2607 (edge3680) matches exactly in every zero/return region. All60 displayed response records were produced; response magnitudes are not denoise quality scores.
+
+The ten-pair causal matrix isolates the Sony mechanism:
+
+| Comparison on the same ROI | Changed RGBA bytes | Max code difference |
+|---|---:|---:|
+| Off first vs Off repeat | 421 | 1 |
+| Reversed fresh AI-zero first vs Off repeat | 421 | 1 |
+| Frozen lazy decode vs explicitly materialized plane | 421 | 1 |
+| Repeated cached Off vs AI-zero | 0 | 0 |
+| Fixed lazy, repeat/mode change/fresh renderer | 0 | 0 |
+| Fixed materialized plane, repeat/mode change/fresh renderer | 0 | 0 |
+
+Sony held decoded bytes change0 to112,265,216 between first and repeated native calls. Panasonic already holds81,254,400 bytes after its first call; all ten comparisons are exact0. This establishes the lazy-to-half-float materialization boundary as the displayed inconsistency for the public Sony fixture, independent of denoise mode, render-plan reuse and deterministic dither. It strongly supports, but cannot yet execute/requalify, the owner's offline private-camera finding. No assertion was relaxed. Native raw sampling still shows Sony first/cache Float max3.042072e-05 and exact explicit-materialized/cache equality.
+
+The RAW lane still fails its separate unchanged Nikon/Panasonic chroma alarms and Leica black assertions. Decoder-selection five-test lane passed with two RAW9 skips. Do not present the RAW workflow as green.
+
+## Next frozen source candidates
+
+Prepared ordinary publication guard rebuilds painting payload from the exact validated disk map immediately before write, not stale BlobStore cache or enqueue-time partial data. Missing dependency refuses/requeues complete recipe+strokes debt while keeping newest catalog edit and existing XMP. Additional tests cover brush/heal/both missing, dependency return between enqueue/flush, retry, and existing oversized-payload contract. Native execution owed.
+
+Prepared Leica diagnostic enumerates untouched default, explicitly reassigning the same exact decoder ID and each advertised ID6/6.dng/7.dng/8.dng under default/full-flat settings and Rec2020-f16/linear-sRGB-f32 contexts with explicit common Rec2020 readback. It logs content/finiteness and does not invent a calibrated brightness target.
+
+Prepared decode experiment adds lazy `insertingIntermediate(cache: false)` comparisons against the canonical materialized plane. Apple's API documentation: https://developer.apple.com/documentation/coreimage/ciimage/insertingintermediate(cache:) . This is an experimental test image only, not a production fix. The next matrix has13 pairs/fixture and includes total render/materialization timings to assess a boundary without silently imposing whole-frame cost on cold native picks. Do not claim it works before hosted measurement.
+
+Final fa79116 integrated qualification: complete optimized Mac suite passed **3,261 tests,32 intentional skips,zero failures**. Independent mask geometry oracles, complete-painting recovery, atomic culling, off-grid nudges and mixer-target session regression executed in that full suite. GPU lane passed225 tests with24 opt-in skips. Build,bundle,fixtures/source checker,Linux engine,layout and six-test proof jobs all passed. RAW lane independently remained red for the documented corpus and strict first/cache failures. Release validation/publication intentionally skipped on audit branch. This is code/test qualification, not camera or subjective acceptance.

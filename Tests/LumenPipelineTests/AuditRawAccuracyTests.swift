@@ -329,7 +329,9 @@ final class AuditRawAccuracyTests: XCTestCase {
                               y: (first.extent.midY - 32).rounded(), width: 64, height: 64)
             let before = pixels(first, context: consumer, bounds: rect)
             let repeatedLazy = pixels(first, context: consumer, bounds: rect)
+            let materializeStarted = DispatchTime.now().uptimeNanoseconds
             let explicit = try XCTUnwrap(DecodeMaterializer.materialize(first))
+            let materializeMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - materializeStarted) / 1e6
             let explicitPixels = pixels(explicit.image, context: consumer, bounds: rect)
             let cached = try XCTUnwrap(source.decode(recipe: quietRecipe, draft: false, scaleFactor: 1))
             let promoted = pixels(cached, context: consumer, bounds: rect)
@@ -347,7 +349,8 @@ final class AuditRawAccuracyTests: XCTestCase {
                 + " first-cache=\(maximumDelta(before, promoted))"
                 + " materialized-cache=\(maximumDelta(explicitPixels, promoted))"
                 + " cache-repeat=\(maximumDelta(promoted, repeatedCache))"
-                + " held-bytes=\(source.heldDecodeBytes)")
+                + " held-bytes=\(source.heldDecodeBytes)"
+                + " materialize-ms=\(materializeMilliseconds)")
             // These compare repeated evaluation of the SAME graph, not lazy versus
             // half-float precision. DisplayedDenoiseQualificationTests retains the
             // separate exact-zero displayed acceptance check.
@@ -388,8 +391,10 @@ final class AuditRawAccuracyTests: XCTestCase {
             aiZero.develop.denoise = Denoise(mode: .ai, amount: 0)
             let roi = CGRect(x: 0.4825, y: 0.4825, width: 0.035, height: 0.035)
             var failures: [String] = []
+            var renderOrdinal = 0
             func render(_ source: any ImageSource, _ recipe: Recipe,
                         _ renderer: PipelineRenderer) throws -> Data {
+                let started = DispatchTime.now().uptimeNanoseconds
                 let delivery = try renderer.renderPreviewDelivery(source: source, recipe: recipe,
                     maxLongEdge: Int(source.nativeLongEdge.rounded(.up)),
                     draft: false, coarseDecode: false, region: roi)
@@ -406,6 +411,12 @@ final class AuditRawAccuracyTests: XCTestCase {
                     context.draw(image, in: CGRect(x: 0, y: 0,
                         width: image.width, height: image.height))
                 }
+                renderOrdinal += 1
+                let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
+                Self.emit("native-causal-timing: " + fixture.name
+                    + " render=\(renderOrdinal) total-ms=\(elapsed)"
+                    + " decode-call-ms=\(delivery.decodeMilliseconds)"
+                    + " width=\(image.width) height=\(image.height)")
                 return bytes
             }
             func compare(_ label: String, _ a: Data, _ b: Data) {
@@ -451,11 +462,19 @@ final class AuditRawAccuracyTests: XCTestCase {
                 compare("fixed-plane-repeat", b, try render(frozenPlane, off, renderer))
                 compare("fixed-plane-mode-change", b, try render(frozenPlane, aiZero, renderer))
                 compare("fixed-plane-fresh-renderer", b, try render(frozenPlane, off, PipelineRenderer()))
+                // Experiment, not a production change: force a lazy intermediate
+                // before downstream kernels to test the half-float fusion boundary
+                // without eagerly allocating the source's whole native plane.
+                let intermediate = FrozenNativeSource(source, lazy.insertingIntermediate(cache: false))
+                let c = try render(intermediate, off, renderer)
+                compare("inserted-intermediate-vs-explicit-plane", c, b)
+                compare("inserted-intermediate-mode-change", c, try render(intermediate, aiZero, renderer))
+                compare("inserted-intermediate-fresh-renderer", c, try render(intermediate, off, PipelineRenderer()))
             }
             for failure in failures {
                 XCTFail(fixture.name + " exact displayed identity failed: " + failure)
             }
-            return "measured pairs=10 failures=\(failures.count)"
+            return "measured pairs=13 failures=\(failures.count)"
         }
     }
 

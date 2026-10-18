@@ -230,8 +230,9 @@ final class CatalogService: @unchecked Sendable {
                         recipeFields = (json, fingerprint, recipe.pipelineVersion)
                     }
                     if stated.contains(.strokes) {
-                        try validateSidecarStrokeDependencies(recipe)
-                        guard let complete = sidecarStrokes(for: recipe, url: url) else {
+                        let sets = try validatedSidecarStrokeSets(recipe)
+                        guard let complete = sidecarStrokes(for: recipe, url: url,
+                                                           validatedStrokeSets: sets) else {
                             throw CatalogError.invalid("the complete painting cannot be embedded in a sidecar")
                         }
                         strokes = .some(complete)
@@ -1125,14 +1126,14 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// What a sidecar write says about brush strokes for `recipe`; see `saveRecipe`.
-    /// Recovery must not replace a complete portable painting with a partial map
+    /// A write must not replace a complete portable painting with a partial map
     /// just because a referenced local blob is temporarily missing or damaged.
-    private func validateSidecarStrokeDependencies(_ recipe: Recipe) throws {
+    private func validatedSidecarStrokeSets(_ recipe: Recipe) throws -> [String: BrushStrokeSet] {
         var references = Set(recipe.masks.flatMap { mask in
             mask.components.filter { $0.kind == .brush }.compactMap(\.strokesRef)
         }.filter { !$0.isEmpty })
         if let ref = BrushStrokes.healReference(in: recipe) { references.insert(ref) }
+        var sets: [String: BrushStrokeSet] = [:]
         for ref in references {
             guard let path = blobs.url(for: ref), let bytes = try? Data(contentsOf: path),
                   BrushStrokeSet.blobRef(for: bytes) == ref else {
@@ -1142,12 +1143,17 @@ final class CatalogService: @unchecked Sendable {
             guard painting.version <= BrushStrokeSet.schemaVersion else {
                 throw CatalogError.invalid("sidecar painting requires a newer build")
             }
+            sets[ref] = painting
         }
+        return sets
     }
 
-    private func sidecarStrokes(for recipe: Recipe, url: URL) -> String?? {
-        switch BrushStrokeSidecar.decision(for: recipe, blob: {
-            self.blobs.strokeSet(for: $0)
+    /// What a sidecar write says about brush strokes for `recipe`; see `saveRecipe`.
+    private func sidecarStrokes(for recipe: Recipe, url: URL,
+                                validatedStrokeSets: [String: BrushStrokeSet]? = nil) -> String?? {
+        switch BrushStrokeSidecar.decision(for: recipe, blob: { ref in
+            if let sets = validatedStrokeSets { return sets[ref] }
+            return self.blobs.strokeSet(for: ref)
         }) {
         case .none:
             return .some(nil)
@@ -1666,7 +1672,8 @@ final class CatalogService: @unchecked Sendable {
         var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent,
                                         stated: SidecarStatedFields))] = []
 
-        for (url, entry) in batch {
+        for (url, queuedEntry) in batch {
+            var entry = queuedEntry
             var content = entry.content
             let path = Self.sidecarURL(for: url)
 
@@ -1708,6 +1715,36 @@ final class CatalogService: @unchecked Sendable {
                 if first {
                     report("Could not save portable sidecar \(path.lastPathComponent): \(reason). "
                            + "The existing file was left untouched; the catalog has the edit and Lumen will retry.")
+                }
+            }
+
+            // Keep the newly saved catalog edit, but never replace a complete
+            // portable painting with an empty/partial map when a local dependency
+            // vanished. Validate at publication, including removals after enqueue.
+            if entry.stated.contains(.recipe), let json = entry.content.recipeJSON {
+                do {
+                    let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+                    let sets = try onCatalogQueue { try validatedSidecarStrokeSets(recipe) }
+                    if entry.stated.contains(.strokes) {
+                        // Rebuild from these exact validated disk bytes. An enqueue
+                        // can precede either a dependency disappearing or returning.
+                        if let painting = onCatalogQueue({
+                            sidecarStrokes(for: recipe, url: url, validatedStrokeSets: sets)
+                        }) {
+                            entry.content.strokesPayload = painting
+                            content.strokesPayload = painting
+                        } else {
+                            // An available painting beyond the existing size cap
+                            // keeps the current external payload, as before.
+                            entry.stated.remove(.strokes)
+                            entry.content.strokesPayload = nil
+                            content.strokesPayload = nil
+                        }
+                    }
+                } catch {
+                    entry.stated.insert(.strokes)
+                    refuse("the complete painting is unavailable (\(error))")
+                    continue
                 }
             }
 
