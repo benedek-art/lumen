@@ -167,6 +167,8 @@ struct MaskCanvasEditContext: Equatable {
 /// cursor ring. `sourceSize` was also being passed the cropped extent, which broke the
 /// pixel-round guarantee below for the same reason.
 struct MaskCanvas: View {
+    @EnvironmentObject private var edits: EditRevision
+
     let imageRect: CGRect
     let sourceSize: CGSize
     let geometry: Geometry

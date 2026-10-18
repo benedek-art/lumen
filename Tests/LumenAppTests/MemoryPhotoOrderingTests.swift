@@ -52,18 +52,27 @@ final class MemoryPhotoOrderingTests: XCTestCase {
         let values = [photo("DSC_10.JPG", rating: 2, flag: .unflagged, label: .red),
                       photo("DSC_2.JPG", rating: 5, flag: .pick, label: .blue),
                       photo("DSC_1.JPG", rating: 0, flag: .reject)]
-        func names(_ order: SortOrder, _ ascending: Bool) -> [String] {
-            values.sorted { AppState.memoryOrderPrecedes($0, $1, order: order,
-                                                        ascending: ascending) }.map(\.filename)
+        // Case inference avoids the unrelated Foundation.SortOrder type without
+        // a module qualifier that is shadowed by the app's same-named entry type.
+        let cases = [
+            (order: SortOrder.rating,
+             ascending: ["DSC_1.JPG", "DSC_10.JPG", "DSC_2.JPG"],
+             descending: ["DSC_2.JPG", "DSC_10.JPG", "DSC_1.JPG"]),
+            (.flag, ["DSC_1.JPG", "DSC_10.JPG", "DSC_2.JPG"],
+             ["DSC_2.JPG", "DSC_10.JPG", "DSC_1.JPG"]),
+            (.label, ["DSC_1.JPG", "DSC_10.JPG", "DSC_2.JPG"],
+             ["DSC_2.JPG", "DSC_10.JPG", "DSC_1.JPG"]),
+            (.filename, ["DSC_1.JPG", "DSC_2.JPG", "DSC_10.JPG"],
+             ["DSC_10.JPG", "DSC_2.JPG", "DSC_1.JPG"]),
+        ]
+        for expected in cases {
+            XCTAssertEqual(values.sorted {
+                AppState.memoryOrderPrecedes($0, $1, order: expected.order, ascending: true)
+            }.map(\.filename), expected.ascending)
+            XCTAssertEqual(values.sorted {
+                AppState.memoryOrderPrecedes($0, $1, order: expected.order, ascending: false)
+            }.map(\.filename), expected.descending)
         }
-        XCTAssertEqual(names(.rating, true), ["DSC_1.JPG", "DSC_10.JPG", "DSC_2.JPG"])
-        XCTAssertEqual(names(.rating, false), ["DSC_2.JPG", "DSC_10.JPG", "DSC_1.JPG"])
-        XCTAssertEqual(names(.flag, true), ["DSC_1.JPG", "DSC_10.JPG", "DSC_2.JPG"])
-        XCTAssertEqual(names(.flag, false), ["DSC_2.JPG", "DSC_10.JPG", "DSC_1.JPG"])
-        XCTAssertEqual(names(.label, true), ["DSC_1.JPG", "DSC_10.JPG", "DSC_2.JPG"])
-        XCTAssertEqual(names(.label, false), ["DSC_2.JPG", "DSC_10.JPG", "DSC_1.JPG"])
-        XCTAssertEqual(names(.filename, true), ["DSC_1.JPG", "DSC_2.JPG", "DSC_10.JPG"])
-        XCTAssertEqual(names(.filename, false), ["DSC_10.JPG", "DSC_2.JPG", "DSC_1.JPG"])
     }
 }
 #endif
