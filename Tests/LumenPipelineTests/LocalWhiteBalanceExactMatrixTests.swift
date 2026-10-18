@@ -50,7 +50,7 @@ final class LocalWhiteBalanceExactMatrixTests: XCTestCase {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let input = input(), source = image(input)
         XCTAssertEqual(try read(source).pixels, input.pixels)
-        for axis in ["mask", "group"] { for mode in ["relative", "absolute"] { for amount in [0.0, 1e-8, 100.0] {
+        for axis in ["mask", "group"] { for mode in ["relative", "absolute"] { for amount in [0.0, 1e-8, 1.0, 25.0, 50.0, 100.0, 200.0] {
             var original = mask(mode, amount: axis == "mask" ? amount : 100)
             let groups: [MaskGroup]
             if axis == "group" {
@@ -68,14 +68,18 @@ final class LocalWhiteBalanceExactMatrixTests: XCTestCase {
                 let label = "\(axis), \(mode), amount=\(amount), cube=\(size)"
                 let actual = try read(RenderGraph.applyLocalAdjust(source, mask: mask, plan: plan,
                     longEdge: input.width, lutSize: size))
-                var maximum = 0.0, cpuMaximum = 0.0
+                let global = try read(RenderGraph.applyMatrix(source, balance.matrix))
+                var maximum = 0.0, cpuMaximum = 0.0, globalMaximum = 0.0
                 for y in 0..<input.height { for x in 0..<input.width {
                     XCTAssertTrue(actual[x, y].isFinite, label)
+                    XCTAssertTrue(global[x, y].isFinite, label)
                     maximum = max(maximum, actual[x, y].maxAbsDifference(expected[x, y]))
                     cpuMaximum = max(cpuMaximum, actual[x, y].maxAbsDifference(cpu[x, y]))
+                    globalMaximum = max(globalMaximum, global[x, y].maxAbsDifference(expected[x, y]))
                 } }
                 XCTAssertLessThanOrEqual(maximum, 1e-3, label + " independent matrix")
                 XCTAssertLessThanOrEqual(cpuMaximum, 1e-3, label + " direct CPU")
+                XCTAssertLessThanOrEqual(globalMaximum, 1e-3, label + " global matrix")
                 if amount == 0 { XCTAssertEqual(actual.pixels, input.pixels, label) }
                 for alpha in [0.0, 0.25, 0.75, 1.0] {
                     let scalar = ImageBuffer(width: input.width, height: input.height) { _, _ in RGB(gray: alpha) }
@@ -95,6 +99,29 @@ final class LocalWhiteBalanceExactMatrixTests: XCTestCase {
                 }
             }
         } } }
+        // A linear RGB matrix also acts on premultiplied storage linearly:
+        // M(alpha*c) = alpha*M(c), with alpha itself unchanged. Exercise signed
+        // nonopaque data, not only opaque photographs, through the shared helper.
+        let probe = mask("relative", amount: 1)
+        let balance = ReferenceRenderer.LocalWhiteBalance.resolve(probe.adjust,
+            amount: 0.01, balanced: plan(probe).balancedNeutral, space: .rec2020)
+        for alpha in [0.25, 0.75] {
+            var premultiplied = input
+            for y in 0..<input.height { for x in 0..<input.width {
+                premultiplied[x, y] = input[x, y] * alpha
+                premultiplied.pixels[premultiplied.index(x, y) + 3] = Float(alpha)
+            } }
+            let source = image(premultiplied)
+            XCTAssertEqual(try read(source).pixels, premultiplied.pixels)
+            let actual = try read(RenderGraph.applyMatrix(source, balance.matrix))
+            var error = 0.0
+            for y in 0..<input.height { for x in 0..<input.width {
+                XCTAssertTrue(actual[x, y].isFinite)
+                error = max(error, actual[x, y].maxAbsDifference(multiply(balance.matrix, premultiplied[x, y])))
+                XCTAssertEqual(actual.pixels[actual.index(x, y) + 3], Float(alpha))
+            } }
+            XCTAssertLessThanOrEqual(error, 1e-3, "premultiplied RGBA alpha=\(alpha)")
+        }
     }
 
     func testNeutralAndZeroBalanceRetainExactIdentity() throws {
@@ -114,6 +141,7 @@ final class LocalWhiteBalanceExactMatrixTests: XCTestCase {
                 XCTAssertEqual(cpu.pixels, input.pixels)
             }
         }
+
     }
 
     func testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU() throws {

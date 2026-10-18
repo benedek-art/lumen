@@ -850,6 +850,14 @@ public struct RenderGraph {
     /// Local WB's exact engine predicate owns its bypass. Keep the global helper's
     /// established approximate identity policy separate from that contract.
     static func applyMatrixUnconditionally(_ image: CIImage, _ m: Mat3) -> CIImage {
+        let rows = m.m.map { CIVector(x: $0[0], y: $0[1], z: $0[2]) }
+        if let mapped = KernelLibrary.apply(KernelLibrary.matrixRows,
+            extent: image.extent, [image, rows[0], rows[1], rows[2]]) {
+            return mapped
+        }
+        // The full availability roster reports this capability. Its absence does
+        // not change the existing coreAvailable policy; retain the stock filter's
+        // established behavior (including its measured partial-matrix limitation).
         let filter = CIFilter.colorMatrix()
         filter.inputImage = image
         // `rVector` is the ROW of the matrix that produces the output's red — that is,

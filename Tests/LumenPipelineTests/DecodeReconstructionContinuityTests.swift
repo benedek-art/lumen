@@ -43,6 +43,25 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
         var bytes = Data("DECODE-RECONSTRUCTION ".utf8); bytes.append(json); bytes.append(10)
         FileHandle.standardOutput.write(bytes)
     }
+    private func diagnostic(_ row: [String: Any]) {
+        do {
+            let json = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+            var bytes = Data("DECODE-RECONSTRUCTION-DIAGNOSTIC ".utf8)
+            bytes.append(json); bytes.append(10)
+            FileHandle.standardOutput.write(bytes)
+        } catch {
+            XCTFail("diagnostic JSON serialization failed: \(error)")
+        }
+    }
+    private func diagnosticError(_ error: Error, event: String, context: [String: Any]) {
+        let native = error as NSError
+        var row = context
+        row["event"] = event
+        row["errorDomain"] = native.domain
+        row["errorCode"] = native.code
+        row["errorDescription"] = native.localizedDescription
+        diagnostic(row)
+    }
     private func packed(_ image: CGImage) throws -> Data {
         var result = Data(count: image.width * image.height * 4)
         try result.withUnsafeMutableBytes { raw in
@@ -65,16 +84,30 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
         var priorPass: [String: ReconstructionCapture] = [:]
         var exactPairs: [(String, Data, Data, [Float], [Float])] = []
         var renderCount = 0, filePasses = 0
+        var sceneBridgeControlPerformed = false
+        var sceneBridgeControlPassed = false
+        var materializerPhase = "before-first-render"
         func render(_ source: AppleRawSource, _ renderer: PipelineRenderer, _ recipe: Recipe,
                     fixture: ReconstructionFixture, pass: Int, state: String, allRegions: Bool) throws -> ReconstructionCapture {
             var displayed: [Data] = []
             let regions = allRegions ? centers : [0.5]
             for (index, center) in regions.enumerated() {
                 let start = DispatchTime.now().uptimeNanoseconds
-                let delivery = try renderer.renderPreviewDelivery(source: source, recipe: recipe,
-                    maxLongEdge: Int(source.nativeLongEdge.rounded(.up)), draft: false,
-                    coarseDecode: false, region: CGRect(x: center - 0.0175, y: center - 0.0175,
-                                                       width: 0.035, height: 0.035))
+                materializerPhase = state + "/region\(index)"
+                let diagnosticContext: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                    "state": state, "region": index, "heldBytes": source.heldDecodeBytes,
+                    "nativeLongEdge": source.nativeLongEdge, "uptime": ProcessInfo.processInfo.systemUptime]
+                diagnostic(diagnosticContext.merging(["event": "before-render"]) { _, new in new })
+                let delivery: PipelineRenderer.PreviewDelivery
+                do {
+                    delivery = try renderer.renderPreviewDelivery(source: source, recipe: recipe,
+                        maxLongEdge: Int(source.nativeLongEdge.rounded(.up)), draft: false,
+                        coarseDecode: false, region: CGRect(x: center - 0.0175, y: center - 0.0175,
+                                                           width: 0.035, height: 0.035))
+                } catch {
+                    diagnosticError(error, event: "render-threw", context: diagnosticContext)
+                    throw error
+                }
                 _ = try XCTUnwrap(delivery.regionUnit, "must remain a bounded native ROI")
                 let bytes = try packed(delivery.image)
                 XCTAssertFalse(bytes.isEmpty)
@@ -88,17 +121,66 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
             if !allRegions { return ReconstructionCapture(displayed: displayed, scene: []) }
             // The render has already made the canonical plane. This is a HIT, not an
             // eager decode that would change the first displayed request's history.
+            materializerPhase = state + "/scene-source-hit"
+            diagnostic(["event": "before-scene-source-hit", "fixture": fixture.label,
+                "pass": pass, "state": state, "heldBytes": source.heldDecodeBytes])
             let image = try XCTUnwrap(source.decode(recipe: recipe, draft: false, scaleFactor: 1))
             var scene: [[Float]] = []
-            for center in centers {
+            for (index, center) in centers.enumerated() {
                 let bounds = CGRect(x: (image.extent.minX + image.extent.width * center).rounded(),
                                     y: (image.extent.minY + image.extent.height * center).rounded(), width: 32, height: 32)
-                var values = [Float](repeating: 0, count: 32 * 32 * 4)
-                values.withUnsafeMutableBytes { raw in
-                    readContext.render(image, toBitmap: raw.baseAddress!, rowBytes: 32 * 16,
-                                       bounds: bounds, format: .RGBAf, colorSpace: working)
+                let diagnosticContext: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                    "state": state, "region": index, "heldBytes": source.heldDecodeBytes,
+                    "sourceExtent": String(describing: image.extent), "readBounds": String(describing: bounds)]
+                diagnostic(diagnosticContext.merging(["event": "before-scene-read"]) { _, new in new })
+                // NaN makes an unwritten buffer explicit. The old void render API
+                // cannot report a failed command and left its zero initializer intact.
+                var values = [Float](repeating: .nan, count: 32 * 32 * 4)
+                var destinationFlipped = false
+                do {
+                    try values.withUnsafeMutableBytes { raw in
+                        let destination = CIRenderDestination(bitmapData: raw.baseAddress!, width: 32,
+                            height: 32, bytesPerRow: 32 * 16, format: .RGBAf)
+                        destination.colorSpace = working
+                        destination.isClamped = false
+                        destinationFlipped = destination.isFlipped
+                        let task = try readContext.startTask(toRender: image, from: bounds,
+                                                             to: destination, at: .zero)
+                        _ = try task.waitUntilCompleted()
+                    }
+                } catch {
+                    diagnosticError(error, event: "scene-read-threw", context: diagnosticContext)
+                    throw error
                 }
+                let nonfinite = values.filter { !$0.isFinite }.count
+                let alpha = values.enumerated().filter { $0.offset % 4 == 3 && $0.element.isFinite }.map { $0.element }
+                diagnostic(diagnosticContext.merging(["event": "scene-read-completed",
+                    "nonfiniteSamples": nonfinite, "defaultDestinationFlipped": destinationFlipped,
+                    "finiteAlphaSamples": alpha.count, "alphaMin": alpha.min() ?? 0,
+                    "alphaMax": alpha.max() ?? 0]) { _, new in new })
                 XCTAssertTrue(values.allSatisfy { $0.isFinite })
+                if !sceneBridgeControlPerformed && nonfinite == 0 {
+                    // One bounded serial-start control qualifies orientation, alpha
+                    // and explicit output space against the original bridge. It does
+                    // not turn a failed or blank later readback into valid pixels.
+                    var original = [Float](repeating: .nan, count: 32 * 32 * 4)
+                    original.withUnsafeMutableBytes { raw in
+                        readContext.render(image, toBitmap: raw.baseAddress!, rowBytes: 32 * 16,
+                                           bounds: bounds, format: .RGBAf, colorSpace: working)
+                    }
+                    let originalFinite = original.allSatisfy { $0.isFinite }
+                    let maximum = zip(original, values).compactMap { pair -> Double? in
+                        guard pair.0.isFinite, pair.1.isFinite else { return nil }
+                        return abs(Double(pair.0) - Double(pair.1))
+                    }.max() ?? 0
+                    diagnostic(diagnosticContext.merging(["event": "scene-bridge-control",
+                        "originalFinite": originalFinite, "exactIdentity": original == values,
+                        "maximumAbsoluteDifference": maximum, "defaultDestinationFlipped": destinationFlipped]) { _, new in new })
+                    XCTAssertTrue(originalFinite, "original bridge must actually write its serial control buffer")
+                    XCTAssertTrue(original == values, "checked scene bridge must preserve exact orientation/alpha/output-space; max=\(maximum)")
+                    sceneBridgeControlPassed = originalFinite && original == values
+                    sceneBridgeControlPerformed = true
+                }
                 scene.append(values)
             }
             let nonzeroRGB = scene.contains { tile in
@@ -128,7 +210,15 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                     var materializations = 0
                     let source = try AppleRawSource(url: fixture.url, materializer: { image, evaluation in
                         materializations += 1
-                        return DecodeMaterializer.materialize(image, evaluatingIn: evaluation)
+                        let context: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                            "phase": materializerPhase, "call": materializations,
+                            "extent": String(describing: image.extent), "eligible": DecodeMaterializer.isEligible(image),
+                            "evaluation": String(describing: evaluation), "uptime": ProcessInfo.processInfo.systemUptime]
+                        self.diagnostic(context.merging(["event": "materializer-begin"]) { _, new in new })
+                        let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation)
+                        self.diagnostic(context.merging(["event": result == nil ? "materializer-nil" : "materializer-success",
+                            "allocatedBytes": result?.bytes ?? 0]) { _, new in new })
+                        return result
                     })
                     defer { _ = source.releaseDecodes() }
                     let renderer = PipelineRenderer()
@@ -155,7 +245,16 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                     let rebuilt = try render(source, renderer, off, fixture: fixture, pass: pass, state: "off-release-rebuild", allRegions: true)
                     try compare(fixture.label + "/pass\(pass)/release-rebuild", first, rebuilt)
                     _ = source.releaseDecodes()
-                    let fresh = try AppleRawSource(url: fixture.url)
+                    let fresh = try AppleRawSource(url: fixture.url, materializer: { image, evaluation in
+                        let context: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                            "phase": materializerPhase, "source": "fresh", "extent": String(describing: image.extent),
+                            "eligible": DecodeMaterializer.isEligible(image), "evaluation": String(describing: evaluation)]
+                        self.diagnostic(context.merging(["event": "materializer-begin"]) { _, new in new })
+                        let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation)
+                        self.diagnostic(context.merging(["event": result == nil ? "materializer-nil" : "materializer-success",
+                            "allocatedBytes": result?.bytes ?? 0]) { _, new in new })
+                        return result
+                    })
                     defer { _ = fresh.releaseDecodes() }
                     let freshResult = try render(fresh, PipelineRenderer(), off, fixture: fixture, pass: pass, state: "fresh-source-renderer", allRegions: true)
                     try compare(fixture.label + "/pass\(pass)/fresh-source-renderer", first, freshResult)
@@ -168,11 +267,15 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
             }
         }
         try emit(["tap": "summary", "files": files.count, "filePasses": filePasses,
+            "sceneBridgeControlPerformed": sceneBridgeControlPerformed,
+            "sceneBridgeControlPassed": sceneBridgeControlPassed,
             "processID": ProcessInfo.processInfo.processIdentifier,
             "beginUptime": beginUptime, "endUptime": ProcessInfo.processInfo.systemUptime,
             "renderRecords": renderCount, "exactPairRecords": exactPairs.count,
             "expectedRenderRecords": files.count * 2 * 19, "expectedExactPairRecords": files.count * 21,
             "privatePhotosUploaded": false, "productionChanges": false])
+        XCTAssertTrue(sceneBridgeControlPerformed && sceneBridgeControlPassed,
+                      "the checked scene bridge requires a successful exact serial-start control")
         XCTAssertEqual(filePasses, files.count * 2)
         XCTAssertEqual(renderCount, files.count * 2 * 19)
         XCTAssertEqual(exactPairs.count, files.count * 21)

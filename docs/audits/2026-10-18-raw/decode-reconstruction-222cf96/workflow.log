@@ -1,0 +1,299 @@
+﻿2026-10-18T17:04:46.4462070Z Current runner version: '2.337.0'
+2026-10-18T17:04:46.4491800Z ##[group]Runner Image Provisioner
+2026-10-18T17:04:46.4493680Z Hosted Compute Agent
+2026-10-18T17:04:46.4494080Z Version: 20260828.587
+2026-10-18T17:04:46.4494490Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-18T17:04:46.4494960Z Build Date: 2026-08-28T16:44:25Z
+2026-10-18T17:04:46.4495390Z Worker ID: {6c431001-5728-49f1-adb9-bf5717c749b1}
+2026-10-18T17:04:46.4495830Z Azure Region: westus
+2026-10-18T17:04:46.4496200Z ##[endgroup]
+2026-10-18T17:04:46.4497200Z ##[group]Operating System
+2026-10-18T17:04:46.4497580Z macOS
+2026-10-18T17:04:46.4497900Z 15.7.9
+2026-10-18T17:04:46.4498220Z 24G830
+2026-10-18T17:04:46.4498550Z ##[endgroup]
+2026-10-18T17:04:46.4498890Z ##[group]Runner Image
+2026-10-18T17:04:46.4499300Z Image: macos-15-arm64
+2026-10-18T17:04:46.4499660Z Version: 20260907.0337.1
+2026-10-18T17:04:46.4500560Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-18T17:04:46.4501690Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-18T17:04:46.4502380Z ##[endgroup]
+2026-10-18T17:04:46.4503190Z ##[group]GITHUB_TOKEN Permissions
+2026-10-18T17:04:46.4504500Z Contents: read
+2026-10-18T17:04:46.4504870Z Metadata: read
+2026-10-18T17:04:46.4505270Z ##[endgroup]
+2026-10-18T17:04:46.4506860Z Secret source: Actions
+2026-10-18T17:04:46.4507460Z Cache mode: write
+2026-10-18T17:04:46.4507900Z Prepare workflow directory
+2026-10-18T17:04:46.5050620Z Prepare all required actions
+2026-10-18T17:04:46.5092420Z Getting action download info
+2026-10-18T17:04:46.9157320Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-18T17:04:47.2400650Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-18T17:04:47.4690720Z Complete job name: ordered-serial-and-loaded
+2026-10-18T17:04:47.5268350Z ##[group]Run actions/checkout@v4
+2026-10-18T17:04:47.5269030Z with:
+2026-10-18T17:04:47.5269370Z   repository: benedek-art/lumen
+2026-10-18T17:04:47.5272000Z   token: ***
+2026-10-18T17:04:47.5272320Z   ssh-strict: true
+2026-10-18T17:04:47.5272640Z   ssh-user: git
+2026-10-18T17:04:47.5272970Z   persist-credentials: true
+2026-10-18T17:04:47.5273340Z   clean: true
+2026-10-18T17:04:47.5273670Z   sparse-checkout-cone-mode: true
+2026-10-18T17:04:47.5274110Z   fetch-depth: 1
+2026-10-18T17:04:47.5274500Z   fetch-tags: false
+2026-10-18T17:04:47.5274840Z   show-progress: true
+2026-10-18T17:04:47.5275190Z   lfs: false
+2026-10-18T17:04:47.5275490Z   submodules: false
+2026-10-18T17:04:47.5275830Z   set-safe-directory: true
+2026-10-18T17:04:47.5276210Z   allow-unsafe-pr-checkout: false
+2026-10-18T17:04:47.5276820Z env:
+2026-10-18T17:04:47.5277180Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T17:04:47.5277630Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T17:04:47.5278200Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T17:04:47.5278800Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T17:04:47.5279340Z ##[endgroup]
+2026-10-18T17:04:47.9121510Z Syncing repository: benedek-art/lumen
+2026-10-18T17:04:47.9123310Z ##[group]Getting Git version info
+2026-10-18T17:04:47.9123880Z Working directory is '/Users/runner/work/lumen/lumen'
+2026-10-18T17:04:47.9136610Z [command]/opt/homebrew/bin/git version
+2026-10-18T17:04:47.9777610Z git version 2.55.0
+2026-10-18T17:04:47.9793420Z ##[endgroup]
+2026-10-18T17:04:47.9806430Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/3f0cddb2-d066-492b-b563-e851c4add225/.gitconfig'
+2026-10-18T17:04:47.9810040Z Temporarily overriding HOME='/Users/runner/work/_temp/3f0cddb2-d066-492b-b563-e851c4add225' before making global git config changes
+2026-10-18T17:04:47.9813140Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T17:04:47.9816080Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T17:04:47.9935950Z Deleting the contents of '/Users/runner/work/lumen/lumen'
+2026-10-18T17:04:47.9938930Z ##[group]Initializing the repository
+2026-10-18T17:04:47.9941790Z [command]/opt/homebrew/bin/git init /Users/runner/work/lumen/lumen
+2026-10-18T17:04:48.0226090Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-18T17:04:48.0237620Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-18T17:04:48.0240570Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-18T17:04:48.0244590Z hint: call:
+2026-10-18T17:04:48.0247950Z hint:
+2026-10-18T17:04:48.0249770Z hint: 	git config --global init.defaultBranch <name>
+2026-10-18T17:04:48.0250960Z hint:
+2026-10-18T17:04:48.0251540Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-18T17:04:48.0252330Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-18T17:04:48.0253010Z hint:
+2026-10-18T17:04:48.0253390Z hint: 	git branch -m <name>
+2026-10-18T17:04:48.0253870Z hint:
+2026-10-18T17:04:48.0254430Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-18T17:04:48.0274410Z Initialized empty Git repository in /Users/runner/work/lumen/lumen/.git/
+2026-10-18T17:04:48.0279030Z [command]/opt/homebrew/bin/git remote add origin https://github.com/benedek-art/lumen
+2026-10-18T17:04:48.0356150Z ##[endgroup]
+2026-10-18T17:04:48.0358160Z ##[group]Disabling automatic garbage collection
+2026-10-18T17:04:48.0359930Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-18T17:04:48.0443030Z ##[endgroup]
+2026-10-18T17:04:48.0444910Z ##[group]Setting up auth
+2026-10-18T17:04:48.0447660Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T17:04:48.0534710Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T17:04:48.1789800Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T17:04:48.2034570Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T17:04:48.3006310Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T17:04:48.3297000Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T17:04:48.4205900Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-18T17:04:48.4272260Z ##[endgroup]
+2026-10-18T17:04:48.4274710Z ##[group]Fetching the repository
+2026-10-18T17:04:48.4278660Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +222cf96276d9e9c3a027c2f0ed18404a73401014:refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:49.7100470Z From https://github.com/benedek-art/lumen
+2026-10-18T17:04:49.7102640Z  * [new ref]         222cf96276d9e9c3a027c2f0ed18404a73401014 -> origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:49.7106350Z ##[endgroup]
+2026-10-18T17:04:49.7107600Z ##[group]Determining the checkout info
+2026-10-18T17:04:49.7108970Z ##[endgroup]
+2026-10-18T17:04:49.7115820Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-18T17:04:49.7216250Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-18T17:04:49.7298510Z ##[group]Checking out the ref
+2026-10-18T17:04:49.7310370Z [command]/opt/homebrew/bin/git checkout --progress --force -B codex/raw-accuracy-qualification refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:50.0147070Z Switched to a new branch 'codex/raw-accuracy-qualification'
+2026-10-18T17:04:50.0161260Z branch 'codex/raw-accuracy-qualification' set up to track 'origin/codex/raw-accuracy-qualification'.
+2026-10-18T17:04:50.0167880Z ##[endgroup]
+2026-10-18T17:04:50.0268000Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-18T17:04:50.0345850Z 222cf96276d9e9c3a027c2f0ed18404a73401014
+2026-10-18T17:04:50.0545390Z ##[group]Run set -euo pipefail
+2026-10-18T17:04:50.0546400Z [36;1mset -euo pipefail[0m
+2026-10-18T17:04:50.0546970Z [36;1mpython3 - <<'PY'[0m
+2026-10-18T17:04:50.0547610Z [36;1mimport hashlib, os, pathlib, re, urllib.request[0m
+2026-10-18T17:04:50.0549210Z [36;1mroot = pathlib.Path(os.environ['LUMEN_AUDIT_RAW_DIR'])[0m
+2026-10-18T17:04:50.0549600Z [36;1mroot.mkdir(exist_ok=True)[0m
+2026-10-18T17:04:50.0550010Z [36;1mexpected = set(os.environ['LUMEN_DECODE_RECONSTRUCTION_IDS'].split(','))[0m
+2026-10-18T17:04:50.0550420Z [36;1massert len(expected) == 5[0m
+2026-10-18T17:04:50.0550640Z [36;1mrows = {}[0m
+2026-10-18T17:04:50.0551170Z [36;1mfor line in pathlib.Path('.github/workflows/raw-corpus.yml').read_text().splitlines():[0m
+2026-10-18T17:04:50.0551550Z [36;1m    fields = line.strip().split(';')[0m
+2026-10-18T17:04:50.0552100Z [36;1m    if fields[0] not in expected: continue[0m
+2026-10-18T17:04:50.0553030Z [36;1m    key = fields[0][0m
+2026-10-18T17:04:50.0553790Z [36;1m    assert len(fields) == 10 and key not in rows[0m
+2026-10-18T17:04:50.0554630Z [36;1m    assert re.fullmatch(key + r'\.[A-Za-z0-9]+', fields[1])[0m
+2026-10-18T17:04:50.0556500Z [36;1m    assert re.fullmatch(r'[0-9a-f]{64}', fields[2]) and int(fields[3]) > 0[0m
+2026-10-18T17:04:50.0557030Z [36;1m    assert fields[7] == 'CC0' and 'negative' not in fields[6][0m
+2026-10-18T17:04:50.0557560Z [36;1m    assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + key + '/')[0m
+2026-10-18T17:04:50.0557940Z [36;1m    rows[key] = fields[0m
+2026-10-18T17:04:50.0558180Z [36;1massert rows.keys() == expected[0m
+2026-10-18T17:04:50.0558470Z [36;1mfor key in sorted(rows):[0m
+2026-10-18T17:04:50.0558670Z [36;1m    fields = rows[key][0m
+2026-10-18T17:04:50.0559190Z [36;1m    request = urllib.request.Request(fields[9], headers={'User-Agent': 'lumen-decode-reconstruction/1 (+https://github.com/benedek-art/lumen)'})[0m
+2026-10-18T17:04:50.0559800Z [36;1m    with urllib.request.urlopen(request, timeout=300) as response:[0m
+2026-10-18T17:04:50.0560110Z [36;1m        data = response.read()[0m
+2026-10-18T17:04:50.0560390Z [36;1m    assert len(data) == int(fields[3]), (key, 'byte count')[0m
+2026-10-18T17:04:50.0560850Z [36;1m    assert hashlib.sha256(data).hexdigest() == fields[2], (key, 'digest')[0m
+2026-10-18T17:04:50.0561190Z [36;1m    (root / fields[1]).write_bytes(data)[0m
+2026-10-18T17:04:50.0561650Z [36;1m    print(f'verified CC0 fixture {key} sha256={fields[2]} bytes={len(data)}')[0m
+2026-10-18T17:04:50.0562640Z [36;1m(root / 'corpus.tsv').write_text('\n'.join(';'.join(rows[k]) for k in sorted(rows)) + '\n')[0m
+2026-10-18T17:04:50.0563000Z [36;1mPY[0m
+2026-10-18T17:04:50.0615460Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T17:04:50.0615770Z env:
+2026-10-18T17:04:50.0615940Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T17:04:50.0616190Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T17:04:50.0616510Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T17:04:50.0616860Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T17:04:50.0617700Z ##[endgroup]
+2026-10-18T17:05:00.7912570Z verified CC0 fixture 1346 sha256=b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee bytes=12841893
+2026-10-18T17:05:00.7915990Z verified CC0 fixture 2349 sha256=7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad bytes=14712832
+2026-10-18T17:05:00.7917100Z verified CC0 fixture 2607 sha256=c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e bytes=19166720
+2026-10-18T17:05:00.7918110Z verified CC0 fixture 4671 sha256=4a859ab137f792aedaf3416b0aad1497ebaab02052a49453902e226699154aa7 bytes=7395184
+2026-10-18T17:05:00.7924380Z verified CC0 fixture 5812 sha256=75249c11a3a845367c7a322a1c4e7076f33c785ec2518fc6594c34c185b41161 bytes=19789738
+2026-10-18T17:05:00.8086420Z ##[group]Run set -euo pipefail
+2026-10-18T17:05:00.8086800Z [36;1mset -euo pipefail[0m
+2026-10-18T17:05:00.8087030Z [36;1m{[0m
+2026-10-18T17:05:00.8087240Z [36;1m  git rev-parse HEAD[0m
+2026-10-18T17:05:00.8087470Z [36;1m  sw_vers[0m
+2026-10-18T17:05:00.8087680Z [36;1m  uname -m[0m
+2026-10-18T17:05:00.8087940Z [36;1m  xcodebuild -version[0m
+2026-10-18T17:05:00.8088190Z [36;1m  swift --version[0m
+2026-10-18T17:05:00.8088880Z [36;1m  shasum -a 256 Sources/LumenPipeline/AppleRawSource.swift Sources/LumenPipeline/DecodeMaterializer.swift Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift[0m
+2026-10-18T17:05:00.8089600Z [36;1m} 2>&1 | tee decode-reconstruction-provenance.log[0m
+2026-10-18T17:05:00.8090100Z [36;1m# `swift build --build-tests -c release` does not enable @testable imports[0m
+2026-10-18T17:05:00.8090680Z [36;1m# on this toolchain. Test discovery builds the same optimized test bundle[0m
+2026-10-18T17:05:00.8091200Z [36;1m# with its required testing flags, without executing any RAW checks.[0m
+2026-10-18T17:05:00.8091690Z [36;1mswift test -c release --list-tests > decode-reconstruction-test-roster.log 2>&1[0m
+2026-10-18T17:05:00.8092530Z [36;1mgrep -Fq 'DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical' decode-reconstruction-test-roster.log[0m
+2026-10-18T17:05:00.8133960Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T17:05:00.8134260Z env:
+2026-10-18T17:05:00.8134420Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T17:05:00.8134650Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T17:05:00.8134940Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T17:05:00.8135280Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T17:05:00.8135610Z ##[endgroup]
+2026-10-18T17:05:00.8698060Z 222cf96276d9e9c3a027c2f0ed18404a73401014
+2026-10-18T17:05:00.8803540Z ProductName:		macOS
+2026-10-18T17:05:00.8809160Z ProductVersion:		15.7.9
+2026-10-18T17:05:00.8816670Z BuildVersion:		24G830
+2026-10-18T17:05:00.8851100Z arm64
+2026-10-18T17:05:01.1365760Z Xcode 16.4
+2026-10-18T17:05:01.1382900Z Build version 16F6
+2026-10-18T17:05:04.0931180Z swift-driver version: 1.120.5 Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)
+2026-10-18T17:05:04.0933020Z Target: arm64-apple-macosx15.0
+2026-10-18T17:05:04.1721090Z bae3ecf035cd5b04e751054d18f61a7bd9f91b83f22597c9707fae6f5c802926  Sources/LumenPipeline/AppleRawSource.swift
+2026-10-18T17:05:04.1724520Z 2364d457f04e2527334741e2187bbccb01beb16b142e5ca8f0eb85879d5215e4  Sources/LumenPipeline/DecodeMaterializer.swift
+2026-10-18T17:05:04.1731930Z 629ebd684984d727b9369e72104184fbd8291b9772a6909acdbdc1ee75ac52b7  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift
+2026-10-18T17:10:25.2984290Z ##[group]Run set -euo pipefail
+2026-10-18T17:10:25.2986080Z [36;1mset -euo pipefail[0m
+2026-10-18T17:10:25.2987460Z [36;1mexport DECODE_TEST_BIN_DIR[0m
+2026-10-18T17:10:25.2988750Z [36;1mDECODE_TEST_BIN_DIR=$(swift build -c release --show-bin-path)[0m
+2026-10-18T17:10:25.2990210Z [36;1mpython3 - <<'PY'[0m
+2026-10-18T17:10:25.2991080Z [36;1mimport json, os, subprocess, time[0m
+2026-10-18T17:10:25.2992190Z [36;1mfrom pathlib import Path[0m
+2026-10-18T17:10:25.2993230Z [36;1mbundle = Path(os.environ['DECODE_TEST_BIN_DIR']) / 'LumenPackageTests.xctest'[0m
+2026-10-18T17:10:25.2994790Z [36;1massert bundle.is_dir(), str(bundle)[0m
+2026-10-18T17:10:25.3007170Z [36;1mselector = 'LumenPipelineTests.DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical'[0m
+2026-10-18T17:10:25.3008790Z [36;1mcommand = ['xcrun', 'xctest', '-XCTest', selector, str(bundle)][0m
+2026-10-18T17:10:25.3009590Z [36;1mstatus = {'command': command, 'processes': {}}[0m
+2026-10-18T17:10:25.3022470Z [36;1mdef launch(label):[0m
+2026-10-18T17:10:25.3023420Z [36;1m    stream = open(f'decode-reconstruction-{label}.log', 'w')[0m
+2026-10-18T17:10:25.3024770Z [36;1m    start = time.monotonic_ns()[0m
+2026-10-18T17:10:25.3026060Z [36;1m    process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)[0m
+2026-10-18T17:10:25.3028130Z [36;1m    status['processes'][label] = {'pid': process.pid, 'startNanoseconds': start}[0m
+2026-10-18T17:10:25.3029320Z [36;1m    return process, stream[0m
+2026-10-18T17:10:25.3030490Z [36;1mdef finish(label, launched):[0m
+2026-10-18T17:10:25.3031320Z [36;1m    process, stream = launched[0m
+2026-10-18T17:10:25.3032500Z [36;1m    code = process.wait()[0m
+2026-10-18T17:10:25.3033620Z [36;1m    stream.close()[0m
+2026-10-18T17:10:25.3034830Z [36;1m    status['processes'][label].update(exitStatus=code, endNanoseconds=time.monotonic_ns())[0m
+2026-10-18T17:10:25.3036400Z [36;1mfinish('serial', launch('serial'))[0m
+2026-10-18T17:10:25.3037510Z [36;1mprimary = launch('loaded-primary')[0m
+2026-10-18T17:10:25.3038810Z [36;1mpeer = launch('loaded-peer')[0m
+2026-10-18T17:10:25.3039740Z [36;1mfinish('loaded-primary', primary)[0m
+2026-10-18T17:10:25.3040910Z [36;1mfinish('loaded-peer', peer)[0m
+2026-10-18T17:10:25.3042190Z [36;1mPath('decode-reconstruction-status.json').write_text(json.dumps(status, indent=2) + '\n')[0m
+2026-10-18T17:10:25.3043530Z [36;1mprefix = 'DECODE-RECONSTRUCTION '[0m
+2026-10-18T17:10:25.3044300Z [36;1msummaries = {}[0m
+2026-10-18T17:10:25.3045040Z [36;1mfor label in ('serial', 'loaded-primary', 'loaded-peer'):[0m
+2026-10-18T17:10:25.3046330Z [36;1m    lines = Path(f'decode-reconstruction-{label}.log').read_text().splitlines()[0m
+2026-10-18T17:10:25.3047680Z [36;1m    records = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)][0m
+2026-10-18T17:10:25.3048930Z [36;1m    assert len(records) == 306, (label, len(records))[0m
+2026-10-18T17:10:25.3050110Z [36;1m    for tap, count in (('render', 190), ('pair', 105), ('file-summary', 10), ('summary', 1)):[0m
+2026-10-18T17:10:25.3209240Z [36;1m        assert sum(r['tap'] == tap for r in records) == count, (label, tap)[0m
+2026-10-18T17:10:25.3209960Z [36;1m    assert records[-1]['tap'] == 'summary' and records[-1]['files'] == 5[0m
+2026-10-18T17:10:25.3210760Z [36;1m    assert any('Executed 1 test,' in line for line in lines), (label, 'exactly one native test must execute')[0m
+2026-10-18T17:10:25.3211670Z [36;1m    summaries[label] = records[-1][0m
+2026-10-18T17:10:25.3212350Z [36;1m    Path(f'decode-reconstruction-{label}.json').write_text(json.dumps(records, indent=2) + '\n')[0m
+2026-10-18T17:10:25.3213470Z [36;1m    changed = [r for r in records if r['tap'] == 'pair' and[0m
+2026-10-18T17:10:25.3214020Z [36;1m               (r['changedDisplayBytes'] or r['sceneChangedSamples'])][0m
+2026-10-18T17:10:25.3215860Z [36;1m    print(f'DECODE-RECONSTRUCTION-COVERAGE {label}: render=190 pairs=105 complete=true changedPairs={len(changed)}')[0m
+2026-10-18T17:10:25.3217200Z [36;1ma, b = summaries['loaded-primary'], summaries['loaded-peer'][0m
+2026-10-18T17:10:25.3217660Z [36;1massert a['processID'] != b['processID'][0m
+2026-10-18T17:10:25.3218480Z [36;1moverlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])[0m
+2026-10-18T17:10:25.3219120Z [36;1massert overlap > 0, f'no actual test-body overlap: {overlap}'[0m
+2026-10-18T17:10:25.3219820Z [36;1mprint(f'DECODE-RECONSTRUCTION-LOAD independentPIDs={a["processID"]},{b["processID"]} actualTestBodyOverlapSeconds={overlap}; not proof of simultaneous GPU execution')[0m
+2026-10-18T17:10:25.3221040Z [36;1massert all(r['exitStatus'] == 0 for r in status['processes'].values()), status[0m
+2026-10-18T17:10:25.3221510Z [36;1mPY[0m
+2026-10-18T17:10:25.3546230Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T17:10:25.3547060Z env:
+2026-10-18T17:10:25.3549300Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T17:10:25.3550360Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T17:10:25.3554200Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T17:10:25.3555160Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T17:10:25.3556890Z ##[endgroup]
+2026-10-18T17:12:10.3092640Z DECODE-RECONSTRUCTION-COVERAGE serial: render=190 pairs=105 complete=true changedPairs=0
+2026-10-18T17:12:10.3421920Z Traceback (most recent call last):
+2026-10-18T17:12:10.3423530Z   File "<stdin>", line 30, in <module>
+2026-10-18T17:12:10.3424970Z AssertionError: ('loaded-primary', 58)
+2026-10-18T17:12:10.4523290Z ##[error]Process completed with exit code 1.
+2026-10-18T17:12:10.5494540Z ##[group]Run actions/upload-artifact@v4
+2026-10-18T17:12:10.5495050Z with:
+2026-10-18T17:12:10.5495510Z   name: decode-reconstruction-222cf96276d9e9c3a027c2f0ed18404a73401014
+2026-10-18T17:12:10.5496200Z   path: decode-reconstruction-*.log
+decode-reconstruction-*.json
+
+2026-10-18T17:12:10.5496550Z   if-no-files-found: error
+2026-10-18T17:12:10.5501800Z   retention-days: 14
+2026-10-18T17:12:10.5502460Z   compression-level: 6
+2026-10-18T17:12:10.5503710Z   overwrite: false
+2026-10-18T17:12:10.5504060Z   include-hidden-files: false
+2026-10-18T17:12:10.5504550Z env:
+2026-10-18T17:12:10.5504900Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T17:12:10.5505730Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T17:12:10.5506090Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T17:12:10.5506550Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T17:12:10.5507540Z ##[endgroup]
+2026-10-18T17:12:11.3852410Z (node:10037) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-18T17:12:11.3856150Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-18T17:12:11.3908220Z With the provided path, there will be 7 files uploaded
+2026-10-18T17:12:11.3909290Z Artifact name is valid!
+2026-10-18T17:12:11.3914500Z Root directory input is valid!
+2026-10-18T17:12:11.8792550Z Beginning upload of artifact content to blob storage
+2026-10-18T17:12:11.9198590Z (node:10037) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-18T17:12:12.3655870Z Uploaded bytes 95934
+2026-10-18T17:12:12.4467860Z Finished uploading artifact content to blob storage!
+2026-10-18T17:12:12.4469460Z SHA256 digest of uploaded artifact zip is 14f424a2ca3d7795d2d0008830bde6afd5bfa6bb9d2a1424f88761a0677ac826
+2026-10-18T17:12:12.4470630Z Finalizing artifact upload
+2026-10-18T17:12:12.7359660Z Artifact decode-reconstruction-222cf96276d9e9c3a027c2f0ed18404a73401014.zip successfully finalized. Artifact ID 12144371685
+2026-10-18T17:12:12.7379690Z Artifact decode-reconstruction-222cf96276d9e9c3a027c2f0ed18404a73401014 has been successfully uploaded! Final size is 95934 bytes. Artifact ID is 12144371685
+2026-10-18T17:12:12.7445400Z Artifact download URL: https://github.com/benedek-art/lumen/actions/runs/39147903728/artifacts/12144371685
+2026-10-18T17:12:12.7848400Z Post job cleanup.
+2026-10-18T17:12:13.0378420Z [command]/opt/homebrew/bin/git version
+2026-10-18T17:12:13.0866840Z git version 2.55.0
+2026-10-18T17:12:13.0892020Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/ef8c86f5-5d1e-480b-9ac0-80308c2465a1/.gitconfig'
+2026-10-18T17:12:13.0906220Z Temporarily overriding HOME='/Users/runner/work/_temp/ef8c86f5-5d1e-480b-9ac0-80308c2465a1' before making global git config changes
+2026-10-18T17:12:13.0909400Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T17:12:13.0910180Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T17:12:13.1097940Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T17:12:13.1193810Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T17:12:13.2782410Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T17:12:13.2867670Z http.https://github.com/.extraheader
+2026-10-18T17:12:13.2880040Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-18T17:12:13.2963070Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T17:12:13.4299640Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T17:12:13.4387670Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T17:12:14.0222660Z Cleaning up orphan processes
+2026-10-18T17:12:17.9217590Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

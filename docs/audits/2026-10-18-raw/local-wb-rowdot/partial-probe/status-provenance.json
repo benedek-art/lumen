@@ -1,0 +1,13 @@
+{
+  "correctedCompileExit": 0,
+  "singleExecutionExit": 0,
+  "initialCompileError": "invalid Swift leading-decimal literals, archived; corrected syntax only",
+  "toolchain": "Swift6.1.2 x86_64-unknown-linux-gnu, same /workspace/scratch/2982a056243e/swift/usr/bin/swiftc",
+  "environment": {
+    "SWIFT_BACKTRACE": "enable=no",
+    "LD_LIBRARY_PATH": "/workspace/scratch/2982a056243e/swift-deps/usr/lib/x86_64-linux-gnu",
+    "LIBRARY_PATH": "/workspace/scratch/2982a056243e/swift-deps/usr/lib/x86_64-linux-gnu"
+  },
+  "native222RecordArchiveSHA256": "2bc79627f505756bd6986c35d3180700251b6351a6b18559942323d86ef8a478",
+  "newKernelExecuted": false
+}

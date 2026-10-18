@@ -2,6 +2,17 @@
 
 Use the final source SHA and its exact-source CI results from CLOUD-PROGRESS.md. Do not test the old installed September app and attribute its behavior to this branch. No app was installed or released during cloud work. Keep private photographs, crops, inventories and results local.
 
+## Resumed local session: immediate priorities
+
+The separate Mac worker's results so far are pinned0a82064, not the latest cloud source. Initial private red results remain evidence despite fresh/serial green repeats. Cloud owns production edits; pin the next qualified source explicitly before rerunning affected checks.
+
+1. Preserve the original three one-code Off-return failures and intermediate-eager Dehaze differences under simultaneous consumer load. Record both test processes/order/OS/GPU and distinguish production first-repeat from experimental intermediate policies. Full serial repeats already passed480 displayed deliveries and5native-consumer tests includingTIFF16 at0a; do not repeat without a changed source, load condition or causal question.
+2. Run the final-source displayed matrix and native consumer checks on affected files first, then the representative Sony/Panasonic set. Include initial native region, AI0, AI-positive history, Off-return and explicit release/reconstruction. Held bytes/materialization counts matter: native requests below inspection threshold can retain multiple keys, so AI-positive does not always evict Off. Exact identity stays exact.
+3. Validate sky/detail boundaries and local WB at partial mask/group strengths (1/25/50/100/200), including relative/absolute modes and signed/highlight pixels. Positive WB/sky outputs intentionally change to honor documented operators; compare to independently defined CPU/math behavior and separately judge the real-photo appearance. Keep wheel/tone Amount continuity open.
+4. Recover GUI lifecycle qualification using ONE isolated app instance and ONE fresh disposable catalog/temp root. Verify launch completion before issuing another launch. Check numeric entry, fast final release, selection/mask retarget, undo/redo, save/quit/new-process reopen, and matching preview/TIFF16. Duplicate QA instances sharing a disposable catalog caused a SQLite I/O message; that harness incident does not establish a production database defect or a persistence pass.
+
+Public222 reconstruction passed105serial pairs but failed under concurrent processes (one decode refusal, one all-zero diagnostic readback with exact display pairs). The checked-task follow-up must classify readback errors before those zeros can be attributed to the canonical plane. This does not reproduce the owner's one-code displayed difference or close camera acceptance.
+
 ## First: displayed decode identity
 
 1. On representative Sony A7 IV and Panasonic GX85 files, start a fresh native view and compare Off, AI amount0, later regions, and return to Off. Include the initial region, not only warmed cache hits. The acceptance assertion remains exact encoded identity at zero amount; do not permit the historical1..4-code discrepancy.
@@ -23,7 +34,7 @@ Use the final source SHA and its exact-source CI results from CLOUD-PROGRESS.md.
 - For a large selected batch, distinguish the first durable prefix, complete catalog commit and complete XMP publication. A failed later chunk intentionally retains earlier committed edits and refuses the remaining tail; inspect the warning and restart recovery on disposable data. In-memory uncommitted gestures and physical power loss remain separate gates.
 - Inspect tiny brush endpoints, feathered edges, heal-source positioning and mask coverage at native resolution, including rotated/reflected/cropped photos. Geometry oracle passes do not establish subjective edge/texture quality.
 - Compare preview and actual JPEG/TIFF16/HDR delivery under matching geometry, output color management and sharpening. Check highlights, skin, saturated edges, fine foliage, B&W and local edits before/after reopen. Keep calibrated target/chart evidence distinct from pleasing appearance.
-- Dehaze has a confirmed bright-flat synthetic CPU/GPU disagreement at both signs. Production math and saved looks were preserved; investigate the actual rendering path and calibrated scenes before any creative change or parity claim.
+- Dehaze's two bright-flat sky protections were repaired and independently qualified at0e; the fused implementation passed all7unchanged field/equation/source/tile methods at222. Airlight/transmission estimator and post-detail transmission-source differences remain. Inspect actual sky/detail/mask boundaries and both signs on the final source; controlled plateau agreement does not certify general CPU/GPU parity or real-sky aesthetics.
 - Exercise real removable/full/disconnected volumes and independent backup hardware on disposable test data. Synthetic filesystem failure injection does not qualify physical-drive behavior.
 
 ## Denoise and responsiveness, separately

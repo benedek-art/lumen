@@ -35,6 +35,17 @@ public enum KernelLibrary {
     /// The shaper's domain → scene-linear. The twin of `LumenLog.decode`.
     static let logDecodeSource = LumenLog.decodeKernelSource
 
+    /// Matrix operations must retain small off-diagonal terms. The stock
+    /// CIColorMatrix took a diagonal-only path for a measured near-diagonal matrix.
+    /// Uniform float row products avoid that filter's matrix classification.
+    static let matrixRowsSource = """
+    kernel vec4 lumenMatrixRows(__sample image, vec3 redRow,
+                                             vec3 greenRow, vec3 blueRow) {
+        vec3 c = image.rgb;
+        return vec4(dot(redRow, c), dot(greenRow, c), dot(blueRow, c), image.a);
+    }
+    """
+
     /// Per-channel product of two images. Used for tone gain, vignette and any other
     /// "multiply by a field" stage; unlike CIMultiplyBlendMode it does not clamp,
     /// which matters when both sides are scene-referred and unbounded.
@@ -1128,6 +1139,7 @@ public enum KernelLibrary {
 
     public static let logEncode = make(logEncodeSource)
     public static let logDecode = make(logDecodeSource)
+    public static let matrixRows = make(matrixRowsSource)
     public static let multiply = make(multiplySource)
     public static let square = make(squareSource)
     public static let luminance = make(luminanceSource)
@@ -1213,6 +1225,7 @@ public enum KernelLibrary {
     public static var unavailableKernels: [String] {
         let all: [(String, CIKernel?)] = [
             ("logEncode", logEncode), ("logDecode", logDecode),
+            ("matrixRows", matrixRows),
             ("multiply", multiply), ("square", square), ("luminance", luminance),
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),

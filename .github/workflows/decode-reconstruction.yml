@@ -107,19 +107,46 @@ jobs:
           Path('decode-reconstruction-status.json').write_text(json.dumps(status, indent=2) + '\n')
           prefix = 'DECODE-RECONSTRUCTION '
           summaries = {}
+          coverage = {}
           for label in ('serial', 'loaded-primary', 'loaded-peer'):
               lines = Path(f'decode-reconstruction-{label}.log').read_text().splitlines()
               records = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
-              assert len(records) == 306, (label, len(records))
+              counts = {}
               for tap, count in (('render', 190), ('pair', 105), ('file-summary', 10), ('summary', 1)):
-                  assert sum(r['tap'] == tap for r in records) == count, (label, tap)
-              assert records[-1]['tap'] == 'summary' and records[-1]['files'] == 5
-              assert any('Executed 1 test,' in line for line in lines), (label, 'exactly one native test must execute')
-              summaries[label] = records[-1]
+                  counts[tap] = sum(r['tap'] == tap for r in records)
+              complete = len(records) == 306 and counts == {'render': 190, 'pair': 105, 'file-summary': 10, 'summary': 1}
+              if records and records[-1]['tap'] == 'summary':
+                  summaries[label] = records[-1]
+                  complete = complete and records[-1]['files'] == 5
+              else:
+                  complete = False
+              executed = any('Executed 1 test,' in line for line in lines)
               Path(f'decode-reconstruction-{label}.json').write_text(json.dumps(records, indent=2) + '\n')
               changed = [r for r in records if r['tap'] == 'pair' and
                          (r['changedDisplayBytes'] or r['sceneChangedSamples'])]
-              print(f'DECODE-RECONSTRUCTION-COVERAGE {label}: render=190 pairs=105 complete=true changedPairs={len(changed)}')
+              errors = [line for line in lines if 'error:' in line]
+              diagnostic_prefix = 'DECODE-RECONSTRUCTION-DIAGNOSTIC '
+              diagnostics = [json.loads(line[len(diagnostic_prefix):]) for line in lines
+                             if line.startswith(diagnostic_prefix)]
+              Path(f'decode-reconstruction-{label}-diagnostic.json').write_text(json.dumps(diagnostics, indent=2) + '\n')
+              coverage[label] = {'counts': counts, 'complete': complete, 'executedOneTest': executed,
+                                 'changedPairs': changed, 'errors': errors,
+                                 'diagnosticRecords': len(diagnostics),
+                                 'exitStatus': status['processes'][label]['exitStatus']}
+              print(f'DECODE-RECONSTRUCTION-COVERAGE {label}: counts={counts} complete={complete} changedPairs={len(changed)} exitStatus={status["processes"][label]["exitStatus"]}')
+              for changed_pair in changed:
+                  print('DECODE-RECONSTRUCTION-CHANGED ' + json.dumps(changed_pair, sort_keys=True))
+              for line in errors[:20]:
+                  print(f'DECODE-RECONSTRUCTION-ERROR {label}: {line}')
+              failures = [row for row in diagnostics if row['event'].endswith('-threw') or row['event'] == 'materializer-nil']
+              for row in failures[:20]:
+                  print(f'DECODE-RECONSTRUCTION-TASK-FAILURE {label}: ' + json.dumps(row, sort_keys=True))
+              if not complete and diagnostics:
+                  print(f'DECODE-RECONSTRUCTION-LAST-DIAGNOSTIC {label}: ' + json.dumps(diagnostics[-1], sort_keys=True))
+          # Classify EVERY process before enforcing the unchanged completeness and
+          # exactness gates: one early failure must not hide a peer's evidence.
+          Path('decode-reconstruction-coverage.json').write_text(json.dumps(coverage, indent=2) + '\n')
+          assert all(row['complete'] and row['executedOneTest'] for row in coverage.values()), coverage
           a, b = summaries['loaded-primary'], summaries['loaded-peer']
           assert a['processID'] != b['processID']
           overlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])

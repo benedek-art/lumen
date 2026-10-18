@@ -1,0 +1,85 @@
+{
+  "serial": {
+    "records": 306,
+    "counts": {
+      "render": 190,
+      "pair": 105,
+      "file-summary": 10,
+      "summary": 1
+    },
+    "changedPairs": [],
+    "errors": []
+  },
+  "loaded-primary": {
+    "records": 58,
+    "counts": {
+      "render": 38,
+      "pair": 18,
+      "file-summary": 2
+    },
+    "changedPairs": [],
+    "errors": [
+      "/Users/runner/work/lumen/lumen/Sources/LumenPipeline/PipelineRenderer.swift:564: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+    ]
+  },
+  "loaded-peer": {
+    "records": 306,
+    "counts": {
+      "render": 190,
+      "pair": 105,
+      "file-summary": 10,
+      "summary": 1
+    },
+    "changedPairs": [
+      {
+        "changedDisplayBytes": 0,
+        "displayByteCounts": [
+          50784,
+          50784
+        ],
+        "label": "corpus4671/pass1/fresh-source-renderer",
+        "maximumDisplayCode": 0,
+        "region": 0,
+        "sceneChangedSamples": 4096,
+        "sceneMaximumAbsoluteDifference": 1,
+        "tap": "pair"
+      },
+      {
+        "changedDisplayBytes": 0,
+        "displayByteCounts": [
+          49868,
+          49868
+        ],
+        "label": "corpus4671/pass1/fresh-source-renderer",
+        "maximumDisplayCode": 0,
+        "region": 1,
+        "sceneChangedSamples": 4096,
+        "sceneMaximumAbsoluteDifference": 1,
+        "tap": "pair"
+      },
+      {
+        "changedDisplayBytes": 0,
+        "displayByteCounts": [
+          49868,
+          49868
+        ],
+        "label": "corpus4671/pass1/fresh-source-renderer",
+        "maximumDisplayCode": 0,
+        "region": 2,
+        "sceneChangedSamples": 4096,
+        "sceneMaximumAbsoluteDifference": 1,
+        "tap": "pair"
+      }
+    ],
+    "errors": [
+      "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:107: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : XCTAssertTrue failed - scene RGB tiles must carry nonzero signal, excluding alpha",
+      "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:184: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : XCTAssertTrue failed - corpus4671/pass1/fresh-source-renderer/region0 exact scene identity failed; maximumAbsolute=1.0",
+      "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:184: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : XCTAssertTrue failed - corpus4671/pass1/fresh-source-renderer/region1 exact scene identity failed; maximumAbsolute=1.0",
+      "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:184: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : XCTAssertTrue failed - corpus4671/pass1/fresh-source-renderer/region2 exact scene identity failed; maximumAbsolute=1.0"
+    ]
+  },
+  "source": "222cf96276d9e9c3a027c2f0ed18404a73401014",
+  "run": 39147903728,
+  "job": 117735400087,
+  "zipSHA256": "14f424a2ca3d7795d2d0008830bde6afd5bfa6bb9d2a1424f88761a0677ac826"
+}

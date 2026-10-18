@@ -1,0 +1,15 @@
+{
+  "Sources/LumenPipeline/RenderGraph.swift": "1bae10b19031d3e20c02c214e45a8b7dc34816d3af2048b704d664afffde14dc",
+  "Sources/LumenPipeline/Kernels.swift": "0b24bcf2159d3ee0de33603d105be6a65421c5c38a4b8d5db2c72e4d0abfc4a4",
+  "Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift": "4a9b606a66a5863c7993d8134cda161427e4b9691553ebd1a7e2ad0d4267e365",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/README.md": "440f4c998e66c360676e0afcbaf7aeed555a0275ccb99d63b2806068a7d06daa",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/mutate-ci-matrix-route.py": "6c98a2b8aebf8b7f348129f6bb9958319cab2e1d96b12c032275589f253742d4",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/command.json": "73ea89d4750caa1fb841ff2421865e3ea85c2c5385781a3a32db59bfd4397991",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/core-source-manifest.json": "086d3f1b27f211e86a39091ca3c885a722b032e33d3c11384008c0c09f2d47f4",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/execution.log": "94984485bc74c2aac49b9e5a5c3a818110119e578dd2c40836f5eebecca291dd",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/initial-literal-compile.log": "083a8b454c6c3d01bd2d6089c050f954a6986dcc038c539c2ddbb98a8a2a2943",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/main.swift": "a01e421cbf44d7b69ce470244d4aa2e1d816c17db096dd1ed4cc42a705a9f0f0",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/native-diagonal-proof.json": "58a7117b541787a1f1caf47f160548d9cb10083a898a53f768772e408feae54b",
+  "docs/audits/2026-10-18-raw/local-wb-rowdot/partial-probe/status-provenance.json": "5e20d758dc0eaf0d15f1bc00d549db499372fb4b8f030e759e2d3c9a28e4d6a1"
+}

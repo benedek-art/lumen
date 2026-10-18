@@ -180,7 +180,7 @@ jobs:
           shasum -a 256 "$source_file" >> auto-tone-source-mutation-provenance.log
           git diff --exit-code -- Sources
           echo 'AUTO-TONE-SOURCE-CAUSAL baseline=GREEN stale-guard-bypassed=RED healthy-and-existing-midgesture=GREEN source-restored=true'
-      - name: Compare exact local WB with the complete original renderer route
+      - name: Compare local WB row products with the complete measured CIColorMatrix route
         if: contains(github.event.head_commit.message, '[local-wb-exact-causal]')
         shell: bash
         run: |
@@ -194,7 +194,7 @@ jobs:
           trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
           git rev-parse HEAD > local-wb-exact-mutation-provenance.log
           shasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log
-          python3 docs/audits/2026-10-18-raw/local-wb-exact/mutate-old-route.py --source-root .
+          python3 docs/audits/2026-10-18-raw/local-wb-rowdot/mutate-ci-matrix-route.py --source-root .
           git diff -- "$source_file" >> local-wb-exact-mutation-provenance.log
           set +e
           swift test -c release --filter "$target" > local-wb-exact-original-route.log 2>&1
@@ -204,6 +204,8 @@ jobs:
           test "$original_status" -ne 0
           grep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' local-wb-exact-original-route.log
           grep -Eq 'XCTAssert(Equal|LessThanOrEqual) failed' local-wb-exact-original-route.log
+          grep -Eq 'XCTAssertLessThanOrEqual failed:.*relative, amount=1\.0, cube=.*independent matrix' local-wb-exact-original-route.log
+          grep -Eq 'XCTAssertLessThanOrEqual failed:.*relative, amount=1\.0, cube=.*global matrix' local-wb-exact-original-route.log
           grep -Fq "testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' failed" local-wb-exact-original-route.log
           grep -Fq "testNeutralAndZeroBalanceRetainExactIdentity]' passed" local-wb-exact-original-route.log
           grep -Fq "testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' passed" local-wb-exact-original-route.log
@@ -211,7 +213,7 @@ jobs:
           cmp "$source_backup" "$source_file"
           shasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log
           git diff --exit-code -- Sources Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift
-          echo 'LOCAL-WB-EXACT-CAUSAL baseline=GREEN complete-original-rendergraph=RED neutral-zero-and-finite-compatibility=GREEN exact-source-restored=true'
+          echo 'LOCAL-WB-ROWDOT-CAUSAL baseline=GREEN complete-222-CIColorMatrix-rendergraph=RED neutral-zero-and-finite-compatibility=GREEN exact-source-restored=true'
       - name: Keep causal observations
         if: always()
         uses: actions/upload-artifact@v4

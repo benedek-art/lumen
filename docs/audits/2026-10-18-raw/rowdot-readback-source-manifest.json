@@ -1,0 +1,8 @@
+{
+  "Sources/LumenPipeline/RenderGraph.swift": "1bae10b19031d3e20c02c214e45a8b7dc34816d3af2048b704d664afffde14dc",
+  "Sources/LumenPipeline/Kernels.swift": "0b24bcf2159d3ee0de33603d105be6a65421c5c38a4b8d5db2c72e4d0abfc4a4",
+  "Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift": "4a9b606a66a5863c7993d8134cda161427e4b9691553ebd1a7e2ad0d4267e365",
+  "Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift": "90b1c92eef0953b69332086c1fa42780650c9e1e6f5a5929e7efe4ff186cadd4",
+  ".github/workflows/gpu-parity.yml": "319917996afe5be66ce7ca39286750095d4a2f8c96918053e6e4761b62f2d66b",
+  ".github/workflows/decode-reconstruction.yml": "733c6e7ba23c9503f9767d101abc6278a4e069d9111560577ef1cf09d18102ad"
+}

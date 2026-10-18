@@ -1,0 +1,47 @@
+/workspace/scratch/2982a056243e/local-wb-matrix-partial-probe/main.swift:7:19: error: '.01' is not a valid floating point literal; it must be written '0.01'
+ 5 |  let b=ReferenceRenderer.LocalWhiteBalance.resolve(a,amount:amount/100,
+ 6 |   balanced:WhiteBalanceEngine.Neutral(kelvin:5500,tint:0),space:.rec2020)
+ 7 |  let inputs=[RGB(-.01,.18,.3),RGB(.18,.3,.5),RGB(1024,128,256)]
+   |                   `- error: '.01' is not a valid floating point literal; it must be written '0.01'
+ 8 |  var values:[[String:Any]]=[]
+ 9 |  for c in inputs {
+
+/workspace/scratch/2982a056243e/local-wb-matrix-partial-probe/main.swift:7:23: error: '.18' is not a valid floating point literal; it must be written '0.18'
+ 5 |  let b=ReferenceRenderer.LocalWhiteBalance.resolve(a,amount:amount/100,
+ 6 |   balanced:WhiteBalanceEngine.Neutral(kelvin:5500,tint:0),space:.rec2020)
+ 7 |  let inputs=[RGB(-.01,.18,.3),RGB(.18,.3,.5),RGB(1024,128,256)]
+   |                       `- error: '.18' is not a valid floating point literal; it must be written '0.18'
+ 8 |  var values:[[String:Any]]=[]
+ 9 |  for c in inputs {
+
+/workspace/scratch/2982a056243e/local-wb-matrix-partial-probe/main.swift:7:27: error: '.3' is not a valid floating point literal; it must be written '0.3'
+ 5 |  let b=ReferenceRenderer.LocalWhiteBalance.resolve(a,amount:amount/100,
+ 6 |   balanced:WhiteBalanceEngine.Neutral(kelvin:5500,tint:0),space:.rec2020)
+ 7 |  let inputs=[RGB(-.01,.18,.3),RGB(.18,.3,.5),RGB(1024,128,256)]
+   |                           `- error: '.3' is not a valid floating point literal; it must be written '0.3'
+ 8 |  var values:[[String:Any]]=[]
+ 9 |  for c in inputs {
+
+/workspace/scratch/2982a056243e/local-wb-matrix-partial-probe/main.swift:7:35: error: '.18' is not a valid floating point literal; it must be written '0.18'
+ 5 |  let b=ReferenceRenderer.LocalWhiteBalance.resolve(a,amount:amount/100,
+ 6 |   balanced:WhiteBalanceEngine.Neutral(kelvin:5500,tint:0),space:.rec2020)
+ 7 |  let inputs=[RGB(-.01,.18,.3),RGB(.18,.3,.5),RGB(1024,128,256)]
+   |                                   `- error: '.18' is not a valid floating point literal; it must be written '0.18'
+ 8 |  var values:[[String:Any]]=[]
+ 9 |  for c in inputs {
+
+/workspace/scratch/2982a056243e/local-wb-matrix-partial-probe/main.swift:7:39: error: '.3' is not a valid floating point literal; it must be written '0.3'
+ 5 |  let b=ReferenceRenderer.LocalWhiteBalance.resolve(a,amount:amount/100,
+ 6 |   balanced:WhiteBalanceEngine.Neutral(kelvin:5500,tint:0),space:.rec2020)
+ 7 |  let inputs=[RGB(-.01,.18,.3),RGB(.18,.3,.5),RGB(1024,128,256)]
+   |                                       `- error: '.3' is not a valid floating point literal; it must be written '0.3'
+ 8 |  var values:[[String:Any]]=[]
+ 9 |  for c in inputs {
+
+/workspace/scratch/2982a056243e/local-wb-matrix-partial-probe/main.swift:7:42: error: '.5' is not a valid floating point literal; it must be written '0.5'
+ 5 |  let b=ReferenceRenderer.LocalWhiteBalance.resolve(a,amount:amount/100,
+ 6 |   balanced:WhiteBalanceEngine.Neutral(kelvin:5500,tint:0),space:.rec2020)
+ 7 |  let inputs=[RGB(-.01,.18,.3),RGB(.18,.3,.5),RGB(1024,128,256)]
+   |                                          `- error: '.5' is not a valid floating point literal; it must be written '0.5'
+ 8 |  var values:[[String:Any]]=[]
+ 9 |  for c in inputs {
