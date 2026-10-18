@@ -1,0 +1,117 @@
+{
+  "actualEngineCalls" : 84,
+  "AIQualityAcceptance" : false,
+  "baselineReplayedExactly" : false,
+  "cameraAcceptance" : false,
+  "finiteImages" : 84,
+  "inputClippingApplied" : false,
+  "mode" : "baseline",
+  "noise" : "independent RGB heteroscedastic Gaussian, variance=a*clean+b; common standard normal seeds across patterns",
+  "noisyAboveOneChannels" : 0,
+  "noisyNegativeChannels" : 0,
+  "projectionBoundaryPolicy" : "entire64x64 plane including boundaries; no window for integer-cycle sinusoids",
+  "qualityThresholdsApplied" : false,
+  "rows" : 84,
+  "stepBoundaryPolicy" : "near4columns each side of midpoint; far8columns atx8...15\/x48...55; all64rows",
+  "worseMSECells" : [
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 1.3492424411996466,
+      "pattern" : "luma-high-low",
+      "seed" : 17,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 2.483839517539861,
+      "pattern" : "luma-high-high",
+      "seed" : 17,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 2.926041634778856,
+      "pattern" : "chroma-high",
+      "seed" : 17,
+      "setting" : "iso-default"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 6.504799402734961,
+      "pattern" : "chroma-high",
+      "seed" : 17,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 1.3248642032459337,
+      "pattern" : "luma-high-low",
+      "seed" : 29,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 2.4534270235084095,
+      "pattern" : "luma-high-high",
+      "seed" : 29,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 2.9016068924158755,
+      "pattern" : "chroma-high",
+      "seed" : 29,
+      "setting" : "iso-default"
+    },
+    {
+      "iso" : 1600,
+      "mseRatioToOff" : 6.421515153864764,
+      "pattern" : "chroma-high",
+      "seed" : 29,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 6400,
+      "mseRatioToOff" : 2.566333798221338,
+      "pattern" : "luma-high-high",
+      "seed" : 17,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 6400,
+      "mseRatioToOff" : 1.7878692322514254,
+      "pattern" : "chroma-high",
+      "seed" : 17,
+      "setting" : "iso-default"
+    },
+    {
+      "iso" : 6400,
+      "mseRatioToOff" : 2.3672177098999763,
+      "pattern" : "chroma-high",
+      "seed" : 17,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 6400,
+      "mseRatioToOff" : 2.5399423128154246,
+      "pattern" : "luma-high-high",
+      "seed" : 29,
+      "setting" : "maximum"
+    },
+    {
+      "iso" : 6400,
+      "mseRatioToOff" : 1.7532949528285242,
+      "pattern" : "chroma-high",
+      "seed" : 29,
+      "setting" : "iso-default"
+    },
+    {
+      "iso" : 6400,
+      "mseRatioToOff" : 2.335517953674941,
+      "pattern" : "chroma-high",
+      "seed" : 29,
+      "setting" : "maximum"
+    }
+  ],
+  "zeroStageExactIdentities" : 28
+}

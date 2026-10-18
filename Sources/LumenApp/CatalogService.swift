@@ -1901,7 +1901,120 @@ final class CatalogService: @unchecked Sendable {
         var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent,
                                         stated: SidecarStatedFields, generation: String?))] = []
 
+        typealias Entry = (photoID: Int64?, content: SidecarContent,
+                          stated: SidecarStatedFields, generation: String?)
+        typealias Prepared = (url: URL, entry: Entry, bytes: Data,
+                             sourceData: Data?, mayAdvanceObservation: Bool)
+        var prepared: [Prepared] = []
+        var preparedByteCount = 0
+        // Nominal staged output Data only, not an RSS bound: parsed XML/content
+        // and the current input also occupy memory. Never truncate an oversized
+        // document; publish it alone instead of retaining a group beside it.
+        let preparedByteLimit = 8 * 1_024 * 1_024
+
+        func publicationIsClosed() -> Bool {
+            sidecarLock.lock()
+            defer { sidecarLock.unlock() }
+            return sidecarsClosed
+        }
+
+        func publicationFailed(_ url: URL, _ entry: Entry, _ error: Error) {
+            let path = Self.sidecarURL(for: url)
+            NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
+                  path.lastPathComponent, String(describing: error))
+            failed.append((url, entry))
+            sidecarLock.lock()
+            let firstFailure = reportedSidecarFailures.insert(url).inserted
+            sidecarLock.unlock()
+            if firstFailure {
+                report("Could not save portable sidecar \(path.lastPathComponent). "
+                       + "Check that the photo's volume is connected and writable. "
+                       + "Lumen will retry while open; the sidecar is not up to date "
+                       + "(\(error.localizedDescription)).")
+            }
+        }
+
+        func publishPrepared() {
+            guard !prepared.isEmpty else { return }
+            let group = prepared
+            prepared.removeAll(keepingCapacity: true)
+            preparedByteCount = 0
+            var failures: [(Prepared, Error)] = []
+            do {
+                try onCatalogQueue {
+                    // A reader adapter can close the service while preparing. Do
+                    // not even read the closed store, let alone recreate old debt.
+                    guard !sidecarsClosed else { return }
+                    if let sidecarJournalFailure { throw CatalogError.invalid(sidecarJournalFailure) }
+                    let owed = try UnsavedSidecarRecord.decodeValidated(store.metaValue(UnsavedSidecarRecord.metaKey))
+                    let byPath = Dictionary(uniqueKeysWithValues: owed.map { ($0.photoPath, $0) })
+                    var written: [(Prepared, SidecarIntentPublication)] = []
+                    for item in group {
+                        guard let current = byPath[item.url.path],
+                              current.photoID == item.entry.photoID,
+                              current.generation == item.entry.generation else { continue }
+                        do {
+                            if item.entry.stated.contains(.recipe), let json = item.entry.content.recipeJSON {
+                                if let id = item.entry.photoID, try externalRecipeUnavailable(photoID: id) {
+                                    throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
+                                }
+                                // A later adapter may remove a dependency without
+                                // changing this generation or the existing XMP.
+                                let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+                                _ = try validatedSidecarStrokeSets(recipe)
+                            }
+                            let path = Self.sidecarURL(for: item.url)
+                            var mayObserve = item.mayAdvanceObservation
+                            if mayObserve, !item.entry.stated.contains(.recipe),
+                               let id = item.entry.photoID, let base = item.sourceData,
+                               let externalJSON = XMPSidecar.parse(base)?.recipeJSON {
+                                // A later adapter can import a catalog recipe
+                                // without changing this culling intent's generation.
+                                let currentJSON = try readableCurrentRecipe(photoID: id)
+                                    .map { try CanonicalJSON.canonicalRecipeJSON($0) }
+                                mayObserve = Self.sameRecipeJSON(currentJSON, externalJSON)
+                            }
+                            // No injected adapter runs under this queue boundary.
+                            // Later preparation may have changed an earlier base;
+                            // refuse instead of overwriting newly arrived bytes.
+                            guard try Self.physicalSidecarBytes(at: path) == item.sourceData else {
+                                throw CatalogError.invalid("the portable document changed while publication was being prepared")
+                            }
+                            try item.bytes.write(to: path, options: .atomic)
+                            let observation: SidecarIntentPublication.Observation? = mayObserve
+                                ? .init(modificationTime: Self.modificationTime(of: path), digest: Self.sidecarDigest(item.bytes)) : nil
+                            written.append((item, SidecarIntentPublication(photoPath: item.url.path,
+                                photoID: item.entry.photoID, generation: item.entry.generation, observation: observation)))
+                        } catch { failures.append((item, error)) }
+                    }
+                    guard !written.isEmpty else { return }
+                    do {
+                        // Physical I/O above holds no SQL transaction. Observation
+                        // and matching generation settlement commit together now.
+                        let result = try store.settleSidecarIntents(written.map { $0.1 })
+                        let settledPaths = Set(result.settled.map(\.photoPath))
+                        sidecarLock.lock()
+                        for (item, _) in written where settledPaths.contains(item.url.path) {
+                            reportedSidecarFailures.remove(item.url)
+                            if unsavedSidecars[item.url.path]?.generation == item.entry.generation {
+                                unsavedSidecars.removeValue(forKey: item.url.path)
+                            }
+                        }
+                        sidecarLock.unlock()
+                    } catch {
+                        // Every successful physical write is still owed if any
+                        // observation or the journal's final SQL write fails.
+                        failures.append(contentsOf: written.map { ($0.0, error) })
+                    }
+                }
+            } catch { failures.append(contentsOf: group.map { ($0, error) }) }
+            // Preserve the adapter/callback context of the flush caller. In
+            // particular an explicit off-queue flush can accept a newer edit.
+            for (item, error) in failures { publicationFailed(item.url, item.entry, error) }
+        }
+
         for (url, queuedEntry) in batch {
+            if publicationIsClosed() { break }
             var entry = queuedEntry
             var content = entry.content
             var mayAdvanceObservation = true
@@ -1986,9 +2099,13 @@ final class CatalogService: @unchecked Sendable {
             var sourceData: Data?
             do {
                 let data = try sidecarDataReader(path)
+                // An explicit reader can synchronously close the service. Do not
+                // inspect another staged entry or touch its closed catalog next.
+                if publicationIsClosed() { break }
                 sourceData = data
                 document = XMPSidecar.classify(data)
             } catch {
+                if publicationIsClosed() { break }
                 let failure = error as NSError
                 if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)
                     || (failure.domain == NSPOSIXErrorDomain && failure.code == ENOENT) {
@@ -2119,6 +2236,19 @@ final class CatalogService: @unchecked Sendable {
                 text = XMPSidecar.serialize(content)
             }
 
+            if entry.photoID != nil {
+                let bytes = Data(text.utf8)
+                if !prepared.isEmpty, bytes.count > preparedByteLimit - preparedByteCount {
+                    publishPrepared()
+                }
+                prepared.append((url, entry, bytes, sourceData, mayAdvanceObservation))
+                preparedByteCount += bytes.count
+                if prepared.count == 64 || preparedByteCount >= preparedByteLimit { publishPrepared() }
+                continue
+            }
+            // Preserve the source-only, unregistered compatibility path. It does
+            // not require a registered durable record to authorize publication.
+            publishPrepared()
             do {
                 let publishedBytes = Data(text.utf8)
                 try onCatalogQueue {
@@ -2142,6 +2272,9 @@ final class CatalogService: @unchecked Sendable {
                     // Serialize the atomic publication with catalog intent commits.
                     // An earlier generation either writes before the newer commit,
                     // or is rejected above after it; it cannot finish out of order.
+                    guard try Self.physicalSidecarBytes(at: path) == sourceData else {
+                        throw CatalogError.invalid("the portable document changed while publication was being prepared")
+                    }
                     try publishedBytes.write(to: path, options: .atomic)
                     if let id = entry.photoID, mayAdvanceObservation {
                         if let stamp = Self.modificationTime(of: path) {
@@ -2173,8 +2306,11 @@ final class CatalogService: @unchecked Sendable {
             }
         }
 
+        publishPrepared()
+
         guard !failed.isEmpty else { return }
         sidecarLock.lock()
+        guard !sidecarsClosed else { sidecarLock.unlock(); return }
         // A newer entry can state only one field. Preserve the older debt in
         // fields it did not replace, with newer values winning and keyword deltas
         // composed in time order. Dropping the older entry loses unrelated edits.
@@ -2205,7 +2341,10 @@ final class CatalogService: @unchecked Sendable {
         let shouldSchedule = !sidecarFlushScheduled && !pendingSidecars.isEmpty
         if shouldSchedule { sidecarFlushScheduled = true }
         sidecarLock.unlock()
-        queue.async { [weak self] in self?.persistUnsavedSidecars() }
+        queue.async { [weak self] in
+            guard let self, !self.sidecarsClosed else { return }
+            self.persistUnsavedSidecars()
+        }
         if shouldSchedule {
             queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) { [weak self] in
                 self?.flushSidecars()
@@ -2284,7 +2423,7 @@ final class CatalogService: @unchecked Sendable {
     }
 
     private static func sidecarObservationKey(_ photoID: Int64) -> String {
-        "sidecar_bytes_v1:\(photoID)"
+        SidecarIntentPublication.observationKey(photoID: photoID)
     }
 
     private static func sidecarDigest(_ data: Data) -> String {
@@ -2309,6 +2448,18 @@ final class CatalogService: @unchecked Sendable {
 
     private func readSidecarBytes(at path: URL) throws -> Data? {
         do { return try sidecarDataReader(path) }
+        catch {
+            let failure = error as NSError
+            if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)
+                || (failure.domain == NSPOSIXErrorDomain && failure.code == ENOENT) { return nil }
+            throw error
+        }
+    }
+
+    /// Recheck physical bytes without invoking an external read adapter while the
+    /// catalog queue serializes final publication with new committed intents.
+    private static func physicalSidecarBytes(at path: URL) throws -> Data? {
+        do { return try Data(contentsOf: path) }
         catch {
             let failure = error as NSError
             if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)

@@ -1,0 +1,174 @@
+# Optional NEW-runtime question, not another full corpus/consumer qualification.
+# Official label/runtime evidence checked 2026-10-18:
+# https://github.blog/changelog/2026-10-15-xcode-27-runner-image-generally-available/
+# https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md
+# Apple's version9/version9DNG DocC metadata introduces these symbols at macOS 27:
+# https://developer.apple.com/documentation/coreimage/cirawdecoderversion/version9
+# The actual per-file supported versions remain a runtime measurement, not an assumption.
+name: RAW runtime capability
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/raw-runtime-capability.yml'
+permissions:
+  contents: read
+concurrency:
+  group: raw-runtime-capability-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: >-
+      github.ref == 'refs/heads/codex/raw-accuracy-qualification' &&
+      (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[raw-runtime]'))
+    runs-on: xcode-27
+    timeout-minutes: 40
+    env:
+      CORPUS_DIR: ${{ github.workspace }}/.raw-runtime-corpus
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record actual source, runtime and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            git rev-parse HEAD
+            sw_vers
+            uname -m
+            xcode-select -p
+            xcodebuild -version
+            swift --version
+            xcrun --sdk macosx --show-sdk-version
+            xcrun --sdk macosx --show-sdk-path
+            system_profiler SPDisplaysDataType
+          } 2>&1 | tee raw-runtime-environment.log
+      - name: Select two existing pinned CC0 rows without duplicating their manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CORPUS_DIR"
+          python3 - <<'PY'
+          import os, pathlib
+          source = pathlib.Path('.github/workflows/raw-corpus.yml').read_text()
+          expected = {
+              '2349': ('2349.ARW', '7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad', 14712832),
+              '2607': ('2607.RW2', 'c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e', 19166720),
+          }
+          rows = {}
+          for line in source.splitlines():
+              fields = line.strip().split(';')
+              if fields[0] not in expected:
+                  continue
+              assert len(fields) == 10, 'manifest schema changed'
+              identifier = fields[0]
+              assert identifier not in rows, 'duplicate fixture'
+              name, digest, size = expected[identifier]
+              assert (fields[1], fields[2], int(fields[3])) == (name, digest, size)
+              assert fields[7] == 'CC0' and 'negative' not in fields[6]
+              assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + identifier + '/')
+              rows[identifier] = ';'.join(fields)
+          assert rows.keys() == expected.keys(), 'exactly two expected fixtures required'
+          pathlib.Path(os.environ['CORPUS_DIR'], 'corpus.tsv').write_text(
+              '\n'.join(rows[k] for k in sorted(rows)) + '\n')
+          PY
+      - name: Fetch and verify only those public files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$CORPUS_DIR"
+          UA="lumen-raw-runtime-ci/1 (+https://github.com/${GITHUB_REPOSITORY})"
+          while IFS=';' read -r id local sha bytes make orient flags lic label url; do
+            [ "$lic" = CC0 ] || { echo "REFUSED non-CC0 fixture $id"; exit 1; }
+            curl -sS --fail --location --retry 3 --retry-delay 5 --max-time 300 \
+              --user-agent "$UA" "$url" -o "$local"
+            actual=$(shasum -a 256 "$local" | cut -d' ' -f1)
+            actual_bytes=$(wc -c < "$local" | tr -d ' ')
+            if [ "$actual" != "$sha" ] || [ "$actual_bytes" != "$bytes" ]; then
+              rm -f "$local"
+              echo "CORRUPT fixture $id"
+              exit 1
+            fi
+            echo "verified CC0 fixture $id sha256=$actual bytes=$actual_bytes"
+          done < corpus.tsv
+      - name: Probe actual advertised decoder identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/raw-runtime-probe.swift" <<'SWIFT'
+          import Foundation
+          import CoreImage
+          let root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CORPUS_DIR"]!)
+          let manifest = try String(contentsOf: root.appendingPathComponent("corpus.tsv"), encoding: .utf8)
+          for row in manifest.split(separator: "\n") {
+              let fields = row.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+              let url = root.appendingPathComponent(String(fields[1]))
+              guard let filter = CIRAWFilter(imageURL: url) else {
+                  print("runtime-decoder: fixture" + fields[0] + " platform-refused")
+                  continue
+              }
+              let supported = filter.supportedDecoderVersions.map(\.rawValue).joined(separator: ",")
+              print("runtime-decoder: fixture" + fields[0] + " default="
+                    + filter.decoderVersion.rawValue + " supported=" + supported)
+          }
+          SWIFT
+          swift "$RUNNER_TEMP/raw-runtime-probe.swift" 2>&1 | tee raw-runtime-capability.log
+      - name: Existing decoder selection and RAW9 preview/native oracle tests
+        id: tests
+        shell: bash
+        timeout-minutes: 25
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ env.CORPUS_DIR }}
+        run: |
+          set -uo pipefail
+          swift test -c release --filter 'AuditRawAccuracyTests.testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile|AuditRawAccuracyTests.testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode|AuditRawAccuracyTests.testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels' \
+            2>&1 | tee raw-runtime-tests.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - name: Require exact fixture coverage and distinguish RAW9 skips
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import collections, os, pathlib
+          log = pathlib.Path('raw-runtime-tests.log').read_text()
+          expected = {'unpinned', 'raw9-preview', 'raw9-native'}
+          records = collections.defaultdict(dict)
+          for line in log.splitlines():
+              if not line.startswith('audit-raw-file: '):
+                  continue
+              _, test, fixture, verdict = line.split(maxsplit=3)
+              assert test in expected and fixture in {'corpus2349', 'corpus2607'}
+              assert fixture not in records[test], 'duplicate coverage record'
+              assert verdict != 'error', 'fixture threw before completing'
+              records[test][fixture] = verdict
+          assert records.keys() == expected, 'selected methods must all execute'
+          for test in expected:
+              assert records[test].keys() == {'corpus2349', 'corpus2607'}, 'partial fixture coverage'
+          summary = ['### New-runtime RAW capability (two public CC0 files)',
+                     'This is runtime/decoder evidence, not camera calibration or full-corpus acceptance.']
+          for test in sorted(expected):
+              for fixture, verdict in sorted(records[test].items()):
+                  summary.append(f'- `{test}` `{fixture}`: `{verdict}`')
+          for test in ['raw9-preview', 'raw9-native']:
+              verdicts = list(records[test].values())
+              if all(v == 'no-raw9' for v in verdicts):
+                  summary.append(f'- **SKIPPED {test}: neither file advertises RAW9; no RAW9 pixel pass claimed.**')
+              else:
+                  assert all(v in {'no-raw9', 'decoded'} for v in verdicts)
+                  summary.append(f'- **EXECUTED {test}: {verdicts.count("decoded")} RAW9 fixture(s). Test result remains authoritative.**')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('\n'.join(summary) + '\n')
+          print('\n'.join(summary))
+          PY
+      - name: Preserve environment, capability and exact test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-runtime-capability-${{ github.sha }}
+          path: |
+            raw-runtime-environment.log
+            raw-runtime-capability.log
+            raw-runtime-tests.log
+            .raw-runtime-corpus/corpus.tsv
+          if-no-files-found: warn

@@ -1,0 +1,15 @@
+# Public generated-image native causal export regression
+# Source99b2db86f5c3a1da6fbf43de384c31f53af7a2fb
+# https://github.com/benedek-art/lumen/actions/runs/39124473952/job/117666610228
+# Baseline single final-publication test GREEN; remove only unique final generation guard => two real assertions RED; source restored/compared.
+2026-10-18T11:47:08.9165520Z [36;1mgrep -q 'Executed 1 test, with 0 failures' export-source-baseline.log[0m
+2026-10-18T11:47:08.9177570Z [36;1mgrep -Eq 'Executed 1 test, with [1-9][0-9]* failure' export-source-mutant.log[0m
+2026-10-18T11:52:25.6114660Z 	 Executed 1 test, with 0 failures (0 unexpected) in 8.878 (8.878) seconds
+2026-10-18T11:52:25.6115720Z 	 Executed 1 test, with 0 failures (0 unexpected) in 8.878 (8.878) seconds
+2026-10-18T11:52:25.6116700Z 	 Executed 1 test, with 0 failures (0 unexpected) in 8.878 (8.881) seconds
+2026-10-18T11:53:31.5471950Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/ExportSourceGenerationTests.swift:153: error: -[LumenPipelineTests.ExportSourceGenerationTests testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial] : XCTAssertThrowsError failed: did not throw an error
+2026-10-18T11:53:31.5474750Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/ExportSourceGenerationTests.swift:160: error: -[LumenPipelineTests.ExportSourceGenerationTests testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial] : XCTAssertEqual failed: ("813 bytes") is not equal to ("27 bytes")
+2026-10-18T11:53:31.5480200Z 	 Executed 1 test, with 2 failures (0 unexpected) in 1.349 (1.349) seconds
+2026-10-18T11:53:31.5481590Z 	 Executed 1 test, with 2 failures (0 unexpected) in 1.349 (1.349) seconds
+2026-10-18T11:53:31.5482640Z 	 Executed 1 test, with 2 failures (0 unexpected) in 1.349 (1.354) seconds
+2026-10-18T11:53:31.5972790Z EXPORT-SOURCE-CAUSAL baseline=GREEN final-check-removed=RED source-restored=true

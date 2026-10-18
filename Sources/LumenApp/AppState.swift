@@ -3868,6 +3868,23 @@ final class AppState: ObservableObject {
         let requestSourceRevision = sourceRevision
         let requestTargets = editTargets
         let requestRecipes = requestTargets.map { recipe(for: $0) }
+        // One stat per distinct source: batch writes must not land on a replacement
+        // secondary photo either. The app revision alone cannot observe external writes.
+        let requestSourceIdentities = Set(requestTargets.map(\.id)).union([url]).map { sourceURL in
+            (url: sourceURL, actual: SourceFileIdentity.read(sourceURL),
+             expected: sourceURL == url ? photo.sourceIdentity
+                : requestTargets.first(where: { $0.id == sourceURL })?.sourceIdentity)
+        }
+        // Catalog-backed snapshots already name a generation. Do not sample B using
+        // the displayed A snapshot's recipe even if B changed before this click.
+        guard requestSourceIdentities.allSatisfy({ source in
+            guard let expected = source.expected else { return true }
+            guard let actual = source.actual else { return false }
+            return SourceFileIdentity.sameGeneration(stored: expected.token, current: actual.token)
+        }) else {
+            statusMessage = "Pick discarded: an original changed or became unavailable before it resolved."
+            return
+        }
         let requestMaskID = activeMaskID
         let requestComponent = activeComponentIndex
         let resolutionBarrier = pickResolutionBarrier
@@ -3891,6 +3908,12 @@ final class AppState: ObservableObject {
                       recipe(for: photo) == current,
                       sameRecipes, sameMaskSelection else {
                     statusMessage = "Pick discarded: the photo, edit targets or recipe changed before it resolved."
+                    return false
+                }
+                guard requestSourceIdentities.allSatisfy({
+                    SourceFileIdentity.read($0.url) == $0.actual
+                }) else {
+                    statusMessage = "Pick discarded: an original changed or became unavailable before it resolved."
                     return false
                 }
                 return true

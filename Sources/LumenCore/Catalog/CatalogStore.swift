@@ -2004,6 +2004,38 @@ public final class CatalogStore {
         }
     }
 
+    /// Observe and settle a bounded group of completed physical publications.
+    /// The caller serializes physical generation checks/writes with intent commits;
+    /// this transaction independently rechecks exact identities before observing.
+    /// Any SQL failure leaves every observation and owed record in this group intact.
+    public func settleSidecarIntents(_ publications: [SidecarIntentPublication]) throws
+        -> (settled: [SidecarIntentPublication], debt: [UnsavedSidecarRecord]) {
+        try db.transaction {
+            let debt = try UnsavedSidecarRecord.decodeValidated(metaValue(UnsavedSidecarRecord.metaKey))
+            guard Set(publications.map(\.photoPath)).count == publications.count else {
+                throw CatalogError.invalid("duplicate sidecar publication path")
+            }
+            let byPath = Dictionary(uniqueKeysWithValues: debt.map { ($0.photoPath, $0) })
+            let matched = publications.filter { publication in
+                guard let current = byPath[publication.photoPath] else { return false }
+                return current.photoID == publication.photoID && current.generation == publication.generation
+            }
+            guard !matched.isEmpty else { return ([], debt) }
+            for publication in matched {
+                if let id = publication.photoID, let observation = publication.observation {
+                    if let stamp = observation.modificationTime {
+                        try setSidecarMTime(stamp, photoID: id)
+                    }
+                    try setMetaValue(SidecarIntentPublication.observationKey(photoID: id), observation.digest)
+                }
+            }
+            let settledPaths = Set(matched.map(\.photoPath))
+            let remaining = debt.filter { !settledPaths.contains($0.photoPath) }
+            try setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode(remaining))
+            return (matched, remaining)
+        }
+    }
+
     public func catalogUUID() throws -> String {
         if let existing = try metaValue("catalog_uuid") { return existing }
         let generated = UUID().uuidString
@@ -5224,6 +5256,8 @@ public final class CatalogStore {
     public func withSidecarIntent<T>(_ mutation: () throws -> (T, [UnsavedSidecarRecord])) throws
         -> (value: T, debt: [UnsavedSidecarRecord]) { throw CatalogError.unavailable }
     public func settleSidecarIntent(photoPath: String, generation: String?) throws -> Bool { throw CatalogError.unavailable }
+    public func settleSidecarIntents(_ publications: [SidecarIntentPublication]) throws
+        -> (settled: [SidecarIntentPublication], debt: [UnsavedSidecarRecord]) { throw CatalogError.unavailable }
     public func catalogUUID() throws -> String { throw CatalogError.unavailable }
     public func labelName(_ label: ColorLabel) throws -> String {
         throw CatalogError.unavailable

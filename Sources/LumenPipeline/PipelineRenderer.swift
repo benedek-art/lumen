@@ -833,10 +833,10 @@ public final class PipelineRenderer {
                        allowOverwrite: Bool = false,
                        catalogKeywords: [String]? = nil,
                        expectedSourceIdentity: SourceFileIdentity? = nil) throws -> [String] {
-        // App jobs always supply their enqueue token. Existing synthetic ImageSource
-        // mocks with no filesystem URL remain unbound for API compatibility; direct
-        // real-file callers opportunistically bind the generation present at entry.
-        let sourceIdentity = expectedSourceIdentity ?? SourceFileIdentity.read(source.url)
+        // App jobs always supply their enqueue token. Synthetic/non-regular sources
+        // remain unbound unless a token is explicit; direct regular-file callers
+        // opportunistically bind the generation present at entry, following symlinks.
+        let sourceIdentity = expectedSourceIdentity ?? SourceFileIdentity.readRegularFile(source.url)
         try Self.validateExportSource(url: source.url, expected: sourceIdentity)
         try exportRecipe.metadata.validateContact()
         let image = try exportedImage(source: source, recipe: recipe,

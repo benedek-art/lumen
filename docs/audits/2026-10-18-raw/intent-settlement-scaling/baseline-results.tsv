@@ -1,0 +1,5 @@
+pending	json_bytes	settle_only_ms	guard_and_settle_ms	file_observation_control_ms	guard_file_observation_settle_ms
+40	7592	17.591	29.386	29.613	74.525
+200	38293	363.803	698.854	157.839	1044.280
+500	95893	2271.492	3831.340	377.052	4557.928
+1000	192894	9050.531	16554.780	808.766	19121.767
