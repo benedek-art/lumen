@@ -1,0 +1,57 @@
+symbols:  every capitalized identifier resolves
+
+inits:    4 of 7981 call sites match NO declared or memberwise initializer (1 unparseable, skipped; 263 memberwise signatures synthesized, 86 raw-value enums, 0 structs too odd to synthesize)
+
+  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:27  Fixture(url, label)
+      declared: init(url, name)
+      declared: init(url)
+
+  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:33  Fixture(url, label)
+      declared: init(url, name)
+      declared: init(url)
+
+  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:82  Capture(displayed, scene)
+      declared: init(displayed)
+
+  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:102  Capture(displayed, scene)
+      declared: init(displayed)
+
+
+actors:   every call to the 43 isolated members of MatteProducerBarrier, OperationReportStore, PickSamplePause, PickSourceBarrier, RenderCoordinator, VisionMatteWorker is awaited
+labels:   19770 method call sites match a declared signature
+
+members:  every TypeName.member reference resolves (1280 types)
+
+imports:  every platform symbol whose module is identifiable is used in a file that imports it
+          uses seen: CoreImage 620, CoreVideo 17, CryptoKit 0, ImageIO 339, Metal 3, SQLite3 56, Vision 10
+
+targets:  every in-tree type is used in a file whose module imports its own (1047 unambiguously placed)
+
+values:   16 members read off a value whose type does not have them
+
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:76
+  a.scene                  a is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:106
+  b.scene                  b is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:106
+  a.scene                  a is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:109
+  b.scene                  b is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:109
+  a.scene                  a is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:114
+  b.scene                  b is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:114
+  a.scene                  a is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:115
+  b.scene                  b is Capture, which has no scene   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:115
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:131
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:132
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:133
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:146
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:150
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:155
+  fixture.label                  fixture is Fixture, which has no label   Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:156
+
+scopes:   every lowercase receiver is bound by a parameter, a local, a member or a global
+
+access:   every cross-module TypeName.member reference is public (780 type/module pairs)
+
+args:     every bare name passed as an argument is bound in its scope
+
+switches: 185 switches over 135 in-tree enums handle every case
+
+kernels:  49 kernel sources declare no reserved-word identifier

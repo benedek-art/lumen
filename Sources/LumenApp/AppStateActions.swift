@@ -23,12 +23,62 @@ extension AppState {
 
     // MARK: - Auto tone (D11)
 
+    /// Immutable authority for the asynchronous measurement. A folder/query/relink
+    /// can replace the URL join while the renderer is working; a stat generation
+    /// can change without any app revision. Neither may inherit the old result.
+    struct AutoToneSourceContext: Sendable {
+        struct Target: Sendable {
+            let url: URL
+            let catalogID: Int64?
+            let identity: SourceFileIdentity?
+        }
+        let revision: Int
+        let targets: [Target]
+    }
+
+    func captureAutoToneSourceContext(for targets: [PhotoItem]) -> AutoToneSourceContext? {
+        var seen = Set<URL>()
+        var captured: [AutoToneSourceContext.Target] = []
+        for target in targets where seen.insert(target.id).inserted {
+            let actual = SourceFileIdentity.read(target.id)
+            if let expected = target.sourceIdentity {
+                guard let actual,
+                      SourceFileIdentity.sameGeneration(stored: expected.token, current: actual.token) else { return nil }
+            }
+            captured.append(.init(url: target.id, catalogID: target.catalogID, identity: actual))
+        }
+        guard !captured.isEmpty else { return nil }
+        return AutoToneSourceContext(revision: sourceRevision, targets: captured)
+    }
+
+    private func autoToneSourceIsCurrent(_ context: AutoToneSourceContext, suggestions: [URL: Tone]) -> Bool {
+        guard context.revision == sourceRevision else { return false }
+        let capturedURLs = Set(context.targets.map(\.url))
+        guard Set(suggestions.keys).isSubset(of: capturedURLs) else { return false }
+        var currentByURL: [URL: PhotoItem] = [:]
+        for photo in allPhotos where currentByURL[photo.id] == nil { currentByURL[photo.id] = photo }
+        return context.targets.allSatisfy { target in
+            guard let photo = currentByURL[target.url], photo.catalogID == target.catalogID else { return false }
+            let actual = SourceFileIdentity.read(target.url)
+            switch (target.identity, actual) {
+            case let (before?, after?):
+                return SourceFileIdentity.sameGeneration(stored: before.token, current: after.token)
+            case (nil, nil): return true // existing virtual/unknown-identity compatibility
+            default: return false
+            }
+        }
+    }
+
     /// Auto sets VISIBLE slider values the user can then argue with — it is not a
     /// hidden mode. Statistics come from a small proxy of the actual render, so Auto
     /// sees what the user sees, including the crop.
     func applyAutoTone() {
         let targets = editTargets
         guard !targets.isEmpty else { return }
+        guard let sourceContext = captureAutoToneSourceContext(for: targets) else {
+            statusMessage = "Auto discarded: an original changed or became unavailable."
+            return
+        }
         let recipesByURL = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, recipe(for: $0)) })
         statusMessage = "Analysing…"
 
@@ -46,7 +96,7 @@ extension AppState {
                 else { continue }
                 suggestions[url] = AutoTone.suggest(from: stats)
             }
-            await MainActor.run { self.applyAutoToneSuggestions(suggestions) }
+            await MainActor.run { self.applyAutoToneSuggestions(suggestions, sourceContext: sourceContext) }
         }
     }
 
@@ -59,9 +109,18 @@ extension AppState {
     /// older value over Auto's, so memory showed Auto's tone while the catalog and the
     /// sidecar kept the slider's. Same remedy as undo: close the gesture first, so its
     /// pending write lands before Auto's and Auto's is the last one.
-    func applyAutoToneSuggestions(_ suggestions: [URL: Tone]) {
+    func applyAutoToneSuggestions(_ suggestions: [URL: Tone], sourceContext: AutoToneSourceContext? = nil) {
         guard !suggestions.isEmpty else {
             statusMessage = "Auto could not read those files"
+            return
+        }
+        // The synchronous landing seam also derives authority from current photos;
+        // a nil context never permits an arbitrary old URL to become a source-only
+        // portable write. Production passes its pre-await snapshot explicitly.
+        let context = sourceContext ?? captureAutoToneSourceContext(
+            for: allPhotos.filter { suggestions[$0.id] != nil })
+        guard let context, autoToneSourceIsCurrent(context, suggestions: suggestions) else {
+            statusMessage = "Auto discarded: its source changed or became unavailable."
             return
         }
         sliderGesture(active: false)

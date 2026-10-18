@@ -600,17 +600,20 @@ changed the picture.
   nothing measures until `⇧H` asks — `CatalogStore.photosMissingRawStatistics` is the
   background sweep's queue and has no driver. The `O` raw-clipping overlay is not built.
 
-- **Dehaze's sky evidence is still reference-only at both signs.** Recombination uses
+- **Dehaze has remaining estimator and cross-control qualification gaps.** Recombination uses
   one luminance ratio rather than a per-channel divide (the earlier veiled-blue witness
-  rotated13.4° before that correction and0.00° after it). Positive Dehaze still omits the
-  per-pixel transmission floor the CPU lifts toward0.9 in bright, flat regions. Negative
-  Dehaze also omits the CPU distance term `max(1-transmission, skyness)`. The GPU receives
-  neither the matching gradient/log-luminance planes nor sky evidence. A controlled
-  bright-flat witness gives CPU/GPU0.777777791/0.555555582 at+100 and
-  0.980000019/0.936800003 at-100. Independent scalar equations reproduce both differences;
-  this is an unresolved semantic mismatch, not parity acceptance. Changing either path
-  changes saved looks. See `docs/audits/2026-10-18-raw/dehaze-formula/README.md` for exact
-  source contracts, estimator limits and the required compatibility decision.
+  rotated13.4° before that correction and0.00° after it). The follow-up sky candidate
+  supplies the reference's exact EV/central-tensor fields and both documented sky terms:
+  the positive floor toward0.9 and negative distance `max(1-transmission, skyness)`.
+  It intentionally changes saved sky-region outputs to the documented equations;
+  historical bright-flat GPU values0.555555582/0.936800003 differ from the intended
+  0.777777791/0.980000019 at+100/-100. CPU formulas, defaults and tolerances are unchanged.
+  GPU airlight selection and transmission still differ in estimator and post-detail
+  source lifetime from the CPU's pre-Presence decomposition. Do not infer general
+  parity or real-sky quality from the controlled plateau. Candidate qualification,
+  native outcomes and compatibility limits are recorded in
+  `docs/audits/2026-10-18-raw/dehaze-sky-next/README.md` and CLOUD-PROGRESS.md;
+  the original divergence evidence remains in `dehaze-formula/README.md`.
 
 - **A rendered file gets Lumen's display transform on top of the one already baked in.**
   JPEG/HEIC/PNG/TIFF now decode and edit (`RenderedImageSource`), which they could not

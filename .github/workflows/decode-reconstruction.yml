@@ -1,0 +1,135 @@
+name: Decode reconstruction
+on:
+  push:
+    paths:
+      - '.github/workflows/decode-reconstruction.yml'
+      - 'Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift'
+      - 'Sources/LumenPipeline/AppleRawSource.swift'
+      - 'Sources/LumenPipeline/DecodeMaterializer.swift'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: decode-reconstruction-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ordered-serial-and-loaded:
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[decode-reconstruction]'))
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      LUMEN_DECODE_RECONSTRUCTION: '1'
+      LUMEN_DECODE_RECONSTRUCTION_IDS: '1346,5812,2349,2607,4671'
+      LUMEN_DECODE_RECONSTRUCTION_LIMIT: '5'
+      LUMEN_AUDIT_RAW_DIR: ${{ github.workspace }}/.decode-reconstruction-corpus
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exactly five existing SHA-pinned CC0 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re, urllib.request
+          root = pathlib.Path(os.environ['LUMEN_AUDIT_RAW_DIR'])
+          root.mkdir(exist_ok=True)
+          expected = set(os.environ['LUMEN_DECODE_RECONSTRUCTION_IDS'].split(','))
+          assert len(expected) == 5
+          rows = {}
+          for line in pathlib.Path('.github/workflows/raw-corpus.yml').read_text().splitlines():
+              fields = line.strip().split(';')
+              if fields[0] not in expected: continue
+              key = fields[0]
+              assert len(fields) == 10 and key not in rows
+              assert re.fullmatch(key + r'\.[A-Za-z0-9]+', fields[1])
+              assert re.fullmatch(r'[0-9a-f]{64}', fields[2]) and int(fields[3]) > 0
+              assert fields[7] == 'CC0' and 'negative' not in fields[6]
+              assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + key + '/')
+              rows[key] = fields
+          assert rows.keys() == expected
+          for key in sorted(rows):
+              fields = rows[key]
+              request = urllib.request.Request(fields[9], headers={'User-Agent': 'lumen-decode-reconstruction/1 (+https://github.com/benedek-art/lumen)'})
+              with urllib.request.urlopen(request, timeout=300) as response:
+                  data = response.read()
+              assert len(data) == int(fields[3]), (key, 'byte count')
+              assert hashlib.sha256(data).hexdigest() == fields[2], (key, 'digest')
+              (root / fields[1]).write_bytes(data)
+              print(f'verified CC0 fixture {key} sha256={fields[2]} bytes={len(data)}')
+          (root / 'corpus.tsv').write_text('\n'.join(';'.join(rows[k]) for k in sorted(rows)) + '\n')
+          PY
+      - name: Record source and runtime and build the optimized test executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            git rev-parse HEAD
+            sw_vers
+            uname -m
+            xcodebuild -version
+            swift --version
+            shasum -a 256 Sources/LumenPipeline/AppleRawSource.swift Sources/LumenPipeline/DecodeMaterializer.swift Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift
+          } 2>&1 | tee decode-reconstruction-provenance.log
+          swift build -c release --build-tests
+      - name: Compare serial execution with two independent overlapping test processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DECODE_TEST_BIN_DIR
+          DECODE_TEST_BIN_DIR=$(swift build -c release --show-bin-path)
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          from pathlib import Path
+          bundle = Path(os.environ['DECODE_TEST_BIN_DIR']) / 'LumenPackageTests.xctest'
+          assert bundle.is_dir(), str(bundle)
+          selector = 'LumenPipelineTests.DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical'
+          command = ['xcrun', 'xctest', '-XCTest', selector, str(bundle)]
+          status = {'command': command, 'processes': {}}
+          def launch(label):
+              stream = open(f'decode-reconstruction-{label}.log', 'w')
+              start = time.monotonic_ns()
+              process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)
+              status['processes'][label] = {'pid': process.pid, 'startNanoseconds': start}
+              return process, stream
+          def finish(label, launched):
+              process, stream = launched
+              code = process.wait()
+              stream.close()
+              status['processes'][label].update(exitStatus=code, endNanoseconds=time.monotonic_ns())
+          finish('serial', launch('serial'))
+          primary = launch('loaded-primary')
+          peer = launch('loaded-peer')
+          finish('loaded-primary', primary)
+          finish('loaded-peer', peer)
+          Path('decode-reconstruction-status.json').write_text(json.dumps(status, indent=2) + '\n')
+          prefix = 'DECODE-RECONSTRUCTION '
+          summaries = {}
+          for label in ('serial', 'loaded-primary', 'loaded-peer'):
+              lines = Path(f'decode-reconstruction-{label}.log').read_text().splitlines()
+              records = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+              assert len(records) == 306, (label, len(records))
+              for tap, count in (('render', 190), ('pair', 105), ('file-summary', 10), ('summary', 1)):
+                  assert sum(r['tap'] == tap for r in records) == count, (label, tap)
+              assert records[-1]['tap'] == 'summary' and records[-1]['files'] == 5
+              assert any('Executed 1 test,' in line for line in lines), (label, 'exactly one native test must execute')
+              summaries[label] = records[-1]
+              Path(f'decode-reconstruction-{label}.json').write_text(json.dumps(records, indent=2) + '\n')
+              changed = [r for r in records if r['tap'] == 'pair' and
+                         (r['changedDisplayBytes'] or r['sceneChangedSamples'])]
+              print(f'DECODE-RECONSTRUCTION-COVERAGE {label}: render=190 pairs=105 complete=true changedPairs={len(changed)}')
+          a, b = summaries['loaded-primary'], summaries['loaded-peer']
+          assert a['processID'] != b['processID']
+          overlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])
+          assert overlap > 0, f'no actual test-body overlap: {overlap}'
+          print(f'DECODE-RECONSTRUCTION-LOAD independentPIDs={a["processID"]},{b["processID"]} actualTestBodyOverlapSeconds={overlap}; not proof of simultaneous GPU execution')
+          assert all(r['exitStatus'] == 0 for r in status['processes'].values()), status
+          PY
+      - name: Keep exact records and failures without images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-reconstruction-${{ github.sha }}
+          path: |
+            decode-reconstruction-*.log
+            decode-reconstruction-*.json
+          if-no-files-found: error
+          retention-days: 14

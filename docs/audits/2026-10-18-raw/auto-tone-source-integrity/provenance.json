@@ -1,0 +1,28 @@
+{
+  "base_commit": "0a82064e16453683b4682fc918042b504b3e65bd",
+  "swift_version": "Swift version 6.1.2 (swift-6.1.2-RELEASE)\nTarget: x86_64-unknown-linux-gnu",
+  "source_sha256": {
+    "Sources/LumenApp/AppStateActions.swift": "835aff5f691ccd9acb909c359cecad4be1283bdc66266a2d494de23b5dd94124",
+    "Tests/LumenAppTests/AutoToneSourceIntegrityTests.swift": "e1b091e82f63fbfb0bce4bc84d87ade97e8ff9d85d78f3f294511a0d731f581a",
+    "Sources/LumenCore/Catalog/SourceFileIdentity.swift": "f1525319942d41c8ccb3b980a3e4cf75e47a68a6145fd20912a605a07087629b",
+    "Sources/LumenCore/Recipe/Fingerprint.swift": "f7722c7dee68e612f5166300358d8fac674e153159bbc21737c275c30e754e83"
+  },
+  "archived_sha256": {
+    "green.log": "a656c4d7da4bdde4538df9801fc83726e4805f177871a5c1d28c4693acd35770",
+    "red.log": "e23baf19dbd8aee912cc4f9b08505f36a6dbcd4512c1101a9ee46b04e8960c14",
+    "mutant-main.swift": "1235dc0cbd3150d24632d5b17fbac38258c6676b5823719f4d1d4b74624770d0",
+    "extract-witness.py": "c116650b81862fe87d8d517b7610572519131fe48dd54e80f68a406a32af5ca3",
+    "XXH64-extracted.swift": "734d03d1ba9e08d6c998f3925d7c8df20ff23b9c2f0c39c2e78e1a865b777d7a",
+    "SourceFileIdentity.swift": "f1525319942d41c8ccb3b980a3e4cf75e47a68a6145fd20912a605a07087629b",
+    "main.swift": "1b53af076839658f04c54b943572fd0bcecf5cec26959515f8d622eafe5ce04d"
+  },
+  "executed_binary_sha256": {
+    "green": "038da834b4019f07cdacf626ad852535e6434922b944e0af1cbf434dfba9bfe0",
+    "red": "b00c6c267ce54f799386693de03c7b4ad4cc0d15aaa7a35b830f195baf185943"
+  },
+  "green_exit": 0,
+  "red_exit": 1,
+  "green_checks": 8,
+  "red_failed_checks": 5,
+  "qualification": "Extracted context methods and actual identity implementation only; not native AppState/SDK execution."
+}

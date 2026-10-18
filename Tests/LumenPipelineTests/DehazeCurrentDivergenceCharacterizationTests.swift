@@ -5,10 +5,11 @@ import XCTest
 @testable import LumenCore
 @testable import LumenPipeline
 
-/// Characterizes two current algorithms; this is deliberately not CPU/GPU parity
-/// acceptance and does not establish which result is more natural for a real sky.
-final class DehazeCurrentDivergenceCharacterizationTests: XCTestCase {
-    func testCurrentBrightFlatPlateauDivergenceAtBothDehazeSigns() throws {
+/// Migrated from the archived pre-fix divergence characterization to the documented
+/// sky contract. Historical GPU equations remain explicit negative controls below.
+/// This is controlled mathematical evidence, not real-sky quality acceptance.
+final class DehazeSkyContractTests: XCTestCase {
+    func testBrightFlatPlateauMatchesBothDocumentedSkyTerms() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
         let width = 128, height = 128
         let source = ImageBuffer(width: width, height: height) { u, _ in
@@ -36,11 +37,10 @@ final class DehazeCurrentDivergenceCharacterizationTests: XCTestCase {
             .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) as Any,
             .workingFormat: CIFormat.RGBAf,
         ])
-        // Independently expanded plateau formulas, rather than a second copy of
-        // either implementation: CPU uses floor .9, GPU base floor .45.
-        // Negative CPU distance=1, GPU distance=1-.24=.76.
+        // Independent plateau equations. Historical no-sky GPU formulas are
+        // retained as negative controls, not accepted outputs.
         let expectedCPU = [1 - 0.2 / 0.9, 0.8 + 0.2 * 0.9]
-        let expectedGPU = [1 - 0.2 / 0.45, 0.8 + 0.2 * 0.76 * 0.9]
+        let historicalGPU = [1 - 0.2 / 0.45, 0.8 + 0.2 * 0.76 * 0.9]
         for (i, amount) in [100.0, -100.0].enumerated() {
             let cpu = DetailEngine.applyDehaze(source, amount: amount, decomposition: decomposition)
             let output = RenderGraph.applyDehaze(input, amount: amount, longEdge: width)
@@ -57,17 +57,19 @@ final class DehazeCurrentDivergenceCharacterizationTests: XCTestCase {
             for channel in [gpu[x, y].r, gpu[x, y].g, gpu[x, y].b] {
                 // Existing stage readback bound, against the independently expanded
                 // constant, not widened into an acceptance band for path divergence.
-                XCTAssertEqual(channel, expectedGPU[i], accuracy: 1e-3)
+                XCTAssertEqual(channel, expectedCPU[i], accuracy: 1e-3)
             }
             XCTAssertLessThan(cpu[100, y].maxAbsDifference(RGB(gray: 1)), 1e-6)
             XCTAssertLessThan(gpu[100, y].maxAbsDifference(RGB(gray: 1)), 1e-3)
-            XCTAssertGreaterThan(cpu[x, y].maxAbsDifference(gpu[x, y]), 0.04)
-            let record: [String] = ["DEHAZE-CURRENT-DIVERGENCE", "amount=\(amount)",
+            XCTAssertLessThan(cpu[x, y].maxAbsDifference(gpu[x, y]), 1e-3)
+            XCTAssertGreaterThan(abs(gpu[x, y].r - historicalGPU[i]), 0.04,
+                "old no-sky equations must fail this contract")
+            let record: [String] = ["DEHAZE-SKY-CONTRACT", "amount=\(amount)",
                 "cpu=\(cpu[x, y].r)", "gpu=\(gpu[x, y].r)",
-                "expectedCPU=\(expectedCPU[i])", "expectedGPU=\(expectedGPU[i])",
+                "expectedCPU=\(expectedCPU[i])", "historicalGPU=\(historicalGPU[i])",
                 "maxRGBDifference=\(cpu[x, y].maxAbsDifference(gpu[x, y]))",
                 "referenceTransmission=\(transmission)", "referenceAirlight=\(airlight.r)",
-                "qualityAcceptance=false", "parityAcceptance=false"]
+                "qualityAcceptance=false", "controlledPlateauParity=true"]
             print(record.joined(separator: " "))
         }
     }

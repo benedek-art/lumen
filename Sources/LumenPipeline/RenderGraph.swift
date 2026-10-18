@@ -939,7 +939,7 @@ public struct RenderGraph {
             out = Self.applyDetailBands(out, detail: d, lum: lum, longEdge: longEdge)
         }
         if d.dehaze != 0 {
-            out = Self.applyDehaze(out, amount: d.dehaze, longEdge: longEdge)
+            out = Self.applyDehaze(out, amount: d.dehaze, longEdge: longEdge, skySource: image)
         }
         return out
     }
@@ -1076,7 +1076,41 @@ public struct RenderGraph {
         return out
     }
 
-    static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int) -> CIImage {
+    /// Exact sky-evidence definition shared with DetailEngine.Decomposition:
+    /// log2(max(Y/.18, 2^-20)), central differences, box-smoothed tensor, sqrt(lambda1).
+    /// This deliberately does not reuse localStructure's Sobel/encoded-axis contract.
+    static func dehazeSkyFields(_ image: CIImage, longEdge: Int)
+        -> (logEV: CIImage, magnitude: CIImage)? {
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        guard let logEV = KernelLibrary.apply(KernelLibrary.dehazeLogEV,
+            extent: image.extent, [image, CIVector(x: weights.r, y: weights.g, z: weights.b)])
+        else { return nil }
+        let horizontal = CIFilter.convolution3X3()
+        horizontal.inputImage = logEV.clampedToExtent()
+        // structureTensor divides its derivative inputs by eight. Four here gives
+        // exactly .5*(right-left), with no Sobel cross-axis smoothing.
+        horizontal.weights = CIVector(values: [0, 0, 0, -4, 0, 4, 0, 0, 0], count: 9)
+        horizontal.bias = 0
+        let vertical = CIFilter.convolution3X3()
+        vertical.inputImage = logEV.clampedToExtent()
+        vertical.weights = CIVector(values: [0, -4, 0, 0, 0, 0, 0, 4, 0], count: 9)
+        vertical.bias = 0
+        let workingRadius = Swift.min(Swift.max(Int(Double(longEdge) * 0.02), 3),
+                                      Int(Swift.max(image.extent.width, image.extent.height)))
+        let radius = Swift.max(workingRadius / 4, 1)
+        guard let gx = horizontal.outputImage?.cropped(to: image.extent),
+              let gy = vertical.outputImage?.cropped(to: image.extent),
+              let tensor = KernelLibrary.apply(KernelLibrary.structureTensor,
+                  extent: image.extent, [gx, gy, Float(1)]),
+              let smoothed = Self.boxBlur(tensor, radius: radius),
+              let magnitude = KernelLibrary.apply(KernelLibrary.tensorMagnitude,
+                  extent: image.extent, [smoothed])
+        else { return nil }
+        return (logEV, magnitude)
+    }
+
+    static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int,
+                            skySource: CIImage? = nil) -> CIImage {
         let strength = Num.clamp(amount / 100.0, -1, 1)
         guard strength != 0 else { return image }
         // The reference sizes the dark-channel window off `min(width, height) / 100`.
@@ -1197,10 +1231,11 @@ public struct RenderGraph {
             refined = Self.clamped(biased, low: 0.02, high: 1.0) ?? biased
         }
 
-        // The same base transmission floor the reference uses. The reference ALSO lifts
-        // it per pixel toward 0.9 where the frame is bright and flat — its sky guard —
-        // which needs the gradient and log-luminance planes the kernel is not given, so
-        // that part stays reference-only and is listed in BUILDING.md.
+        // The reference freezes its decomposition before Texture/Clarity. Use that
+        // same stage input for sky evidence, with actual EV and central differences.
+        guard let sky = Self.dehazeSkyFields(skySource ?? image, longEdge: longEdge) else {
+            return image
+        }
         let distance = Num.clamp(DetailEngine.dehazeDistance, 0, 100) / 100
         let floorT = Num.mix(0.55, 0.05, distance)
 
@@ -1215,7 +1250,7 @@ public struct RenderGraph {
 
         return KernelLibrary.apply(
             KernelLibrary.dehaze, extent: image.extent,
-            [image, refined,
+            [image, refined, sky.logEV, sky.magnitude,
              CIVector(x: gain.r, y: gain.g, z: gain.b),
              CIVector(x: weights.r, y: weights.g, z: weights.b),
              CIVector(x: airlight.r, y: airlight.g, z: airlight.b),
