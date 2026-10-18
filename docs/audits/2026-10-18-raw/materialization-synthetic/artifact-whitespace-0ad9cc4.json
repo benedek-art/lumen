@@ -1,0 +1,11 @@
+{
+  "allNonArtifactPathsCheckExit": 0,
+  "base": "0ad9cc4d094d223c2e52d11bcb4cec79918380dd",
+  "nonArtifactPathsChecked": 9,
+  "policyChange": false,
+  "reason": "Original public compiler excerpts/records retained byte-for-byte and SHA-verified; all new prose/code paths clean.",
+  "verbatimArtifactFindingsByPath": {
+    "docs/audits/2026-10-18-raw/decode-reconstruction-0ad9cc4/decode-reconstruction-test-roster.log": 14
+  },
+  "verbatimArtifactWhitespaceCheckExit": 2
+}

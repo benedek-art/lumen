@@ -1,0 +1,37 @@
+{
+  "artifact": 12147076466,
+  "bothLoadedReportedChain": [
+    [
+      "CIRenderTaskWaitUntilCompleted",
+      1
+    ],
+    [
+      "MTLCommandBufferErrorDomain",
+      8
+    ],
+    [
+      "IOGPUCommandQueueErrorDomain",
+      8
+    ]
+  ],
+  "bothLoadedReportedDescription": "Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)",
+  "errorChainsTruncated": false,
+  "job": 117755564591,
+  "loadedRawComplete": false,
+  "loadedRawExactCompletedPairs": [
+    18,
+    27
+  ],
+  "privateOneCodeFailureReproduced": false,
+  "productionMemoryPolicyRepairIntegrated": false,
+  "productionSourcesEqual": "c21bb126b4fe41bf8143ddd5bdbed424eefffab8",
+  "productionSourcesTree": "06525f4828a15099f4cee51daee22589832f3820",
+  "rawGraphMemoryEquivalent": false,
+  "run": 39154755689,
+  "serialRawExactPairs": 105,
+  "source": "0ad9cc4d094d223c2e52d11bcb4cec79918380dd",
+  "syntheticExactKnownConstantSampledReadbacks": 180,
+  "syntheticExpectedAttemptsPerProcess": 60,
+  "syntheticLoadedBodyOverlapSeconds": 9.399762416666704,
+  "zipSHA256": "aab1ee9f70e26d602a3455d519ebef2fd84db2b0366f1914403cfb5bf7c387cf"
+}

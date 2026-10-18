@@ -1,0 +1,29 @@
+{
+  "serial": {
+    "records": 61,
+    "attempts": 60,
+    "exactKnownConstant": 60,
+    "complete": true,
+    "executedOneTest": true,
+    "exitStatus": 0,
+    "failures": []
+  },
+  "loaded-primary": {
+    "records": 61,
+    "attempts": 60,
+    "exactKnownConstant": 60,
+    "complete": true,
+    "executedOneTest": true,
+    "exitStatus": 0,
+    "failures": []
+  },
+  "loaded-peer": {
+    "records": 61,
+    "attempts": 60,
+    "exactKnownConstant": 60,
+    "complete": true,
+    "executedOneTest": true,
+    "exitStatus": 0,
+    "failures": []
+  }
+}

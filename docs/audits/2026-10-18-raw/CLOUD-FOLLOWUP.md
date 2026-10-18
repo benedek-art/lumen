@@ -1,5 +1,7 @@
 # Additional source qualification window
 
+Final executed source **0ad9cc4d094d223c2e52d11bcb4cec79918380dd**: fullMac3527/46intentional skips/0fail, ordinaryGPU278/36skip/0fail. ProductionSources byte-identicaltoc21; rendering math frozen29ad. Current public RAW stress is RED with nested Metal command-buffer InsufficientMemory errors, while180same-size synthetic sampledreadbacks pass. No memory-policy remedy or private one-code reproduction. [CLOUD-REPORT.md](CLOUD-REPORT.md) and [CLOUD-PROGRESS.md](CLOUD-PROGRESS.md) consolidate exactsource/commands/CI/counts and supersede preparation statements below. Owner-photo/new-source and clean nativeGUI gates remain; no release/mainmerge/installed-appoverwrite/privateupload.
+
 The owner authorized approximately three additional hours on 2026-10-18 (America/Vancouver) and resumed a separate local Mac worker for owner-photo/native acceptance. Starting stable head is `0a82064e16453683b4682fc918042b504b3e65bd`, whose non-documentation source is the executed `a4bc1506e0e744f58089b56bfbc8953b2d3e6fc0`. The previous CLOUD-REPORT.md remains an exact-source historical report, not qualification of this candidate.
 
 Private images, crops, inventories, catalogs and evidence stay on the Mac. Cloud has no local Mac/drive executor. Local acceptance pins a revision and does not follow branch movement automatically. Coordination is in PR10; cloud exclusively owns candidate production edits. No release, main merge or installed-app overwrite is authorized.
