@@ -63,3 +63,20 @@ Follow-up local frozen SQLite-enabled qualification: `swift test -c release --sc
 GPU lane at5ced9c3 completed successfully: https://github.com/benedek-art/lumen/actions/runs/39106714591 ,222 tests,23 intentional opt-in skips,zero failures.
 
 Independent Leica content check: pinned CC0 fixture1087 SHA256 `3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977`,21,700,096bytes, decoded with rawpy0.27.1/LibRaw0.22.1/NumPy2.5.4. Raw5984x4000 one-channel samples min0,max3947,mean266.64772017,std232.01470442;23,935,985/23,936,000 nonzero. Linear16-bit(no_auto_bright,gamma1,1) min0,max65535,mean4659.42895755,std4054.61010165; normalized mean0.07109955. Default8-bit mean108.91646060,std52.86200732. Fixture contains image detail; hosted Apple-default/flat/ImageIO black is not a genuinely empty scene. This establishes content, not decoder-equivalent colorimetry. Exact stats saved as public-leica-independent.json; reproduction script accepts the public pinned fixture. No photos are committed.
+
+## Integrated follow-up: fa79116
+
+Reviewed source and tests were fast-forwarded onto the owner's checkpoint branch as `fa791166643b3e89ddda42d61207cc3256d82c80`. Previous runs were complete before this push. Draft PR10 stays open/unmerged.
+
+First cloud full optimized Mac result at5ced9c3 is now final: **3,253 tests executed,31 intentional skips,zero failures**. New future-recipe recovery and all six numeric-entry session tests were positively discovered and passed. Full CI was still red because the separate surface-checker symbol table failed; RAW corpus was independently red as recorded above. A full-suite pass does not certify those camera/alarm failures.
+
+Exact follow-up runs (pending when recorded):
+- CI https://github.com/benedek-art/lumen/actions/runs/39107765110
+- GPU https://github.com/benedek-art/lumen/actions/runs/39107764959
+- Layout https://github.com/benedek-art/lumen/actions/runs/39107764982
+- Public RAW https://github.com/benedek-art/lumen/actions/runs/39107765012
+- Proof https://github.com/benedek-art/lumen/actions/runs/39107764963
+
+Local opt-in CPU bookkeeping benchmark on frozen follow-up source, Swift6.1.2 Linux release: `LUMEN_BENCH=1 swift test -c release --scratch-path ... --skip-build --filter SpeedBenchTests` passed one test. RenderPlan default0.037ms, exposure0.026ms, moving-slider cache-miss0.028ms, grade wheel0.063ms, vignette0.027ms,parametric curve0.058ms. These are a small hosted CPU microbenchmark with no baseline comparison, not displayed latency, RAW decode cost or photographer responsiveness. Denoise-plan values rounded to0.000ms and are below this print resolution, not zero-cost processing.
+
+Continue from fa79116's hosted diagnostics before a production decode change. Keep same-timestamp sidecar detection, ordinary recipe publication with missing painting blobs, decoder identifier aliases6/6.dng, and the Leica platform failure as explicit independent investigations. Do not convert guessed chroma alarms to passes or blacklist all dark photographs.
