@@ -3285,7 +3285,12 @@ final class AppState: ObservableObject {
         // open; wiping early opened the scan-window loss above. Both ends of the
         // history live here now.)
         history.clear()
-        var items = urls.map { PhotoItem(id: $0) }
+        // An initialized catalog must positively supply each editable photo's state.
+        // A missing row after a storage failure must never become an editable default.
+        var items = urls.filter { url in
+            guard let row = stored[url] else { return catalog == nil }
+            return !row.recipeUnavailable
+        }.map { PhotoItem(id: $0) }
         // Built locally and assigned once. `recipes` signals every write, and a folder
         // of five thousand photographs would otherwise signal five thousand times
         // before the first frame is drawn.

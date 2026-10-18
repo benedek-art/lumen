@@ -434,6 +434,42 @@ struct LumenTrackStop {
 
 // MARK: - Slider
 
+/// Identity of the adjustment targets a slider entry is allowed to change. Sets copy on
+/// write, so retaining a large batch does not duplicate its selected URLs.
+struct SliderEditContext: Equatable, Sendable {
+    var primary: URL? = nil
+    var selection: Set<URL> = []
+    var maskID: String? = nil
+    var componentIndex: Int? = nil
+    var swatchIndex: Int? = nil
+}
+
+private struct SliderEditContextKey: EnvironmentKey {
+    static let defaultValue = SliderEditContext()
+}
+
+extension EnvironmentValues {
+    var sliderEditContext: SliderEditContext {
+        get { self[SliderEditContextKey.self] }
+        set { self[SliderEditContextKey.self] = newValue }
+    }
+}
+
+/// A pending number belongs to the targets and value that opened the field. The
+/// binding itself follows selection, so reading it at Return without this check
+/// can write photo A's unfinished entry onto photo B, even when both read 0.
+struct SliderNumericEntrySession {
+    let context: SliderEditContext
+    let initialValue: Double
+
+    func resolved(_ text: String, context current: SliderEditContext,
+                  currentValue: Double, range: ClosedRange<Double>) -> Double? {
+        guard context == current, initialValue == currentValue,
+              let parsed = SliderEntry.value(of: text, current: initialValue) else { return nil }
+        return min(max(parsed, range.lowerBound), range.upperBound)
+    }
+}
+
 struct LumenSlider: View {
     let title: String
     @Binding var value: Double
@@ -534,6 +570,7 @@ struct LumenSlider: View {
     /// Same shape and the same reason as the gesture hook above: this control does not
     /// observe `AppState`, and it must not start.
     @Environment(\.sliderFocusChanged) private var sliderFocusChanged
+    @Environment(\.sliderEditContext) private var sliderEditContext
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -567,6 +604,7 @@ struct LumenSlider: View {
     @State private var pressWasReset = false
     @State private var isEditingText = false
     @State private var textValue = ""
+    @State private var numericEntrySession: SliderNumericEntrySession?
     @FocusState private var textFocused: Bool
     /// Keyboard focus on the ROW, which is what the arrows nudge. Distinct from
     /// `textFocused`, which is the readout's text field — while that one holds focus the
@@ -761,6 +799,12 @@ struct LumenSlider: View {
         .focused($rowFocused)
         .onChange(of: rowFocused) { _, focused in
             sliderFocusChanged(focused)
+        }
+        .onChange(of: sliderEditContext) { _, _ in
+            cancelTextEntry()
+        }
+        .onChange(of: textFocused) { _, focused in
+            if !focused { cancelTextEntry() }
         }
         .onDisappear {
             // A panel switch removes the row without the focus ever changing, so the
@@ -1260,7 +1304,7 @@ struct LumenSlider: View {
                     .multilineTextAlignment(.trailing)
                     .focused($textFocused)
                     .onSubmit { commitText() }
-                    .onExitCommand { isEditingText = false }
+                    .onExitCommand { cancelTextEntry() }
             } else {
                 // TABULAR FIGURES ON SF PRO, not SF Mono. The app mixed two typefaces
                 // at 23 sites — a second family, a different x-height, inches from the
@@ -1276,6 +1320,8 @@ struct LumenSlider: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         textValue = formatted
+                        numericEntrySession = SliderNumericEntrySession(
+                            context: sliderEditContext, initialValue: value)
                         isEditingText = true
                         textFocused = true
                     }
@@ -1383,8 +1429,15 @@ struct LumenSlider: View {
         sliderGestureChanged(false)
     }
 
-    private func commitText() {
+    private func cancelTextEntry() {
+        numericEntrySession = nil
         isEditingText = false
+        textFocused = false
+    }
+
+    private func commitText() {
+        let session = numericEntrySession
+        cancelTextEntry()
         // Through `SliderEntry` in LumenCore, which is where the grammar and its refusals
         // are tested. It accepts arithmetic — `+= 0.3`, `-= 0.2`, `* 2`, `/ 2` (docs/28
         // Phase 6, claiming one of D45's deliberate omissions) — and a bare number is
@@ -1399,7 +1452,9 @@ struct LumenSlider: View {
         // `JSONEncoder` refuses non-conforming floats, so the canonical JSON collapses to
         // "{}" and that is what gets written to the sidecar, erasing the photo's edit
         // from the copy that exists to survive losing the catalog.
-        guard let parsed = SliderEntry.value(of: textValue, current: value) else { return }
+        guard let parsed = session?.resolved(textValue, context: sliderEditContext,
+                                            currentValue: value, range: effectiveHardRange)
+        else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
         onEditingChanged?(true)

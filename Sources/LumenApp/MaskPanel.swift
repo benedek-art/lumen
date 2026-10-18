@@ -204,10 +204,18 @@ struct MaskPanel: View {
     /// different kinds of question (docs/35 §4.1). Each is a surface now, and each says
     /// its own question beside its name, once.
     var body: some View {
-        switch role {
-        case .navigator: navigatorBody
-        case .adjustments: adjustmentsBody
+        Group {
+            switch role {
+            case .navigator: navigatorBody
+            case .adjustments: adjustmentsBody
+            }
         }
+        // Component and point-colour editors reuse their row positions. Pending
+        // numeric text must follow the chosen subtarget as well as the photograph.
+        .environment(\.sliderEditContext, SliderEditContext(
+            primary: state.primarySelection?.id, selection: state.selection,
+            maskID: state.activeMaskID, componentIndex: state.activeComponentIndex,
+            swatchIndex: selectedSwatch))
     }
 
     /// The pop-out: everything about MAKING the mask.

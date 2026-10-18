@@ -4,15 +4,15 @@
 // which is upstream of both).
 //
 // The panel's job is to keep the division of labour visible: capture sharpening
-// undoes the sensor's own blur once, at decode, from the frame's measured PSF; manual
-// sharpening is a creative amount applied late, after local edits, so masked clarity
+// scales the raw decoder's at-demosaic sharpener; manual sharpening is a creative
+// amount applied late, after local edits, so masked clarity
 // is never double-sharpened. A user who understands that stops stacking one on top of
 // the other to fix the other's artefacts.
 //
-// Optional-field policy (CaptureSharpen.amount): nil means "measured from the frame's
-// own greens" — a real number that only the decode knows. The Amount row stands in the
-// engine's own 100 while the field is nil and badges the section AUTO; the first move
-// pins a concrete value, and "Use measured values" writes nil back.
+// Optional-field policy (CaptureSharpen.amount): nil means "use the decoder's default
+// sharpening at 100%"; Lumen performs no per-frame measurement. The Amount row shows
+// the engine's own 100 while the field is nil and badges the section AUTO; the first move
+// pins a concrete value, and "Use decoder default" writes nil back.
 //
 // There is no Radius row and no Overrides fold, both deliberately.
 // `CaptureSharpen.radius` reaches only `DetailEngine.captureSharpen`, which has no
@@ -186,19 +186,18 @@ struct DetailPanel: View {
             // sure what that does." The caption now says where the values come from,
             // and the row's help says what Auto means and how to leave or return to
             // it. Nothing in this row lights up, because nothing in it is clickable
-            // except the "Use measured values" button, which carries its own help.
+            // except the "Use decoder default" button, which carries its own help.
             HStack(spacing: 6) {
-                Text(hasCaptureOverride ? "Manual" : "Measured from the file")
+                Text(hasCaptureOverride ? "Manual" : "Decoder default")
                     .font(.lumenCaption)
                     .foregroundStyle(Lumen.secondaryText)
                 Spacer()
                 if hasCaptureOverride {
-                    Button("Use measured values") { clearCaptureOverrides() }
+                    Button("Use decoder default") { clearCaptureOverrides() }
                         .buttonStyle(.plain)
                         .font(.lumenCaption)
                         .foregroundStyle(Lumen.accent)
-                        .help("Clears the hand-set Amount back to the strength the "
-                              + "decode measured")
+                        .help("Clears the hand-set Amount back to the decoder default")
                 } else {
                     LumenBadge(text: "Auto")
                 }
@@ -240,12 +239,12 @@ struct DetailPanel: View {
                 + "sharpening below does run."
         }
         if hasCaptureOverride {
-            return "Manual — a hand-set Amount is overriding the strength the decode "
-                + "measured. \u{201C}Use measured values\u{201D} clears it."
+            return "Manual — Amount scales the raw decoder's default sharpening. "
+                + "Use decoder default restores the 100% scale."
         }
-        return "Auto — measured from the file: the raw decode sets this frame's "
-            + "capture sharpening itself, and Amount is applying it at full measured "
-            + "strength. The first move pins a manual value."
+        return "Auto — applies the raw decoder's default sharpening at 100%. "
+            + "Lumen does not measure a sharpness or blur radius from this frame. "
+            + "The first move pins a manual scale."
     }
 
     /// Amount's tooltip, branching on file type the way the AI-denoise row already
@@ -262,9 +261,9 @@ struct DetailPanel: View {
                 + "does not go through — so this changes nothing here. Manual "
                 + "sharpening below does run."
         }
-        return "Scales the sharpening the raw decode measured for this frame: 100 "
-            + "applies it exactly as measured, lower backs it off, higher pushes "
-            + "past it. Reset clears a hand-set value back to measured."
+        return "Scales the raw decoder's default sharpening: 100 applies the default, "
+            + "lower backs it off, and higher pushes past it. Reset restores 100%. "
+            + "This is a decoder scale, not a measured blur correction."
     }
 
     private var hasCaptureOverride: Bool {
@@ -277,7 +276,7 @@ struct DetailPanel: View {
     }
 
     /// Clears `radius` as well, though no control writes it now: a recipe from another
-    /// build can carry one, and "Use measured values" must mean all of them.
+    /// build can carry one, and "Use decoder default" must mean all of them.
     private func clearCaptureOverrides() {
         binder.edit("detail.capture.auto.restore") { recipe in
             recipe.develop.detail.capture.radius = nil

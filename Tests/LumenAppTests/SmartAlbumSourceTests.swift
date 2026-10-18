@@ -47,6 +47,93 @@ final class SmartAlbumSourceTests: XCTestCase {
         try await body(state, catalog, folders, urls, root)
     }
 
+    func testUnreadableRecipeIsIsolatedWithoutSidecarRecoveryOrDefaultOverwrite() async throws {
+        try await fixture { state, catalog, folders, urls, root in
+            let path = root.appendingPathComponent("catalog/lumen.db").path
+            let db = try CatalogStore(path: path)
+            let original = try Data(contentsOf: urls[0])
+            let photo = try XCTUnwrap(db.photos(matching: PhotoQuery()).first { $0.filename == urls[0].lastPathComponent })
+            var external = Recipe(); external.develop.tone.exposure = 1
+            let sidecar = CatalogService.sidecarURL(for: urls[0])
+            let sidecarBytes = Data(XMPSidecar.serialize(SidecarContent(recipeJSON: try CanonicalJSON.canonicalRecipeJSON(external))).utf8)
+            try sidecarBytes.write(to: sidecar)
+            for (json, version) in [("{broken", supportedPipelineVersion), ("{}", supportedPipelineVersion + 10), ("{\"pipelineVersion\":\(supportedPipelineVersion + 10)}", supportedPipelineVersion)] {
+                _ = try db.saveRecipe(Recipe(), photoID: photo.id, isCurrent: true)
+                try db.debugExecute("UPDATE edit SET recipe = '\(json)', pipeline_version = \(version) WHERE photo_id = \(photo.id) AND is_current = 1;")
+                let before = try XCTUnwrap(db.currentEdit(photoID: photo.id))
+                _ = catalog.registerAndLoad(folder: folders[0], files: [urls[0]])
+                let entries = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+                XCTAssertEqual(Set(entries.map(\.url)), Set(urls.dropFirst()))
+                // Even a stale caller that retained this ID cannot publish defaults.
+                catalog.saveRecipe(Recipe(), url: urls[0], catalogID: photo.id)
+                _ = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+                XCTAssertEqual(try db.currentEdit(photoID: photo.id)?.recipeJSON, before.recipeJSON)
+                XCTAssertEqual(try db.currentEdit(photoID: photo.id)?.pipelineVersion, before.pipelineVersion)
+                XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBytes)
+                state.openFolder(folders[0], restrictedTo: [urls[0]])
+                try await self.settle(state)
+                XCTAssertTrue(state.allPhotos.isEmpty, "unreadable edit must never become an editable default")
+                XCTAssertEqual(try Data(contentsOf: urls[0]), original)
+            }
+            db.close()
+        }
+    }
+
+    func testUnreadableRecipeAndMembershipSurviveCloseAndReopen() async throws {
+        try await fixture { _, _, folders, urls, root in
+            let directory = root.appendingPathComponent("isolated-catalog")
+            let first = try CatalogService(directory: directory)
+            let loaded = first.registerAndLoad(folder: folders[0], files: [urls[0]])
+            let id = try XCTUnwrap(loaded[urls[0]]?.catalogID)
+            let db = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path)
+            _ = try db.saveRecipe(Recipe(), photoID: id, isCurrent: true)
+            let album = try db.createCollection(name: "Keep membership")
+            try db.addToCollection(album, photoIDs: [id])
+            try db.debugExecute("UPDATE edit SET recipe = '{broken' WHERE photo_id = \(id) AND is_current = 1;")
+            let before = try XCTUnwrap(db.currentEdit(photoID: id))
+            _ = first.registerAndLoad(folder: folders[0], files: [urls[0]])
+            _ = first.close()
+            let second = try CatalogService(directory: directory)
+            defer { _ = second.close(); db.close() }
+            _ = second.registerAndLoad(folder: folders[0], files: [urls[0]])
+            let usable = try await second.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertTrue(usable.isEmpty)
+            XCTAssertEqual(try db.currentEdit(photoID: id), before)
+            var query = PhotoQuery(); query.sourceScope = .album(album)
+            XCTAssertEqual(try db.photos(matching: query).map(\.id), [id])
+            XCTAssertFalse(try XCTUnwrap(db.photo(id: id)).missing)
+        }
+    }
+
+    func testFailedCatalogRegistrationDoesNotExposeDefaultRecipesOrPublishSidecars() async throws {
+        try await fixture { state, catalog, folders, urls, root in
+            let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            defer { db.close() }
+            let row = try XCTUnwrap(db.photos(matching: PhotoQuery()).first { $0.filename == urls[0].lastPathComponent })
+            var edited = Recipe(); edited.develop.tone.exposure = 1
+            catalog.saveRecipe(edited, url: urls[0], catalogID: row.id)
+            _ = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            catalog.flushSidecars()
+            let sidecar = CatalogService.sidecarURL(for: urls[0])
+            let before = try Data(contentsOf: sidecar)
+            // Deterministic storage failure, without chmod/root/filesystem differences.
+            try db.debugExecute("CREATE TRIGGER reject_registration BEFORE INSERT ON folder BEGIN SELECT RAISE(ABORT, 'injected storage refusal'); END;")
+            state.openFolder(folders[0], restrictedTo: [urls[0]])
+            try await self.settle(state)
+            XCTAssertTrue(state.allPhotos.isEmpty)
+            XCTAssertNil(state.primarySelection)
+            state.updateRecipe { $0.develop.tone.exposure = -2 }
+            catalog.flushSidecars()
+            XCTAssertEqual(try Data(contentsOf: sidecar), before)
+            XCTAssertEqual(try db.currentRecipe(photoID: row.id), edited)
+            try db.debugExecute("DROP TRIGGER reject_registration;")
+            state.openFolder(folders[0], restrictedTo: [urls[0]])
+            try await self.settle(state)
+            XCTAssertEqual(state.allPhotos.count, 1)
+            XCTAssertEqual(state.recipe(for: try XCTUnwrap(state.allPhotos.first)), edited)
+        }
+    }
+
     func testProductionSourceLoadsWholeCatalogSubtreeAndManualAlbumWithMatchingCounts() async throws {
         try await fixture { state, catalog, folders, _, root in
             let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)

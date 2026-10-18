@@ -486,6 +486,9 @@ struct ColorPanel: View {
         .onChange(of: swatches.count) { old, new in
             if new > old { selectedSwatch = new - 1 }
         }
+        .environment(\.sliderEditContext, SliderEditContext(
+            primary: state.primarySelection?.id, selection: state.selection,
+            swatchIndex: selectedSwatch))
     }
 
     /// One swatch chip: the colour, the ring that marks the selection, and — on the
