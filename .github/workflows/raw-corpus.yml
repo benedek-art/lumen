@@ -533,7 +533,7 @@ jobs:
           swift test -c release --filter AuditRawAccuracyTests.testNativeFirstCacheDisplayedCausalMatrix 2>&1 | tee native-causal.log
           test "$(grep -c '^native-causal: ' native-causal.log)" -eq 26
 
-      - name: Native boundary through samples, Dehaze, EDR and TIFF16
+      - name: Native boundary through samples, Point Colour, Dehaze, EDR and TIFF16
         if: ${{ !cancelled() }}
         timeout-minutes: 20
         shell: bash
@@ -544,13 +544,16 @@ jobs:
         run: |
           set -o pipefail
           swift test -c release --filter NativeConsumerConsistencyTests 2>&1 | tee native-consumers.log
-          test "$(grep -c '^native-consumer-file: ' native-consumers.log)" -eq 30
-          test "$(grep -c '^native-consumer-pair: ' native-consumers.log)" -eq 150
-          test "$(grep -c '^native-consumer-timing: ' native-consumers.log)" -eq 90
+          # Five fixtures x seven consumers = 35 files and 105 policy timings.
+          # Preserve the original 150 pairs; Point Colour adds 25 matrix pairs
+          # plus five production-first/eager-first comparisons = 180 pairs.
+          test "$(grep -c '^native-consumer-file: ' native-consumers.log)" -eq 35
+          test "$(grep -c '^native-consumer-pair: ' native-consumers.log)" -eq 180
+          test "$(grep -c '^native-consumer-timing: ' native-consumers.log)" -eq 105
 
       # Each cell starts a new test process. File-system caches are NOT flushed;
       # time -l measures command peak RSS, not GPU residency or a cold disk load.
-      - name: Process-cold native samples and Dehaze
+      - name: Process-cold native samples, Point Colour and Dehaze
         if: ${{ !cancelled() }}
         timeout-minutes: 20
         shell: bash
@@ -563,8 +566,8 @@ jobs:
             directory="$RUNNER_TEMP/native-process-$fixture"
             mkdir -p "$directory"
             cp "$CORPUS_DIR/$fixture" "$directory/"
-            for consumer in sample-scene dehazeSDR; do
-              if [ "$consumer" = sample-scene ]; then
+            for consumer in sample-scene sample-point-color dehazeSDR; do
+              if [ "$consumer" != dehazeSDR ]; then
                 method=testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies
               else
                 method=testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies

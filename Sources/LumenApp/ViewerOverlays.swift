@@ -2252,7 +2252,7 @@ struct CropOverlayView: View {
 
     private var rotationContext: CropRotationContext {
         CropRotationContext(photoID: photoID, primaryID: state.primarySelection?.id,
-                            targetIDs: Set(state.editTargets.map(\.id)),
+                            targetIDs: state.editTargetIDs,
                             sourceSize: state.sourceFrameSize ?? sourceSize,
                             flipH: state.currentRecipe.develop.geometry.flipH)
     }

@@ -2067,6 +2067,8 @@ final class AppState: ObservableObject {
         libraryQueryGeneration &+= 1
         let generation = scanGeneration
         let mutation = sourceMutationRevision
+        let openingPhotos = allPhotos
+        let openingRecipes = recipes
         let mappingRevision = sourceRevision
         let folder = folderURL
         let loader = querySourceLoader
@@ -2082,25 +2084,41 @@ final class AppState: ObservableObject {
                 // Reload catalog truth after any mapping change; simply rebasing old
                 // URLs would retain wrong subtree membership after an actual move.
                 var observedMapping = mappingRevision
+                var baselinePhotos = openingPhotos
+                var baselineRecipes = openingRecipes
+                var baselineMutation = mutation
                 while self.sourceRevision != observedMapping {
+                    // A relink starts a fresh read of the new mapping. Commit the
+                    // current draft before that read without ending an active pointer
+                    // gesture or changing its undo epoch or later-sample deferral.
+                    self.persistGestureSnapshot()
                     observedMapping = self.sourceRevision
+                    baselinePhotos = self.allPhotos
+                    baselineRecipes = self.recipes
+                    baselineMutation = self.sourceMutationRevision
                     entries = try await catalog.querySource(scope: scope, folderPath: folder?.path)
                     guard self.scanGeneration == generation, self.folderURL == folder else { return }
                 }
                 // Edits made while reading belong to the old visible roll. Flush them
                 // and retain its latest values for overlapping catalog identities.
                 self.sliderGesture(active: false)
-                let changed = self.sourceMutationRevision != mutation
-                var oldByID: [Int64: PhotoItem] = [:]
-                if changed { for item in self.allPhotos { if let id = item.catalogID { oldByID[id] = item } } }
+                let changed = self.sourceMutationRevision != baselineMutation
+                var beforeByURL: [URL: PhotoItem] = [:]
+                var currentByURL: [URL: PhotoItem] = [:]
+                if changed {
+                    beforeByURL = Dictionary(baselinePhotos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    currentByURL = Dictionary(self.allPhotos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                }
                 var states: [URL: CatalogService.StoredState] = [:]
                 for entry in entries {
-                    var state = entry.state
-                    if let old = oldByID[state.catalogID] {
-                        state.flag = old.flag; state.rating = old.rating; state.label = old.label
-                        state.recipe = self.recipes[old.id]
+                    var loaded = entry.state
+                    if let before = beforeByURL[entry.url],
+                       let reconciled = FolderScanReconciliation.merge(row: loaded, before: before,
+                            current: currentByURL[entry.url], openingRecipe: baselineRecipes[entry.url],
+                            currentRecipe: self.recipes[entry.url]) {
+                        loaded = reconciled
                     }
-                    states[entry.url] = state
+                    states[entry.url] = loaded
                 }
                 self.isApplyingQuerySource = true
                 self.activeSmartCollection = album
@@ -2873,6 +2891,10 @@ final class AppState: ObservableObject {
         return []
     }
 
+    /// Gesture identity projects only the edit selection, without an intermediate
+    /// URL array or a walk of the visible roll on each pointer event.
+    var editTargetIDs: Set<URL> { Set(editTargets.lazy.map(\.id)) }
+
     // MARK: Catalog
 
     private func openCatalog() {
@@ -3164,6 +3186,11 @@ final class AppState: ObservableObject {
         scanGeneration &+= 1
         let generation = scanGeneration
         let catalog = self.catalog
+        // The old roll remains editable while registration reads its catalog snapshot.
+        // Keep a baseline so only edits made during this scan supersede that snapshot.
+        let openingPhotos = allPhotos
+        let openingRecipes = recipes
+        let openingMutation = sourceMutationRevision
         // The previous folder's culling pass is measuring photographs that are leaving
         // the screen; it stops after the one it is on.
         catalog?.cancelCullingAnalysis()
@@ -3193,7 +3220,17 @@ final class AppState: ObservableObject {
                 // Open folder A, then B before A finishes, and A's scan can land
                 // second. The newest folder the user asked for is the one on screen.
                 guard let self, self.scanGeneration == generation else { return false }
-                self.applyScan(found, stored: stored)
+                var reconciled = stored
+                if self.sourceMutationRevision != openingMutation {
+                    let currentPhotos = Dictionary(self.allPhotos.map { ($0.id, $0) },
+                                                   uniquingKeysWith: { first, _ in first })
+                    for before in openingPhotos {
+                        reconciled[before.id] = FolderScanReconciliation.merge(
+                            row: reconciled[before.id], before: before, current: currentPhotos[before.id],
+                            openingRecipe: openingRecipes[before.id], currentRecipe: self.recipes[before.id])
+                    }
+                }
+                self.applyScan(found, stored: reconciled)
                 return true
             }
             guard stillCurrent else { return }
@@ -4231,6 +4268,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Publish a draft before a source-mapping read without ending its pointer
+    /// gesture. Retain pending values so release still publishes the latest sample.
+    func persistGestureSnapshot() {
+        guard sliderGestureActive, !pendingGesturePersist.isEmpty else { return }
+        persist(pendingGesturePersist)
+    }
+
     /// Also called from `prepareToQuit`: a gesture whose release the app never saw
     /// (a cancelled drag, a window torn down mid-gesture) must not cost the edit.
     func flushSliderGesture() {
@@ -4256,12 +4300,18 @@ final class AppState: ObservableObject {
     /// "Edited: no" filter honest.
     func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
+        var registered: [CatalogService.RecipeSave] = []
         for (url, recipe) in changes {
-            // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
-            // of the whole source, per changed photo, per mouse event, on the main
-            // actor, in front of the render. See `catalogIDCache`.
-            catalog.saveRecipe(recipe, url: url, catalogID: catalogID(for: url))
+            // Keep the cached identity lookup on the main actor; sorting and recipe
+            // work happen on the catalog queue once for the released edit batch.
+            if let id = catalogID(for: url) {
+                registered.append(CatalogService.RecipeSave(recipe: recipe, url: url, catalogID: id))
+            } else {
+                // Preserve the existing source-only compatibility path.
+                catalog.saveRecipe(recipe, url: url, catalogID: nil)
+            }
         }
+        catalog.saveRecipes(registered)
         refreshLibraryQueryIfEditStateShows()
     }
 

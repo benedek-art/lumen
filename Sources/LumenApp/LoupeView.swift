@@ -2149,7 +2149,7 @@ struct LoupeView: View {
                     dragContext: {
                         StraightenDrawContext(photoID: photo.id,
                             primaryID: state.primarySelection?.id,
-                            targetIDs: Set(state.editTargets.map(\.id)),
+                            targetIDs: state.editTargetIDs,
                             sourceSize: state.sourceFrameSize ?? model.image.map {
                                 CGSize(width: $0.width, height: $0.height)
                             } ?? source,

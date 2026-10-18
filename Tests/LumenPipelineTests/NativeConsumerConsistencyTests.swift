@@ -10,7 +10,7 @@ import LumenCore
 /// Opt-in first-native/cache-promotion evidence through shipping consumers. A fresh
 /// AppleRawSource is used for EVERY consumer/policy. Policies are experiments at the
 /// ImageSource seam, not production changes. Exact identity remains mandatory;
-/// synthetic parity and these two public fixtures do not certify camera aesthetics.
+/// synthetic parity and public fixtures do not certify camera aesthetics.
 final class NativeConsumerConsistencyTests: XCTestCase {
     private enum Policy: String, CaseIterable {
         case unchanged, intermediate, eager
@@ -212,7 +212,7 @@ final class NativeConsumerConsistencyTests: XCTestCase {
         }
     }
 
-    private func matrix(_ consumer: String,
+    private func matrix(_ consumer: String, compareProductionFirstToEager: Bool = false,
                         measure: (BoundarySource, PipelineRenderer, Recipe, Int) throws -> Snapshot) throws {
         // Optional selectors let the workflow launch one cell in a fresh process.
         // The default still measures the complete matrix in the original order.
@@ -232,10 +232,11 @@ final class NativeConsumerConsistencyTests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let consumerNames: Set<String> = [
             "dehazeSDR", "EDRhalf", "sample-scene", "sample-color", "sample-mask", "croppedTIFF16",
+            "sample-point-color",
         ]
         if !consumerName.isEmpty {
             guard consumerNames.contains(consumerName) else {
-                XCTFail("LUMEN_AUDIT_NATIVE_CONSUMER_NAME must name one of the six supported consumers")
+                XCTFail("LUMEN_AUDIT_NATIVE_CONSUMER_NAME must name one of the seven supported consumers")
                 return
             }
             if consumerName != consumer { return }
@@ -289,6 +290,13 @@ final class NativeConsumerConsistencyTests: XCTestCase {
                 compare(candidate.1, canonical.1,
                         label: "\(ordinal) \(consumer) intermediate-eager repeat", failures: &failures)
             }
+            if compareProductionFirstToEager,
+               let production = results[.unchanged], let canonical = results[.eager] {
+                // This additional public Point Colour check compares the production
+                // source boundary with an explicit plane before either is reused.
+                compare(production.0, canonical.0,
+                        label: "\(ordinal) \(consumer) production-eager first", failures: &failures)
+            }
             Self.emit("native-consumer-file: \(ordinal) consumer=\(consumer) policies=\(results.count)")
         }
         // Emit every policy/fixture measurement before aggregate exact-identity
@@ -321,11 +329,15 @@ final class NativeConsumerConsistencyTests: XCTestCase {
         }
     }
 
-    private enum Sample: String, CaseIterable { case scene, color, mask }
+    private enum Sample: String, CaseIterable {
+        case scene, color, mask
+        case pointColor = "point-color"
+    }
 
     func testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies() throws {
         for sample in Sample.allCases {
-            try matrix("sample-" + sample.rawValue) { source, renderer, recipe, _ in
+            try matrix("sample-" + sample.rawValue,
+                       compareProductionFirstToEager: sample == .pointColor) { source, renderer, recipe, _ in
                 let picked: RGB?
                 switch sample {
                 case .scene:
@@ -337,6 +349,16 @@ final class NativeConsumerConsistencyTests: XCTestCase {
                 case .mask:
                     picked = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                         sourceX: 0.5, sourceY: 0.5, radius: 2)
+                case .pointColor:
+                    // Exercise the shipping S3/S8 global picker path with actual
+                    // presence before S9. Denoise remains Off to isolate Dehaze;
+                    // this measures identity and completed sample cost, not camera
+                    // colour calibration or subjective denoise quality.
+                    var edited = recipe
+                    edited.develop.denoise.mode = .off
+                    edited.develop.detail.dehaze = 35
+                    picked = renderer.sampleColorStageInput(source: source, recipe: edited,
+                        sourceX: 0.5, sourceY: 0.5, tap: .pointColor(index: 0), radius: 2)
                 }
                 let rgb = try XCTUnwrap(picked, "Native sampler must produce a value")
                 XCTAssertTrue(rgb.isFinite)

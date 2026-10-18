@@ -1191,6 +1191,84 @@ final class CatalogService: @unchecked Sendable {
         return recipe
     }
 
+    struct RecipeSave: Sendable {
+        let recipe: Recipe
+        let url: URL
+        let catalogID: Int64
+    }
+
+    /// Commit bounded prefixes without repeatedly encoding the whole journal per photo.
+    /// A rejected photo retains its old edit. A journal failure rolls back only its
+    /// chunk; earlier chunks remain durable and the unattempted tail is refused.
+    func saveRecipes(_ requests: [RecipeSave]) {
+        guard !requests.isEmpty else { return }
+        if requests.count == 1, let request = requests.first {
+            saveRecipe(request.recipe, url: request.url, catalogID: request.catalogID)
+            return
+        }
+        queue.async {
+            guard !self.sidecarsClosed else {
+                self.report("Could not save the edit batch — the catalog is closed")
+                return
+            }
+            let ordered = requests.sorted(by: { $0.url.absoluteString < $1.url.absoluteString })
+            var committedCount = 0
+            // Keep every chunk in this already-enqueued block: close cannot overtake
+            // an asynchronously scheduled tail. 64 bounds the first commit window;
+            // it is a measured compromise, not a universal throughput optimum.
+            for start in stride(from: 0, to: ordered.count, by: 64) {
+                let end = min(start + 64, ordered.count)
+                var rejected: [String] = []
+                var prepared: [(request: RecipeSave, fields: SidecarStatedFields)] = []
+                // Inspect only this chunk before opening SQL. Painting inspection
+                // may report an existing size warning and must stay outside SQL.
+                for request in ordered[start..<end] {
+                    do {
+                        _ = try CanonicalJSON.canonicalRecipeJSON(request.recipe)
+                        _ = try RecipeFingerprint.fingerprint(request.recipe)
+                    } catch {
+                        rejected.append("Could not save the edit for \(request.url.lastPathComponent) — it contains a value the recipe format cannot represent")
+                        continue
+                    }
+                    let painting = self.sidecarStrokes(for: request.recipe, url: request.url)
+                    var fields: SidecarStatedFields = [.recipe]
+                    if painting != nil { fields.insert(.strokes) }
+                    prepared.append((request, fields))
+                }
+                var acceptedCount = 0
+                do {
+                    if !prepared.isEmpty {
+                        try self.commitSidecarIntent {
+                            var intents: [UnsavedSidecarRecord] = []
+                            for item in prepared {
+                                let request = item.request
+                                do {
+                                    try self.requireAvailablePhotoOnQueue(photoID: request.catalogID)
+                                    // This photo's transaction becomes a SAVEPOINT.
+                                    try self.store.saveRecipe(request.recipe, photoID: request.catalogID,
+                                        isCurrent: true, isRenderedFile: PhotoFormats.isRendered(request.url))
+                                    intents.append(self.sidecarIntent(for: request.url, photoID: request.catalogID,
+                                                                      stated: item.fields))
+                                } catch {
+                                    rejected.append("Could not save the edit for \(request.url.lastPathComponent) — \(error)")
+                                }
+                            }
+                            acceptedCount = intents.count
+                            return intents
+                        }
+                    }
+                } catch {
+                    // No report callback runs while the outer transaction is open.
+                    for message in rejected { self.report(message) }
+                    self.report("Could not finish the edit batch — \(committedCount) earlier edits remain committed; \(end - start) photos in this chunk were not committed (\(acceptedCount) accepted edits were rolled back); \(ordered.count - end) remaining photos were not attempted (\(error))")
+                    return
+                }
+                committedCount += acceptedCount
+                for message in rejected { self.report(message) }
+            }
+        }
+    }
+
     func saveRecipe(_ recipe: Recipe, url: URL, catalogID: Int64?) {
         // If a recipe cannot be canonicalized, write NOTHING. The previous code fell
         // back to "{}" and "xxh64:0", which wrote an empty recipe over the sidecar —

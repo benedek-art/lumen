@@ -64,7 +64,14 @@ final class CatalogUnavailableExportTests: XCTestCase {
             state.openFolder(photo.deletingLastPathComponent())
             try await self.waitUntil { !state.isScanning }
             let browsable = try XCTUnwrap(state.allPhotos.first)
-            XCTAssertEqual(browsable.id, photo.resolvingSymlinksInPath())
+            // macOS can enumerate /private/var while the temporary URL spells /var.
+            // Require the exact same filesystem object, independent of that alias.
+            let scannedAttributes = try FileManager.default.attributesOfItem(atPath: browsable.id.path)
+            let fixtureAttributes = try FileManager.default.attributesOfItem(atPath: photo.path)
+            XCTAssertEqual(try XCTUnwrap(scannedAttributes[.systemNumber] as? NSNumber),
+                           try XCTUnwrap(fixtureAttributes[.systemNumber] as? NSNumber))
+            XCTAssertEqual(try XCTUnwrap(scannedAttributes[.systemFileNumber] as? NSNumber),
+                           try XCTUnwrap(fixtureAttributes[.systemFileNumber] as? NSNumber))
             state.primarySelection = browsable
             XCTAssertNotEqual(state.recipe(for: browsable), saved,
                               "failure browsing must not claim the saved recipe was recovered")

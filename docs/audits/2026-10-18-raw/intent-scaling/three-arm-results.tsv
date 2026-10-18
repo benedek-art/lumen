@@ -1,0 +1,5 @@
+pending	bare_total_ms	per_mutation_total_ms	single_batch_total_ms	bare_last40_ms	per_mutation_last40_ms	single_batch_mean_ms	journal_json_bytes
+40	75.738	95.547	76.995	75.738	95.547	1.925	5513
+200	385.148	739.752	351.446	78.241	195.305	1.757	27695
+500	918.008	2951.991	837.309	69.926	369.231	1.675	69395
+1000	1844.277	9712.651	1716.592	75.606	671.810	1.717	138897

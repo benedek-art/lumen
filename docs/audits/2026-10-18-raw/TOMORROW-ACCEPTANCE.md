@@ -19,8 +19,11 @@ Use the final source SHA and its exact-source CI results from CLOUD-PROGRESS.md.
 
 - Use disposable copies for external-XMP conflict, missing brush/heal dependency, failed write, disconnect/reconnect and restart exercises. Confirm the latest catalog edit, exact retained external document and portable painting/debt recovery. Future/corrupt formats must remain intact and unavailable where their edit cannot be represented.
 - Verify named snapshots, gesture history, selection changes and a real new-process restart. Cloud AppState reconstruction and generated fixtures do not prove every native lifecycle.
+- While an overlapping folder or library query is loading, edit one photograph and separately change another photograph's external XMP. Confirm only local changes override the loaded snapshot, untouched external changes survive, and later edits/reopen/export retain both. Include a relink while a new slider gesture is active.
+- For a large selected batch, distinguish the first durable prefix, complete catalog commit and complete XMP publication. A failed later chunk intentionally retains earlier committed edits and refuses the remaining tail; inspect the warning and restart recovery on disposable data. In-memory uncommitted gestures and physical power loss remain separate gates.
 - Inspect tiny brush endpoints, feathered edges, heal-source positioning and mask coverage at native resolution, including rotated/reflected/cropped photos. Geometry oracle passes do not establish subjective edge/texture quality.
 - Compare preview and actual JPEG/TIFF16/HDR delivery under matching geometry, output color management and sharpening. Check highlights, skin, saturated edges, fine foliage, B&W and local edits before/after reopen. Keep calibrated target/chart evidence distinct from pleasing appearance.
+- Dehaze has a confirmed bright-flat synthetic CPU/GPU disagreement at both signs. Production math and saved looks were preserved; investigate the actual rendering path and calibrated scenes before any creative change or parity claim.
 - Exercise real removable/full/disconnected volumes and independent backup hardware on disposable test data. Synthetic filesystem failure injection does not qualify physical-drive behavior.
 
 ## Denoise and responsiveness, separately

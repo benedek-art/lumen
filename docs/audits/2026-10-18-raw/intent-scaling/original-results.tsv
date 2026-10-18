@@ -1,0 +1,6 @@
+pending	bare_total_ms	intent_total_ms	bare_last40_ms	intent_last40_ms	bare_last40_per_op_ms	intent_last40_per_op_ms	intent_json_bytes
+40	72.978	88.318	72.978	88.318	1.824	2.208	5513
+200	407.523	774.807	89.261	188.670	2.232	4.717	27695
+500	972.641	3102.609	76.702	409.739	1.918	10.243	69395
+1000	1914.001	9892.476	78.127	673.439	1.953	16.836	138897
+overall_wall_seconds=11.850
