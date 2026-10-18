@@ -1,0 +1,15 @@
+{
+  "appleSDKTypecheck": false,
+  "checkerGoodBadControls": "all passed",
+  "checkerGoodBadFixtures": 41,
+  "kernels": 51,
+  "macTargetSyntaxParseExit": 0,
+  "nativeExecution": "pending",
+  "sourceCheckerDeclaredParseSkips": 1,
+  "sourceCheckerExit": 0,
+  "sourceCheckerInitializers": 7998,
+  "sourceCheckerLabels": 19831,
+  "sourceCheckerTypes": 1285,
+  "workflowBashBlocksParsed": 4,
+  "workflowPythonASTBlocksParsed": 3
+}

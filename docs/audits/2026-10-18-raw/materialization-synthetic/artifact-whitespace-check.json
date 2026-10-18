@@ -1,0 +1,13 @@
+{
+  "allNonArtifactCodeWorkflowScriptDocumentationPathsCheckExit": 0,
+  "base": "c21bb126b4fe41bf8143ddd5bdbed424eefffab8",
+  "nonArtifactPathsChecked": 18,
+  "policyChange": false,
+  "reason": "Original compiler source excerpts and TSV empty fields retained byte-for-byte, SHA-verified; no code/checker/math assertion exception.",
+  "verbatimArtifactFindingsByPath": {
+    "docs/audits/2026-10-18-raw/decode-reconstruction-c21bb12/decode-reconstruction-test-roster.log": 14,
+    "docs/audits/2026-10-18-raw/raw-corpus-c21bb12/canonical-decode.log": 14,
+    "docs/audits/2026-10-18-raw/raw-corpus-c21bb12/corpus.log": 342
+  },
+  "verbatimArtifactWhitespaceCheckExit": 2
+}

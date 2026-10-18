@@ -1,0 +1,144 @@
+warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+[0/1] Planning build
+Building for production...
+[0/3] Write swift-version--79AA4F9932D1E87A.txt
+Build complete! (0.40s)
+Test Suite 'Selected tests' started at 2026-10-18 18:13:50.200.
+Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 18:13:50.202.
+Test Suite 'AuditRawAccuracyTests' started at 2026-10-18 18:13:50.202.
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix]' started.
+
+native-causal-timing: fixture1 render=1 total-ms=369.517542 decode-call-ms=265.192666 width=108 height=162
+
+native-causal-timing: fixture1 render=2 total-ms=7.821542 decode-call-ms=0.003375 width=108 height=162
+
+native-causal-branch: fixture1 edge=4592.0 firstHeld=112265216 repeatedHeld=112265216
+
+native-causal: fixture1 off-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=3 total-ms=6.760209 decode-call-ms=0.005292 width=108 height=162
+
+native-causal: fixture1 off-repeat-vs-ai0 changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=4 total-ms=199.466917 decode-call-ms=140.623208 width=108 height=162
+
+native-causal-timing: fixture1 render=5 total-ms=8.155709 decode-call-ms=0.003667 width=108 height=162
+
+native-causal: fixture1 ai0-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=6 total-ms=90.85675 decode-call-ms=0.000167 width=108 height=162
+
+native-causal-timing: fixture1 render=7 total-ms=7.1695 decode-call-ms=0.00025 width=108 height=162
+
+native-causal: fixture1 fixed-first-source-same-renderer-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=8 total-ms=7.139792 decode-call-ms=0.000416 width=108 height=162
+
+native-causal: fixture1 fixed-first-source-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=9 total-ms=60.087458 decode-call-ms=0.000125 width=108 height=162
+
+native-causal: fixture1 fixed-first-source-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=10 total-ms=29.145333 decode-call-ms=8.3e-05 width=108 height=162
+
+native-causal: fixture1 fixed-first-source-vs-explicit-plane changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=11 total-ms=14.586958 decode-call-ms=0.001 width=108 height=162
+
+native-causal: fixture1 fixed-plane-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=12 total-ms=7.060167 decode-call-ms=0.000125 width=108 height=162
+
+native-causal: fixture1 fixed-plane-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=13 total-ms=57.002166 decode-call-ms=0.000167 width=108 height=162
+
+native-causal: fixture1 fixed-plane-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=14 total-ms=29.569333 decode-call-ms=8.3e-05 width=108 height=162
+
+native-causal: fixture1 inserted-intermediate-vs-explicit-plane changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=15 total-ms=7.184584 decode-call-ms=0.000375 width=108 height=162
+
+native-causal: fixture1 inserted-intermediate-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+
+native-causal-timing: fixture1 render=16 total-ms=52.976292 decode-call-ms=0.00025 width=108 height=162
+
+native-causal: fixture1 inserted-intermediate-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+
+audit-raw-file: native-causal fixture1 measured pairs=13 failures=0
+
+native-causal-timing: fixture2 render=1 total-ms=1396.239459 decode-call-ms=1328.348542 width=130 height=98
+
+native-causal-timing: fixture2 render=2 total-ms=7.656708 decode-call-ms=0.012292 width=130 height=98
+
+native-causal-branch: fixture2 edge=3680.0 firstHeld=81254400 repeatedHeld=81254400
+
+native-causal: fixture2 off-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=3 total-ms=5.296833 decode-call-ms=0.00475 width=130 height=98
+
+native-causal: fixture2 off-repeat-vs-ai0 changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=4 total-ms=271.690125 decode-call-ms=178.355625 width=130 height=98
+
+native-causal-timing: fixture2 render=5 total-ms=9.5275 decode-call-ms=0.005791 width=130 height=98
+
+native-causal: fixture2 ai0-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=6 total-ms=57.9665 decode-call-ms=0.000334 width=130 height=98
+
+native-causal-timing: fixture2 render=7 total-ms=8.057417 decode-call-ms=4.2e-05 width=130 height=98
+
+native-causal: fixture2 fixed-first-source-same-renderer-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=8 total-ms=7.489167 decode-call-ms=0.000459 width=130 height=98
+
+native-causal: fixture2 fixed-first-source-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=9 total-ms=67.177625 decode-call-ms=0.000166 width=130 height=98
+
+native-causal: fixture2 fixed-first-source-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=10 total-ms=18.721292 decode-call-ms=8.4e-05 width=130 height=98
+
+native-causal: fixture2 fixed-first-source-vs-explicit-plane changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=11 total-ms=6.154416 decode-call-ms=0.000208 width=130 height=98
+
+native-causal: fixture2 fixed-plane-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=12 total-ms=6.178583 decode-call-ms=0.000208 width=130 height=98
+
+native-causal: fixture2 fixed-plane-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=13 total-ms=67.932709 decode-call-ms=8.3e-05 width=130 height=98
+
+native-causal: fixture2 fixed-plane-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=14 total-ms=32.536792 decode-call-ms=4.2e-05 width=130 height=98
+
+native-causal: fixture2 inserted-intermediate-vs-explicit-plane changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=15 total-ms=7.101333 decode-call-ms=0.0005 width=130 height=98
+
+native-causal: fixture2 inserted-intermediate-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+
+native-causal-timing: fixture2 render=16 total-ms=50.398583 decode-call-ms=8.3e-05 width=130 height=98
+
+native-causal: fixture2 inserted-intermediate-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+
+audit-raw-file: native-causal fixture2 measured pairs=13 failures=0
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix]' passed (4.488 seconds).
+Test Suite 'AuditRawAccuracyTests' passed at 2026-10-18 18:13:54.690.
+	 Executed 1 test, with 0 failures (0 unexpected) in 4.488 (4.488) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 18:13:54.690.
+	 Executed 1 test, with 0 failures (0 unexpected) in 4.488 (4.488) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 18:13:54.690.
+	 Executed 1 test, with 0 failures (0 unexpected) in 4.488 (4.490) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.

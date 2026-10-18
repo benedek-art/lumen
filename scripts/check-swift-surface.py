@@ -231,6 +231,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "RandomNumberGenerator", "WritableKeyPath", "ReferenceWritableKeyPath", "KeyPath",
     "ObjCBool", "Duration", "ContinuousClock", "SuspendingClock",
     # Foundation
+    # NSError userInfo keys used by bounded test-only failure diagnostics.
+    "NSUnderlyingErrorKey", "NSLocalizedDescriptionKey",
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
     "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",

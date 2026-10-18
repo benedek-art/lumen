@@ -1,0 +1,684 @@
+warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+[0/1] Planning build
+Building for debugging...
+[0/4] Write swift-version--79AA4F9932D1E87A.txt
+Build complete! (0.55s)
+Test Suite 'Selected tests' started at 2026-10-18 18:08:08.257.
+Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 18:08:08.258.
+Test Suite 'AuditRawAccuracyTests' started at 2026-10-18 18:08:08.258.
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault]' started.
+
+raw-pixel-check: pin6 corpus1346 samples=81900 maxAbsolute=0.0009615421295166016 normalized=0.26990883867455684
+
+raw-pixel-check: pin7 corpus1346 samples=81900 maxAbsolute=0.0009633302688598633 normalized=0.2737118792445918
+
+raw-pixel-check: pin8 corpus1346 samples=81900 maxAbsolute=0.0009701251983642578 normalized=0.2737118792445918
+
+raw-pixel-check: pin6 corpus1346 samples=81900 maxAbsolute=0.0009615421295166016 normalized=0.26990883867455684
+
+raw-pixel-check: pin999999 corpus1346 samples=81900 maxAbsolute=0.0009701251983642578 normalized=0.2737118792445918
+
+audit-raw-file: pins corpus1346 decoded pins=6,7,8,6,999999
+
+raw-pixel-check: pin6 corpus2102 samples=16224 maxAbsolute=0.0002429187297821045 normalized=0.10890939222252523
+
+raw-pixel-check: pin999999 corpus2102 samples=16224 maxAbsolute=0.0002429187297821045 normalized=0.10890939222252523
+
+audit-raw-file: pins corpus2102 decoded pins=6,999999
+
+raw-pixel-check: pin7 corpus4671 samples=64896 maxAbsolute=0.00048792362213134766 normalized=0.19354477991305952
+
+raw-pixel-check: pin8 corpus4671 samples=64896 maxAbsolute=0.0008882284164428711 normalized=0.25057609633852196
+
+raw-pixel-check: pin7 corpus4671 samples=64896 maxAbsolute=0.00048792362213134766 normalized=0.19354477991305952
+
+raw-pixel-check: pin999999 corpus4671 samples=64896 maxAbsolute=0.0008882284164428711 normalized=0.25057609633852196
+
+audit-raw-file: pins corpus4671 decoded pins=7,8,7,999999
+
+raw-pixel-check: pin7 corpus5812 samples=132908 maxAbsolute=0.0009558200836181641 normalized=0.24131410669658984
+
+raw-pixel-check: pin8 corpus5812 samples=132908 maxAbsolute=0.0009387731552124023 normalized=0.2667381671731248
+
+raw-pixel-check: pin7 corpus5812 samples=132908 maxAbsolute=0.0009558200836181641 normalized=0.24131410669658984
+
+raw-pixel-check: pin999999 corpus5812 samples=132908 maxAbsolute=0.0009387731552124023 normalized=0.2667381671731248
+
+audit-raw-file: pins corpus5812 decoded pins=7,8,7,999999
+
+raw-pixel-check: pin6 corpus824 samples=64480 maxAbsolute=0.0003662109375 normalized=0.14259910637893336
+
+raw-pixel-check: pin7 corpus824 samples=64480 maxAbsolute=0.0003662109375 normalized=0.14259910637893336
+
+raw-pixel-check: pin8 corpus824 samples=64480 maxAbsolute=0.0003662109375 normalized=0.14259910637893336
+
+raw-pixel-check: pin6 corpus824 samples=64480 maxAbsolute=0.0003662109375 normalized=0.14259910637893336
+
+raw-pixel-check: pin999999 corpus824 samples=64480 maxAbsolute=0.0003662109375 normalized=0.14259910637893336
+
+audit-raw-file: pins corpus824 decoded pins=6,7,8,6,999999
+
+raw-pixel-check: pin6 corpus2349 samples=90528 maxAbsolute=0.00024387240409851074 normalized=0.12138550535561426
+
+raw-pixel-check: pin7 corpus2349 samples=90528 maxAbsolute=0.0002440810203552246 normalized=0.12138550535561426
+
+raw-pixel-check: pin6 corpus2349 samples=90528 maxAbsolute=0.00024387240409851074 normalized=0.12138550535561426
+
+raw-pixel-check: pin999999 corpus2349 samples=90528 maxAbsolute=0.0002440810203552246 normalized=0.12138550535561426
+
+audit-raw-file: pins corpus2349 decoded pins=6,7,6,999999
+
+audit-raw-file: pins corpus6001 refused-no-decoder supported=None
+
+raw-pixel-check: pin7 corpus2607 samples=65712 maxAbsolute=0.0019326210021972656 normalized=0.3483318773429465
+
+raw-pixel-check: pin8 corpus2607 samples=65712 maxAbsolute=0.0019459724426269531 normalized=0.34118506263107823
+
+raw-pixel-check: pin7 corpus2607 samples=65712 maxAbsolute=0.0019326210021972656 normalized=0.3483318773429465
+
+raw-pixel-check: pin999999 corpus2607 samples=65712 maxAbsolute=0.0019459724426269531 normalized=0.34118506263107823
+
+audit-raw-file: pins corpus2607 decoded pins=7,8,7,999999
+
+raw-pixel-check: pin7 corpus5283 samples=129792 maxAbsolute=0.0017321109771728516 normalized=0.30394434835461304
+
+raw-pixel-check: pin8 corpus5283 samples=129792 maxAbsolute=0.0017871856689453125 normalized=0.3155492004178585
+
+raw-pixel-check: pin7 corpus5283 samples=129792 maxAbsolute=0.0017321109771728516 normalized=0.30394434835461304
+
+raw-pixel-check: pin999999 corpus5283 samples=129792 maxAbsolute=0.0017871856689453125 normalized=0.3155492004178585
+
+audit-raw-file: pins corpus5283 decoded pins=7,8,7,999999
+
+raw-pixel-check: pin6 corpus2239 samples=64480 maxAbsolute=0.0004870295524597168 normalized=0.19277880011700263
+
+raw-pixel-check: pin7 corpus2239 samples=64480 maxAbsolute=0.0004870891571044922 normalized=0.1928023840680114
+
+raw-pixel-check: pin6 corpus2239 samples=64480 maxAbsolute=0.0004870295524597168 normalized=0.19277880011700263
+
+raw-pixel-check: pin999999 corpus2239 samples=64480 maxAbsolute=0.0004870891571044922 normalized=0.1928023840680114
+
+audit-raw-file: pins corpus2239 decoded pins=6,7,6,999999
+
+raw-pixel-check: pin7 corpus1087 samples=153600 maxAbsolute=0.00023990869522094727 normalized=0.08938230983519413
+
+raw-pixel-check: pin8 corpus1087 samples=153600 maxAbsolute=0.00023990869522094727 normalized=0.08938230983519413
+
+raw-pixel-check: pin6 corpus1087 samples=153600 maxAbsolute=0.00023990869522094727 normalized=0.08938230983519413
+
+raw-pixel-check: pin7 corpus1087 samples=153600 maxAbsolute=0.00023990869522094727 normalized=0.08938230983519413
+
+raw-pixel-check: pin999999 corpus1087 samples=153600 maxAbsolute=0.00023990869522094727 normalized=0.08938230983519413
+
+audit-raw-file: pins corpus1087 decoded pins=7,8,6,7,999999
+
+raw-pixel-check: pin6 corpus4264 samples=78408 maxAbsolute=0.0004875659942626953 normalized=0.1933143134638708
+
+raw-pixel-check: pin7 corpus4264 samples=78408 maxAbsolute=0.0004875659942626953 normalized=0.1933143134638708
+
+raw-pixel-check: pin8 corpus4264 samples=78408 maxAbsolute=0.0004875659942626953 normalized=0.1933143134638708
+
+raw-pixel-check: pin6 corpus4264 samples=78408 maxAbsolute=0.0004875659942626953 normalized=0.1933143134638708
+
+raw-pixel-check: pin999999 corpus4264 samples=78408 maxAbsolute=0.0004875659942626953 normalized=0.1933143134638708
+
+audit-raw-file: pins corpus4264 decoded pins=6,7,8,6,999999
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw-pixel-check: pin6 corpus6168 samples=72540 maxAbsolute=0.0008856058120727539 normalized=0.25177880420353
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw-pixel-check: pin7 corpus6168 samples=72540 maxAbsolute=0.0008856058120727539 normalized=0.25177880420353
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw-pixel-check: pin8 corpus6168 samples=72540 maxAbsolute=0.0008856058120727539 normalized=0.25177880420353
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw-pixel-check: pin6 corpus6168 samples=72540 maxAbsolute=0.0008856058120727539 normalized=0.25177880420353
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw-pixel-check: pin999999 corpus6168 samples=72540 maxAbsolute=0.0008856058120727539 normalized=0.25177880420353
+
+audit-raw-file: pins corpus6168 decoded pins=6,7,8,6,999999
+
+audit-raw-file: pins corpus2767 refused-no-decoder supported=None
+
+audit-raw-file: pins corpus1116 refused-no-decoder supported=None
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: pins corpus3949 refused-no-decoder supported=None
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault]' passed (23.538 seconds).
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity]' started.
+
+raw9-display-capability: corpus1346 default=8 supported=6,7,8 default-is-last
+
+audit-raw-file: raw9-display corpus1346 no-raw9
+
+raw9-display-capability: corpus2102 default=6 supported=6 default-is-last
+
+audit-raw-file: raw9-display corpus2102 no-raw9
+
+raw9-display-capability: corpus4671 default=8 supported=7,8 default-is-last
+
+audit-raw-file: raw9-display corpus4671 no-raw9
+
+raw9-display-capability: corpus5812 default=8 supported=7,8 default-is-last
+
+audit-raw-file: raw9-display corpus5812 no-raw9
+
+raw9-display-capability: corpus824 default=8 supported=6,7,8 default-is-last
+
+audit-raw-file: raw9-display corpus824 no-raw9
+
+raw9-display-capability: corpus2349 default=7 supported=6,7 default-is-last
+
+audit-raw-file: raw9-display corpus2349 no-raw9
+
+raw9-display-capability: corpus6001 default= supported=None default-is-not-last
+
+audit-raw-file: raw9-display corpus6001 no-raw9
+
+raw9-display-capability: corpus2607 default=8 supported=7,8 default-is-last
+
+audit-raw-file: raw9-display corpus2607 no-raw9
+
+raw9-display-capability: corpus5283 default=8 supported=7,8 default-is-last
+
+audit-raw-file: raw9-display corpus5283 no-raw9
+
+raw9-display-capability: corpus2239 default=7 supported=6,7 default-is-last
+
+audit-raw-file: raw9-display corpus2239 no-raw9
+
+raw9-display-capability: corpus1087 default=6 supported=6.dng,7.dng,8.dng,6 default-is-last
+
+audit-raw-file: raw9-display corpus1087 no-raw9
+
+raw9-display-capability: corpus4264 default=8.dng supported=6.dng,7.dng,8.dng default-is-last
+
+audit-raw-file: raw9-display corpus4264 no-raw9
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw9-display-capability: corpus6168 default=8.dng supported=6.dng,7.dng,8.dng default-is-last
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: raw9-display corpus6168 no-raw9
+
+raw9-display-capability: corpus2767 default= supported=None default-is-not-last
+
+audit-raw-file: raw9-display corpus2767 no-raw9
+
+raw9-display-capability: corpus1116 default= supported=None default-is-not-last
+
+audit-raw-file: raw9-display corpus1116 no-raw9
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw9-display-capability: corpus3949 default= supported=None default-is-not-last
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: raw9-display corpus3949 no-raw9
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:450: -[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity] : Test skipped - No RAW9 support in this corpus/OS; displayed pixels untested
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity]' skipped (1.363 seconds).
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode]' started.
+
+audit-raw-file: raw9-preview corpus1346 no-raw9
+
+audit-raw-file: raw9-preview corpus2102 no-raw9
+
+audit-raw-file: raw9-preview corpus4671 no-raw9
+
+audit-raw-file: raw9-preview corpus5812 no-raw9
+
+audit-raw-file: raw9-preview corpus824 no-raw9
+
+audit-raw-file: raw9-preview corpus2349 no-raw9
+
+audit-raw-file: raw9-preview corpus6001 no-raw9
+
+audit-raw-file: raw9-preview corpus2607 no-raw9
+
+audit-raw-file: raw9-preview corpus5283 no-raw9
+
+audit-raw-file: raw9-preview corpus2239 no-raw9
+
+audit-raw-file: raw9-preview corpus1087 no-raw9
+
+audit-raw-file: raw9-preview corpus4264 no-raw9
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: raw9-preview corpus6168 no-raw9
+
+audit-raw-file: raw9-preview corpus2767 no-raw9
+
+audit-raw-file: raw9-preview corpus1116 no-raw9
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: raw9-preview corpus3949 no-raw9
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:284: -[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode] : Test skipped - No RAW9 support in this corpus/OS
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode]' skipped (0.606 seconds).
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels]' started.
+
+audit-raw-file: raw9-native corpus1346 no-raw9
+
+audit-raw-file: raw9-native corpus2102 no-raw9
+
+audit-raw-file: raw9-native corpus4671 no-raw9
+
+audit-raw-file: raw9-native corpus5812 no-raw9
+
+audit-raw-file: raw9-native corpus824 no-raw9
+
+audit-raw-file: raw9-native corpus2349 no-raw9
+
+audit-raw-file: raw9-native corpus6001 no-raw9
+
+audit-raw-file: raw9-native corpus2607 no-raw9
+
+audit-raw-file: raw9-native corpus5283 no-raw9
+
+audit-raw-file: raw9-native corpus2239 no-raw9
+
+audit-raw-file: raw9-native corpus1087 no-raw9
+
+audit-raw-file: raw9-native corpus4264 no-raw9
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: raw9-native corpus6168 no-raw9
+
+audit-raw-file: raw9-native corpus2767 no-raw9
+
+audit-raw-file: raw9-native corpus1116 no-raw9
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: raw9-native corpus3949 no-raw9
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:316: -[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels] : Test skipped - No RAW9 support in this corpus/OS
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels]' skipped (0.609 seconds).
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache]' started.
+
+audit-raw-file: native-dimensions corpus1346 decoded versions=8
+
+audit-raw-file: native-dimensions corpus2102 decoded versions=6
+
+audit-raw-file: native-dimensions corpus4671 decoded versions=8
+
+audit-raw-file: native-dimensions corpus5812 decoded versions=8
+
+audit-raw-file: native-dimensions corpus824 decoded versions=8
+
+audit-raw-file: native-dimensions corpus2349 decoded versions=7
+
+audit-raw-file: native-dimensions corpus6001 refused-no-decoder supported=None
+
+audit-raw-file: native-dimensions corpus2607 decoded versions=8
+
+audit-raw-file: native-dimensions corpus5283 decoded versions=8
+
+audit-raw-file: native-dimensions corpus2239 decoded versions=7
+
+audit-raw-file: native-dimensions corpus1087 decoded versions=6
+
+audit-raw-file: native-dimensions corpus4264 decoded versions=8.dng
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: native-dimensions corpus6168 decoded versions=8.dng
+
+audit-raw-file: native-dimensions corpus2767 refused-no-decoder supported=None
+
+audit-raw-file: native-dimensions corpus1116 refused-no-decoder supported=None
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: native-dimensions corpus3949 refused-no-decoder supported=None
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache]' passed (7.942 seconds).
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile]' started.
+
+raw-pixel-check: default corpus1346 samples=326200 maxAbsolute=0.0009759664535522461 normalized=0.27714641895479747
+
+audit-raw-file: unpinned corpus1346 decoded default=8 supported=6,7,8 default-is-last
+
+raw-pixel-check: default corpus2102 samples=64480 maxAbsolute=0.00019994378089904785 normalized=0.09785007816192487
+
+audit-raw-file: unpinned corpus2102 decoded default=6 supported=6 default-is-last
+
+raw-pixel-check: default corpus4671 samples=259584 maxAbsolute=0.0009276866912841797 normalized=0.2366653865285269
+
+audit-raw-file: unpinned corpus4671 decoded default=8 supported=7,8 default-is-last
+
+raw-pixel-check: default corpus5812 samples=529848 maxAbsolute=0.0009368658065795898 normalized=0.266048867276382
+
+audit-raw-file: unpinned corpus5812 decoded default=8 supported=7,8 default-is-last
+
+raw-pixel-check: default corpus824 samples=257920 maxAbsolute=0.000244140625 normalized=0.12140117208422062
+
+audit-raw-file: unpinned corpus824 decoded default=8 supported=6,7,8 default-is-last
+
+raw-pixel-check: default corpus2349 samples=360640 maxAbsolute=0.0002441108226776123 normalized=0.12141801295374534
+
+audit-raw-file: unpinned corpus2349 decoded default=7 supported=6,7 default-is-last
+
+audit-raw-file: unpinned corpus6001 refused-no-decoder supported=None
+
+raw-pixel-check: default corpus2607 samples=260780 maxAbsolute=0.0019516944885253906 normalized=0.35116903036571145
+
+audit-raw-file: unpinned corpus2607 decoded default=8 supported=7,8 default-is-last
+
+raw-pixel-check: default corpus5283 samples=517920 maxAbsolute=0.0019352436065673828 normalized=0.3488912376591062
+
+audit-raw-file: unpinned corpus5283 decoded default=8 supported=7,8 default-is-last
+
+raw-pixel-check: default corpus2239 samples=257920 maxAbsolute=0.0004882216453552246 normalized=0.19338080791130166
+
+audit-raw-file: unpinned corpus2239 decoded default=7 supported=6,7 default-is-last
+
+raw-pixel-check: default corpus1087 samples=613120 maxAbsolute=0.00011707842350006104 normalized=0.06688367611820321
+
+audit-raw-file: unpinned corpus1087 decoded default=6 supported=6.dng,7.dng,8.dng,6 default-is-last
+
+raw-pixel-check: default corpus4264 samples=312664 maxAbsolute=0.00048798322677612305 normalized=0.1944338299189657
+
+audit-raw-file: unpinned corpus4264 decoded default=8.dng supported=6.dng,7.dng,8.dng default-is-last
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+raw-pixel-check: default corpus6168 samples=288920 maxAbsolute=0.0009751319885253906 normalized=0.27454113302319216
+
+audit-raw-file: unpinned corpus6168 decoded default=8.dng supported=6.dng,7.dng,8.dng default-is-last
+
+audit-raw-file: unpinned corpus2767 refused-no-decoder supported=None
+
+audit-raw-file: unpinned corpus1116 refused-no-decoder supported=None
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+Gain Map will be ignored because of mismatch in green channels
+
+audit-raw-file: unpinned corpus3949 refused-no-decoder supported=None
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile]' passed (8.256 seconds).
+Test Suite 'AuditRawAccuracyTests' passed at 2026-10-18 18:08:50.572.
+	 Executed 6 tests, with 3 tests skipped and 0 failures (0 unexpected) in 42.314 (42.314) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 18:08:50.573.
+	 Executed 6 tests, with 3 tests skipped and 0 failures (0 unexpected) in 42.314 (42.314) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 18:08:50.573.
+	 Executed 6 tests, with 3 tests skipped and 0 failures (0 unexpected) in 42.314 (42.316) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.

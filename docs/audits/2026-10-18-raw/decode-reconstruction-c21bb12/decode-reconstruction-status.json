@@ -1,0 +1,29 @@
+{
+  "command": [
+    "xcrun",
+    "xctest",
+    "-XCTest",
+    "LumenPipelineTests.DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical",
+    "/Users/runner/work/lumen/lumen/.build/arm64-apple-macosx/release/LumenPackageTests.xctest"
+  ],
+  "processes": {
+    "serial": {
+      "pid": 13383,
+      "startNanoseconds": 778922365708,
+      "exitStatus": 0,
+      "endNanoseconds": 840949527000
+    },
+    "loaded-primary": {
+      "pid": 14582,
+      "startNanoseconds": 840963136125,
+      "exitStatus": 1,
+      "endNanoseconds": 874192417083
+    },
+    "loaded-peer": {
+      "pid": 14583,
+      "startNanoseconds": 840974286208,
+      "exitStatus": 1,
+      "endNanoseconds": 874200727916
+    }
+  }
+}

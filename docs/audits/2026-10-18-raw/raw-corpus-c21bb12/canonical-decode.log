@@ -1,0 +1,264 @@
+warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+Building for production...
+[0/14] Write sources
+[0/14] /Users/runner/work/lumen/lumen/.build/arm64-apple-macosx/release/LumenPackageTests.derived/runner.swift
+[3/14] Write sources
+[8/14] Copying Fixtures
+[9/14] Write swift-version--79AA4F9932D1E87A.txt
+[11/15] Compiling LumenCore BlobStore.swift
+[12/16] Compiling LumenPipeline AppleRawSource.swift
+/Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1312:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+1310 | 
+1311 |     private static func make(_ source: String) -> CIColorKernel? {
+1312 |         CIColorKernel(source: source)
+     |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+1313 |     }
+1314 | 
+
+/Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1320:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+1318 |     /// graph around one on that basis.
+1319 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+1320 |         CIKernel(source: source)
+     |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+1321 |     }
+1322 | 
+[13/19] Compiling LumenPipelineTests AuditExportMetadataTests.swift
+[14/19] Compiling LumenApp AppState.swift
+/Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+ 101 | 
+ 102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+ 103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 104 |     }) {
+ 105 |         self.matteProducer = matteProducer
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+3041 |                 await MainActor.run {
+3042 |                     // Another open started meanwhile: that one is what the user wants.
+3043 |                     guard let self,
+     |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+3044 |                           self.expansionRequests.isCurrent(ticket,
+3045 |                                                            scanGeneration: self.scanGeneration)
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3239:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+3237 |                 // Open folder A, then B before A finishes, and A's scan can land
+3238 |                 // second. The newest folder the user asked for is the one on screen.
+3239 |                 guard let self, self.scanGeneration == generation else { return false }
+     |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+3240 |                 var reconciled = stored
+3241 |                 if self.sourceMutationRevision != openingMutation {
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:1429:61: warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+1427 |             queue.async { [store] in
+1428 |                 do {
+1429 |                     continuation.resume(returning: try body(store))
+     |                                                             `- warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+1430 |                 } catch {
+1431 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+
+/Users/runner/work/lumen/lumen/Sources/LumenCore/Catalog/CatalogStore.swift:1057:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+1055 | // MARK: - Store
+1056 | 
+1057 | public final class CatalogStore {
+     |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+1058 | 
+1059 |     // MARK: Stored state
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:19:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+  17 | import Foundation
+  18 | import CryptoKit
+  19 | import LumenCore
+     | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+  20 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+  21 | // with the rest of the platform-image code rather than in LumenCore.
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:82:31: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+ 46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+ 47 | /// property initializer. The members that touch AppKit are.
+ 48 | final class EDRDisplay: ObservableObject {
+    |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+ 49 | 
+ 50 |     static let shared = EDRDisplay()
+    :
+ 80 |                 observers.append(center.addObserver(forName: name, object: nil,
+ 81 |                                                     queue: .main) { [weak self] _ in
+ 82 |                     guard let self else { return }
+    |                               `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+ 83 |                     MainActor.assumeIsolated { self.refresh() }
+ 84 |                 })
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:89:27: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+ 46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+ 47 | /// property initializer. The members that touch AppKit are.
+ 48 | final class EDRDisplay: ObservableObject {
+    |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+ 49 | 
+ 50 |     static let shared = EDRDisplay()
+    :
+ 87 |         if timer == nil {
+ 88 |             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+ 89 |                 guard let self else { return }
+    |                           `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+ 90 |                 MainActor.assumeIsolated { self.refresh() }
+ 91 |             }
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/GridView.swift:421:22: warning: no 'async' operations occur within 'await' expression
+419 | 
+420 |     private func loadThumbnail() async {
+421 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+    |                      `- warning: no 'async' operations occur within 'await' expression
+422 |             if image !== hit { image = hit }
+423 |             return
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/Keymap.swift:46:30: warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+ 44 |         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+ 45 |             guard let self else { return event }
+ 46 |             return MainActor.assumeIsolated {
+    |                              `- warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+ 47 |                 self.handle(event) ? nil : event
+ 48 |             }
+
+:1:1: note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+1 | @_nonSendable(_assumed)
+  | `- note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:634:60: warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+ 632 |         return renderer.renderMaskAlpha(source: source, recipe: recipe,
+ 633 |                                         maskID: maskID, strokeSets: strokeSets,
+ 634 |                                         longEdge: AppState.maskThumbnailLongEdge)
+     |                                                            `- warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+ 635 |     }
+ 636 | 
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:902:16: note: static property declared here
+ 900 |     /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+ 901 |     /// editor does it live is that they compute it at mask resolution.
+ 902 |     static let maskThumbnailLongEdge = 96
+     |                `- note: static property declared here
+ 903 | 
+ 904 |     /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:204:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+202 |         Task { [weak self] in
+203 |             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+204 |                 guard let buffer = AppState.buffer(
+    |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+205 |                     from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+    |                                                  `- note: property access is 'async'
+206 |                 else { return nil }
+207 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:311:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+309 |                 // The traces stay at the proxy long edge whatever the render's size:
+310 |                 // the extra pixels were commissioned for the count, not for the shape.
+311 |                 guard let buffer = AppState.buffer(
+    |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+312 |                     from: result.image, targetLongEdge: AppState.scopeProxyLongEdge)
+    |                                                         `- note: property access is 'async'
+313 |                 else { return nil }
+314 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:486:42: warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+140 |     /// which is the viewport in device pixels. 24 MP is a 6K viewport at 1:1 with room
+141 |     /// over it, and costs 96 MB of transient bytes at the ceiling.
+142 |     static let scopeTapPixelCeiling: Int = 24_000_000
+    |                `- note: static property declared here
+143 | 
+144 |     /// Measure the scopes off the frame the viewer already has.
+    :
+484 |         let height: Int = image.height
+485 |         guard width > 0, height > 0 else { return nil }
+486 |         guard width * height <= AppState.scopeTapPixelCeiling else { return nil }
+    |                                          `- warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+487 |         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+488 |         var bytes = [UInt8](repeating: 0, count: width * height * 4)
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/ViewerOverlays.swift:1120:18: warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+ 992 |     /// compositing at the sampler's full 4096 was interpolating an interpolation at
+ 993 |     /// four times the cost. 2048 keeps a downscale on the way to the screen.
+ 994 |     static let compositeLongEdge = 2048
+     |                `- note: static property declared here
+ 995 | 
+ 996 |     private struct BuildKey: Equatable {
+     :
+1118 |         let cap = MaskOverlay.compositeLongEdge(
+1119 |             alphaLongEdge: Swift.max(alpha.width, alpha.height),
+1120 |             cap: compositeLongEdge)
+     |                  `- warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+1121 |         let longest = Swift.max(rawWidth, rawHeight)
+1122 |         let shrink = longest > cap ? Double(cap) / Double(longest) : 1
+[14/19] Write Objects.LinkFileList
+[15/19] Linking LumenApp
+[17/20] Compiling LumenCoreTests AIDenoiseRenderedHelpTests.swift
+/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/MaskDependencyAdversarialTests.swift:401:77: warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+399 |         // of narrowing here is that a `.model` kind must never reach the segmenter.
+400 |         let bareDotNone: Set<MaskKind> = MaskDependency.wantedMattes(in: recipe,
+401 |                                                                      from: .none)
+    |                                                                             `- warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+402 |         XCTAssertEqual(bareDotNone, everything,
+403 |                        "if this is now empty the ambiguity has been closed")
+
+/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:45:43: warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+ 43 |         first.finish(.cancelled)
+ 44 |         second.finish(.completed)
+ 45 |         async let savedFirst = store.save(first)
+    |                                           `- warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+ 46 |         async let savedSecond = store.save(second)
+ 47 |         _ = try await (savedFirst, savedSecond)
+
+/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:46:44: warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+ 44 |         second.finish(.completed)
+ 45 |         async let savedFirst = store.save(first)
+ 46 |         async let savedSecond = store.save(second)
+    |                                            `- warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+ 47 |         _ = try await (savedFirst, savedSecond)
+ 48 |         let staleSaved = try await store.save(stale)
+[18/20] Compiling LumenAppTests AppStateSeamTests.swift
+/Users/runner/work/lumen/lumen/Tests/LumenAppTests/HistoryPanelTests.swift:54:52: warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+ 52 |     /// One recipe step on one photograph, built the way `updateRecipe` builds one.
+ 53 |     private func step(_ url: URL, key: String?,
+ 54 |                       label: String = HistoryStack.unnamedLabel) -> HistoryStack.Step {
+    |                                                    `- warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+ 55 |         var after = Recipe()
+ 56 |         after.develop.tone.exposure = 0.4
+
+/Users/runner/work/lumen/lumen/Sources/LumenApp/HistoryStack.swift:62:16: note: class property declared here
+ 60 |     /// named this step" and derives a name from the coalescing key instead — and a
+ 61 |     /// literal `"Edit"` written in two files is how that agreement would quietly end.
+ 62 |     static let unnamedLabel = "Edit"
+    |                `- note: class property declared here
+ 63 | 
+ 64 |     /// A drag that pauses longer than this starts a new undo step, so "nudge, think,
+[19/21] Compiling LumenPackageTests runner.swift
+[19/21] Write Objects.LinkFileList
+[20/21] Linking LumenPackageTests
+Build complete! (279.00s)
+Test Suite 'Selected tests' started at 2026-10-18 18:13:32.426.
+Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 18:13:32.430.
+Test Suite 'CanonicalDecodePolicyTests' started at 2026-10-18 18:13:32.430.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testEligibilityKeepsExistingByteAndLongEdgeCaps]' started.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testEligibilityKeepsExistingByteAndLongEdgeCaps]' passed (0.004 seconds).
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testEligibleFailureNeverReturnsLazyPixelsAndSubsequentAttemptCanSucceed]' started.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testEligibleFailureNeverReturnsLazyPixelsAndSubsequentAttemptCanSucceed]' passed (0.274 seconds).
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testEligibleRaw9FailureCannotReturnLazyPixels]' started.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testEligibleRaw9FailureCannotReturnLazyPixels]' passed (0.001 seconds).
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testInvalidExtentNeverBecomesAnOversizedLazyFallback]' started.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testInvalidExtentNeverBecomesAnOversizedLazyFallback]' passed (0.001 seconds).
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testOversizedLegacyPolicyReturnsLazyWithoutAttemptingAllocation]' started.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testOversizedLegacyPolicyReturnsLazyWithoutAttemptingAllocation]' passed (0.000 seconds).
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testOversizedRaw9StillRequiresItsColourBoundaryAndRefuses]' started.
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testOversizedRaw9StillRequiresItsColourBoundaryAndRefuses]' passed (0.001 seconds).
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testPublicRawEligibleFailureRetriesWithoutCachingAnAlternateImage]' started.
+
+canonical-decode-retry: attempts=2 held=112265216 first-refused retry-canonical cache-identical
+Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testPublicRawEligibleFailureRetriesWithoutCachingAnAlternateImage]' passed (1.329 seconds).
+Test Suite 'CanonicalDecodePolicyTests' passed at 2026-10-18 18:13:34.041.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 1.609 (1.610) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 18:13:34.041.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 1.609 (1.611) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 18:13:34.041.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 1.609 (1.615) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.

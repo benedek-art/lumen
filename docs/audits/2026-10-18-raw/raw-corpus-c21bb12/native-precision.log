@@ -1,0 +1,28 @@
+warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+[0/1] Planning build
+Building for production...
+[0/3] Write swift-version--79AA4F9932D1E87A.txt
+Build complete! (0.63s)
+Test Suite 'Selected tests' started at 2026-10-18 18:13:37.204.
+Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 18:13:37.207.
+Test Suite 'AuditRawAccuracyTests' started at 2026-10-18 18:13:37.207.
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeCachePromotionPrecisionEvidence]' started.
+
+native-precision: fixture1 decoder=7 first-repeat=0.0 explicit-materialization=0.0 first-cache=0.0 materialized-cache=0.0 cache-repeat=0.0 held-bytes=112265216 materialize-ms=211.357417
+
+audit-raw-file: native-precision fixture1 measured
+
+native-precision: fixture2 decoder=8 first-repeat=0.0 explicit-materialization=0.0 first-cache=0.0 materialized-cache=0.0 cache-repeat=0.0 held-bytes=81254400 materialize-ms=104.094333
+
+audit-raw-file: native-precision fixture2 measured
+Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeCachePromotionPrecisionEvidence]' passed (2.915 seconds).
+Test Suite 'AuditRawAccuracyTests' passed at 2026-10-18 18:13:40.122.
+	 Executed 1 test, with 0 failures (0 unexpected) in 2.915 (2.915) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 18:13:40.122.
+	 Executed 1 test, with 0 failures (0 unexpected) in 2.915 (2.915) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 18:13:40.122.
+	 Executed 1 test, with 0 failures (0 unexpected) in 2.915 (2.918) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.

@@ -1,0 +1,12 @@
+c21bb126b4fe41bf8143ddd5bdbed424eefffab8
+ProductName:		macOS
+ProductVersion:		15.7.9
+BuildVersion:		24G830
+arm64
+Xcode 16.4
+Build version 16F6
+swift-driver version: 1.120.5 Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)
+Target: arm64-apple-macosx15.0
+bae3ecf035cd5b04e751054d18f61a7bd9f91b83f22597c9707fae6f5c802926  Sources/LumenPipeline/AppleRawSource.swift
+366c22409be33f0bc9f9b251df22ab66587b930db583f1f148e2f0817b9cdc1a  Sources/LumenPipeline/DecodeMaterializer.swift
+5ab019bdb6b4db9147bced317b38f7c0385fc4399cefc3843e0b7599f813cdcc  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift

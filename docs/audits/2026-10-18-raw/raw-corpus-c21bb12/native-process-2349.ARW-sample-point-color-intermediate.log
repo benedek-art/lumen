@@ -1,0 +1,41 @@
+warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+[0/1] Planning build
+Test Suite 'Selected tests' started at 2026-10-18 18:15:42.821.
+Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 18:15:42.823.
+Test Suite 'NativeConsumerConsistencyTests' started at 2026-10-18 18:15:42.823.
+Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies]' started.
+
+native-consumer-fixtures: available=1 limit=1 selected=1
+
+native-consumer-timing: fixture1 consumer=sample-point-color policy=intermediate decoder=7 edge=4592.0 constructMs=285.633166 firstMs=979.787041 repeatMs=20.833125 firstHeld=112265216 repeatHeld=112265216
+
+native-consumer-pair: fixture1 sample-point-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+
+native-consumer-file: fixture1 consumer=sample-point-color policies=1
+Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies]' passed (1.293 seconds).
+Test Suite 'NativeConsumerConsistencyTests' passed at 2026-10-18 18:15:44.116.
+	 Executed 1 test, with 0 failures (0 unexpected) in 1.293 (1.293) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 18:15:44.116.
+	 Executed 1 test, with 0 failures (0 unexpected) in 1.293 (1.293) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 18:15:44.116.
+	 Executed 1 test, with 0 failures (0 unexpected) in 1.293 (1.295) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.
+        3.18 real         1.69 user         0.92 sys
+            92930048  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               55997  page reclaims
+                1089  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  90  voluntary context switches
+                4346  involuntary context switches
+            24004352  peak memory footprint

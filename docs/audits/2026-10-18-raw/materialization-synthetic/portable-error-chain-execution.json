@@ -1,0 +1,12 @@
+{
+  "binarySHA256": "83f8fd6dd2bdd67aca4ee4900e502d20aa54644bc6869b99a5f04aa714bf0c50",
+  "compileCommand": "LD_LIBRARY_PATH=/workspace/scratch/2982a056243e/swift-deps/usr/lib/x86_64-linux-gnu /workspace/scratch/2982a056243e/swift/usr/bin/swiftc /tmp/materialization-error-chain-control.swift -o /tmp/materialization-error-chain-control",
+  "compileExit": 0,
+  "compiler": "Swift6.1.2 x86_64-unknown-linux-gnu",
+  "executeCommand": "LD_LIBRARY_PATH=/workspace/scratch/2982a056243e/swift-deps/usr/lib/x86_64-linux-gnu /tmp/materialization-error-chain-control",
+  "executeExit": 0,
+  "executedBy": "decode investigation worker; tool output reported to root, no root rerun",
+  "nativeAppleSDKQualification": false,
+  "sourceSHA256": "9ce6fed1ee7abad02723deb4b61fcd91404518c3dbcb40886c11aba4a5806e26",
+  "stdout": "Foundation error-chain control PASS: four levels, depth limit, redacted secret absent, explicit disclosure present"
+}

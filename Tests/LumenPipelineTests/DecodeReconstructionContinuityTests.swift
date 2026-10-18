@@ -61,6 +61,48 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
         }
         return error.localizedDescription
     }
+    /// Test-only bounded NSError traversal. No userInfo values are serialized.
+    static func boundedErrorChain(_ error: NSError, includeDescriptions: Bool) -> [String: Any] {
+        var current: NSError? = error
+        var seen = Set<ObjectIdentifier>()
+        var nodes: [[String: Any]] = []
+        var termination = "none"
+        while let next = current {
+            if nodes.count == 4 { termination = "depth-limit"; break }
+            guard seen.insert(ObjectIdentifier(next)).inserted else {
+                termination = "cycle"; break
+            }
+            let underlying = next.userInfo[NSUnderlyingErrorKey]
+            let nested = underlying as? NSError
+            nodes.append(["level": nodes.count, "domain": next.domain, "code": next.code,
+                "underlyingPresent": underlying != nil, "underlyingIsNSError": nested != nil,
+                "description": includeDescriptions ? next.localizedDescription : "withheld"])
+            if underlying != nil && nested == nil { termination = "non-error-underlying" }
+            current = nested
+        }
+        return ["errorChain": nodes, "errorChainTermination": termination,
+                "errorChainTruncated": termination == "depth-limit" || termination == "cycle"]
+    }
+
+    func testBoundedErrorChainWithholdsDescriptionsAndCapsDepth() throws {
+        let secret = "synthetic-private-path-not-for-output"
+        var error = NSError(domain: "synthetic-leaf", code: 7,
+                            userInfo: [NSLocalizedDescriptionKey: secret, "unrelatedPrivateValue": secret])
+        for level in 0..<6 {
+            error = NSError(domain: "synthetic-level", code: level,
+                userInfo: [NSUnderlyingErrorKey: error, NSLocalizedDescriptionKey: secret])
+        }
+        let redacted = Self.boundedErrorChain(error, includeDescriptions: false)
+        let nodes = try XCTUnwrap(redacted["errorChain"] as? [[String: Any]])
+        XCTAssertEqual(nodes.count, 4)
+        XCTAssertEqual(redacted["errorChainTermination"] as? String, "depth-limit")
+        XCTAssertTrue(nodes.allSatisfy { $0["underlyingPresent"] as? Bool == true })
+        let serialized = try JSONSerialization.data(withJSONObject: redacted)
+        XCTAssertNil(serialized.range(of: Data(secret.utf8)), "private descriptions/userInfo must stay withheld")
+        let disclosed = try JSONSerialization.data(withJSONObject: Self.boundedErrorChain(error, includeDescriptions: true))
+        XCTAssertNotNil(disclosed.range(of: Data(secret.utf8)), "explicit public opt-in must preserve descriptions")
+    }
+
     private func diagnosticError(_ error: Error, event: String, context: [String: Any]) {
         let native = error as NSError
         var row = context
@@ -68,6 +110,8 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
         row["errorDomain"] = native.domain
         row["errorCode"] = native.code
         row["errorDescription"] = diagnosticDescription(native)
+        row.merge(Self.boundedErrorChain(native, includeDescriptions:
+            ProcessInfo.processInfo.environment["LUMEN_DECODE_RECONSTRUCTION_PUBLIC_ERRORS"] == "1")) { _, new in new }
         diagnostic(row)
     }
     private func diagnosticMaterializationFailure(_ failure: DecodeMaterializer.MaterializationFailure,
@@ -88,6 +132,8 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
             row["errorDomain"] = error.domain
             row["errorCode"] = error.code
             row["errorDescription"] = diagnosticDescription(error)
+            row.merge(Self.boundedErrorChain(error, includeDescriptions:
+                ProcessInfo.processInfo.environment["LUMEN_DECODE_RECONSTRUCTION_PUBLIC_ERRORS"] == "1")) { _, new in new }
         }
         diagnostic(row)
     }

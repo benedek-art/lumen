@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/workflows/decode-reconstruction.yml'
       - 'Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift'
+      - 'Tests/LumenPipelineTests/SyntheticMaterializationLoadTests.swift'
       - 'Sources/LumenPipeline/AppleRawSource.swift'
       - 'Sources/LumenPipeline/DecodeMaterializer.swift'
   workflow_dispatch:
@@ -157,6 +158,64 @@ jobs:
           print(f'DECODE-RECONSTRUCTION-LOAD independentPIDs={a["processID"]},{b["processID"]} actualTestBodyOverlapSeconds={overlap}; not proof of simultaneous GPU execution')
           assert all(r['exitStatus'] == 0 for r in status['processes'].values()), status
           PY
+      - name: Diagnose same-size synthetic constant graphs separately from RAW failures
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          LUMEN_MATERIALIZATION_SYNTHETIC: '1'
+        run: |
+          set -euo pipefail
+          export DECODE_TEST_BIN_DIR
+          DECODE_TEST_BIN_DIR=$(swift build -c release --show-bin-path)
+          python3 - <<'PYTHON'
+          import json, os, subprocess, time
+          from pathlib import Path
+          bundle = Path(os.environ['DECODE_TEST_BIN_DIR']) / 'LumenPackageTests.xctest'
+          assert bundle.is_dir(), str(bundle)
+          selector = 'LumenPipelineTests.SyntheticMaterializationLoadTests/testSameSizeConstantGraphSharedMaterializerUnderLoad'
+          command = ['xcrun', 'xctest', '-XCTest', selector, str(bundle)]
+          status = {'command': command, 'processes': {}, 'rawGraphMemoryEquivalent': False}
+          def launch(label):
+              stream = open(f'materialization-synthetic-{label}.log', 'w')
+              process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)
+              status['processes'][label] = {'pid': process.pid, 'startNanoseconds': time.monotonic_ns()}
+              return process, stream
+          def finish(label, launched):
+              process, stream = launched
+              code = process.wait()
+              stream.close()
+              status['processes'][label].update(exitStatus=code, endNanoseconds=time.monotonic_ns())
+          finish('serial', launch('serial'))
+          primary = launch('loaded-primary')
+          peer = launch('loaded-peer')
+          finish('loaded-primary', primary)
+          finish('loaded-peer', peer)
+          Path('materialization-synthetic-status.json').write_text(json.dumps(status, indent=2) + '\n')
+          coverage, summaries = {}, {}
+          prefix = 'MATERIALIZATION-SYNTHETIC '
+          for label in ('serial', 'loaded-primary', 'loaded-peer'):
+              lines = Path(f'materialization-synthetic-{label}.log').read_text().splitlines()
+              rows = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+              Path(f'materialization-synthetic-{label}.json').write_text(json.dumps(rows, indent=2) + '\n')
+              attempts = [r for r in rows if 'iteration' in r]
+              summary = [r for r in rows if r.get('tap') == 'summary']
+              if len(summary) == 1: summaries[label] = summary[0]
+              exact = sum(r.get('finite') is True and r.get('exactKnownConstant') is True for r in attempts)
+              failures = [r for r in attempts if r.get('outcome') != 'materialized-and-read' or not r.get('exactKnownConstant')]
+              coverage[label] = {'records': len(rows), 'attempts': len(attempts), 'exactKnownConstant': exact,
+                  'complete': len(rows) == 61 and len(attempts) == 60 and len(summary) == 1 and summary[0]['attempts'] == 60,
+                  'executedOneTest': any('Executed 1 test,' in line for line in lines),
+                  'exitStatus': status['processes'][label]['exitStatus'], 'failures': failures}
+              print('MATERIALIZATION-SYNTHETIC-COVERAGE ' + label + ': ' + json.dumps(coverage[label], sort_keys=True))
+          # Always classify both peers, including partial/failing runs, before assertions.
+          Path('materialization-synthetic-coverage.json').write_text(json.dumps(coverage, indent=2) + '\n')
+          assert all(r['complete'] and r['executedOneTest'] for r in coverage.values()), coverage
+          a, b = summaries['loaded-primary'], summaries['loaded-peer']
+          overlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])
+          assert a['processID'] != b['processID'] and overlap > 0, (a, b, overlap)
+          print(f'MATERIALIZATION-SYNTHETIC-LOAD actualTestBodyOverlapSeconds={overlap}; different graph, NOT RAW memory equivalence or simultaneous GPU proof')
+          assert all(r['exitStatus'] == 0 and r['exactKnownConstant'] == 60 for r in coverage.values()), coverage
+          PYTHON
       - name: Keep exact records and failures without images
         if: always()
         uses: actions/upload-artifact@v4
@@ -165,5 +224,7 @@ jobs:
           path: |
             decode-reconstruction-*.log
             decode-reconstruction-*.json
+            materialization-synthetic-*.log
+            materialization-synthetic-*.json
           if-no-files-found: error
           retention-days: 14
