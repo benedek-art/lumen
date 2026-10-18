@@ -113,7 +113,7 @@ jobs:
         run: |
           set -o pipefail
           swift test -c release --filter GeneratedWorkflowCostTests 2>&1 | tee workflow-cost.log
-          test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq 20
+          test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq 28
           grep -q 'Executed 1 test, with 0 failures' workflow-cost.log
       - name: Keep generated workflow cost
         if: always()
