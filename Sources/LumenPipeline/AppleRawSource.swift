@@ -63,7 +63,18 @@ public final class AppleRawSource: ImageSource {
     /// one `CGImageSourceCopyPropertiesAtIndex` per opened photo, no pixels decoded.
     public let captureISO: Double?
 
-    public init(url: URL) throws {
+    private let materializeDecode: DecodeMaterializer.Materializer
+
+    public convenience init(url: URL) throws {
+        try self.init(url: url, materializer: { image, evaluation in
+            DecodeMaterializer.materialize(image, evaluatingIn: evaluation)
+        })
+    }
+
+    /// Per-source failure injection, without mutable global state or a changed
+    /// public decode API. The production initializer always uses the real boundary.
+    init(url: URL, materializer: @escaping DecodeMaterializer.Materializer) throws {
+        self.materializeDecode = materializer
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw RawSourceError.unreadable(url)
         }
@@ -149,23 +160,18 @@ public final class AppleRawSource: ImageSource {
     /// frame. On a 45 MP RAW the demosaic is the whole cost of the interaction. Eight
     /// entries covers the working set.
     ///
-    /// This used to end "the values are lazy CIImage recipes, so the held cost is filter
-    /// descriptions, not pixels" — which was true, and was the whole defect: a
-    /// description is not a decode, so every hit re-ran the demosaic. Entries are pixels
-    /// now — from the first ask below the interactive ceiling and from the first HIT
-    /// above it (RAW9 needs its colour boundary on the first ask at every size).
-    /// The promotion in `decode` is where that policy lives and where its argument
-    /// is written down. That is why `evictDecodes` bounds them by bytes as well as by
-    /// count, and why `heldDecodeBytes` is readable from outside.
+    /// Eligible entries contain canonical half-float pixels from their first ask.
+    /// Only deterministically oversized legacy entries remain lazy; hits never
+    /// change their precision or retry materialization. Residency is still bounded
+    /// by the existing per-source and process-wide byte policies.
     private static let decodeCacheCapacity = 8
 
     private struct DecodeEntry {
         let key: DecodeKey
-        /// Pixels once the entry has earned them, the lazy `CIRAWFilter.outputImage`
-        /// until then — see `decode`'s promotion path.
-        var image: CIImage
+        /// Canonical pixels, or an oversized legacy graph that stays lazy.
+        let image: CIImage
         /// What the entry actually allocated — zero for one still held lazily.
-        var bytes: Int
+        let bytes: Int
         /// THE LONG EDGE THAT WAS ASKED FOR, which is not the one that came back.
         ///
         /// The two classes this cache sorts entries into — an interactive working set
@@ -183,8 +189,7 @@ public final class AppleRawSource: ImageSource {
         let askedLongEdge: Int
     }
 
-    /// Newest first. Order is USE order, not production order — see the promotion in
-    /// `decode`.
+    /// Newest first. Hits update USE order; they never change pixel precision.
     private var decodeCache: [DecodeEntry] = []
 
     // MARK: Materializing the decode
@@ -213,10 +218,6 @@ public final class AppleRawSource: ImageSource {
     /// file is that what leaves it is scene-referred and keeps the headroom above
     /// display white — an 8-bit or clamped materialization would throw away the
     /// highlights the entire pipeline exists to protect.
-    private func materialized(_ image: CIImage) -> (image: CIImage, bytes: Int)? {
-        DecodeMaterializer.materialize(image)
-    }
-
     public func decode(recipe: Recipe, draft: Bool, scaleFactor: Double = 1.0) -> CIImage? {
         let dev = recipe.develop
 
@@ -277,20 +278,9 @@ public final class AppleRawSource: ImageSource {
         // machine, per frame, from a cache that was reporting a hit rate. An LRU that
         // never records a use is not an LRU; it is a queue.
         if let index = decodeCache.firstIndex(where: { $0.key == key }) {
-            var entry = decodeCache.remove(at: index)
-            // THE SECOND ASK IS WHAT BUYS THE PIXELS, for entries above the interactive
-            // ceiling — see the miss path below for the argument. A hit IS the second
-            // ask, by definition, so this is where a native decode stops being a promise
-            // and becomes a buffer.
-            //
-            // `bytes == 0` is the flag and it is honest for the other lazy cases too: a
-            // decode the materializer refused (too large for the byte ceiling, no
-            // working space, a pixel buffer that would not allocate) retries here and
-            // costs a handful of guards when it fails again.
-            if entry.bytes == 0, let promoted = materialized(entry.image) {
-                entry.image = promoted.image
-                entry.bytes = promoted.bytes
-            }
+            let entry = decodeCache.remove(at: index)
+            // A cache hit preserves the boundary chosen before the first return.
+            // Eligible failures are not cached; oversized lazy entries never promote.
             decodeCache.insert(entry, at: 0)
             evictDecodes()
             return entry.image
@@ -370,65 +360,16 @@ public final class AppleRawSource: ImageSource {
         guard RawDecodeAcceptance.accepts(extent: image.extent,
                                           nativeSize: originalNativeSize)
         else { return nil }
-        // RAW9 needs a REAL colour boundary before any downstream evaluation. On
-        // macOS27, the same Sony RAW is correct in extended-linear sRGB but severely
-        // cyan when its lazy decode is evaluated by a Rec2020 working context.
-        // Retagging the lazy image cannot establish an evaluation context.
-        //
-        // This applies on the FIRST native/inspection ask too, not only previews or
-        // cache promotion: exports and eyedroppers otherwise still evaluate the bad
-        // lazy path. It costs a full demosaic and an RGBAh plane (about 250 MiB at 33 MP)
-        // even for a one-shot native pick. Keep the existing allocation ceiling;
-        // failure to make this REQUIRED boundary returns nil, never corrupt pixels.
-        // Decoders other than 9 retain the existing lazy/promotion policy below.
-        //
-        // FOR OTHER DECODERS, FIRST-SIGHT INSPECTION REMAINS LAZY. Materializing
-        // costs a whole-frame demosaic AND a whole-frame buffer —
-        // 260 MB for a 7008 px ARW, half a gigabyte at 60 MP — and it is worth paying
-        // exactly when the same key comes back. Below the interactive ceiling that is a
-        // safe bet: those sizes are the viewer's settle, the rungs under a moving hand,
-        // the mask raster, the 512 px probes, and every one of them repeats within a
-        // gesture. Above it the bet was silently wrong for four callers that ask for
-        // `scaleFactor: 1.0` and read FIVE PIXELS — `sampleSceneLinear`,
-        // `sampleMaskStageInput`, `sampleColorStageInput` and the neutral solve behind
-        // them. Their own documentation says so in as many words: "Cheap despite
-        // decoding at full resolution: Core Image is lazy, so rendering a
-        // five-pixel-square bounds computes that region and its filter support, not the
-        // frame." That claim was TRUE while the materializer's limit was 4096 and became
-        // false the day it moved to 16384; since then every eyedropper click, every
-        // Point Colour pick and every white-balance solve has paid a full-sensor
-        // demosaic and allocated a quarter of a gigabyte to average twenty-five pixels.
-        // `exportedImage`, `renderHDRPair` and `renderFullSize` decode at 1.0 and use
-        // the result once as well, which on a two-hundred-file batch is two hundred
-        // buffers nobody reads twice.
-        //
-        // So: hold the promise, and let the FIRST HIT buy the pixels. What that costs is
-        // named plainly rather than glossed — the viewer's own entry into a zoomed photo
-        // asks twice (a draft, then a settle forty milliseconds later), so it now
-        // evaluates the lazy decode once over the region it is drawing and materializes
-        // on the second ask. That is roughly a tenth of a demosaic added to one frame,
-        // bought against removing the whole thing from every one-shot consumer.
-        //
-        // The safety of holding a lazy `CIRAWFilter.outputImage` rests on one property:
-        // that `outputImage` SNAPSHOTS the filter's settings rather than reading them at
-        // evaluation time. It does, and this codebase is its own evidence — for the
-        // whole of its history before `DecodeMaterializer` existed, every entry in this
-        // cache was a lazy image, and `renderPreviewDelivery` obtains its decode and
-        // then builds a `RenderPlan` whose `measuredBandMeanHues` reconfigures this very
-        // filter to draft mode at 512 px before the decode is ever evaluated. Were
-        // `outputImage` live-bound, the first frame of every photograph ever opened
-        // would have been delivered at 512 px in draft demosaic. That is the falsifier,
-        // it is loud, and nobody has ever seen it.
-        let stored: (image: CIImage, bytes: Int)
-        if Self.needsRaw9Boundary(filter.decoderVersion) {
-            guard let corrected = DecodeMaterializer.materialize(
-                image, evaluatingIn: .raw9LinearSRGB) else { return nil }
-            stored = corrected
-        } else if DraftLadder.isInspectionAsk(longEdge: askedLongEdge) {
-            stored = (image: image, bytes: 0)
-        } else {
-            stored = materialized(image) ?? (image: image, bytes: 0)
-        }
+        // Canonicalize before publishing the FIRST eligible image. Changing from
+        // a lazy decode to a half-float plane on a later hit changed displayed pixels,
+        // native sample values and exports on public RAWs. RAW9 retains its required
+        // linear-sRGB evaluation boundary. Oversized legacy images keep the existing
+        // lazy fallback, permanently for this entry; transient eligible failures
+        // return nil and leave no alternate image in the cache.
+        let evaluation: DecodeMaterializer.EvaluationSpace =
+            Self.needsRaw9Boundary(filter.decoderVersion) ? .raw9LinearSRGB : .pipeline
+        guard let stored = DecodeMaterializer.prepareForCache(image,
+            evaluatingIn: evaluation, materializer: materializeDecode) else { return nil }
         decodeCache.removeAll { $0.key == key }
         decodeCache.insert(DecodeEntry(key: key, image: stored.image,
                                        bytes: stored.bytes,

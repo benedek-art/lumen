@@ -86,7 +86,10 @@ final class RenderBudgetTests: XCTestCase {
             "the cache hit and the cache miss must both trim on the way in")
 
         for path in ["func produce(", "func warmDecode(", "func renderFullSize(",
-                     "func export("] {
+                     "func export(", "func sampleSceneLinear(", "func clippingStatistics(",
+                     "func sampleMaskReference(", "func healAutoSource(",
+                     "func healSourceCandidates(", "func healStrokeAutoOffset(",
+                     "func samplePointColorReference(", "func solveNeutral("] {
             XCTAssertTrue(try Self.body(of: path, in: text)
                             .contains("defer { trimDecodeResidency() }"),
                           "\(path) decodes and can leave the process over budget while "

@@ -97,21 +97,26 @@ jobs:
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
-      # Opt-in audit evidence on this source branch only. This measures generated
-      # library bookkeeping, not displayed RAW latency or camera acceptance.
+  # Optional audit evidence stays separate from required release verification.
+  # Existing required jobs retain their unconditional steps and negative controls.
+  workflow-cost-audit:
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
       - name: Generated 5k and 20k workflow cost
-        if: ${{ success() && github.ref == 'refs/heads/codex/raw-accuracy-qualification' }}
-        timeout-minutes: 8
+        timeout-minutes: 25
         shell: bash
         env:
           LUMEN_APP_BENCH: '1'
         run: |
           set -o pipefail
-          swift test -c release --skip-build --filter GeneratedWorkflowCostTests 2>&1 | tee workflow-cost.log
+          swift test -c release --filter GeneratedWorkflowCostTests 2>&1 | tee workflow-cost.log
           test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq 20
           grep -q 'Executed 1 test, with 0 failures' workflow-cost.log
       - name: Keep generated workflow cost
-        if: ${{ always() && github.ref == 'refs/heads/codex/raw-accuracy-qualification' }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-workflow-cost

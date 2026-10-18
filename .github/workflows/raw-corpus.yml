@@ -52,6 +52,8 @@ on:
     paths:
       - ".github/workflows/raw-corpus.yml"
       - "Sources/LumenPipeline/AppleRawSource.swift"
+      - "Sources/LumenPipeline/DecodeMaterializer.swift"
+      - "Tests/LumenPipelineTests/CanonicalDecodePolicyTests.swift"
       - "Tests/LumenPipelineTests/RawCorpusTests.swift"
       - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
       - "Tests/LumenPipelineTests/DisplayedDenoiseQualificationTests.swift"
@@ -484,6 +486,18 @@ jobs:
             cp "$CORPUS_DIR/$fixture" "$RUNNER_TEMP/public-consumers/"
           done
 
+      - name: Canonical decode allocation refusal and cache retry
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+        run: |
+          set -o pipefail
+          swift test -c release --filter CanonicalDecodePolicyTests 2>&1 | tee canonical-decode.log
+          test "$(grep -c '^canonical-decode-retry: ' canonical-decode.log)" -eq 1
+          grep -q 'Executed 7 tests, with 0 failures' canonical-decode.log
+
       - name: Native decode precision before plans and dithering
         if: ${{ !cancelled() }}
         timeout-minutes: 15
@@ -597,6 +611,7 @@ jobs:
             corpus.log
             audit-raw.log
             native-precision.log
+            canonical-decode.log
             native-causal.log
             native-consumers.log
             native-process-*.log

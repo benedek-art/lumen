@@ -328,7 +328,7 @@ final class AuditRawAccuracyTests: XCTestCase {
             let rect = CGRect(x: (first.extent.midX - 32).rounded(),
                               y: (first.extent.midY - 32).rounded(), width: 64, height: 64)
             let before = pixels(first, context: consumer, bounds: rect)
-            let repeatedLazy = pixels(first, context: consumer, bounds: rect)
+            let repeatedFirst = pixels(first, context: consumer, bounds: rect)
             let materializeStarted = DispatchTime.now().uptimeNanoseconds
             let explicit = try XCTUnwrap(DecodeMaterializer.materialize(first))
             let materializeMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - materializeStarted) / 1e6
@@ -336,7 +336,7 @@ final class AuditRawAccuracyTests: XCTestCase {
             let cached = try XCTUnwrap(source.decode(recipe: quietRecipe, draft: false, scaleFactor: 1))
             let promoted = pixels(cached, context: consumer, bounds: rect)
             let repeatedCache = pixels(cached, context: consumer, bounds: rect)
-            for values in [before, repeatedLazy, explicitPixels, promoted, repeatedCache] {
+            for values in [before, repeatedFirst, explicitPixels, promoted, repeatedCache] {
                 XCTAssertTrue(values.allSatisfy { $0.isFinite }, fixture.name)
             }
             func maximumDelta(_ a: [Float], _ b: [Float]) -> Float {
@@ -344,17 +344,18 @@ final class AuditRawAccuracyTests: XCTestCase {
             }
             Self.emit("native-precision: " + fixture.name
                 + " decoder=\(source.pinnedDecoderVersion ?? -1)"
-                + " lazy-repeat=\(maximumDelta(before, repeatedLazy))"
+                + " first-repeat=\(maximumDelta(before, repeatedFirst))"
                 + " explicit-materialization=\(maximumDelta(before, explicitPixels))"
                 + " first-cache=\(maximumDelta(before, promoted))"
                 + " materialized-cache=\(maximumDelta(explicitPixels, promoted))"
                 + " cache-repeat=\(maximumDelta(promoted, repeatedCache))"
                 + " held-bytes=\(source.heldDecodeBytes)"
                 + " materialize-ms=\(materializeMilliseconds)")
-            // These compare repeated evaluation of the SAME graph, not lazy versus
-            // half-float precision. DisplayedDenoiseQualificationTests retains the
-            // separate exact-zero displayed acceptance check.
-            XCTAssertEqual(before, repeatedLazy, fixture.name + " unstable lazy evaluation")
+            // The source now returns canonical pixels on its first eligible ask.
+            // Historical pre-fix lazy/promotion measurements remain separate evidence.
+            // Keep exact first/cache and displayed identity assertions unchanged.
+            XCTAssertEqual(before, promoted, fixture.name + " first/cache precision changed")
+            XCTAssertEqual(before, repeatedFirst, fixture.name + " unstable first-source evaluation")
             XCTAssertEqual(promoted, repeatedCache, fixture.name + " unstable cached evaluation")
             return "measured"
         }
@@ -452,13 +453,13 @@ final class AuditRawAccuracyTests: XCTestCase {
                 let frozenLazy = FrozenNativeSource(source, lazy)
                 let renderer = PipelineRenderer()
                 let a = try render(frozenLazy, off, renderer)
-                compare("fixed-lazy-same-renderer-repeat", a, try render(frozenLazy, off, renderer))
-                compare("fixed-lazy-mode-change", a, try render(frozenLazy, aiZero, renderer))
-                compare("fixed-lazy-fresh-renderer", a, try render(frozenLazy, off, PipelineRenderer()))
+                compare("fixed-first-source-same-renderer-repeat", a, try render(frozenLazy, off, renderer))
+                compare("fixed-first-source-mode-change", a, try render(frozenLazy, aiZero, renderer))
+                compare("fixed-first-source-fresh-renderer", a, try render(frozenLazy, off, PipelineRenderer()))
                 let plane = try XCTUnwrap(DecodeMaterializer.materialize(lazy))
                 let frozenPlane = FrozenNativeSource(source, plane.image)
                 let b = try render(frozenPlane, off, renderer)
-                compare("fixed-lazy-vs-explicit-plane", a, b)
+                compare("fixed-first-source-vs-explicit-plane", a, b)
                 compare("fixed-plane-repeat", b, try render(frozenPlane, off, renderer))
                 compare("fixed-plane-mode-change", b, try render(frozenPlane, aiZero, renderer))
                 compare("fixed-plane-fresh-renderer", b, try render(frozenPlane, off, PipelineRenderer()))

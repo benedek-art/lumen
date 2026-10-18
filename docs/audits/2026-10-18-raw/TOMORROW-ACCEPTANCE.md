@@ -30,3 +30,9 @@ Use the final source SHA and its exact-source CI results from CLOUD-PROGRESS.md.
 - Measure native first-frame/sample latency, warmed slider-to-completed-frame latency and memory on the owner's hardware. Report actual completed frames and timing conditions. Cloud shared-process timings and process-cold command RSS do not establish cold-disk or GPU memory bounds.
 
 Acceptance does not imply every feature or aesthetic quality is certified. Preserve unresolved failures and blocked checks alongside passes.
+
+
+Additional candidate checks:
+- Drag curve points and split handles with a fast final release, outside-point deletion, anchors and neighbor clamps. Change photo/batch/mask/channel during a drag; ensure it cannot write to the replacement target and undo settles once.
+- Keep a selected photo open while an external future-version XMP is discovered. Try export with and without keywords, snapshot restore/create and original relink; all must refuse until a supported replacement is safely reconciled. Simulate a writable/read-only/full catalog on a disposable copy; preserve original/catalog/XMP bytes and durable debt. A refused unavailable-marker write is contained only in that process; rescan after restart.
+- Measure the first native eyedropper/Point Color/mask-reference/neutral solve after a fresh photo and repeated picks. Canonical first decode deliberately pays whole-frame materialization; verify responsiveness and settled memory separately from exact first/cache pixels.

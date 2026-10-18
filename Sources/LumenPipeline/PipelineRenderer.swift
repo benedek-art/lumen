@@ -2177,10 +2177,10 @@ public final class PipelineRenderer {
     /// the user moves a slider — sampling after white balance would make the picked
     /// neutral depend on the white balance it is being used to compute.
     ///
-    /// Cheap despite decoding at full resolution: Core Image is lazy, so rendering a
-    /// five-pixel-square bounds computes that region and its filter support, not the
-    /// frame. The square is an average because a single pixel of a real photograph is
-    /// noise — the same reason every other editor's eyedropper samples an area.
+    /// Samples a small square after obtaining the source's native decode. An eligible
+    /// Apple RAW crosses its canonical half-float boundary on the first request, so
+    /// a cold pick can pay a whole-frame decode and allocation; a cache hit reuses it.
+    /// The square averages sensor noise rather than relying on one pixel.
     public func sampleSceneLinear(source: any ImageSource, recipe: Recipe,
                                   sourceX: Double, sourceY: Double,
                                   radius: Int = 2) -> RGB? {

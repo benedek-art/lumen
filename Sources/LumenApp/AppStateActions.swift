@@ -346,9 +346,19 @@ extension AppState {
                 // masks absent — the ".lrcat-data black mask" failure docs/08 §8.7
                 // exists to prevent, and the one failure mode a photographer cannot
                 // catch by looking at the export count.
+                var availabilityFailure: String?
+                if let exportCatalog {
+                    if let photoID = job.photo.catalogID {
+                        do { try await exportCatalog.requireAvailablePhoto(photoID: photoID) }
+                        catch { availabilityFailure = "The photo is unavailable for export: \(error)" }
+                    } else {
+                        availabilityFailure = "The photo's catalog identity is unavailable for export."
+                    }
+                }
+                let combinedRefusal = job.refusal ?? availabilityFailure
                 var keywordFailure: String?
                 var catalogKeywords: [String]?
-                if job.refusal == nil, active.contains(where: { $0.metadata.includeKeywords }),
+                if combinedRefusal == nil, active.contains(where: { $0.metadata.includeKeywords }),
                    let exportCatalog, let photoID = job.photo.catalogID {
                     do {
                         catalogKeywords = try await exportCatalog.exportKeywords(photoID: photoID)
@@ -356,7 +366,7 @@ extension AppState {
                         keywordFailure = "Could not read catalog keywords: \(error.localizedDescription)"
                     }
                 }
-                if let refusal = job.refusal {
+                if let refusal = job.refusal ?? availabilityFailure {
                     for (ordinal, exportRecipe) in active.enumerated() {
                         report.settle(OperationFileRecord(id: job.index * active.count + ordinal,
                             source: job.url, label: exportRecipe.name, outcome: .failed, detail: refusal))

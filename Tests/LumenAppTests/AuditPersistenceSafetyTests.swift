@@ -12,29 +12,57 @@ final class AuditPersistenceSafetyTests: XCTestCase {
         return root
     }
 
-    func testSidecarWriteFailureNotifiesOnceAndRetriesLatestEdit() throws {
+    func testUnreadableSidecarScanDoesNotReturnEditableDefaultOrDiscardStoredEdit() throws {
+        let root = try scratch()
+        let photo = root.appendingPathComponent("unreadable.JPG")
+        try Data([1, 2, 3]).write(to: photo)
+        let catalog = root.appendingPathComponent("catalog")
+        let service = try CatalogService(directory: catalog)
+        defer { service.close() }
+        let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        var recipe = Recipe(); recipe.develop.tone.exposure = 1.25
+        service.saveRecipe(recipe, url: photo, catalogID: id)
+        _ = service.registerAndLoad(folder: root, files: [photo])
+        service.flushSidecars()
+        let db = try CatalogStore(path: catalog.appendingPathComponent("lumen.db").path)
+        defer { db.close() }
+        let before = try db.currentEdit(photoID: id)
+        XCTAssertNotNil(before)
+        let sidecar = CatalogService.sidecarURL(for: photo)
+        try FileManager.default.removeItem(at: sidecar)
+        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
+        XCTAssertNil(service.registerAndLoad(folder: root, files: [photo])[photo],
+                     "a directory at the XMP path is unreadable, not an absent portable edit")
+        XCTAssertEqual(try db.currentEdit(photoID: id), before)
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecar.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
+    func testSidecarWriteFailureNotifiesOnceAndRetriesLatestEdit() async throws {
         let root = try scratch()
         let photo = root.appendingPathComponent("frame.JPG")
         try Data([1, 2, 3]).write(to: photo)
         let sidecar = photo.appendingPathExtension("xmp")
-        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
         let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
         defer { service.close() }
         let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        // Block publication after registration; an unreadable existing XMP must refuse a scan.
+        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
         var notices: [String] = []
         service.onFailure = { notices.append($0) }
         var recipe = Recipe()
         recipe.develop.tone.exposure = 1
         service.saveRecipe(recipe, url: photo, catalogID: id)
-        // Registration is a serial-queue barrier after the asynchronous save.
-        _ = service.registerAndLoad(folder: root, files: [photo])
+        // Query is a serial-queue barrier without rescanning the deliberately unreadable XMP.
+        _ = try await service.querySource(scope: .everywhere, folderPath: root.path)
         service.flushSidecars()
         service.flushSidecars()
         XCTAssertEqual(notices.count, 1, "REL-09: report the outage without spamming each retry")
         XCTAssertTrue(notices.first?.contains("frame.JPG.xmp") == true)
         recipe.develop.tone.exposure = 2
         service.saveRecipe(recipe, url: photo, catalogID: id)
-        _ = service.registerAndLoad(folder: root, files: [photo])
+        _ = try await service.querySource(scope: .everywhere, folderPath: root.path)
         try FileManager.default.removeItem(at: sidecar)
         service.flushSidecars()
         let content = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: sidecar)))
@@ -44,7 +72,7 @@ final class AuditPersistenceSafetyTests: XCTestCase {
         try FileManager.default.removeItem(at: sidecar)
         try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
         service.saveRecipe(recipe, url: photo, catalogID: id)
-        _ = service.registerAndLoad(folder: root, files: [photo])
+        _ = try await service.querySource(scope: .everywhere, folderPath: root.path)
         service.flushSidecars()
         XCTAssertEqual(notices.count, 2)
     }
@@ -58,10 +86,11 @@ final class AuditPersistenceSafetyTests: XCTestCase {
         let photo = root.appendingPathComponent("quit.JPG")
         try Data([1, 2, 3]).write(to: photo)
         let sidecar = photo.appendingPathExtension("xmp")
-        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
         let catalog = root.appendingPathComponent("catalog")
         let first = try CatalogService(directory: catalog)
         let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        // Block publication after registration; an unreadable existing XMP must refuse a scan.
+        try FileManager.default.createDirectory(at: sidecar, withIntermediateDirectories: true)
         var recipe = Recipe()
         recipe.develop.tone.exposure = 3
         first.saveRecipe(recipe, url: photo, catalogID: id)
@@ -113,9 +142,10 @@ final class AuditPersistenceSafetyTests: XCTestCase {
         let photo = root.appendingPathComponent("closed.JPG")
         try Data([1, 2, 3]).write(to: photo)
         let path = photo.appendingPathExtension("xmp")
-        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         let service = try CatalogService(directory: root.appendingPathComponent("catalog"))
         let id = try XCTUnwrap(service.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        // Block publication after registration; an unreadable existing XMP must refuse a scan.
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         var recipe = Recipe()
         recipe.develop.tone.exposure = 1
         service.saveRecipe(recipe, url: photo, catalogID: id)

@@ -471,10 +471,10 @@ enum SliderInventory {
                    step: 0.1, decimals: 1),
 
         // Curve — the four parametric regions, all one shape.
-        SliderSpec("Highlights", "CurveEditorView.swift:625", .developTop, -100...100, step: 1),
-        SliderSpec("Lights", "CurveEditorView.swift:630", .developTop, -100...100, step: 1),
-        SliderSpec("Darks", "CurveEditorView.swift:634", .developTop, -100...100, step: 1),
-        SliderSpec("Shadows", "CurveEditorView.swift:638", .developTop, -100...100, step: 1),
+        SliderSpec("Highlights", "CurveEditorView.swift:679", .developTop, -100...100, step: 1),
+        SliderSpec("Lights", "CurveEditorView.swift:684", .developTop, -100...100, step: 1),
+        SliderSpec("Darks", "CurveEditorView.swift:688", .developTop, -100...100, step: 1),
+        SliderSpec("Shadows", "CurveEditorView.swift:692", .developTop, -100...100, step: 1),
 
         // Detail — capture sharpening, manual sharpening.
         SliderSpec("Amount", "DetailPanel.swift:212", .developTop, 0...150, step: 1),

@@ -732,6 +732,9 @@ actor RenderCoordinator {
     /// costs no decode at all.
     func sampleSceneLinear(url: URL, recipe: Recipe,
                            sourceX: Double, sourceY: Double) -> RGB? {
+        // Sampling can mint a native decode even when its delivered result is tiny.
+        // Trim on every exit, including downstream nil/refusal, before the actor idles.
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.sampleSceneLinear(source: source, recipe: recipe,
                                           sourceX: sourceX, sourceY: sourceY)
@@ -752,6 +755,7 @@ actor RenderCoordinator {
     /// caching against the file rather than against the edit.
     func clippingStatistics(url: URL,
                             recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.clippingStatistics(source: source, recipe: recipe)
     }
@@ -784,6 +788,7 @@ actor RenderCoordinator {
     func sampleMaskReference(url: URL, recipe: Recipe,
                              sourceX: Double, sourceY: Double,
                              pointColorSwatch: (maskID: String, index: Int)? = nil) -> RGB? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
@@ -800,6 +805,7 @@ actor RenderCoordinator {
     /// Nil when nothing fits — the caller then places the source beside the spot.
     func healAutoSource(url: URL, recipe: Recipe, spot: HealSpot,
                         priorSpots: [HealSpot]) -> (x: Double, y: Double)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let found = renderer.healSearchBuffer(source: source, recipe: recipe,
                                                     spot: spot, priorSpots: priorSpots)
@@ -814,6 +820,7 @@ actor RenderCoordinator {
     /// `healAutoSource` uses — so the first of them is the source a click would pick.
     func healSourceCandidates(url: URL, recipe: Recipe, spot: HealSpot,
                               priorSpots: [HealSpot]) -> [(x: Double, y: Double)] {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let found = renderer.healSearchBuffer(source: source, recipe: recipe,
                                                     spot: spot, priorSpots: priorSpots)
@@ -829,6 +836,7 @@ actor RenderCoordinator {
     /// fits — the caller then keeps its provisional offset.
     func healStrokeAutoOffset(url: URL, recipe: Recipe, stroke: BrushStroke,
                               priorStrokes: [BrushStroke]) -> (dx: Double, dy: Double)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let found = renderer.healStrokeSearchBuffer(source: source, recipe: recipe,
                                                           stroke: stroke,
@@ -852,6 +860,7 @@ actor RenderCoordinator {
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double,
                                    tap: ColorEngine.SelectionTap) -> RGB? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
@@ -875,6 +884,7 @@ actor RenderCoordinator {
     /// it keeps this call correct without depending on the solver's internals.
     func solveNeutral(url: URL, recipe: Recipe,
                       sourceX: Double, sourceY: Double) -> (kelvin: Double, tint: Double)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
                                                      sourceX: sourceX, sourceY: sourceY),

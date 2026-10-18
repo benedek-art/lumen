@@ -38,6 +38,9 @@ final class CatalogService: @unchecked Sendable {
     }
 
     private var unresolvedSidecarConflicts: Set<URL> = []
+    /// A failed database marker write must still contain this session's source.
+    /// Queue-confined; it cannot promise durability when storage rejects the marker.
+    private var unavailableExternalPhotoIDs: Set<Int64> = []
     var conflictBackupWriter: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
 
     private var relinkedSources: [Int64: URL] = [:]
@@ -437,8 +440,8 @@ final class CatalogService: @unchecked Sendable {
                             // Preserve the existing catalog edit and identity. A
                             // lossy decode must never enter saveRecipe's supported
                             // version stamp or become an editable/default picture.
-                            try store.setMetaValue(Self.externalUnavailableKey(row.id),
-                                observedBytes.map(Self.sidecarDigest) ?? "unavailable")
+                            try self.markExternalRecipeUnavailable(photoID: row.id,
+                                observation: observedBytes.map(Self.sidecarDigest) ?? "unavailable")
                             if let observedBytes {
                                 do { try self.preserveSidecarConflict(for: file, photoID: row.id, data: observedBytes) }
                                 catch { self.report("The future portable edit for \(file.lastPathComponent) remains unavailable; its recovery copy could not be written (\(error)). The original sidecar and catalog edit were preserved.") }
@@ -517,6 +520,7 @@ final class CatalogService: @unchecked Sendable {
                                 continue
                             }
                             try store.setMetaValue(Self.externalUnavailableKey(row.id), nil)
+                            self.unavailableExternalPhotoIDs.remove(row.id)
                         }
                         result[file] = Self.stored(resolution.state, row: row)
                         result[file]?.sourceIdentity = SourceFileIdentity.read(file)
@@ -1177,10 +1181,7 @@ final class CatalogService: @unchecked Sendable {
             }
             if let id = catalogID {
                 do {
-                    guard try !self.externalRecipeUnavailable(photoID: id) else {
-                        throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
-                    }
-                    _ = try self.readableCurrentRecipe(photoID: id)
+                    try self.requireAvailablePhotoOnQueue(photoID: id)
                     try self.store.saveRecipe(
                         recipe, photoID: id, isCurrent: true,
                         // The pencil badge and the "Edited: no" chip both read the
@@ -1906,7 +1907,7 @@ final class CatalogService: @unchecked Sendable {
                                     throw CatalogError.invalid("the future portable edit has no catalog identity")
                                 }
                                 let bytes = sourceData ?? Data(existing.utf8)
-                                try store.setMetaValue(Self.externalUnavailableKey(id), Self.sidecarDigest(bytes))
+                                try markExternalRecipeUnavailable(photoID: id, observation: Self.sidecarDigest(bytes))
                                 try preserveSidecarConflict(for: url, photoID: id, data: bytes)
                             }
                         } catch {
@@ -2088,7 +2089,39 @@ final class CatalogService: @unchecked Sendable {
     }
 
     private func externalRecipeUnavailable(photoID: Int64) throws -> Bool {
-        try store.metaValue(Self.externalUnavailableKey(photoID)) != nil
+        if unavailableExternalPhotoIDs.contains(photoID) { return true }
+        return try store.metaValue(Self.externalUnavailableKey(photoID)) != nil
+    }
+
+    private func markExternalRecipeUnavailable(photoID: Int64, observation: String) throws {
+        let first = unavailableExternalPhotoIDs.insert(photoID).inserted
+        do { try store.setMetaValue(Self.externalUnavailableKey(photoID), observation) }
+        catch {
+            if first {
+                report("The unavailable state for catalog photo \(photoID) could not be persisted (\(error)). This session remains blocked; a fresh scan is required after restart because storage did not retain the marker.")
+            }
+            throw error
+        }
+    }
+
+    private func requireAvailablePhotoOnQueue(photoID: Int64) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard try !externalRecipeUnavailable(photoID: photoID) else {
+            throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
+        }
+        guard try store.photo(id: photoID) != nil else {
+            throw CatalogError.invalid("the photo is no longer in the catalog")
+        }
+        _ = try readableCurrentRecipe(photoID: photoID)
+    }
+
+    /// Always checked at an action boundary, including export without keywords.
+    func requireAvailablePhoto(photoID: Int64) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result { try self.requireAvailablePhotoOnQueue(photoID: photoID) })
+            }
+        }
     }
 
     private static func sidecarObservationKey(_ photoID: Int64) -> String {
@@ -2704,6 +2737,7 @@ extension CatalogService {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
                 continuation.resume(with: Result {
+                    try self.requireAvailablePhotoOnQueue(photoID: photoID)
                     try PhotoSnapshotDependencies.validate(recipe, blobs: self.blobs)
                     _ = try self.store.createNamedSnapshot(recipe, photoID: photoID, name: name)
                 })
@@ -2715,6 +2749,7 @@ extension CatalogService {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result {
+                    try self.requireAvailablePhotoOnQueue(photoID: photoID)
                     let row = try self.store.namedSnapshot(id: id, photoID: photoID)
                     guard row.pipelineVersion <= supportedPipelineVersion else {
                         throw CatalogError.invalid("snapshot requires a newer pipeline")
@@ -2765,7 +2800,10 @@ extension CatalogService {
         try await withCheckedThrowingContinuation { continuation in
             maintenance.async {
                 do {
-                    let target = try self.queue.sync { try self.store.originalRelinkTarget(photoID: photoID) }
+                    let target = try self.queue.sync {
+                        try self.requireAvailablePhotoOnQueue(photoID: photoID)
+                        return try self.store.originalRelinkTarget(photoID: photoID)
+                    }
                     guard target.original.pathExtension.lowercased() == candidateURL.pathExtension.lowercased() else {
                         throw OriginalRelinkError.mismatch
                     }
@@ -2809,6 +2847,7 @@ extension CatalogService {
             queue.async {
                 do {
                     let target = preparation.target
+                    try self.requireAvailablePhotoOnQueue(photoID: target.photoID)
                     let candidate = preparation.candidate
                     Self.forgetSiblings()
                     guard Self.sidecarURL(for: candidate.url) == preparation.sidecar,
@@ -2821,7 +2860,7 @@ extension CatalogService {
                     if let edit = try self.store.currentEdit(photoID: target.photoID), edit.pipelineVersion > supportedPipelineVersion {
                         throw OriginalRelinkError.unavailableEditPayload
                     }
-                    let recipe = try self.store.currentRecipe(photoID: target.photoID)
+                    let recipe = try self.readableCurrentRecipe(photoID: target.photoID)
                     if let recipe {
                         let refs = recipe.masks.flatMap(\.components).filter { $0.kind == .brush }
                             .compactMap(\.strokesRef).filter { !$0.isEmpty }
