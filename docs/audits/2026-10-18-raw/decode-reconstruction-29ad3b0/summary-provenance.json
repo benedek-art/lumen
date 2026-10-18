@@ -1,0 +1,12 @@
+{
+  "source": "29ad3b029eca4d5e9f26dc487c819aa98c4779d1",
+  "run": 39150313448,
+  "job": 117742430037,
+  "artifact": 12144368564,
+  "artifactSHA256": "ece5ba11a71c182733f287cc8a488fa2374a6c57ff8b8e206ebb717eb9ed437c",
+  "materializerFailureClassification": "eligible implementation returned nil; allocation vs task not yet classified",
+  "privatePhotosUploaded": false,
+  "productionDecodeFilesChanged": false,
+  "productionDenoiseAlgorithmRetuned": false,
+  "sharedMatrixArithmeticChanged": true
+}

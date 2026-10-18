@@ -21,6 +21,9 @@ jobs:
       LUMEN_DECODE_RECONSTRUCTION: '1'
       LUMEN_DECODE_RECONSTRUCTION_IDS: '1346,5812,2349,2607,4671'
       LUMEN_DECODE_RECONSTRUCTION_LIMIT: '5'
+      # Descriptions are enabled only in this verified public-fixture job. Local
+      # diagnostic runs retain domain/code but withhold potentially private paths.
+      LUMEN_DECODE_RECONSTRUCTION_PUBLIC_ERRORS: '1'
       LUMEN_AUDIT_RAW_DIR: ${{ github.workspace }}/.decode-reconstruction-corpus
     steps:
       - uses: actions/checkout@v4
@@ -138,7 +141,7 @@ jobs:
                   print('DECODE-RECONSTRUCTION-CHANGED ' + json.dumps(changed_pair, sort_keys=True))
               for line in errors[:20]:
                   print(f'DECODE-RECONSTRUCTION-ERROR {label}: {line}')
-              failures = [row for row in diagnostics if row['event'].endswith('-threw') or row['event'] == 'materializer-nil']
+              failures = [row for row in diagnostics if row['event'].endswith('-threw') or row['event'] in ('materializer-nil', 'materializer-failure-reason')]
               for row in failures[:20]:
                   print(f'DECODE-RECONSTRUCTION-TASK-FAILURE {label}: ' + json.dumps(row, sort_keys=True))
               if not complete and diagnostics:

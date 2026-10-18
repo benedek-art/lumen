@@ -1,0 +1,5 @@
+{
+  "Sources/LumenPipeline/DecodeMaterializer.swift": "366c22409be33f0bc9f9b251df22ab66587b930db583f1f148e2f0817b9cdc1a",
+  "Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift": "5ab019bdb6b4db9147bced317b38f7c0385fc4399cefc3843e0b7599f813cdcc",
+  ".github/workflows/decode-reconstruction.yml": "60f7d23b48e85286372bb779ad5a483c877e672100f9fc7570e58ae8d998f620"
+}

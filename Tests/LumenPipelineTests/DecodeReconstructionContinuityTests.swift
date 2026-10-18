@@ -53,15 +53,60 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
             XCTFail("diagnostic JSON serialization failed: \(error)")
         }
     }
+    private func diagnosticDescription(_ error: NSError) -> String {
+        // Error text can include original paths. Hosted CI opts in only after its
+        // SHA-pinned CC0 manifest is verified; private/local runs withhold it.
+        guard ProcessInfo.processInfo.environment["LUMEN_DECODE_RECONSTRUCTION_PUBLIC_ERRORS"] == "1" else {
+            return "withheld (public-fixture error descriptions not enabled)"
+        }
+        return error.localizedDescription
+    }
     private func diagnosticError(_ error: Error, event: String, context: [String: Any]) {
         let native = error as NSError
         var row = context
         row["event"] = event
         row["errorDomain"] = native.domain
         row["errorCode"] = native.code
-        row["errorDescription"] = native.localizedDescription
+        row["errorDescription"] = diagnosticDescription(native)
         diagnostic(row)
     }
+    private func diagnosticMaterializationFailure(_ failure: DecodeMaterializer.MaterializationFailure,
+                                                  context: [String: Any]) {
+        var row = context
+        row["event"] = "materializer-failure-reason"
+        switch failure {
+        case .contextUnavailable: row["reason"] = "context-unavailable"
+        case .admissionRefused: row["reason"] = "admission-refused"
+        case .workingColorSpaceUnavailable: row["reason"] = "working-color-space-unavailable"
+        case .pixelBufferCreation(let status):
+            row["reason"] = "CVPixelBufferCreate"
+            row["CVReturn"] = status
+        case .missingPixelBuffer: row["reason"] = "missing-pixel-buffer-after-success"
+        case .renderTask(let phase, let error):
+            row["reason"] = "render-task"
+            row["renderPhase"] = phase.rawValue
+            row["errorDomain"] = error.domain
+            row["errorCode"] = error.code
+            row["errorDescription"] = diagnosticDescription(error)
+        }
+        diagnostic(row)
+    }
+
+    func testMaterializerFailureReporterPreservesOriginalWrapperRefusal() {
+        let infinite = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5))
+        var failures: [DecodeMaterializer.MaterializationFailure] = []
+        let observed = DecodeMaterializer.materialize(infinite, evaluatingIn: .pipeline,
+                                                       reportFailure: { failures.append($0) })
+        XCTAssertNil(observed)
+        XCTAssertEqual(failures.count, 1, "one refusal must report exactly one cause")
+        if let failure = failures.first, case .admissionRefused = failure {} else {
+            XCTFail("invalid extent must be classified before allocation")
+        }
+        // The original signature still satisfies the unchanged production alias.
+        let original: DecodeMaterializer.Materializer = DecodeMaterializer.materialize
+        XCTAssertNil(original(infinite, .pipeline))
+    }
+
     private func packed(_ image: CGImage) throws -> Data {
         var result = Data(count: image.width * image.height * 4)
         try result.withUnsafeMutableBytes { raw in
@@ -215,7 +260,8 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                             "extent": String(describing: image.extent), "eligible": DecodeMaterializer.isEligible(image),
                             "evaluation": String(describing: evaluation), "uptime": ProcessInfo.processInfo.systemUptime]
                         self.diagnostic(context.merging(["event": "materializer-begin"]) { _, new in new })
-                        let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation)
+                        let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation,
+                            reportFailure: { self.diagnosticMaterializationFailure($0, context: context) })
                         self.diagnostic(context.merging(["event": result == nil ? "materializer-nil" : "materializer-success",
                             "allocatedBytes": result?.bytes ?? 0]) { _, new in new })
                         return result
@@ -250,7 +296,8 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                             "phase": materializerPhase, "source": "fresh", "extent": String(describing: image.extent),
                             "eligible": DecodeMaterializer.isEligible(image), "evaluation": String(describing: evaluation)]
                         self.diagnostic(context.merging(["event": "materializer-begin"]) { _, new in new })
-                        let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation)
+                        let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation,
+                            reportFailure: { self.diagnosticMaterializationFailure($0, context: context) })
                         self.diagnostic(context.merging(["event": result == nil ? "materializer-nil" : "materializer-success",
                             "allocatedBytes": result?.bytes ?? 0]) { _, new in new })
                         return result

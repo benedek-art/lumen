@@ -132,6 +132,19 @@ enum DecodeMaterializer {
         return materializer(image, evaluation)
     }
 
+    /// Opt-in failure observations for qualification. Production's existing wrapper
+    /// supplies nil: no logging, mutable hooks, retries or alternate pixel path.
+    enum MaterializationRenderPhase: String { case startTask, waitUntilCompleted }
+    enum MaterializationFailure {
+        case contextUnavailable
+        case admissionRefused
+        case workingColorSpaceUnavailable
+        // Core Video's CVReturn is the signed 32-bit status value.
+        case pixelBufferCreation(status: Int32)
+        case missingPixelBuffer
+        case renderTask(phase: MaterializationRenderPhase, error: NSError)
+    }
+
     /// `image`'s pixels and what they weigh, or nil when the boundary cannot be made.
     ///
     /// Nil alone does not classify a refusal: prepareForCache separates deterministic
@@ -139,14 +152,32 @@ enum DecodeMaterializer {
     /// A RAW9 caller must always fail closed when its boundary cannot be established.
     static func materialize(_ image: CIImage, evaluatingIn evaluation: EvaluationSpace = .pipeline)
         -> (image: CIImage, bytes: Int)? {
+        materialize(image, evaluatingIn: evaluation, reportFailure: nil)
+    }
+
+    /// Same implementation as the two-argument entry point; observers run ONLY at
+    /// its existing failure returns. The Materializer typealias remains unchanged.
+    static func materialize(_ image: CIImage, evaluatingIn evaluation: EvaluationSpace,
+                            reportFailure: ((MaterializationFailure) -> Void)?)
+        -> (image: CIImage, bytes: Int)? {
         let renderContext: CIContext
         switch evaluation {
         case .pipeline: renderContext = context
         case .raw9LinearSRGB:
-            guard let raw9Context else { return nil }
+            guard let raw9Context else {
+                reportFailure?(.contextUnavailable)
+                return nil
+            }
             renderContext = raw9Context
         }
-        guard isEligible(image), let working = workingSpace else { return nil }
+        guard isEligible(image) else {
+            reportFailure?(.admissionRefused)
+            return nil
+        }
+        guard let working = workingSpace else {
+            reportFailure?(.workingColorSpaceUnavailable)
+            return nil
+        }
         let extent = image.extent
         let width = Int(extent.width.rounded())
         let height = Int(extent.height.rounded())
@@ -156,25 +187,34 @@ enum DecodeMaterializer {
             // it does not pay a CPU round trip for the privilege of not re-decoding.
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
         ]
-        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+        let creationStatus = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
                                   kCVPixelFormatType_64RGBAHalf,
                                   attributes as CFDictionary,
-                                  &created) == kCVReturnSuccess,
-              let buffer = created
-        else { return nil }
+                                  &created)
+        guard creationStatus == kCVReturnSuccess else {
+            reportFailure?(.pixelBufferCreation(status: creationStatus))
+            return nil
+        }
+        guard let buffer = created else {
+            reportFailure?(.missingPixelBuffer)
+            return nil
+        }
 
         let destination = CIRenderDestination(pixelBuffer: buffer)
         destination.colorSpace = working
         destination.isClamped = false
+        var taskPhase = MaterializationRenderPhase.startTask
         do {
             // `from` is in source coordinates; `at` is in the zero-origin buffer.
             // Passing a nonzero source extent as the buffer's render bounds kept
             // the metadata but wrote no pixels when that rectangle missed it.
             let task = try renderContext.startTask(toRender: image, from: extent,
                                                    to: destination, at: .zero)
+            taskPhase = .waitUntilCompleted
             _ = try task.waitUntilCompleted()
         } catch {
             // A required colour boundary is not established by a failed GPU task.
+            reportFailure?(.renderTask(phase: taskPhase, error: error as NSError))
             return nil
         }
         // Named explicitly on the way back in too, or Core Image assumes sRGB for a
