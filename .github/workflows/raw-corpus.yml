@@ -55,6 +55,7 @@ on:
       - "Tests/LumenPipelineTests/RawCorpusTests.swift"
       - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
       - "Tests/LumenPipelineTests/DisplayedDenoiseQualificationTests.swift"
+      - "Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift"
       - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
       - "Tests/LumenPipelineTests/RawCorpus/**"
   workflow_dispatch:
@@ -514,6 +515,20 @@ jobs:
           swift test -c release --filter AuditRawAccuracyTests.testNativeFirstCacheDisplayedCausalMatrix 2>&1 | tee native-causal.log
           test "$(grep -c '^native-causal: ' native-causal.log)" -eq 26
 
+      - name: Native boundary through samples, Dehaze, EDR and TIFF16
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+          LUMEN_AUDIT_NATIVE_EXPORT16: '1'
+        run: |
+          set -o pipefail
+          swift test -c release --filter NativeConsumerConsistencyTests 2>&1 | tee native-consumers.log
+          test "$(grep -c '^native-consumer-file: ' native-consumers.log)" -eq 12
+          test "$(grep -c '^native-consumer-pair: ' native-consumers.log)" -eq 60
+          test "$(grep -c '^native-consumer-timing: ' native-consumers.log)" -eq 36
+
       # The evidence sheet, kept whatever the verdict.
       #
       # Per file: decoded or refused, the EXIF dimensions, CIRAWFilter's native size, the
@@ -537,6 +552,7 @@ jobs:
             audit-raw.log
             native-precision.log
             native-causal.log
+            native-consumers.log
             displayed-denoise.log
             ${{ env.CORPUS_DIR }}/corpus.tsv
             ${{ env.CORPUS_DIR }}/evidence/

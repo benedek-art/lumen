@@ -1963,6 +1963,53 @@ struct LumenSegmented<T: Hashable>: View {
 
 // MARK: - Colour wheel
 
+/// Pointer lifecycle used by the actual wheel view. A release is a final sample,
+/// before either editing-end callback commits the gesture. Keeping this state outside
+/// SwiftUI storage lets causal tests drive the exact production callback ordering.
+struct ColorWheelDragSession {
+    private var active = false
+    private var pressWasReset = false
+
+    mutating func changed(location: CGPoint, diameter: CGFloat, clickCount: Int,
+                          write: (Double, Double) -> Void, reset: () -> Void,
+                          editingChanged: (Bool) -> Void) {
+        if !active {
+            active = true
+            if clickCount >= 2 {
+                pressWasReset = true
+                editingChanged(true)
+                reset()
+                editingChanged(false)
+            }
+        }
+        if pressWasReset { return }
+        editingChanged(true)
+        Self.sample(location: location, diameter: diameter, write: write)
+    }
+
+    mutating func ended(location: CGPoint, diameter: CGFloat,
+                        write: (Double, Double) -> Void,
+                        editingChanged: (Bool) -> Void) {
+        active = false
+        if pressWasReset {
+            pressWasReset = false
+            return
+        }
+        Self.sample(location: location, diameter: diameter, write: write)
+        editingChanged(false)
+    }
+
+    private static func sample(location: CGPoint, diameter: CGFloat,
+                               write: (Double, Double) -> Void) {
+        let dx = location.x - diameter / 2
+        let dy = location.y - diameter / 2
+        let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
+        let hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
+            .truncatingRemainder(dividingBy: 360)
+        write(hue, Double(r))
+    }
+}
+
 /// A grading wheel: hue as angle, saturation as radius, with a separate luminance
 /// bar under it. The pivot pickers that make Lumen's wheels different from LR's live
 /// in the panel, not here — this is only the puck.
@@ -1998,8 +2045,7 @@ struct LumenColorWheel: View {
     /// Same double-click story as `LumenSlider`'s track: a TapGesture(count: 2)
     /// behind a minimumDistance-0 drag never fires, so the reset reads the click
     /// count off the AppKit event at press time instead.
-    @State private var dragActive = false
-    @State private var pressWasReset = false
+    @State private var dragSession = ColorWheelDragSession()
 
     var body: some View {
         VStack(spacing: 4) {
@@ -2037,36 +2083,20 @@ struct LumenColorWheel: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        if !dragActive {
-                            dragActive = true
-                            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-                                pressWasReset = true
-                                onEditingChanged?(true)
-                                sliderGestureChanged(true)
-                                sat = 0
-                                lum = 0
-                                onEditingChanged?(false)
-                                sliderGestureChanged(false)
-                            }
-                        }
-                        if pressWasReset { return }
-                        onEditingChanged?(true)
-                        sliderGestureChanged(true)
-                        let dx = drag.location.x - diameter / 2
-                        let dy = drag.location.y - diameter / 2
-                        let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
-                        hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
-                            .truncatingRemainder(dividingBy: 360)
-                        sat = Double(r)
+                        var next = dragSession
+                        next.changed(location: drag.location, diameter: diameter,
+                            clickCount: NSApp.currentEvent?.clickCount ?? 1,
+                            write: applyWheelSample,
+                            reset: { sat = 0; lum = 0 },
+                            editingChanged: wheelEditingChanged)
+                        dragSession = next
                     }
-                    .onEnded { _ in
-                        dragActive = false
-                        if pressWasReset {
-                            pressWasReset = false
-                            return
-                        }
-                        onEditingChanged?(false)
-                        sliderGestureChanged(false)
+                    .onEnded { drag in
+                        var next = dragSession
+                        next.ended(location: drag.location, diameter: diameter,
+                            write: applyWheelSample,
+                            editingChanged: wheelEditingChanged)
+                        dragSession = next
                     }
             )
             // THE PUCK AS AN ADJUSTABLE ELEMENT (UX-03). The disc is gradients and a
@@ -2132,6 +2162,16 @@ struct LumenColorWheel: View {
                     .frame(width: diameter + 40)
             }
         }
+    }
+
+    private func applyWheelSample(hue: Double, saturation: Double) {
+        if self.hue != hue { self.hue = hue }
+        if sat != saturation { sat = saturation }
+    }
+
+    private func wheelEditingChanged(_ editing: Bool) {
+        onEditingChanged?(editing)
+        sliderGestureChanged(editing)
     }
 
     /// One assistive write, bracketed the way a click on the disc is.

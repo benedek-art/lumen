@@ -432,26 +432,26 @@ enum SliderInventory {
         // 50 K rather than 10: at 10 the row advertised 4,800 values and the best of the
         // four gestures could land on 0.355 pt of one. See the step's own note at the
         // call site. `MaskPanel.swift:2419` is the same control and still carries 10.
-        SliderSpec("Temp", "BasicPanel.swift:222", .developTop, 2000...50000,
+        SliderSpec("Temp", "BasicPanel.swift:257", .developTop, 2000...50000,
                    hard: 2000...50000, step: 50),
-        SliderSpec("Tint", "BasicPanel.swift:275", .developTop, -150...150,
+        SliderSpec("Tint", "BasicPanel.swift:312", .developTop, -150...150,
                    hard: -300...300, step: 1),
-        SliderSpec("Exposure", "BasicPanel.swift:467", .developTop, -5...5,
+        SliderSpec("Exposure", "BasicPanel.swift:506", .developTop, -5...5,
                    hard: -10...10, step: 0.01, decimals: 2),
-        SliderSpec("Contrast", "BasicPanel.swift:476", .developTop, -100...100, step: 1),
-        SliderSpec("Pivot", "BasicPanel.swift:490", .developTop, -4...4,
+        SliderSpec("Contrast", "BasicPanel.swift:515", .developTop, -100...100, step: 1),
+        SliderSpec("Pivot", "BasicPanel.swift:529", .developTop, -4...4,
                    step: 0.01, decimals: 2),
-        SliderSpec("Highlights", "BasicPanel.swift:522", .developTop, -100...100, step: 1),
-        SliderSpec("Shadows", "BasicPanel.swift:529", .developTop, -100...100, step: 1),
-        SliderSpec("Whites", "BasicPanel.swift:536", .developTop, -100...100, step: 1),
-        SliderSpec("Blacks", "BasicPanel.swift:544", .developTop, -100...100, step: 1),
-        SliderSpec("Texture", "BasicPanel.swift:579", .developTop, -100...100, step: 1),
-        SliderSpec("Clarity", "BasicPanel.swift:595", .developTop, -100...100, step: 1),
-        SliderSpec("Dehaze", "BasicPanel.swift:602", .developTop, -100...100, step: 1),
-        SliderSpec("Vibrance", "BasicPanel.swift:675", .developTop, -100...100, step: 1),
-        SliderSpec("Saturation", "BasicPanel.swift:682", .developTop, -100...100, step: 1),
-        SliderSpec("Density", "BasicPanel.swift:695", .developTop, 0...100, step: 1),
-        SliderSpec("Protect Skin", "BasicPanel.swift:706", .developTop, 0...100, step: 1),
+        SliderSpec("Highlights", "BasicPanel.swift:561", .developTop, -100...100, step: 1),
+        SliderSpec("Shadows", "BasicPanel.swift:568", .developTop, -100...100, step: 1),
+        SliderSpec("Whites", "BasicPanel.swift:575", .developTop, -100...100, step: 1),
+        SliderSpec("Blacks", "BasicPanel.swift:583", .developTop, -100...100, step: 1),
+        SliderSpec("Texture", "BasicPanel.swift:618", .developTop, -100...100, step: 1),
+        SliderSpec("Clarity", "BasicPanel.swift:634", .developTop, -100...100, step: 1),
+        SliderSpec("Dehaze", "BasicPanel.swift:641", .developTop, -100...100, step: 1),
+        SliderSpec("Vibrance", "BasicPanel.swift:714", .developTop, -100...100, step: 1),
+        SliderSpec("Saturation", "BasicPanel.swift:721", .developTop, -100...100, step: 1),
+        SliderSpec("Density", "BasicPanel.swift:734", .developTop, 0...100, step: 1),
+        SliderSpec("Protect Skin", "BasicPanel.swift:745", .developTop, 0...100, step: 1),
 
         // Colour — mixer, point colour, black and white.
         SliderSpec("Hue", "ColorPanel.swift:162", .developTop, -100...100, step: 1),
@@ -598,10 +598,10 @@ enum SliderInventory {
         SliderSpec("Clarity", "MaskPanel.swift:2419", .developTop, -100...100, step: 1),
         SliderSpec("Dehaze", "MaskPanel.swift:2422", .developTop, -100...100, step: 1),
         SliderSpec("Sharpness", "MaskPanel.swift:2427", .developTop, -100...100, step: 1),
-        SliderSpec("Temp", "MaskPanel.swift:2941", .developTop, 2000...50000, step: 50),
-        SliderSpec("Tint", "MaskPanel.swift:2951", .developTop, -150...150, step: 1),
-        SliderSpec("Temp", "MaskPanel.swift:2959", .developTop, -100...100, step: 1),
-        SliderSpec("Tint", "MaskPanel.swift:2963", .developTop, -100...100, step: 1),
+        SliderSpec("Temp", "MaskPanel.swift:2964", .developTop, 2000...50000, step: 50),
+        SliderSpec("Tint", "MaskPanel.swift:2974", .developTop, -150...150, step: 1),
+        SliderSpec("Temp", "MaskPanel.swift:2982", .developTop, -100...100, step: 1),
+        SliderSpec("Tint", "MaskPanel.swift:2986", .developTop, -100...100, step: 1),
 
         // Masks — the floating pop-out: what the mask IS. A 272 pt host that never resizes.
         SliderSpec("Contribution", "MaskPanel.swift:1478", .maskComponent, 0...100, step: 1),
@@ -654,9 +654,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2147 (LookPanel.swift:993)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2187 (LookPanel.swift:993)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2147 (MaskPanel.swift:3016)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2187 (MaskPanel.swift:3039)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.

@@ -297,7 +297,10 @@ extension XMPSidecar {
     public static func writableFields(_ stated: SidecarStatedFields,
                                       documentVersion: Int) -> SidecarStatedFields {
         guard documentVersion > supportedPipelineVersion else { return stated }
-        return stated.subtracting(.recipe)
+        // The opaque painting belongs to the protected recipe. Replacing or
+        // clearing it with this build's reduced map can destroy that recipe's
+        // dependencies even while its JSON remains byte-for-byte intact.
+        return stated.subtracting([.recipe, .strokes])
     }
 }
 
