@@ -1,0 +1,28 @@
+WORKFLOWBENCH count=5000 open=2620.92 ms
+WORKFLOWBENCH count=5000 cold-photo-order p50=9.7495 p95=13.6543 p99=13.6543 ms
+WORKFLOWBENCH count=5000 cursor-selection-bookkeeping p50=0.0652 p95=0.2068 p99=0.3204 ms
+WORKFLOWBENCH count=5000 drag-selected-1 p50=0.0265 p95=0.0839 p99=0.2064 ms
+WORKFLOWBENCH count=5000 release-selected=1 3.7897 ms
+WORKFLOWBENCH count=5000 catalog-commit-selected=1 release-to-barrier=24.0640 ms
+WORKFLOWBENCH count=5000 sidecar-flush-selected=1 call=2.8243 release-to-flush=26.8981 ms
+WORKFLOWBENCH count=5000 undo-selected=1 0.1164 ms
+WORKFLOWBENCH count=5000 drag-selected-40 p50=0.3904 p95=0.6293 p99=1.6502 ms
+WORKFLOWBENCH count=5000 release-selected=40 0.1412 ms
+WORKFLOWBENCH count=5000 catalog-commit-selected=40 release-to-barrier=385.0547 ms
+WORKFLOWBENCH count=5000 sidecar-flush-selected=40 call=335.7945 release-to-flush=720.8875 ms
+WORKFLOWBENCH count=5000 undo-selected=40 0.4021 ms
+WORKFLOWBENCH count=5000 rss-before=45645824 rss-after=202932224 bytes
+WORKFLOWBENCH count=20000 open=9292.37 ms
+WORKFLOWBENCH count=20000 cold-photo-order p50=65.4613 p95=81.3911 p99=81.3911 ms
+WORKFLOWBENCH count=20000 cursor-selection-bookkeeping p50=0.0765 p95=0.2888 p99=0.6814 ms
+WORKFLOWBENCH count=20000 drag-selected-1 p50=0.0322 p95=0.0875 p99=0.1302 ms
+WORKFLOWBENCH count=20000 release-selected=1 28.5177 ms
+WORKFLOWBENCH count=20000 catalog-commit-selected=1 release-to-barrier=39.3514 ms
+WORKFLOWBENCH count=20000 sidecar-flush-selected=1 call=14.7108 release-to-flush=54.0746 ms
+WORKFLOWBENCH count=20000 undo-selected=1 0.0880 ms
+WORKFLOWBENCH count=20000 drag-selected-40 p50=0.4574 p95=0.9038 p99=1.2505 ms
+WORKFLOWBENCH count=20000 release-selected=40 0.3507 ms
+WORKFLOWBENCH count=20000 catalog-commit-selected=40 release-to-barrier=385.8898 ms
+WORKFLOWBENCH count=20000 sidecar-flush-selected=40 call=236.8086 release-to-flush=622.7403 ms
+WORKFLOWBENCH count=20000 undo-selected=40 0.6310 ms
+WORKFLOWBENCH count=20000 rss-before=199213056 rss-after=616824832 bytes
