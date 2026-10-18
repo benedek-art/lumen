@@ -1636,7 +1636,7 @@ final class RawCorpusTests: XCTestCase {
             var rows = 0
             for (label, version) in variants {
                 for flat in [false, true] {
-                    try autoreleasepool {
+                    try autoreleasepool { () throws -> Void in
                         let filter = try XCTUnwrap(CIRAWFilter(imageURL: entry.url))
                         if let version { filter.decoderVersion = version }
                         filter.scaleFactor = 0.125
@@ -1647,14 +1647,21 @@ final class RawCorpusTests: XCTestCase {
                         }
                         let image = filter.outputImage
                         for (contextName, context) in contexts {
-                            let stats = image.map { Self.monoStatistics($0, context: context, outputSpace: rec2020) }
-                                ?? "outputImage=nil"
-                            Self.emit("corpus-mono-decoder: " + entry.id
-                                + " variant=" + label + " flat=" + String(flat)
-                                + " requested=" + (version?.rawValue ?? "unset")
-                                + " selected-default=" + exactDefault.rawValue
-                                + " actual=" + filter.decoderVersion.rawValue
-                                + " context=" + contextName + " " + stats)
+                            let stats: String
+                            if let image {
+                                stats = Self.monoStatistics(image, context: context, outputSpace: rec2020)
+                            } else {
+                                stats = "outputImage=nil"
+                            }
+                            let requested: String = version?.rawValue ?? "unset"
+                            let actual: String = filter.decoderVersion.rawValue
+                            let parts: [String] = [
+                                "corpus-mono-decoder:", entry.id, "variant=" + label,
+                                "flat=" + String(flat), "requested=" + requested,
+                                "selected-default=" + exactDefault.rawValue,
+                                "actual=" + actual, "context=" + contextName, stats,
+                            ]
+                            Self.emit(parts.joined(separator: " "))
                             rows += 1
                         }
                     }
