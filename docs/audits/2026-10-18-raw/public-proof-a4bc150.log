@@ -1,0 +1,8 @@
+2026-10-18T14:41:28.5871710Z Test Case 'ControlProofTests.testEveryRegisteredControlHasVisibleAuthority' passed (0.001 seconds)
+2026-10-18T14:41:28.5873411Z Test Case 'ControlProofTests.testEveryRegisteredControlIsAliveAcrossItsWholeTravel' passed (0.0 seconds)
+2026-10-18T14:42:02.3881846Z Test Case 'ControlProofTests.testNoControlHandsBackASeeableShareOfItsOwnEffect' passed (0.001 seconds)
+2026-10-18T14:42:02.3908442Z Test Case 'ControlProofTests.testNoControlLeavesTheRangeUnlessItIsEntitledTo' passed (0.0 seconds)
+2026-10-18T14:42:02.3911035Z Test Case 'ControlProofTests.testTheCommittedRecordsStillDescribeWhatTheEngineDoes' passed (0.02 seconds)
+2026-10-18T14:42:02.3912649Z Test Case 'ControlProofTests.testWriteTheEvidenceSheets' passed (33.775 seconds)
+2026-10-18T14:42:02.3913608Z 	 Executed 6 tests, with 0 failures (0 unexpected) in 33.798 (33.798) seconds
+2026-10-18T14:42:02.3914485Z 	 Executed 6 tests, with 0 failures (0 unexpected) in 33.798 (33.798) seconds

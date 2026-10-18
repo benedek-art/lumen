@@ -1,0 +1,71 @@
+{
+  "qualified_source_sha": "a4bc1506e0e744f58089b56bfbc8953b2d3e6fc0",
+  "qualified_tree": "d9a18973fcd901629ffe58ddbdf8905c5acf34bb",
+  "main_unchanged_sha": "3219754e911b7355a549240c8d6972b9f2e3d664",
+  "pr": {
+    "number": 10,
+    "draft": true,
+    "merged": false
+  },
+  "complete_mac": {
+    "run": 39136447281,
+    "job": 117701884344,
+    "tests": 3509,
+    "skips": 42,
+    "unexpected_failures": 0,
+    "test_seconds": 301.137,
+    "wall_seconds": 631.694
+  },
+  "ordinary_gpu": {
+    "run": 39136447337,
+    "job": 117701803420,
+    "tests": 263,
+    "skips": 32,
+    "failures": 0,
+    "test_seconds": 466.093
+  },
+  "strict_amount_gate": {
+    "job": 117701803273,
+    "tests": 1,
+    "assertion_failures": 1,
+    "records": 28,
+    "independent_failures": 0,
+    "cpu_gpu_configuration_disagreements": 20,
+    "continuity_accepted": false
+  },
+  "linux_selected_tests": 2646,
+  "proof": {
+    "run": 39136447315,
+    "tests": 6,
+    "failures": 0,
+    "seconds": 33.798
+  },
+  "layout": {
+    "run": 39136447269,
+    "tests": 19,
+    "unexpected_failures": 0,
+    "existing_expected_findings": 3,
+    "seconds": 1.137
+  },
+  "neutral_wb_causal": {
+    "job": 117701884220,
+    "baseline_tests": 3,
+    "baseline_failures": 0,
+    "mutant_tests": 3,
+    "mutant_assertions": 10,
+    "nonneutral_control_passed": true,
+    "source_restored": true
+  },
+  "latest_public_raw": {
+    "source": "b7528444e03435f4adcb021d878a648455cf6485",
+    "run": 39130688910,
+    "corpus_tests": 13,
+    "retained_assertion_failures": 5,
+    "new_run_at_a4bc": false
+  },
+  "camera_acceptance": false,
+  "private_native_drive_acceptance": false,
+  "denoise_camera_quality_accepted": false,
+  "release_or_install": false,
+  "source_coverage_exhaustive": false
+}
