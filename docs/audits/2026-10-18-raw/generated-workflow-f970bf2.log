@@ -1,0 +1,20 @@
+WORKFLOWBENCH count=5000 open=2947.53 ms
+WORKFLOWBENCH count=5000 cold-photo-order p50=13.2181 p95=17.5838 p99=17.5838 ms
+WORKFLOWBENCH count=5000 cursor-selection-bookkeeping p50=0.0682 p95=0.2796 p99=0.3885 ms
+WORKFLOWBENCH count=5000 drag-selected-1 p50=0.0703 p95=0.1037 p99=0.2161 ms
+WORKFLOWBENCH count=5000 release-selected=1 5.1223 ms
+WORKFLOWBENCH count=5000 undo-selected=1 0.0882 ms
+WORKFLOWBENCH count=5000 drag-selected-40 p50=0.4040 p95=1.1182 p99=2.6884 ms
+WORKFLOWBENCH count=5000 release-selected=40 0.1571 ms
+WORKFLOWBENCH count=5000 undo-selected=40 0.1920 ms
+WORKFLOWBENCH count=5000 rss-before=45596672 rss-after=150847488 bytes
+WORKFLOWBENCH count=20000 open=11719.17 ms
+WORKFLOWBENCH count=20000 cold-photo-order p50=51.2917 p95=101.0293 p99=101.0293 ms
+WORKFLOWBENCH count=20000 cursor-selection-bookkeeping p50=0.0666 p95=0.2384 p99=0.4645 ms
+WORKFLOWBENCH count=20000 drag-selected-1 p50=0.0257 p95=0.0310 p99=0.0446 ms
+WORKFLOWBENCH count=20000 release-selected=1 25.1032 ms
+WORKFLOWBENCH count=20000 undo-selected=1 0.0527 ms
+WORKFLOWBENCH count=20000 drag-selected-40 p50=0.4077 p95=1.0885 p99=2.8176 ms
+WORKFLOWBENCH count=20000 release-selected=40 0.1676 ms
+WORKFLOWBENCH count=20000 undo-selected=40 0.1941 ms
+WORKFLOWBENCH count=20000 rss-before=162414592 rss-after=570736640 bytes
