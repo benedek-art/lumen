@@ -60,12 +60,23 @@ final class NativeConsumerConsistencyTests: XCTestCase {
         fflush(stdout)
     }
 
-    /// This targeted lane intentionally uses at most two files. Directory enumeration
-    /// and any setup errors never print original names/paths, including private ones.
+    /// Default to two fixtures; an explicit bounded opt-in may qualify up to five.
+    /// Directory enumeration and setup errors never print original names/paths.
     private func fixtures() throws -> [URL] {
         let path = (ProcessInfo.processInfo.environment["LUMEN_AUDIT_RAW_DIR"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !path.isEmpty else { throw XCTSkip("LUMEN_AUDIT_RAW_DIR unset") }
+        let configuredLimit = (ProcessInfo.processInfo.environment["LUMEN_AUDIT_NATIVE_CONSUMER_LIMIT"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let limit: Int
+        if configuredLimit.isEmpty {
+            limit = 2
+        } else if let requested = Int(configuredLimit), (1...5).contains(requested) {
+            limit = requested
+        } else {
+            XCTFail("LUMEN_AUDIT_NATIVE_CONSUMER_LIMIT must be an integer from 1 through 5")
+            return []
+        }
         let root = URL(fileURLWithPath: path)
         let extensions: Set<String> = ["arw", "nef", "cr3", "dng", "raf", "cr2", "rw2", "orf", "pef", "iiq", "gpr"]
         let urls: [URL]
@@ -78,8 +89,8 @@ final class NativeConsumerConsistencyTests: XCTestCase {
             return []
         }
         XCTAssertFalse(urls.isEmpty, "Configured native-consumer directory contains no RAW fixtures")
-        Self.emit("native-consumer-fixtures: available=\(urls.count) selected=\(min(2, urls.count))")
-        return Array(urls.prefix(2))
+        Self.emit("native-consumer-fixtures: available=\(urls.count) limit=\(limit) selected=\(min(limit, urls.count))")
+        return Array(urls.prefix(limit))
     }
 
     /// Copy active pixel components, excluding row padding and explicit unused X
@@ -188,11 +199,12 @@ final class NativeConsumerConsistencyTests: XCTestCase {
                          failures: inout [String]) {
         let byteDeltas = zip(a.bytes, b.bytes).map { abs(Int($0) - Int($1)) }
         let changed = byteDeltas.filter { $0 != 0 }.count
-        let maximum = zip(a.values, b.values).map { abs($0 - $1) }.max() ?? 0
+        let maximum = zip(a.values, b.values).map { abs($0 - $1) }.max()
+        let sampleDifference = maximum.map { String($0) } ?? "not-applicable"
         let report: [String] = [
             "native-consumer-pair:", label, "shape=\(a.shape)/\(b.shape)",
             "bytes=\(a.bytes.count)/\(b.bytes.count)", "changedBytes=\(changed)",
-            "maxByteDifference=\(byteDeltas.max() ?? 0)", "maxSampleDifference=\(maximum)",
+            "maxByteDifference=\(byteDeltas.max() ?? 0)", "maxSampleDifference=\(sampleDifference)",
         ]
         Self.emit(report.joined(separator: " "))
         if a.shape != b.shape || a.bytes != b.bytes || a.values != b.values {
@@ -202,16 +214,44 @@ final class NativeConsumerConsistencyTests: XCTestCase {
 
     private func matrix(_ consumer: String,
                         measure: (BoundarySource, PipelineRenderer, Recipe, Int) throws -> Snapshot) throws {
+        // Optional selectors let the workflow launch one cell in a fresh process.
+        // The default still measures the complete matrix in the original order.
+        let environment = ProcessInfo.processInfo.environment
+        let policyName = (environment["LUMEN_AUDIT_NATIVE_CONSUMER_POLICY"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let policies: [Policy]
+        if policyName.isEmpty {
+            policies = Policy.allCases
+        } else if let selected = Policy.allCases.first(where: { $0.rawValue == policyName }) {
+            policies = [selected]
+        } else {
+            XCTFail("LUMEN_AUDIT_NATIVE_CONSUMER_POLICY must be unchanged, intermediate or eager")
+            return
+        }
+        let consumerName = (environment["LUMEN_AUDIT_NATIVE_CONSUMER_NAME"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let consumerNames: Set<String> = [
+            "dehazeSDR", "EDRhalf", "sample-scene", "sample-color", "sample-mask", "croppedTIFF16",
+        ]
+        if !consumerName.isEmpty {
+            guard consumerNames.contains(consumerName) else {
+                XCTFail("LUMEN_AUDIT_NATIVE_CONSUMER_NAME must name one of the six supported consumers")
+                return
+            }
+            if consumerName != consumer { return }
+        }
         var failures: [String] = []
         for (index, url) in try fixtures().enumerated() {
             let ordinal = "fixture\(index + 1)"
             var results: [Policy: (Snapshot, Snapshot)] = [:]
-            for policy in Policy.allCases {
+            for policy in policies {
                 do {
                     var pair: (Snapshot, Snapshot)?
                     try autoreleasepool { () throws -> Void in
+                        let constructStarted = DispatchTime.now().uptimeNanoseconds
                         let source = try BoundarySource(url: url, policy: policy)
                         let renderer = PipelineRenderer()
+                        let constructMs = Double(DispatchTime.now().uptimeNanoseconds - constructStarted) / 1e6
                         let firstStarted = DispatchTime.now().uptimeNanoseconds
                         let first = try measure(source, renderer, quietRecipe, 0)
                         let firstMs = Double(DispatchTime.now().uptimeNanoseconds - firstStarted) / 1e6
@@ -222,7 +262,8 @@ final class NativeConsumerConsistencyTests: XCTestCase {
                         let timing: [String] = [
                             "native-consumer-timing:", ordinal, "consumer=\(consumer)",
                             "policy=\(policy.rawValue)", "decoder=\(source.base.pinnedDecoderVersion ?? -1)",
-                            "edge=\(source.nativeLongEdge)", "firstMs=\(firstMs)", "repeatMs=\(repeatMs)",
+                            "edge=\(source.nativeLongEdge)", "constructMs=\(constructMs)",
+                            "firstMs=\(firstMs)", "repeatMs=\(repeatMs)",
                             "firstHeld=\(firstHeld)", "repeatHeld=\(source.base.heldDecodeBytes)",
                         ]
                         Self.emit(timing.joined(separator: " "))

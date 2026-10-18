@@ -97,6 +97,28 @@ jobs:
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
+      # Opt-in audit evidence on this source branch only. This measures generated
+      # library bookkeeping, not displayed RAW latency or camera acceptance.
+      - name: Generated 5k and 20k workflow cost
+        if: ${{ success() && github.ref == 'refs/heads/codex/raw-accuracy-qualification' }}
+        timeout-minutes: 8
+        shell: bash
+        env:
+          LUMEN_APP_BENCH: '1'
+        run: |
+          set -o pipefail
+          swift test -c release --skip-build --filter GeneratedWorkflowCostTests 2>&1 | tee workflow-cost.log
+          test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq 20
+          grep -q 'Executed 1 test, with 0 failures' workflow-cost.log
+      - name: Keep generated workflow cost
+        if: ${{ always() && github.ref == 'refs/heads/codex/raw-accuracy-qualification' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-workflow-cost
+          path: workflow-cost.log
+          if-no-files-found: warn
+          retention-days: 14
+
   # The thing a photographer can actually open. Runs on every push regardless of the
   # test lane's verdict, because a build you can launch and poke at is how you find
   # out what the tests are not asking about.

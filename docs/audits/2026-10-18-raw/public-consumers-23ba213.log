@@ -1,0 +1,126 @@
+Public/licensed fixture consumer evidence only.
+Source:23ba2132916885f90e8449674000b8b8b70534b6
+CI:https://github.com/benedek-art/lumen/actions/runs/39110325743
+Job:117624887727; selected exact log lines, timestamps/workspace prefix removed.
+Fixture1=CC0 Sony2349.ARW;fixture2=CC0 Panasonic2607.RW2; manifest SHA verification in workflow.
+MaxByteDifference measures bytes, not16-bit encoded code differences or half-float magnitudes.
+maxSampleDifference=0 in byte-only records is not a numerical component measurement; those records had no sample arrays.
+Strict baseline and intermediate-Dehaze failures retained. No production decode fix.
+
+native-consumer-timing: fixture1 consumer=croppedTIFF16 policy=unchanged decoder=7 edge=4592.0 firstMs=266.021166 repeatMs=425.280584 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 croppedTIFF16 unchanged first-repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=17946 maxByteDifference=255 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=croppedTIFF16 policy=intermediate decoder=7 edge=4592.0 firstMs=139.646667 repeatMs=267.771166 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 croppedTIFF16 intermediate first-repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=croppedTIFF16 policy=eager decoder=7 edge=4592.0 firstMs=285.643917 repeatMs=368.273667 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 croppedTIFF16 eager first-repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 croppedTIFF16 intermediate-eager first shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 croppedTIFF16 intermediate-eager repeat shape=154x230:bpc16:bpp64:bitmap4097/154x230:bpc16:bpp64:bitmap4097 bytes=283360/283360 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture1 consumer=croppedTIFF16 policies=3
+native-consumer-timing: fixture2 consumer=croppedTIFF16 policy=unchanged decoder=8 edge=3680.0 firstMs=1196.211625 repeatMs=129.847042 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 croppedTIFF16 unchanged first-repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=croppedTIFF16 policy=intermediate decoder=8 edge=3680.0 firstMs=303.008209 repeatMs=99.691459 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 croppedTIFF16 intermediate first-repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=croppedTIFF16 policy=eager decoder=8 edge=3680.0 firstMs=294.634583 repeatMs=121.651416 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 croppedTIFF16 eager first-repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 croppedTIFF16 intermediate-eager first shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 croppedTIFF16 intermediate-eager repeat shape=184x138:bpc16:bpp64:bitmap4097/184x138:bpc16:bpp64:bitmap4097 bytes=203136/203136 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture2 consumer=croppedTIFF16 policies=3
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testCroppedNativeTIFF16WriteReadbackFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 croppedTIFF16 unchanged first-repeat
+native-consumer-timing: fixture1 consumer=EDRhalf policy=unchanged decoder=7 edge=4592.0 firstMs=72.628125 repeatMs=183.555042 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 EDRhalf unchanged first-repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=8429 maxByteDifference=255 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=EDRhalf policy=intermediate decoder=7 edge=4592.0 firstMs=83.971708 repeatMs=161.751084 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 EDRhalf intermediate first-repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=EDRhalf policy=eager decoder=7 edge=4592.0 firstMs=201.185583 repeatMs=185.043625 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 EDRhalf eager first-repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 EDRhalf intermediate-eager first shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 EDRhalf intermediate-eager repeat shape=108x162:bpc16:bpp64:bitmap4353/108x162:bpc16:bpp64:bitmap4353 bytes=139968/139968 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture1 consumer=EDRhalf policies=3
+native-consumer-timing: fixture2 consumer=EDRhalf policy=unchanged decoder=8 edge=3680.0 firstMs=194.841959 repeatMs=4.957208 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 EDRhalf unchanged first-repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=EDRhalf policy=intermediate decoder=8 edge=3680.0 firstMs=176.444417 repeatMs=6.281208 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 EDRhalf intermediate first-repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=EDRhalf policy=eager decoder=8 edge=3680.0 firstMs=238.472583 repeatMs=158.027875 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 EDRhalf eager first-repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 EDRhalf intermediate-eager first shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 EDRhalf intermediate-eager repeat shape=130x98:bpc16:bpp64:bitmap4353/130x98:bpc16:bpp64:bitmap4353 bytes=101920/101920 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture2 consumer=EDRhalf policies=3
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testEDRHalfFloatFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 EDRhalf unchanged first-repeat
+native-consumer-timing: fixture1 consumer=dehazeSDR policy=unchanged decoder=7 edge=4592.0 firstMs=1510.136333 repeatMs=316.60925 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 dehazeSDR unchanged first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=1670 maxByteDifference=1 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=dehazeSDR policy=intermediate decoder=7 edge=4592.0 firstMs=601.748458 repeatMs=338.1715 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 dehazeSDR intermediate first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=1431 maxByteDifference=1 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=dehazeSDR policy=eager decoder=7 edge=4592.0 firstMs=403.440208 repeatMs=523.739 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 dehazeSDR eager first-repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 dehazeSDR intermediate-eager first shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=1431 maxByteDifference=1 maxSampleDifference=0.0
+native-consumer-pair: fixture1 dehazeSDR intermediate-eager repeat shape=108x162:bpc8:bpp32:bitmap1/108x162:bpc8:bpp32:bitmap1 bytes=69984/69984 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture1 consumer=dehazeSDR policies=3
+native-consumer-timing: fixture2 consumer=dehazeSDR policy=unchanged decoder=8 edge=3680.0 firstMs=952.191667 repeatMs=17.4535 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 dehazeSDR unchanged first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=dehazeSDR policy=intermediate decoder=8 edge=3680.0 firstMs=346.195 repeatMs=13.618208 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 dehazeSDR intermediate first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=dehazeSDR policy=eager decoder=8 edge=3680.0 firstMs=454.080958 repeatMs=153.200625 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 dehazeSDR eager first-repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 dehazeSDR intermediate-eager first shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 dehazeSDR intermediate-eager repeat shape=130x98:bpc8:bpp32:bitmap1/130x98:bpc8:bpp32:bitmap1 bytes=50960/50960 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture2 consumer=dehazeSDR policies=3
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 dehazeSDR unchanged first-repeat
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 dehazeSDR intermediate first-repeat
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 dehazeSDR intermediate-eager first
+Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testPackingExcludesSkippedComponentsAndRowPaddingAtBothDepths]' passed (0.001 seconds).
+native-consumer-timing: fixture1 consumer=sample-scene policy=unchanged decoder=7 edge=4592.0 firstMs=58.812333 repeatMs=221.460916 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=6.748735904695685e-06
+native-consumer-timing: fixture1 consumer=sample-scene policy=intermediate decoder=7 edge=4592.0 firstMs=79.895209 repeatMs=267.621834 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=sample-scene policy=eager decoder=7 edge=4592.0 firstMs=309.606458 repeatMs=308.636958 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture1 consumer=sample-scene policies=3
+native-consumer-timing: fixture2 consumer=sample-scene policy=unchanged decoder=8 edge=3680.0 firstMs=423.340666 repeatMs=10.37375 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-scene unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=sample-scene policy=intermediate decoder=8 edge=3680.0 firstMs=206.897333 repeatMs=16.635917 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-scene intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=sample-scene policy=eager decoder=8 edge=3680.0 firstMs=247.759208 repeatMs=59.305458 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-scene eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 sample-scene intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 sample-scene intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture2 consumer=sample-scene policies=3
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 sample-scene unchanged first-repeat
+native-consumer-timing: fixture1 consumer=sample-color policy=unchanged decoder=7 edge=4592.0 firstMs=94.564958 repeatMs=215.876667 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=6.748735904695685e-06
+native-consumer-timing: fixture1 consumer=sample-color policy=intermediate decoder=7 edge=4592.0 firstMs=73.979125 repeatMs=142.914125 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=sample-color policy=eager decoder=7 edge=4592.0 firstMs=189.194834 repeatMs=318.133916 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture1 consumer=sample-color policies=3
+native-consumer-timing: fixture2 consumer=sample-color policy=unchanged decoder=8 edge=3680.0 firstMs=230.109459 repeatMs=14.561041 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-color unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=sample-color policy=intermediate decoder=8 edge=3680.0 firstMs=211.741333 repeatMs=9.226708 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-color intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=sample-color policy=eager decoder=8 edge=3680.0 firstMs=281.155375 repeatMs=83.447167 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-color eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 sample-color intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 sample-color intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture2 consumer=sample-color policies=3
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 sample-color unchanged first-repeat
+native-consumer-timing: fixture1 consumer=sample-mask policy=unchanged decoder=7 edge=4592.0 firstMs=78.488125 repeatMs=161.836417 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=6.748735904695685e-06
+native-consumer-timing: fixture1 consumer=sample-mask policy=intermediate decoder=7 edge=4592.0 firstMs=71.303667 repeatMs=175.041875 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture1 consumer=sample-mask policy=eager decoder=7 edge=4592.0 firstMs=227.229958 repeatMs=224.468417 firstHeld=0 repeatHeld=112265216
+native-consumer-pair: fixture1 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture1 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture1 consumer=sample-mask policies=3
+native-consumer-timing: fixture2 consumer=sample-mask policy=unchanged decoder=8 edge=3680.0 firstMs=167.096833 repeatMs=17.893834 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-mask unchanged first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=sample-mask policy=intermediate decoder=8 edge=3680.0 firstMs=164.118291 repeatMs=9.766333 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-mask intermediate first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-timing: fixture2 consumer=sample-mask policy=eager decoder=8 edge=3680.0 firstMs=245.910375 repeatMs=76.083542 firstHeld=81254400 repeatHeld=81254400
+native-consumer-pair: fixture2 sample-mask eager first-repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 sample-mask intermediate-eager first shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-pair: fixture2 sample-mask intermediate-eager repeat shape=RGB-double:5x5-native-window/RGB-double:5x5-native-window bytes=0/0 changedBytes=0 maxByteDifference=0 maxSampleDifference=0.0
+native-consumer-file: fixture2 consumer=sample-mask policies=3
+Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:255: error: -[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies] : failed - Exact native consumer identity: fixture1 sample-mask unchanged first-repeat

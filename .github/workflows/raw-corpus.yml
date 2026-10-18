@@ -479,6 +479,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/public-native" "$CORPUS_DIR/evidence/native-precision"
           cp "$CORPUS_DIR/2349.ARW" "$RUNNER_TEMP/public-native/"
           cp "$CORPUS_DIR/2607.RW2" "$RUNNER_TEMP/public-native/"
+          mkdir -p "$RUNNER_TEMP/public-consumers"
+          for fixture in 1346.CR2 2349.ARW 2607.RW2 5283.ORF 5812.NEF; do
+            cp "$CORPUS_DIR/$fixture" "$RUNNER_TEMP/public-consumers/"
+          done
 
       - name: Native decode precision before plans and dithering
         if: ${{ !cancelled() }}
@@ -520,14 +524,56 @@ jobs:
         timeout-minutes: 20
         shell: bash
         env:
-          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-consumers
           LUMEN_AUDIT_NATIVE_EXPORT16: '1'
+          LUMEN_AUDIT_NATIVE_CONSUMER_LIMIT: '5'
         run: |
           set -o pipefail
           swift test -c release --filter NativeConsumerConsistencyTests 2>&1 | tee native-consumers.log
-          test "$(grep -c '^native-consumer-file: ' native-consumers.log)" -eq 12
-          test "$(grep -c '^native-consumer-pair: ' native-consumers.log)" -eq 60
-          test "$(grep -c '^native-consumer-timing: ' native-consumers.log)" -eq 36
+          test "$(grep -c '^native-consumer-file: ' native-consumers.log)" -eq 30
+          test "$(grep -c '^native-consumer-pair: ' native-consumers.log)" -eq 150
+          test "$(grep -c '^native-consumer-timing: ' native-consumers.log)" -eq 90
+
+      # Each cell starts a new test process. File-system caches are NOT flushed;
+      # time -l measures command peak RSS, not GPU residency or a cold disk load.
+      - name: Process-cold native samples and Dehaze
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          sw_vers > native-process-environment.log
+          swift --version >> native-process-environment.log
+          git rev-parse HEAD >> native-process-environment.log
+          fail=0
+          for fixture in 2349.ARW 2607.RW2; do
+            directory="$RUNNER_TEMP/native-process-$fixture"
+            mkdir -p "$directory"
+            cp "$CORPUS_DIR/$fixture" "$directory/"
+            for consumer in sample-scene dehazeSDR; do
+              if [ "$consumer" = sample-scene ]; then
+                method=testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies
+              else
+                method=testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies
+              fi
+              for policy in unchanged intermediate eager; do
+                log="native-process-$fixture-$consumer-$policy.log"
+                set +e
+                env LUMEN_AUDIT_RAW_DIR="$directory" \
+                  LUMEN_AUDIT_NATIVE_CONSUMER_LIMIT=1 \
+                  LUMEN_AUDIT_NATIVE_CONSUMER_POLICY="$policy" \
+                  LUMEN_AUDIT_NATIVE_CONSUMER_NAME="$consumer" \
+                  /usr/bin/time -l swift test -c release --skip-build \
+                    --filter "NativeConsumerConsistencyTests.$method" 2>&1 | tee "$log"
+                status=${PIPESTATUS[0]}
+                set -e
+                [ "$status" -eq 0 ] || fail=1
+                [ "$(grep -c '^native-consumer-file: ' "$log")" -eq 1 ] || fail=1
+                [ "$(grep -c '^native-consumer-pair: ' "$log")" -eq 1 ] || fail=1
+                [ "$(grep -c '^native-consumer-timing: ' "$log")" -eq 1 ] || fail=1
+              done
+            done
+          done
+          exit "$fail"
 
       # The evidence sheet, kept whatever the verdict.
       #
@@ -553,6 +599,7 @@ jobs:
             native-precision.log
             native-causal.log
             native-consumers.log
+            native-process-*.log
             displayed-denoise.log
             ${{ env.CORPUS_DIR }}/corpus.tsv
             ${{ env.CORPUS_DIR }}/evidence/

@@ -25,7 +25,7 @@ final class BasicWhiteBalanceAvailabilityTests: XCTestCase {
         var asShot: WhiteBalanceEngine.Neutral? = nil
         var writes: [Double] = []
         let binding = BasicPanel.guardedWhiteBalanceBinding(
-            current: { current }, asShot: { asShot }, displayed: 5500,
+            current: { current }, asShot: { asShot }, displayed: { asShot?.kelvin ?? 5500 },
             write: { writes.append($0) })
         current = nil
         binding.wrappedValue = 5550
@@ -38,5 +38,32 @@ final class BasicWhiteBalanceAvailabilityTests: XCTestCase {
         binding.wrappedValue = 4550
         XCTAssertEqual(writes, [3250, 4550])
     }
+
+    func testExistingBindingReadsFreshCameraNeutralWithoutRowReconstruction() {
+        var current: Double? = nil
+        var asShot: WhiteBalanceEngine.Neutral? = nil
+        let binding = BasicPanel.guardedWhiteBalanceBinding(
+            current: { current }, asShot: { asShot },
+            displayed: { asShot?.kelvin ?? 5500 }, write: { _ in })
+        XCTAssertEqual(binding.wrappedValue, 5500)
+        asShot = .init(kelvin: 3200, tint: -12)
+        XCTAssertEqual(binding.wrappedValue, 3200,
+                       "Metadata must replace the old reference fallback on the same binding")
+        current = 4500
+        XCTAssertEqual(binding.wrappedValue, 4500)
+        asShot = .init(kelvin: 4200, tint: 6)
+        XCTAssertEqual(binding.wrappedValue, 4500, "Explicit overrides keep priority")
+    }
+
+    func testExistingTintBindingReadsFreshCameraTint() {
+        var asShot: WhiteBalanceEngine.Neutral? = nil
+        let binding = BasicPanel.guardedWhiteBalanceBinding(
+            current: { nil }, asShot: { asShot },
+            displayed: { asShot?.tint ?? 0 }, write: { _ in })
+        XCTAssertEqual(binding.wrappedValue, 0)
+        asShot = .init(kelvin: 3200, tint: -12)
+        XCTAssertEqual(binding.wrappedValue, -12)
+    }
+
 }
 #endif

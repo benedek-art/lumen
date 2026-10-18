@@ -187,21 +187,29 @@ struct BasicPanel: View {
     static func guardedWhiteBalanceBinding(
         current: @escaping () -> Double?,
         asShot: @escaping () -> WhiteBalanceEngine.Neutral?,
-        displayed: Double,
+        displayed: @escaping () -> Double,
         write: @escaping (Double) -> Void
     ) -> Binding<Double> {
-        Binding(get: { current() ?? displayed }, set: { next in
+        Binding(get: { current() ?? displayed() }, set: { next in
             guard whiteBalanceDimensionIsAvailable(value: current(), asShot: asShot()) else { return }
             write(next)
         })
     }
 
     private func whiteBalanceBinding(_ path: WritableKeyPath<Recipe, Double?>,
-                                     key: String, displayed: Double) -> Binding<Double> {
+                                     key: String,
+                                     displayed dimension: KeyPath<WhiteBalanceEngine.AsShotDisplay, Double>) -> Binding<Double> {
         let state = self.state
         return Self.guardedWhiteBalanceBinding(
             current: { state.currentRecipe[keyPath: path] },
-            asShot: { state.primaryAsShotNeutral }, displayed: displayed,
+            asShot: { state.primaryAsShotNeutral },
+            displayed: {
+                let raw = state.currentRecipe.develop.raw
+                let shown = WhiteBalanceEngine.displayed(
+                    temp: raw.temp, tint: raw.tint,
+                    asShot: state.primaryAsShotNeutral ?? .reference)
+                return shown[keyPath: dimension]
+            },
             write: { next in
                 state.updateRecipe(coalescingKey: key) { $0[keyPath: path] = next }
             })
@@ -256,7 +264,7 @@ struct BasicPanel: View {
             // was wrong was never its width but where its travel went.
             LumenSlider(title: "Temp",
                         value: whiteBalanceBinding(\.develop.raw.temp, key: "wb.temp",
-                                                   displayed: display.temperature),
+                                                   displayed: \.temperature),
                         range: 2000...50000,
                         hardRange: 2000...50000,
                         scale: .reciprocal,
@@ -311,7 +319,7 @@ struct BasicPanel: View {
                 .redacted(reason: temperatureUnknown ? .placeholder : [])
             LumenSlider(title: "Tint",
                         value: whiteBalanceBinding(\.develop.raw.tint, key: "wb.tint",
-                                                   displayed: display.tint),
+                                                   displayed: \.tint),
                         range: -150...150,
                         hardRange: -300...300,
                         defaultValue: neutral.tint,
