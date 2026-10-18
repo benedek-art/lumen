@@ -357,6 +357,108 @@ final class AuditRawAccuracyTests: XCTestCase {
         }
     }
 
+    /// Holds the decoder result fixed while the real plan, graph and deterministic
+    /// display dither execute. No production cache state can change this image.
+    private final class FrozenNativeSource: ImageSource {
+        let base: AppleRawSource
+        let image: CIImage
+        init(_ base: AppleRawSource, _ image: CIImage) { self.base = base; self.image = image }
+        var url: URL { base.url }
+        var nativeLongEdge: Double { base.nativeLongEdge }
+        var nativePixelSize: (width: Int, height: Int) { base.nativePixelSize }
+        var asShotTemperature: Double { base.asShotTemperature }
+        var asShotTint: Double { base.asShotTint }
+        var captureMetadata: CaptureMetadata { base.captureMetadata }
+        var statisticsProvenance: RawStatistics.Provenance { base.statisticsProvenance }
+        func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage? {
+            image
+        }
+    }
+
+    /// Causal matrix, deliberately separate from the full denoise response sweep.
+    /// Each pair uses the SAME native ROI. Exact displayed identity stays mandatory;
+    /// all stage measurements are emitted before reporting any pair failures.
+    func testNativeFirstCacheDisplayedCausalMatrix() throws {
+        try eachFixture("native-causal") { fixture in
+            guard let apple = CIRAWFilter(imageURL: fixture.url) else { return "refused-at-open" }
+            if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            var off = quietRecipe
+            off.develop.denoise = Denoise(mode: .off)
+            var aiZero = off
+            aiZero.develop.denoise = Denoise(mode: .ai, amount: 0)
+            let roi = CGRect(x: 0.4825, y: 0.4825, width: 0.035, height: 0.035)
+            var failures: [String] = []
+            func render(_ source: any ImageSource, _ recipe: Recipe,
+                        _ renderer: PipelineRenderer) throws -> Data {
+                let delivery = try renderer.renderPreviewDelivery(source: source, recipe: recipe,
+                    maxLongEdge: Int(source.nativeLongEdge.rounded(.up)),
+                    draft: false, coarseDecode: false, region: roi)
+                XCTAssertNotNil(delivery.regionUnit, fixture.name + " expected bounded native ROI")
+                let image = delivery.image
+                // Canonical tightly packed RGBA avoids comparing provider row padding.
+                var bytes = Data(count: image.width * image.height * 4)
+                try bytes.withUnsafeMutableBytes { raw in
+                    let context = try XCTUnwrap(CGContext(data: raw.baseAddress,
+                        width: image.width, height: image.height, bitsPerComponent: 8,
+                        bytesPerRow: image.width * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                    context.draw(image, in: CGRect(x: 0, y: 0,
+                        width: image.width, height: image.height))
+                }
+                return bytes
+            }
+            func compare(_ label: String, _ a: Data, _ b: Data) {
+                let differences = zip(a, b).map { abs(Int($0) - Int($1)) }
+                let changed = differences.filter { $0 != 0 }.count
+                let largest = differences.max() ?? 0
+                Self.emit("native-causal: " + fixture.name + " " + label
+                    + " changedBytes=\(changed) maxCode=\(largest) bytes=\(a.count)/\(b.count)")
+                if a != b { failures.append(label + " maxCode=\(largest) changedBytes=\(changed)") }
+            }
+            // Same-mode first/repeat cannot be attributed to a denoise-mode change.
+            try autoreleasepool {
+                let source = try AppleRawSource(url: fixture.url)
+                let renderer = PipelineRenderer()
+                let a = try render(source, off, renderer)
+                let firstBytes = source.heldDecodeBytes
+                let b = try render(source, off, renderer)
+                Self.emit("native-causal-branch: " + fixture.name
+                    + " edge=\(source.nativeLongEdge) firstHeld=\(firstBytes) repeatedHeld=\(source.heldDecodeBytes)")
+                compare("off-first-vs-off-repeat", a, b)
+                compare("off-repeat-vs-ai0", b, try render(source, aiZero, renderer))
+            }
+            // Reverse the mode order on a fresh decoder and renderer.
+            try autoreleasepool {
+                let source = try AppleRawSource(url: fixture.url)
+                let renderer = PipelineRenderer()
+                let a = try render(source, aiZero, renderer)
+                compare("ai0-first-vs-off-repeat", a, try render(source, off, renderer))
+            }
+            try autoreleasepool {
+                let source = try AppleRawSource(url: fixture.url)
+                let lazy = try XCTUnwrap(source.decode(recipe: off, draft: false, scaleFactor: 1))
+                let frozenLazy = FrozenNativeSource(source, lazy)
+                let renderer = PipelineRenderer()
+                let a = try render(frozenLazy, off, renderer)
+                compare("fixed-lazy-same-renderer-repeat", a, try render(frozenLazy, off, renderer))
+                compare("fixed-lazy-mode-change", a, try render(frozenLazy, aiZero, renderer))
+                compare("fixed-lazy-fresh-renderer", a, try render(frozenLazy, off, PipelineRenderer()))
+                let plane = try XCTUnwrap(DecodeMaterializer.materialize(lazy))
+                let frozenPlane = FrozenNativeSource(source, plane.image)
+                let b = try render(frozenPlane, off, renderer)
+                compare("fixed-lazy-vs-explicit-plane", a, b)
+                compare("fixed-plane-repeat", b, try render(frozenPlane, off, renderer))
+                compare("fixed-plane-mode-change", b, try render(frozenPlane, aiZero, renderer))
+                compare("fixed-plane-fresh-renderer", b, try render(frozenPlane, off, PipelineRenderer()))
+            }
+            for failure in failures {
+                XCTFail(fixture.name + " exact displayed identity failed: " + failure)
+            }
+            return "measured pairs=10 failures=\(failures.count)"
+        }
+    }
+
     /// D50's honouring half, on every file and not only where RAW9 exists: each other
     /// decoder this OS offers for the file is pinned, switched away from and back (a
     /// cache hit), and an unavailable pin must render Apple's per-file default. Pixel

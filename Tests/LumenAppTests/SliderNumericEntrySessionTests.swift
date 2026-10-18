@@ -35,6 +35,20 @@ final class SliderNumericEntrySessionTests: XCTestCase {
         XCTAssertEqual(pending.resolved("25", context: from, currentValue: 0, range: -100...100), 25)
     }
 
+    func testSwitchingMixerBandOrAllBandsRejectsSameValueEntry() {
+        let from = SliderEditContext(primary: a, selection: [a],
+                                     mixerBand: 0, mixerAllBands: false)
+        let pending = SliderNumericEntrySession(context: from, initialValue: 0)
+        var anotherBand = from; anotherBand.mixerBand = 1
+        var allBands = from; allBands.mixerAllBands = true
+        for changed in [anotherBand, allBands] {
+            XCTAssertNil(pending.resolved("25", context: changed, currentValue: 0,
+                                          range: -100...100))
+        }
+        XCTAssertEqual(pending.resolved("25", context: from, currentValue: 0,
+                                        range: -100...100), 25)
+    }
+
     func testUntouchedRoundedReadoutPreservesStoredPrecision() {
         let context = SliderEditContext(primary: a, selection: [a])
         let pending = SliderNumericEntrySession(context: context, initialValue: 1.234,

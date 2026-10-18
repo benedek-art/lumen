@@ -113,6 +113,55 @@ final class SidecarConflictRetentionTests: XCTestCase {
         }
     }
 
+    func testOwedPaintingPreservesPortablePayloadWhenSomeOrAllLocalBlobsAreMissing() async throws {
+        for missingCount in [1, 2] {
+            try await fixture { root, original, id, service, directory in
+                let paintings = [0.2, 0.8].map { x in
+                    BrushStrokeSet(strokes: [BrushStroke(points: [
+                        BrushPoint(x: x, y: 0.3, pressure: 0.6)
+                    ], size: 0.1, feather: 35, flow: 70)])
+                }
+                let refs = try paintings.map { try service.blobs.store($0) }
+                var recipe = Recipe()
+                recipe.masks = refs.enumerated().map { index, ref in
+                    var component = MaskComponent(op: .add, kind: .brush)
+                    component.strokesRef = ref
+                    return Mask(id: "painting-\(index)", components: [component])
+                }
+                service.saveRecipe(recipe, url: original, catalogID: id)
+                _ = service.close()
+                let sidecar = CatalogService.sidecarURL(for: original)
+                let before = try Data(contentsOf: sidecar)
+                let payload = try XCTUnwrap(XMPSidecar.parse(before)?.strokesPayload)
+                XCTAssertEqual(Set(BrushStrokeSidecar.decode(payload).keys), Set(refs))
+                for ref in refs.prefix(missingCount) {
+                    try FileManager.default.removeItem(at: XCTUnwrap(service.blobs.url(for: ref)))
+                }
+                let db = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path)
+                defer { db.close() }
+                let debt = UnsavedSidecarRecord(photoPath: original.path, photoID: id,
+                                               stated: [.recipe, .strokes])
+                try db.setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode([debt]))
+                // A new BlobStore prevents its warm cache from hiding missing disk bytes.
+                let reopened = try CatalogService(directory: directory)
+                XCTAssertEqual(reopened.close(), [sidecar.lastPathComponent])
+                XCTAssertEqual(try Data(contentsOf: sidecar), before,
+                               "recovery must not erase all or part of the portable painting")
+                XCTAssertEqual(try db.currentRecipe(photoID: id), recipe)
+                XCTAssertEqual(UnsavedSidecarRecord.decode(try db.metaValue(UnsavedSidecarRecord.metaKey)), [debt])
+                // Restoring the missing dependency makes the same debt safely retryable.
+                for index in 0..<missingCount {
+                    try paintings[index].encode().write(to: XCTUnwrap(service.blobs.url(for: refs[index])))
+                }
+                let repaired = try CatalogService(directory: directory)
+                XCTAssertEqual(repaired.close(), [])
+                let recovered = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: sidecar))?.strokesPayload)
+                XCTAssertEqual(Set(BrushStrokeSidecar.decode(recovered).keys), Set(refs))
+                XCTAssertTrue(UnsavedSidecarRecord.decode(try db.metaValue(UnsavedSidecarRecord.metaKey)).isEmpty)
+            }
+        }
+    }
+
     func testFailedCullingCatalogWriteDoesNotPublishSidecar() async throws {
         try await fixture { root, original, id, service, directory in
             defer { _ = service.close() }
@@ -121,11 +170,15 @@ final class SidecarConflictRetentionTests: XCTestCase {
             let db = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path)
             defer { db.close() }
             try db.debugExecute("CREATE TRIGGER reject_rating BEFORE UPDATE OF rating ON photo WHEN NEW.rating != OLD.rating BEGIN SELECT RAISE(ABORT, 'injected rating refusal'); END;")
-            var photo = PhotoItem(id: original); photo.catalogID = id; photo.rating = 5
-            service.saveCullingState(photo, labelChanged: false)
+            var photo = PhotoItem(id: original); photo.catalogID = id
+            photo.flag = .pick; photo.rating = 5; photo.label = .green
+            service.saveCullingState(photo, labelChanged: true)
             _ = try await service.querySource(scope: .everywhere, folderPath: root.path)
             service.flushSidecars()
-            XCTAssertEqual(try db.photo(id: id)?.rating, 0)
+            let unchanged = try XCTUnwrap(db.photo(id: id))
+            XCTAssertEqual(unchanged.flag, .unflagged, "a refused rating must not commit the preceding flag")
+            XCTAssertEqual(unchanged.rating, 0)
+            XCTAssertNil(unchanged.label)
             XCTAssertEqual(try Data(contentsOf: sidecar), before)
         }
     }

@@ -86,7 +86,7 @@ jobs:
     # A lane that gets cancelled tells you the runner died, not which file killed it.
     # Sixty since AuditRawAccuracyTests joined: about five small-scale decodes per file
     # per decoder on top, under its own 20-minute step limit.
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CORPUS_DIR: ${{ github.workspace }}/.raw-corpus
     steps:
@@ -380,7 +380,7 @@ jobs:
           LUMEN_AUDIT_RAW_DIR: ${{ env.CORPUS_DIR }}
         run: |
           set +e
-          swift test --filter AuditRawAccuracyTests 2>&1 | tee audit-raw.log
+          swift test --filter AuditRawAccuracyTests --skip 'NativeCachePromotionPrecisionEvidence|NativeFirstCacheDisplayedCausalMatrix' 2>&1 | tee audit-raw.log
           status=$?
           echo "=== summary ==="
           grep -E "Executed [0-9]+ test" audit-raw.log | tail -1
@@ -484,6 +484,7 @@ jobs:
       # Only pinned CC0 Sony/Panasonic files enter this directory. Never bind an
       # owner-photo directory to a hosted evidence uploader.
       - name: Isolate public native precision fixtures
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/public-native" "$CORPUS_DIR/evidence/native-precision"
@@ -491,6 +492,7 @@ jobs:
           cp "$CORPUS_DIR/2607.RW2" "$RUNNER_TEMP/public-native/"
 
       - name: Native decode precision before plans and dithering
+        if: ${{ !cancelled() }}
         timeout-minutes: 15
         shell: bash
         env:
@@ -512,6 +514,17 @@ jobs:
           set -o pipefail
           swift test -c release --filter DisplayedDenoiseQualificationTests 2>&1 | tee displayed-denoise.log
           test "$(grep -c '^displayed-denoise ' displayed-denoise.log)" -eq 60
+
+      - name: Isolate displayed decode history from plans and dithering
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+        run: |
+          set -o pipefail
+          swift test -c release --filter AuditRawAccuracyTests.testNativeFirstCacheDisplayedCausalMatrix 2>&1 | tee native-causal.log
+          test "$(grep -c '^native-causal: ' native-causal.log)" -eq 20
 
       # The evidence sheet, kept whatever the verdict.
       #
@@ -535,6 +548,7 @@ jobs:
             corpus.log
             audit-raw.log
             native-precision.log
+            native-causal.log
             displayed-denoise.log
             ${{ env.CORPUS_DIR }}/corpus.tsv
             ${{ env.CORPUS_DIR }}/evidence/

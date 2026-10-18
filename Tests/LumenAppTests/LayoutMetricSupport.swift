@@ -458,13 +458,13 @@ enum SliderInventory {
         SliderSpec("Saturation", "ColorPanel.swift:168", .developTop, -100...100, step: 1),
         SliderSpec("Luminance", "ColorPanel.swift:173", .developTop, -100...100, step: 1),
         SliderSpec("Even out hues", "ColorPanel.swift:206", .developTop, 0...100, step: 1),
-        SliderSpec("Hue", "ColorPanel.swift:443", .developTop, -60...60, step: 1),
-        SliderSpec("Saturation", "ColorPanel.swift:448", .developTop, -100...100, step: 1),
-        SliderSpec("Luminance", "ColorPanel.swift:452", .developTop, -100...100, step: 1),
-        SliderSpec("Range", "ColorPanel.swift:456", .developTop, 0...100, step: 1),
-        SliderSpec("Variance", "ColorPanel.swift:462", .developTop, -100...100, step: 1),
+        SliderSpec("Hue", "ColorPanel.swift:447", .developTop, -60...60, step: 1),
+        SliderSpec("Saturation", "ColorPanel.swift:452", .developTop, -100...100, step: 1),
+        SliderSpec("Luminance", "ColorPanel.swift:456", .developTop, -100...100, step: 1),
+        SliderSpec("Range", "ColorPanel.swift:460", .developTop, 0...100, step: 1),
+        SliderSpec("Variance", "ColorPanel.swift:466", .developTop, -100...100, step: 1),
         // `ColorEngine.bandNames` — Magenta is the widest of the eight.
-        SliderSpec("Magenta", "ColorPanel.swift:721", .developTop, -100...100, step: 1),
+        SliderSpec("Magenta", "ColorPanel.swift:725", .developTop, -100...100, step: 1),
 
         // Crop.
         SliderSpec("Angle", "CropPanel.swift:361", .developTop, -45...45,
@@ -654,9 +654,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2145 (LookPanel.swift:993)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2147 (LookPanel.swift:993)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2145 (MaskPanel.swift:3016)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2147 (MaskPanel.swift:3016)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.

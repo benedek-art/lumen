@@ -201,7 +201,14 @@ final class CatalogService: @unchecked Sendable {
         for record in records {
             let url = URL(fileURLWithPath: record.photoPath)
             let stated = record.statedFields
-            guard let id = record.photoID, let row = try? store.photo(id: id) else {
+            let row: PhotoRow?
+            do {
+                row = try record.photoID.flatMap { try store.photo(id: $0) }
+            } catch {
+                report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt because the catalog could not be read (\(error)). Its portable write remains owed.")
+                continue
+            }
+            guard let id = record.photoID, let row else {
                 report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt: "
                        + "the photo is no longer in the catalog.")
                 sidecarLock.lock()
@@ -222,7 +229,13 @@ final class CatalogService: @unchecked Sendable {
                     if stated.contains(.recipe) {
                         recipeFields = (json, fingerprint, recipe.pipelineVersion)
                     }
-                    if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
+                    if stated.contains(.strokes) {
+                        try validateSidecarStrokeDependencies(recipe)
+                        guard let complete = sidecarStrokes(for: recipe, url: url) else {
+                            throw CatalogError.invalid("the complete painting cannot be embedded in a sidecar")
+                        }
+                        strokes = .some(complete)
+                    }
                 } catch {
                     // Keep the durable debt and the external document unchanged. A
                     // newer/corrupt edit cannot be safely reduced to this build's
@@ -238,7 +251,13 @@ final class CatalogService: @unchecked Sendable {
             case .unflagged: flag = stated.contains(.flag) ? SidecarFlag.none : nil
             }
             var keywordEdit: SidecarKeywordEdit?
-            if stated.contains(.keywords), let words = try? store.keywords(photoID: id) {
+            if stated.contains(.keywords) {
+                let words: [String]
+                do { words = try store.keywords(photoID: id) }
+                catch {
+                    report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt because its keywords could not be read (\(error)). Its portable write remains owed.")
+                    continue
+                }
                 let leaves = Set(words.map(KeywordPath.leaf))
                 if let owed = record.keywordEdit {
                     // The catalog may have changed after this durable record was made.
@@ -986,9 +1005,8 @@ final class CatalogService: @unchecked Sendable {
         let url = photo.id
         queue.async {
             do {
-                try self.store.setFlag(flag, photoID: id)
-                try self.store.setRating(rating, photoID: id)
-                try self.store.setLabel(label, photoID: id)
+                try self.store.setCullingState(flag: flag, rating: rating,
+                                               label: label, photoID: id)
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
                 self.onFailure?("Could not save the flag or rating — \(error)")
@@ -1108,6 +1126,25 @@ final class CatalogService: @unchecked Sendable {
     }
 
     /// What a sidecar write says about brush strokes for `recipe`; see `saveRecipe`.
+    /// Recovery must not replace a complete portable painting with a partial map
+    /// just because a referenced local blob is temporarily missing or damaged.
+    private func validateSidecarStrokeDependencies(_ recipe: Recipe) throws {
+        var references = Set(recipe.masks.flatMap { mask in
+            mask.components.filter { $0.kind == .brush }.compactMap(\.strokesRef)
+        }.filter { !$0.isEmpty })
+        if let ref = BrushStrokes.healReference(in: recipe) { references.insert(ref) }
+        for ref in references {
+            guard let path = blobs.url(for: ref), let bytes = try? Data(contentsOf: path),
+                  BrushStrokeSet.blobRef(for: bytes) == ref else {
+                throw CatalogError.invalid("sidecar painting is missing or damaged: \(ref)")
+            }
+            let painting = try BrushStrokeSet.decode(bytes)
+            guard painting.version <= BrushStrokeSet.schemaVersion else {
+                throw CatalogError.invalid("sidecar painting requires a newer build")
+            }
+        }
+    }
+
     private func sidecarStrokes(for recipe: Recipe, url: URL) -> String?? {
         switch BrushStrokeSidecar.decision(for: recipe, blob: {
             self.blobs.strokeSet(for: $0)

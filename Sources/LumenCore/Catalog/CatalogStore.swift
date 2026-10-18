@@ -2941,6 +2941,17 @@ public final class CatalogStore {
 
     // MARK: - Culling state
 
+    /// Save the complete culling gesture together. A later field's failure must not
+    /// leave an earlier field committed without a corresponding portable write.
+    public func setCullingState(flag: PhotoFlag, rating: Int, label: ColorLabel?,
+                                photoID: Int64) throws {
+        try db.transaction {
+            try db.run("UPDATE photo SET flag = ?, rating = ?, label = ? WHERE id = ?;",
+                       [.integer(Int64(flag.rawValue)), .int(min(5, max(0, rating))),
+                        .optionalText(label?.rawValue), .integer(photoID)])
+        }
+    }
+
     /// The decision write path: one transaction per action, never on the input path.
     public func setFlag(_ flag: PhotoFlag, photoID: Int64) throws {
         try setFlag(flag, photoIDs: [photoID])
@@ -5336,6 +5347,10 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
+    public func setCullingState(flag: PhotoFlag, rating: Int, label: ColorLabel?,
+                                photoID: Int64) throws {
+        throw CatalogError.unavailable
+    }
     public func setRating(_ rating: Int, photoID: Int64) throws {
         throw CatalogError.unavailable
     }

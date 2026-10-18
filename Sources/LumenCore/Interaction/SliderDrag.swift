@@ -229,6 +229,11 @@ public struct SliderTrack: Sendable, Equatable {
     public func nudged(_ value: Double, steps: Int) -> Double {
         guard value.isFinite else { return value }
         guard isUsable, steps != 0 else { return resolve(value) }
+        // Typed values need not lie on the step grid. An outward nudge at a rail
+        // must hold the exact value, before snapping can round it in either direction.
+        if (value >= upperBound && steps > 0) || (value <= lowerBound && steps < 0) {
+            return value
+        }
         let moved = value + Double(steps) * step
         // The window this nudge may land in: the soft range, widened just far enough to
         // include wherever the value already is.

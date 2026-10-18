@@ -591,7 +591,7 @@ struct DetailPanel: View {
                             defaultValue: isoDefault.classic.lumaDetail,
                             step: 1, decimals: 0, bipolar: false,
                             indented: true,
-                            help: "Raises the shrinkage threshold, so texture survives "
+                            help: "Lowers the shrinkage threshold, so texture survives "
                                 + "— and so does the noise beside it.",
                             onReset: { state.resetDenoise(.lumaDetail) })
                 LumenSlider(title: "Contrast",

@@ -442,6 +442,8 @@ struct SliderEditContext: Equatable, Sendable {
     var maskID: String? = nil
     var componentIndex: Int? = nil
     var swatchIndex: Int? = nil
+    var mixerBand: Int? = nil
+    var mixerAllBands: Bool? = nil
 }
 
 private struct SliderEditContextKey: EnvironmentKey {
