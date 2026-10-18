@@ -49,6 +49,14 @@ final class SliderNumericEntrySessionTests: XCTestCase {
                                         range: -100...100), 25)
     }
 
+    func testSwitchingWheelRoleRejectsPendingLightnessAtIdenticalValue() {
+        let from = SliderEditContext(primary: a, selection: [a], wheelRole: "Shadows")
+        var to = from; to.wheelRole = "Highlights"
+        let pending = SliderNumericEntrySession(context: from, initialValue: 0)
+        XCTAssertNil(pending.resolved("0.25", context: to, currentValue: 0, range: -1...1))
+        XCTAssertEqual(pending.resolved("0.25", context: from, currentValue: 0, range: -1...1), 0.25)
+    }
+
     func testUntouchedRoundedReadoutPreservesStoredPrecision() {
         let context = SliderEditContext(primary: a, selection: [a])
         let pending = SliderNumericEntrySession(context: context, initialValue: 1.234,

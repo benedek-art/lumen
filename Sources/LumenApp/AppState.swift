@@ -2900,7 +2900,8 @@ final class AppState: ObservableObject {
             }
         } catch {
             catalog = nil
-            catalogStatus = "Catalog unavailable — edits live in memory this session "
+            catalogStatus = "Catalog unavailable. Saved edits and masks were not loaded. "
+                + "Preview edits remain in memory this session; export is unavailable. "
                 + "(\(error.localizedDescription))"
         }
     }

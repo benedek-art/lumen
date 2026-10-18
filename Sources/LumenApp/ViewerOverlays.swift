@@ -1289,6 +1289,83 @@ private struct CropCornerBracket: Shape {
     }
 }
 
+/// Identity and coordinate basis of one rectangle drag. Crop itself is checked
+/// separately against the last value this gesture committed, so its own motion does
+/// not invalidate it while undo or an unrelated crop edit does.
+struct CropRectangleContext: Equatable {
+    var photoID: URL
+    var primaryID: URL?
+    var sourceSize: CGSize
+    var angle: Double
+    var flipH: Bool
+    var frameAspect: Double
+    var requestedAspect: Double?
+}
+
+final class CropRectangleSession {
+    enum Operation { case move, resizeHandle(CropGeometry.Handle) }
+
+    private let context: CropRectangleContext
+    private let origin: Crop
+    private let operation: Operation
+    private let frameSize: CGSize
+    private let lockedAspect: Double?
+    private var expectedCrop: Crop
+    private var active = true
+
+    init?(context: CropRectangleContext, origin: Crop, operation: Operation,
+          frameSize: CGSize) {
+        guard context.primaryID == context.photoID,
+              frameSize.width > 0, frameSize.height > 0,
+              frameSize.width.isFinite, frameSize.height.isFinite else { return nil }
+        self.context = context
+        self.origin = origin
+        self.expectedCrop = origin
+        self.operation = operation
+        self.frameSize = frameSize
+        self.lockedAspect = CropGeometry.effectiveLockedAspect(
+            context.requestedAspect, crop: origin, frameAspect: context.frameAspect)
+    }
+
+    func invalidate() { active = false }
+
+    private func resolved(translation: CGSize, context current: CropRectangleContext,
+                          currentCrop: Crop, frameSize currentFrame: CGSize) -> Crop? {
+        guard active, current == context, current.primaryID == current.photoID,
+              currentFrame == frameSize, currentCrop == expectedCrop else {
+            active = false
+            return nil
+        }
+        let dx = Double(translation.width / frameSize.width)
+        let dy = Double(translation.height / frameSize.height)
+        let result: Crop
+        switch operation {
+        case .move: result = CropGeometry.move(origin, dx: dx, dy: dy)
+        case .resizeHandle(let handle):
+            result = CropGeometry.resize(origin, handle: handle, dx: dx, dy: dy,
+                                         lockedAspect: lockedAspect,
+                                         frameAspect: context.frameAspect)
+        }
+        expectedCrop = result
+        return result
+    }
+
+    func changed(translation: CGSize, context: CropRectangleContext, currentCrop: Crop,
+                 frameSize: CGSize, apply: (Crop) -> Void) {
+        guard let next = resolved(translation: translation, context: context,
+                                  currentCrop: currentCrop, frameSize: frameSize) else { return }
+        apply(next)
+    }
+
+    func ended(translation: CGSize, context: CropRectangleContext, currentCrop: Crop,
+               frameSize: CGSize, apply: (Crop) -> Void, finish: () -> Void) {
+        defer { active = false; finish() }
+        guard let next = resolved(translation: translation, context: context,
+                                  currentCrop: currentCrop, frameSize: frameSize) else { return }
+        apply(next)
+    }
+}
+
 /// The crop rectangle over the drawn image: the area outside dimmed, guides inside, eight
 /// resize handles, the interior to drag it by — and, outside it, the picture itself to
 /// turn.
@@ -1354,6 +1431,7 @@ private struct CropCornerBracket: Shape {
 /// rarely as its value actually changes.
 struct CropOverlayView: View {
 
+    @EnvironmentObject private var state: AppState
     @Binding var crop: Crop
     /// The recipe's geometry. Three things need it: the mapping needs the angle and the
     /// flip, the rotate gesture needs the angle it is starting from, and the flip decides
@@ -1431,6 +1509,8 @@ struct CropOverlayView: View {
     private static let fineRotationGear: Double = 0.2
 
     @State private var dragOrigin: Crop?
+    @State private var rectangleDragBegan = false
+    @State private var rectangleSession: CropRectangleSession?
     @State private var rotation: RotationDrag?
     /// Which region the pointer is in, or nil when it is not over the overlay at all.
     ///
@@ -1595,11 +1675,16 @@ struct CropOverlayView: View {
                     leave()
                 }
             }
+            .onChange(of: size) { _, _ in rectangleSession?.invalidate() }
         }
         // The tool can be put away with `R` — or by leaving the workspace — while the
         // pointer is still inside the rectangle, and a cursor pushed by a view that has
         // gone is a cursor nothing will ever pop.
-        .onDisappear { leave() }
+        .onChange(of: rectangleContext) { _, _ in rectangleSession?.invalidate() }
+        .onDisappear {
+            leave()
+            if rectangleDragBegan { rectangleSession?.invalidate(); finishRectangleDrag() }
+        }
     }
 
     // MARK: Geometry
@@ -2000,57 +2085,88 @@ struct CropOverlayView: View {
 
     // MARK: Gestures
 
-    /// Measured in the overlay's named space, NOT the default `.local` — the interior
-    /// host moves with the crop it is dragging, and `dragSpace`'s comment is the story
-    /// of what a coordinate space that moves mid-gesture does to a translation.
+    /// Read at event time rather than retained from the body that drew the target.
+    private var rectangleContext: CropRectangleContext {
+        let currentGeometry = state.currentRecipe.develop.geometry
+        let knownSource = state.sourceFrameSize
+        let currentSource = knownSource ?? sourceSize
+        let currentAspect: Double
+        if let knownSource, knownSource.height > 0 {
+            let usable = CropGeometry.usableSize(width: Double(knownSource.width),
+                                                 height: Double(knownSource.height),
+                                                 degrees: currentGeometry.angle)
+            currentAspect = usable.height > 0 ? usable.width / usable.height : frameAspect
+        } else {
+            currentAspect = frameAspect
+        }
+        return CropRectangleContext(photoID: photoID, primaryID: state.primarySelection?.id,
+                                    sourceSize: currentSource, angle: currentGeometry.angle,
+                                    flipH: currentGeometry.flipH, frameAspect: currentAspect,
+                                    requestedAspect: tool.lockedAspect(for: photoID))
+    }
+
+    private func beginRectangleDrag(_ operation: CropRectangleSession.Operation,
+                                    frameSize: CGSize) {
+        guard !rectangleDragBegan else { return }
+        rectangleDragBegan = true
+        let context = rectangleContext
+        // A retained closure can still describe the previous rendered frame. Refuse
+        // that press until the displayed basis agrees with the live recipe/source.
+        guard context.angle == geometry.angle, context.flipH == geometry.flipH,
+              context.sourceSize == sourceSize, context.frameAspect == frameAspect else { return }
+        let origin = crop
+        rectangleSession = CropRectangleSession(context: context, origin: origin,
+                                                 operation: operation, frameSize: frameSize)
+        if rectangleSession != nil { dragOrigin = origin }
+    }
+
+    private func applyRectangleSample(_ next: Crop) {
+        sliderGestureChanged(true)
+        crop = next
+    }
+
+    private func finishRectangleDrag() {
+        rectangleSession = nil
+        rectangleDragBegan = false
+        dragOrigin = nil
+        sliderGestureChanged(false)
+    }
+
+    /// The named space holds still while the crop's own hit targets move.
     private func moveGesture(in frame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 1,
                     coordinateSpace: .named(CropOverlayView.dragSpace))
             .onChanged { value in
-                guard frame.width > 0, frame.height > 0 else { return }
-                sliderGestureChanged(true)
-                let origin = dragOrigin ?? crop
-                if dragOrigin == nil { dragOrigin = origin }
-                crop = CropGeometry.move(origin,
-                                         dx: Double(value.translation.width / frame.width),
-                                         dy: Double(value.translation.height / frame.height))
+                beginRectangleDrag(.move, frameSize: frame.size)
+                rectangleSession?.changed(translation: value.translation, context: rectangleContext,
+                                          currentCrop: crop, frameSize: frame.size,
+                                          apply: { applyRectangleSample($0) })
             }
-            .onEnded { _ in
-                dragOrigin = nil
-                sliderGestureChanged(false)
+            .onEnded { value in
+                guard let session = rectangleSession else { finishRectangleDrag(); return }
+                session.ended(translation: value.translation, context: rectangleContext,
+                              currentCrop: crop, frameSize: frame.size,
+                              apply: { applyRectangleSample($0) }, finish: { finishRectangleDrag() })
             }
     }
 
-    /// Every resize goes through `CropGeometry.resize`, which is in LumenCore and tested.
-    ///
-    /// The arithmetic used to live here, and it ignored the aspect entirely: picking 3:2
-    /// from the menu and then dragging a corner silently made the crop free-form, after
-    /// which the menu read the rectangle back and reported "Custom". A view cannot be
-    /// tested from a machine with no renderer, which is why it moved rather than being
-    /// patched in place.
-    ///
-    /// Measured in the overlay's named space, and this one is the drag that was
-    /// glitching: its host views are `.position`ed off the live rect, so the default
-    /// `.local` space moved under the pointer on every event — see `dragSpace`.
+    /// The same frozen rectangle session serves resize. Aspect, normalized geometry
+    /// and source identity stay fixed until the final release has been delivered.
     private func resizeGesture(_ handle: CropGeometry.Handle,
                                in frame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 1,
                     coordinateSpace: .named(CropOverlayView.dragSpace))
             .onChanged { value in
-                guard frame.width > 0, frame.height > 0 else { return }
-                sliderGestureChanged(true)
-                let origin = dragOrigin ?? crop
-                if dragOrigin == nil { dragOrigin = origin }
-                crop = CropGeometry.resize(
-                    origin, handle: handle,
-                    dx: Double(value.translation.width / frame.width),
-                    dy: Double(value.translation.height / frame.height),
-                    lockedAspect: tool.effectiveLockedAspect(for: photoID, crop: origin,
-                        frameAspect: frameAspect), frameAspect: frameAspect)
+                beginRectangleDrag(.resizeHandle(handle), frameSize: frame.size)
+                rectangleSession?.changed(translation: value.translation, context: rectangleContext,
+                                          currentCrop: crop, frameSize: frame.size,
+                                          apply: { applyRectangleSample($0) })
             }
-            .onEnded { _ in
-                dragOrigin = nil
-                sliderGestureChanged(false)
+            .onEnded { value in
+                guard let session = rectangleSession else { finishRectangleDrag(); return }
+                session.ended(translation: value.translation, context: rectangleContext,
+                              currentCrop: crop, frameSize: frame.size,
+                              apply: { applyRectangleSample($0) }, finish: { finishRectangleDrag() })
             }
     }
 

@@ -1,5 +1,5 @@
 // UnsavedSidecarRecord.swift
-// Which sidecars were still unwritten when Lumen quit, kept where the next launch finds it.
+// Portable publication intent, committed with catalog edits and retained across restart.
 //
 // The quit flush runs inside `applicationWillTerminate`. A failure there was reported
 // through `onFailure`, which hops to the main actor, and the main actor never runs again
@@ -20,16 +20,19 @@ public struct UnsavedSidecarRecord: Codable, Equatable, Sendable {
     /// The photograph's path (not the sidecar's: the sidecar name is re-resolved).
     public var photoPath: String
     public var photoID: Int64?
-    /// `SidecarStatedFields.rawValue` of the fields the failed write was stating.
+    /// `SidecarStatedFields.rawValue` of the fields the committed edit still owes.
     public var stated: Int
     /// Optional for records produced before keyword deltas were persisted.
     public var keywordEdit: SidecarKeywordEdit?
+    /// Identifies the latest committed intent; older publications cannot settle it.
+    public var generation: String?
 
-    public init(photoPath: String, photoID: Int64?, stated: SidecarStatedFields, keywordEdit: SidecarKeywordEdit? = nil) {
+    public init(photoPath: String, photoID: Int64?, stated: SidecarStatedFields, keywordEdit: SidecarKeywordEdit? = nil, generation: String? = nil) {
         self.photoPath = photoPath
         self.photoID = photoID
         self.stated = stated.rawValue
         self.keywordEdit = keywordEdit
+        self.generation = generation
     }
 
     public var statedFields: SidecarStatedFields { SidecarStatedFields(rawValue: stated) }
@@ -53,12 +56,38 @@ public struct UnsavedSidecarRecord: Codable, Equatable, Sendable {
         return (try? JSONDecoder().decode([UnsavedSidecarRecord].self, from: data)) ?? []
     }
 
+    /// Transactional updates must not replace unreadable existing debt with an empty list.
+    public static func decodeValidated(_ value: String?) throws -> [UnsavedSidecarRecord] {
+        guard let value else { return [] }
+        let bytes = Data(value.utf8)
+        let decoder = JSONDecoder()
+        let records = try decoder.decode([UnsavedSidecarRecord].self, from: bytes)
+        let knownFields: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes, .keywords]
+        guard Set(records.map(\.photoPath)).count == records.count,
+              records.allSatisfy({ $0.photoPath.hasPrefix("/") && $0.stated >= 0 && ($0.stated & ~knownFields.rawValue) == 0 }),
+              case .array(let entries) = try decoder.decode(JSONValue.self, from: bytes) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unsupported portable intent fields"))
+        }
+        let recordKeys: Set<String> = ["photoPath", "photoID", "stated", "keywordEdit", "generation"]
+        let keywordKeys: Set<String> = ["added", "removed"]
+        for entry in entries {
+            guard case .object(let object) = entry, Set(object.keys).isSubset(of: recordKeys) else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unsupported portable intent keys"))
+            }
+            if case .object(let keywords)? = object["keywordEdit"], !Set(keywords.keys).isSubset(of: keywordKeys) {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "unsupported portable keyword intent keys"))
+            }
+        }
+        return records
+    }
+
     /// Merge two records for one photograph: every field either one owed is owed.
     public func merged(with other: UnsavedSidecarRecord) -> UnsavedSidecarRecord {
         UnsavedSidecarRecord(photoPath: photoPath, photoID: photoID ?? other.photoID,
                              stated: statedFields.union(other.statedFields),
                              keywordEdit: keywordEdit.map { $0.then(other.keywordEdit ?? SidecarKeywordEdit()) }
-                                ?? other.keywordEdit)
+                                ?? other.keywordEdit,
+                             generation: other.generation ?? generation)
     }
 
     /// The launch notice for a set of records; nil when there are none.

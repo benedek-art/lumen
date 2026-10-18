@@ -116,10 +116,11 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
         let photo = root.appendingPathComponent("nested.JPG")
         try Data([1]).write(to: photo)
         let path = photo.appendingPathExtension("xmp")
-        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         let catalog = root.appendingPathComponent("catalog")
         let first = try CatalogService(directory: catalog)
         let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        // Inject a publication outage after the unreadable-sidecar scan boundary.
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         await first.addKeyword("Places > Iceland", targets: [(id, photo)])
         XCTAssertEqual(first.close(), ["nested.JPG.xmp"])
         try FileManager.default.removeItem(at: path)

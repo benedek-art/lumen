@@ -2278,7 +2278,10 @@ struct LocalPlan {
         // edit was a sampled swatch declared itself identity, got a 2-point identity
         // table, and returned its input — the Point Colour control did nothing at all
         // inside a mask on the GPU path, which is every preview and every export.
-        let identity = adjust.contrast == 0 && adjust.highlights == 0
+        // Zero mask/group Amount nulls every adjustment delta. Bypass the table
+        // domain entirely: even an identity cube clamps negative/extended channels.
+        // Selection alpha and referenced donor masks are independent of this strength.
+        let identity = scale == 0 || (adjust.contrast == 0 && adjust.highlights == 0
             && adjust.shadows == 0 && adjust.whites == 0 && adjust.blacks == 0
             && adjust.temp == 0 && adjust.tint == 0 && adjust.kelvin == nil
             && adjust.hue == 0
@@ -2287,7 +2290,7 @@ struct LocalPlan {
             // `wheels` belongs here for the same reason `pointColors` does: a mask
             // whose only edit is a grade would otherwise declare itself identity and
             // return its input.
-            && (adjust.wheels?.isNeutral ?? true)
+            && (adjust.wheels?.isNeutral ?? true))
         self.isIdentity = identity
         guard !identity else {
             self.preLUT = nil

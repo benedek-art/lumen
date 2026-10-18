@@ -268,6 +268,13 @@ extension AppState {
     /// `ExportRecipe.gainMapWhiteTargetPercent`, so recipes with different HDR white
     /// targets cannot share a master.
     func export(to directory: URL) {
+        // Catalog failure deliberately keeps browsing and in-memory previews usable,
+        // but their recipes have not been reconciled with saved edits or sidecars.
+        // Do not deliver an imported/default rendition as if those edits were loaded.
+        guard catalog != nil else {
+            statusMessage = "Export unavailable: the catalog could not load saved edits and masks. Recover the catalog and reopen before exporting. Preview edits remain in memory only."
+            return
+        }
         let targets = selectedPhotos.isEmpty
             ? (primarySelection.map { [$0] } ?? [])
             : selectedPhotos

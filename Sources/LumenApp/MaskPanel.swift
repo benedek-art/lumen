@@ -3036,9 +3036,15 @@ struct MaskPanel: View {
 
     private func wheel(_ id: String, _ t: String, _ p: WritableKeyPath<GradingWheels, Wheel>,
                        _ key: String) -> some View {
-        LumenColorWheel(title: t, hue: wheelValue(id, p, \.hue, key + ".hue"),
+        let state = self.state
+        return LumenColorWheel(title: t, hue: wheelValue(id, p, \.hue, key + ".hue"),
                         sat: wheelValue(id, p, \.sat, key + ".sat"),
-                        lum: wheelValue(id, p, \.lum, key + ".lum"))
+                        lum: wheelValue(id, p, \.lum, key + ".lum"),
+                        dragContext: {
+                            ColorWheelTargetContext(primary: state.primarySelection?.id,
+                                                    selection: state.selection, targetMaskID: id,
+                                                    activeMaskID: state.activeMaskID, wheelRole: key)
+                        })
     }
 
     private func wheelValue(_ id: String, _ p: WritableKeyPath<GradingWheels, Wheel>,

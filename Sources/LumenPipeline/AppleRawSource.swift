@@ -366,8 +366,12 @@ public final class AppleRawSource: ImageSource {
         // linear-sRGB evaluation boundary. Oversized legacy images keep the existing
         // lazy fallback, permanently for this entry; transient eligible failures
         // return nil and leave no alternate image in the cache.
-        let evaluation: DecodeMaterializer.EvaluationSpace =
-            Self.needsRaw9Boundary(filter.decoderVersion) ? .raw9LinearSRGB : .pipeline
+        let evaluation: DecodeMaterializer.EvaluationSpace
+        if Self.needsRaw9Boundary(filter.decoderVersion) {
+            evaluation = .raw9LinearSRGB
+        } else {
+            evaluation = .pipeline
+        }
         guard let stored = DecodeMaterializer.prepareForCache(image,
             evaluatingIn: evaluation, materializer: materializeDecode) else { return nil }
         decodeCache.removeAll { $0.key == key }

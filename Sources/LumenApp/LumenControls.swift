@@ -444,6 +444,7 @@ struct SliderEditContext: Equatable, Sendable {
     var swatchIndex: Int? = nil
     var mixerBand: Int? = nil
     var mixerAllBands: Bool? = nil
+    var wheelRole: String? = nil
 }
 
 private struct SliderEditContextKey: EnvironmentKey {
@@ -1963,18 +1964,64 @@ struct LumenSegmented<T: Hashable>: View {
 
 // MARK: - Colour wheel
 
-/// Pointer lifecycle used by the actual wheel view. A release is a final sample,
-/// before either editing-end callback commits the gesture. Keeping this state outside
-/// SwiftUI storage lets causal tests drive the exact production callback ordering.
+/// Caller-owned identity read at event time; the wheel itself need not know AppState.
+struct ColorWheelTargetContext: Equatable {
+    var primary: URL?
+    var selection: Set<URL>
+    var targetMaskID: String? = nil
+    var activeMaskID: String? = nil
+    var wheelRole: String
+    var selectedRole: String? = nil
+
+    static let unscoped = ColorWheelTargetContext(primary: nil, selection: [], wheelRole: "unscoped")
+
+    var isCurrentTarget: Bool {
+        (targetMaskID == nil || targetMaskID == activeMaskID)
+            && (selectedRole == nil || selectedRole == wheelRole)
+    }
+
+    func numericEntryContext(inheriting parent: SliderEditContext) -> SliderEditContext {
+        var result = parent
+        result.primary = primary
+        result.selection = selection
+        result.wheelRole = selectedRole ?? wheelRole
+        return result
+    }
+}
+
+/// A release is the final sample only for the exact targets and geometry that
+/// received the press. Rejected target excursions cannot revive before release.
 struct ColorWheelDragSession {
     private var active = false
     private var pressWasReset = false
+    private var context: ColorWheelTargetContext?
+    private var pressDiameter: CGFloat?
+    private var invalidated = false
+
+    mutating func invalidate() { invalidated = true }
+
+    private mutating func accepts(_ current: ColorWheelTargetContext, diameter: CGFloat) -> Bool {
+        guard !invalidated, current == context, current.isCurrentTarget,
+              diameter == pressDiameter, diameter > 0, diameter.isFinite else {
+            invalidated = true
+            return false
+        }
+        return true
+    }
 
     mutating func changed(location: CGPoint, diameter: CGFloat, clickCount: Int,
+                          context current: ColorWheelTargetContext = .unscoped,
                           write: (Double, Double) -> Void, reset: () -> Void,
                           editingChanged: (Bool) -> Void) {
-        if !active {
+        let began = !active
+        if began {
             active = true
+            context = current
+            pressDiameter = diameter
+            invalidated = false
+        }
+        guard accepts(current, diameter: diameter) else { return }
+        if began {
             if clickCount >= 2 {
                 pressWasReset = true
                 editingChanged(true)
@@ -1988,15 +2035,31 @@ struct ColorWheelDragSession {
     }
 
     mutating func ended(location: CGPoint, diameter: CGFloat,
+                        context current: ColorWheelTargetContext = .unscoped,
                         write: (Double, Double) -> Void,
                         editingChanged: (Bool) -> Void) {
-        active = false
-        if pressWasReset {
-            pressWasReset = false
-            return
+        let resetAlreadyClosed = pressWasReset
+        defer {
+            clear()
+            if !resetAlreadyClosed { editingChanged(false) }
         }
+        guard active, accepts(current, diameter: diameter), !pressWasReset else { return }
         Self.sample(location: location, diameter: diameter, write: write)
-        editingChanged(false)
+    }
+
+    mutating func cancelled(editingChanged: (Bool) -> Void) {
+        guard active else { return }
+        let resetAlreadyClosed = pressWasReset
+        clear()
+        if !resetAlreadyClosed { editingChanged(false) }
+    }
+
+    private mutating func clear() {
+        active = false
+        pressWasReset = false
+        context = nil
+        pressDiameter = nil
+        invalidated = false
     }
 
     private static func sample(location: CGPoint, diameter: CGFloat,
@@ -2024,6 +2087,7 @@ struct LumenColorWheel: View {
     /// by eye at a radius, and half the radius is half the precision for the same hand
     /// movement — four wheels this small was the reason grading felt fiddly rather than
     /// the reason it felt complete.
+    var dragContext: () -> ColorWheelTargetContext
     var diameter: CGFloat = 68
     /// Centre the lightness bar on the wheel's axis and caption it "Luminance".
     ///
@@ -2041,6 +2105,7 @@ struct LumenColorWheel: View {
     /// was in flight (a SQLite write plus a canonical-JSON fingerprint per photo per
     /// mouse event, a scope timer restarted per event) were being paid everywhere.
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
+    @Environment(\.sliderEditContext) private var inheritedSliderEditContext
 
     /// Same double-click story as `LumenSlider`'s track: a TapGesture(count: 2)
     /// behind a minimumDistance-0 drag never fires, so the reset reads the click
@@ -2086,6 +2151,7 @@ struct LumenColorWheel: View {
                         var next = dragSession
                         next.changed(location: drag.location, diameter: diameter,
                             clickCount: NSApp.currentEvent?.clickCount ?? 1,
+                            context: dragContext(),
                             write: applyWheelSample,
                             reset: { sat = 0; lum = 0 },
                             editingChanged: wheelEditingChanged)
@@ -2094,6 +2160,7 @@ struct LumenColorWheel: View {
                     .onEnded { drag in
                         var next = dragSession
                         next.ended(location: drag.location, diameter: diameter,
+                            context: dragContext(),
                             write: applyWheelSample,
                             editingChanged: wheelEditingChanged)
                         dragSession = next
@@ -2162,6 +2229,13 @@ struct LumenColorWheel: View {
                     .frame(width: diameter + 40)
             }
         }
+        .onChange(of: dragContext()) { _, _ in dragSession.invalidate() }
+        .onChange(of: diameter) { _, _ in dragSession.invalidate() }
+        .onDisappear {
+            var next = dragSession
+            next.cancelled(editingChanged: wheelEditingChanged)
+            dragSession = next
+        }
     }
 
     private func applyWheelSample(hue: Double, saturation: Double) {
@@ -2201,6 +2275,8 @@ struct LumenColorWheel: View {
                     // Untitled on screen, so it is named for VoiceOver — after the
                     // wheel it belongs to where the wheel has a caption.
                     accessibilityName: title.isEmpty ? "Luminance" : "\(title) luminance")
+            .environment(\.sliderEditContext,
+                         dragContext().numericEntryContext(inheriting: inheritedSliderEditContext))
     }
 
     private var puck: some View {
