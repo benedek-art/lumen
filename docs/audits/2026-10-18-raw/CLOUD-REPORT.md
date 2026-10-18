@@ -1,11 +1,13 @@
 # Lumen cloud accuracy and reliability audit
 
-Source-only continuation from owner checkpoint `0f57d65710e8f13b919a06257825507bdd6ff1b4`. Current test-only candidate: `c7fbdd806fa79f348bff51bf687aeaff24fe05c3` (production unchanged from `b7528444e03435f4adcb021d878a648455cf6485`), branch `codex/raw-accuracy-qualification`, [draft PR10](https://github.com/benedek-art/lumen/pull/10). The B752 native checkpoint is green, including the keyword-rescan and brush-unit repairs. Independent combined geometry coverage passed its native baseline and wrong-order negative control; c7 full Mac/GPU passed. The next test-only Amount-epsilon diagnostic at4fba was compile-blocked by an ambiguous pow fixture expression; an explicitDouble repair is being prepared, so no native diagnostic result is claimed. No release, main merge, installed-app change or private-photo upload occurred.
+Source-only continuation from owner checkpoint `0f57d65710e8f13b919a06257825507bdd6ff1b4`. Current test-only candidate: `2b96ec49171132b7c0b1023ae01466b79afb096e` (production unchanged from `b7528444e03435f4adcb021d878a648455cf6485`), branch `codex/raw-accuracy-qualification`, [draft PR10](https://github.com/benedek-art/lumen/pull/10). The B752 native checkpoint is green, including the keyword-rescan and brush-unit repairs. Independent combined geometry coverage passed its native baseline and wrong-order negative control; c7 full Mac/GPU passed. The next test-only Amount-epsilon diagnostic at4fba was compile-blocked by an ambiguous pow fixture expression; the repaired2b96 native diagnostic executed and measured a large positive-Amount wheel/table discrepancy. Its soft-alpha fixture and logging need correction before intended-composite acceptance. A narrow neutral absolute-WB flag repair is being qualified separately. No release, main merge, installed-app change or private-photo upload occurred.
 
 ## Executed status
 
 | Scope/source | Result | Interpretation |
 |---|---|---|
+| 2b96 opt-in Amount diagnostic | 1 test/2 assertions;22 valid stage records,27/28 total JSON records intact | Stage:4zero cases exact,2exposure controls CPU/GPUerror0, epsilon wheel maxgap286.71997; soft-alpha fixture/logging defects separately retained and being repaired |
+| Neutral absolute-WB candidate | Core baseline2tests/2neutral assertions; fresh candidate2/0fail, nonneutral control passes | One exact identity flag change, no matrix/interpolation/tolerance change; native GPU/causal execution still pending |
 | c7 combined mask geometry causal check | Baseline5/0fail; wrong-order mutant16 assertions across all3 new methods, both old methods green; source restored | Added independent detection for composed transforms; production unchanged; full c7 suite passed |
 | c7 full optimized Mac/GPU | **3505/41skip/0fail**,306.702 test/636.621 wall seconds; GPU261/31skip/0fail508.330s, [CI39132544299](https://github.com/benedek-art/lumen/actions/runs/39132544299) | Latest complete green source; test-only delta from B752; Linux2644/layout19/build/bundle/fixtures passed |
 | B752 full optimized Mac | **3502 tests,41 skips,0fail**,309.621 test/672.412 wall seconds, [CI39130688875](https://github.com/benedek-art/lumen/actions/runs/39130688875) | All new keyword/brush methods positively passed in the complete suite |
@@ -71,3 +73,7 @@ Portable actual-store old/new1000-record observations were19.283/1.159seconds; t
 6. Review actual100% mask/heal edges, texture/color, highlights and preview/export/reopen consistency, then Classic/Apple-AI tradeoffs across ISO. Keep calibrated color/noise evidence separate from pleasing appearance.
 
 Full procedures: TOMORROW-ACCEPTANCE.md. Remaining known failures, skipped capabilities and unexecuted private checks remain visible alongside passes. No exhaustive feature, camera or aesthetic certification is claimed.
+
+## Retained layout precision findings
+
+Layout19/0unexpected does not erase three existing expected failures: default-width coarse-track floor, minimum-width coarse-track floor, and minimum-width bipolar-100 integer coverage. At the320pt minimum column the model leaves142pt track for200units,0.71logicalpt/unit, versus its unchanged1pt/unit target. These expectations were neither added nor loosened here. This is a source/layout model, not an executed claim that a particular mouse/trackpad can address only a fixed number of values; subpixel input, fine readout dragging and typed entry require actual native acceptance.

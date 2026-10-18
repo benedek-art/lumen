@@ -40,7 +40,10 @@ final class LocalAmountEpsilonDiagnosticTests: XCTestCase {
         }
         func emit(_ record: [String: Any]) throws {
             let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
-            print("LOCAL-AMOUNT-EPSILON " + String(decoding: data, as: UTF8.self))
+            var output = Data("LOCAL-AMOUNT-EPSILON ".utf8)
+            output.append(data)
+            output.append(10)
+            FileHandle.standardOutput.write(output)
         }
         var independentFailures: [String] = []
         var parityFailures: [String] = []
@@ -111,8 +114,16 @@ final class LocalAmountEpsilonDiagnosticTests: XCTestCase {
                         let alphas = size == 33 && axis == "mask" ? [softAlpha, 0.0] : [softAlpha]
                         for alpha in alphas {
                             var graph = RenderGraph()
-                            graph.maskImages[resolved.id] = CIImage(color: CIColor(red: alpha, green: alpha, blue: alpha))
-                                .cropped(to: source.extent)
+                            // A colour-managed CIColor constant changes .25 to about
+                            // .050876 in a linear context. Mask alpha is scalar data.
+                            var scalarMask = ImageBuffer(width: 16, height: 16)
+                            for y in 0..<16 { for x in 0..<16 { scalarMask[x, y] = RGB(gray: alpha) } }
+                            let scalarBytes = scalarMask.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+                            let alphaImage = CIImage(bitmapData: scalarBytes, bytesPerRow: 16 * 16,
+                                size: CGSize(width: 16, height: 16), format: .RGBAf, colorSpace: nil)
+                            graph.maskImages[resolved.id] = alphaImage
+                            let observedAlpha = try read(alphaImage)[2, 8].r
+                            if observedAlpha != alpha { independentFailures.append(key + " scalar mask readback=\(observedAlpha), expected=\(alpha)") }
                             let composed = graph.applyLocal(source, plan: plan,
                                 options: RenderGraph.Options(longEdge: input.width, lutSize: size))
                             let actual = try read(composed)
@@ -138,7 +149,7 @@ final class LocalAmountEpsilonDiagnosticTests: XCTestCase {
                             }.max() ?? 0
                             let compositeRecord: [String: Any] = ["tap": "fullS11", "kind": kind, "axis": axis, "cube": size,
                                 "amount": amount, "effectiveAmount": resolved.amount, "alpha": alpha,
-                                "gpu": triples(actualValues), "cpu": triples(referenceValues),
+                                "observedMaskAlpha": observedAlpha, "gpu": triples(actualValues), "cpu": triples(referenceValues),
                                 "independentEquation": triples(equation), "maxCPUvsGPU": compositeError,
                                 "maxEquationError": equationError,
                                 "independentEquationScope": "R only, patches0/1, out-of-domain endpoints",

@@ -547,7 +547,7 @@ public enum ReferenceRenderer {
                                             targetKelvin: 1e6 / Swift.max(mired, 1e-9),
                                             targetTint: effectiveTint, space: space)
             self.matrix = engine.matrix
-            self.isIdentity = false
+            self.isIdentity = engine.isIdentity
         }
 
         /// The one place that decides which spelling a mask is using, so the reference

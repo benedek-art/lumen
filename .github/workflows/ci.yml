@@ -108,7 +108,8 @@ jobs:
        contains(github.event.head_commit.message, '[workflow-cost]') ||
        contains(github.event.head_commit.message, '[export-source-causal]') ||
        contains(github.event.head_commit.message, '[keyword-scan-causal]') ||
-       contains(github.event.head_commit.message, '[mask-composition-causal]'))
+       contains(github.event.head_commit.message, '[mask-composition-causal]') ||
+       contains(github.event.head_commit.message, '[local-wb-neutral-causal]'))
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -257,6 +258,48 @@ jobs:
           cmp -s "$source_backup" "$source_file"
           shasum -a 256 "$source_file" >> mask-composition-mutation-provenance.log
           echo "MASK-COMPOSITION-CAUSAL baseline=GREEN wrong-order=RED old-oracle=GREEN source-restored=true"
+      - name: Prove neutral absolute white balance avoids an identity cube
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[local-wb-neutral-causal]')
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='NeutralAbsoluteWhiteBalanceIdentityTests|NeutralAbsoluteWhiteBalanceGPUIdentityTests'
+          swift test -c release --filter "$target" 2>&1 | tee local-wb-neutral-baseline.log
+          grep -q 'Executed 3 tests, with 0 failures' local-wb-neutral-baseline.log
+          source_file=Sources/LumenCore/Engine/ReferenceRenderer.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/local-wb-neutral-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > local-wb-neutral-mutation-provenance.log
+          shasum -a 256 "$source_file" >> local-wb-neutral-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenCore/Engine/ReferenceRenderer.swift')
+          source = path.read_text()
+          start = source.index('        public init(kelvin: Double, tint: Double?, amount: Double,')
+          end = source.index('        public static func resolve(', start)
+          region = source[start:end]
+          needle = '            self.isIdentity = engine.isIdentity'
+          assert region.count(needle) == 1, 'must change only the exact engine identity flag'
+          path.write_text(source[:start] + region.replace(needle, '            self.isIdentity = false') + source[end:])
+          PY
+          git diff -- "$source_file" >> local-wb-neutral-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > local-wb-neutral-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat local-wb-neutral-mutant.log
+          test "$mutant_status" -ne 0
+          grep -Eq 'XCTAssert(Equal|Nil|True) failed' local-wb-neutral-mutant.log
+          grep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' local-wb-neutral-mutant.log
+          grep -Fq "testNeutralAbsoluteFlagMatchesExactEngineIdentity]' failed" local-wb-neutral-mutant.log
+          grep -Fq "testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels]' failed" local-wb-neutral-mutant.log
+          grep -Fq "testNonneutralAbsoluteMatrixAndFlagRetainEngineResult]' passed" local-wb-neutral-mutant.log
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> local-wb-neutral-mutation-provenance.log
+          echo "LOCAL-WB-NEUTRAL-CAUSAL baseline=GREEN old-flag=RED nonneutral=GREEN source-restored=true"
       - name: Keep generated workflow cost
         if: always()
         uses: actions/upload-artifact@v4
@@ -274,6 +317,9 @@ jobs:
             mask-composition-baseline.log
             mask-composition-mutant.log
             mask-composition-mutation-provenance.log
+            local-wb-neutral-baseline.log
+            local-wb-neutral-mutant.log
+            local-wb-neutral-mutation-provenance.log
           if-no-files-found: warn
           retention-days: 14
 
