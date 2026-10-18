@@ -660,7 +660,7 @@ final class AppState: ObservableObject {
     /// nothing else that changes with it is: a pass that cannot run changes neither
     /// the available nor the attempted set, so the panel would never re-body to say so.
     @Published private(set) var unreadableMatteSources: Set<URL> = []
-    private var pendingMattes: Set<URL> = []
+    private(set) var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
 
@@ -704,7 +704,7 @@ final class AppState: ObservableObject {
     /// Ask for whatever Vision mattes the current photo's masks need. Cheap and
     /// idempotent: it returns immediately when the recipe has no AI component at all,
     /// which is the overwhelming majority of photographs, and the coordinator's own
-    /// fast path is two dictionary lookups when every kind has already been tried.
+    /// fast path refreshes the source stat when every kind has already been tried.
     ///
     /// There is deliberately NO "this file was already attempted" short circuit here.
     /// The ledger below is a copy of a bounded cache the renderer owns, so a guard
@@ -715,8 +715,10 @@ final class AppState: ObservableObject {
     /// `attemptedSoFar` is the union of every kind previous re-entries already tried for
     /// this photograph. Empty from the outside; carried forward by the one recursive
     /// call, which is what turns "try again" into "try again only if the last try got
-    /// somewhere". See the note at the re-entry below for what it costs when it does not.
-    func ensureMaskMattes(attemptedSoFar: Set<String> = []) {
+    /// somewhere". A discarded source generation gets one additional bounded retry.
+    /// See the note at the re-entry below for what it costs when it does not.
+    func ensureMaskMattes(attemptedSoFar: Set<String> = [],
+                          sourceChangeRetriesRemaining: Int = 1) {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
@@ -736,8 +738,8 @@ final class AppState: ObservableObject {
             // to call back in. One re-entry closes the gap: it no-ops unless the
             // recipe wants a kind the pass did not attempt.
             //
-            // AND IT ONLY RE-ENTERS ON PROGRESS, which is what stops it being an
-            // unbounded loop. `RenderCoordinator.ensureMattes` records `attempted` only
+            // Normally it only re-enters on progress, which stops an unreadable
+            // original from creating an unbounded loop. `RenderCoordinator.ensureMattes` records `attempted` only
             // INSIDE its optional-binding chain, so when the source cannot be built —
             // the original is missing, the volume is ejected, Apple RAW refuses the file
             // — nothing is attempted, the `allSatisfy` is false forever, and the
@@ -748,12 +750,19 @@ final class AppState: ObservableObject {
             // fine. Requiring the attempted set to have GROWN makes a pass that could
             // not run a pass that will not run again.
             let progressed = !pass.attempted.isSubset(of: attemptedSoFar)
-            if progressed,
+            // A discarded source generation made no attempt, but deserves one fresh
+            // request. Carry the budget through progress retries too, so a file that
+            // keeps changing cannot create an automatic segmentation loop.
+            let retryChangedSource = pass.sourceChanged && sourceChangeRetriesRemaining > 0
+            if progressed || retryChangedSource,
                self.primarySelection?.id == url,
                let current = self.primarySelection.map(self.recipe(for:)),
                !VisionMattes.kinds(in: current)
                    .allSatisfy({ pass.attempted.contains($0.rawValue) }) {
-                self.ensureMaskMattes(attemptedSoFar: attemptedSoFar.union(pass.attempted))
+                self.ensureMaskMattes(
+                    attemptedSoFar: attemptedSoFar.union(pass.attempted),
+                    sourceChangeRetriesRemaining: sourceChangeRetriesRemaining
+                        - (retryChangedSource ? 1 : 0))
             }
         }
     }
@@ -1630,7 +1639,7 @@ final class AppState: ObservableObject {
     /// catalog could not be opened — a session without one browses out of memory, which
     /// is what every session did before this was wired.
     private(set) var previews: PreviewStore?
-    let renderCoordinator = RenderCoordinator()
+    let renderCoordinator: RenderCoordinator
 
     /// The export recipes, as edited. Persisted on every change.
     ///
@@ -1787,9 +1796,11 @@ final class AppState: ObservableObject {
     init(catalogDirectory: @escaping () throws -> URL
             = AppState.applicationSupportCatalogDirectory,
          previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory,
+         renderCoordinator: RenderCoordinator = RenderCoordinator(),
          primaryButtonPressed: @escaping @MainActor () -> Bool = {
              NSEvent.pressedMouseButtons & 1 != 0
          }) {
+        self.renderCoordinator = renderCoordinator
         self.catalogDirectory = catalogDirectory
         self.previewDirectory = previewDirectory
         self.primaryButtonPressed = primaryButtonPressed

@@ -77,7 +77,17 @@ final class BatchRecipeSaveTests: XCTestCase {
             let bytes = try photos.map { try Data(contentsOf: CatalogService.sidecarURL(for: $0)) }
             try store.debugExecute("CREATE TRIGGER reject_second_chunk BEFORE INSERT ON meta WHEN NEW.key = 'sidecar_unsaved' AND instr(NEW.value, 'frame000064.JPG') > 0 BEGIN SELECT RAISE(ABORT, 'injected second chunk refusal'); END;")
             var failures: [String] = []
-            service.onFailure = { failures.append($0) }
+            var debtAtFailure: [UnsavedSidecarRecord]?
+            var debtReadError: Error?
+            service.onFailure = { message in
+                failures.append(message)
+                guard message.contains("Could not finish the edit batch") else { return }
+                // Observe the committed-prefix/current-rollback boundary while
+                // this queue block still owns it. A later debounce is entitled
+                // to settle records while the test inspects 130 catalog rows.
+                do { debtAtFailure = try UnsavedSidecarRecord.decodeValidated(store.metaValue(UnsavedSidecarRecord.metaKey)) }
+                catch { debtReadError = error }
+            }
             var changed = Recipe(); changed.develop.tone.exposure = 1.5
             service.saveRecipes(zip(photos, ids).map { .init(recipe: changed, url: $0.0, catalogID: $0.1) })
             try await service.requireAvailablePhoto(photoID: ids[0])
@@ -88,7 +98,8 @@ final class BatchRecipeSaveTests: XCTestCase {
                     XCTAssertEqual(try store.currentEdit(photoID: ids[index]), before[index])
                 }
             }
-            let debt = try UnsavedSidecarRecord.decodeValidated(store.metaValue(UnsavedSidecarRecord.metaKey))
+            XCTAssertNil(debtReadError)
+            let debt = try XCTUnwrap(debtAtFailure)
             XCTAssertEqual(Set(debt.compactMap(\.photoID)), Set(ids.prefix(64)))
             XCTAssertEqual(failures.count, 1)
             XCTAssertTrue(failures[0].contains("64 earlier edits remain committed"))

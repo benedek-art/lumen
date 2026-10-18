@@ -99,13 +99,20 @@ jobs:
 
   # Optional audit evidence stays separate from required release verification.
   # Existing required jobs retain their unconditional steps and negative controls.
+  # Commit markers select a new measurement/question, avoiding repeated expensive
+  # sweeps after unrelated source changes. Dispatch deliberately runs both probes.
   workflow-cost-audit:
-    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification'
+    if: >-
+      github.ref == 'refs/heads/codex/raw-accuracy-qualification' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.head_commit.message, '[workflow-cost]') ||
+       contains(github.event.head_commit.message, '[export-source-causal]'))
     runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Generated 5k and 20k workflow cost
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[workflow-cost]')
         timeout-minutes: 25
         shell: bash
         env:
@@ -119,12 +126,52 @@ jobs:
           test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq "$expected_records"
           test "$(grep -c '^CATALOGINDEXBENCH ' workflow-cost.log)" -eq 4
           grep -q 'Executed 1 test, with 0 failures' workflow-cost.log
+      - name: Prove the final export source check is causal
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[export-source-causal]')
+        timeout-minutes: 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='ExportSourceGenerationTests/testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial'
+          swift test -c release --filter "$target" 2>&1 | tee export-source-baseline.log
+          grep -q 'Executed 1 test, with 0 failures' export-source-baseline.log
+          source_file=Sources/LumenPipeline/PipelineRenderer.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/export-source-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > export-source-mutation-provenance.log
+          shasum -a 256 "$source_file" >> export-source-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenPipeline/PipelineRenderer.swift')
+          source = path.read_text()
+          check = '            try Self.validateExportSource(url: sourceURL, expected: expectedSourceIdentity)\n'
+          assert source.count(check) == 1, 'final publication check must be unique'
+          path.write_text(source.replace(check, '            // AUDIT MUTATION: final source check removed\n'))
+          PY
+          git diff -- "$source_file" >> export-source-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > export-source-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat export-source-mutant.log
+          test "$mutant_status" -ne 0
+          grep -q 'XCTAssertThrowsError failed' export-source-mutant.log
+          grep -Eq 'Executed 1 test, with [1-9][0-9]* failure' export-source-mutant.log
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> export-source-mutation-provenance.log
+          echo "EXPORT-SOURCE-CAUSAL baseline=GREEN final-check-removed=RED source-restored=true"
       - name: Keep generated workflow cost
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-workflow-cost
-          path: workflow-cost.log
+          path: |
+            workflow-cost.log
+            export-source-baseline.log
+            export-source-mutant.log
+            export-source-mutation-provenance.log
           if-no-files-found: warn
           retention-days: 14
 

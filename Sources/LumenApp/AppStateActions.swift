@@ -293,12 +293,21 @@ extension AppState {
         // and nothing to say so.
         let jobs = targets.enumerated().map { index, photo
             -> (url: URL, photo: PhotoItem, index: Int, recipe: Recipe,
-                strokes: [String: BrushStrokeSet], refusal: String?) in
+                strokes: [String: BrushStrokeSet], sourceIdentity: SourceFileIdentity?, refusal: String?) in
             let r = recipe(for: photo)
             let resolved = resolveStrokeSets(for: r)
+            let current = SourceFileIdentity.read(photo.id)
+            let expected = photo.sourceIdentity ?? current
+            let sourceRefusal: String?
+            if let current, let expected,
+               SourceFileIdentity.sameGeneration(stored: expected.token, current: current.token) {
+                sourceRefusal = nil
+            } else {
+                sourceRefusal = "Export refused because the source original changed or became unavailable."
+            }
             return (url: photo.id, photo: photo, index: index, recipe: r,
-                    strokes: resolved.sets,
-                    refusal: BrushStrokes.refusal(unresolved: resolved.unresolved))
+                    strokes: resolved.sets, sourceIdentity: expected,
+                    refusal: sourceRefusal ?? BrushStrokes.refusal(unresolved: resolved.unresolved))
         }
         isExporting = true
         exportProgress = 0
@@ -441,7 +450,8 @@ extension AppState {
                                     url: job.url, recipe: job.recipe, to: destination,
                                     exportRecipe: exportRecipe, strokeSets: job.strokes,
                                     softProof: proof, allowOverwrite: replacing,
-                                    catalogKeywords: catalogKeywords)
+                                    catalogKeywords: catalogKeywords,
+                                    expectedSourceIdentity: job.sourceIdentity)
                                 // Publication changes a free name into an existing file.
                                 // Keep its real identity too so later aliases are renamed.
                                 claimed.insert(IngestLocation.fileIdentity(of: destination))
