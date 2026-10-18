@@ -42,6 +42,7 @@ final class CatalogService: @unchecked Sendable {
     private var relinkedSources: [Int64: URL] = [:]
     private let store: CatalogStore
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
+    private let queueKey = DispatchSpecificKey<Void>()
 
     /// Where a long enrichment pass DRIVES from, so that `queue` only ever holds the
     /// database work.
@@ -147,6 +148,7 @@ final class CatalogService: @unchecked Sendable {
         self.store = try CatalogStore(
             path: directory.appendingPathComponent("lumen.db").path,
             cachePath: directory.appendingPathComponent("cache.db").path)
+        queue.setSpecific(key: queueKey, value: ())
 
         // AND THE STROKES COME BACK WITH IT (K-018). A restore that returns the catalog
         // and not the blob store returns a library whose every brush mask rasterizes to
@@ -210,15 +212,24 @@ final class CatalogService: @unchecked Sendable {
             }
             var recipeFields: (json: String, fingerprint: String, version: Int)?
             var strokes: String?? = nil
-            if !stated.isDisjoint(with: [.recipe, .strokes]),
-               let recipe = try? store.currentRecipe(photoID: id),
-               let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
-               let fingerprint = try? RecipeFingerprint.fingerprint(recipe) {
-                if stated.contains(.recipe) {
-                    recipeFields = (json, fingerprint,
-                                    Swift.min(recipe.pipelineVersion, supportedPipelineVersion))
+            if !stated.isDisjoint(with: [.recipe, .strokes]) {
+                do {
+                    guard let recipe = try readableCurrentRecipe(photoID: id) else {
+                        throw CatalogError.invalid("the owed recipe is absent")
+                    }
+                    let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
+                    let fingerprint = try RecipeFingerprint.fingerprint(recipe)
+                    if stated.contains(.recipe) {
+                        recipeFields = (json, fingerprint, recipe.pipelineVersion)
+                    }
+                    if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
+                } catch {
+                    // Keep the durable debt and the external document unchanged. A
+                    // newer/corrupt edit cannot be safely reduced to this build's
+                    // schema, even when it arrived through quit/reopen recovery.
+                    report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt because its stored edit cannot be read safely (\(error)). The stored edit and portable sidecar were preserved.")
+                    continue
                 }
-                if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
             }
             let flag: SidecarFlag?
             switch row.flag {
@@ -852,9 +863,17 @@ final class CatalogService: @unchecked Sendable {
                     iso: row.iso)
     }
 
+    /// A flush can be invoked outside the catalog lane. Only its database/conflict
+    /// work hops here, leaving filesystem adapters free to enqueue newer edits.
+    private func onCatalogQueue<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil { return try body() }
+        return try queue.sync(execute: body)
+    }
+
     /// Keep the exact external document before acknowledging/replacing a conflict.
     /// The content-addressed file also retains payloads/foreign XML snapshots cannot.
     private func preserveSidecarConflict(for url: URL, photoID: Int64, data: Data) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
         let folder = directory.appendingPathComponent("sidecar-conflicts", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let key = String(XXH64.hash(Array(data)), radix: 16)
@@ -1710,14 +1729,16 @@ final class CatalogService: @unchecked Sendable {
                     // out verbatim instead of the reduced copy this build decoded.
                     if let id = entry.photoID, entry.stated.contains(.recipe) {
                         do {
-                            let row = try store.photo(id: id)
-                            let moved = row?.sidecarMTime != Self.modificationTime(of: path)
-                            if unresolvedSidecarConflicts.contains(url)
-                                || (moved && fresh.recipeJSON != entry.content.recipeJSON && fresh.recipeJSON != nil) {
-                                unresolvedSidecarConflicts.insert(url)
-                                try preserveSidecarConflict(for: url, photoID: id,
-                                    data: sourceData ?? Data(existing.utf8))
-                                unresolvedSidecarConflicts.remove(url)
+                            try onCatalogQueue {
+                                let row = try store.photo(id: id)
+                                let moved = row?.sidecarMTime != Self.modificationTime(of: path)
+                                if unresolvedSidecarConflicts.contains(url)
+                                    || (moved && fresh.recipeJSON != entry.content.recipeJSON && fresh.recipeJSON != nil) {
+                                    unresolvedSidecarConflicts.insert(url)
+                                    try preserveSidecarConflict(for: url, photoID: id,
+                                        data: sourceData ?? Data(existing.utf8))
+                                    unresolvedSidecarConflicts.remove(url)
+                                }
                             }
                         } catch {
                             refuse("the conflicting external edit could not be preserved (\(error))")
@@ -2350,7 +2371,11 @@ final class CatalogService: @unchecked Sendable {
                                                     ? entry.content.keywordEdit : nil)
                 unsavedSidecars[url.path] = record
             }
-            let names = pendingSidecars.keys.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
+            // Recovery can refuse an unreadable recipe before it becomes a queued
+            // write. That durable debt is still unsaved and must be reported at quit.
+            let owedURLs = Set(pendingSidecars.keys).union(
+                unsavedSidecars.keys.map { URL(fileURLWithPath: $0) })
+            let names = owedURLs.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
             sidecarLock.unlock()
             persistUnsavedSidecars()
             return names

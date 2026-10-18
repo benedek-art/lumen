@@ -316,6 +316,47 @@ final class AuditRawAccuracyTests: XCTestCase {
         try XCTSkipUnless(tested > 0, "No RAW9 support in this corpus/OS")
     }
 
+    /// Stage isolation for the first-native discrepancy. This deliberately measures
+    /// scene-linear pixels before RenderPlan, display mapping or dithering. A raw
+    /// difference is evidence, not a relaxed display-identity acceptance threshold.
+    func testNativeCachePromotionPrecisionEvidence() throws {
+        try eachFixture("native-precision") { fixture in
+            guard let apple = CIRAWFilter(imageURL: fixture.url) else { return "refused-at-open" }
+            if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            let source = try AppleRawSource(url: fixture.url)
+            let first = try XCTUnwrap(source.decode(recipe: quietRecipe, draft: false, scaleFactor: 1))
+            let rect = CGRect(x: (first.extent.midX - 32).rounded(),
+                              y: (first.extent.midY - 32).rounded(), width: 64, height: 64)
+            let before = pixels(first, context: consumer, bounds: rect)
+            let repeatedLazy = pixels(first, context: consumer, bounds: rect)
+            let explicit = try XCTUnwrap(DecodeMaterializer.materialize(first))
+            let explicitPixels = pixels(explicit.image, context: consumer, bounds: rect)
+            let cached = try XCTUnwrap(source.decode(recipe: quietRecipe, draft: false, scaleFactor: 1))
+            let promoted = pixels(cached, context: consumer, bounds: rect)
+            let repeatedCache = pixels(cached, context: consumer, bounds: rect)
+            for values in [before, repeatedLazy, explicitPixels, promoted, repeatedCache] {
+                XCTAssertTrue(values.allSatisfy { $0.isFinite }, fixture.name)
+            }
+            func maximumDelta(_ a: [Float], _ b: [Float]) -> Float {
+                zip(a, b).map { abs($0 - $1) }.max() ?? 0
+            }
+            Self.emit("native-precision: " + fixture.name
+                + " decoder=\(source.pinnedDecoderVersion ?? -1)"
+                + " lazy-repeat=\(maximumDelta(before, repeatedLazy))"
+                + " explicit-materialization=\(maximumDelta(before, explicitPixels))"
+                + " first-cache=\(maximumDelta(before, promoted))"
+                + " materialized-cache=\(maximumDelta(explicitPixels, promoted))"
+                + " cache-repeat=\(maximumDelta(promoted, repeatedCache))"
+                + " held-bytes=\(source.heldDecodeBytes)")
+            // These compare repeated evaluation of the SAME graph, not lazy versus
+            // half-float precision. DisplayedDenoiseQualificationTests retains the
+            // separate exact-zero displayed acceptance check.
+            XCTAssertEqual(before, repeatedLazy, fixture.name + " unstable lazy evaluation")
+            XCTAssertEqual(promoted, repeatedCache, fixture.name + " unstable cached evaluation")
+            return "measured"
+        }
+    }
+
     /// D50's honouring half, on every file and not only where RAW9 exists: each other
     /// decoder this OS offers for the file is pinned, switched away from and back (a
     /// cache hit), and an unavailable pin must render Apple's per-file default. Pixel

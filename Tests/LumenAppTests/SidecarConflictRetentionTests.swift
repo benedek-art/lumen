@@ -86,6 +86,33 @@ final class SidecarConflictRetentionTests: XCTestCase {
         }
     }
 
+    func testOwedRecipeRecoveryDoesNotDowngradeUnreadableOrFutureEdits() async throws {
+        for (json, version) in [("{broken", supportedPipelineVersion),
+                                ("{}", supportedPipelineVersion + 10),
+                                ("{\"pipelineVersion\":\(supportedPipelineVersion + 10)}", supportedPipelineVersion)] {
+            try await fixture { root, original, id, service, directory in
+                _ = service.close()
+                let sidecar = CatalogService.sidecarURL(for: original)
+                let before = try Data(contentsOf: sidecar)
+                let db = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path)
+                defer { db.close() }
+                try db.debugExecute("UPDATE edit SET recipe = '\(json)', pipeline_version = \(version) WHERE photo_id = \(id) AND is_current = 1;")
+                let edit = try XCTUnwrap(db.currentEdit(photoID: id))
+                let debt = UnsavedSidecarRecord(photoPath: original.path, photoID: id,
+                                               stated: [.recipe, .strokes])
+                try db.setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode([debt]))
+                let reopened = try CatalogService(directory: directory)
+                XCTAssertNotNil(reopened.unsavedSidecarNotice)
+                XCTAssertEqual(reopened.close(), [sidecar.lastPathComponent],
+                               "quit must report debt refused before it could be queued")
+                XCTAssertEqual(try Data(contentsOf: sidecar), before)
+                XCTAssertEqual(try db.currentEdit(photoID: id), edit)
+                XCTAssertEqual(UnsavedSidecarRecord.decode(try db.metaValue(UnsavedSidecarRecord.metaKey)), [debt],
+                               "an unsafe recipe must remain owed for a compatible recovery")
+            }
+        }
+    }
+
     func testFailedCullingCatalogWriteDoesNotPublishSidecar() async throws {
         try await fixture { root, original, id, service, directory in
             defer { _ = service.close() }

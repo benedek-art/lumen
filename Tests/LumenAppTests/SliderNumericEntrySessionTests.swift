@@ -35,6 +35,31 @@ final class SliderNumericEntrySessionTests: XCTestCase {
         XCTAssertEqual(pending.resolved("25", context: from, currentValue: 0, range: -100...100), 25)
     }
 
+    func testUntouchedRoundedReadoutPreservesStoredPrecision() {
+        let context = SliderEditContext(primary: a, selection: [a])
+        let pending = SliderNumericEntrySession(context: context, initialValue: 1.234,
+                                                initialText: "1")
+        XCTAssertEqual(pending.resolved("1", context: context, currentValue: 1.234,
+                                        range: -5...5), 1.234)
+        XCTAssertEqual(pending.resolved("2", context: context, currentValue: 1.234,
+                                        range: -5...5), 2)
+        XCTAssertEqual(pending.resolved("+= 1", context: context, currentValue: 1.234,
+                                        range: -5...5), 2.234)
+        XCTAssertNil(pending.resolved("1", context: SliderEditContext(primary: b, selection: [b]),
+                                      currentValue: 1.234, range: -5...5))
+        XCTAssertNil(pending.resolved("1", context: context, currentValue: 2, range: -5...5))
+    }
+
+    func testUntouchedReadoutDoesNotNormalizeExistingOutOfRangeValue() {
+        let context = SliderEditContext(primary: a, selection: [a])
+        let pending = SliderNumericEntrySession(context: context, initialValue: 6.234,
+                                                initialText: "6")
+        XCTAssertEqual(pending.resolved("6", context: context, currentValue: 6.234,
+                                        range: -5...5), 6.234)
+        XCTAssertEqual(pending.resolved("7", context: context, currentValue: 6.234,
+                                        range: -5...5), 5)
+    }
+
     func testConcurrentValueChangeRejectsStaleArithmeticAndNormalEntryStillClamps() {
         let context = SliderEditContext(primary: a, selection: [a])
         let pending = SliderNumericEntrySession(context: context, initialValue: 1)

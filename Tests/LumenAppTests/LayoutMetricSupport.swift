@@ -654,9 +654,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2142 (LookPanel.swift:993)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2145 (LookPanel.swift:993)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2142 (MaskPanel.swift:3016)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2145 (MaskPanel.swift:3016)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.

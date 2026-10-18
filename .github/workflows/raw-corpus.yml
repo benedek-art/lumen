@@ -66,6 +66,7 @@ on:
       - "Sources/LumenPipeline/AppleRawSource.swift"
       - "Tests/LumenPipelineTests/RawCorpusTests.swift"
       - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
+      - "Tests/LumenPipelineTests/DisplayedDenoiseQualificationTests.swift"
       - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
       - "Tests/LumenPipelineTests/RawCorpus/**"
   workflow_dispatch:
@@ -480,6 +481,38 @@ jobs:
             exit 1
           fi
 
+      # Only pinned CC0 Sony/Panasonic files enter this directory. Never bind an
+      # owner-photo directory to a hosted evidence uploader.
+      - name: Isolate public native precision fixtures
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/public-native" "$CORPUS_DIR/evidence/native-precision"
+          cp "$CORPUS_DIR/2349.ARW" "$RUNNER_TEMP/public-native/"
+          cp "$CORPUS_DIR/2607.RW2" "$RUNNER_TEMP/public-native/"
+
+      - name: Native decode precision before plans and dithering
+        timeout-minutes: 15
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+        run: |
+          set -o pipefail
+          swift test -c release --filter AuditRawAccuracyTests.testNativeCachePromotionPrecisionEvidence 2>&1 | tee native-precision.log
+          test "$(grep -c '^native-precision: ' native-precision.log)" -eq 2
+
+      - name: Exact displayed Off versus zero and Off return on public RAWs
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_DENOISE_RAW_DIR: ${{ runner.temp }}/public-native
+          LUMEN_DENOISE_EVIDENCE_DIR: ${{ env.CORPUS_DIR }}/evidence/native-precision
+          LUMEN_DENOISE_LIMIT: '2'
+        run: |
+          set -o pipefail
+          swift test -c release --filter DisplayedDenoiseQualificationTests 2>&1 | tee displayed-denoise.log
+          test "$(grep -c '^displayed-denoise ' displayed-denoise.log)" -eq 60
+
       # The evidence sheet, kept whatever the verdict.
       #
       # Per file: decoded or refused, the EXIF dimensions, CIRAWFilter's native size, the
@@ -501,6 +534,8 @@ jobs:
           path: |
             corpus.log
             audit-raw.log
+            native-precision.log
+            displayed-denoise.log
             ${{ env.CORPUS_DIR }}/corpus.tsv
             ${{ env.CORPUS_DIR }}/evidence/
           if-no-files-found: warn

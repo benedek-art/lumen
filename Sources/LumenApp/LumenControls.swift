@@ -461,11 +461,14 @@ extension EnvironmentValues {
 struct SliderNumericEntrySession {
     let context: SliderEditContext
     let initialValue: Double
+    /// The readout can round a stored value. Submitting its untouched text must not.
+    var initialText: String? = nil
 
     func resolved(_ text: String, context current: SliderEditContext,
                   currentValue: Double, range: ClosedRange<Double>) -> Double? {
-        guard context == current, initialValue == currentValue,
-              let parsed = SliderEntry.value(of: text, current: initialValue) else { return nil }
+        guard context == current, initialValue == currentValue else { return nil }
+        if text == initialText { return initialValue }
+        guard let parsed = SliderEntry.value(of: text, current: initialValue) else { return nil }
         return min(max(parsed, range.lowerBound), range.upperBound)
     }
 }
@@ -1321,7 +1324,7 @@ struct LumenSlider: View {
                     .onTapGesture {
                         textValue = formatted
                         numericEntrySession = SliderNumericEntrySession(
-                            context: sliderEditContext, initialValue: value)
+                            context: sliderEditContext, initialValue: value, initialText: textValue)
                         isEditingText = true
                         textFocused = true
                     }
@@ -1453,8 +1456,8 @@ struct LumenSlider: View {
         // "{}" and that is what gets written to the sidecar, erasing the photo's edit
         // from the copy that exists to survive losing the catalog.
         guard let parsed = session?.resolved(textValue, context: sliderEditContext,
-                                            currentValue: value, range: effectiveHardRange)
-        else { return }
+                                            currentValue: value, range: effectiveHardRange),
+              parsed != value else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
         onEditingChanged?(true)
