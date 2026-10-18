@@ -74,3 +74,48 @@ jobs:
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
+
+  local-amount-epsilon:
+    # Separate, explicit unresolved qualification gate. The ordinary lane retains
+    # its existing assertions; this opt-in probe reports any real parity failure directly.
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && contains(github.event.head_commit.message, '[local-amount-epsilon]')
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Measure positive local Amount domain and strict CPU agreement
+        shell: bash
+        env:
+          LUMEN_LOCAL_AMOUNT_EPSILON: "1"
+        run: |
+          set -o pipefail
+          sw_vers | tee local-amount-environment.log
+          uname -m | tee -a local-amount-environment.log
+          xcodebuild -version | tee -a local-amount-environment.log
+          set +e
+          swift test -c release --filter LocalAmountEpsilonDiagnosticTests/testCurrentPositiveAmountDomainAndCPUAgreement 2>&1 | tee local-amount-epsilon.log
+          status=$?
+          set -e
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          records = [json.loads(line.split('LOCAL-AMOUNT-EPSILON ', 1)[1])
+                     for line in Path('local-amount-epsilon.log').read_text().splitlines()
+                     if line.startswith('LOCAL-AMOUNT-EPSILON ')]
+          assert len(records) == 28, f'Incomplete native diagnostic: {len(records)}/28 records'
+          assert sum(r['tap'] == 'stage' for r in records) == 22
+          assert sum(r['tap'] == 'fullS11' for r in records) == 5
+          assert records[-1]['tap'] == 'summary'
+          assert records[-1]['stageRecords'] == 22 and records[-1]['compositeRecords'] == 5
+          print('LOCAL-AMOUNT-COVERAGE stage=22 composite=5 summary=1; assertions remain authoritative')
+          PY
+          exit "$status"
+      - name: Preserve diagnostic output even when qualification fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-amount-epsilon-${{ github.sha }}
+          path: |
+            local-amount-epsilon.log
+            local-amount-environment.log
+          if-no-files-found: error

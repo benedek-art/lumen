@@ -1,11 +1,13 @@
 # Lumen cloud accuracy and reliability audit
 
-Source-only continuation from owner checkpoint `0f57d65710e8f13b919a06257825507bdd6ff1b4`. Current candidate: `b7528444e03435f4adcb021d878a648455cf6485`, branch `codex/raw-accuracy-qualification`, [draft PR10](https://github.com/benedek-art/lumen/pull/10). The B752 native checkpoint is green, including the keyword-rescan and brush-unit repairs. Additional test-only geometry coverage is awaiting hosted execution; production source remains unchanged. No release, main merge, installed-app change or private-photo upload occurred.
+Source-only continuation from owner checkpoint `0f57d65710e8f13b919a06257825507bdd6ff1b4`. Current test-only candidate: `c7fbdd806fa79f348bff51bf687aeaff24fe05c3` (production unchanged from `b7528444e03435f4adcb021d878a648455cf6485`), branch `codex/raw-accuracy-qualification`, [draft PR10](https://github.com/benedek-art/lumen/pull/10). The B752 native checkpoint is green, including the keyword-rescan and brush-unit repairs. Independent combined geometry coverage passed its native baseline and wrong-order negative control; c7 full Mac/GPU passed. A separate opt-in Amount-epsilon diagnostic is being prepared; its native result is not yet known. No release, main merge, installed-app change or private-photo upload occurred.
 
 ## Executed status
 
 | Scope/source | Result | Interpretation |
 |---|---|---|
+| c7 combined mask geometry causal check | Baseline5/0fail; wrong-order mutant16 assertions across all3 new methods, both old methods green; source restored | Added independent detection for composed transforms; production unchanged; full c7 suite passed |
+| c7 full optimized Mac/GPU | **3505/41skip/0fail**,306.702 test/636.621 wall seconds; GPU261/31skip/0fail508.330s, [CI39132544299](https://github.com/benedek-art/lumen/actions/runs/39132544299) | Latest complete green source; test-only delta from B752; Linux2644/layout19/build/bundle/fixtures passed |
 | B752 full optimized Mac | **3502 tests,41 skips,0fail**,309.621 test/672.412 wall seconds, [CI39130688875](https://github.com/benedek-art/lumen/actions/runs/39130688875) | All new keyword/brush methods positively passed in the complete suite |
 | B752 targeted native preservation | Baseline2/0fail; fallback mutant3 assertions; filter mutant1 assertion; restored source | Both safeguards independently causal; no compiler error accepted as a negative control |
 | B752 GPU / core / proof / layout | GPU258/31skip/0fail; Linux2644; proof6/0fail; layout19/0fail | All passed, alongside build/bundle/fixtures; RAW9 display executes in its separate configured job |
@@ -18,7 +20,7 @@ Source-only continuation from owner checkpoint `0f57d65710e8f13b919a06257825507b
 | Earlier complete native source99b2db8 | 3465 tests,40 skips,one unexpected failure | `/dev/null` opportunistic export binding regression; corrected candidate awaits FD qualification |
 | Intermediate5d1ff3a | Linux2639 and proof6 passed; native blocked at compile | Test fixture passed Array where API requires Set; FD repairs that exact call |
 
-B752 is now the latest complete green native source. Its41 skips include public/private corpus prerequisites and opt-in gates; those are not camera passes. Linux2644 selected tests, build, bundle and fixtures also passed. Skipped release/publication jobs are intentional branch policy, not executed deployment checks. See CLOUD-PROGRESS.md for complete chronological counts and commands.
+c7 is now the latest complete green native source; its production source is identical to B752. Its41 skips include public/private corpus prerequisites and opt-in gates; those are not camera passes. Linux2644 selected tests, build, bundle and fixtures also passed. Skipped release/publication jobs are intentional branch policy, not executed deployment checks. See CLOUD-PROGRESS.md for complete chronological counts and commands.
 
 ## Editor and preservation changes
 
