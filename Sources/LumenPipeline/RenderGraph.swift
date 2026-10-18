@@ -844,6 +844,12 @@ public struct RenderGraph {
 
     static func applyMatrix(_ image: CIImage, _ m: Mat3) -> CIImage {
         if m.maxAbsDifference(.identity) < 1e-12 { return image }
+        return applyMatrixUnconditionally(image, m)
+    }
+
+    /// Local WB's exact engine predicate owns its bypass. Keep the global helper's
+    /// established approximate identity policy separate from that contract.
+    static func applyMatrixUnconditionally(_ image: CIImage, _ m: Mat3) -> CIImage {
         let filter = CIFilter.colorMatrix()
         filter.inputImage = image
         // `rVector` is the ROW of the matrix that produces the output's red — that is,
@@ -1085,23 +1091,11 @@ public struct RenderGraph {
         guard let logEV = KernelLibrary.apply(KernelLibrary.dehazeLogEV,
             extent: image.extent, [image, CIVector(x: weights.r, y: weights.g, z: weights.b)])
         else { return nil }
-        let horizontal = CIFilter.convolution3X3()
-        horizontal.inputImage = logEV.clampedToExtent()
-        // structureTensor divides its derivative inputs by eight. Four here gives
-        // exactly .5*(right-left), with no Sobel cross-axis smoothing.
-        horizontal.weights = CIVector(values: [0, 0, 0, -4, 0, 4, 0, 0, 0], count: 9)
-        horizontal.bias = 0
-        let vertical = CIFilter.convolution3X3()
-        vertical.inputImage = logEV.clampedToExtent()
-        vertical.weights = CIVector(values: [0, -4, 0, 0, 0, 0, 0, 4, 0], count: 9)
-        vertical.bias = 0
         let workingRadius = Swift.min(Swift.max(Int(Double(longEdge) * 0.02), 3),
                                       Int(Swift.max(image.extent.width, image.extent.height)))
         let radius = Swift.max(workingRadius / 4, 1)
-        guard let gx = horizontal.outputImage?.cropped(to: image.extent),
-              let gy = vertical.outputImage?.cropped(to: image.extent),
-              let tensor = KernelLibrary.apply(KernelLibrary.structureTensor,
-                  extent: image.extent, [gx, gy, Float(1)]),
+        guard let tensor = KernelLibrary.applyNeighbourhood(KernelLibrary.dehazeCentralTensor,
+                  extent: image.extent, reach: 1, [logEV.clampedToExtent()]),
               let smoothed = Self.boxBlur(tensor, radius: radius),
               let magnitude = KernelLibrary.apply(KernelLibrary.tensorMagnitude,
                   extent: image.extent, [smoothed])
@@ -1323,14 +1317,17 @@ public struct RenderGraph {
                                   globalColor: plan.recipe.develop.color,
                                   globalWheels: plan.recipe.look.wheels,
                                   balanced: plan.balancedNeutral)
-        // Three pieces, in the order the reference evaluates them: the tone/white
-        // balance table, the mask's colour stage EXACTLY (AI-03 — its swatches and
+        // Four pieces, in the order the reference evaluates them: the tone table,
+        // the exact white-balance matrix, the mask's colour stage (AI-03 — its swatches and
         // Saturation are the same hue- and chroma-selective tools the global table
         // could not hold), then the hue/tint/grade table. Each is skipped only when it
         // is the identity, so a control crossing zero adds or removes one exact piece
         // and never changes how the others are evaluated.
         if let pre = localPlan.preLUT {
             out = throughShaper(out) { encoded in ColorCube.filter(pre, image: encoded) } ?? out
+        }
+        if let whiteBalance = localPlan.whiteBalance {
+            out = applyMatrixUnconditionally(out, whiteBalance)
         }
         out = applyColorStage(out, localPlan.colorStage)
         if let post = localPlan.postLUT {
@@ -2278,18 +2275,19 @@ struct LocalCurvePlan {
 
 // MARK: - Local adjustment table
 
-/// A mask's per-pixel colour work: the same three-piece shape as the global path.
+/// A mask's per-pixel colour work: tone, exact WB, exact colour, then hue/tint/grade.
 ///
 /// It was ONE table holding tone, white balance, the mask's `ColorEngine`, hue shift,
 /// tint and grade. The `ColorEngine` part is what AI-03 is about — a masked Point Colour
 /// or Saturation sampled through a cube has the same 30-to-50-code error the global one
-/// had — so it runs exactly between two tables: `preLUT` (tone gain, white balance) and
+/// had — so it runs exactly after WB and between two tables: `preLUT` (tone gain) and
 /// `postLUT` (hue shift, colour tint, local grade), each nil when it is the identity.
 /// ALWAYS split, never only when the colour stage is live: fusing the two tables when
 /// it is off would be a route that changes with a control, which is exactly the
 /// discontinuity EXECUTION-05 measured.
 struct LocalPlan {
     let preLUT: LUT3D?
+    let whiteBalance: Mat3?
     let colorStage: ExactColorStage
     let postLUT: LUT3D?
     let isIdentity: Bool
@@ -2329,6 +2327,7 @@ struct LocalPlan {
         self.isIdentity = identity
         guard !identity else {
             self.preLUT = nil
+            self.whiteBalance = nil
             self.colorStage = ColorEngine(mixer: Mixer(), pointColors: [], color: ColorAdjust(),
                                           primaries: Primaries(), bw: nil).exactStage
             self.postLUT = nil
@@ -2381,12 +2380,14 @@ struct LocalPlan {
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
-        // Same identity tests the reference uses (`ReferenceRenderer.applyLocalAdjust`).
-        self.preLUT = tone.isIdentity && balance.isIdentity ? nil : LUT3D(size: size) { encoded in
+        // Tone → exact WB matrix → exact colour, matching the reference. A WB-only
+        // edit must not project signed/HDR pixels into a bounded table domain.
+        self.whiteBalance = balance.isIdentity ? nil : balance.matrix
+        self.preLUT = tone.isIdentity ? nil : LUT3D(size: size) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            return LumenLog.encode(balance.apply(c))
+            return LumenLog.encode(c)
         }
         self.colorStage = colorEngine.exactStage
         let tinted = tintColor != nil && tintStrength > 0

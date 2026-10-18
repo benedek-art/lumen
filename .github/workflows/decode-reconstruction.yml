@@ -69,7 +69,11 @@ jobs:
             swift --version
             shasum -a 256 Sources/LumenPipeline/AppleRawSource.swift Sources/LumenPipeline/DecodeMaterializer.swift Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift
           } 2>&1 | tee decode-reconstruction-provenance.log
-          swift build -c release --build-tests
+          # `swift build --build-tests -c release` does not enable @testable imports
+          # on this toolchain. Test discovery builds the same optimized test bundle
+          # with its required testing flags, without executing any RAW checks.
+          swift test -c release --list-tests > decode-reconstruction-test-roster.log 2>&1
+          grep -Fq 'DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical' decode-reconstruction-test-roster.log
       - name: Compare serial execution with two independent overlapping test processes
         shell: bash
         run: |

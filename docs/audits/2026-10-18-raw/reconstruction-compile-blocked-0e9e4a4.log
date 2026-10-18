@@ -1,0 +1,351 @@
+﻿2026-10-18T16:45:19.4630770Z Current runner version: '2.337.0'
+2026-10-18T16:45:19.4651230Z ##[group]Runner Image Provisioner
+2026-10-18T16:45:19.4651800Z Hosted Compute Agent
+2026-10-18T16:45:19.4652170Z Version: 20260828.587
+2026-10-18T16:45:19.4652580Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-18T16:45:19.4653060Z Build Date: 2026-08-28T16:44:25Z
+2026-10-18T16:45:19.4653500Z Worker ID: {817fe4e3-35af-4410-90d8-8b800f5e2f3d}
+2026-10-18T16:45:19.4653960Z Azure Region: westus
+2026-10-18T16:45:19.4654330Z ##[endgroup]
+2026-10-18T16:45:19.4655300Z ##[group]Operating System
+2026-10-18T16:45:19.4655760Z macOS
+2026-10-18T16:45:19.4656080Z 15.7.9
+2026-10-18T16:45:19.4656400Z 24G830
+2026-10-18T16:45:19.4656730Z ##[endgroup]
+2026-10-18T16:45:19.4657090Z ##[group]Runner Image
+2026-10-18T16:45:19.4657470Z Image: macos-15-arm64
+2026-10-18T16:45:19.4657840Z Version: 20260907.0337.1
+2026-10-18T16:45:19.4658790Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-18T16:45:19.4659880Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-18T16:45:19.4660570Z ##[endgroup]
+2026-10-18T16:45:19.4661370Z ##[group]GITHUB_TOKEN Permissions
+2026-10-18T16:45:19.4663180Z Contents: read
+2026-10-18T16:45:19.4663540Z Metadata: read
+2026-10-18T16:45:19.4663900Z ##[endgroup]
+2026-10-18T16:45:19.4665400Z Secret source: Actions
+2026-10-18T16:45:19.4665990Z Cache mode: write
+2026-10-18T16:45:19.4666460Z Prepare workflow directory
+2026-10-18T16:45:19.5281540Z Prepare all required actions
+2026-10-18T16:45:19.5355530Z Getting action download info
+2026-10-18T16:45:19.6913110Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-18T16:45:20.0941750Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-18T16:45:20.2987270Z Complete job name: ordered-serial-and-loaded
+2026-10-18T16:45:20.3428380Z ##[group]Run actions/checkout@v4
+2026-10-18T16:45:20.3429420Z with:
+2026-10-18T16:45:20.3429770Z   repository: benedek-art/lumen
+2026-10-18T16:45:20.3432690Z   token: ***
+2026-10-18T16:45:20.3433020Z   ssh-strict: true
+2026-10-18T16:45:20.3433350Z   ssh-user: git
+2026-10-18T16:45:20.3433680Z   persist-credentials: true
+2026-10-18T16:45:20.3434030Z   clean: true
+2026-10-18T16:45:20.3434360Z   sparse-checkout-cone-mode: true
+2026-10-18T16:45:20.3434740Z   fetch-depth: 1
+2026-10-18T16:45:20.3435060Z   fetch-tags: false
+2026-10-18T16:45:20.3435400Z   show-progress: true
+2026-10-18T16:45:20.3435730Z   lfs: false
+2026-10-18T16:45:20.3436030Z   submodules: false
+2026-10-18T16:45:20.3436370Z   set-safe-directory: true
+2026-10-18T16:45:20.3436750Z   allow-unsafe-pr-checkout: false
+2026-10-18T16:45:20.3438680Z env:
+2026-10-18T16:45:20.3439060Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T16:45:20.3440250Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T16:45:20.3440780Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T16:45:20.3441360Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T16:45:20.3441920Z ##[endgroup]
+2026-10-18T16:45:20.7892240Z Syncing repository: benedek-art/lumen
+2026-10-18T16:45:20.7893710Z ##[group]Getting Git version info
+2026-10-18T16:45:20.7894280Z Working directory is '/Users/runner/work/lumen/lumen'
+2026-10-18T16:45:20.7895040Z [command]/opt/homebrew/bin/git version
+2026-10-18T16:45:20.8459780Z git version 2.55.0
+2026-10-18T16:45:20.8495000Z ##[endgroup]
+2026-10-18T16:45:20.8499760Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/3fd71045-2822-4bd1-bc98-2a723451dcfa/.gitconfig'
+2026-10-18T16:45:20.8506500Z Temporarily overriding HOME='/Users/runner/work/_temp/3fd71045-2822-4bd1-bc98-2a723451dcfa' before making global git config changes
+2026-10-18T16:45:20.8507580Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T16:45:20.8508500Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T16:45:20.8620800Z Deleting the contents of '/Users/runner/work/lumen/lumen'
+2026-10-18T16:45:20.8628400Z ##[group]Initializing the repository
+2026-10-18T16:45:20.8635120Z [command]/opt/homebrew/bin/git init /Users/runner/work/lumen/lumen
+2026-10-18T16:45:20.8903730Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-18T16:45:20.8904570Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-18T16:45:20.8905320Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-18T16:45:20.8905950Z hint: call:
+2026-10-18T16:45:20.8906350Z hint:
+2026-10-18T16:45:20.8906760Z hint: 	git config --global init.defaultBranch <name>
+2026-10-18T16:45:20.8907240Z hint:
+2026-10-18T16:45:20.8907690Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-18T16:45:20.8908610Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-18T16:45:20.8909210Z hint:
+2026-10-18T16:45:20.8909550Z hint: 	git branch -m <name>
+2026-10-18T16:45:20.8910040Z hint:
+2026-10-18T16:45:20.8910630Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-18T16:45:20.8911450Z Initialized empty Git repository in /Users/runner/work/lumen/lumen/.git/
+2026-10-18T16:45:20.8915960Z [command]/opt/homebrew/bin/git remote add origin https://github.com/benedek-art/lumen
+2026-10-18T16:45:20.9038820Z ##[endgroup]
+2026-10-18T16:45:20.9039900Z ##[group]Disabling automatic garbage collection
+2026-10-18T16:45:20.9045800Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-18T16:45:20.9140780Z ##[endgroup]
+2026-10-18T16:45:20.9141540Z ##[group]Setting up auth
+2026-10-18T16:45:20.9157450Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T16:45:20.9240010Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T16:45:21.0806370Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T16:45:21.0936040Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T16:45:21.2048460Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T16:45:21.2109840Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T16:45:21.3168960Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-18T16:45:21.3241800Z ##[endgroup]
+2026-10-18T16:45:21.3242550Z ##[group]Fetching the repository
+2026-10-18T16:45:21.3249090Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +0e9e4a483e37e3fd5be04daec159a0ccdba72609:refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T16:45:22.7785000Z From https://github.com/benedek-art/lumen
+2026-10-18T16:45:22.7788420Z  * [new ref]         0e9e4a483e37e3fd5be04daec159a0ccdba72609 -> origin/codex/raw-accuracy-qualification
+2026-10-18T16:45:22.7794360Z ##[endgroup]
+2026-10-18T16:45:22.7796620Z ##[group]Determining the checkout info
+2026-10-18T16:45:22.7799050Z ##[endgroup]
+2026-10-18T16:45:22.7800610Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-18T16:45:22.7878090Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-18T16:45:22.7962580Z ##[group]Checking out the ref
+2026-10-18T16:45:22.7964390Z [command]/opt/homebrew/bin/git checkout --progress --force -B codex/raw-accuracy-qualification refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T16:45:23.0867530Z Switched to a new branch 'codex/raw-accuracy-qualification'
+2026-10-18T16:45:23.0890190Z branch 'codex/raw-accuracy-qualification' set up to track 'origin/codex/raw-accuracy-qualification'.
+2026-10-18T16:45:23.0892460Z ##[endgroup]
+2026-10-18T16:45:23.0993460Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-18T16:45:23.1071200Z 0e9e4a483e37e3fd5be04daec159a0ccdba72609
+2026-10-18T16:45:23.1296970Z ##[group]Run set -euo pipefail
+2026-10-18T16:45:23.1297440Z [36;1mset -euo pipefail[0m
+2026-10-18T16:45:23.1297940Z [36;1mpython3 - <<'PY'[0m
+2026-10-18T16:45:23.1298360Z [36;1mimport hashlib, os, pathlib, re, urllib.request[0m
+2026-10-18T16:45:23.1298750Z [36;1mroot = pathlib.Path(os.environ['LUMEN_AUDIT_RAW_DIR'])[0m
+2026-10-18T16:45:23.1299100Z [36;1mroot.mkdir(exist_ok=True)[0m
+2026-10-18T16:45:23.1299460Z [36;1mexpected = set(os.environ['LUMEN_DECODE_RECONSTRUCTION_IDS'].split(','))[0m
+2026-10-18T16:45:23.1299820Z [36;1massert len(expected) == 5[0m
+2026-10-18T16:45:23.1300090Z [36;1mrows = {}[0m
+2026-10-18T16:45:23.1300490Z [36;1mfor line in pathlib.Path('.github/workflows/raw-corpus.yml').read_text().splitlines():[0m
+2026-10-18T16:45:23.1300930Z [36;1m    fields = line.strip().split(';')[0m
+2026-10-18T16:45:23.1301230Z [36;1m    if fields[0] not in expected: continue[0m
+2026-10-18T16:45:23.1301530Z [36;1m    key = fields[0][0m
+2026-10-18T16:45:23.1301820Z [36;1m    assert len(fields) == 10 and key not in rows[0m
+2026-10-18T16:45:23.1302160Z [36;1m    assert re.fullmatch(key + r'\.[A-Za-z0-9]+', fields[1])[0m
+2026-10-18T16:45:23.1302560Z [36;1m    assert re.fullmatch(r'[0-9a-f]{64}', fields[2]) and int(fields[3]) > 0[0m
+2026-10-18T16:45:23.1302970Z [36;1m    assert fields[7] == 'CC0' and 'negative' not in fields[6][0m
+2026-10-18T16:45:23.1303530Z [36;1m    assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + key + '/')[0m
+2026-10-18T16:45:23.1303900Z [36;1m    rows[key] = fields[0m
+2026-10-18T16:45:23.1304200Z [36;1massert rows.keys() == expected[0m
+2026-10-18T16:45:23.1304460Z [36;1mfor key in sorted(rows):[0m
+2026-10-18T16:45:23.1304680Z [36;1m    fields = rows[key][0m
+2026-10-18T16:45:23.1305280Z [36;1m    request = urllib.request.Request(fields[9], headers={'User-Agent': 'lumen-decode-reconstruction/1 (+https://github.com/benedek-art/lumen)'})[0m
+2026-10-18T16:45:23.1306030Z [36;1m    with urllib.request.urlopen(request, timeout=300) as response:[0m
+2026-10-18T16:45:23.1306530Z [36;1m        data = response.read()[0m
+2026-10-18T16:45:23.1306870Z [36;1m    assert len(data) == int(fields[3]), (key, 'byte count')[0m
+2026-10-18T16:45:23.1307280Z [36;1m    assert hashlib.sha256(data).hexdigest() == fields[2], (key, 'digest')[0m
+2026-10-18T16:45:23.1307660Z [36;1m    (root / fields[1]).write_bytes(data)[0m
+2026-10-18T16:45:23.1308020Z [36;1m    print(f'verified CC0 fixture {key} sha256={fields[2]} bytes={len(data)}')[0m
+2026-10-18T16:45:23.1308560Z [36;1m(root / 'corpus.tsv').write_text('\n'.join(';'.join(rows[k]) for k in sorted(rows)) + '\n')[0m
+2026-10-18T16:45:23.1308980Z [36;1mPY[0m
+2026-10-18T16:45:23.1362440Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T16:45:23.1362900Z env:
+2026-10-18T16:45:23.1363290Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T16:45:23.1363630Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T16:45:23.1364000Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T16:45:23.1364390Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T16:45:23.1364760Z ##[endgroup]
+2026-10-18T16:45:29.8923530Z verified CC0 fixture 1346 sha256=b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee bytes=12841893
+2026-10-18T16:45:29.8928340Z verified CC0 fixture 2349 sha256=7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad bytes=14712832
+2026-10-18T16:45:29.8949020Z verified CC0 fixture 2607 sha256=c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e bytes=19166720
+2026-10-18T16:45:29.8951410Z verified CC0 fixture 4671 sha256=4a859ab137f792aedaf3416b0aad1497ebaab02052a49453902e226699154aa7 bytes=7395184
+2026-10-18T16:45:29.8955680Z verified CC0 fixture 5812 sha256=75249c11a3a845367c7a322a1c4e7076f33c785ec2518fc6594c34c185b41161 bytes=19789738
+2026-10-18T16:45:29.9249380Z ##[group]Run set -euo pipefail
+2026-10-18T16:45:29.9249820Z [36;1mset -euo pipefail[0m
+2026-10-18T16:45:29.9250090Z [36;1m{[0m
+2026-10-18T16:45:29.9250350Z [36;1m  git rev-parse HEAD[0m
+2026-10-18T16:45:29.9250650Z [36;1m  sw_vers[0m
+2026-10-18T16:45:29.9250850Z [36;1m  uname -m[0m
+2026-10-18T16:45:29.9251130Z [36;1m  xcodebuild -version[0m
+2026-10-18T16:45:29.9251410Z [36;1m  swift --version[0m
+2026-10-18T16:45:29.9252610Z [36;1m  shasum -a 256 Sources/LumenPipeline/AppleRawSource.swift Sources/LumenPipeline/DecodeMaterializer.swift Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift[0m
+2026-10-18T16:45:29.9253440Z [36;1m} 2>&1 | tee decode-reconstruction-provenance.log[0m
+2026-10-18T16:45:29.9253890Z [36;1mswift build -c release --build-tests[0m
+2026-10-18T16:45:29.9310820Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T16:45:29.9311740Z env:
+2026-10-18T16:45:29.9312340Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T16:45:29.9313470Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T16:45:29.9314780Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T16:45:29.9315560Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T16:45:29.9318470Z ##[endgroup]
+2026-10-18T16:45:30.0325980Z 0e9e4a483e37e3fd5be04daec159a0ccdba72609
+2026-10-18T16:45:30.0522020Z ProductName:		macOS
+2026-10-18T16:45:30.0523050Z ProductVersion:		15.7.9
+2026-10-18T16:45:30.0528320Z BuildVersion:		24G830
+2026-10-18T16:45:30.0553740Z arm64
+2026-10-18T16:45:30.2870280Z Xcode 16.4
+2026-10-18T16:45:30.2912810Z Build version 16F6
+2026-10-18T16:45:33.2906530Z swift-driver version: 1.120.5 Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)
+2026-10-18T16:45:33.2908070Z Target: arm64-apple-macosx15.0
+2026-10-18T16:45:33.3544760Z bae3ecf035cd5b04e751054d18f61a7bd9f91b83f22597c9707fae6f5c802926  Sources/LumenPipeline/AppleRawSource.swift
+2026-10-18T16:45:33.3546360Z 2364d457f04e2527334741e2187bbccb01beb16b142e5ca8f0eb85879d5215e4  Sources/LumenPipeline/DecodeMaterializer.swift
+2026-10-18T16:45:33.3552970Z 629ebd684984d727b9369e72104184fbd8291b9772a6909acdbdc1ee75ac52b7  Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift
+2026-10-18T16:45:37.2229740Z warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+2026-10-18T16:45:37.4249170Z Building for production...
+2026-10-18T16:45:37.4402250Z [0/14] /Users/runner/work/lumen/lumen/.build/arm64-apple-macosx/release/LumenPackageTests.derived/runner.swift
+2026-10-18T16:45:37.4425740Z [1/14] Write sources
+2026-10-18T16:45:37.4453670Z [5/14] Copying Fixtures
+2026-10-18T16:45:37.4455060Z [5/14] Write sources
+2026-10-18T16:45:37.6388120Z [9/14] Write swift-version--79AA4F9932D1E87A.txt
+2026-10-18T16:46:58.6915740Z [11/15] Compiling LumenCore BlobStore.swift
+2026-10-18T16:47:16.2182810Z [12/16] Compiling LumenPipeline AppleRawSource.swift
+2026-10-18T16:47:16.2218450Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1280:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T16:47:16.2275530Z 1278 | 
+2026-10-18T16:47:16.2373370Z 1279 |     private static func make(_ source: String) -> CIColorKernel? {
+2026-10-18T16:47:16.2414420Z 1280 |         CIColorKernel(source: source)
+2026-10-18T16:47:16.2417210Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T16:47:16.2419170Z 1281 |     }
+2026-10-18T16:47:16.2419960Z 1282 | 
+2026-10-18T16:47:16.2420480Z 
+2026-10-18T16:47:16.2422400Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1288:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T16:47:16.2441910Z 1286 |     /// graph around one on that basis.
+2026-10-18T16:47:16.2442350Z 1287 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+2026-10-18T16:47:16.2442790Z 1288 |         CIKernel(source: source)
+2026-10-18T16:47:16.2443430Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T16:47:16.2444130Z 1289 |     }
+2026-10-18T16:47:16.2444380Z 1290 | 
+2026-10-18T16:47:38.6267520Z [13/19] Compiling LumenPipelineTests AuditExportMetadataTests.swift
+2026-10-18T16:47:38.6269280Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditExportMetadataTests.swift:8:18: error: module 'LumenPipeline' was not compiled for testing
+2026-10-18T16:47:38.6270300Z   6 | import XCTest
+2026-10-18T16:47:38.6272720Z   7 | import LumenCore
+2026-10-18T16:47:38.6273510Z   8 | @testable import LumenPipeline
+2026-10-18T16:47:38.6304970Z     |                  `- error: module 'LumenPipeline' was not compiled for testing
+2026-10-18T16:47:38.6305940Z   9 | 
+2026-10-18T16:47:38.6306360Z  10 | final class AuditExportMetadataTests: XCTestCase {
+2026-10-18T16:47:38.6513570Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+2026-10-18T16:47:38.6603240Z  101 | 
+2026-10-18T16:47:38.6604660Z  102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+2026-10-18T16:47:38.6609020Z  103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+2026-10-18T16:47:38.6616980Z      |         `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T16:47:38.6724120Z  104 |     }) {
+2026-10-18T16:47:38.6827310Z  105 |         self.matteProducer = matteProducer
+2026-10-18T16:47:38.6869070Z 
+2026-10-18T16:47:38.6924380Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T16:47:38.6927720Z 3041 |                 await MainActor.run {
+2026-10-18T16:47:38.6928320Z 3042 |                     // Another open started meanwhile: that one is what the user wants.
+2026-10-18T16:47:38.6932610Z 3043 |                     guard let self,
+2026-10-18T16:47:38.6933500Z      |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T16:47:38.6934250Z 3044 |                           self.expansionRequests.isCurrent(ticket,
+2026-10-18T16:47:38.6934880Z 3045 |                                                            scanGeneration: self.scanGeneration)
+2026-10-18T16:47:38.6935310Z 
+2026-10-18T16:47:38.6935940Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3239:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T16:47:38.6940520Z 3237 |                 // Open folder A, then B before A finishes, and A's scan can land
+2026-10-18T16:47:38.6941240Z 3238 |                 // second. The newest folder the user asked for is the one on screen.
+2026-10-18T16:47:38.6941940Z 3239 |                 guard let self, self.scanGeneration == generation else { return false }
+2026-10-18T16:47:38.6942850Z      |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T16:47:38.6943510Z 3240 |                 var reconciled = stored
+2026-10-18T16:47:38.6944020Z 3241 |                 if self.sourceMutationRevision != openingMutation {
+2026-10-18T16:47:38.6944470Z 
+2026-10-18T16:47:38.6945070Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:1429:61: warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T16:47:38.6947370Z 1427 |             queue.async { [store] in
+2026-10-18T16:47:38.6958230Z 1428 |                 do {
+2026-10-18T16:47:38.6959510Z 1429 |                     continuation.resume(returning: try body(store))
+2026-10-18T16:47:38.6961110Z      |                                                             `- warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T16:47:38.6962710Z 1430 |                 } catch {
+2026-10-18T16:47:38.6972220Z 1431 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+2026-10-18T16:47:38.6975280Z 
+2026-10-18T16:47:38.6976600Z /Users/runner/work/lumen/lumen/Sources/LumenCore/Catalog/CatalogStore.swift:1057:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T16:47:38.6978490Z 1055 | // MARK: - Store
+2026-10-18T16:47:38.6979350Z 1056 | 
+2026-10-18T16:47:38.6979880Z 1057 | public final class CatalogStore {
+2026-10-18T16:47:38.6981140Z      |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T16:47:38.6981540Z 1058 | 
+2026-10-18T16:47:38.6981810Z 1059 |     // MARK: Stored state
+2026-10-18T16:47:38.6982000Z 
+2026-10-18T16:47:38.6982530Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:19:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T16:47:38.6983270Z   17 | import Foundation
+2026-10-18T16:47:38.6983530Z   18 | import CryptoKit
+2026-10-18T16:47:38.6983860Z   19 | import LumenCore
+2026-10-18T16:47:38.6984280Z      | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T16:47:38.6985280Z   20 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+2026-10-18T16:47:38.6985800Z   21 | // with the rest of the platform-image code rather than in LumenCore.
+2026-10-18T16:47:38.6986100Z 
+2026-10-18T16:47:38.6986650Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:82:31: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T16:47:38.6987530Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T16:47:38.6988080Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T16:47:38.6988570Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T16:47:38.6988980Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T16:47:38.6989420Z  49 | 
+2026-10-18T16:47:38.6989650Z  50 |     static let shared = EDRDisplay()
+2026-10-18T16:47:38.6989970Z     :
+2026-10-18T16:47:38.6990340Z  80 |                 observers.append(center.addObserver(forName: name, object: nil,
+2026-10-18T16:47:38.6990760Z  81 |                                                     queue: .main) { [weak self] _ in
+2026-10-18T16:47:38.6991240Z  82 |                     guard let self else { return }
+2026-10-18T16:47:38.6991720Z     |                               `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T16:47:38.6992340Z  83 |                     MainActor.assumeIsolated { self.refresh() }
+2026-10-18T16:47:38.6992660Z  84 |                 })
+2026-10-18T16:47:38.6992850Z 
+2026-10-18T16:47:38.6993350Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:89:27: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T16:47:38.6994210Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T16:47:38.6995060Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T16:47:38.6995510Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T16:47:38.6995910Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T16:47:38.6997060Z  49 | 
+2026-10-18T16:47:38.6997310Z  50 |     static let shared = EDRDisplay()
+2026-10-18T16:47:38.6997740Z     :
+2026-10-18T16:47:38.6998300Z  87 |         if timer == nil {
+2026-10-18T16:47:38.6998720Z  88 |             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+2026-10-18T16:47:38.6999260Z  89 |                 guard let self else { return }
+2026-10-18T16:47:38.6999740Z     |                           `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T16:47:38.7000300Z  90 |                 MainActor.assumeIsolated { self.refresh() }
+2026-10-18T16:47:38.7000600Z  91 |             }
+2026-10-18T16:47:38.7000760Z 
+2026-10-18T16:47:38.7001180Z /Users/runner/work/lumen/lumen/Sources/LumenApp/GridView.swift:421:22: warning: no 'async' operations occur within 'await' expression
+2026-10-18T16:47:38.7001700Z 419 | 
+2026-10-18T16:47:38.7002230Z 420 |     private func loadThumbnail() async {
+2026-10-18T16:47:38.7003720Z 421 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+2026-10-18T16:47:38.7004240Z     |                      `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T16:47:38.7005270Z 422 |             if image !== hit { image = hit }
+2026-10-18T16:47:38.7005670Z 423 |             return
+2026-10-18T16:47:38.7006610Z 
+2026-10-18T16:47:39.1649620Z ##[error]Process completed with exit code 1.
+2026-10-18T16:47:39.1860970Z ##[group]Run actions/upload-artifact@v4
+2026-10-18T16:47:39.1861220Z with:
+2026-10-18T16:47:39.1861470Z   name: decode-reconstruction-0e9e4a483e37e3fd5be04daec159a0ccdba72609
+2026-10-18T16:47:39.1861870Z   path: decode-reconstruction-*.log
+decode-reconstruction-*.json
+
+2026-10-18T16:47:39.1862160Z   if-no-files-found: error
+2026-10-18T16:47:39.1862390Z   retention-days: 14
+2026-10-18T16:47:39.1862630Z   compression-level: 6
+2026-10-18T16:47:39.1862930Z   overwrite: false
+2026-10-18T16:47:39.1863210Z   include-hidden-files: false
+2026-10-18T16:47:39.1863520Z env:
+2026-10-18T16:47:39.1863670Z   LUMEN_DECODE_RECONSTRUCTION: 1
+2026-10-18T16:47:39.1863900Z   LUMEN_DECODE_RECONSTRUCTION_IDS: 1346,5812,2349,2607,4671
+2026-10-18T16:47:39.1864160Z   LUMEN_DECODE_RECONSTRUCTION_LIMIT: 5
+2026-10-18T16:47:39.1864490Z   LUMEN_AUDIT_RAW_DIR: /Users/runner/work/lumen/lumen/.decode-reconstruction-corpus
+2026-10-18T16:47:39.1864860Z ##[endgroup]
+2026-10-18T16:47:39.8118010Z (node:3469) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-18T16:47:39.8120860Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-18T16:47:39.8223820Z With the provided path, there will be 1 file uploaded
+2026-10-18T16:47:39.8236860Z Artifact name is valid!
+2026-10-18T16:47:39.8239010Z Root directory input is valid!
+2026-10-18T16:47:40.0671740Z Beginning upload of artifact content to blob storage
+2026-10-18T16:47:40.0873980Z (node:3469) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-18T16:47:40.1321600Z Uploaded bytes 582
+2026-10-18T16:47:40.1506500Z Finished uploading artifact content to blob storage!
+2026-10-18T16:47:40.1510390Z SHA256 digest of uploaded artifact zip is f45aa9a64d321486c716ffcc56d10144b3de332a7bfbcf8e32b1b7d987c8ec7b
+2026-10-18T16:47:40.1520370Z Finalizing artifact upload
+2026-10-18T16:47:40.4162300Z Artifact decode-reconstruction-0e9e4a483e37e3fd5be04daec159a0ccdba72609.zip successfully finalized. Artifact ID 12142948477
+2026-10-18T16:47:40.4163400Z Artifact decode-reconstruction-0e9e4a483e37e3fd5be04daec159a0ccdba72609 has been successfully uploaded! Final size is 582 bytes. Artifact ID is 12142948477
+2026-10-18T16:47:40.4173190Z Artifact download URL: https://github.com/benedek-art/lumen/actions/runs/39145605539/artifacts/12142948477
+2026-10-18T16:47:40.4422220Z Post job cleanup.
+2026-10-18T16:47:40.8130610Z [command]/opt/homebrew/bin/git version
+2026-10-18T16:47:40.8879700Z git version 2.55.0
+2026-10-18T16:47:40.8898990Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/c25375f8-f0c2-4ea8-9c54-e902c2277cae/.gitconfig'
+2026-10-18T16:47:40.8910730Z Temporarily overriding HOME='/Users/runner/work/_temp/c25375f8-f0c2-4ea8-9c54-e902c2277cae' before making global git config changes
+2026-10-18T16:47:40.8914200Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T16:47:40.8919410Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T16:47:40.9085400Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T16:47:40.9250660Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T16:47:41.1226360Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T16:47:41.1377560Z http.https://github.com/.extraheader
+2026-10-18T16:47:41.1391660Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-18T16:47:41.1470300Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T16:47:41.2633320Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T16:47:41.2749030Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T16:47:41.4878580Z Cleaning up orphan processes
+2026-10-18T16:47:43.0545560Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

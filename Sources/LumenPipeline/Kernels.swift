@@ -151,6 +151,23 @@ public enum KernelLibrary {
     }
     """
 
+    /// Central-difference tensor on the exact EV plane. Four source taps replace
+    /// two convolution images plus a tensor image, without changing the stencil.
+    /// GENERAL kernel: samplerTransform preserves translated/source coordinates;
+    /// the caller declares the one-pixel neighbourhood and clamps frame borders.
+    static let dehazeCentralTensorSource = """
+    kernel vec4 lumenDehazeCentralTensor(sampler src) {
+        vec2 p = destCoord();
+        float xp = sample(src, samplerTransform(src, p + vec2(1.0, 0.0))).r;
+        float xm = sample(src, samplerTransform(src, p - vec2(1.0, 0.0))).r;
+        float yp = sample(src, samplerTransform(src, p + vec2(0.0, 1.0))).r;
+        float ym = sample(src, samplerTransform(src, p - vec2(0.0, 1.0))).r;
+        float gx = (xp - xm) * 0.5;
+        float gy = (yp - ym) * 0.5;
+        return vec4(gx * gx, gy * gy, gx * gy, 1.0);
+    }
+    """
+
     static let dehazeSource = """
     kernel vec4 lumenDehaze(__sample image, __sample transmission,
                             __sample logEV, __sample gradient, vec3 gain,
@@ -1138,6 +1155,7 @@ public enum KernelLibrary {
     public static let detailGainGated = make(detailGainGatedSource)
     public static let lumaRatio = make(lumaRatioSource)
     public static let tensorMagnitude = make(tensorMagnitudeSource)
+    public static let dehazeCentralTensor = makeGeneral(dehazeCentralTensorSource)
     public static let dehazeLogEV = make(dehazeLogEVSource)
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
@@ -1209,7 +1227,8 @@ public enum KernelLibrary {
             // defect the comment on `unavailableMaskKernels` below describes.
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
             ("grain", grain), ("vignette", vignette),
-            ("detailGain", detailGain), ("dehazeLogEV", dehazeLogEV), ("dehaze", dehaze), ("addGlow", addGlow),
+            ("detailGain", detailGain), ("dehazeCentralTensor", dehazeCentralTensor),
+            ("dehazeLogEV", dehazeLogEV), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),

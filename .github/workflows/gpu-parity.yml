@@ -76,13 +76,15 @@ jobs:
           exit $status
 
   accuracy-followup-causal:
-    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && (contains(github.event.head_commit.message, '[dehaze-sky-causal]') || contains(github.event.head_commit.message, '[auto-tone-source-causal]'))
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && (contains(github.event.head_commit.message, '[dehaze-sky-causal]') || contains(github.event.head_commit.message, '[auto-tone-source-causal]') || contains(github.event.head_commit.message, '[local-wb-exact-causal]'))
     runs-on: macos-15
     timeout-minutes: 25
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Prove the two documented sky terms independently
         if: contains(github.event.head_commit.message, '[dehaze-sky-causal]')
         shell: bash
@@ -178,6 +180,38 @@ jobs:
           shasum -a 256 "$source_file" >> auto-tone-source-mutation-provenance.log
           git diff --exit-code -- Sources
           echo 'AUTO-TONE-SOURCE-CAUSAL baseline=GREEN stale-guard-bypassed=RED healthy-and-existing-midgesture=GREEN source-restored=true'
+      - name: Compare exact local WB with the complete original renderer route
+        if: contains(github.event.head_commit.message, '[local-wb-exact-causal]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=LocalWhiteBalanceExactMatrixTests
+          swift test -c release --filter "$target" 2>&1 | tee local-wb-exact-baseline.log
+          grep -q 'Executed 3 tests, with 0 failures' local-wb-exact-baseline.log
+          source_file=Sources/LumenPipeline/RenderGraph.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/local-wb-exact-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > local-wb-exact-mutation-provenance.log
+          shasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log
+          python3 docs/audits/2026-10-18-raw/local-wb-exact/mutate-old-route.py --source-root .
+          git diff -- "$source_file" >> local-wb-exact-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > local-wb-exact-original-route.log 2>&1
+          original_status=$?
+          set -e
+          cat local-wb-exact-original-route.log
+          test "$original_status" -ne 0
+          grep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' local-wb-exact-original-route.log
+          grep -Eq 'XCTAssert(Equal|LessThanOrEqual) failed' local-wb-exact-original-route.log
+          grep -Fq "testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' failed" local-wb-exact-original-route.log
+          grep -Fq "testNeutralAndZeroBalanceRetainExactIdentity]' passed" local-wb-exact-original-route.log
+          grep -Fq "testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' passed" local-wb-exact-original-route.log
+          cp "$source_backup" "$source_file"
+          cmp "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log
+          git diff --exit-code -- Sources Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift
+          echo 'LOCAL-WB-EXACT-CAUSAL baseline=GREEN complete-original-rendergraph=RED neutral-zero-and-finite-compatibility=GREEN exact-source-restored=true'
       - name: Keep causal observations
         if: always()
         uses: actions/upload-artifact@v4
@@ -191,6 +225,9 @@ jobs:
             auto-tone-source-baseline.log
             auto-tone-source-mutant.log
             auto-tone-source-mutation-provenance.log
+            local-wb-exact-baseline.log
+            local-wb-exact-original-route.log
+            local-wb-exact-mutation-provenance.log
           if-no-files-found: error
           retention-days: 14
 
@@ -212,7 +249,7 @@ jobs:
           LUMEN_DEHAZE_COST: "1"
         run: |
           set -euo pipefail
-          baseline_sha=0a82064e16453683b4682fc918042b504b3e65bd
+          baseline_sha=0e9e4a483e37e3fd5be04daec159a0ccdba72609
           baseline_dir="$RUNNER_TEMP/lumen-dehaze-before"
           target=DehazeCompletionCostTests/testGeneratedChangingAmountCompletedFrames
           test_file=Tests/LumenPipelineTests/DehazeCompletionCostTests.swift

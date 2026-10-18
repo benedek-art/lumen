@@ -1,0 +1,25 @@
+symbols:  every capitalized identifier resolves
+
+inits:    7981 call sites match a declared or memberwise initializer (1 unparseable, skipped; 264 memberwise signatures synthesized, 86 raw-value enums, 0 structs too odd to synthesize)
+
+actors:   every call to the 43 isolated members of MatteProducerBarrier, OperationReportStore, PickSamplePause, PickSourceBarrier, RenderCoordinator, VisionMatteWorker is awaited
+labels:   19770 method call sites match a declared signature
+
+members:  every TypeName.member reference resolves (1281 types)
+
+imports:  every platform symbol whose module is identifiable is used in a file that imports it
+          uses seen: CoreImage 620, CoreVideo 17, CryptoKit 0, ImageIO 339, Metal 3, SQLite3 56, Vision 10
+
+targets:  every in-tree type is used in a file whose module imports its own (1047 unambiguously placed)
+
+values:   every member read off an explicitly typed value exists (1281 types indexed)
+
+scopes:   every lowercase receiver is bound by a parameter, a local, a member or a global
+
+access:   every cross-module TypeName.member reference is public (780 type/module pairs)
+
+args:     every bare name passed as an argument is bound in its scope
+
+switches: 185 switches over 135 in-tree enums handle every case
+
+kernels:  49 kernel sources declare no reserved-word identifier
