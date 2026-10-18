@@ -1,4 +1,4 @@
-# Optional NEW-runtime question, not another full corpus/consumer qualification.
+# Optional NEW-runtime metadata discovery, not another full pixel corpus/consumer qualification.
 # Official label/runtime evidence checked 2026-10-18:
 # https://github.blog/changelog/2026-10-15-xcode-27-runner-image-generally-available/
 # https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md
@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 40
     env:
       CORPUS_DIR: ${{ github.workspace }}/.raw-runtime-corpus
+      TEST_CORPUS_DIR: ${{ github.workspace }}/.raw-runtime-selected
     steps:
       - uses: actions/checkout@v4
       - name: Record actual source, runtime and toolchain
@@ -42,18 +43,16 @@ jobs:
             xcrun --sdk macosx --show-sdk-path
             system_profiler SPDisplaysDataType
           } 2>&1 | tee raw-runtime-environment.log
-      - name: Select two existing pinned CC0 rows without duplicating their manifest
+      - name: Select the sixteen existing pinned CC0 rows for metadata discovery
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$CORPUS_DIR"
           python3 - <<'PY'
-          import os, pathlib
+          import os, pathlib, re
           source = pathlib.Path('.github/workflows/raw-corpus.yml').read_text()
-          expected = {
-              '2349': ('2349.ARW', '7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad', 14712832),
-              '2607': ('2607.RW2', 'c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e', 19166720),
-          }
+          expected = {'1346', '2102', '4671', '5812', '824', '2349', '6001', '2607',
+                      '5283', '2239', '1087', '4264', '6168', '2767', '1116', '3949'}
           rows = {}
           for line in source.splitlines():
               fields = line.strip().split(';')
@@ -62,16 +61,17 @@ jobs:
               assert len(fields) == 10, 'manifest schema changed'
               identifier = fields[0]
               assert identifier not in rows, 'duplicate fixture'
-              name, digest, size = expected[identifier]
-              assert (fields[1], fields[2], int(fields[3])) == (name, digest, size)
+              assert re.fullmatch(identifier + r'\.[A-Za-z0-9]+', fields[1]), 'unsafe local path'
+              assert re.fullmatch(r'[0-9a-f]{64}', fields[2]), 'missing SHA256'
+              assert int(fields[3]) > 0, 'missing byte count'
               assert fields[7] == 'CC0' and 'negative' not in fields[6]
               assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + identifier + '/')
               rows[identifier] = ';'.join(fields)
-          assert rows.keys() == expected.keys(), 'exactly two expected fixtures required'
+          assert rows.keys() == expected, 'exactly sixteen expected fixtures required'
           pathlib.Path(os.environ['CORPUS_DIR'], 'corpus.tsv').write_text(
               '\n'.join(rows[k] for k in sorted(rows)) + '\n')
           PY
-      - name: Fetch and verify only those public files
+      - name: Fetch and verify sixteen public files for metadata only
         shell: bash
         run: |
           set -euo pipefail
@@ -101,23 +101,63 @@ jobs:
           let manifest = try String(contentsOf: root.appendingPathComponent("corpus.tsv"), encoding: .utf8)
           for row in manifest.split(separator: "\n") {
               let fields = row.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
-              let url = root.appendingPathComponent(String(fields[1]))
-              guard let filter = CIRAWFilter(imageURL: url) else {
-                  print("runtime-decoder: fixture" + fields[0] + " platform-refused")
-                  continue
-              }
-              let supported = filter.supportedDecoderVersions.map(\.rawValue).joined(separator: ",")
-              print("runtime-decoder: fixture" + fields[0] + " default="
-                    + filter.decoderVersion.rawValue + " supported=" + supported)
+              let url = root.appendingPathComponent(fields[1])
+              let filter = CIRAWFilter(imageURL: url)
+              let supported = filter?.supportedDecoderVersions.map(\.rawValue) ?? []
+              let record: [String: Any] = ["id": fields[0], "opened": filter != nil,
+                  "default": filter?.decoderVersion.rawValue ?? "none", "supported": supported]
+              let json = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+              print("runtime-decoder-json: " + String(decoding: json, as: UTF8.self))
           }
           SWIFT
           swift "$RUNNER_TEMP/raw-runtime-probe.swift" 2>&1 | tee raw-runtime-capability.log
+          python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ['CORPUS_DIR'])
+          rows = {fields[0]: fields for line in (root / 'corpus.tsv').read_text().splitlines()
+                  if (fields := line.split(';'))}
+          capabilities = {}
+          prefix = 'runtime-decoder-json: '
+          for line in pathlib.Path('raw-runtime-capability.log').read_text().splitlines():
+              if line.startswith(prefix):
+                  record = json.loads(line[len(prefix):])
+                  assert record['id'] in rows and record['id'] not in capabilities
+                  capabilities[record['id']] = record
+          assert capabilities.keys() == rows.keys(), 'must probe every verified public file exactly once'
+          def is_raw9(identifier):
+              # Same digits-only convention used by RawParams.decoderNumber.
+              digits = ''.join(character for character in identifier if character.isnumeric())
+              try:
+                  return int(digits) == 9
+              except ValueError:
+                  return False
+          raw9 = sorted(key for key, record in capabilities.items()
+                        if any(is_raw9(version) for version in record['supported']))
+          selected = raw9[:2]
+          # Keep exactly two records: one RAW9 advertiser, if that's all the runtime
+          # offers, gets one known control. No advertiser uses both historical controls.
+          for control in ['2349', '2607']:
+              if len(selected) < 2 and control not in selected:
+                  selected.append(control)
+          assert len(selected) == 2
+          destination = pathlib.Path(os.environ['TEST_CORPUS_DIR'])
+          destination.mkdir(exist_ok=True)
+          for key in selected:
+              (destination / rows[key][1]).symlink_to(root / rows[key][1])
+          (destination / 'corpus.tsv').write_text('\n'.join(';'.join(rows[k]) for k in selected) + '\n')
+          summary = (f'Metadata-only discovery: {len(capabilities)} public fixtures, '
+                     f'{len(raw9)} RAW9 advertisers; pixel-test IDs: {",".join(selected)}. '
+                     'No full pixel corpus was run.\n')
+          print(summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write(summary)
+          PY
       - name: Existing decoder selection and RAW9 preview/native oracle tests
         id: tests
         shell: bash
         timeout-minutes: 25
         env:
-          LUMEN_AUDIT_RAW_DIR: ${{ env.CORPUS_DIR }}
+          LUMEN_AUDIT_RAW_DIR: ${{ env.TEST_CORPUS_DIR }}
         run: |
           set -uo pipefail
           swift test -c release --filter 'AuditRawAccuracyTests.testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile|AuditRawAccuracyTests.testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode|AuditRawAccuracyTests.testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels' \
@@ -133,19 +173,22 @@ jobs:
           import collections, os, pathlib
           log = pathlib.Path('raw-runtime-tests.log').read_text()
           expected = {'unpinned', 'raw9-preview', 'raw9-native'}
+          manifest = pathlib.Path(os.environ['TEST_CORPUS_DIR'], 'corpus.tsv').read_text()
+          fixture_ids = {'corpus' + row.split(';')[0] for row in manifest.splitlines()}
+          assert len(fixture_ids) == 2, 'exactly two selected fixtures required'
           records = collections.defaultdict(dict)
           for line in log.splitlines():
               if not line.startswith('audit-raw-file: '):
                   continue
               _, test, fixture, verdict = line.split(maxsplit=3)
-              assert test in expected and fixture in {'corpus2349', 'corpus2607'}
+              assert test in expected and fixture in fixture_ids
               assert fixture not in records[test], 'duplicate coverage record'
               assert verdict != 'error', 'fixture threw before completing'
               records[test][fixture] = verdict
           assert records.keys() == expected, 'selected methods must all execute'
           for test in expected:
-              assert records[test].keys() == {'corpus2349', 'corpus2607'}, 'partial fixture coverage'
-          summary = ['### New-runtime RAW capability (two public CC0 files)',
+              assert records[test].keys() == fixture_ids, 'partial fixture coverage'
+          summary = ['### New-runtime pixel checks (two selected public CC0 files)',
                      'This is runtime/decoder evidence, not camera calibration or full-corpus acceptance.']
           for test in sorted(expected):
               for fixture, verdict in sorted(records[test].items()):
@@ -153,7 +196,7 @@ jobs:
           for test in ['raw9-preview', 'raw9-native']:
               verdicts = list(records[test].values())
               if all(v == 'no-raw9' for v in verdicts):
-                  summary.append(f'- **SKIPPED {test}: neither file advertises RAW9; no RAW9 pixel pass claimed.**')
+                  summary.append(f'- **SKIPPED {test}: neither selected file advertises RAW9; no RAW9 pixel pass claimed.**')
               else:
                   assert all(v in {'no-raw9', 'decoded'} for v in verdicts)
                   summary.append(f'- **EXECUTED {test}: {verdicts.count("decoded")} RAW9 fixture(s). Test result remains authoritative.**')
@@ -171,4 +214,5 @@ jobs:
             raw-runtime-capability.log
             raw-runtime-tests.log
             .raw-runtime-corpus/corpus.tsv
+            .raw-runtime-selected/corpus.tsv
           if-no-files-found: warn

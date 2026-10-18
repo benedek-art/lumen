@@ -1,0 +1,16 @@
+{
+  "base": "5d1ff3a9793a6ea6487dcf67a304f47bc438e0d1",
+  "source_sha256": "9043b3a380d0516e3f71efb6dd4d14f169e0d0b6b7e26ff155c75acdd6d91034",
+  "compiler": "Swift6.1.2 RELEASE x86_64-unknown-linux-gnu",
+  "exit": 0,
+  "qualification": "Transcribed original tool stdout, not a separately captured raw log. Synthetic projection only; excludes file stat, AppState, rendering and native UI. Single timing observation per cell.",
+  "stdout": [
+    "exact projection equality passed5 cases: empty, duplicate nil/non-nil precedence, primary nil/non-nil override",
+    "projection-only Linux Swift -O n=1000 old=0.011681s indexed=0.000667s",
+    "projection-only Linux Swift -O n=20000 old=3.898467s indexed=0.062773s"
+  ],
+  "commands": [
+    "LD_LIBRARY_PATH=/workspace/scratch/2982a056243e/swift-deps/usr/lib/x86_64-linux-gnu /workspace/scratch/2982a056243e/swift/usr/bin/swiftc -O /workspace/scratch/2982a056243e/pick-projection-evidence/main.swift -o /workspace/scratch/2982a056243e/pick-projection-evidence/witness",
+    "LD_LIBRARY_PATH=/workspace/scratch/2982a056243e/swift-deps/usr/lib/x86_64-linux-gnu /workspace/scratch/2982a056243e/pick-projection-evidence/witness"
+  ]
+}

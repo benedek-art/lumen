@@ -3868,12 +3868,18 @@ final class AppState: ObservableObject {
         let requestSourceRevision = sourceRevision
         let requestTargets = editTargets
         let requestRecipes = requestTargets.map { recipe(for: $0) }
+        // Preserve the first snapshot even when its identity is nil. Repeated linear
+        // searches here made a large batch pick quadratic before sampling could start.
+        var firstTargetByURL: [URL: PhotoItem] = [:]
+        for target in requestTargets where firstTargetByURL[target.id] == nil {
+            firstTargetByURL[target.id] = target
+        }
         // One stat per distinct source: batch writes must not land on a replacement
         // secondary photo either. The app revision alone cannot observe external writes.
         let requestSourceIdentities = Set(requestTargets.map(\.id)).union([url]).map { sourceURL in
             (url: sourceURL, actual: SourceFileIdentity.read(sourceURL),
              expected: sourceURL == url ? photo.sourceIdentity
-                : requestTargets.first(where: { $0.id == sourceURL })?.sourceIdentity)
+                : firstTargetByURL[sourceURL]?.sourceIdentity)
         }
         // Catalog-backed snapshots already name a generation. Do not sample B using
         // the displayed A snapshot's recipe even if B changed before this click.

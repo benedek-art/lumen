@@ -57,7 +57,7 @@ final class PickSourceFreshnessTests: XCTestCase {
                 else { UserDefaults.standard.removeObject(forKey: key) }
             }
         }
-        state.openFolder(folder, restrictedTo: urls)
+        state.openFolder(folder, restrictedTo: Set(urls))
         let deadline = Date().addingTimeInterval(5)
         while state.isScanning && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
         XCTAssertFalse(state.isScanning)
