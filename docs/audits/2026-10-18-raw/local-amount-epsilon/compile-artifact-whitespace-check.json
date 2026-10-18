@@ -1,0 +1,16 @@
+{
+  "whole_exit": 2,
+  "whole_output": "docs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:12: trailing whitespace.\n+2026-10-18T14:06:26.9362120Z \ndocs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:17: trailing whitespace.\n+2026-10-18T14:06:26.9748090Z \ndocs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:19: trailing whitespace.\n+2026-10-18T14:06:26.9751920Z 433 | \ndocs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:24: trailing whitespace.\n+2026-10-18T14:06:26.9947630Z 437 | \ndocs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:26: trailing whitespace.\n+2026-10-18T14:06:26.9948650Z  101 | \ndocs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:32: trailing whitespace.\n+2026-10-18T14:06:26.9953170Z \ndocs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log:40: trailing whitespace.\n+2026-10-18T14:06:26.9990530Z \n",
+  "scoped_command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check",
+    "--",
+    ".",
+    ":(exclude)docs/audits/2026-10-18-raw/local-amount-epsilon/public-compile-blocker-4fba0ab.log"
+  ],
+  "scoped_exit": 0,
+  "artifact_sha256": "9e6ce9322d6ee8b1e01e2f82300e4722750d65e7088da37371b3941d068f5f44",
+  "reason": "Seven raw compiler timestamp/context lines preserved exactly; no source/test/workflow whitespace policy changed."
+}

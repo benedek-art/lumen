@@ -36,3 +36,13 @@ All records are emitted as `LOCAL-AMOUNT-EPSILON` JSON before aggregate assertio
 A behavior fix could affect positive creative values and requires a separate compatibility decision supported by native evidence. This diagnostic establishes no camera, subjective quality, exhaustive cross-control, or continuity acceptance.
 
 Independent read-only review found no fixture/API/equation blocker: RGBAf stride, source readback, matched group/direct strength, endpoint scope, counts and failure propagation checked. This is source review, not native execution. All-pixel finite/zero checks and four-center RGB parity are distinct.
+
+## Subsequent failure-classification attempt
+
+The original SIGILL evidence above is unchanged. A single run of the identical SHA256-verified binary with `SWIFT_BACKTRACE=enable=yes,interactive=no` and a new output directory exited0 in0.363s. This does not establish why the original launch failed. Matching full current Core manifests were rechecked before execution. See backtrace-attempt/ for exact command, binary hash, all640 numeric rows and analysis; no binary is committed.
+
+This executed the extracted actual LocalPlan helper with actual fresh Core LUT/Grade/RenderPlan, **not native GPU or full S11**. It produced160 finite stage pairs and32 exact zero-stage checks;640 emitted alpha rows are finite,128 zero rows exact,320 direct/group rows matched exactly. It uses cubes17/65 and Amount0/1e-10/.0001/.01/1, distinct from the pending native33/65 and1e-8 matrix. At grade Amount1e-10/cube65, inputR−.01→tableR−.000004937137466/directR−.010000000000011; inputR1024→tableR737.28/directR1024.000000000095. At alpha.75 the independent normal blend yields−.002503702853100 and808.96 respectively. These measurements support the source-derived table-domain mechanism but do not substitute for actual GPU/reference qualification or a continuity repair.
+
+To reproduce the later backtrace-mode question without overwriting evidence, use a fresh directory: `python3 docs/audits/2026-10-18-raw/local-amount-epsilon/build-core.py --output-dir /tmp/lumen-epsilon-new --source-root "$PWD"`, then `python3 docs/audits/2026-10-18-raw/local-amount-epsilon/run-probe.py --output-dir /tmp/lumen-epsilon-new --swift-backtrace enable=yes,interactive=no`. The output directory must not preexist for the build and must contain only that build before running the probe. Existing toolchain paths are intentionally recorded; adapt the toolchain location explicitly on another host.
+
+Hosted4fba compilation stopped at `pow(2,12)` ambiguity before all pixel execution. The follow-up test changes only pow literals to explicitDouble, preserving every equation, input, assertion and tolerance.

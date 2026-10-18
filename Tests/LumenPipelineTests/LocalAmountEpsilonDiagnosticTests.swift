@@ -28,9 +28,9 @@ final class LocalAmountEpsilonDiagnosticTests: XCTestCase {
         let observedInput = centers.map { input[$0, 8] }
         // Independent expansion of the declared shaper endpoints, not a call to
         // LUT.sample or LumenLog.decode: toe offset/slope and +12EV scene white.
-        let cut = 0.18 * pow(2, -10.5)
+        let cut = 0.18 * pow(2.0, -10.5)
         let lower = cut * (1 - 1.5 * log(2.0))
-        let upper = 0.18 * pow(2, 12)
+        let upper = 0.18 * pow(2.0, 12.0)
         func clampedDomain(_ c: RGB) -> RGB {
             RGB(min(max(c.r, lower), upper), min(max(c.g, lower), upper), min(max(c.b, lower), upper))
         }
@@ -166,7 +166,7 @@ final class LocalAmountEpsilonDiagnosticTests: XCTestCase {
             let cpu = ReferenceRenderer.applyLocalAdjust(input, mask: resolved, plan: plan, space: .rec2020)
             let actual = centers.map { gpu[$0, 8] }
             let reference = centers.map { cpu[$0, 8] }
-            let equation = observedInput.map { $0 * pow(2, 1e-10) }
+            let equation = observedInput.map { $0 * pow(2.0, 1e-10) }
             let parity = zip(actual, reference).map { $0.0.maxAbsDifference($0.1) }.max() ?? 0
             let error = zip(actual, equation).map { $0.0.maxAbsDifference($0.1) }.max() ?? 0
             if !gpu.pixels.allSatisfy({ $0.isFinite }) || !cpu.pixels.allSatisfy({ $0.isFinite }) {

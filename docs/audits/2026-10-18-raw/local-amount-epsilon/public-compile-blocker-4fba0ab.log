@@ -1,0 +1,41 @@
+2026-10-18T14:04:32.9132630Z Image: macos-15-arm64
+2026-10-18T14:04:36.0258840Z ProductVersion:		15.7.9
+2026-10-18T14:04:36.0260850Z BuildVersion:		24G830
+2026-10-18T14:04:36.0303530Z arm64
+2026-10-18T14:06:26.9096080Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalAmountEpsilonDiagnosticTests.swift:33:28: error: ambiguous use of 'pow'
+2026-10-18T14:06:26.9199590Z  31 |         let cut = 0.18 * pow(2, -10.5)
+2026-10-18T14:06:26.9226570Z  32 |         let lower = cut * (1 - 1.5 * log(2.0))
+2026-10-18T14:06:26.9234220Z  33 |         let upper = 0.18 * pow(2, 12)
+2026-10-18T14:06:26.9240780Z     |                            `- error: ambiguous use of 'pow'
+2026-10-18T14:06:26.9245180Z  34 |         func clampedDomain(_ c: RGB) -> RGB {
+2026-10-18T14:06:26.9250870Z  35 |             RGB(min(max(c.r, lower), upper), min(max(c.g, lower), upper), min(max(c.b, lower), upper))
+2026-10-18T14:06:26.9362120Z 
+2026-10-18T14:06:26.9466010Z Foundation.pow:2:13: note: found this candidate in module 'Foundation'
+2026-10-18T14:06:26.9570660Z 1 | @available(macOS 10.10, iOS 8.0, watchOS 2.0, tvOS 9.0, *)
+2026-10-18T14:06:26.9673520Z 2 | public func pow(_ x: Decimal, _ y: Int) -> Decimal
+2026-10-18T14:06:26.9746560Z   |             `- note: found this candidate in module 'Foundation'
+2026-10-18T14:06:26.9748090Z 
+2026-10-18T14:06:26.9749840Z /Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.5.sdk/usr/include/math.h:435:15: note: found this candidate in module '_math'
+2026-10-18T14:06:26.9751920Z 433 | 
+2026-10-18T14:06:26.9903610Z 434 | extern float powf(float, float);
+2026-10-18T14:06:26.9945400Z 435 | extern double pow(double, double);
+2026-10-18T14:06:26.9945910Z     |               `- note: found this candidate in module '_math'
+2026-10-18T14:06:26.9946400Z 436 | extern long double powl(long double, long double);
+2026-10-18T14:06:26.9947630Z 437 | 
+2026-10-18T14:06:26.9948140Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+2026-10-18T14:06:26.9948650Z  101 | 
+2026-10-18T14:06:26.9948880Z  102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+2026-10-18T14:06:26.9949280Z  103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+2026-10-18T14:06:26.9951010Z      |         `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T14:06:26.9952050Z  104 |     }) {
+2026-10-18T14:06:26.9952700Z  105 |         self.matteProducer = matteProducer
+2026-10-18T14:06:26.9953170Z 
+2026-10-18T14:06:26.9954540Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T14:06:26.9956380Z 3041 |                 await MainActor.run {
+2026-10-18T14:06:26.9957340Z 3042 |                     // Another open started meanwhile: that one is what the user wants.
+2026-10-18T14:06:26.9958220Z 3043 |                     guard let self,
+2026-10-18T14:06:26.9959480Z      |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T14:06:26.9960900Z 3044 |                           self.expansionRequests.isCurrent(ticket,
+2026-10-18T14:06:26.9973120Z 3045 |                                                            scanGeneration: self.scanGeneration)
+2026-10-18T14:06:26.9990530Z 
+2026-10-18T14:06:27.4223340Z error: fatalError
