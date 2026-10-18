@@ -2269,7 +2269,8 @@ public final class PipelineRenderer {
     public func sampleMaskStageInput(source: any ImageSource, recipe: Recipe,
                                      sourceX: Double, sourceY: Double,
                                      pointColorSwatch: (maskID: String, index: Int)? = nil,
-                                     radius: Int = 2) -> RGB? {
+                                     radius: Int = 2,
+                                     strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
         Self.stampRenderIdentity(source)
@@ -2280,7 +2281,7 @@ public final class PipelineRenderer {
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let staged = RenderGraph().localStageInput(
+        let staged = RenderGraph(healStrokesOf: recipe, strokeSets: strokeSets).localStageInput(
             decoded, plan: plan,
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
         // Cropped back to the decode's own extent so the normalized coordinate means
@@ -2320,20 +2321,24 @@ public final class PipelineRenderer {
     public func sampleColorStageInput(source: any ImageSource, recipe: Recipe,
                                       sourceX: Double, sourceY: Double,
                                       tap: ColorEngine.SelectionTap,
-                                      radius: Int = 2) -> RGB? {
+                                      radius: Int = 2,
+                                      strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
         Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
+                              captureISO: source.captureMetadata.iso,
                               bandMeanHues: ColorEngine.needsMeasuredBandHues(
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let staged = RenderGraph().colorStageInput(
+        let staged = RenderGraph(healStrokesOf: recipe, strokeSets: strokeSets).colorStageInput(
             decoded, plan: plan,
-            options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
+            // This is the global colour picker's actual S9 input, not a mask
+            // raster proxy: denoise and presence must both precede the sample.
+            options: RenderGraph.Options(longEdge: longEdge, maskSource: false))
         guard let input = sampleMean(staged.cropped(to: decoded.extent),
                                      sourceX: sourceX, sourceY: sourceY, radius: radius)
         else { return nil }

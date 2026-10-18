@@ -787,13 +787,15 @@ actor RenderCoordinator {
     /// balance and earlier swatches, which is what the swatch compares.
     func sampleMaskReference(url: URL, recipe: Recipe,
                              sourceX: Double, sourceY: Double,
-                             pointColorSwatch: (maskID: String, index: Int)? = nil) -> RGB? {
+                             pointColorSwatch: (maskID: String, index: Int)? = nil,
+                             strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
         defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
                                                         sourceY: sourceY,
-                                                        pointColorSwatch: pointColorSwatch),
+                                                        pointColorSwatch: pointColorSwatch,
+                                                        strokeSets: strokeSets),
               sample.isFinite
         else { return nil }
         return sample
@@ -859,12 +861,14 @@ actor RenderCoordinator {
     /// reads (AI-02): the stage input alone is before the primaries and the Mixer.
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double,
-                                   tap: ColorEngine.SelectionTap) -> RGB? {
+                                   tap: ColorEngine.SelectionTap,
+                                   strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
         defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
-                                                          sourceY: sourceY, tap: tap),
+                                                          sourceY: sourceY, tap: tap,
+                                                          strokeSets: strokeSets),
               sample.isFinite
         else { return nil }
         return sample

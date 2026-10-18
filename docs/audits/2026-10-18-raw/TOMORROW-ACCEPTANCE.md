@@ -40,3 +40,12 @@ Additional candidate checks:
 - On disposable catalog/photo copies, terminate a session after a committed edit but before XMP debounce; restart after an external supported XMP change. Check current edit, exact conflict copy, culling, explicit keyword additions/removals and eventual portable publication. This differs from power-loss/drive-removal acceptance and from a gesture that never committed.
 - Force catalog-open failure on a disposable setup: browsing/volatile previews may continue, but export must explain that saved edits/masks were not loaded and create no output. A healthy recovered catalog with a warning must still export.
 - Verify mask/group Amount0 against disabled adjustment on signed/highlight pixels, all blend modes and soft edges. Keep referenced donor selection available. Check positive Amount creative appearance separately.
+
+
+Additional prepared cloud follow-up gates:
+
+- While holding scalar track/readout scrubs, change same-valued photo, mask, swatch, mixer band/All or wheel role; also undo, resize or hide/reopen the panel. Release must not overwrite another target, must close persistence/history once and must permit the next genuine press. Repeat with Shift and double-click reset.
+- Rotate across the polar ±180 boundary and change Shift at release; verify smooth clamped behavior, mirrored direction and batch framing. Straighten while changing primary/batch/flip/angle/frame must discard the old line. Motion exceeding180 degrees between delivered samples is ambiguous and chooses shortest travel.
+- With painted clone/heal and nonzero Dehaze/Classic denoise, pick global and mask colors on known patches. Match the applicable rendered stage, not a visually pleasing swatch. Measure cold pick delay/memory; mask proxies intentionally omit selected spatial stages by existing design.
+- Delay a pick then edit/reorder swatches/components, change batch membership/secondary recipe, or arm/cancel a newer pick. The old answer must make no edit or overwrite the new prompt.
+- Paint/move masks while switching same-UUID copied masks across photos, replacing components, changing crop/viewport or losing the original volume. No other recipe/blob/history may change. Prepared source intentionally refuses mask edits on an offline original and adds a source stat per apply; qualify this behavior and physical-drive latency before accepting it.

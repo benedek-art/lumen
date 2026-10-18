@@ -1946,8 +1946,11 @@ struct LoupeView: View {
                                state.activeMaskID = id
                                state.activeComponentIndex = 0
                                state.flashMaskOverlay(id)
-                           }) { edit in
-                    MaskCanvas.apply(edit, in: state)
+                           }, editContext: MaskCanvasEditContext(
+                               photo: photo, geometry: recipe.develop.geometry,
+                               maskID: target.maskID, index: target.index,
+                               component: target.component)) { edit, context in
+                    MaskCanvas.apply(edit, context: context, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
             }
@@ -2142,6 +2145,18 @@ struct LoupeView: View {
                 StraightenOverlayView(
                     currentAngle: geometry.angle,
                     isFlipped: geometry.flipH,
+                    sourceSize: source,
+                    dragContext: {
+                        StraightenDrawContext(photoID: photo.id,
+                            primaryID: state.primarySelection?.id,
+                            targetIDs: Set(state.editTargets.map(\.id)),
+                            sourceSize: state.sourceFrameSize ?? model.image.map {
+                                CGSize(width: $0.width, height: $0.height)
+                            } ?? source,
+                            sourceRevision: state.sourceRevision,
+                            angle: state.currentRecipe.develop.geometry.angle,
+                            flipped: state.currentRecipe.develop.geometry.flipH)
+                    },
                     onAngle: { angle in applyRotation(angle) },
                     onFinish: { viewport.showStraighten = false })
                     .frame(width: usableDrawn.width, height: usableDrawn.height)

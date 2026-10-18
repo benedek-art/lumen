@@ -116,6 +116,42 @@ enum MaskCanvasEdit {
                  ref: String?, payload: Data?)
 }
 
+/// Identity captured at the press. The component advances only after our own edit
+/// is acknowledged; an intervening edit must never be overwritten by a stale drag.
+struct MaskCanvasEditContext: Equatable {
+    let url: URL
+    let catalogID: Int64?
+    let source: SourceFileIdentity?
+    let geometry: Geometry
+    let maskID: String
+    let index: Int
+    var expected: MaskComponent?
+
+    init(photo: PhotoItem, geometry: Geometry, maskID: String, index: Int,
+         component: MaskComponent?) {
+        url = photo.id
+        catalogID = photo.catalogID
+        source = photo.sourceIdentity ?? SourceFileIdentity.read(photo.id)
+        self.geometry = geometry
+        self.maskID = maskID
+        self.index = index
+        expected = component
+    }
+
+    func sameTarget(as other: Self) -> Bool {
+        url == other.url && catalogID == other.catalogID && source == other.source
+            && geometry == other.geometry && maskID == other.maskID && index == other.index
+    }
+
+    mutating func acknowledge(_ edit: MaskCanvasEdit) {
+        switch edit {
+        case .component(_, _, let component, _): expected = component
+        case .strokes(_, _, _, let ref, _): expected?.strokesRef = ref
+        }
+    }
+}
+
+
 // MARK: - Canvas
 
 /// `imageRect` is the photo's drawn rect **in this view's own coordinate space**,
@@ -148,7 +184,11 @@ struct MaskCanvas: View {
     /// Selecting a mask from its pin, which is how a photographer picks the mask under
     /// the thing they are looking at rather than by reading a list.
     var selectMask: (String) -> Void = { _ in }
-    let commit: (MaskCanvasEdit) -> Void
+    let editContext: MaskCanvasEditContext
+    let commit: (MaskCanvasEdit, MaskCanvasEditContext) -> Bool
+    @State private var pressContext: MaskCanvasEditContext?
+    @State private var pressCancelled = false
+    @State private var gestureSignalled = false
 
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
 
@@ -184,7 +224,8 @@ struct MaskCanvas: View {
          strokes: BrushStrokeSet = BrushStrokeSet(),
          allMasks: [Mask] = [],
          selectMask: @escaping (String) -> Void = { _ in },
-         commit: @escaping (MaskCanvasEdit) -> Void) {
+         editContext: MaskCanvasEditContext,
+         commit: @escaping (MaskCanvasEdit, MaskCanvasEditContext) -> Bool) {
         self.imageRect = imageRect
         self.sourceSize = sourceSize
         self.geometry = geometry
@@ -194,7 +235,51 @@ struct MaskCanvas: View {
         self.strokes = strokes
         self.allMasks = allMasks
         self.selectMask = selectMask
+        self.editContext = editContext
         self.commit = commit
+    }
+
+    private func continuePress() -> Bool {
+        guard !pressCancelled else { return false }
+        if let pressContext {
+            guard pressContext.sameTarget(as: editContext) else {
+                cancelPress()
+                return false
+            }
+        } else { pressContext = editContext }
+        return true
+    }
+
+    private func commitGuarded(_ edit: MaskCanvasEdit) {
+        guard continuePress(), var context = pressContext else { return }
+        guard commit(edit, context) else { cancelPress(); return }
+        context.acknowledge(edit)
+        pressContext = context
+    }
+
+    private func cancelPress() {
+        // Remain cancelled until release: a new event in the same physical press
+        // must not start a stroke on the newly selected photograph.
+        if pressContext != nil { pressCancelled = true }
+        mode = .idle
+        livePoints = []
+        strokeSeed = nil
+        strokeStarted = nil
+        stabilizer = nil
+        tracing = nil
+        pointGrab = nil
+        outlineGrab = nil
+        eraseHeld = false
+        if gestureSignalled {
+            gestureSignalled = false
+            sliderGestureChanged(false)
+        }
+    }
+
+    private func finishPress() {
+        cancelPress()
+        pressContext = nil
+        pressCancelled = false
     }
 
     /// What the press decided, carried for the rest of the drag.
@@ -295,6 +380,12 @@ struct MaskCanvas: View {
         .contentShape(MaskCanvasHitArea(pins: hitAreaPins, radius: MaskCanvas.pinGrab))
         .allowsHitTesting(isLive)
         .help(helpText)
+        .onChange(of: editContext) { _, next in
+            if let pressContext, !pressContext.sameTarget(as: next) { cancelPress() }
+        }
+        .onChange(of: imageRect) { _, _ in cancelPress() }
+        .onChange(of: sourceSize) { _, _ in cancelPress() }
+        .onDisappear { cancelPress() }
     }
 
     /// A CROSSHAIR WHILE THERE IS NOTHING DRAWN YET, which is the whole of what the
@@ -489,6 +580,7 @@ struct MaskCanvas: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                guard continuePress() else { return }
                 // A press on another mask's pin selects, and does nothing else. Checked
                 // once per gesture, and now BEHIND the question of whether the press
                 // also landed on a named handle of the mask you are editing.
@@ -531,6 +623,7 @@ struct MaskCanvas: View {
                 // reason. It is one view-local write per event on a view that is
                 // already redrawing per event, and it touches no shared object.
                 hover = value.location
+                gestureSignalled = true
                 sliderGestureChanged(true)
                 switch component.kind {
                 case .linear, .similarityLine:
@@ -549,6 +642,8 @@ struct MaskCanvas: View {
                 }
             }
             .onEnded { value in
+                defer { finishPress() }
+                guard continuePress() else { return }
                 if case .pin(let id) = mode {
                     // The candidate's last chance: a release can be the first event
                     // that reports the travel.
@@ -565,7 +660,7 @@ struct MaskCanvas: View {
                         return
                     }
                 }
-                defer { sliderGestureChanged(false) }
+
                 guard let component = component else { return }
                 switch component.kind {
                 case .linear, .similarityLine:
@@ -670,7 +765,7 @@ struct MaskCanvas: View {
                     var next = component
                     next.path = existing.enumerated()
                         .filter { $0.offset != index }.map(\.element)
-                    commit(.component(maskID: maskID, index: componentIndex,
+                    commitGuarded(.component(maskID: maskID, index: componentIndex,
                                       component: next, coalescingKey: nil))
                     mode = .outlineVertex
                     return
@@ -708,7 +803,7 @@ struct MaskCanvas: View {
             path[index] = moved
             var next = component
             next.path = path
-            commit(.component(maskID: maskID, index: componentIndex, component: next,
+            commitGuarded(.component(maskID: maskID, index: componentIndex, component: next,
                               coalescingKey: ended ? nil : coalescingKey("outline")))
 
         case .outlineCorner:
@@ -757,7 +852,7 @@ struct MaskCanvas: View {
             guard traced.count >= 3 else { return }
             var next = component
             next.path = traced
-            commit(.component(maskID: maskID, index: componentIndex, component: next,
+            commitGuarded(.component(maskID: maskID, index: componentIndex, component: next,
                               coalescingKey: nil))
 
         default:
@@ -770,7 +865,7 @@ struct MaskCanvas: View {
         let at = normalized(value.location)
         var next = component
         next.path = existing + [[Double(at.x), Double(at.y)]]
-        commit(.component(maskID: maskID, index: componentIndex, component: next,
+        commitGuarded(.component(maskID: maskID, index: componentIndex, component: next,
                           coalescingKey: nil))
     }
 
@@ -854,7 +949,7 @@ struct MaskCanvas: View {
         updated[grab.index] = entry
         var next = component
         next.points = updated
-        commit(.component(maskID: maskID, index: componentIndex, component: next,
+        commitGuarded(.component(maskID: maskID, index: componentIndex, component: next,
                           coalescingKey: ended ? nil : coalescingKey("point")))
     }
 
@@ -1040,7 +1135,7 @@ struct MaskCanvas: View {
 
         var next = component
         next.line = updated
-        commit(.component(maskID: maskID, index: componentIndex, component: next,
+        commitGuarded(.component(maskID: maskID, index: componentIndex, component: next,
                           coalescingKey: ended ? nil : coalescingKey("line")))
     }
 
@@ -1212,7 +1307,7 @@ struct MaskCanvas: View {
         next.radii = nextRadii
         next.feather = nextFeather
         next.rotation = nextRotation
-        commit(.component(maskID: maskID, index: componentIndex, component: next,
+        commitGuarded(.component(maskID: maskID, index: componentIndex, component: next,
                           coalescingKey: ended ? nil : coalescingKey("radial")))
     }
 
@@ -1408,7 +1503,7 @@ struct MaskCanvas: View {
         set.strokes.append(stroke)
         let payload = try? set.encode()
         let ref = payload.map { BrushStrokeSet.blobRef(for: $0) }
-        commit(.strokes(maskID: maskID, index: componentIndex, strokes: set,
+        commitGuarded(.strokes(maskID: maskID, index: componentIndex, strokes: set,
                         ref: ref, payload: payload))
     }
 
@@ -2115,13 +2210,42 @@ struct MaskCanvas: View {
     /// Moving a gradient across a sequence is a real thing to want; it is what Paste
     /// Settings is for, and it is explicit. This is not.
     @MainActor
-    static func apply(_ edit: MaskCanvasEdit, in state: AppState) {
+    static func apply(_ edit: MaskCanvasEdit, context: MaskCanvasEditContext,
+                      in state: AppState) -> Bool {
         // No photograph on screen, no gesture to apply. Guarded rather than left to
         // `editTargets`, whose empty-selection fallback is `[]` — a silent no-op that
         // would look exactly like the write having happened.
-        guard let subject = state.primarySelection else { return }
+        func refuse(_ message: String) -> Bool {
+            // A delayed pointer event must not replace a newer prompt or error.
+            if state.statusMessage == nil { state.statusMessage = message }
+            return false
+        }
+        guard let subject = state.primarySelection,
+              subject.id == context.url, subject.catalogID == context.catalogID
+        else { return refuse("Mask gesture cancelled because its photograph changed") }
+        // A stat per accepted event deliberately requires the original to remain
+        // reachable. Cached-preview editing while the original is offline is refused
+        // here; this is a cheap generation check, not a source-content digest.
+        guard let source = context.source, SourceFileIdentity.read(subject.id) == source
+        else { return refuse("Mask gesture cancelled because its original is unavailable or changed") }
+        let current = state.recipe(for: subject)
+        guard current.develop.geometry == context.geometry,
+              (state.activeMaskID ?? current.masks.first?.id) == context.maskID,
+              state.activeComponentIndex == context.index,
+              let m = current.masks.firstIndex(where: { $0.id == context.maskID }),
+              current.masks[m].components.indices.contains(context.index),
+              current.masks[m].components[context.index] == context.expected
+        else { return refuse("Mask gesture cancelled because its target changed") }
+        // All freshness checks precede blob publication, history and recipe writes.
+        switch edit {
+        case .component(let maskID, let index, _, _),
+             .strokes(let maskID, let index, _, _, _):
+            guard maskID == context.maskID, index == context.index else { return false }
+        }
+        var requested = context.expected
         switch edit {
         case .component(let maskID, let index, let component, let key):
+            requested = component
             state.updateRecipe(coalescingKey: key, targets: [subject]) { _, recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }
@@ -2136,17 +2260,25 @@ struct MaskCanvas: View {
                   let stored = try? state.catalog?.blobs.store(payload),
                   stored == ref else {
                 state.statusMessage = "Could not save that stroke — the mask is unchanged"
-                return
+                return false
             }
             // The bytes are already in hand, so the render path does not have to go
             // back to the disk to find out what was just painted.
             state.remember(set, ref: ref)
+            requested?.strokesRef = ref
             state.updateRecipe(coalescingKey: nil, targets: [subject]) { _, recipe in
                 guard let m = recipe.masks.firstIndex(where: { $0.id == maskID }),
                       recipe.masks[m].components.indices.contains(index) else { return }
                 recipe.masks[m].components[index].strokesRef = ref
             }
         }
+        let result = state.recipe(for: subject)
+        guard let m = result.masks.firstIndex(where: { $0.id == context.maskID }),
+              result.masks[m].components.indices.contains(context.index),
+              result.masks[m].components[context.index] == requested
+        else { return refuse("Mask edit was not applied; the gesture was cancelled") }
+        // A legitimate no-op is acknowledged too: its requested value is present.
+        return true
     }
 }
 

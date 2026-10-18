@@ -1502,6 +1502,12 @@ final class AppState: ObservableObject {
     /// the same click and the same coordinate inverse, and four booleans would be four
     /// chances for two of them to be true at once.
     @Published var pickTarget: PickTarget?
+    private var pickRequestGeneration: UInt64 = 0
+    /// A small deterministic async seam after sampling, before context validation.
+    /// Production leaves the barrier nil; the retained task also permits awaiting
+    /// exact completion in regressions without replacing the rendering math.
+    var pickResolutionBarrier: (() async -> Void)?
+    private(set) var pickResolutionTask: Task<Void, Never>?
 
     /// Which mixer band the Colour panel is editing, and whether it is editing all
     /// eight at once.
@@ -1966,24 +1972,30 @@ final class AppState: ObservableObject {
     /// the catalog is gone.
     private func memoryOrdered() -> [PhotoItem] {
         let filtered = filter.isActive ? allPhotos.filter { filter.matches($0) } : allPhotos
-        let ascending = sortAscending
-        func by(_ ordered: Bool) -> Bool { ascending ? ordered : !ordered }
-        switch sortOrder {
+        return filtered.sorted {
+            Self.memoryOrderPrecedes($0, $1, order: sortOrder, ascending: sortAscending)
+        }
+    }
+
+    /// Strict ordering for the catalog-free preview roll. Reversing `<` with `!`
+    /// makes ties precede themselves and each other, reversing equal-key runs.
+    /// Keep ties equivalent so the stable sort retains the incoming source order.
+    static func memoryOrderPrecedes(_ lhs: PhotoItem, _ rhs: PhotoItem,
+                                    order: SortOrder, ascending: Bool) -> Bool {
+        func by<T: Comparable>(_ first: T, _ second: T) -> Bool {
+            ascending ? first < second : first > second
+        }
+        switch order {
         case .rating:
-            return filtered.sorted { by($0.rating < $1.rating) }
+            return by(lhs.rating, rhs.rating)
         case .flag:
-            return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
+            return by(lhs.flag.rawValue, rhs.flag.rawValue)
         case .label:
-            // Unlabelled first, then key order — the order the old Int-raw app enum
-            // sorted in (`.none = 0, red, …, purple`). Not `rawValue`, which is the
-            // String name now and would sort alphabetically.
-            return filtered.sorted {
-                by(($0.label?.metaSlot ?? 0) < ($1.label?.metaSlot ?? 0))
-            }
+            // Unlabelled first, then keyboard slot order, never alphabetical names.
+            return by(lhs.label?.metaSlot ?? 0, rhs.label?.metaSlot ?? 0)
         default:
-            return filtered.sorted {
-                by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
-            }
+            let comparison = lhs.filename.localizedStandardCompare(rhs.filename)
+            return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
         }
     }
 
@@ -3759,12 +3771,14 @@ final class AppState: ObservableObject {
 
     /// Arm the next click on the image, and say what it is for.
     func beginPick(_ target: PickTarget) {
+        pickRequestGeneration &+= 1
         pickTarget = target
         statusMessage = target.prompt
         showLoupe()          // the catcher lives on the loupe
     }
 
     func cancelPick() {
+        pickRequestGeneration &+= 1
         pickTarget = nil
         statusMessage = nil
     }
@@ -3788,30 +3802,51 @@ final class AppState: ObservableObject {
     func resolvePick(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
         guard let target = pickTarget else { return }
         let current = recipe(for: photo)
+        // The pick must see the same loaded painted retouch as the displayed graph.
+        let strokes = strokeSets(for: current)
         let url = photo.id                      // PhotoItem.id IS the URL
         // Disarmed BEFORE the hop, not after: cleared on the far side of the await, a
         // second click while the first solve was in flight spawned a second task and a
         // colour mask collected its sample twice.
         pickTarget = nil
-        Task {
-            // Every branch below awaits an actor whose queue can hold a cold decode,
-            // then writes through `updateRecipe` — which reads the CURRENT selection.
-            // Without this re-check, arrowing to the next photo mid-solve landed
-            // DSC_1's neutral in DSC_2's recipe, persisted, with a status line saying
-            // it worked. The sibling refreshes all carry this guard; the one path
-            // that WRITES was the one that lacked it.
-            // (@MainActor because a local func does NOT inherit the Task closure's
-            // actor isolation the way its surrounding statements do.)
-            @MainActor func selectionStillOnPickedPhoto() -> Bool {
-                if primarySelection?.id == url { return true }
-                statusMessage = "Pick discarded — the selection moved before it resolved."
-                return false
+        pickRequestGeneration &+= 1
+        let requestGeneration = pickRequestGeneration
+        let requestSourceRevision = sourceRevision
+        let requestTargets = editTargets
+        let requestRecipes = requestTargets.map { recipe(for: $0) }
+        let requestMaskID = activeMaskID
+        let requestComponent = activeComponentIndex
+        let resolutionBarrier = pickResolutionBarrier
+        pickResolutionTask = Task {
+            // The sample was computed from a snapshot. A live batch, swatch index or
+            // mask component can change while the renderer actor is busy, even when
+            // the primary URL stays the same. Exact recipes conservatively invalidate
+            // cosmetic changes too; this cost is paid once per click, not per frame.
+            @MainActor func requestContextStillCurrent() -> Bool {
+                // An older request must not clear a newly armed pick or its prompt.
+                guard requestGeneration == pickRequestGeneration else { return false }
+                let currentTargets = editTargets
+                let sameTargets = currentTargets.map(\.id) == requestTargets.map(\.id)
+                let sameRecipes = sameTargets && zip(currentTargets, requestRecipes).allSatisfy {
+                    recipe(for: $0.0) == $0.1
+                }
+                let sameMaskSelection = !target.samplesTheMaskStage
+                    || (activeMaskID == requestMaskID && activeComponentIndex == requestComponent)
+                guard primarySelection?.id == url,
+                      sourceRevision == requestSourceRevision,
+                      recipe(for: photo) == current,
+                      sameRecipes, sameMaskSelection else {
+                    statusMessage = "Pick discarded: the photo, edit targets or recipe changed before it resolved."
+                    return false
+                }
+                return true
             }
             switch target {
             case .neutral:
                 let solved = await renderCoordinator.solveNeutral(
                     url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                guard selectionStillOnPickedPhoto() else { return }
+                if let resolutionBarrier { await resolutionBarrier() }
+                guard requestContextStillCurrent() else { return }
                 guard let solved else {
                     statusMessage = "Too dark there to read a neutral — try a lit grey."
                     return
@@ -3846,18 +3881,19 @@ final class AppState: ObservableObject {
                     }
                     sample = await renderCoordinator.sampleMaskReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
-                        pointColorSwatch: swatch)
+                        pointColorSwatch: swatch, strokeSets: strokes)
                 } else if let tap = target.colorSelectionTap(
                     existingPointColors: current.develop.pointColors.count) {
                     // Through the colour stage as far as the selection reads (AI-02):
                     // the stage input alone sits before the primaries and the Mixer.
                     sample = await renderCoordinator.samplePointColorReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
-                        tap: tap)
+                        tap: tap, strokeSets: strokes)
                 } else {
                     sample = nil
                 }
-                guard selectionStillOnPickedPhoto() else { return }
+                if let resolutionBarrier { await resolutionBarrier() }
+                guard requestContextStillCurrent() else { return }
                 guard let sample else {
                     statusMessage = "Could not read a colour there."
                     return

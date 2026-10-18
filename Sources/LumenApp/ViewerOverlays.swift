@@ -1366,6 +1366,77 @@ final class CropRectangleSession {
     }
 }
 
+/// Geometry-independent identity of a rotation gesture. The angle is checked against
+/// the session's last committed value separately, since its own samples change it.
+struct CropRotationContext: Equatable {
+    var photoID: URL
+    var primaryID: URL?
+    var targetIDs: Set<URL>
+    var sourceSize: CGSize
+    var flipH: Bool
+}
+
+final class CropRotationSession {
+    private let context: CropRotationContext
+    let pivot: CGPoint
+    private let start: CGPoint
+    private(set) var expectedAngle: Double
+    private(set) var rawSweep = 0.0
+    private var active = true
+
+    init?(context: CropRotationContext, pivot: CGPoint, start: CGPoint, angle: Double) {
+        guard context.primaryID == context.photoID, context.targetIDs.contains(context.photoID),
+              angle.isFinite,
+              CropGeometry.rotationSweep(centreX: Double(pivot.x), centreY: Double(pivot.y),
+                                          fromX: Double(start.x), fromY: Double(start.y),
+                                          toX: Double(start.x), toY: Double(start.y)) != nil else { return nil }
+        self.context = context
+        self.pivot = pivot
+        self.start = start
+        self.expectedAngle = angle
+    }
+
+    func invalidate() { active = false }
+
+    private func resolved(location: CGPoint, context current: CropRotationContext,
+                          currentAngle: Double, gear: Double) -> Double? {
+        guard active, current == context, current.primaryID == current.photoID,
+              currentAngle == expectedAngle else { active = false; return nil }
+        guard let sweep = CropGeometry.rotationSweep(
+            centreX: Double(pivot.x), centreY: Double(pivot.y),
+            fromX: Double(start.x), fromY: Double(start.y),
+            toX: Double(location.x), toY: Double(location.y)) else { return nil }
+        // The polar measurement wraps at +/-180. Consecutive pointer samples use
+        // the shortest signed travel across that boundary. Travel greater than
+        // 180 degrees between samples cannot be inferred from two positions; an
+        // exactly opposite sample retains its measured delta's sign.
+        var delta = sweep - rawSweep
+        if delta > 180 { delta -= 360 }
+        if delta < -180 { delta += 360 }
+        let next = CropGeometry.rotationAngle(from: expectedAngle,
+                                              sweep: delta * gear,
+                                              flipped: context.flipH)
+        rawSweep = sweep
+        expectedAngle = next
+        return next
+    }
+
+    func changed(location: CGPoint, context: CropRotationContext, currentAngle: Double,
+                 gear: Double, apply: (Double) -> Void) {
+        guard let next = resolved(location: location, context: context,
+                                  currentAngle: currentAngle, gear: gear) else { return }
+        apply(next)
+    }
+
+    func ended(location: CGPoint, context: CropRotationContext, currentAngle: Double,
+               gear: Double, apply: (Double) -> Void, finish: () -> Void) {
+        defer { active = false; finish() }
+        guard let next = resolved(location: location, context: context,
+                                  currentAngle: currentAngle, gear: gear) else { return }
+        apply(next)
+    }
+}
+
 /// The crop rectangle over the drawn image: the area outside dimmed, guides inside, eight
 /// resize handles, the interior to drag it by — and, outside it, the picture itself to
 /// turn.
@@ -1432,6 +1503,7 @@ final class CropRectangleSession {
 struct CropOverlayView: View {
 
     @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var edits: EditRevision
     @Binding var crop: Crop
     /// The recipe's geometry. Three things need it: the mapping needs the angle and the
     /// flip, the rotate gesture needs the angle it is starting from, and the flip decides
@@ -1512,6 +1584,8 @@ struct CropOverlayView: View {
     @State private var rectangleDragBegan = false
     @State private var rectangleSession: CropRectangleSession?
     @State private var rotation: RotationDrag?
+    @State private var rotationDragBegan = false
+    @State private var rotationSession: CropRotationSession?
     /// Which region the pointer is in, or nil when it is not over the overlay at all.
     ///
     /// VIEW-LOCAL AND COARSE. It drives the cursor, the handle under the pointer, and
@@ -1681,9 +1755,15 @@ struct CropOverlayView: View {
         // pointer is still inside the rectangle, and a cursor pushed by a view that has
         // gone is a cursor nothing will ever pop.
         .onChange(of: rectangleContext) { _, _ in rectangleSession?.invalidate() }
+        .onChange(of: rotationContext) { _, _ in rotationSession?.invalidate() }
+        .onChange(of: state.currentRecipe.develop.geometry.angle) { _, angle in
+            if let session = rotationSession, angle != session.expectedAngle { session.invalidate() }
+        }
         .onDisappear {
             leave()
             if rectangleDragBegan { rectangleSession?.invalidate(); finishRectangleDrag() }
+            rotationSession?.invalidate()
+            if rotationDragBegan { finishRotationDrag() }
         }
     }
 
@@ -2170,6 +2250,54 @@ struct CropOverlayView: View {
             }
     }
 
+    private var rotationContext: CropRotationContext {
+        CropRotationContext(photoID: photoID, primaryID: state.primarySelection?.id,
+                            targetIDs: Set(state.editTargets.map(\.id)),
+                            sourceSize: state.sourceFrameSize ?? sourceSize,
+                            flipH: state.currentRecipe.develop.geometry.flipH)
+    }
+
+    private var currentRotationGear: Double {
+        NSEvent.modifierFlags.contains(.shift) ? CropOverlayView.fineRotationGear : 1
+    }
+
+    private func beginRotationDrag(start: CGPoint, size: CGSize, windowOrigin: CGPoint) {
+        guard !rotationDragBegan else { return }
+        rotationDragBegan = true
+        let frame = frameRect(in: size)
+        guard frame.width > 0, frame.height > 0 else { return }
+        let context = rotationContext
+        let currentAngle = state.currentRecipe.develop.geometry.angle
+        guard currentAngle == geometry.angle, context.flipH == geometry.flipH,
+              context.sourceSize == sourceSize else { return }
+        let local = CGPoint(x: start.x - windowOrigin.x, y: start.y - windowOrigin.y)
+        guard startsOnThePicture(local, frame: frame) else { return }
+        let rect = pixelRect(in: frame)
+        let pivot = CGPoint(x: windowOrigin.x + rect.midX, y: windowOrigin.y + rect.midY)
+        rotationSession = CropRotationSession(context: context, pivot: pivot, start: start,
+                                                angle: currentAngle)
+        if rotationSession != nil {
+            rotation = RotationDrag(pivot: pivot, degrees: currentAngle, location: local)
+        }
+    }
+
+    private func applyRotationSample(_ angle: Double, at point: CGPoint, windowOrigin: CGPoint) {
+        rotation?.degrees = angle
+        rotation?.sweep = rotationSession?.rawSweep ?? 0
+        rotation?.location = CGPoint(x: point.x - windowOrigin.x, y: point.y - windowOrigin.y)
+        sliderGestureChanged(true)
+        // Keep the existing callback: it applies to the current batch through each
+        // photograph's own framing frame. The session only authorizes its delivery.
+        onAngle(angle)
+    }
+
+    private func finishRotationDrag() {
+        rotationSession = nil
+        rotationDragBegan = false
+        rotation = nil
+        sliderGestureChanged(false)
+    }
+
     /// Drag anywhere outside the rectangle and the picture turns under it.
     ///
     /// MEASURED IN GLOBAL POINTS, which is the one thing that is not obvious. Writing the
@@ -2182,48 +2310,21 @@ struct CropOverlayView: View {
     private func rotateGesture(in size: CGSize, windowOrigin: CGPoint) -> some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
-                let frame = frameRect(in: size)
-                guard frame.width > 0, frame.height > 0 else { return }
-                let drag: RotationDrag
-                if let started = rotation {
-                    drag = started
-                } else {
-                    let rect = pixelRect(in: frame)
-                    let local = CGPoint(x: value.startLocation.x - windowOrigin.x,
-                                        y: value.startLocation.y - windowOrigin.y)
-                    guard startsOnThePicture(local, frame: frame) else { return }
-                    drag = RotationDrag(
-                        pivot: CGPoint(x: windowOrigin.x + rect.midX,
-                                       y: windowOrigin.y + rect.midY),
-                        degrees: geometry.angle,
-                        location: local)
-                    rotation = drag
-                }
-                guard let sweep = CropGeometry.rotationSweep(
-                    centreX: Double(drag.pivot.x), centreY: Double(drag.pivot.y),
-                    fromX: Double(value.startLocation.x), fromY: Double(value.startLocation.y),
-                    toX: Double(value.location.x), toY: Double(value.location.y))
-                else { return }
-                // ⇧ gears the turn down, read at event time the way `LumenSlider` reads
-                // its fine drag. Applied to the sweep's INCREMENT since the last event
-                // and integrated, so the modifier can come and go mid-drag without the
-                // picture jumping; at gear 1 the integration is exactly the absolute
-                // sweep it replaced.
-                let gear = NSEvent.modifierFlags.contains(.shift)
-                    ? CropOverlayView.fineRotationGear : 1
-                let next = CropGeometry.rotationAngle(from: drag.degrees,
-                                                      sweep: (sweep - drag.sweep) * gear,
-                                                      flipped: geometry.flipH)
-                rotation?.sweep = sweep
-                rotation?.degrees = next
-                rotation?.location = CGPoint(x: value.location.x - windowOrigin.x,
-                                             y: value.location.y - windowOrigin.y)
-                sliderGestureChanged(true)
-                onAngle(next)
+                beginRotationDrag(start: value.startLocation, size: size, windowOrigin: windowOrigin)
+                rotationSession?.changed(location: value.location, context: rotationContext,
+                                          currentAngle: state.currentRecipe.develop.geometry.angle,
+                                          gear: currentRotationGear,
+                                          apply: { applyRotationSample($0, at: value.location,
+                                                                        windowOrigin: windowOrigin) })
             }
-            .onEnded { _ in
-                rotation = nil
-                sliderGestureChanged(false)
+            .onEnded { value in
+                guard let session = rotationSession else { finishRotationDrag(); return }
+                session.ended(location: value.location, context: rotationContext,
+                              currentAngle: state.currentRecipe.develop.geometry.angle,
+                              gear: currentRotationGear,
+                              apply: { applyRotationSample($0, at: value.location,
+                                                            windowOrigin: windowOrigin) },
+                              finish: { finishRotationDrag() })
             }
     }
 
@@ -2265,18 +2366,76 @@ struct CropOverlayView: View {
 /// angle in the recipe, and a horizontal flip inverts the correction. Both are wrong in
 /// a way that looks almost right — the first drag improves the picture and the second
 /// makes it worse — so the mapping lives where a test can reach it.
+struct StraightenDrawContext: Equatable {
+    var photoID: URL
+    var primaryID: URL?
+    var targetIDs: Set<URL>
+    var sourceSize: CGSize
+    /// AppState source-mapping revision, not a hash of the file bytes.
+    var sourceRevision: Int
+    var angle: Double
+    var flipped: Bool
+}
+
+final class StraightenDrawSession {
+    private let context: StraightenDrawContext
+    private let frameSize: CGSize
+    private let start: CGPoint
+    private var active = true
+
+    init?(context: StraightenDrawContext, displayedAngle: Double, displayedFlip: Bool,
+          displayedSource: CGSize, frameSize: CGSize, start: CGPoint) {
+        guard context.primaryID == context.photoID, context.targetIDs.contains(context.photoID),
+              context.angle == displayedAngle, context.flipped == displayedFlip,
+              context.sourceSize == displayedSource,
+              frameSize.width > 0, frameSize.height > 0 else { return nil }
+        self.context = context
+        self.frameSize = frameSize
+        self.start = start
+    }
+
+    func invalidate() { active = false }
+
+    func changed(context current: StraightenDrawContext, frameSize: CGSize) -> Bool {
+        guard active, current == context, frameSize == self.frameSize else {
+            active = false
+            return false
+        }
+        return true
+    }
+
+    func preview(to end: CGPoint) -> Double? {
+        guard active else { return nil }
+        return Straighten.angle(current: context.angle,
+                                dx: Double(end.x - start.x), dy: Double(end.y - start.y),
+                                flipped: context.flipped,
+                                frameLongEdge: Double(Swift.max(frameSize.width, frameSize.height)))
+    }
+
+    func ended(to end: CGPoint, context: StraightenDrawContext, frameSize: CGSize,
+               apply: (Double) -> Void, finish: () -> Void) {
+        defer { active = false; finish() }
+        guard changed(context: context, frameSize: frameSize), let angle = preview(to: end) else { return }
+        apply(angle)
+    }
+}
+
 struct StraightenOverlayView: View {
 
     /// The angle currently in the recipe: the drag is measured on the frame this has
     /// already been applied to, so it is part of the answer and not just context.
     let currentAngle: Double
     let isFlipped: Bool
+    let sourceSize: CGSize
+    let dragContext: () -> StraightenDrawContext
     /// Called with the new angle once the drag ends. Nil means the drag was too short to
     /// carry one, and the right answer to that is to change nothing.
     let onAngle: (Double) -> Void
     /// Called when the gesture is over, armed or not, so the tool can put itself away.
     let onFinish: () -> Void
 
+    @State private var dragBegan = false
+    @State private var session: StraightenDrawSession?
     @State private var start: CGPoint?
     @State private var end: CGPoint?
 
@@ -2309,34 +2468,41 @@ struct StraightenOverlayView: View {
                         .allowsHitTesting(false)
                 }
             }
+            .onChange(of: size) { _, _ in session?.invalidate() }
         }
+        .onChange(of: dragContext()) { _, _ in session?.invalidate() }
+        .onDisappear {
+            session?.invalidate()
+            if dragBegan { finishDrag() }
+        }
+    }
+
+    private func finishDrag() {
+        dragBegan = false
+        session = nil
+        start = nil
+        end = nil
+        onFinish()
     }
 
     private func drag(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
-                if start == nil { start = value.startLocation }
+                if !dragBegan {
+                    dragBegan = true
+                    session = StraightenDrawSession(context: dragContext(),
+                        displayedAngle: currentAngle, displayedFlip: isFlipped,
+                        displayedSource: sourceSize, frameSize: size, start: value.startLocation)
+                    start = value.startLocation
+                }
+                guard session?.changed(context: dragContext(), frameSize: size) == true else { return }
                 end = value.location
             }
             .onEnded { value in
-                defer {
-                    start = nil
-                    end = nil
-                    onFinish()
-                }
-                if let next = resolvedAngle(from: value.startLocation,
-                                            to: value.location, in: size) {
-                    onAngle(next)
-                }
+                guard let session else { finishDrag(); return }
+                session.ended(to: value.location, context: dragContext(), frameSize: size,
+                              apply: onAngle, finish: finishDrag)
             }
-    }
-
-    private func resolvedAngle(from a: CGPoint, to b: CGPoint,
-                               in size: CGSize) -> Double? {
-        Straighten.angle(current: currentAngle,
-                         dx: Double(b.x - a.x), dy: Double(b.y - a.y),
-                         flipped: isFlipped,
-                         frameLongEdge: Double(Swift.max(size.width, size.height)))
     }
 
     /// What the drag would set, shown while it is happening — the ruler sets a visible
@@ -2346,7 +2512,7 @@ struct StraightenOverlayView: View {
     /// Through the same call the commit uses, minimum-drag rule included, so the readout
     /// cannot promise an angle the release will decline to write.
     private func readout(from a: CGPoint, to b: CGPoint, in size: CGSize) -> String {
-        guard let next = resolvedAngle(from: a, to: b, in: size) else { return "—" }
+        guard let next = session?.preview(to: b) else { return "—" }
         return String(format: "%+.1f°", next)
     }
 }

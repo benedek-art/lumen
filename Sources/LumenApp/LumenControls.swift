@@ -605,6 +605,9 @@ struct LumenSlider: View {
     /// never be half-way through each other.
     @State private var isScrubbing = false
     @State private var scrubGearbox = FineDrag(startValue: 0)
+    @State private var trackDragSession = ScalarDragSession<SliderEditContext>()
+    @State private var scrubDragSession = ScalarDragSession<SliderEditContext>()
+    @State private var trackDragMapping: SliderTrack?
     /// The press that began this gesture was the second click of a double-click, so
     /// `reset()` ran and everything else the gesture delivers is ignored.
     @State private var pressWasReset = false
@@ -808,11 +811,27 @@ struct LumenSlider: View {
         }
         .onChange(of: sliderEditContext) { _, _ in
             cancelTextEntry()
+            cancelScalarDrags()
         }
+        .onChange(of: value) { _, _ in
+            let current = value
+            if let mapping = trackDragMapping, trackDragSession.isActive,
+               !trackDragSession.accepts(context: sliderEditContext, value: current, mapping: mapping) {
+                cancelTrackDrag()
+            }
+            if scrubDragSession.isActive,
+               !scrubDragSession.accepts(context: sliderEditContext, value: current, mapping: scrubTrack) {
+                cancelScrubDrag()
+            }
+        }
+        .onChange(of: scrubTrack) { _, _ in cancelScalarDrags() }
         .onChange(of: textFocused) { _, focused in
             if !focused { cancelTextEntry() }
         }
+        .onAppear { recoverScalarDragsIfReleased() }
         .onDisappear {
+            cancelTextEntry()
+            cancelScalarDrags()
             // A panel switch removes the row without the focus ever changing, so the
             // count would never come back down and the arrows would stop paging
             // photographs for the rest of the session. `noteSliderFocus` floors at zero,
@@ -1216,6 +1235,11 @@ struct LumenSlider: View {
                                 reset()
                                 return
                             }
+                            guard trackDragSession.begin(context: sliderEditContext, value: value,
+                                                         mapping: geometryOfDrag) else { return }
+                            trackDragMapping = geometryOfDrag
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -1224,6 +1248,7 @@ struct LumenSlider: View {
                                 dragStartValue = geometryOfDrag.valueAtPress(
                                     x: Double(drag.startLocation.x))
                                 value = dragStartValue
+                                trackDragSession.recordWrittenValue(value)
                             }
                             // The gesture's gearbox, opened at the press. Coarse it is
                             // arithmetically identical to the old direct call — see
@@ -1231,10 +1256,13 @@ struct LumenSlider: View {
                             // the same one with an anchor that ⇧ can move.
                             gearbox = FineDrag(startValue: dragStartValue,
                                                fine: Self.shiftIsDown)
-                            onEditingChanged?(true)
-                            sliderGestureChanged(true)
                         }
                         if pressWasReset { return }
+                        guard trackDragSession.accepts(context: sliderEditContext, value: value,
+                                                       mapping: geometryOfDrag) else {
+                            cancelTrackDrag()
+                            return
+                        }
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         // ⇧ read off the live AppKit modifier flags rather than from the
                         // gesture, because SwiftUI's `DragGesture.Value` carries no
@@ -1253,6 +1281,7 @@ struct LumenSlider: View {
                                                     fine: Self.shiftIsDown)
                         if let changed = out.changedGear { gearbox = changed }
                         commit(out.value)
+                        trackDragSession.recordWrittenValue(value)
                     }
                     .onEnded { drag in
                         // THE RELEASE IS A SAMPLE, and it is the last one.
@@ -1274,7 +1303,9 @@ struct LumenSlider: View {
                             isDragging = false
                             return
                         }
-                        if isDragging {
+                        if isDragging,
+                           trackDragSession.accepts(context: sliderEditContext, value: value,
+                                                    mapping: geometryOfDrag) {
                             let travelled = Double(drag.location.x - drag.startLocation.x)
                             // Through the same gearbox as every motion sample, because a
                             // release IS a motion sample. Resolving it against
@@ -1286,12 +1317,12 @@ struct LumenSlider: View {
                                                             travelled: travelled,
                                                             fine: Self.shiftIsDown).value
                             commit(settled)
-                        }
-                        isDragging = false
-                        onEditingChanged?(false)
-                        sliderGestureChanged(false)
+                            trackDragSession.recordWrittenValue(value)
+                        } else { cancelTrackDrag() }
+                        finishTrackDrag()
                     }
             )
+            .onChange(of: geometryOfDrag) { _, _ in cancelTrackDrag() }
             // No `.onTapGesture(count: 2)` here any more: behind a minimumDistance-0
             // drag it never fired (the drag claims the press), which is how "double-
             // click to reset" shipped as a promise the track did not keep. The reset
@@ -1350,10 +1381,17 @@ struct LumenSlider: View {
                             .onChanged { drag in
                                 if !isScrubbing {
                                     isScrubbing = true
+                                    guard scrubDragSession.begin(context: sliderEditContext, value: value,
+                                                                 mapping: scrubTrack) else { return }
                                     scrubGearbox = FineDrag(startValue: value,
                                                             fine: Self.shiftIsDown)
                                     onEditingChanged?(true)
                                     sliderGestureChanged(true)
+                                }
+                                guard scrubDragSession.accepts(context: sliderEditContext, value: value,
+                                                               mapping: scrubTrack) else {
+                                    cancelScrubDrag()
+                                    return
                                 }
                                 let travelled = Double(drag.location.x
                                                        - drag.startLocation.x)
@@ -1362,9 +1400,16 @@ struct LumenSlider: View {
                                     fine: Self.shiftIsDown)
                                 if let changed = out.changedGear { scrubGearbox = changed }
                                 commit(out.value)
+                                scrubDragSession.recordWrittenValue(value)
                             }
                             .onEnded { drag in
                                 guard isScrubbing else { return }
+                                guard scrubDragSession.accepts(context: sliderEditContext, value: value,
+                                                               mapping: scrubTrack) else {
+                                    cancelScrubDrag()
+                                    finishScrubDrag()
+                                    return
+                                }
                                 // A release is a sample here for the same reason it is
                                 // one on the track: the last motion event is exactly
                                 // what gets dropped when the main actor is behind.
@@ -1373,9 +1418,8 @@ struct LumenSlider: View {
                                 commit(scrubGearbox.resolving(
                                     track: scrubTrack, travelled: travelled,
                                     fine: Self.shiftIsDown).value)
-                                isScrubbing = false
-                                onEditingChanged?(false)
-                                sliderGestureChanged(false)
+                                scrubDragSession.recordWrittenValue(value)
+                                finishScrubDrag()
                             }
                     )
                     .help("Drag to adjust, click to type — ⇧ for fine")
@@ -1433,6 +1477,52 @@ struct LumenSlider: View {
         value = defaultValue
         onEditingChanged?(false)
         sliderGestureChanged(false)
+    }
+
+    private func recoverScalarDragsIfReleased() {
+        // SwiftUI can retain row State while a panel disappears without delivering
+        // the old release. Reopen only after the physical press is over; motion
+        // callbacks themselves are never evidence of a new press.
+        guard NSEvent.pressedMouseButtons == 0 else { return }
+        finishTrackDrag()
+        finishScrubDrag()
+        pressWasReset = false
+    }
+
+    private func cancelTrackDrag() {
+        if trackDragSession.cancel() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+    }
+
+    private func cancelScrubDrag() {
+        if scrubDragSession.cancel() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+    }
+
+    private func cancelScalarDrags() {
+        cancelTrackDrag()
+        cancelScrubDrag()
+    }
+
+    private func finishTrackDrag() {
+        if trackDragSession.finish() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+        isDragging = false
+        trackDragMapping = nil
+    }
+
+    private func finishScrubDrag() {
+        if scrubDragSession.finish() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+        isScrubbing = false
     }
 
     private func cancelTextEntry() {

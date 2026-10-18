@@ -64,7 +64,7 @@ final class CatalogUnavailableExportTests: XCTestCase {
             state.openFolder(photo.deletingLastPathComponent())
             try await self.waitUntil { !state.isScanning }
             let browsable = try XCTUnwrap(state.allPhotos.first)
-            XCTAssertEqual(browsable.id, photo)
+            XCTAssertEqual(browsable.id, photo.resolvingSymlinksInPath())
             state.primarySelection = browsable
             XCTAssertNotEqual(state.recipe(for: browsable), saved,
                               "failure browsing must not claim the saved recipe was recovered")
