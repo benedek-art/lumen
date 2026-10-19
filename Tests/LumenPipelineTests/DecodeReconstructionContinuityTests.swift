@@ -166,6 +166,13 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
     }
     func testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical() throws {
         let files = try fixtures()
+        let arm = ProcessInfo.processInfo.environment["LUMEN_DECODE_RECONSTRUCTION_ARM"] ?? "baseline"
+        guard ["baseline", "release-before-request", "first-off-only"].contains(arm) else {
+            XCTFail("unknown reconstruction arm: \(arm)")
+            return
+        }
+        let releaseBeforeRequest = arm == "release-before-request"
+        let firstOffOnly = arm == "first-off-only"
         let beginUptime = ProcessInfo.processInfo.systemUptime
         let working = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020))
         let readContext = CIContext(options: [.workingColorSpace: working, .workingFormat: CIFormat.RGBAf,
@@ -180,12 +187,24 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
         var materializerPhase = "before-first-render"
         func render(_ source: AppleRawSource, _ renderer: PipelineRenderer, _ recipe: Recipe,
                     fixture: ReconstructionFixture, pass: Int, state: String, allRegions: Bool) throws -> ReconstructionCapture {
+            // Test-only intervention ONCE per request. Keep region hits and the
+            // scene-source hit intact; do not replace contexts or clear renderer plans.
+            if releaseBeforeRequest {
+                let heldBefore = source.heldDecodeBytes
+                let released = source.releaseDecodes()
+                diagnostic(["event": "release-before-request", "arm": arm,
+                    "fixture": fixture.label, "pass": pass, "state": state,
+                    "heldBefore": heldBefore, "releasedNominalBytes": released,
+                    "heldAfter": source.heldDecodeBytes])
+                XCTAssertEqual(released, heldBefore)
+                XCTAssertEqual(source.heldDecodeBytes, 0)
+            }
             var displayed: [Data] = []
             let regions = allRegions ? centers : [0.5]
             for (index, center) in regions.enumerated() {
                 let start = DispatchTime.now().uptimeNanoseconds
                 materializerPhase = state + "/region\(index)"
-                let diagnosticContext: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                let diagnosticContext: [String: Any] = ["arm": arm, "fixture": fixture.label, "pass": pass,
                     "state": state, "region": index, "heldBytes": source.heldDecodeBytes,
                     "nativeLongEdge": source.nativeLongEdge, "uptime": ProcessInfo.processInfo.systemUptime]
                 diagnostic(diagnosticContext.merging(["event": "before-render"]) { _, new in new })
@@ -203,7 +222,7 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                 let bytes = try packed(delivery.image)
                 XCTAssertFalse(bytes.isEmpty)
                 displayed.append(bytes)
-                try emit(["tap": "render", "fixture": fixture.label, "pass": pass, "state": state,
+                try emit(["tap": "render", "arm": arm, "fixture": fixture.label, "pass": pass, "state": state,
                     "region": index, "width": delivery.image.width, "height": delivery.image.height,
                     "heldBytes": source.heldDecodeBytes, "decodeMilliseconds": delivery.decodeMilliseconds,
                     "totalMilliseconds": Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6])
@@ -301,7 +320,8 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                     var materializations = 0
                     let source = try AppleRawSource(url: fixture.url, materializer: { image, evaluation in
                         materializations += 1
-                        let context: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                        let materializeStart = DispatchTime.now().uptimeNanoseconds
+                        let context: [String: Any] = ["arm": arm, "fixture": fixture.label, "pass": pass,
                             "phase": materializerPhase, "call": materializations,
                             "extent": String(describing: image.extent), "eligible": DecodeMaterializer.isEligible(image),
                             "evaluation": String(describing: evaluation), "uptime": ProcessInfo.processInfo.systemUptime]
@@ -309,7 +329,8 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                         let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation,
                             reportFailure: { self.diagnosticMaterializationFailure($0, context: context) })
                         self.diagnostic(context.merging(["event": result == nil ? "materializer-nil" : "materializer-success",
-                            "allocatedBytes": result?.bytes ?? 0]) { _, new in new })
+                            "allocatedBytes": result?.bytes ?? 0,
+                            "materializeElapsedMilliseconds": Double(DispatchTime.now().uptimeNanoseconds - materializeStart) / 1e6]) { _, new in new })
                         return result
                     })
                     defer { _ = source.releaseDecodes() }
@@ -319,6 +340,13 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                     if let previous = priorPass[fixture.label] {
                         try compare(fixture.label + "/ordered-first-vs-prior-pass", previous, first)
                     } else { priorPass[fixture.label] = first }
+                    if firstOffOnly {
+                        try emit(["tap": "file-summary", "arm": arm, "fixture": fixture.label,
+                            "pass": pass, "sourceMaterializations": materializations,
+                            "accuracyAcceptance": false, "offRegionsPerState": 3])
+                        filePasses += 1
+                        return
+                    }
                     for amount in [25.0, 50.0, 100.0] {
                         var recipe = off
                         recipe.develop.denoise = Denoise(mode: .classic, classic: ClassicNR(luma: amount, chroma: amount))
@@ -327,8 +355,14 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                     }
                     for amount in [0.0, 25.0, 50.0, 100.0] {
                         var recipe = off; recipe.develop.denoise = Denoise(mode: .ai, amount: amount)
-                        _ = try render(source, renderer, recipe, fixture: fixture, pass: pass,
-                                       state: "ai\(amount)", allRegions: false)
+                        let ai = try render(source, renderer, recipe, fixture: fixture, pass: pass,
+                                            state: "ai\(amount)", allRegions: false)
+                        if amount == 0 {
+                            let exact = ai.displayed.first == first.displayed.first
+                            diagnostic(["event": "ai-zero-first-region-identity", "arm": arm,
+                                "fixture": fixture.label, "pass": pass, "exactDisplay": exact])
+                            XCTAssertTrue(exact, "AI amount zero must preserve exact first-region Off display")
+                        }
                     }
                     let returned = try render(source, renderer, off, fixture: fixture, pass: pass, state: "off-return", allRegions: true)
                     try compare(fixture.label + "/pass\(pass)/off-return", first, returned)
@@ -338,20 +372,22 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                     try compare(fixture.label + "/pass\(pass)/release-rebuild", first, rebuilt)
                     _ = source.releaseDecodes()
                     let fresh = try AppleRawSource(url: fixture.url, materializer: { image, evaluation in
-                        let context: [String: Any] = ["fixture": fixture.label, "pass": pass,
+                        let materializeStart = DispatchTime.now().uptimeNanoseconds
+                        let context: [String: Any] = ["arm": arm, "fixture": fixture.label, "pass": pass,
                             "phase": materializerPhase, "source": "fresh", "extent": String(describing: image.extent),
                             "eligible": DecodeMaterializer.isEligible(image), "evaluation": String(describing: evaluation)]
                         self.diagnostic(context.merging(["event": "materializer-begin"]) { _, new in new })
                         let result = DecodeMaterializer.materialize(image, evaluatingIn: evaluation,
                             reportFailure: { self.diagnosticMaterializationFailure($0, context: context) })
                         self.diagnostic(context.merging(["event": result == nil ? "materializer-nil" : "materializer-success",
-                            "allocatedBytes": result?.bytes ?? 0]) { _, new in new })
+                            "allocatedBytes": result?.bytes ?? 0,
+                            "materializeElapsedMilliseconds": Double(DispatchTime.now().uptimeNanoseconds - materializeStart) / 1e6]) { _, new in new })
                         return result
                     })
                     defer { _ = fresh.releaseDecodes() }
                     let freshResult = try render(fresh, PipelineRenderer(), off, fixture: fixture, pass: pass, state: "fresh-source-renderer", allRegions: true)
                     try compare(fixture.label + "/pass\(pass)/fresh-source-renderer", first, freshResult)
-                    try emit(["tap": "file-summary", "fixture": fixture.label, "pass": pass,
+                    try emit(["tap": "file-summary", "arm": arm, "fixture": fixture.label, "pass": pass,
                         "sourceMaterializations": materializations, "releasedBytes": freed,
                         "accuracyAcceptance": false, "classicHistoryRegionsPerMode": 1,
                         "aiHistoryRegionsPerMode": 1, "offRegionsPerState": 3])
@@ -359,19 +395,21 @@ final class DecodeReconstructionContinuityTests: XCTestCase {
                 }
             }
         }
-        try emit(["tap": "summary", "files": files.count, "filePasses": filePasses,
+        let expectedRenders = files.count * (firstOffOnly ? 6 : 38)
+        let expectedPairs = files.count * (firstOffOnly ? 3 : 21)
+        try emit(["tap": "summary", "arm": arm, "files": files.count, "filePasses": filePasses,
             "sceneBridgeControlPerformed": sceneBridgeControlPerformed,
             "sceneBridgeControlPassed": sceneBridgeControlPassed,
             "processID": ProcessInfo.processInfo.processIdentifier,
             "beginUptime": beginUptime, "endUptime": ProcessInfo.processInfo.systemUptime,
             "renderRecords": renderCount, "exactPairRecords": exactPairs.count,
-            "expectedRenderRecords": files.count * 2 * 19, "expectedExactPairRecords": files.count * 21,
+            "expectedRenderRecords": expectedRenders, "expectedExactPairRecords": expectedPairs,
             "privatePhotosUploaded": false, "productionChanges": false])
         XCTAssertTrue(sceneBridgeControlPerformed && sceneBridgeControlPassed,
                       "the checked scene bridge requires a successful exact serial-start control")
         XCTAssertEqual(filePasses, files.count * 2)
-        XCTAssertEqual(renderCount, files.count * 2 * 19)
-        XCTAssertEqual(exactPairs.count, files.count * 21)
+        XCTAssertEqual(renderCount, expectedRenders)
+        XCTAssertEqual(exactPairs.count, expectedPairs)
         // All causal measurements are written before reporting any strict failure.
         for (label, a, b, sceneA, sceneB) in exactPairs {
             let displayMaximum = zip(a, b).map { abs(Int($0.0) - Int($0.1)) }.max() ?? 0
