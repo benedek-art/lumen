@@ -530,3 +530,9 @@ Existing synthetic constant runs are opt-in with the additional [materialization
 Use baseline or first-off-only for the other arms; hosted workflow provides the independent loaded processes.
 
 A passing release arm after a failing baseline would be suggestive, not sufficient proof for shipping eviction: graph retention, timing/throughput, order and backend residency differ. No silent retry, precision change, guessed cap, relaxed identity or production remedy is included. Serial repeatability, private historical one-code Off-return and latest-source GUI acceptance remain separate gates.
+
+## Executed OOM contrasts and next isolated task-partition experiment
+
+Diagnostic d55d685 passed ordinary full optimized macOS3527tests/46intentional skips/0fail and GPU278tests/36skips/0fail. Dedicated nine-process memory contrast run39183832537/job117841996018 is RED: all3serial armsPASS; baseline2loaded failures, release1loadedfailure/1loadedPASS, cold-Off2loadedfailures. All414completed scene/display pairs and40completed explicit AI0 center-ROI checks are exact across800renders. See memory-contrasts-d55d685/README.md, summary.json and completed workflow.log. Prior-plane release is not sufficient; denoise history is not necessary for this hosted OOM. No app/coordinator memory policy failure or causal link to historical private one-code differences is established.
+
+A TEST-ONLY same-context task-partition experiment is isolated on codex/materialization-partition-d55d685; see materialization-partition/CANDIDATE.md. It contains no production changes and remains unexecuted pending native CI. The separate analytic tone candidate a6eb274 is on codex/local-tone-native-d55d685, also awaiting native qualification; wheel Amount remains unresolved. Generic local footprint fileda9e0e09 remains on the tone candidate, with no private evidence imported. Cloud executor remains disconnected; no local execution is claimed.

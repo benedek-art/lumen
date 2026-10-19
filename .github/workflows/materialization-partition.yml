@@ -1,0 +1,236 @@
+name: Materialization partition
+on:
+  push:
+    paths:
+      - '.github/workflows/materialization-partition.yml'
+      - 'Tests/LumenPipelineTests/NativeMaterializationPartitionTests.swift'
+      - 'Sources/LumenPipeline/AppleRawSource.swift'
+      - 'Sources/LumenPipeline/DecodeMaterializer.swift'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: materialization-partition-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ordered-serial-and-loaded:
+    if: (github.ref == 'refs/heads/codex/raw-accuracy-qualification' || github.ref == 'refs/heads/codex/materialization-partition-d55d685') && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[materialization-partition]'))
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      LUMEN_MATERIALIZATION_PARTITION: '1'
+      LUMEN_DECODE_RECONSTRUCTION_IDS: '1346,5812,2349,2607,4671'
+      LUMEN_DECODE_RECONSTRUCTION_LIMIT: '5'
+      # Descriptions are enabled only in this verified public-fixture job. Local
+      # diagnostic runs retain domain/code but withhold potentially private paths.
+      LUMEN_DECODE_RECONSTRUCTION_PUBLIC_ERRORS: '1'
+      LUMEN_AUDIT_RAW_DIR: ${{ github.workspace }}/.decode-reconstruction-corpus
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exactly five existing SHA-pinned CC0 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re, urllib.request
+          root = pathlib.Path(os.environ['LUMEN_AUDIT_RAW_DIR'])
+          root.mkdir(exist_ok=True)
+          expected = set(os.environ['LUMEN_DECODE_RECONSTRUCTION_IDS'].split(','))
+          assert len(expected) == 5
+          rows = {}
+          for line in pathlib.Path('.github/workflows/raw-corpus.yml').read_text().splitlines():
+              fields = line.strip().split(';')
+              if fields[0] not in expected: continue
+              key = fields[0]
+              assert len(fields) == 10 and key not in rows
+              assert re.fullmatch(key + r'\.[A-Za-z0-9]+', fields[1])
+              assert re.fullmatch(r'[0-9a-f]{64}', fields[2]) and int(fields[3]) > 0
+              assert fields[7] == 'CC0' and 'negative' not in fields[6]
+              assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + key + '/')
+              rows[key] = fields
+          assert rows.keys() == expected
+          for key in sorted(rows):
+              fields = rows[key]
+              request = urllib.request.Request(fields[9], headers={'User-Agent': 'lumen-decode-reconstruction/1 (+https://github.com/benedek-art/lumen)'})
+              with urllib.request.urlopen(request, timeout=300) as response:
+                  data = response.read()
+              assert len(data) == int(fields[3]), (key, 'byte count')
+              assert hashlib.sha256(data).hexdigest() == fields[2], (key, 'digest')
+              (root / fields[1]).write_bytes(data)
+              print(f'verified CC0 fixture {key} sha256={fields[2]} bytes={len(data)}')
+          (root / 'corpus.tsv').write_text('\n'.join(';'.join(rows[k]) for k in sorted(rows)) + '\n')
+          PY
+      - name: Record source and runtime and build the optimized test executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            git rev-parse HEAD
+            sw_vers
+            uname -m
+            xcodebuild -version
+            swift --version
+            shasum -a 256 Sources/LumenPipeline/AppleRawSource.swift Sources/LumenPipeline/DecodeMaterializer.swift Tests/LumenPipelineTests/NativeMaterializationPartitionTests.swift
+          } 2>&1 | tee decode-reconstruction-provenance.log
+          # `swift build --build-tests -c release` does not enable @testable imports
+          # on this toolchain. Test discovery builds the same optimized test bundle
+          # with its required testing flags, without executing any RAW checks.
+          swift test -c release --list-tests > decode-reconstruction-test-roster.log 2>&1
+          grep -Fq 'NativeMaterializationPartitionTests/testSharedContextTaskPartitionPreservesSampledNativeOff' decode-reconstruction-test-roster.log
+      - name: Compare whole and partitioned tasks with identical shared context
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PARTITION_TEST_BIN_DIR
+          PARTITION_TEST_BIN_DIR=$(swift build -c release --show-bin-path)
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          from pathlib import Path
+          bundle = Path(os.environ['PARTITION_TEST_BIN_DIR']) / 'LumenPackageTests.xctest'
+          assert bundle.is_dir(), str(bundle)
+          selector = 'LumenPipelineTests.NativeMaterializationPartitionTests/testSharedContextTaskPartitionPreservesSampledNativeOff'
+          command = ['xcrun', 'xctest', '-XCTest', selector, str(bundle)]
+          all_results, all_samples = {}, {}
+          for arm in ('whole', 'tile1024', 'tile2048'):
+              status = {'arm': arm, 'command': command, 'processes': {}}
+              def launch(label):
+                  stream = open(f'materialization-partition-{arm}-{label}.log', 'w')
+                  env = dict(os.environ, LUMEN_MATERIALIZATION_PARTITION_ARM=arm)
+                  before = time.monotonic_ns()
+                  p = subprocess.Popen(command, env=env, stdout=stream, stderr=subprocess.STDOUT)
+                  status['processes'][label] = {'pid': p.pid, 'startNanoseconds': before}
+                  return p, stream
+              def finish(label, launched):
+                  p, stream = launched
+                  code = p.wait()
+                  stream.close()
+                  status['processes'][label].update(exitStatus=code, endNanoseconds=time.monotonic_ns())
+              finish('serial', launch('serial'))
+              primary, peer = launch('loaded-primary'), launch('loaded-peer')
+              finish('loaded-primary', primary)
+              finish('loaded-peer', peer)
+              Path(f'materialization-partition-{arm}-status.json').write_text(json.dumps(status, indent=2) + '\n')
+              coverage, summaries = {}, {}
+              for label in ('serial', 'loaded-primary', 'loaded-peer'):
+                  lines = Path(f'materialization-partition-{arm}-{label}.log').read_text().splitlines()
+                  prefix = 'MATERIALIZATION-PARTITION '
+                  rows = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+                  Path(f'materialization-partition-{arm}-{label}.json').write_text(json.dumps(rows, indent=2) + '\n')
+                  samples = [r for r in rows if r['event'] == 'sample']
+                  sample_map = {(r['fixture'], r['pass'], r['sample']): (r['bytes'], r['sha256'], r.get('width'), r.get('height'), r.get('bitsPerComponent'), r.get('bitsPerPixel'), r.get('bounds')) for r in samples}
+                  all_samples[(arm, label)] = sample_map
+                  synthetic = [r for r in rows if r['event'] == 'synthetic-control']
+                  files = [r for r in rows if r['event'] == 'file-summary']
+                  summary = [r for r in rows if r['event'] == 'summary']
+                  materialized = [r for r in rows if r['event'] == 'materialized']
+                  tasks = [r for r in rows if r['event'] == 'tile-task-completed']
+                  if len(summary) == 1: summaries[label] = summary[0]
+                  expected_tasks = {'whole': 8, 'tile1024': 164, 'tile2048': 60}[arm]
+                  complete = (len(samples) == len(sample_map) == 126 and len(files) == 10 and len(summary) == 1
+                      and len(synthetic) == 2 and len(materialized) == 13 and len(tasks) == expected_tasks)
+                  control = (len(synthetic) == 2 and {r['tile'] for r in synthetic} == {1024, 2048}
+                      and all(r['components'] == 8466572 and r['changedComponents'] == 0 and r['sameExtent'] for r in synthetic))
+                  if len(summary) == 1:
+                      complete = complete and summary[0]['files'] == 10 and summary[0]['crossOrderPairs'] == 63 and summary[0]['sampleRecords'] == 126
+                  failures = [r for r in rows if 'failed' in r['event'] or 'threw' in r['event'] or 'nonfinite' in r['event'] or r['event'] == 'unsupported-raw9']
+                  coverage[label] = {'complete': complete, 'syntheticExact': control, 'samples': len(samples),
+                      'files': len(files), 'tileTasks': len(tasks), 'exitStatus': status['processes'][label]['exitStatus'],
+                      'executedOneTest': any('Executed 1 test,' in line for line in lines), 'failures': failures,
+                      'rawMaterializerIntervals': [(r['beginUptime'], r['endUptime']) for r in materialized if r.get('kind') == 'raw']}
+                  print('MATERIALIZATION-PARTITION-COVERAGE ' + arm + '/' + label + ': ' + json.dumps(coverage[label], sort_keys=True))
+              overlap = None
+              raw_overlap = None
+              if 'loaded-primary' in summaries and 'loaded-peer' in summaries:
+                  a, b = summaries['loaded-primary'], summaries['loaded-peer']
+                  overlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])
+                  raw_overlap = min(a['rawEndUptime'], b['rawEndUptime']) - max(a['rawBeginUptime'], b['rawBeginUptime'])
+              wrapper_overlap = sum(max(0, min(a[1], b[1]) - max(a[0], b[0]))
+                  for a in coverage['loaded-primary']['rawMaterializerIntervals']
+                  for b in coverage['loaded-peer']['rawMaterializerIntervals'])
+              all_results[arm] = {'coverage': coverage, 'testBodyOverlapSeconds': overlap,
+                  'rawWorkloadOverlapSeconds': raw_overlap, 'completedRawMaterializerWrapperOverlapSeconds': wrapper_overlap,
+                  'overlapScope': 'measured CPU wrapper/workload intervals, not simultaneous GPU execution',
+                  'independentPIDs': status['processes']['loaded-primary']['pid'] != status['processes']['loaded-peer']['pid'],
+                  'fullSensorIdentity': False, 'GPUReclamationMeasured': False}
+          # Compare sampled digests/lengths only; componentwise whole-plane equality
+          # is asserted for the synthetic control, not claimed for whole RAW sensors.
+          reference = all_samples[('whole', 'serial')]
+          for arm, result in all_results.items():
+              for label, row in result['coverage'].items():
+                  observed = all_samples[(arm, label)]
+                  shared = reference.keys() & observed.keys()
+                  changed = [str(k) for k in shared if reference[k] != observed[k]]
+                  row['crossArmSampleDigestDifferences'] = changed
+                  row['crossArmSampleDigestComplete'] = len(reference) == 126 and observed.keys() == reference.keys()
+                  print('MATERIALIZATION-PARTITION-DIGEST ' + arm + '/' + label + ': ' + json.dumps(
+                      {'shared': len(shared), 'changed': changed, 'complete': row['crossArmSampleDigestComplete']}))
+          Path('materialization-partition-coverage.json').write_text(json.dumps(all_results, indent=2) + '\n')
+          # Every arm/peer and partial failure is archived/classified before gates.
+          assert all(r['complete'] and r['syntheticExact'] and r['executedOneTest'] and r['exitStatus'] == 0
+              and r['crossArmSampleDigestComplete'] and not r['crossArmSampleDigestDifferences']
+              for a in all_results.values() for r in a['coverage'].values()), all_results
+          assert all(a['independentPIDs'] and a['testBodyOverlapSeconds'] is not None and a['testBodyOverlapSeconds'] > 0
+              and a['rawWorkloadOverlapSeconds'] is not None and a['rawWorkloadOverlapSeconds'] > 0
+              and a['completedRawMaterializerWrapperOverlapSeconds'] > 0
+              for a in all_results.values()), all_results
+          PY
+      - name: Recover prior public contrast evidence without rerunning passed checks
+        id: prior_evidence
+        if: ${{ !cancelled() }}
+        uses: actions/download-artifact@v4
+        with:
+          name: decode-reconstruction-d55d685334d098effefe3ff6a329ab03845fbb36
+          run-id: 39183832537
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .prior-memory-contrast
+      - name: Record prior public artifact text hashes and measured process costs
+        if: ${{ !cancelled() && steps.prior_evidence.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, re, statistics
+          from pathlib import Path
+          root = Path('.prior-memory-contrast')
+          files = sorted(p for p in root.rglob('*') if p.is_file())
+          assert files and all(p.suffix in ('.log', '.json') for p in files)
+          manifest = [{'file': str(p.relative_to(root)), 'bytes': p.stat().st_size,
+              'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in files]
+          print('PRIOR-MEMORY-MANIFEST ' + json.dumps(manifest, sort_keys=True))
+          output = []
+          for arm in ('baseline', 'release-before-request', 'first-off-only'):
+              status = json.loads((root / f'decode-reconstruction-{arm}-status.json').read_text())
+              for label in ('serial', 'loaded-primary', 'loaded-peer'):
+                  rows = json.loads((root / f'decode-reconstruction-{arm}-{label}.json').read_text())
+                  log = (root / f'decode-reconstruction-{arm}-{label}.log').read_text()
+                  summary = [r for r in rows if r['tap'] == 'summary']
+                  renders = [r for r in rows if r['tap'] == 'render']
+                  process = status['processes'][label]
+                  case_times = re.findall(r'Executed 1 test,.* in [0-9.]+ \([0-9.]+\) seconds', log)
+                  row = {'arm': arm, 'process': label, 'exitStatus': process['exitStatus'],
+                      'wrapperSeconds': (process['endNanoseconds'] - process['startNanoseconds']) / 1e9,
+                      'actualCompletedTestBodySeconds': summary[0]['endUptime'] - summary[0]['beginUptime'] if len(summary) == 1 else None,
+                      'xctestSummary': case_times[-1] if case_times else None,
+                      'completedRenders': len(renders),
+                      'completedRenderTotalMilliseconds': sum(r['totalMilliseconds'] for r in renders),
+                      'completedRenderMedianMilliseconds': statistics.median(r['totalMilliseconds'] for r in renders) if renders else None,
+                      'completedPipelineReportedDecodeMilliseconds': sum(r['decodeMilliseconds'] for r in renders),
+                      'partialCostsAreNotCompletedWorkloadCosts': len(summary) != 1}
+                  output.append(row)
+                  print('PRIOR-MEMORY-PROCESS ' + json.dumps(row, sort_keys=True))
+          Path('materialization-partition-prior-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          Path('materialization-partition-prior-costs.json').write_text(json.dumps(output, indent=2) + '\n')
+          PY
+      - name: Keep exact records and failures without images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: materialization-partition-${{ github.sha }}
+          path: |
+            decode-reconstruction-*.log
+            decode-reconstruction-*.json
+            materialization-partition-*.log
+            materialization-partition-*.json
+          if-no-files-found: error
+          retention-days: 14

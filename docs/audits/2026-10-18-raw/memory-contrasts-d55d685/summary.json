@@ -1,0 +1,652 @@
+{
+  "sourceSHA": "d55d685334d098effefe3ff6a329ab03845fbb36",
+  "run": 39183832537,
+  "job": 117841996018,
+  "url": "https://github.com/benedek-art/lumen/actions/runs/39183832537/job/117841996018",
+  "arms": [
+    {
+      "GPUReclamationMeasured": false,
+      "arm": "baseline",
+      "independentProcesses": true,
+      "overlapQualification": "unknown when a body has no summary; wrapper lifetime is not body/GPU overlap",
+      "processes": {
+        "loaded-peer": {
+          "aiZeroFirstRegionChecks": 6,
+          "changedPairs": [],
+          "complete": false,
+          "counts": {
+            "file-summary": 5,
+            "pair": 48,
+            "render": 103,
+            "summary": 0
+          },
+          "errors": [
+            "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:219: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+          ],
+          "executedOneTest": true,
+          "exitStatus": 1,
+          "releaseRequests": 0,
+          "strictArmGates": false
+        },
+        "loaded-primary": {
+          "aiZeroFirstRegionChecks": 2,
+          "changedPairs": [],
+          "complete": false,
+          "counts": {
+            "file-summary": 2,
+            "pair": 18,
+            "render": 38,
+            "summary": 0
+          },
+          "errors": [
+            "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:219: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+          ],
+          "executedOneTest": true,
+          "exitStatus": 1,
+          "releaseRequests": 0,
+          "strictArmGates": false
+        },
+        "serial": {
+          "aiZeroFirstRegionChecks": 10,
+          "changedPairs": [],
+          "complete": true,
+          "counts": {
+            "file-summary": 10,
+            "pair": 105,
+            "render": 190,
+            "summary": 1
+          },
+          "errors": [],
+          "executedOneTest": true,
+          "exitStatus": 0,
+          "releaseRequests": 0,
+          "strictArmGates": true
+        }
+      },
+      "testBodyOverlapSeconds": null
+    },
+    {
+      "GPUReclamationMeasured": false,
+      "arm": "release-before-request",
+      "independentProcesses": true,
+      "overlapQualification": "unknown when a body has no summary; wrapper lifetime is not body/GPU overlap",
+      "processes": {
+        "loaded-peer": {
+          "aiZeroFirstRegionChecks": 10,
+          "changedPairs": [],
+          "complete": true,
+          "counts": {
+            "file-summary": 10,
+            "pair": 105,
+            "render": 190,
+            "summary": 1
+          },
+          "errors": [],
+          "executedOneTest": true,
+          "exitStatus": 0,
+          "releaseRequests": 110,
+          "strictArmGates": true
+        },
+        "loaded-primary": {
+          "aiZeroFirstRegionChecks": 2,
+          "changedPairs": [],
+          "complete": false,
+          "counts": {
+            "file-summary": 2,
+            "pair": 18,
+            "render": 38,
+            "summary": 0
+          },
+          "errors": [
+            "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:219: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+          ],
+          "executedOneTest": true,
+          "exitStatus": 1,
+          "releaseRequests": 23,
+          "strictArmGates": false
+        },
+        "serial": {
+          "aiZeroFirstRegionChecks": 10,
+          "changedPairs": [],
+          "complete": true,
+          "counts": {
+            "file-summary": 10,
+            "pair": 105,
+            "render": 190,
+            "summary": 1
+          },
+          "errors": [],
+          "executedOneTest": true,
+          "exitStatus": 0,
+          "releaseRequests": 110,
+          "strictArmGates": true
+        }
+      },
+      "testBodyOverlapSeconds": null
+    },
+    {
+      "GPUReclamationMeasured": false,
+      "arm": "first-off-only",
+      "independentProcesses": true,
+      "overlapQualification": "unknown when a body has no summary; wrapper lifetime is not body/GPU overlap",
+      "processes": {
+        "loaded-peer": {
+          "aiZeroFirstRegionChecks": 0,
+          "changedPairs": [],
+          "complete": false,
+          "counts": {
+            "file-summary": 4,
+            "pair": 0,
+            "render": 12,
+            "summary": 0
+          },
+          "errors": [
+            "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:219: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+          ],
+          "executedOneTest": true,
+          "exitStatus": 1,
+          "releaseRequests": 0,
+          "strictArmGates": true
+        },
+        "loaded-primary": {
+          "aiZeroFirstRegionChecks": 0,
+          "changedPairs": [],
+          "complete": false,
+          "counts": {
+            "file-summary": 3,
+            "pair": 0,
+            "render": 9,
+            "summary": 0
+          },
+          "errors": [
+            "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:219: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+          ],
+          "executedOneTest": true,
+          "exitStatus": 1,
+          "releaseRequests": 0,
+          "strictArmGates": true
+        },
+        "serial": {
+          "aiZeroFirstRegionChecks": 0,
+          "changedPairs": [],
+          "complete": true,
+          "counts": {
+            "file-summary": 10,
+            "pair": 15,
+            "render": 30,
+            "summary": 1
+          },
+          "errors": [],
+          "executedOneTest": true,
+          "exitStatus": 0,
+          "releaseRequests": 0,
+          "strictArmGates": true
+        }
+      },
+      "testBodyOverlapSeconds": null
+    }
+  ],
+  "failures": [
+    {
+      "process": "baseline/loaded-primary",
+      "arm": "baseline",
+      "call": 1,
+      "eligible": true,
+      "errorChain": [
+        {
+          "code": 1,
+          "description": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+          "domain": "CIRenderTaskWaitUntilCompleted",
+          "level": 0,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)",
+          "domain": "MTLCommandBufferErrorDomain",
+          "level": 1,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "The operation couldn’t be completed. (IOGPUCommandQueueErrorDomain error 8.)",
+          "domain": "IOGPUCommandQueueErrorDomain",
+          "level": 2,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 1,
+      "errorDescription": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+      "errorDomain": "CIRenderTaskWaitUntilCompleted",
+      "evaluation": "pipeline",
+      "event": "materializer-failure-reason",
+      "extent": "(0.0, 0.0, 3680.0, 2760.0)",
+      "fixture": "corpus2607",
+      "pass": 0,
+      "phase": "off-first/region0",
+      "reason": "render-task",
+      "renderPhase": "waitUntilCompleted",
+      "uptime": 601.2045354583333
+    },
+    {
+      "process": "baseline/loaded-primary",
+      "allocatedBytes": 0,
+      "arm": "baseline",
+      "call": 1,
+      "eligible": true,
+      "evaluation": "pipeline",
+      "event": "materializer-nil",
+      "extent": "(0.0, 0.0, 3680.0, 2760.0)",
+      "fixture": "corpus2607",
+      "materializeElapsedMilliseconds": 865.776375,
+      "pass": 0,
+      "phase": "off-first/region0",
+      "uptime": 601.2045354583333
+    },
+    {
+      "process": "baseline/loaded-primary",
+      "arm": "baseline",
+      "errorChain": [
+        {
+          "code": 3,
+          "description": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+          "domain": "LumenPipeline.RenderError",
+          "level": 0,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 3,
+      "errorDescription": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+      "errorDomain": "LumenPipeline.RenderError",
+      "event": "render-threw",
+      "fixture": "corpus2607",
+      "heldBytes": 0,
+      "nativeLongEdge": 3680,
+      "pass": 0,
+      "region": 0,
+      "state": "off-first",
+      "uptime": 600.2730945416668
+    },
+    {
+      "process": "baseline/loaded-peer",
+      "arm": "baseline",
+      "call": 3,
+      "eligible": true,
+      "errorChain": [
+        {
+          "code": 1,
+          "description": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+          "domain": "CIRenderTaskWaitUntilCompleted",
+          "level": 0,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)",
+          "domain": "MTLCommandBufferErrorDomain",
+          "level": 1,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "The operation couldn’t be completed. (IOGPUCommandQueueErrorDomain error 8.)",
+          "domain": "IOGPUCommandQueueErrorDomain",
+          "level": 2,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 1,
+      "errorDescription": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+      "errorDomain": "CIRenderTaskWaitUntilCompleted",
+      "evaluation": "pipeline",
+      "event": "materializer-failure-reason",
+      "extent": "(0.0, 0.0, 3712.0, 5568.0)",
+      "fixture": "corpus5812",
+      "pass": 1,
+      "phase": "ai50.0/region0",
+      "reason": "render-task",
+      "renderPhase": "waitUntilCompleted",
+      "uptime": 602.0434068333334
+    },
+    {
+      "process": "baseline/loaded-peer",
+      "allocatedBytes": 0,
+      "arm": "baseline",
+      "call": 3,
+      "eligible": true,
+      "evaluation": "pipeline",
+      "event": "materializer-nil",
+      "extent": "(0.0, 0.0, 3712.0, 5568.0)",
+      "fixture": "corpus5812",
+      "materializeElapsedMilliseconds": 218.201,
+      "pass": 1,
+      "phase": "ai50.0/region0",
+      "uptime": 602.0434068333334
+    },
+    {
+      "process": "baseline/loaded-peer",
+      "arm": "baseline",
+      "errorChain": [
+        {
+          "code": 3,
+          "description": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+          "domain": "LumenPipeline.RenderError",
+          "level": 0,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 3,
+      "errorDescription": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+      "errorDomain": "LumenPipeline.RenderError",
+      "event": "render-threw",
+      "fixture": "corpus5812",
+      "heldBytes": 165347328,
+      "nativeLongEdge": 5568,
+      "pass": 1,
+      "region": 0,
+      "state": "ai50.0",
+      "uptime": 602.0251208750001
+    },
+    {
+      "process": "release-before-request/loaded-primary",
+      "arm": "release-before-request",
+      "call": 1,
+      "eligible": true,
+      "errorChain": [
+        {
+          "code": 1,
+          "description": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+          "domain": "CIRenderTaskWaitUntilCompleted",
+          "level": 0,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)",
+          "domain": "MTLCommandBufferErrorDomain",
+          "level": 1,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "The operation couldn’t be completed. (IOGPUCommandQueueErrorDomain error 8.)",
+          "domain": "IOGPUCommandQueueErrorDomain",
+          "level": 2,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 1,
+      "errorDescription": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+      "errorDomain": "CIRenderTaskWaitUntilCompleted",
+      "evaluation": "pipeline",
+      "event": "materializer-failure-reason",
+      "extent": "(0.0, 0.0, 3680.0, 2760.0)",
+      "fixture": "corpus2607",
+      "pass": 0,
+      "phase": "off-first/region0",
+      "reason": "render-task",
+      "renderPhase": "waitUntilCompleted",
+      "uptime": 667.36340425
+    },
+    {
+      "process": "release-before-request/loaded-primary",
+      "allocatedBytes": 0,
+      "arm": "release-before-request",
+      "call": 1,
+      "eligible": true,
+      "evaluation": "pipeline",
+      "event": "materializer-nil",
+      "extent": "(0.0, 0.0, 3680.0, 2760.0)",
+      "fixture": "corpus2607",
+      "materializeElapsedMilliseconds": 1450.733292,
+      "pass": 0,
+      "phase": "off-first/region0",
+      "uptime": 667.36340425
+    },
+    {
+      "process": "release-before-request/loaded-primary",
+      "arm": "release-before-request",
+      "errorChain": [
+        {
+          "code": 3,
+          "description": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+          "domain": "LumenPipeline.RenderError",
+          "level": 0,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 3,
+      "errorDescription": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+      "errorDomain": "LumenPipeline.RenderError",
+      "event": "render-threw",
+      "fixture": "corpus2607",
+      "heldBytes": 0,
+      "nativeLongEdge": 3680,
+      "pass": 0,
+      "region": 0,
+      "state": "off-first",
+      "uptime": 667.3232812916667
+    },
+    {
+      "process": "first-off-only/loaded-primary",
+      "arm": "first-off-only",
+      "call": 1,
+      "eligible": true,
+      "errorChain": [
+        {
+          "code": 1,
+          "description": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+          "domain": "CIRenderTaskWaitUntilCompleted",
+          "level": 0,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)",
+          "domain": "MTLCommandBufferErrorDomain",
+          "level": 1,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "The operation couldn’t be completed. (IOGPUCommandQueueErrorDomain error 8.)",
+          "domain": "IOGPUCommandQueueErrorDomain",
+          "level": 2,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 1,
+      "errorDescription": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+      "errorDomain": "CIRenderTaskWaitUntilCompleted",
+      "evaluation": "pipeline",
+      "event": "materializer-failure-reason",
+      "extent": "(0.0, 0.0, 3888.0, 2592.0)",
+      "fixture": "corpus4671",
+      "pass": 0,
+      "phase": "off-first/region0",
+      "reason": "render-task",
+      "renderPhase": "waitUntilCompleted",
+      "uptime": 719.50041375
+    },
+    {
+      "process": "first-off-only/loaded-primary",
+      "allocatedBytes": 0,
+      "arm": "first-off-only",
+      "call": 1,
+      "eligible": true,
+      "evaluation": "pipeline",
+      "event": "materializer-nil",
+      "extent": "(0.0, 0.0, 3888.0, 2592.0)",
+      "fixture": "corpus4671",
+      "materializeElapsedMilliseconds": 2015.82625,
+      "pass": 0,
+      "phase": "off-first/region0",
+      "uptime": 719.50041375
+    },
+    {
+      "process": "first-off-only/loaded-primary",
+      "arm": "first-off-only",
+      "errorChain": [
+        {
+          "code": 3,
+          "description": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+          "domain": "LumenPipeline.RenderError",
+          "level": 0,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 3,
+      "errorDescription": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+      "errorDomain": "LumenPipeline.RenderError",
+      "event": "render-threw",
+      "fixture": "corpus4671",
+      "heldBytes": 0,
+      "nativeLongEdge": 3888,
+      "pass": 0,
+      "region": 0,
+      "state": "off-first",
+      "uptime": 719.4826956666667
+    },
+    {
+      "process": "first-off-only/loaded-peer",
+      "arm": "first-off-only",
+      "call": 1,
+      "eligible": true,
+      "errorChain": [
+        {
+          "code": 1,
+          "description": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+          "domain": "CIRenderTaskWaitUntilCompleted",
+          "level": 0,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)",
+          "domain": "MTLCommandBufferErrorDomain",
+          "level": 1,
+          "underlyingIsNSError": true,
+          "underlyingPresent": true
+        },
+        {
+          "code": 8,
+          "description": "The operation couldn’t be completed. (IOGPUCommandQueueErrorDomain error 8.)",
+          "domain": "IOGPUCommandQueueErrorDomain",
+          "level": 2,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 1,
+      "errorDescription": "The operation couldn’t be completed. (CIRenderTaskWaitUntilCompleted error 1.)",
+      "errorDomain": "CIRenderTaskWaitUntilCompleted",
+      "evaluation": "pipeline",
+      "event": "materializer-failure-reason",
+      "extent": "(0.0, 0.0, 3712.0, 5568.0)",
+      "fixture": "corpus5812",
+      "pass": 0,
+      "phase": "off-first/region0",
+      "reason": "render-task",
+      "renderPhase": "waitUntilCompleted",
+      "uptime": 721.2602411666667
+    },
+    {
+      "process": "first-off-only/loaded-peer",
+      "allocatedBytes": 0,
+      "arm": "first-off-only",
+      "call": 1,
+      "eligible": true,
+      "evaluation": "pipeline",
+      "event": "materializer-nil",
+      "extent": "(0.0, 0.0, 3712.0, 5568.0)",
+      "fixture": "corpus5812",
+      "materializeElapsedMilliseconds": 3192.455417,
+      "pass": 0,
+      "phase": "off-first/region0",
+      "uptime": 721.2602411666667
+    },
+    {
+      "process": "first-off-only/loaded-peer",
+      "arm": "first-off-only",
+      "errorChain": [
+        {
+          "code": 3,
+          "description": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+          "domain": "LumenPipeline.RenderError",
+          "level": 0,
+          "underlyingIsNSError": false,
+          "underlyingPresent": false
+        }
+      ],
+      "errorChainTermination": "none",
+      "errorChainTruncated": false,
+      "errorCode": 3,
+      "errorDescription": "The operation couldn’t be completed. (LumenPipeline.RenderError error 3.)",
+      "errorDomain": "LumenPipeline.RenderError",
+      "event": "render-threw",
+      "fixture": "corpus5812",
+      "heldBytes": 0,
+      "nativeLongEdge": 5568,
+      "pass": 0,
+      "region": 0,
+      "state": "off-first",
+      "uptime": 721.2428872083334
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12157945352,
+      "name": "decode-reconstruction-d55d685334d098effefe3ff6a329ab03845fbb36",
+      "size_in_bytes": 222666,
+      "url": "https://api.github.com/repos/benedek-art/lumen/actions/artifacts/12157945352",
+      "archive_download_url": "https://api.github.com/repos/benedek-art/lumen/actions/artifacts/12157945352/zip",
+      "expired": false,
+      "created_at": "2026-10-19T01:15:52Z",
+      "expires_at": "2026-11-02T01:15:50Z",
+      "updated_at": "2026-10-19T01:15:52Z",
+      "digest": "sha256:e672e65ca15f825267979fdfc7408e461e9ceb5de93b120bc125e88a8b595d33",
+      "workflow_run": {
+        "id": 39183832537,
+        "repository_id": 1339851835,
+        "head_repository_id": 1339851835,
+        "head_branch": "codex/raw-accuracy-qualification",
+        "head_sha": "d55d685334d098effefe3ff6a329ab03845fbb36"
+      }
+    }
+  ]
+}
