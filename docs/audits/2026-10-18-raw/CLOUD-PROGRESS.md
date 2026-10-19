@@ -530,3 +530,7 @@ Existing synthetic constant runs are opt-in with the additional [materialization
 Use baseline or first-off-only for the other arms; hosted workflow provides the independent loaded processes.
 
 A passing release arm after a failing baseline would be suggestive, not sufficient proof for shipping eviction: graph retention, timing/throughput, order and backend residency differ. No silent retry, precision change, guessed cap, relaxed identity or production remedy is included. Serial repeatability, private historical one-code Off-return and latest-source GUI acceptance remain separate gates.
+
+## Analytic local-tone candidate isolated for native qualification
+
+Production PR branch remains d55d685 while baseline/release/cold-Off OOM contrasts execute. An independently source-reviewed local-tone candidate will be hosted on codex/local-tone-native-d55d685. See local-tone-domain/CANDIDATE.md and CANDIDATE-RENDER-DIFF.json for exact scope/gates. Native execution is pending; cloud executor remains offline. Strict wheel Amount is still unresolved. The local worker's test-only da9e0e09 file is integrated unchanged; no private evidence is imported. No production memory-policy remedy has been justified by the unfinished OOM comparison.

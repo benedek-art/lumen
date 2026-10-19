@@ -1305,19 +1305,10 @@ public struct RenderGraph {
             out = applyMatrix(out, Mat3.diagonal(RGB(gray: pow(2, exposure))))
         }
 
-        // The rest of the local set is per-pixel colour work, so it bakes into a table
-        // exactly like the global path does — AT THE SIZE THIS RENDER ASKED FOR.
-        //
-        // `LocalPlan` used to hardcode `LUT3D.interactiveSize`, so a delivered file's
-        // masked contrast, temp, tint, hue, saturation, vibrance, point colours and
-        // grading wheels came out of a 33-cube while everything beside them — the
-        // global colour/grade table, the finish table, and the local point curve two
-        // stages down, which has taken `options.lutSize` since it was written — came
-        // out of a 65. Measured over 30 000 in-gamut colours (docs/18), size 33 has a
-        // worst-channel error of 0.197 stops with 10.6% of samples past 0.02 EV
-        // against 0.074 and 4.1% at 65, so every masked colour edit in an export
-        // carried preview-grade error that the preview it was judged on also carried
-        // and the file did not have to.
+        // Per-pixel local tone, white balance and colour retain signed/HDR
+        // input without projecting it through a cube. Hue, tint and grade remain
+        // tabled at this render's requested size; their precision is independent
+        // of the analytic tone boundary.
         let localPlan = LocalPlan(adjust: a, scale: scale,
                                   whiteAnchorEV: plan.tone.whiteAnchorEV,
                                   blackAnchorEV: plan.tone.blackAnchorEV,
@@ -1325,14 +1316,25 @@ public struct RenderGraph {
                                   globalColor: plan.recipe.develop.color,
                                   globalWheels: plan.recipe.look.wheels,
                                   balanced: plan.balancedNeutral)
-        // Four pieces, in the order the reference evaluates them: the tone table,
+        // Four pieces, in the order the reference evaluates them: analytic local tone,
         // the exact white-balance matrix, the mask's colour stage (AI-03 — its swatches and
         // Saturation are the same hue- and chroma-selective tools the global table
         // could not hold), then the hue/tint/grade table. Each is skipped only when it
         // is the identity, so a control crossing zero adds or removes one exact piece
         // and never changes how the others are evaluated.
-        if let pre = localPlan.preLUT {
-            out = throughShaper(out) { encoded in ColorCube.filter(pre, image: encoded) } ?? out
+        if let tone = localPlan.localTone {
+            var arguments: [Any] = [out]
+            arguments += tone.uniforms.map { CIVector(x: CGFloat($0.x), y: CGFloat($0.y),
+                                                      z: CGFloat($0.z), w: CGFloat($0.w)) }
+            if let adjusted = KernelLibrary.apply(KernelLibrary.localTone,
+                extent: out.extent, arguments) {
+                out = adjusted
+            } else if let fallback = localPlan.preLUT {
+                // The full roster reports the missing exact-tone capability.
+                // Preserve historical rendering as an explicit bounded fallback;
+                // coreAvailable does not automatically select CPU for this kernel.
+                out = throughShaper(out) { encoded in ColorCube.filter(fallback, image: encoded) } ?? out
+            }
         }
         if let whiteBalance = localPlan.whiteBalance {
             out = applyMatrixUnconditionally(out, whiteBalance)
@@ -2283,18 +2285,32 @@ struct LocalCurvePlan {
 
 // MARK: - Local adjustment table
 
-/// A mask's per-pixel colour work: tone, exact WB, exact colour, then hue/tint/grade.
+/// A mask's per-pixel colour work: exact tone, exact WB, exact colour, then hue/tint/grade.
 ///
 /// It was ONE table holding tone, white balance, the mask's `ColorEngine`, hue shift,
 /// tint and grade. The `ColorEngine` part is what AI-03 is about — a masked Point Colour
 /// or Saturation sampled through a cube has the same 30-to-50-code error the global one
-/// had — so it runs exactly after WB and between two tables: `preLUT` (tone gain) and
-/// `postLUT` (hue shift, colour tint, local grade), each nil when it is the identity.
-/// ALWAYS split, never only when the colour stage is live: fusing the two tables when
-/// it is off would be a route that changes with a control, which is exactly the
-/// discontinuity EXECUTION-05 measured.
+/// had — so it runs exactly after analytic tone and WB and before `postLUT`
+/// (hue shift, colour tint, local grade). `preLUT` now exists only as the historical
+/// fallback when the analytic local-tone kernel is unavailable.
+/// Tone, WB and colour remain separately ordered even when another local control
+/// is neutral. Do not fuse operators conditionally when colour becomes live.
 struct LocalPlan {
-    let preLUT: LUT3D?
+    let localTone: ExactLocalToneStage?
+    private let fallbackTone: ToneEngine?
+    private let fallbackSize: Int
+
+    /// Historical tone-only table, constructed only when requested as a real
+    /// fallback (or inspected by a diagnostic). Analytic tone allocates no tone cube.
+    var preLUT: LUT3D? {
+        guard let tone = fallbackTone else { return nil }
+        return LUT3D(size: fallbackSize) { encoded in
+            var c = LumenLog.decode(encoded)
+            let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
+            c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+            return LumenLog.encode(c)
+        }
+    }
     let whiteBalance: Mat3?
     let colorStage: ExactColorStage
     let postLUT: LUT3D?
@@ -2333,8 +2349,10 @@ struct LocalPlan {
             // return its input.
             && (adjust.wheels?.isNeutral ?? true))
         self.isIdentity = identity
+        self.fallbackSize = size
         guard !identity else {
-            self.preLUT = nil
+            self.localTone = nil
+            self.fallbackTone = nil
             self.whiteBalance = nil
             self.colorStage = ColorEngine(mixer: Mixer(), pointColors: [], color: ColorAdjust(),
                                           primaries: Primaries(), bw: nil).exactStage
@@ -2391,12 +2409,8 @@ struct LocalPlan {
         // Tone → exact WB matrix → exact colour, matching the reference. A WB-only
         // edit must not project signed/HDR pixels into a bounded table domain.
         self.whiteBalance = balance.isIdentity ? nil : balance.matrix
-        self.preLUT = tone.isIdentity ? nil : LUT3D(size: size) { encoded in
-            var c = LumenLog.decode(encoded)
-            let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
-            c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            return LumenLog.encode(c)
-        }
+        self.localTone = tone.isIdentity ? nil : ExactLocalToneStage(tone: tone)
+        self.fallbackTone = tone.isIdentity ? nil : tone
         self.colorStage = colorEngine.exactStage
         let tinted = tintColor != nil && tintStrength > 0
         self.postLUT = hueShift == 0 && !tinted && localGrade == nil ? nil : LUT3D(size: size) { encoded in

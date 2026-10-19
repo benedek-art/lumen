@@ -34,6 +34,7 @@ public enum KernelLibrary {
 
     /// The shaper's domain → scene-linear. The twin of `LumenLog.decode`.
     static let logDecodeSource = LumenLog.decodeKernelSource
+    static let localToneSource = ExactLocalToneStage.kernelSource
 
     /// Matrix operations must retain small off-diagonal terms. The stock
     /// CIColorMatrix took a diagonal-only path for a measured near-diagonal matrix.
@@ -1140,6 +1141,7 @@ public enum KernelLibrary {
     public static let logEncode = make(logEncodeSource)
     public static let logDecode = make(logDecodeSource)
     public static let matrixRows = make(matrixRowsSource)
+    public static let localTone = make(localToneSource)
     public static let multiply = make(multiplySource)
     public static let square = make(squareSource)
     public static let luminance = make(luminanceSource)
@@ -1225,7 +1227,7 @@ public enum KernelLibrary {
     public static var unavailableKernels: [String] {
         let all: [(String, CIKernel?)] = [
             ("logEncode", logEncode), ("logDecode", logDecode),
-            ("matrixRows", matrixRows),
+            ("matrixRows", matrixRows), ("localTone", localTone),
             ("multiply", multiply), ("square", square), ("luminance", luminance),
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),
