@@ -1,0 +1,13 @@
+# Public synthetic/pinned-fixture evidence; source5d1ff3a9793a6ea6487dcf67a304f47bc438e0d1
+2026-10-18T12:20:22.4753580Z ProductName:		macOS
+2026-10-18T12:20:22.4854110Z ProductVersion:		27.0.1
+2026-10-18T12:20:22.5064380Z BuildVersion:		26A434
+2026-10-18T12:20:22.5164570Z arm64
+2026-10-18T12:20:22.8317610Z Xcode 27.0
+2026-10-18T12:20:22.8420000Z Build version 27A266a
+2026-10-18T12:20:26.4805700Z 27.0
+2026-10-18T12:20:28.3877530Z verified CC0 fixture 2349 sha256=7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad bytes=14712832
+2026-10-18T12:20:29.8618780Z verified CC0 fixture 2607 sha256=c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e bytes=19166720
+2026-10-18T12:20:33.8806800Z runtime-decoder: fixture2349 default=7 supported=6,7
+2026-10-18T12:20:33.8810830Z runtime-decoder: fixture2607 default=8 supported=7,8
+2026-10-18T12:23:46.3717800Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/PickSourceFreshnessTests.swift:60:48: error: cannot convert value of type '[URL]' to expected argument type 'Set<URL>'

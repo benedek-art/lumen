@@ -1,0 +1,19 @@
+{
+  "artifact": 12145453127,
+  "bothLoadedErrorCode": 1,
+  "bothLoadedErrorDomain": "CIRenderTaskWaitUntilCompleted",
+  "bothLoadedFailurePhase": "waitUntilCompleted",
+  "job": 117748657637,
+  "loadedComplete": false,
+  "loadedPeerExactCompletedPairs": 18,
+  "loadedPrimaryExactCompletedPairs": 36,
+  "privatePhotoFailureReproduced": false,
+  "productionFailureObservationPathChanged": true,
+  "productionRenderingMathChangedFrom29ad": false,
+  "readbackSceneTilesCoverWholeDisplayedROI": false,
+  "run": 39152441508,
+  "serialExactPairs": 105,
+  "source": "c21bb126b4fe41bf8143ddd5bdbed424eefffab8",
+  "underlyingCauseKnown": false,
+  "zipSHA256": "2973a7bfed547620636807309f72db118aab6147623105da188da8859c5a4c16"
+}

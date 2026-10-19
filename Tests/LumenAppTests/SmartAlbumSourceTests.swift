@@ -32,7 +32,11 @@ final class SmartAlbumSourceTests: XCTestCase {
             CGImageDestinationAddImage(out, try XCTUnwrap(ctx.makeImage()), nil)
             XCTAssertTrue(CGImageDestinationFinalize(out)); urls.append(url)
         }
-        let state = AppState(catalogDirectory: { root.appendingPathComponent("catalog") }, previewDirectory: { root.appendingPathComponent("preview") })
+        // Match the production directory factory, which creates its cache before
+        // returning it. This fixture can quit before any payload write creates it.
+        let preview = root.appendingPathComponent("preview")
+        try FileManager.default.createDirectory(at: preview, withIntermediateDirectories: true)
+        let state = AppState(catalogDirectory: { root.appendingPathComponent("catalog") }, previewDirectory: { preview })
         defer {
             state.prepareToQuit()
             for (key, value) in zip(keys, defaults) {
@@ -45,6 +49,93 @@ final class SmartAlbumSourceTests: XCTestCase {
         let catalog = try XCTUnwrap(state.catalog)
         for index in 1..<3 { _ = catalog.registerAndLoad(folder: folders[index], files: [urls[index]]) }
         try await body(state, catalog, folders, urls, root)
+    }
+
+    func testUnreadableRecipeIsIsolatedWithoutSidecarRecoveryOrDefaultOverwrite() async throws {
+        try await fixture { state, catalog, folders, urls, root in
+            let path = root.appendingPathComponent("catalog/lumen.db").path
+            let db = try CatalogStore(path: path)
+            let original = try Data(contentsOf: urls[0])
+            let photo = try XCTUnwrap(db.photos(matching: PhotoQuery()).first { $0.filename == urls[0].lastPathComponent })
+            var external = Recipe(); external.develop.tone.exposure = 1
+            let sidecar = CatalogService.sidecarURL(for: urls[0])
+            let sidecarBytes = Data(XMPSidecar.serialize(SidecarContent(recipeJSON: try CanonicalJSON.canonicalRecipeJSON(external))).utf8)
+            try sidecarBytes.write(to: sidecar)
+            for (json, version) in [("{broken", supportedPipelineVersion), ("{}", supportedPipelineVersion + 10), ("{\"pipelineVersion\":\(supportedPipelineVersion + 10)}", supportedPipelineVersion)] {
+                _ = try db.saveRecipe(Recipe(), photoID: photo.id, isCurrent: true)
+                try db.debugExecute("UPDATE edit SET recipe = '\(json)', pipeline_version = \(version) WHERE photo_id = \(photo.id) AND is_current = 1;")
+                let before = try XCTUnwrap(db.currentEdit(photoID: photo.id))
+                _ = catalog.registerAndLoad(folder: folders[0], files: [urls[0]])
+                let entries = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+                XCTAssertEqual(Set(entries.map(\.url)), Set(urls.dropFirst()))
+                // Even a stale caller that retained this ID cannot publish defaults.
+                catalog.saveRecipe(Recipe(), url: urls[0], catalogID: photo.id)
+                _ = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+                XCTAssertEqual(try db.currentEdit(photoID: photo.id)?.recipeJSON, before.recipeJSON)
+                XCTAssertEqual(try db.currentEdit(photoID: photo.id)?.pipelineVersion, before.pipelineVersion)
+                XCTAssertEqual(try Data(contentsOf: sidecar), sidecarBytes)
+                state.openFolder(folders[0], restrictedTo: [urls[0]])
+                try await self.settle(state)
+                XCTAssertTrue(state.allPhotos.isEmpty, "unreadable edit must never become an editable default")
+                XCTAssertEqual(try Data(contentsOf: urls[0]), original)
+            }
+            db.close()
+        }
+    }
+
+    func testUnreadableRecipeAndMembershipSurviveCloseAndReopen() async throws {
+        try await fixture { _, _, folders, urls, root in
+            let directory = root.appendingPathComponent("isolated-catalog")
+            let first = try CatalogService(directory: directory)
+            let loaded = first.registerAndLoad(folder: folders[0], files: [urls[0]])
+            let id = try XCTUnwrap(loaded[urls[0]]?.catalogID)
+            let db = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path)
+            _ = try db.saveRecipe(Recipe(), photoID: id, isCurrent: true)
+            let album = try db.createCollection(name: "Keep membership")
+            try db.addToCollection(album, photoIDs: [id])
+            try db.debugExecute("UPDATE edit SET recipe = '{broken' WHERE photo_id = \(id) AND is_current = 1;")
+            let before = try XCTUnwrap(db.currentEdit(photoID: id))
+            _ = first.registerAndLoad(folder: folders[0], files: [urls[0]])
+            _ = first.close()
+            let second = try CatalogService(directory: directory)
+            defer { _ = second.close(); db.close() }
+            _ = second.registerAndLoad(folder: folders[0], files: [urls[0]])
+            let usable = try await second.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertTrue(usable.isEmpty)
+            XCTAssertEqual(try db.currentEdit(photoID: id), before)
+            var query = PhotoQuery(); query.sourceScope = .album(album)
+            XCTAssertEqual(try db.photos(matching: query).map(\.id), [id])
+            XCTAssertFalse(try XCTUnwrap(db.photo(id: id)).missing)
+        }
+    }
+
+    func testFailedCatalogRegistrationDoesNotExposeDefaultRecipesOrPublishSidecars() async throws {
+        try await fixture { state, catalog, folders, urls, root in
+            let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            defer { db.close() }
+            let row = try XCTUnwrap(db.photos(matching: PhotoQuery()).first { $0.filename == urls[0].lastPathComponent })
+            var edited = Recipe(); edited.develop.tone.exposure = 1
+            catalog.saveRecipe(edited, url: urls[0], catalogID: row.id)
+            _ = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            catalog.flushSidecars()
+            let sidecar = CatalogService.sidecarURL(for: urls[0])
+            let before = try Data(contentsOf: sidecar)
+            // Deterministic storage failure, without chmod/root/filesystem differences.
+            try db.debugExecute("CREATE TRIGGER reject_registration BEFORE INSERT ON folder BEGIN SELECT RAISE(ABORT, 'injected storage refusal'); END;")
+            state.openFolder(folders[0], restrictedTo: [urls[0]])
+            try await self.settle(state)
+            XCTAssertTrue(state.allPhotos.isEmpty)
+            XCTAssertNil(state.primarySelection)
+            state.updateRecipe { $0.develop.tone.exposure = -2 }
+            catalog.flushSidecars()
+            XCTAssertEqual(try Data(contentsOf: sidecar), before)
+            XCTAssertEqual(try db.currentRecipe(photoID: row.id), edited)
+            try db.debugExecute("DROP TRIGGER reject_registration;")
+            state.openFolder(folders[0], restrictedTo: [urls[0]])
+            try await self.settle(state)
+            XCTAssertEqual(state.allPhotos.count, 1)
+            XCTAssertEqual(state.recipe(for: try XCTUnwrap(state.allPhotos.first)), edited)
+        }
     }
 
     func testProductionSourceLoadsWholeCatalogSubtreeAndManualAlbumWithMatchingCounts() async throws {
@@ -316,6 +407,120 @@ final class SmartAlbumSourceTests: XCTestCase {
             XCTAssertEqual(state.allPhotos.count, 1)
             let current = await catalog.collections(folderPath: folders[0].path)
             XCTAssertEqual(current.first { $0.id == smartID }?.count, state.photos.count)
+        }
+    }
+
+    func testOnlyLocalBChangesWhileFreshExternalAWasReconciledDuringSourceRead() async throws {
+        try await fixture { state, catalog, folders, urls, _ in
+            let first = CollectionItem(id: 201, name: "Initial", count: 3, isTarget: false,
+                isSmart: true, filter: LibraryFilter(), scope: .everywhere)
+            state.applySmartCollection(first)
+            try await self.settle(state)
+            state.updateRecipe(targets: state.allPhotos) { _, recipe in recipe.develop.tone.exposure = 1 }
+            _ = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            catalog.flushSidecars()
+            let a = try XCTUnwrap(state.allPhotos.first { $0.id == urls[0] })
+            let b = try XCTUnwrap(state.allPhotos.first { $0.id == urls[1] })
+            var resume: CheckedContinuation<[CatalogService.SourceEntry], Error>?
+            state.querySourceLoader = { _, _ in try await withCheckedThrowingContinuation { resume = $0 } }
+            let next = CollectionItem(id: 202, name: "Paused", count: 3, isTarget: false,
+                isSmart: true, filter: LibraryFilter(), scope: .everywhere)
+            state.applySmartCollection(next)
+            let deadline = Date().addingTimeInterval(5)
+            while resume == nil && Date() < deadline { await Task.yield() }
+            let pending = try XCTUnwrap(resume)
+            var external = state.recipe(for: a); external.develop.tone.exposure = 3
+            try Data(XMPSidecar.serialize(SidecarContent(recipeJSON:
+                try CanonicalJSON.canonicalRecipeJSON(external))).utf8)
+                .write(to: CatalogService.sidecarURL(for: a.id), options: .atomic)
+            _ = await Task.detached {
+                catalog.registerAndLoad(folder: folders[0], files: [a.id], completeListing: false)
+            }.value
+            let fresh = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertEqual(fresh.first { $0.url == a.id }?.state.recipe?.develop.tone.exposure, 3)
+            state.select(b)
+            state.sliderGesture(active: true)
+            state.updateRecipe { $0.develop.tone.exposure = 2 }
+            pending.resume(returning: fresh)
+            try await self.settle(state)
+            let currentA = try XCTUnwrap(state.allPhotos.first { $0.id == a.id })
+            let currentB = try XCTUnwrap(state.allPhotos.first { $0.id == b.id })
+            XCTAssertEqual(state.recipe(for: currentA).develop.tone.exposure, 3)
+            XCTAssertEqual(state.recipe(for: currentB).develop.tone.exposure, 2)
+            state.select(currentA)
+            state.updateRecipe { $0.develop.tone.contrast = 0.25 }
+            let saved = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertEqual(saved.first { $0.url == a.id }?.state.recipe?.develop.tone.exposure, 3)
+            catalog.flushSidecars()
+            let content = try XCTUnwrap(XMPSidecar.parse(Data(contentsOf: CatalogService.sidecarURL(for: a.id))))
+            let portable = try CanonicalJSON.decodeRecipe(from: Data(try XCTUnwrap(content.recipeJSON).utf8))
+            XCTAssertEqual(portable.develop.tone.exposure, 3)
+        }
+    }
+
+    func testPersistedGestureSnapshotKeepsEpochUndoAndSubsequentSampleDeferral() async throws {
+        try await fixture { state, catalog, folders, _, _ in
+            let photo = try XCTUnwrap(state.allPhotos.first)
+            state.select(photo)
+            let baseline = state.currentRecipe.develop.tone.exposure
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "snapshot-before") { $0.develop.tone.exposure = 1.5 }
+            let epoch = state.gestureEpoch
+            let settle = state.settleTick
+            state.persistGestureSnapshot()
+            XCTAssertEqual(state.recordingEpoch, epoch)
+            XCTAssertEqual(state.gestureEpoch, epoch)
+            XCTAssertEqual(state.settleTick, settle)
+            let draft = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertEqual(draft.first { $0.url == photo.id }?.state.recipe?.develop.tone.exposure, 1.5)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "snapshot-after") { $0.develop.tone.exposure = 2 }
+            XCTAssertEqual(state.recordingEpoch, epoch)
+            let deferred = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertEqual(deferred.first { $0.url == photo.id }?.state.recipe?.develop.tone.exposure, 1.5)
+            state.sliderGesture(active: false)
+            let released = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertEqual(released.first { $0.url == photo.id }?.state.recipe?.develop.tone.exposure, 2)
+            state.undo()
+            XCTAssertEqual(state.currentRecipe.develop.tone.exposure, baseline,
+                           "snapshot persistence must not split one physical gesture's history")
+        }
+    }
+
+    func testPostRelinkDeferredEditSurvivesQueryMappingRetry() async throws {
+        try await fixture { state, catalog, folders, _, root in
+            let photo = try XCTUnwrap(state.allPhotos.first)
+            let id = try XCTUnwrap(photo.catalogID)
+            let db = try CatalogStore(path: root.appendingPathComponent("catalog/lumen.db").path)
+            try db.setQuickSig(QuickSignature.compute(url: photo.id), photoID: id)
+            db.close()
+            let old = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            let destination = root.appendingPathComponent("relinked/original.JPG")
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: photo.id, to: destination)
+            let prepared = try await catalog.prepareOriginalRelink(photoID: id, candidateURL: destination)
+            var resume: CheckedContinuation<[CatalogService.SourceEntry], Error>?
+            state.querySourceLoader = { _, _ in try await withCheckedThrowingContinuation { resume = $0 } }
+            let scope = CollectionItem(id: 203, name: "Relink", count: 3, isTarget: false,
+                isSmart: true, filter: LibraryFilter(), scope: .everywhere)
+            state.applySmartCollection(scope)
+            let deadline = Date().addingTimeInterval(5)
+            while resume == nil && Date() < deadline { await Task.yield() }
+            let pending = try XCTUnwrap(resume)
+            try await state.relinkOriginal(prepared)
+            let current = try XCTUnwrap(state.allPhotos.first { $0.catalogID == id })
+            state.select(current)
+            state.sliderGesture(active: true)
+            state.updateRecipe { $0.develop.tone.exposure = 2.25 }
+            let epoch = state.recordingEpoch
+            XCTAssertNotNil(epoch)
+            pending.resume(returning: old)
+            try await self.settle(state)
+            let after = try XCTUnwrap(state.allPhotos.first { $0.catalogID == id })
+            XCTAssertEqual(after.id, destination.standardizedFileURL.resolvingSymlinksInPath())
+            XCTAssertEqual(state.recipe(for: after).develop.tone.exposure, 2.25)
+            let stored = try await catalog.querySource(scope: .everywhere, folderPath: folders[0].path)
+            XCTAssertEqual(stored.first { $0.state.catalogID == id }?.state.recipe?.develop.tone.exposure, 2.25)
         }
     }
 

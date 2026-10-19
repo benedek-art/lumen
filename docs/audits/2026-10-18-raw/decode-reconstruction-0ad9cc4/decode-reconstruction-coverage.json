@@ -1,0 +1,48 @@
+{
+  "serial": {
+    "counts": {
+      "render": 190,
+      "pair": 105,
+      "file-summary": 10,
+      "summary": 1
+    },
+    "complete": true,
+    "executedOneTest": true,
+    "changedPairs": [],
+    "errors": [],
+    "diagnosticRecords": 603,
+    "exitStatus": 0
+  },
+  "loaded-primary": {
+    "counts": {
+      "render": 38,
+      "pair": 18,
+      "file-summary": 2,
+      "summary": 0
+    },
+    "complete": false,
+    "executedOneTest": true,
+    "changedPairs": [],
+    "errors": [
+      "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:200: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+    ],
+    "diagnosticRecords": 128,
+    "exitStatus": 1
+  },
+  "loaded-peer": {
+    "counts": {
+      "render": 66,
+      "pair": 27,
+      "file-summary": 3,
+      "summary": 0
+    },
+    "complete": false,
+    "executedOneTest": true,
+    "changedPairs": [],
+    "errors": [
+      "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:200: error: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : failed: caught error: \"decodeFailed\""
+    ],
+    "diagnosticRecords": 209,
+    "exitStatus": 1
+  }
+}

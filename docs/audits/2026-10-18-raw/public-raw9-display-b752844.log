@@ -1,0 +1,57 @@
+2026-10-18T13:14:51.9165310Z ProductVersion:		27.0.1
+2026-10-18T13:14:54.9573810Z swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+2026-10-18T13:14:58.1987590Z verified CC0 fixture 1087 sha256=3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977 bytes=21700096
+2026-10-18T13:15:00.2998290Z verified CC0 fixture 1346 sha256=b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee bytes=12841893
+2026-10-18T13:19:59.3287280Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity]' started.
+2026-10-18T13:19:59.3288670Z raw9-display-capability: corpus1087 default=6 supported=6,6.dng,7.dng,8.dng,9.dng default-is-not-last
+2026-10-18T13:19:59.3289930Z raw9-display-content: corpus1087 order=off-first step=off-first rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3291360Z raw9-display-timing: corpus1087 order=off-first step=off-first ordinal=1 recipe-pin=9 total-ms=1134.986084 decode-call-ms=1045.092041 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3293050Z raw9-display-content: corpus1087 order=off-first step=off-repeat rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3298510Z raw9-display-timing: corpus1087 order=off-first step=off-repeat ordinal=2 recipe-pin=9 total-ms=6.872167 decode-call-ms=0.025334 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3299680Z raw9-display-content: corpus1087 order=off-first step=ai0 rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3301020Z raw9-display-timing: corpus1087 order=off-first step=ai0 ordinal=3 recipe-pin=9 total-ms=4.741167 decode-call-ms=0.025625 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3302100Z raw9-display-content: corpus1087 order=off-first step=off-return rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3303380Z raw9-display-timing: corpus1087 order=off-first step=off-return ordinal=4 recipe-pin=9 total-ms=5.074666 decode-call-ms=0.014709 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3304450Z raw9-display-content: corpus1087 order=ai0-first step=ai0-first rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3305700Z raw9-display-timing: corpus1087 order=ai0-first step=ai0-first ordinal=1 recipe-pin=9 total-ms=547.367291 decode-call-ms=498.268792 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3306900Z raw9-display-content: corpus1087 order=ai0-first step=off rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3307910Z raw9-display-timing: corpus1087 order=ai0-first step=off ordinal=2 recipe-pin=9 total-ms=7.83275 decode-call-ms=0.030208 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3309130Z raw9-display-content: corpus1087 order=ai0-first step=ai0-return rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3310190Z raw9-display-timing: corpus1087 order=ai0-first step=ai0-return ordinal=3 recipe-pin=9 total-ms=4.553583 decode-call-ms=0.025917 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3311460Z raw9-display-content: corpus1087 order=ai0-first step=off-return rgbCount=88200 rgbNonzero=88200 rgbMin=3 rgbMax=113 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3312600Z raw9-display-timing: corpus1087 order=ai0-first step=off-return ordinal=4 recipe-pin=9 total-ms=4.416166 decode-call-ms=0.014416 width=210 height=140 held-bytes=190849536
+2026-10-18T13:19:59.3313620Z raw9-display-pair: corpus1087 pair=off-first/off-repeat changedBytes=0 maxCode=0 bytes=117600/117600
+2026-10-18T13:19:59.3314760Z raw9-display-pair: corpus1087 pair=off-first/ai0 changedBytes=0 maxCode=0 bytes=117600/117600
+2026-10-18T13:19:59.3315470Z raw9-display-pair: corpus1087 pair=off-first/off-return changedBytes=0 maxCode=0 bytes=117600/117600
+2026-10-18T13:19:59.3316490Z raw9-display-pair: corpus1087 pair=ai0-first/off changedBytes=0 maxCode=0 bytes=117600/117600
+2026-10-18T13:19:59.3317450Z raw9-display-pair: corpus1087 pair=ai0-first/ai0-return changedBytes=0 maxCode=0 bytes=117600/117600
+2026-10-18T13:19:59.3318250Z raw9-display-pair: corpus1087 pair=ai0-first/off-return changedBytes=0 maxCode=0 bytes=117600/117600
+2026-10-18T13:19:59.3318980Z audit-raw-file: raw9-display corpus1087 compared-pairs=6
+2026-10-18T13:19:59.3319560Z raw9-display-capability: corpus1346 default=8 supported=6,7,8,9 default-is-not-last
+2026-10-18T13:19:59.3325990Z raw9-display-content: corpus1346 order=off-first step=off-first rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3327290Z raw9-display-timing: corpus1346 order=off-first step=off-first ordinal=1 recipe-pin=9 total-ms=255.46375 decode-call-ms=213.835417 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3328560Z raw9-display-content: corpus1346 order=off-first step=off-repeat rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3329680Z raw9-display-timing: corpus1346 order=off-first step=off-repeat ordinal=2 recipe-pin=9 total-ms=6.264042 decode-call-ms=0.020917 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3331020Z raw9-display-content: corpus1346 order=off-first step=ai0 rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3332140Z raw9-display-timing: corpus1346 order=off-first step=ai0 ordinal=3 recipe-pin=9 total-ms=4.090292 decode-call-ms=0.027208 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3333170Z raw9-display-content: corpus1346 order=off-first step=off-return rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3334410Z raw9-display-timing: corpus1346 order=off-first step=off-return ordinal=4 recipe-pin=9 total-ms=3.595916 decode-call-ms=0.017666 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3341010Z raw9-display-content: corpus1346 order=ai0-first step=ai0-first rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3342170Z raw9-display-timing: corpus1346 order=ai0-first step=ai0-first ordinal=1 recipe-pin=9 total-ms=240.187125 decode-call-ms=187.380542 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3343520Z raw9-display-content: corpus1346 order=ai0-first step=off rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3345310Z raw9-display-timing: corpus1346 order=ai0-first step=off ordinal=2 recipe-pin=9 total-ms=7.303584 decode-call-ms=0.02225 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3346480Z raw9-display-content: corpus1346 order=ai0-first step=ai0-return rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3347720Z raw9-display-timing: corpus1346 order=ai0-first step=ai0-return ordinal=3 recipe-pin=9 total-ms=8.020458 decode-call-ms=0.022083 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3348800Z raw9-display-content: corpus1346 order=ai0-first step=off-return rgbCount=47124 rgbNonzero=47124 rgbMin=126 rgbMax=223 identityVacuousAllBlack=false
+2026-10-18T13:19:59.3350060Z raw9-display-timing: corpus1346 order=ai0-first step=off-return ordinal=4 recipe-pin=9 total-ms=5.364333 decode-call-ms=0.022166 width=154 height=102 held-bytes=101756928
+2026-10-18T13:19:59.3351980Z raw9-display-pair: corpus1346 pair=off-first/off-repeat changedBytes=0 maxCode=0 bytes=62832/62832
+2026-10-18T13:19:59.3352830Z raw9-display-pair: corpus1346 pair=off-first/ai0 changedBytes=0 maxCode=0 bytes=62832/62832
+2026-10-18T13:19:59.3353600Z raw9-display-pair: corpus1346 pair=off-first/off-return changedBytes=0 maxCode=0 bytes=62832/62832
+2026-10-18T13:19:59.3354770Z raw9-display-pair: corpus1346 pair=ai0-first/off changedBytes=0 maxCode=0 bytes=62832/62832
+2026-10-18T13:19:59.3357210Z raw9-display-pair: corpus1346 pair=ai0-first/ai0-return changedBytes=0 maxCode=0 bytes=62832/62832
+2026-10-18T13:19:59.3358120Z raw9-display-pair: corpus1346 pair=ai0-first/off-return changedBytes=0 maxCode=0 bytes=62832/62832
+2026-10-18T13:19:59.3358840Z audit-raw-file: raw9-display corpus1346 compared-pairs=6
+2026-10-18T13:19:59.3359770Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity]' passed (32.888 seconds).
+2026-10-18T13:19:59.3361290Z 	 Executed 1 test, with 0 failures (0 unexpected) in 32.888 (32.888) seconds
+2026-10-18T13:19:59.3362630Z 	 Executed 1 test, with 0 failures (0 unexpected) in 32.888 (32.888) seconds
+2026-10-18T13:19:59.3363930Z 	 Executed 1 test, with 0 failures (0 unexpected) in 32.888 (32.891) seconds

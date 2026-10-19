@@ -1,0 +1,16 @@
+{
+  "base": "0e9e4a483e37e3fd5be04daec159a0ccdba72609",
+  "purpose": "Combined WB matrix/fused tensor candidate; native qualification pending",
+  "sha256": {
+    "Sources/LumenPipeline/RenderGraph.swift": "9e5ffb64e0dc595e404a44a49c8c126a896cb37f4b6702d1de095c86c0815962",
+    "Sources/LumenPipeline/Kernels.swift": "f521b4a9f3d8f071b4bf868e5fae62419c936a0489672b210f8ff1172132f8ec",
+    "Sources/LumenApp/AppStateActions.swift": "835aff5f691ccd9acb909c359cecad4be1283bdc66266a2d494de23b5dd94124",
+    "Sources/LumenPipeline/AppleRawSource.swift": "bae3ecf035cd5b04e751054d18f61a7bd9f91b83f22597c9707fae6f5c802926",
+    "Sources/LumenPipeline/DecodeMaterializer.swift": "2364d457f04e2527334741e2187bbccb01beb16b142e5ca8f0eb85879d5215e4",
+    "Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift": "876c7c6b9f482aae8fc7682b3b677ac432386a4aebf64fbf4c8b73d28a535322",
+    "Tests/LumenPipelineTests/DehazeSkyFieldTests.swift": "6a736a6b632415187e8a9b6467037840af422243813547a022e6a82a76783d0e",
+    "Tests/LumenPipelineTests/LocalAmountEpsilonDiagnosticTests.swift": "d429ac6aab476fc9e14fb95a7df9e2b190daf99f8f3868edc1d517ff2f89e73a",
+    ".github/workflows/gpu-parity.yml": "9a11bf18f5e6dfd1db8b5dda8a6edc5e0949338a4c29e9f1d3a793924acde7a8",
+    ".github/workflows/decode-reconstruction.yml": "fd06415c77ee5743aa6471340c46a0b9c328c29b17a892393ffa30b5b54bb8a5"
+  }
+}

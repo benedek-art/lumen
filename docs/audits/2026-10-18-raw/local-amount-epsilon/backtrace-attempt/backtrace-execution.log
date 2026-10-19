@@ -1,0 +1,1 @@
+LOCAL-AMOUNT-EPSILON rows=640 zeroExact=32 finiteStagePairs=160 GPUExecuted=false

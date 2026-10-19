@@ -1,0 +1,34 @@
+{
+  "executedSource": "0ad9cc4d094d223c2e52d11bcb4cec79918380dd",
+  "fullMac": {
+    "failures": 0,
+    "job": 117755564648,
+    "run": 39154755634,
+    "skips": 46,
+    "testSeconds": 326.615,
+    "tests": 3527,
+    "wallSeconds": 685.739
+  },
+  "newSourceOwnerPhotoAcceptance": "not reported; remains owed",
+  "ordinaryGPU": {
+    "failures": 0,
+    "job": 117755564203,
+    "run": 39154755617,
+    "skips": 36,
+    "testSeconds": 553.309,
+    "tests": 278,
+    "wallSeconds": 553.343
+  },
+  "ownerPhotoAcceptanceLatestReportedSource": "0a82064e16453683b4682fc918042b504b3e65bd",
+  "productionMemoryPolicyFix": false,
+  "productionSourcesEqual": "c21bb126b4fe41bf8143ddd5bdbed424eefffab8",
+  "rawReconstruction": "RED: both loaded task completion chains report command-buffer InsufficientMemory",
+  "subtrees": {
+    ".github/workflows": "0547da465ec12c67091ba598e4528f1375322c83",
+    "Sources": "06525f4828a15099f4cee51daee22589832f3820",
+    "Tests": "1b99c215acf9250b311e72647b6ced49bab4c97f",
+    "scripts": "075090580b36990fba72277af134c671321cdb23"
+  },
+  "syntheticMaterializations": 180,
+  "syntheticReadback": "exact sampled32x32 known signed/HDR constant"
+}

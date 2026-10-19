@@ -1,0 +1,3771 @@
+[
+  {
+    "decodeMilliseconds": 1983.367084,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 2109.537625,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.005958,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 21.153708,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.003459,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 13.0235,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.006208,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 526.893583,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.0025,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 22.79925,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002292,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 21.92475,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.004708,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 18.893208,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 292.881166,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 315.537125,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 282.884083,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 302.488208,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 145.519916,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 157.360875,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 125.529,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 137.234041,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002584,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 15.032333,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002792,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 17.238125,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 113.844084,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 127.173458,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002917,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 11.360208,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.007375,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 11.375333,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 178.090917,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 222.926667,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002875,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 10.135041,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.003209,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 0,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 9.444333,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus1346",
+    "offRegionsPerState": 3,
+    "pass": 0,
+    "releasedBytes": 101756928,
+    "sourceMaterializations": 6,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 1103.78675,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 1180.9295,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.004584,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 20.815708,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.00325,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 17.653417,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002875,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 184.908666,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.001958,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 25.563125,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.00225,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 28.401333,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.005583,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 18.1965,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 166.6875,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 183.445291,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 188.833875,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 208.08425,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 632.089833,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 646.019708,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 181.790167,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 197.935125,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002709,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 14.213042,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002917,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 14.351583,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 146.61475,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 158.771458,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.003083,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 13.211458,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.003292,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 15.028541,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 276.135167,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 334.669,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002792,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 13.182167,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.003417,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 0,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 11.114459,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus2349",
+    "offRegionsPerState": 3,
+    "pass": 0,
+    "releasedBytes": 112265216,
+    "sourceMaterializations": 6,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 1279.9415,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 1369.059792,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004875,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 13.729041,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.007833,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 15.316584,
+    "width": 129
+  },
+  {
+    "decodeMilliseconds": 0.004917,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 176.207292,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.003541,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 21.342667,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.003333,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 20.980708,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.002917,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 12.26875,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 180.462625,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 162508800,
+    "pass": 0,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 194.689833,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 326.630625,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 243763200,
+    "pass": 0,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 340.268417,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 147.062459,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 0,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 155.727084,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004334,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 0,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 9.687625,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.005333,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 0,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 14.489041,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.00575,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 0,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 5.685916,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 160.7055,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 168.7645,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.002917,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 7.173625,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004292,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 8.146083,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 253.432541,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 329.359917,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.005792,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 10.436291,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004292,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 0,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 20.545417,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus2607",
+    "offRegionsPerState": 3,
+    "pass": 0,
+    "releasedBytes": 325017600,
+    "sourceMaterializations": 5,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 864.580292,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 931.647333,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.008083,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 18.649916,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.005458,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 12.1245,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.005917,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 236.953,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.012916,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 99.061958,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.00475,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 23.886417,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.008834,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 9.178458,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 141.223542,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 161243136,
+    "pass": 0,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 153.015166,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 204.29875,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 241864704,
+    "pass": 0,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 215.167916,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 123.054625,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 322486272,
+    "pass": 0,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 133.498,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.004917,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 322486272,
+    "pass": 0,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 32.97275,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.004541,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 322486272,
+    "pass": 0,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 31.230584,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.005,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 322486272,
+    "pass": 0,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 11.905166,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 159.926,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 184.966458,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.014959,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 12.728416,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.003583,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 26.128167,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 657.290917,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 718.44625,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.004125,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 9.860584,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.0045,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 0,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 11.3185,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus4671",
+    "offRegionsPerState": 3,
+    "pass": 0,
+    "releasedBytes": 322486272,
+    "sourceMaterializations": 5,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 2376.470291,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 2476.013125,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.009917,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 31.127875,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.003375,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 17.762584,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.00375,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 248.487709,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.002833,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 46.346042,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.006125,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 52.303,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.0055,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 74.681,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 428.716708,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 470.35925,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 529.001167,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 555.010625,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 295.665375,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 314.544709,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 288.311584,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 306.208834,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.0055,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 25.204208,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.003041,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 22.14325,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass0/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 288.321667,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 360.8565,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.002958,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 20.271959,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.002584,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 21.618042,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass0/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 1517.162125,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 1581.10225,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.002958,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 16.20975,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.002541,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 0,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 20.8565,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass0/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus5812",
+    "offRegionsPerState": 3,
+    "pass": 0,
+    "releasedBytes": 165347328,
+    "sourceMaterializations": 6,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 324.566166,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 387.68275,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004334,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 26.744083,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.004,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 46.618708,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 0.005834,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 388.421333,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004833,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 87.173584,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.003125,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 66.106792,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004083,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 32.783583,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 420.566667,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 444.597375,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 390.863208,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 421.816917,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 298.780167,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 327.393458,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 327.310792,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 380.923584,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.002792,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 51.377708,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.003791,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 22.83275,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 285.328209,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 305.049917,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.005834,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 18.884417,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.002916,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 16.115833,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 1430.066916,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 1522.491584,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.003167,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 19.856791,
+    "width": 131
+  },
+  {
+    "decodeMilliseconds": 0.006209,
+    "fixture": "corpus5812",
+    "height": 196,
+    "heldBytes": 165347328,
+    "pass": 1,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 16.715958,
+    "width": 131
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      101920,
+      101920
+    ],
+    "label": "corpus5812/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      102704,
+      102704
+    ],
+    "label": "corpus5812/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus5812",
+    "offRegionsPerState": 3,
+    "pass": 1,
+    "releasedBytes": 165347328,
+    "sourceMaterializations": 6,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 573.378625,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 641.698042,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.00725,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 15.765083,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.004083,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 10.235,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 0.004542,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 283.033625,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.003458,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 72.849041,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.006625,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 44.910959,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.004208,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 12.077916,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 117.231542,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 161243136,
+    "pass": 1,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 127.87925,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 155.439625,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 241864704,
+    "pass": 1,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 180.269708,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 182.990292,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 322486272,
+    "pass": 1,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 203.053042,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.005125,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 322486272,
+    "pass": 1,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 13.670208,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.011334,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 322486272,
+    "pass": 1,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 12.928375,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.008541,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 322486272,
+    "pass": 1,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 12.556833,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 88.208917,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 101.624875,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.003625,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 10.514,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.003875,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 8.602166,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 282.616959,
+    "fixture": "corpus4671",
+    "height": 92,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 350.78325,
+    "width": 138
+  },
+  {
+    "decodeMilliseconds": 0.005,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 10.994625,
+    "width": 137
+  },
+  {
+    "decodeMilliseconds": 0.006042,
+    "fixture": "corpus4671",
+    "height": 91,
+    "heldBytes": 80621568,
+    "pass": 1,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 14.006709,
+    "width": 137
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50784,
+      50784
+    ],
+    "label": "corpus4671/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      49868,
+      49868
+    ],
+    "label": "corpus4671/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus4671",
+    "offRegionsPerState": 3,
+    "pass": 1,
+    "releasedBytes": 322486272,
+    "sourceMaterializations": 5,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 695.163167,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 788.2165,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.005,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 12.271125,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004584,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 14.581708,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 0.007917,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 345.971833,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004375,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 31.462291,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.006708,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 23.390834,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.007417,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 21.632708,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 268.470417,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 162508800,
+    "pass": 1,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 291.552209,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 283.743959,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 243763200,
+    "pass": 1,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 302.558416,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 213.997541,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 1,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 234.954584,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.005708,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 1,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 40.666458,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.005,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 1,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 18.441125,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004459,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 325017600,
+    "pass": 1,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 9.98175,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 177.9625,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 197.164375,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.007917,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 13.240625,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.004625,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 18.209416,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 170.83025,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 275.080584,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.00975,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 20.190333,
+    "width": 130
+  },
+  {
+    "decodeMilliseconds": 0.007375,
+    "fixture": "corpus2607",
+    "height": 98,
+    "heldBytes": 81254400,
+    "pass": 1,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 14.88475,
+    "width": 129
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50960,
+      50960
+    ],
+    "label": "corpus2607/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      50568,
+      50568
+    ],
+    "label": "corpus2607/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus2607",
+    "offRegionsPerState": 3,
+    "pass": 1,
+    "releasedBytes": 325017600,
+    "sourceMaterializations": 5,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 781.902542,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 869.568125,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.005375,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 21.531125,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.003167,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 12.844208,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 0.003167,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 367.933041,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002625,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 133.63125,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002875,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 65.266583,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.00575,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 17.988584,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 105.108208,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 120.98475,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 223.135208,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 237.398875,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 446.398,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 472.425334,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 140.328791,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 164.436334,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.00475,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 19.234333,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.005708,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 23.097875,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 159.022083,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 175.192083,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.003458,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 19.105667,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.002458,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 19.680208,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 337.084167,
+    "fixture": "corpus2349",
+    "height": 162,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 412.3695,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.005166,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 26.197209,
+    "width": 108
+  },
+  {
+    "decodeMilliseconds": 0.005084,
+    "fixture": "corpus2349",
+    "height": 161,
+    "heldBytes": 112265216,
+    "pass": 1,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 18.078291,
+    "width": 108
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69984,
+      69984
+    ],
+    "label": "corpus2349/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      69552,
+      69552
+    ],
+    "label": "corpus2349/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus2349",
+    "offRegionsPerState": 3,
+    "pass": 1,
+    "releasedBytes": 112265216,
+    "sourceMaterializations": 6,
+    "tap": "file-summary"
+  },
+  {
+    "decodeMilliseconds": 883.485875,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 970.658042,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.003083,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 1,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 19.875125,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002875,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 2,
+    "state": "off-first",
+    "tap": "render",
+    "totalMilliseconds": 14.27375,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/ordered-first-vs-prior-pass",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 0.003375,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "classic25.0",
+    "tap": "render",
+    "totalMilliseconds": 247.419458,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002375,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "classic50.0",
+    "tap": "render",
+    "totalMilliseconds": 30.384709,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002416,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "classic100.0",
+    "tap": "render",
+    "totalMilliseconds": 27.726333,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002917,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "ai0.0",
+    "tap": "render",
+    "totalMilliseconds": 17.12575,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 225.405084,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "ai25.0",
+    "tap": "render",
+    "totalMilliseconds": 239.821833,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 193.909958,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "ai50.0",
+    "tap": "render",
+    "totalMilliseconds": 216.244083,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 185.194625,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "ai100.0",
+    "tap": "render",
+    "totalMilliseconds": 205.967875,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 141.575917,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 162.953667,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002875,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 1,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 17.7155,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.004958,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 2,
+    "state": "off-return",
+    "tap": "render",
+    "totalMilliseconds": 26.615375,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass1/off-return",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 127.058917,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 144.2565,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002958,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 1,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 18.473666,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.002333,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 2,
+    "state": "off-release-rebuild",
+    "tap": "render",
+    "totalMilliseconds": 13.669042,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass1/release-rebuild",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "decodeMilliseconds": 257.671541,
+    "fixture": "corpus1346",
+    "height": 102,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 0,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 349.280542,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.004792,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 1,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 25.678791,
+    "width": 154
+  },
+  {
+    "decodeMilliseconds": 0.004167,
+    "fixture": "corpus1346",
+    "height": 103,
+    "heldBytes": 101756928,
+    "pass": 1,
+    "region": 2,
+    "state": "fresh-source-renderer",
+    "tap": "render",
+    "totalMilliseconds": 17.955375,
+    "width": 154
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      62832,
+      62832
+    ],
+    "label": "corpus1346/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 0,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 1,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "changedDisplayBytes": 0,
+    "displayByteCounts": [
+      63448,
+      63448
+    ],
+    "label": "corpus1346/pass1/fresh-source-renderer",
+    "maximumDisplayCode": 0,
+    "region": 2,
+    "sceneChangedSamples": 0,
+    "sceneMaximumAbsoluteDifference": 0,
+    "tap": "pair"
+  },
+  {
+    "accuracyAcceptance": false,
+    "aiHistoryRegionsPerMode": 1,
+    "classicHistoryRegionsPerMode": 1,
+    "fixture": "corpus1346",
+    "offRegionsPerState": 3,
+    "pass": 1,
+    "releasedBytes": 101756928,
+    "sourceMaterializations": 6,
+    "tap": "file-summary"
+  },
+  {
+    "beginUptime": 526.6445197916667,
+    "endUptime": 576.4236745833334,
+    "exactPairRecords": 105,
+    "expectedExactPairRecords": 105,
+    "expectedRenderRecords": 190,
+    "filePasses": 10,
+    "files": 5,
+    "privatePhotosUploaded": false,
+    "processID": 7863,
+    "productionChanges": false,
+    "renderRecords": 190,
+    "tap": "summary"
+  }
+]

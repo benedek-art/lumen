@@ -74,3 +74,324 @@ jobs:
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
+
+  accuracy-followup-causal:
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && (contains(github.event.head_commit.message, '[dehaze-sky-causal]') || contains(github.event.head_commit.message, '[auto-tone-source-causal]') || contains(github.event.head_commit.message, '[local-wb-exact-causal]'))
+    runs-on: macos-15
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove the two documented sky terms independently
+        if: contains(github.event.head_commit.message, '[dehaze-sky-causal]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='DehazeSkyContractTests|DehazeSkyFieldTests'
+          swift test -c release --filter "$target" 2>&1 | tee dehaze-sky-baseline.log
+          grep -q 'Executed 7 tests, with 0 failures' dehaze-sky-baseline.log
+          source_file=Sources/LumenPipeline/Kernels.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/dehaze-sky-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > dehaze-sky-mutation-provenance.log
+          shasum -a 256 "$source_file" >> dehaze-sky-mutation-provenance.log
+          mutant_target='DehazeSkyContractTests|DehazeSkyFieldTests/testPositiveSkyKernelEquationWithColoredAirlight|DehazeSkyFieldTests/testNegativeSkyKernelEquationWithColoredAirlight'
+          for term in positive negative; do
+            cp "$source_backup" "$source_file"
+            DEHAZE_SKY_TERM="$term" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('Sources/LumenPipeline/Kernels.swift')
+          source = path.read_text()
+          if os.environ['DEHAZE_SKY_TERM'] == 'positive':
+              old = 'float t = max(raw, mix(floorT, 0.9, sky));'
+              new = 'float t = max(raw, floorT);'
+          else:
+              old = 'float distant = max(1.0 - raw, sky);'
+              new = 'float distant = 1.0 - raw;'
+          assert source.count(old) == 1, 'each mutant must change only one sky term'
+          path.write_text(source.replace(old, new))
+          PY
+            git diff -- "$source_file" >> dehaze-sky-mutation-provenance.log
+            set +e
+            swift test -c release --filter "$mutant_target" > "dehaze-sky-$term-mutant.log" 2>&1
+            mutant_status=$?
+            set -e
+            cat "dehaze-sky-$term-mutant.log"
+            test "$mutant_status" -ne 0
+            grep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' "dehaze-sky-$term-mutant.log"
+            grep -Eq 'XCTAssert(Equal|LessThan|GreaterThan) failed' "dehaze-sky-$term-mutant.log"
+            if [ "$term" = positive ]; then
+              failed=testPositiveSkyKernelEquationWithColoredAirlight
+              passed=testNegativeSkyKernelEquationWithColoredAirlight
+            else
+              failed=testNegativeSkyKernelEquationWithColoredAirlight
+              passed=testPositiveSkyKernelEquationWithColoredAirlight
+            fi
+            grep -Fq "$failed]' failed" "dehaze-sky-$term-mutant.log"
+            grep -Fq "$passed]' passed" "dehaze-sky-$term-mutant.log"
+          done
+          cp "$source_backup" "$source_file"
+          cmp "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> dehaze-sky-mutation-provenance.log
+          git diff --exit-code -- Sources
+          echo 'DEHAZE-SKY-CAUSAL baseline=GREEN positive-only-removed=RED negative-only-removed=RED opposite-sign-controls=GREEN source-restored=true'
+      - name: Prove Auto Tone refuses stale sources before history and persistence
+        if: contains(github.event.head_commit.message, '[auto-tone-source-causal]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='AutoToneSourceIntegrityTests|AuditStateSafetyTests/testAutoToneLandingMidGestureSurvivesReleaseAndQuit'
+          swift test -c release --filter "$target" 2>&1 | tee auto-tone-source-baseline.log
+          grep -q 'Executed 4 tests, with 0 failures' auto-tone-source-baseline.log
+          source_file=Sources/LumenApp/AppStateActions.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/auto-tone-source-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > auto-tone-source-mutation-provenance.log
+          shasum -a 256 "$source_file" >> auto-tone-source-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenApp/AppStateActions.swift')
+          source = path.read_text()
+          old = 'autoToneSourceIsCurrent(context, suggestions: suggestions)'
+          assert source.count(old) == 1, 'must bypass only the post-await source guard'
+          path.write_text(source.replace(old, 'true'))
+          PY
+          git diff -- "$source_file" >> auto-tone-source-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > auto-tone-source-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat auto-tone-source-mutant.log
+          test "$mutant_status" -ne 0
+          grep -Eq 'Executed 4 tests, with [1-9][0-9]* failure' auto-tone-source-mutant.log
+          grep -Eq 'XCTAssert(Equal|Nil|True) failed' auto-tone-source-mutant.log
+          grep -Fq "testLateAutoAfterFolderSwitchCannotWriteOldSidecarOrEnterNewHistory]' failed" auto-tone-source-mutant.log
+          grep -Fq "testSameURLReplacementDiscardsAutoBeforeClosingGestureOrPersisting]' failed" auto-tone-source-mutant.log
+          grep -Fq "testHealthyCapturedAutoStillWinsMidGestureAndSupportsUndoRedo]' passed" auto-tone-source-mutant.log
+          grep -Fq "testAutoToneLandingMidGestureSurvivesReleaseAndQuit]' passed" auto-tone-source-mutant.log
+          cp "$source_backup" "$source_file"
+          cmp "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> auto-tone-source-mutation-provenance.log
+          git diff --exit-code -- Sources
+          echo 'AUTO-TONE-SOURCE-CAUSAL baseline=GREEN stale-guard-bypassed=RED healthy-and-existing-midgesture=GREEN source-restored=true'
+      - name: Compare local WB row products with the complete measured CIColorMatrix route
+        if: contains(github.event.head_commit.message, '[local-wb-exact-causal]')
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=LocalWhiteBalanceExactMatrixTests
+          swift test -c release --filter "$target" 2>&1 | tee local-wb-exact-baseline.log
+          grep -q 'Executed 3 tests, with 0 failures' local-wb-exact-baseline.log
+          source_file=Sources/LumenPipeline/RenderGraph.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/local-wb-exact-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > local-wb-exact-mutation-provenance.log
+          shasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log
+          python3 docs/audits/2026-10-18-raw/local-wb-rowdot/mutate-ci-matrix-route.py --source-root .
+          git diff -- "$source_file" >> local-wb-exact-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > local-wb-exact-original-route.log 2>&1
+          original_status=$?
+          set -e
+          cat local-wb-exact-original-route.log
+          test "$original_status" -ne 0
+          grep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' local-wb-exact-original-route.log
+          grep -Eq 'XCTAssert(Equal|LessThanOrEqual) failed' local-wb-exact-original-route.log
+          grep -Eq 'XCTAssertLessThanOrEqual failed:.*relative, amount=1\.0, cube=.*independent matrix' local-wb-exact-original-route.log
+          grep -Eq 'XCTAssertLessThanOrEqual failed:.*relative, amount=1\.0, cube=.*global matrix' local-wb-exact-original-route.log
+          grep -Fq "testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' failed" local-wb-exact-original-route.log
+          grep -Fq "testNeutralAndZeroBalanceRetainExactIdentity]' passed" local-wb-exact-original-route.log
+          grep -Fq "testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' passed" local-wb-exact-original-route.log
+          cp "$source_backup" "$source_file"
+          cmp "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log
+          git diff --exit-code -- Sources Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift
+          echo 'LOCAL-WB-ROWDOT-CAUSAL baseline=GREEN complete-222-CIColorMatrix-rendergraph=RED neutral-zero-and-finite-compatibility=GREEN exact-source-restored=true'
+      - name: Keep causal observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accuracy-followup-causal-${{ github.sha }}
+          path: |
+            dehaze-sky-baseline.log
+            dehaze-sky-positive-mutant.log
+            dehaze-sky-negative-mutant.log
+            dehaze-sky-mutation-provenance.log
+            auto-tone-source-baseline.log
+            auto-tone-source-mutant.log
+            auto-tone-source-mutation-provenance.log
+            local-wb-exact-baseline.log
+            local-wb-exact-original-route.log
+            local-wb-exact-mutation-provenance.log
+          if-no-files-found: error
+          retention-days: 14
+
+  dehaze-completion-cost:
+    # One paired measurement for the new sky contract, not a benchmark on every push.
+    # The old production source gets only the identical new measurement test injected.
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && contains(github.event.head_commit.message, '[dehaze-completion-cost]')
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compare completed changing-Amount frames on generated fixtures
+        shell: bash
+        env:
+          LUMEN_DEHAZE_COST: "1"
+        run: |
+          set -euo pipefail
+          baseline_sha=0e9e4a483e37e3fd5be04daec159a0ccdba72609
+          baseline_dir="$RUNNER_TEMP/lumen-dehaze-before"
+          target=DehazeCompletionCostTests/testGeneratedChangingAmountCompletedFrames
+          test_file=Tests/LumenPipelineTests/DehazeCompletionCostTests.swift
+          sw_vers > dehaze-cost-provenance.log
+          uname -m >> dehaze-cost-provenance.log
+          xcodebuild -version >> dehaze-cost-provenance.log
+          git rev-parse HEAD >> dehaze-cost-provenance.log
+          shasum -a 256 "$test_file" >> dehaze-cost-provenance.log
+          git worktree add --detach "$baseline_dir" "$baseline_sha"
+          cp "$test_file" "$baseline_dir/$test_file"
+          cmp "$test_file" "$baseline_dir/$test_file"
+          git -C "$baseline_dir" diff --exit-code -- Sources
+          (
+            cd "$baseline_dir"
+            git rev-parse HEAD
+            shasum -a 256 Sources/LumenPipeline/RenderGraph.swift Sources/LumenPipeline/Kernels.swift
+          ) >> dehaze-cost-provenance.log
+          (
+            cd "$baseline_dir"
+            LUMEN_DEHAZE_COST_LABEL=before swift test -c release --filter "$target"
+          ) 2>&1 | tee dehaze-cost-before.log
+          git -C "$baseline_dir" diff --exit-code -- Sources
+          shasum -a 256 Sources/LumenPipeline/RenderGraph.swift Sources/LumenPipeline/Kernels.swift >> dehaze-cost-provenance.log
+          LUMEN_DEHAZE_COST_LABEL=after swift test -c release --filter "$target" 2>&1 | tee dehaze-cost-after.log
+          git diff --exit-code -- Sources
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for label in ('before', 'after'):
+              lines = Path(f'dehaze-cost-{label}.log').read_text().splitlines()
+              records = [json.loads(line.split('DEHAZE-COMPLETION-COST ', 1)[1])
+                         for line in lines if line.startswith('DEHAZE-COMPLETION-COST ')]
+              assert len(records) == 12, (label, len(records))
+              assert all(r['label'] == label and r['finite'] for r in records)
+              assert {(r['width'], r['amount']) for r in records} == {
+                  (w, a) for w in (256, 1024) for a in (-50, -25, -10, 10, 25, 50)}
+              assert sum(r['firstContextFrame'] for r in records) == 2
+              Path(f'dehaze-cost-{label}.json').write_text(json.dumps(records, indent=2) + '\n')
+          print('DEHAZE-COST-COVERAGE before=12 after=12; one generated ordered pair, not GUI/RAW or statistical acceptance')
+          PY
+      - name: Keep paired completed-frame observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dehaze-completion-cost-${{ github.sha }}
+          path: |
+            dehaze-cost-before.log
+            dehaze-cost-after.log
+            dehaze-cost-before.json
+            dehaze-cost-after.json
+            dehaze-cost-provenance.log
+          if-no-files-found: error
+          retention-days: 14
+
+  local-amount-signed:
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && contains(github.event.head_commit.message, '[local-amount-signed]')
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Characterize practical signed inputs without claiming parity acceptance
+        shell: bash
+        env:
+          LUMEN_LOCAL_AMOUNT_SIGNED: "1"
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > local-amount-signed-provenance.log
+          shasum -a 256 Tests/LumenPipelineTests/LocalAmountEpsilonDiagnosticTests.swift >> local-amount-signed-provenance.log
+          sw_vers >> local-amount-signed-provenance.log
+          xcodebuild -version >> local-amount-signed-provenance.log
+          swift test -c release --filter LocalAmountSignedDomainCharacterizationTests 2>&1 | tee local-amount-signed.log
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          prefix = 'LOCAL-AMOUNT-SIGNED '
+          records = [json.loads(line[len(prefix):]) for line in Path('local-amount-signed.log').read_text().splitlines()
+                     if line.startswith(prefix)]
+          assert len(records) == 41
+          assert sum(r['tap'] == 'stage' for r in records) == 24
+          assert sum(r['tap'] == 'fullS11' for r in records) == 16
+          assert records[-1]['tap'] == 'summary' and records[-1]['zeroStagesExact'] == 4
+          assert records[-1]['accuracyAcceptance'] is False
+          Path('local-amount-signed.json').write_text(json.dumps(records, indent=2) + '\n')
+          print('LOCAL-AMOUNT-SIGNED-COVERAGE stage=24 composite=16 zeroIdentity=4; characterization only, original strict parity gate unchanged')
+          PY
+      - name: Keep signed-domain observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-amount-signed-${{ github.sha }}
+          path: |
+            local-amount-signed.log
+            local-amount-signed.json
+            local-amount-signed-provenance.log
+          if-no-files-found: error
+          retention-days: 14
+
+  local-amount-epsilon:
+    # Separate, explicit unresolved qualification gate. The ordinary lane retains
+    # its existing assertions; this opt-in probe reports any real parity failure directly.
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && contains(github.event.head_commit.message, '[local-amount-epsilon]')
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Measure positive local Amount domain and strict CPU agreement
+        shell: bash
+        env:
+          LUMEN_LOCAL_AMOUNT_EPSILON: "1"
+        run: |
+          set -o pipefail
+          sw_vers | tee local-amount-environment.log
+          uname -m | tee -a local-amount-environment.log
+          xcodebuild -version | tee -a local-amount-environment.log
+          set +e
+          swift test -c release --filter LocalAmountEpsilonDiagnosticTests/testCurrentPositiveAmountDomainAndCPUAgreement 2>&1 | tee local-amount-epsilon.log
+          status=$?
+          set -e
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          records = [json.loads(line.split('LOCAL-AMOUNT-EPSILON ', 1)[1])
+                     for line in Path('local-amount-epsilon.log').read_text().splitlines()
+                     if line.startswith('LOCAL-AMOUNT-EPSILON ')]
+          assert len(records) == 28, f'Incomplete native diagnostic: {len(records)}/28 records'
+          assert sum(r['tap'] == 'stage' for r in records) == 22
+          assert sum(r['tap'] == 'fullS11' for r in records) == 5
+          assert records[-1]['tap'] == 'summary'
+          assert records[-1]['stageRecords'] == 22 and records[-1]['compositeRecords'] == 5
+          print('LOCAL-AMOUNT-COVERAGE stage=22 composite=5 summary=1; assertions remain authoritative')
+          PY
+          exit "$status"
+      - name: Preserve diagnostic output even when qualification fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-amount-epsilon-${{ github.sha }}
+          path: |
+            local-amount-epsilon.log
+            local-amount-environment.log
+          if-no-files-found: error

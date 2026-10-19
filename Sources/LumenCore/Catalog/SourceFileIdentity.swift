@@ -26,6 +26,16 @@ public struct SourceFileIdentity: Hashable, Sendable {
     static let fieldCount = 6
 
     public static func read(_ url: URL) -> SourceFileIdentity? {
+        read(url, requiringRegularFile: false)
+    }
+
+    /// Bind only regular originals; stat follows symlinks. Synthetic devices and
+    /// directories remain unbound when no explicit export token was supplied.
+    public static func readRegularFile(_ url: URL) -> SourceFileIdentity? {
+        read(url, requiringRegularFile: true)
+    }
+
+    private static func read(_ url: URL, requiringRegularFile: Bool) -> SourceFileIdentity? {
         #if canImport(Darwin) || canImport(Glibc)
         var info = stat()
         let status = url.withUnsafeFileSystemRepresentation { path -> Int32 in
@@ -33,6 +43,7 @@ public struct SourceFileIdentity: Hashable, Sendable {
             return stat(path, &info)
         }
         guard status == 0 else { return nil }
+        guard !requiringRegularFile || (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else { return nil }
         #if canImport(Darwin)
         let modified = info.st_mtimespec
         let changed = info.st_ctimespec

@@ -325,6 +325,25 @@ extension SliderNudgeTests {
         XCTAssertEqual(track.nudged(8, steps: 1), 8, accuracy: 1e-9)
     }
 
+    func testOutwardNudgePreservesOffGridHardRangeValuesExactly() {
+        let track = SliderTrack(width: 210, lowerBound: -5, upperBound: 5, step: 0.01)
+        for value in [6.234, 6.236, -6.234, -6.236] {
+            for magnitude in [1, 10] {
+                let outward = value > 0 ? magnitude : -magnitude
+                XCTAssertEqual(track.nudged(value, steps: outward), value,
+                               "An outward tick must neither round inward nor extend the hard-range value")
+            }
+        }
+        XCTAssertEqual(track.nudged(6.234, steps: -1), 6.22, accuracy: 1e-12)
+        XCTAssertEqual(track.nudged(-6.234, steps: 1), -6.22, accuracy: 1e-12)
+    }
+
+    func testOutwardNudgeAtOffGridTrackEndpointIsAnExactHold() {
+        let track = SliderTrack(width: 210, lowerBound: 0.015, upperBound: 0.995, step: 0.01)
+        XCTAssertEqual(track.nudged(0.015, steps: -1), 0.015)
+        XCTAssertEqual(track.nudged(0.995, steps: 1), 0.995)
+    }
+
     /// And the contract it must not break: from INSIDE, an arrow still cannot leave.
     func testANudgeStillCannotCarryAValuePastTheSoftLimit() {
         let track = SliderTrack(width: 210, lowerBound: -5, upperBound: 5, step: 0.01)

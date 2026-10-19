@@ -79,7 +79,7 @@ final class CatalogKeywordExportTests: XCTestCase {
     }
 
     @MainActor
-    func testFailedCatalogReadOnlyRefusesKeywordEnabledDelivery() async throws {
+    func testUnavailableCatalogRefusesDeliveryRegardlessOfKeywordPolicy() async throws {
         try await withState { state, _, root in
             state.exportRecipes = [
                 ExportRecipe(name: "Tags", filenameTemplate: "tags"),
@@ -90,13 +90,17 @@ final class CatalogKeywordExportTests: XCTestCase {
             state.export(to: root)
             try await finish(state)
             XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("tags.jpg").path))
-            XCTAssertEqual(try keywords(root.appendingPathComponent("stripped.jpg")), [])
-            XCTAssertTrue((state.statusMessage ?? "").contains("Could not read catalog keywords"))
+            // Availability is an accuracy preflight, independently of whether
+            // keywords are requested. A closed catalog cannot rule out a newly
+            // unavailable edit; stripping metadata must not bypass that refusal.
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("stripped.jpg").path))
+            XCTAssertTrue((state.statusMessage ?? "").contains("unavailable for export"))
             let report = try XCTUnwrap(state.operationReports.first)
             XCTAssertEqual(report.state, .completed)
-            XCTAssertEqual(report.records.map(\.outcome), [.failed, .delivered])
+            XCTAssertEqual(report.records.map(\.outcome), [.failed, .failed])
             XCTAssertNil(report.records[0].actualDestination)
-            XCTAssertTrue(report.summary.contains("1 failed"))
+            XCTAssertNil(report.records[1].actualDestination)
+            XCTAssertTrue(report.summary.contains("2 failed"))
         }
     }
     @MainActor

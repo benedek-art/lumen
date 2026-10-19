@@ -1,0 +1,4 @@
+Test Suite 'All tests' started at 2026-10-18 22:28:00.052
+Test Suite 'brush-source-metric-probe.xctest' started at 2026-10-18 22:28:00.053
+Test Suite 'BrushStabilizerTests' started at 2026-10-18 22:28:00.053
+Test Case 'BrushStabilizerTests.testStrengthZeroIsTheBrushThatShipped' started at 2026-10-18 22:28:00.053

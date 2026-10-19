@@ -176,6 +176,45 @@ struct BasicPanel: View {
                                      asShot: asShotNeutral ?? .reference)
     }
 
+    /// A dimension cannot inherit an unknown camera value from the reference white.
+    static func whiteBalanceDimensionIsAvailable(value: Double?,
+                                                 asShot: WhiteBalanceEngine.Neutral?) -> Bool {
+        asShot != nil || value != nil
+    }
+
+    /// Kept as a binding seam so availability is checked again at the actual write,
+    /// after any selection, recipe or decoder update since the row was drawn.
+    static func guardedWhiteBalanceBinding(
+        current: @escaping () -> Double?,
+        asShot: @escaping () -> WhiteBalanceEngine.Neutral?,
+        displayed: @escaping () -> Double,
+        write: @escaping (Double) -> Void
+    ) -> Binding<Double> {
+        Binding(get: { current() ?? displayed() }, set: { next in
+            guard whiteBalanceDimensionIsAvailable(value: current(), asShot: asShot()) else { return }
+            write(next)
+        })
+    }
+
+    private func whiteBalanceBinding(_ path: WritableKeyPath<Recipe, Double?>,
+                                     key: String,
+                                     displayed dimension: KeyPath<WhiteBalanceEngine.AsShotDisplay, Double>) -> Binding<Double> {
+        let state = self.state
+        return Self.guardedWhiteBalanceBinding(
+            current: { state.currentRecipe[keyPath: path] },
+            asShot: { state.primaryAsShotNeutral },
+            displayed: {
+                let raw = state.currentRecipe.develop.raw
+                let shown = WhiteBalanceEngine.displayed(
+                    temp: raw.temp, tint: raw.tint,
+                    asShot: state.primaryAsShotNeutral ?? .reference)
+                return shown[keyPath: dimension]
+            },
+            write: { next in
+                state.updateRecipe(coalescingKey: key) { $0[keyPath: path] = next }
+            })
+    }
+
     private var whiteBalanceSection: some View {
         DevelopSection("White Balance", isModified: isWhiteBalanceModified,
                        onReset: { applyAsShot() }) {
@@ -206,6 +245,10 @@ struct BasicPanel: View {
         // opens on a photo whose recipe carries no override — the case where a drag
         // would otherwise write a fabricated Kelvin and change the picture.
         let unknown = asShotNeutral == nil && display.isAsShot
+        let temperatureUnknown = !Self.whiteBalanceDimensionIsAvailable(
+            value: recipe.develop.raw.temp, asShot: asShotNeutral)
+        let tintUnknown = !Self.whiteBalanceDimensionIsAvailable(
+            value: recipe.develop.raw.tint, asShot: asShotNeutral)
 
         return VStack(alignment: .leading, spacing: Lumen.rowGap) {
             presetRow
@@ -220,8 +263,8 @@ struct BasicPanel: View {
             // 2000–50000 K is the documented span and matches the field, and what
             // was wrong was never its width but where its travel went.
             LumenSlider(title: "Temp",
-                        value: binder.value(\.develop.raw.temp, "wb.temp",
-                                            orAuto: display.temperature),
+                        value: whiteBalanceBinding(\.develop.raw.temp, key: "wb.temp",
+                                                   displayed: \.temperature),
                         range: 2000...50000,
                         hardRange: 2000...50000,
                         scale: .reciprocal,
@@ -272,9 +315,11 @@ struct BasicPanel: View {
                         // section to "Custom" and freezes this photograph's neutral
                         // into a recipe that may be copied onto another.
                         onReset: { applyAsShot() })
+                .disabled(temperatureUnknown)
+                .redacted(reason: temperatureUnknown ? .placeholder : [])
             LumenSlider(title: "Tint",
-                        value: binder.value(\.develop.raw.tint, "wb.tint",
-                                            orAuto: display.tint),
+                        value: whiteBalanceBinding(\.develop.raw.tint, key: "wb.tint",
+                                                   displayed: \.tint),
                         range: -150...150,
                         hardRange: -300...300,
                         defaultValue: neutral.tint,
@@ -289,6 +334,8 @@ struct BasicPanel: View {
                             + "the fix for fluorescent and mixed light. Reset is as "
                             + "shot.",
                         onReset: { applyAsShot() })
+                .disabled(tintUnknown)
+                .redacted(reason: tintUnknown ? .placeholder : [])
             // Tint honesty (docs/23 M2): the engine bounds the magenta half so
             // the adaptation cannot invert the picture, and on a warm frame the
             // slider's last stretch is deliberately inert past that bound. The
@@ -319,13 +366,7 @@ struct BasicPanel: View {
     /// so daylight editing never grows a caption.
     private func boundedTintCaption(
         display: WhiteBalanceEngine.AsShotDisplay) -> String? {
-        let shown = display.tint
-        guard shown > 0 else { return nil }
-        let effective = ColorTemperature.clampedTint(kelvin: display.temperature,
-                                                     tint: shown)
-        guard effective < shown - 0.5 else { return nil }
-        return "Magenta is bounded by physics at +\(Int(effective.rounded())) for "
-            + "\(Int(display.temperature.rounded())) K — the render uses that value."
+        WhiteBalanceTintCaption.text(kelvin: display.temperature, tint: display.tint)
     }
 
     /// Says which neutral the render is adapting from, because "Temp 5500" means

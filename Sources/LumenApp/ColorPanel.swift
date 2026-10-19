@@ -223,6 +223,10 @@ struct ColorPanel: View {
                                 + "texture flattens along with the blotches.")
             }
         }
+        // The eyedropper can change the band asynchronously while a number is pending.
+        .environment(\.sliderEditContext, SliderEditContext(
+            primary: state.primarySelection?.id, selection: state.selection,
+            mixerBand: selectedBand, mixerAllBands: allBands))
     }
 
     // MARK: - Ring handles (D13: visible, draggable range + feather)
@@ -486,6 +490,9 @@ struct ColorPanel: View {
         .onChange(of: swatches.count) { old, new in
             if new > old { selectedSwatch = new - 1 }
         }
+        .environment(\.sliderEditContext, SliderEditContext(
+            primary: state.primarySelection?.id, selection: state.selection,
+            swatchIndex: selectedSwatch))
     }
 
     /// One swatch chip: the colour, the ring that marks the selection, and — on the

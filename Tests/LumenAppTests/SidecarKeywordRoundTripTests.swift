@@ -116,10 +116,11 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
         let photo = root.appendingPathComponent("nested.JPG")
         try Data([1]).write(to: photo)
         let path = photo.appendingPathExtension("xmp")
-        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         let catalog = root.appendingPathComponent("catalog")
         let first = try CatalogService(directory: catalog)
         let id = try XCTUnwrap(first.registerAndLoad(folder: root, files: [photo])[photo]?.catalogID)
+        // Inject a publication outage after the unreadable-sidecar scan boundary.
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         await first.addKeyword("Places > Iceland", targets: [(id, photo)])
         XCTAssertEqual(first.close(), ["nested.JPG.xmp"])
         try FileManager.default.removeItem(at: path)
@@ -223,7 +224,12 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
         older.rating = 2
         service.saveCullingState(older, labelChanged: false)
         _ = service.registerAndLoad(folder: root, files: [photo])
+        var injectedReads = 0
         service.sidecarDataReader = { _ in
+            injectedReads += 1
+            // The callback targets this publication only. The queue barrier below
+            // performs an independent scan and must use the real filesystem reader.
+            service.sidecarDataReader = { try Data(contentsOf: $0) }
             // The production queue normally serializes these operations, but a flush
             // can also run at an explicit barrier. Force the newer queue entry to land
             // before the old batch reports its failure.
@@ -235,6 +241,7 @@ final class SidecarKeywordRoundTripTests: XCTestCase {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
         }
         service.flushSidecars()
+        XCTAssertEqual(injectedReads, 1, "the intended failed publication read must execute exactly once")
         service.sidecarDataReader = { try Data(contentsOf: $0) }
         service.flushSidecars()
         service.close()

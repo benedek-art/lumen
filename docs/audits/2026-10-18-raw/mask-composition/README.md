@@ -1,0 +1,19 @@
+# Combined mask geometry oracle (native execution pending)
+
+Test-only source base `b752844`, new `Tests/LumenPipelineTests/MaskGeometryCompositionOracleTests.swift`. No production or preexisting test changes. The three methods each configure9 placements: base turns−90/+90/180 times no reflection/H/V, with off-center crop `(x:1/8,y:1/8,w:5/8,h:1/2)`. These are7 DISTINCT nonidentity dihedral transforms, not9 unique orientations: V@−90 equals H@+90 and V@+90 equals H@−90; duplicates are equivalence controls. Identity is covered in the older oracle. The source is96×64, and each cropped output has1920 pixels (40×48 or60×32), so each method visits17280 configured pixel positions.
+
+Expected placement uses explicit source-labeled nested arrays: turn rows/columns, reflect the oriented rows/columns, then slice the crop. It never calls CropGeometry, geometryRects or production affine mapping to generate expectations. The `clockwise` name describes top-down array display order: output[y][x] is original[H−1−x][y], so its top-left is the original bottom-left. This agrees with the existing positive90 oracle's `(sourceX=v,sourceY=H−1−u)` permutation. Core Image uses y-up coordinates and production rotation is−angle; the different coordinate labels do not change that observable array permutation. V is represented in the H-only schema by H plus180°, wrapped to[−180,180], consistent with the documented F·R order.
+
+Actual paths:
+
+- A labeled RGBAf bitmap goes through the SHIPPING Core Image `PipelineRenderer.applyGeometry`, then its actual buffer bridge. Every outputpixel's RGB is checked against independent original source labels (tolerance1e−4).
+- Actual sourceNormalized/displayedNormalized mapping is checked against original labels at every retained pixelcenter, including crop corners/endpoints (tolerance1e−12). This is endpoint-coordinate qualification, not SwiftUI brush-release dispatch.
+- Actual CPU MaskRaster bitmap bridge and GPU parametric radial masks both go through shipping applyGeometry. Interior/exterior predictions use original source coordinates and an independent ellipse equation. Existing oracle exclusions (`d²<.5` or`d²>1.5`) and tolerance1e−4 are unchanged. Independent Python fixture arithmetic found selected interiors≥144 and exteriors≥1290 in all9 placements, so no case is vacuous. Native test still checks actual counts>30/>100.
+
+Every selected pixel/channel/coordinate is examined. Failures aggregate per placement (per CPU/GPU mask source) with count, first example and maximum error; nonfinite results count as mismatches. This bounds logs without reducing coverage or changing tolerances. Dimensions and selected/unselected-count assertions remain separate.
+
+Linux macOS-target syntax parsing and diff checks passed; no Apple SDK typecheck, GPU run or native test success is claimed. This does not execute decoder orientation, complete preview/export pipelines, proxy resampling or native pointer events. Suggested bounded native filter: `MaskGeometryOracleTests|MaskGeometryCompositionOracleTests` (2existing+3new methods). A causal order mutant can swap only geometryRects's rotation/reflection application order: old isolated-operation cases should remain unchanged while the combined ±90 reflection cases must fail. That mutation has NOT been executed here.
+
+Before integration, the source checker misparsed the one-line semicolon-separated Pixel properties as a one-field initializer. The new test formats those two properties on separate lines; no checker exemption or assertion changed. The preliminary source-check failure is retained separately. Final native execution remains pending.
+
+Final root test SHA256 after multiline property formatting: `6355c788c46291e9454063a3d66324c023f59be76ea7c522ae479cf73087ece5`. Production source is byte-unchanged fromb752844.

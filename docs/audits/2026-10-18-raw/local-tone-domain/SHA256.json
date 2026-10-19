@@ -1,0 +1,11 @@
+{
+  "evidence/command.json": "836cfea2fba8e17ed0bcfca3da5b9277c9c198cb5d951468fecb08088a70e320",
+  "evidence/compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "evidence/compiler-version.log": "d374cef3ae00c518787333e4ea4b14c3db742709dca2ff78c4063673b1f587b8",
+  "evidence/execution.log": "9bdf5128f0e0236899b2ef84882634c80869ae9007fc2e5227246ce9c4b5c029",
+  "evidence/expected-build-core-sha256.json": "086d3f1b27f211e86a39091ca3c885a722b032e33d3c11384008c0c09f2d47f4",
+  "evidence/source-comparison.json": "17fc2aedaec0eb1f7f9623b786e364eb610f9575d8ccb860267cdef2813fcbf3",
+  "evidence/status.json": "0514cdcfd60572f5e4b3f84b7d0d31e809f084f7575848b10ccfb63d5170e2ee",
+  "main.swift": "2ce817460a7ced3f840ada6c5a1beab55b2e1415057f246caa74658942564018",
+  "run-probe.py": "fbb36b4186e670772797a17e489e5fdb89684f6ca9e2df9bd91df876a1696af2"
+}

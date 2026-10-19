@@ -1,0 +1,58 @@
+Test Suite 'All tests' started at 2026-10-18 22:29:15.686
+Test Suite 'brush-source-metric-probe.xctest' started at 2026-10-18 22:29:15.687
+Test Suite 'BrushStabilizerTests' started at 2026-10-18 22:29:15.687
+Test Case 'BrushStabilizerTests.testStrengthZeroIsTheBrushThatShipped' started at 2026-10-18 22:29:15.687
+Test Case 'BrushStabilizerTests.testStrengthZeroIsTheBrushThatShipped' passed (0.001 seconds)
+Test Case 'BrushStabilizerTests.testAStrokeRecordedBeforeThisExistedReplaysIdentically' started at 2026-10-18 22:29:15.688
+Test Case 'BrushStabilizerTests.testAStrokeRecordedBeforeThisExistedReplaysIdentically' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testTheWobbleIsGoneAndTheLineIsNot' started at 2026-10-18 22:29:15.688
+Test Case 'BrushStabilizerTests.testTheWobbleIsGoneAndTheLineIsNot' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testAHeldPointerIsPerfectlyStillAndNotMerelyDamped' started at 2026-10-18 22:29:15.689
+Test Case 'BrushStabilizerTests.testAHeldPointerIsPerfectlyStillAndNotMerelyDamped' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testTheBrushNeverGoesWhereTheHandDidNot' started at 2026-10-18 22:29:15.689
+Test Case 'BrushStabilizerTests.testTheBrushNeverGoesWhereTheHandDidNot' passed (0.104 seconds)
+Test Case 'BrushStabilizerTests.testItIsAContractionSoItCanNeverOvershoot' started at 2026-10-18 22:29:15.793
+Test Case 'BrushStabilizerTests.testItIsAContractionSoItCanNeverOvershoot' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testTheBrushIsAlwaysWithinTheRopeOfThePointer' started at 2026-10-18 22:29:15.793
+Test Case 'BrushStabilizerTests.testTheBrushIsAlwaysWithinTheRopeOfThePointer' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testAStrokeEndsWhereTheHandLetGo' started at 2026-10-18 22:29:15.793
+Test Case 'BrushStabilizerTests.testAStrokeEndsWhereTheHandLetGo' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testFinishOnAStrokeThatNeverStartedIsNothing' started at 2026-10-18 22:29:15.793
+Test Case 'BrushStabilizerTests.testFinishOnAStrokeThatNeverStartedIsNothing' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testFinishAtTheBrushesOwnPositionRecordsNoDuplicate' started at 2026-10-18 22:29:15.793
+Test Case 'BrushStabilizerTests.testFinishAtTheBrushesOwnPositionRecordsNoDuplicate' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testTheStrengthCurveIsSquaredSoTheUsefulRangeIsSpread' started at 2026-10-18 22:29:15.794
+Test Case 'BrushStabilizerTests.testTheStrengthCurveIsSquaredSoTheUsefulRangeIsSpread' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testAnAbsurdStrengthIsClampedAndAPoisonedOneIsOff' started at 2026-10-18 22:29:15.794
+Test Case 'BrushStabilizerTests.testAnAbsurdStrengthIsClampedAndAPoisonedOneIsOff' passed (0.0 seconds)
+Test Case 'BrushStabilizerTests.testAPoisonedSampleIsDroppedRatherThanRecorded' started at 2026-10-18 22:29:15.794
+Test Case 'BrushStabilizerTests.testAPoisonedSampleIsDroppedRatherThanRecorded' passed (0.0 seconds)
+Test Suite 'BrushStabilizerTests' passed at 2026-10-18 22:29:15.794
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.106 (0.106) seconds
+Test Suite 'BrushStabilizerSourceMetricTests' started at 2026-10-18 22:29:15.794
+Test Case 'BrushStabilizerSourceMetricTests.testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait' started at 2026-10-18 22:29:15.794
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:21: error: BrushStabilizerSourceMetricTests.testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait : XCTAssertEqual failed: ("19.99999999999999") is not equal to ("10.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:23: error: BrushStabilizerSourceMetricTests.testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait : XCTAssertNil failed: "(x: 0.0, y: 5.000000000000004)" - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:20: error: BrushStabilizerSourceMetricTests.testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait : XCTAssertEqual failed: ("19.99999999999999") is not equal to ("10.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:22: error: BrushStabilizerSourceMetricTests.testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait : XCTAssertNil failed: "(x: 5.000000000000004, y: 0.0)" - 
+Test Case 'BrushStabilizerSourceMetricTests.testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait' failed (0.0 seconds)
+Test Case 'BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance' started at 2026-10-18 22:29:15.794
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:33: error: BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance : XCTAssertEqual failed: ("22.9775311682322") is not equal to ("18.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:34: error: BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance : XCTAssertEqual failed: ("30.636708224309555") is not equal to ("24.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:33: error: BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance : XCTAssertEqual failed: ("-22.977531168232172") is not equal to ("-18.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:34: error: BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance : XCTAssertEqual failed: ("30.636708224309555") is not equal to ("24.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:33: error: BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance : XCTAssertEqual failed: ("28.905996075495377") is not equal to ("24.0") +/- ("1e-10") - 
+/workspace/scratch/2982a056243e/brush-source-metric-probe/BrushStabilizerSourceMetricTests.swift:34: error: BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance : XCTAssertEqual failed: ("-21.67949705662156") is not equal to ("-18.0") +/- ("1e-10") - 
+Test Case 'BrushStabilizerSourceMetricTests.testObliqueTravelAndReflectionUsePixelDistance' failed (0.1 seconds)
+Test Case 'BrushStabilizerSourceMetricTests.testFinalReleaseIsExactAndDisabledSamplesRemainExact' started at 2026-10-18 22:29:15.895
+Test Case 'BrushStabilizerSourceMetricTests.testFinalReleaseIsExactAndDisabledSamplesRemainExact' passed (0.0 seconds)
+Test Case 'BrushStabilizerSourceMetricTests.testLegacyUnitMetricAndInvalidDimensionsRetainTheirContract' started at 2026-10-18 22:29:15.895
+Test Case 'BrushStabilizerSourceMetricTests.testLegacyUnitMetricAndInvalidDimensionsRetainTheirContract' passed (0.0 seconds)
+Test Case 'BrushStabilizerSourceMetricTests.testUnrepresentableMetricAndNonfiniteRopeRemainSafe' started at 2026-10-18 22:29:15.895
+Test Case 'BrushStabilizerSourceMetricTests.testUnrepresentableMetricAndNonfiniteRopeRemainSafe' passed (0.0 seconds)
+Test Suite 'BrushStabilizerSourceMetricTests' failed at 2026-10-18 22:29:15.895
+	 Executed 5 tests, with 10 failures (0 unexpected) in 0.101 (0.101) seconds
+Test Suite 'brush-source-metric-probe.xctest' failed at 2026-10-18 22:29:15.895
+	 Executed 18 tests, with 10 failures (0 unexpected) in 0.208 (0.208) seconds
+Test Suite 'All tests' failed at 2026-10-18 22:29:15.895
+	 Executed 18 tests, with 10 failures (0 unexpected) in 0.208 (0.208) seconds

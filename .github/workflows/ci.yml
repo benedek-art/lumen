@@ -97,6 +97,232 @@ jobs:
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           exit $status
 
+  # Optional audit evidence stays separate from required release verification.
+  # Existing required jobs retain their unconditional steps and negative controls.
+  # Commit markers select a new measurement/question, avoiding repeated expensive
+  # sweeps after unrelated source changes. Dispatch deliberately runs the optional probes.
+  workflow-cost-audit:
+    if: >-
+      github.ref == 'refs/heads/codex/raw-accuracy-qualification' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.head_commit.message, '[workflow-cost]') ||
+       contains(github.event.head_commit.message, '[export-source-causal]') ||
+       contains(github.event.head_commit.message, '[keyword-scan-causal]') ||
+       contains(github.event.head_commit.message, '[mask-composition-causal]') ||
+       contains(github.event.head_commit.message, '[local-wb-neutral-causal]'))
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generated 5k and 20k workflow cost
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[workflow-cost]')
+        timeout-minutes: 25
+        shell: bash
+        env:
+          LUMEN_APP_BENCH: '1'
+          LUMEN_APP_BENCH_LARGE_SELECTIONS: ${{ github.ref == 'refs/heads/codex/raw-accuracy-qualification' && '1' || '0' }}
+        run: |
+          set -o pipefail
+          swift test -c release --filter GeneratedWorkflowCostTests 2>&1 | tee workflow-cost.log
+          expected_records=28
+          if [ "$LUMEN_APP_BENCH_LARGE_SELECTIONS" = '1' ]; then expected_records=48; fi
+          test "$(grep -c '^WORKFLOWBENCH ' workflow-cost.log)" -eq "$expected_records"
+          test "$(grep -c '^CATALOGINDEXBENCH ' workflow-cost.log)" -eq 4
+          grep -q 'Executed 1 test, with 0 failures' workflow-cost.log
+      - name: Prove the final export source check is causal
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[export-source-causal]')
+        timeout-minutes: 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='ExportSourceGenerationTests/testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial'
+          swift test -c release --filter "$target" 2>&1 | tee export-source-baseline.log
+          grep -q 'Executed 1 test, with 0 failures' export-source-baseline.log
+          source_file=Sources/LumenPipeline/PipelineRenderer.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/export-source-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > export-source-mutation-provenance.log
+          shasum -a 256 "$source_file" >> export-source-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenPipeline/PipelineRenderer.swift')
+          source = path.read_text()
+          check = '            try Self.validateExportSource(url: sourceURL, expected: expectedSourceIdentity)\n'
+          assert source.count(check) == 1, 'final publication check must be unique'
+          path.write_text(source.replace(check, '            // AUDIT MUTATION: final source check removed\n'))
+          PY
+          git diff -- "$source_file" >> export-source-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > export-source-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat export-source-mutant.log
+          test "$mutant_status" -ne 0
+          grep -q 'XCTAssertThrowsError failed' export-source-mutant.log
+          grep -Eq 'Executed 1 test, with [1-9][0-9]* failure' export-source-mutant.log
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> export-source-mutation-provenance.log
+          echo "EXPORT-SOURCE-CAUSAL baseline=GREEN final-check-removed=RED source-restored=true"
+      - name: Prove in-flight keyword scan fencing and current-membership filtering
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[keyword-scan-causal]')
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=InflightKeywordScanTests
+          swift test -c release --filter "$target" 2>&1 | tee keyword-scan-baseline.log
+          grep -q 'Executed 2 tests, with 0 failures' keyword-scan-baseline.log
+          source_file=Sources/LumenApp/CatalogService.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/keyword-scan-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > keyword-scan-mutation-provenance.log
+          shasum -a 256 "$source_file" >> keyword-scan-mutation-provenance.log
+          for mutation in pending-only unfiltered; do
+            cp "$source_backup" "$source_file"
+            KEYWORD_SCAN_MUTATION="$mutation" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('Sources/LumenApp/CatalogService.swift')
+          source = path.read_text()
+          if os.environ['KEYWORD_SCAN_MUTATION'] == 'pending-only':
+              old = 'let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit ?? owedKeywordEdit'
+              new = 'let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit'
+          else:
+              old = 'projected.keywords = currentEdit.apply(to: projected.keywords ?? [])'
+              new = 'projected.keywords = pendingKeywordEdit.apply(to: projected.keywords ?? [])'
+          assert source.count(old) == 1, 'mutation must target one exact scan expression'
+          path.write_text(source.replace(old, new))
+          PY
+            git diff -- "$source_file" >> keyword-scan-mutation-provenance.log
+            set +e
+            swift test -c release --filter "$target" > "keyword-scan-$mutation.log" 2>&1
+            mutant_status=$?
+            set -e
+            cat "keyword-scan-$mutation.log"
+            test "$mutant_status" -ne 0
+            grep -q 'XCTAssertEqual failed' "keyword-scan-$mutation.log"
+            grep -Eq 'Executed 2 tests, with [1-9][0-9]* failure' "keyword-scan-$mutation.log"
+            if [ "$mutation" = pending-only ]; then
+              grep -Fq "testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' failed" "keyword-scan-$mutation.log"
+            else
+              grep -Fq "testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' failed" "keyword-scan-$mutation.log"
+            fi
+          done
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> keyword-scan-mutation-provenance.log
+          echo "KEYWORD-SCAN-CAUSAL baseline=GREEN pending-only=RED unfiltered=RED source-restored=true"
+      - name: Prove composed mask geometry adds independent coverage
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[mask-composition-causal]')
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='MaskGeometryOracleTests|MaskGeometryCompositionOracleTests'
+          swift test -c release --filter "$target" 2>&1 | tee mask-composition-baseline.log
+          grep -q 'Executed 5 tests, with 0 failures' mask-composition-baseline.log
+          source_file=Sources/LumenPipeline/PipelineRenderer.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/mask-composition-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > mask-composition-mutation-provenance.log
+          shasum -a 256 "$source_file" >> mask-composition-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenPipeline/PipelineRenderer.swift')
+          source = path.read_text()
+          flip = '        if geo.flipH { orientation = orientation.scaledBy(x: -1, y: 1) }\n'
+          turn = '        if geo.angle != 0 { orientation = orientation.rotated(by: -geo.angle * .pi / 180) }\n'
+          assert source.count(flip + turn) == 1, 'must mutate one exact geometry composition'
+          path.write_text(source.replace(flip + turn, turn + flip))
+          PY
+          git diff -- "$source_file" >> mask-composition-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > mask-composition-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat mask-composition-mutant.log
+          test "$mutant_status" -ne 0
+          grep -q 'XCTAssertEqual failed' mask-composition-mutant.log
+          grep -Eq 'Executed 5 tests, with [1-9][0-9]* failure' mask-composition-mutant.log
+          for method in testMaskPixelsFollowIndependentCropReflectionAndQuarterTurnOracle testPointerCoordinatesFollowIndependentPixelPermutationOracle; do
+            grep -Fq "$method]' passed" mask-composition-mutant.log
+          done
+          for method in testShippingGeometryMatchesCombinedArrayPermutationAtEveryPixel testInversePointerAndStoredEndpointUseTheSameIndependentSourcePixels testMaskInteriorAndExteriorFollowCombinedPermutation; do
+            grep -Fq "$method]' failed" mask-composition-mutant.log
+          done
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> mask-composition-mutation-provenance.log
+          echo "MASK-COMPOSITION-CAUSAL baseline=GREEN wrong-order=RED old-oracle=GREEN source-restored=true"
+      - name: Prove neutral absolute white balance avoids an identity cube
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[local-wb-neutral-causal]')
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='NeutralAbsoluteWhiteBalanceIdentityTests|NeutralAbsoluteWhiteBalanceGPUIdentityTests'
+          swift test -c release --filter "$target" 2>&1 | tee local-wb-neutral-baseline.log
+          grep -q 'Executed 3 tests, with 0 failures' local-wb-neutral-baseline.log
+          source_file=Sources/LumenCore/Engine/ReferenceRenderer.swift
+          source_backup=$(mktemp "$RUNNER_TEMP/local-wb-neutral-baseline.XXXXXX")
+          cp "$source_file" "$source_backup"
+          trap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT
+          git rev-parse HEAD > local-wb-neutral-mutation-provenance.log
+          shasum -a 256 "$source_file" >> local-wb-neutral-mutation-provenance.log
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('Sources/LumenCore/Engine/ReferenceRenderer.swift')
+          source = path.read_text()
+          start = source.index('        public init(kelvin: Double, tint: Double?, amount: Double,')
+          end = source.index('        public static func resolve(', start)
+          region = source[start:end]
+          needle = '            self.isIdentity = engine.isIdentity'
+          assert region.count(needle) == 1, 'must change only the exact engine identity flag'
+          path.write_text(source[:start] + region.replace(needle, '            self.isIdentity = false') + source[end:])
+          PY
+          git diff -- "$source_file" >> local-wb-neutral-mutation-provenance.log
+          set +e
+          swift test -c release --filter "$target" > local-wb-neutral-mutant.log 2>&1
+          mutant_status=$?
+          set -e
+          cat local-wb-neutral-mutant.log
+          test "$mutant_status" -ne 0
+          grep -Eq 'XCTAssert(Equal|Nil|True) failed' local-wb-neutral-mutant.log
+          grep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' local-wb-neutral-mutant.log
+          grep -Fq "testNeutralAbsoluteFlagMatchesExactEngineIdentity]' failed" local-wb-neutral-mutant.log
+          grep -Fq "testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels]' failed" local-wb-neutral-mutant.log
+          grep -Fq "testNonneutralAbsoluteMatrixAndFlagRetainEngineResult]' passed" local-wb-neutral-mutant.log
+          cp "$source_backup" "$source_file"
+          cmp -s "$source_backup" "$source_file"
+          shasum -a 256 "$source_file" >> local-wb-neutral-mutation-provenance.log
+          echo "LOCAL-WB-NEUTRAL-CAUSAL baseline=GREEN old-flag=RED nonneutral=GREEN source-restored=true"
+      - name: Keep generated workflow cost
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-workflow-cost
+          path: |
+            workflow-cost.log
+            export-source-baseline.log
+            export-source-mutant.log
+            export-source-mutation-provenance.log
+            keyword-scan-baseline.log
+            keyword-scan-pending-only.log
+            keyword-scan-unfiltered.log
+            keyword-scan-mutation-provenance.log
+            mask-composition-baseline.log
+            mask-composition-mutant.log
+            mask-composition-mutation-provenance.log
+            local-wb-neutral-baseline.log
+            local-wb-neutral-mutant.log
+            local-wb-neutral-mutation-provenance.log
+          if-no-files-found: warn
+          retention-days: 14
+
   # The thing a photographer can actually open. Runs on every push regardless of the
   # test lane's verdict, because a build you can launch and poke at is how you find
   # out what the tests are not asking about.

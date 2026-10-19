@@ -1,0 +1,104 @@
+{
+  "black_level_per_channel": "[0, 0, 0, 0]",
+  "bytes": 21700096,
+  "camera_white_level_per_channel": "None",
+  "camera_whitebalance": "[0.0, 1.0, 0.0, 0.0]",
+  "color_desc": "b'GMCY'",
+  "daylight_whitebalance": "[1.0, 1.0, 1.0, 0.0]",
+  "default": {
+    "dtype": "uint8",
+    "max": 255.0,
+    "mean": 108.9164606032754,
+    "min": 0.0,
+    "nonzero": 23935985,
+    "p01_p50_p99": [
+      27.0,
+      100.0,
+      255.0
+    ],
+    "pixels": 23936000,
+    "seconds": 0.3075689549996241,
+    "shape": [
+      4000,
+      5984,
+      1
+    ],
+    "std": 52.86200731939059
+  },
+  "exposure_metadata": {
+    "ApertureValue": "(740, 100)",
+    "ExposureBiasValue": "(-85, 256)",
+    "ExposureTime": "(1, 500)",
+    "FocalLength": "(50, 1)",
+    "ISOSpeedRatings": "1600",
+    "ShutterSpeedValue": "(2319, 256)"
+  },
+  "libraw": [
+    0,
+    22,
+    1
+  ],
+  "linear_no_auto": {
+    "dtype": "uint16",
+    "max": 65535.0,
+    "mean": 4659.428957553476,
+    "min": 0.0,
+    "nonzero": 23935985,
+    "p01_p50_p99": [
+      471.0,
+      3250.0,
+      19555.0
+    ],
+    "pixels": 23936000,
+    "seconds": 0.3498703669997667,
+    "shape": [
+      4000,
+      5984,
+      1
+    ],
+    "std": 4054.610101646222
+  },
+  "num_colors": "1",
+  "numpy": "2.5.4",
+  "raw_pattern": "[[6]]",
+  "raw_type": "RawType.Flat",
+  "raw_visible": {
+    "dtype": "uint16",
+    "max": 3947.0,
+    "mean": 266.64772017045453,
+    "min": 0.0,
+    "nonzero": 23935985,
+    "p01_p50_p99": [
+      27.0,
+      186.0,
+      1119.0
+    ],
+    "pixels": 23936000,
+    "shape": [
+      4000,
+      5984
+    ],
+    "std": 232.01470442274467
+  },
+  "rawpy": "0.27.1",
+  "sha256": "3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977",
+  "sizes": "ImageSizes(raw_height=4000, raw_width=5984, height=4000, width=5984, top_margin=0, left_margin=0, iheight=4000, iwidth=5984, pixel_aspect=1.0, flip=0, crop_left_margin=4, crop_top_margin=4, crop_width=5976, crop_height=3992)",
+  "tiff_tags": {
+    "ifd0": {
+      "BaselineExposure": "(0, 1)",
+      "BitsPerSample": "(8, 8, 8)",
+      "Make": "Leica Camera AG",
+      "Model": "LEICA M MONOCHROM (Typ 246)",
+      "PhotometricInterpretation": "6",
+      "SamplesPerPixel": "3"
+    },
+    "ifd0/sub0": {
+      "BitsPerSample": "12",
+      "BlackLevel": "0",
+      "PhotometricInterpretation": "34892",
+      "SamplesPerPixel": "1",
+      "WhiteLevel": "3750"
+    }
+  },
+  "white_level": "3750"
+}

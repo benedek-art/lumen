@@ -1,0 +1,28 @@
+{
+  "baseline": {
+    "rows": 84,
+    "all_prior_csv_fields_exactly_equal": true,
+    "additional_current_columns": [
+      "colorDetail",
+      "colorSmoothness",
+      "inputXXH64",
+      "lumaDetail"
+    ],
+    "csv_bytes_equal": false,
+    "old_sha256": "9e2011df60c9ac5624571d5416ec742516122fac4a5b8fe5ae17b8ac72679b6b",
+    "new_sha256": "f09223f291a60c16d6d3f2835ad19710ddcefab84423a17cb9ca1f657d01b396",
+    "old_CRLF": 0,
+    "new_CRLF": 0
+  },
+  "detail": {
+    "rows": 22,
+    "all_prior_csv_fields_exactly_equal": true,
+    "additional_current_columns": [],
+    "csv_bytes_equal": true,
+    "old_sha256": "1a5d29e928665c8cd19c081a0a351fb3c135952a5a442c6ec26742578dacc512",
+    "new_sha256": "1a5d29e928665c8cd19c081a0a351fb3c135952a5a442c6ec26742578dacc512",
+    "old_CRLF": 0,
+    "new_CRLF": 0
+  },
+  "initial_comparison_failures": "Raw baseline CSV byte equality and whole-dictionary equality checks rejected the replay because the maintained harness adds inputXXH64/lumaDetail/colorDetail/colorSmoothness columns. Every prior field in all84 rows is exactly unchanged. Detail22 rows have identical fields. No numeric tolerance or quality assertion was changed."
+}

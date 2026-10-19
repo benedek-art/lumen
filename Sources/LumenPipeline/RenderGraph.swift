@@ -844,6 +844,20 @@ public struct RenderGraph {
 
     static func applyMatrix(_ image: CIImage, _ m: Mat3) -> CIImage {
         if m.maxAbsDifference(.identity) < 1e-12 { return image }
+        return applyMatrixUnconditionally(image, m)
+    }
+
+    /// Local WB's exact engine predicate owns its bypass. Keep the global helper's
+    /// established approximate identity policy separate from that contract.
+    static func applyMatrixUnconditionally(_ image: CIImage, _ m: Mat3) -> CIImage {
+        let rows = m.m.map { CIVector(x: $0[0], y: $0[1], z: $0[2]) }
+        if let mapped = KernelLibrary.apply(KernelLibrary.matrixRows,
+            extent: image.extent, [image, rows[0], rows[1], rows[2]]) {
+            return mapped
+        }
+        // The full availability roster reports this capability. Its absence does
+        // not change the existing coreAvailable policy; retain the stock filter's
+        // established behavior (including its measured partial-matrix limitation).
         let filter = CIFilter.colorMatrix()
         filter.inputImage = image
         // `rVector` is the ROW of the matrix that produces the output's red — that is,
@@ -939,7 +953,7 @@ public struct RenderGraph {
             out = Self.applyDetailBands(out, detail: d, lum: lum, longEdge: longEdge)
         }
         if d.dehaze != 0 {
-            out = Self.applyDehaze(out, amount: d.dehaze, longEdge: longEdge)
+            out = Self.applyDehaze(out, amount: d.dehaze, longEdge: longEdge, skySource: image)
         }
         return out
     }
@@ -1076,7 +1090,29 @@ public struct RenderGraph {
         return out
     }
 
-    static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int) -> CIImage {
+    /// Exact sky-evidence definition shared with DetailEngine.Decomposition:
+    /// log2(max(Y/.18, 2^-20)), central differences, box-smoothed tensor, sqrt(lambda1).
+    /// This deliberately does not reuse localStructure's Sobel/encoded-axis contract.
+    static func dehazeSkyFields(_ image: CIImage, longEdge: Int)
+        -> (logEV: CIImage, magnitude: CIImage)? {
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        guard let logEV = KernelLibrary.apply(KernelLibrary.dehazeLogEV,
+            extent: image.extent, [image, CIVector(x: weights.r, y: weights.g, z: weights.b)])
+        else { return nil }
+        let workingRadius = Swift.min(Swift.max(Int(Double(longEdge) * 0.02), 3),
+                                      Int(Swift.max(image.extent.width, image.extent.height)))
+        let radius = Swift.max(workingRadius / 4, 1)
+        guard let tensor = KernelLibrary.applyNeighbourhood(KernelLibrary.dehazeCentralTensor,
+                  extent: image.extent, reach: 1, [logEV.clampedToExtent()]),
+              let smoothed = Self.boxBlur(tensor, radius: radius),
+              let magnitude = KernelLibrary.apply(KernelLibrary.tensorMagnitude,
+                  extent: image.extent, [smoothed])
+        else { return nil }
+        return (logEV, magnitude)
+    }
+
+    static func applyDehaze(_ image: CIImage, amount: Double, longEdge: Int,
+                            skySource: CIImage? = nil) -> CIImage {
         let strength = Num.clamp(amount / 100.0, -1, 1)
         guard strength != 0 else { return image }
         // The reference sizes the dark-channel window off `min(width, height) / 100`.
@@ -1197,10 +1233,11 @@ public struct RenderGraph {
             refined = Self.clamped(biased, low: 0.02, high: 1.0) ?? biased
         }
 
-        // The same base transmission floor the reference uses. The reference ALSO lifts
-        // it per pixel toward 0.9 where the frame is bright and flat — its sky guard —
-        // which needs the gradient and log-luminance planes the kernel is not given, so
-        // that part stays reference-only and is listed in BUILDING.md.
+        // The reference freezes its decomposition before Texture/Clarity. Use that
+        // same stage input for sky evidence, with actual EV and central differences.
+        guard let sky = Self.dehazeSkyFields(skySource ?? image, longEdge: longEdge) else {
+            return image
+        }
         let distance = Num.clamp(DetailEngine.dehazeDistance, 0, 100) / 100
         let floorT = Num.mix(0.55, 0.05, distance)
 
@@ -1215,7 +1252,7 @@ public struct RenderGraph {
 
         return KernelLibrary.apply(
             KernelLibrary.dehaze, extent: image.extent,
-            [image, refined,
+            [image, refined, sky.logEV, sky.magnitude,
              CIVector(x: gain.r, y: gain.g, z: gain.b),
              CIVector(x: weights.r, y: weights.g, z: weights.b),
              CIVector(x: airlight.r, y: airlight.g, z: airlight.b),
@@ -1288,14 +1325,17 @@ public struct RenderGraph {
                                   globalColor: plan.recipe.develop.color,
                                   globalWheels: plan.recipe.look.wheels,
                                   balanced: plan.balancedNeutral)
-        // Three pieces, in the order the reference evaluates them: the tone/white
-        // balance table, the mask's colour stage EXACTLY (AI-03 — its swatches and
+        // Four pieces, in the order the reference evaluates them: the tone table,
+        // the exact white-balance matrix, the mask's colour stage (AI-03 — its swatches and
         // Saturation are the same hue- and chroma-selective tools the global table
         // could not hold), then the hue/tint/grade table. Each is skipped only when it
         // is the identity, so a control crossing zero adds or removes one exact piece
         // and never changes how the others are evaluated.
         if let pre = localPlan.preLUT {
             out = throughShaper(out) { encoded in ColorCube.filter(pre, image: encoded) } ?? out
+        }
+        if let whiteBalance = localPlan.whiteBalance {
+            out = applyMatrixUnconditionally(out, whiteBalance)
         }
         out = applyColorStage(out, localPlan.colorStage)
         if let post = localPlan.postLUT {
@@ -2243,18 +2283,19 @@ struct LocalCurvePlan {
 
 // MARK: - Local adjustment table
 
-/// A mask's per-pixel colour work: the same three-piece shape as the global path.
+/// A mask's per-pixel colour work: tone, exact WB, exact colour, then hue/tint/grade.
 ///
 /// It was ONE table holding tone, white balance, the mask's `ColorEngine`, hue shift,
 /// tint and grade. The `ColorEngine` part is what AI-03 is about — a masked Point Colour
 /// or Saturation sampled through a cube has the same 30-to-50-code error the global one
-/// had — so it runs exactly between two tables: `preLUT` (tone gain, white balance) and
+/// had — so it runs exactly after WB and between two tables: `preLUT` (tone gain) and
 /// `postLUT` (hue shift, colour tint, local grade), each nil when it is the identity.
 /// ALWAYS split, never only when the colour stage is live: fusing the two tables when
 /// it is off would be a route that changes with a control, which is exactly the
 /// discontinuity EXECUTION-05 measured.
 struct LocalPlan {
     let preLUT: LUT3D?
+    let whiteBalance: Mat3?
     let colorStage: ExactColorStage
     let postLUT: LUT3D?
     let isIdentity: Bool
@@ -2278,7 +2319,10 @@ struct LocalPlan {
         // edit was a sampled swatch declared itself identity, got a 2-point identity
         // table, and returned its input — the Point Colour control did nothing at all
         // inside a mask on the GPU path, which is every preview and every export.
-        let identity = adjust.contrast == 0 && adjust.highlights == 0
+        // Zero mask/group Amount nulls every adjustment delta. Bypass the table
+        // domain entirely: even an identity cube clamps negative/extended channels.
+        // Selection alpha and referenced donor masks are independent of this strength.
+        let identity = scale == 0 || (adjust.contrast == 0 && adjust.highlights == 0
             && adjust.shadows == 0 && adjust.whites == 0 && adjust.blacks == 0
             && adjust.temp == 0 && adjust.tint == 0 && adjust.kelvin == nil
             && adjust.hue == 0
@@ -2287,10 +2331,11 @@ struct LocalPlan {
             // `wheels` belongs here for the same reason `pointColors` does: a mask
             // whose only edit is a grade would otherwise declare itself identity and
             // return its input.
-            && (adjust.wheels?.isNeutral ?? true)
+            && (adjust.wheels?.isNeutral ?? true))
         self.isIdentity = identity
         guard !identity else {
             self.preLUT = nil
+            self.whiteBalance = nil
             self.colorStage = ColorEngine(mixer: Mixer(), pointColors: [], color: ColorAdjust(),
                                           primaries: Primaries(), bw: nil).exactStage
             self.postLUT = nil
@@ -2343,12 +2388,14 @@ struct LocalPlan {
                           printerLights: PrinterLights(),
                           whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV)
 
-        // Same identity tests the reference uses (`ReferenceRenderer.applyLocalAdjust`).
-        self.preLUT = tone.isIdentity && balance.isIdentity ? nil : LUT3D(size: size) { encoded in
+        // Tone → exact WB matrix → exact colour, matching the reference. A WB-only
+        // edit must not project signed/HDR pixels into a bounded table domain.
+        self.whiteBalance = balance.isIdentity ? nil : balance.matrix
+        self.preLUT = tone.isIdentity ? nil : LUT3D(size: size) { encoded in
             var c = LumenLog.decode(encoded)
             let lum = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
             c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
-            return LumenLog.encode(balance.apply(c))
+            return LumenLog.encode(c)
         }
         self.colorStage = colorEngine.exactStage
         let tinted = tintColor != nil && tintStrength > 0

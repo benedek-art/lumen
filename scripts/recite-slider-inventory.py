@@ -66,10 +66,11 @@ def main():
         below = [m[k] for k in range(n, 0, -1) if k in m][:1]
         guess = below[0] if below else n
         cands = [i + 1 for i, s in enumerate(new) if is_call(s)]
-        if title:
-            exact = [c for c in cands if spelled(new, c) == title]
-            if exact:
-                return min(exact, key=lambda c: abs(c - guess))
+        # An empty literal title still identifies the wheel's lightness call.
+        # Computed titles remain None and use the proximity fallback below.
+        exact = [c for c in cands if spelled(new, c) == title]
+        if exact:
+            return min(exact, key=lambda c: abs(c - guess))
         near = [c for c in cands if abs(c - guess) <= 40 and spelled(new, c) is None]
         return min(near, key=lambda c: abs(c - guess)) if near else None
 

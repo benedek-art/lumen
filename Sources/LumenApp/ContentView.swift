@@ -219,6 +219,9 @@ struct ContentView: View {
         // the state for the same reason as the gesture sink — a closure built here would
         // be a new identity on every body pass, invalidating every slider in the tree.
         .environment(\.sliderFocusChanged, state.sliderFocusSink)
+        .environment(\.sliderEditContext, SliderEditContext(
+            primary: state.primarySelection?.id, selection: state.selection,
+            maskID: state.activeMaskID, componentIndex: state.activeComponentIndex))
         // AN OVERLAY, NOT A SHEET, and deliberately not routed through the presenter
         // below. A sheet is modal, animates in, and dims what is behind it — right for
         // Export, wrong for a thing you open, type four letters into and dismiss. It is

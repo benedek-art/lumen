@@ -434,6 +434,48 @@ struct LumenTrackStop {
 
 // MARK: - Slider
 
+/// Identity of the adjustment targets a slider entry is allowed to change. Sets copy on
+/// write, so retaining a large batch does not duplicate its selected URLs.
+struct SliderEditContext: Equatable, Sendable {
+    var primary: URL? = nil
+    var selection: Set<URL> = []
+    var maskID: String? = nil
+    var componentIndex: Int? = nil
+    var swatchIndex: Int? = nil
+    var mixerBand: Int? = nil
+    var mixerAllBands: Bool? = nil
+    var wheelRole: String? = nil
+}
+
+private struct SliderEditContextKey: EnvironmentKey {
+    static let defaultValue = SliderEditContext()
+}
+
+extension EnvironmentValues {
+    var sliderEditContext: SliderEditContext {
+        get { self[SliderEditContextKey.self] }
+        set { self[SliderEditContextKey.self] = newValue }
+    }
+}
+
+/// A pending number belongs to the targets and value that opened the field. The
+/// binding itself follows selection, so reading it at Return without this check
+/// can write photo A's unfinished entry onto photo B, even when both read 0.
+struct SliderNumericEntrySession {
+    let context: SliderEditContext
+    let initialValue: Double
+    /// The readout can round a stored value. Submitting its untouched text must not.
+    var initialText: String? = nil
+
+    func resolved(_ text: String, context current: SliderEditContext,
+                  currentValue: Double, range: ClosedRange<Double>) -> Double? {
+        guard context == current, initialValue == currentValue else { return nil }
+        if text == initialText { return initialValue }
+        guard let parsed = SliderEntry.value(of: text, current: initialValue) else { return nil }
+        return min(max(parsed, range.lowerBound), range.upperBound)
+    }
+}
+
 struct LumenSlider: View {
     let title: String
     @Binding var value: Double
@@ -534,6 +576,7 @@ struct LumenSlider: View {
     /// Same shape and the same reason as the gesture hook above: this control does not
     /// observe `AppState`, and it must not start.
     @Environment(\.sliderFocusChanged) private var sliderFocusChanged
+    @Environment(\.sliderEditContext) private var sliderEditContext
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -562,11 +605,15 @@ struct LumenSlider: View {
     /// never be half-way through each other.
     @State private var isScrubbing = false
     @State private var scrubGearbox = FineDrag(startValue: 0)
+    @State private var trackDragSession = ScalarDragSession<SliderEditContext>()
+    @State private var scrubDragSession = ScalarDragSession<SliderEditContext>()
+    @State private var trackDragMapping: SliderTrack?
     /// The press that began this gesture was the second click of a double-click, so
     /// `reset()` ran and everything else the gesture delivers is ignored.
     @State private var pressWasReset = false
     @State private var isEditingText = false
     @State private var textValue = ""
+    @State private var numericEntrySession: SliderNumericEntrySession?
     @FocusState private var textFocused: Bool
     /// Keyboard focus on the ROW, which is what the arrows nudge. Distinct from
     /// `textFocused`, which is the readout's text field — while that one holds focus the
@@ -762,7 +809,29 @@ struct LumenSlider: View {
         .onChange(of: rowFocused) { _, focused in
             sliderFocusChanged(focused)
         }
+        .onChange(of: sliderEditContext) { _, _ in
+            cancelTextEntry()
+            cancelScalarDrags()
+        }
+        .onChange(of: value) { _, _ in
+            let current = value
+            if let mapping = trackDragMapping, trackDragSession.isActive,
+               !trackDragSession.accepts(context: sliderEditContext, value: current, mapping: mapping) {
+                cancelTrackDrag()
+            }
+            if scrubDragSession.isActive,
+               !scrubDragSession.accepts(context: sliderEditContext, value: current, mapping: scrubTrack) {
+                cancelScrubDrag()
+            }
+        }
+        .onChange(of: scrubTrack) { _, _ in cancelScalarDrags() }
+        .onChange(of: textFocused) { _, focused in
+            if !focused { cancelTextEntry() }
+        }
+        .onAppear { recoverScalarDragsIfReleased() }
         .onDisappear {
+            cancelTextEntry()
+            cancelScalarDrags()
             // A panel switch removes the row without the focus ever changing, so the
             // count would never come back down and the arrows would stop paging
             // photographs for the rest of the session. `noteSliderFocus` floors at zero,
@@ -1166,6 +1235,11 @@ struct LumenSlider: View {
                                 reset()
                                 return
                             }
+                            guard trackDragSession.begin(context: sliderEditContext, value: value,
+                                                         mapping: geometryOfDrag) else { return }
+                            trackDragMapping = geometryOfDrag
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -1174,6 +1248,7 @@ struct LumenSlider: View {
                                 dragStartValue = geometryOfDrag.valueAtPress(
                                     x: Double(drag.startLocation.x))
                                 value = dragStartValue
+                                trackDragSession.recordWrittenValue(value)
                             }
                             // The gesture's gearbox, opened at the press. Coarse it is
                             // arithmetically identical to the old direct call — see
@@ -1181,10 +1256,13 @@ struct LumenSlider: View {
                             // the same one with an anchor that ⇧ can move.
                             gearbox = FineDrag(startValue: dragStartValue,
                                                fine: Self.shiftIsDown)
-                            onEditingChanged?(true)
-                            sliderGestureChanged(true)
                         }
                         if pressWasReset { return }
+                        guard trackDragSession.accepts(context: sliderEditContext, value: value,
+                                                       mapping: geometryOfDrag) else {
+                            cancelTrackDrag()
+                            return
+                        }
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         // ⇧ read off the live AppKit modifier flags rather than from the
                         // gesture, because SwiftUI's `DragGesture.Value` carries no
@@ -1203,6 +1281,7 @@ struct LumenSlider: View {
                                                     fine: Self.shiftIsDown)
                         if let changed = out.changedGear { gearbox = changed }
                         commit(out.value)
+                        trackDragSession.recordWrittenValue(value)
                     }
                     .onEnded { drag in
                         // THE RELEASE IS A SAMPLE, and it is the last one.
@@ -1224,7 +1303,9 @@ struct LumenSlider: View {
                             isDragging = false
                             return
                         }
-                        if isDragging {
+                        if isDragging,
+                           trackDragSession.accepts(context: sliderEditContext, value: value,
+                                                    mapping: geometryOfDrag) {
                             let travelled = Double(drag.location.x - drag.startLocation.x)
                             // Through the same gearbox as every motion sample, because a
                             // release IS a motion sample. Resolving it against
@@ -1236,12 +1317,12 @@ struct LumenSlider: View {
                                                             travelled: travelled,
                                                             fine: Self.shiftIsDown).value
                             commit(settled)
-                        }
-                        isDragging = false
-                        onEditingChanged?(false)
-                        sliderGestureChanged(false)
+                            trackDragSession.recordWrittenValue(value)
+                        } else { cancelTrackDrag() }
+                        finishTrackDrag()
                     }
             )
+            .onChange(of: geometryOfDrag) { _, _ in cancelTrackDrag() }
             // No `.onTapGesture(count: 2)` here any more: behind a minimumDistance-0
             // drag it never fired (the drag claims the press), which is how "double-
             // click to reset" shipped as a promise the track did not keep. The reset
@@ -1260,7 +1341,7 @@ struct LumenSlider: View {
                     .multilineTextAlignment(.trailing)
                     .focused($textFocused)
                     .onSubmit { commitText() }
-                    .onExitCommand { isEditingText = false }
+                    .onExitCommand { cancelTextEntry() }
             } else {
                 // TABULAR FIGURES ON SF PRO, not SF Mono. The app mixed two typefaces
                 // at 23 sites — a second family, a different x-height, inches from the
@@ -1276,6 +1357,8 @@ struct LumenSlider: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         textValue = formatted
+                        numericEntrySession = SliderNumericEntrySession(
+                            context: sliderEditContext, initialValue: value, initialText: textValue)
                         isEditingText = true
                         textFocused = true
                     }
@@ -1298,10 +1381,17 @@ struct LumenSlider: View {
                             .onChanged { drag in
                                 if !isScrubbing {
                                     isScrubbing = true
+                                    guard scrubDragSession.begin(context: sliderEditContext, value: value,
+                                                                 mapping: scrubTrack) else { return }
                                     scrubGearbox = FineDrag(startValue: value,
                                                             fine: Self.shiftIsDown)
                                     onEditingChanged?(true)
                                     sliderGestureChanged(true)
+                                }
+                                guard scrubDragSession.accepts(context: sliderEditContext, value: value,
+                                                               mapping: scrubTrack) else {
+                                    cancelScrubDrag()
+                                    return
                                 }
                                 let travelled = Double(drag.location.x
                                                        - drag.startLocation.x)
@@ -1310,9 +1400,16 @@ struct LumenSlider: View {
                                     fine: Self.shiftIsDown)
                                 if let changed = out.changedGear { scrubGearbox = changed }
                                 commit(out.value)
+                                scrubDragSession.recordWrittenValue(value)
                             }
                             .onEnded { drag in
                                 guard isScrubbing else { return }
+                                guard scrubDragSession.accepts(context: sliderEditContext, value: value,
+                                                               mapping: scrubTrack) else {
+                                    cancelScrubDrag()
+                                    finishScrubDrag()
+                                    return
+                                }
                                 // A release is a sample here for the same reason it is
                                 // one on the track: the last motion event is exactly
                                 // what gets dropped when the main actor is behind.
@@ -1321,9 +1418,8 @@ struct LumenSlider: View {
                                 commit(scrubGearbox.resolving(
                                     track: scrubTrack, travelled: travelled,
                                     fine: Self.shiftIsDown).value)
-                                isScrubbing = false
-                                onEditingChanged?(false)
-                                sliderGestureChanged(false)
+                                scrubDragSession.recordWrittenValue(value)
+                                finishScrubDrag()
                             }
                     )
                     .help("Drag to adjust, click to type — ⇧ for fine")
@@ -1383,8 +1479,61 @@ struct LumenSlider: View {
         sliderGestureChanged(false)
     }
 
-    private func commitText() {
+    private func recoverScalarDragsIfReleased() {
+        // SwiftUI can retain row State while a panel disappears without delivering
+        // the old release. Reopen only after the physical press is over; motion
+        // callbacks themselves are never evidence of a new press.
+        guard NSEvent.pressedMouseButtons == 0 else { return }
+        finishTrackDrag()
+        finishScrubDrag()
+        pressWasReset = false
+    }
+
+    private func cancelTrackDrag() {
+        if trackDragSession.cancel() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+    }
+
+    private func cancelScrubDrag() {
+        if scrubDragSession.cancel() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+    }
+
+    private func cancelScalarDrags() {
+        cancelTrackDrag()
+        cancelScrubDrag()
+    }
+
+    private func finishTrackDrag() {
+        if trackDragSession.finish() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+        isDragging = false
+        trackDragMapping = nil
+    }
+
+    private func finishScrubDrag() {
+        if scrubDragSession.finish() {
+            onEditingChanged?(false)
+            sliderGestureChanged(false)
+        }
+        isScrubbing = false
+    }
+
+    private func cancelTextEntry() {
+        numericEntrySession = nil
         isEditingText = false
+        textFocused = false
+    }
+
+    private func commitText() {
+        let session = numericEntrySession
+        cancelTextEntry()
         // Through `SliderEntry` in LumenCore, which is where the grammar and its refusals
         // are tested. It accepts arithmetic — `+= 0.3`, `-= 0.2`, `* 2`, `/ 2` (docs/28
         // Phase 6, claiming one of D45's deliberate omissions) — and a bare number is
@@ -1399,7 +1548,9 @@ struct LumenSlider: View {
         // `JSONEncoder` refuses non-conforming floats, so the canonical JSON collapses to
         // "{}" and that is what gets written to the sidecar, erasing the photo's edit
         // from the copy that exists to survive losing the catalog.
-        guard let parsed = SliderEntry.value(of: textValue, current: value) else { return }
+        guard let parsed = session?.resolved(textValue, context: sliderEditContext,
+                                            currentValue: value, range: effectiveHardRange),
+              parsed != value else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
         onEditingChanged?(true)
@@ -1903,6 +2054,115 @@ struct LumenSegmented<T: Hashable>: View {
 
 // MARK: - Colour wheel
 
+/// Caller-owned identity read at event time; the wheel itself need not know AppState.
+struct ColorWheelTargetContext: Equatable {
+    var primary: URL?
+    var selection: Set<URL>
+    var targetMaskID: String? = nil
+    var activeMaskID: String? = nil
+    var wheelRole: String
+    var selectedRole: String? = nil
+
+    static let unscoped = ColorWheelTargetContext(primary: nil, selection: [], wheelRole: "unscoped")
+
+    var isCurrentTarget: Bool {
+        (targetMaskID == nil || targetMaskID == activeMaskID)
+            && (selectedRole == nil || selectedRole == wheelRole)
+    }
+
+    func numericEntryContext(inheriting parent: SliderEditContext) -> SliderEditContext {
+        var result = parent
+        result.primary = primary
+        result.selection = selection
+        result.wheelRole = selectedRole ?? wheelRole
+        return result
+    }
+}
+
+/// A release is the final sample only for the exact targets and geometry that
+/// received the press. Rejected target excursions cannot revive before release.
+struct ColorWheelDragSession {
+    private var active = false
+    private var pressWasReset = false
+    private var context: ColorWheelTargetContext?
+    private var pressDiameter: CGFloat?
+    private var invalidated = false
+
+    mutating func invalidate() { invalidated = true }
+
+    private mutating func accepts(_ current: ColorWheelTargetContext, diameter: CGFloat) -> Bool {
+        guard !invalidated, current == context, current.isCurrentTarget,
+              diameter == pressDiameter, diameter > 0, diameter.isFinite else {
+            invalidated = true
+            return false
+        }
+        return true
+    }
+
+    mutating func changed(location: CGPoint, diameter: CGFloat, clickCount: Int,
+                          context current: ColorWheelTargetContext = .unscoped,
+                          write: (Double, Double) -> Void, reset: () -> Void,
+                          editingChanged: (Bool) -> Void) {
+        let began = !active
+        if began {
+            active = true
+            context = current
+            pressDiameter = diameter
+            invalidated = false
+        }
+        guard accepts(current, diameter: diameter) else { return }
+        if began {
+            if clickCount >= 2 {
+                pressWasReset = true
+                editingChanged(true)
+                reset()
+                editingChanged(false)
+            }
+        }
+        if pressWasReset { return }
+        editingChanged(true)
+        Self.sample(location: location, diameter: diameter, write: write)
+    }
+
+    mutating func ended(location: CGPoint, diameter: CGFloat,
+                        context current: ColorWheelTargetContext = .unscoped,
+                        write: (Double, Double) -> Void,
+                        editingChanged: (Bool) -> Void) {
+        let resetAlreadyClosed = pressWasReset
+        defer {
+            clear()
+            if !resetAlreadyClosed { editingChanged(false) }
+        }
+        guard active, accepts(current, diameter: diameter), !pressWasReset else { return }
+        Self.sample(location: location, diameter: diameter, write: write)
+    }
+
+    mutating func cancelled(editingChanged: (Bool) -> Void) {
+        guard active else { return }
+        let resetAlreadyClosed = pressWasReset
+        clear()
+        if !resetAlreadyClosed { editingChanged(false) }
+    }
+
+    private mutating func clear() {
+        active = false
+        pressWasReset = false
+        context = nil
+        pressDiameter = nil
+        invalidated = false
+    }
+
+    private static func sample(location: CGPoint, diameter: CGFloat,
+                               write: (Double, Double) -> Void) {
+        let dx = location.x - diameter / 2
+        let dy = location.y - diameter / 2
+        let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
+        let hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
+            .truncatingRemainder(dividingBy: 360)
+        write(hue, Double(r))
+    }
+}
+
 /// A grading wheel: hue as angle, saturation as radius, with a separate luminance
 /// bar under it. The pivot pickers that make Lumen's wheels different from LR's live
 /// in the panel, not here — this is only the puck.
@@ -1917,6 +2177,7 @@ struct LumenColorWheel: View {
     /// by eye at a radius, and half the radius is half the precision for the same hand
     /// movement — four wheels this small was the reason grading felt fiddly rather than
     /// the reason it felt complete.
+    var dragContext: () -> ColorWheelTargetContext
     var diameter: CGFloat = 68
     /// Centre the lightness bar on the wheel's axis and caption it "Luminance".
     ///
@@ -1934,12 +2195,12 @@ struct LumenColorWheel: View {
     /// was in flight (a SQLite write plus a canonical-JSON fingerprint per photo per
     /// mouse event, a scope timer restarted per event) were being paid everywhere.
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
+    @Environment(\.sliderEditContext) private var inheritedSliderEditContext
 
     /// Same double-click story as `LumenSlider`'s track: a TapGesture(count: 2)
     /// behind a minimumDistance-0 drag never fires, so the reset reads the click
     /// count off the AppKit event at press time instead.
-    @State private var dragActive = false
-    @State private var pressWasReset = false
+    @State private var dragSession = ColorWheelDragSession()
 
     var body: some View {
         VStack(spacing: 4) {
@@ -1977,36 +2238,22 @@ struct LumenColorWheel: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        if !dragActive {
-                            dragActive = true
-                            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-                                pressWasReset = true
-                                onEditingChanged?(true)
-                                sliderGestureChanged(true)
-                                sat = 0
-                                lum = 0
-                                onEditingChanged?(false)
-                                sliderGestureChanged(false)
-                            }
-                        }
-                        if pressWasReset { return }
-                        onEditingChanged?(true)
-                        sliderGestureChanged(true)
-                        let dx = drag.location.x - diameter / 2
-                        let dy = drag.location.y - diameter / 2
-                        let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
-                        hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
-                            .truncatingRemainder(dividingBy: 360)
-                        sat = Double(r)
+                        var next = dragSession
+                        next.changed(location: drag.location, diameter: diameter,
+                            clickCount: NSApp.currentEvent?.clickCount ?? 1,
+                            context: dragContext(),
+                            write: applyWheelSample,
+                            reset: { sat = 0; lum = 0 },
+                            editingChanged: wheelEditingChanged)
+                        dragSession = next
                     }
-                    .onEnded { _ in
-                        dragActive = false
-                        if pressWasReset {
-                            pressWasReset = false
-                            return
-                        }
-                        onEditingChanged?(false)
-                        sliderGestureChanged(false)
+                    .onEnded { drag in
+                        var next = dragSession
+                        next.ended(location: drag.location, diameter: diameter,
+                            context: dragContext(),
+                            write: applyWheelSample,
+                            editingChanged: wheelEditingChanged)
+                        dragSession = next
                     }
             )
             // THE PUCK AS AN ADJUSTABLE ELEMENT (UX-03). The disc is gradients and a
@@ -2072,6 +2319,23 @@ struct LumenColorWheel: View {
                     .frame(width: diameter + 40)
             }
         }
+        .onChange(of: dragContext()) { _, _ in dragSession.invalidate() }
+        .onChange(of: diameter) { _, _ in dragSession.invalidate() }
+        .onDisappear {
+            var next = dragSession
+            next.cancelled(editingChanged: wheelEditingChanged)
+            dragSession = next
+        }
+    }
+
+    private func applyWheelSample(hue: Double, saturation: Double) {
+        if self.hue != hue { self.hue = hue }
+        if sat != saturation { sat = saturation }
+    }
+
+    private func wheelEditingChanged(_ editing: Bool) {
+        onEditingChanged?(editing)
+        sliderGestureChanged(editing)
     }
 
     /// One assistive write, bracketed the way a click on the disc is.
@@ -2101,6 +2365,8 @@ struct LumenColorWheel: View {
                     // Untitled on screen, so it is named for VoiceOver — after the
                     // wheel it belongs to where the wheel has a caption.
                     accessibilityName: title.isEmpty ? "Luminance" : "\(title) luminance")
+            .environment(\.sliderEditContext,
+                         dragContext().numericEntryContext(inheriting: inheritedSliderEditContext))
     }
 
     private var puck: some View {

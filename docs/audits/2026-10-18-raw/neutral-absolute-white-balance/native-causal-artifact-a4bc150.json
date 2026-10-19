@@ -1,0 +1,97 @@
+{
+  "source_sha": "a4bc1506e0e744f58089b56bfbc8953b2d3e6fc0",
+  "run_id": 39136447281,
+  "job_id": 117701884220,
+  "artifact_id": 12139294687,
+  "public_artifact_url": "https://github.com/benedek-art/lumen/actions/runs/39136447281/artifacts/12139294687",
+  "artifact_zip_sha256": "b520fe948f1a49cda11a10d31827143ce3c53cac8c8d221b86e2278969caa5e2",
+  "matches_GitHub_artifact_digest": true,
+  "artifact_files": {
+    "local-wb-neutral-mutation-provenance.log": {
+      "bytes": 980,
+      "sha256": "f532b8ba6a111a424e29f705dcad1ed4eefb82921a42d80a33803b06382c567b"
+    },
+    "local-wb-neutral-baseline.log": {
+      "bytes": 19224,
+      "sha256": "299d393f61788934260d76ec00f43386cfd98f4388a6a34a2d28c2c2a81261c6"
+    },
+    "local-wb-neutral-mutant.log": {
+      "bytes": 19637479,
+      "sha256": "12a76ab95b4acaeb2650a66eea9da249dcdf1fb0f8a785677baf570f8cf9a3d6"
+    }
+  },
+  "baseline_summary": [
+    "\t Executed 3 tests, with 0 failures (0 unexpected) in 7.626 (7.627) seconds",
+    "\t Executed 3 tests, with 0 failures (0 unexpected) in 7.626 (7.629) seconds"
+  ],
+  "mutant_summary": [
+    "\t Executed 3 tests, with 10 failures (0 unexpected) in 3.322 (3.322) seconds",
+    "\t Executed 3 tests, with 10 failures (0 unexpected) in 3.322 (3.325) seconds"
+  ],
+  "baseline_test_outcomes": [
+    "Test Case '-[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels]' passed (7.626 seconds).",
+    "Test Case '-[LumenCoreTests.NeutralAbsoluteWhiteBalanceIdentityTests testNeutralAbsoluteFlagMatchesExactEngineIdentity]' passed (0.000 seconds).",
+    "Test Case '-[LumenCoreTests.NeutralAbsoluteWhiteBalanceIdentityTests testNonneutralAbsoluteMatrixAndFlagRetainEngineResult]' passed (0.000 seconds)."
+  ],
+  "mutant_test_outcomes": [
+    "Test Case '-[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels]' failed (3.319 seconds).",
+    "Test Case '-[LumenCoreTests.NeutralAbsoluteWhiteBalanceIdentityTests testNeutralAbsoluteFlagMatchesExactEngineIdentity]' failed (0.002 seconds).",
+    "Test Case '-[LumenCoreTests.NeutralAbsoluteWhiteBalanceIdentityTests testNonneutralAbsoluteMatrixAndFlagRetainEngineResult]' passed (0.000 seconds)."
+  ],
+  "actual_assertion_failures": 10,
+  "assertion_prefixes": [
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:38: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertNil failed: \"LUT3D(size: 33, data: [0.0, 0.0, 0.0, 1.0, 0.03125, 0.0, 0.0, 1.0, 0.0625, 0.0, 0.0, 1.0, 0.09375, 0.0, 0.0, 1.0, 0.125, 0.0, 0.0, 1.0, 0.15625, 0.0, 0.0, 1.0, 0.1875, 0.0, 0.0, 1.0, 0.21875, 0.0, 0.0, 1.0, 0.25, 0.0, 0.0, 1.0, 0.28125, 0.0, 0.0,",
+      "original_chars": 1039196,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:43: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertEqual failed: (\"[-4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, 737.28, 128.00009, 256.00037, 1.0, 737.28, 128.00009, 256.00037, 1",
+      "original_chars": 3403,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:38: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertNil failed: \"LUT3D(size: 65, data: [0.0, 0.0, 0.0, 1.0, 0.015625, 0.0, 0.0, 1.0, 0.03125, 0.0, 0.0, 1.0, 0.046875, 0.0, 0.0, 1.0, 0.0625, 0.0, 0.0, 1.0, 0.078125, 0.0, 0.0, 1.0, 0.09375, 0.0, 0.0, 1.0, 0.109375, 0.0, 0.0, 1.0, 0.125, 0.0, 0.0, 1.0, 0.140625, ",
+      "original_chars": 8762940,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:43: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertEqual failed: (\"[-4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, 737.28, 128.00009, 256.00037, 1.0, 737.28, 128.00009, 256.00037, 1",
+      "original_chars": 3403,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:38: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertNil failed: \"LUT3D(size: 33, data: [0.0, 0.0, 0.0, 1.0, 0.03125, 0.0, 0.0, 1.0, 0.0625, 0.0, 0.0, 1.0, 0.09375, 0.0, 0.0, 1.0, 0.125, 0.0, 0.0, 1.0, 0.15625, 0.0, 0.0, 1.0, 0.1875, 0.0, 0.0, 1.0, 0.21875, 0.0, 0.0, 1.0, 0.25, 0.0, 0.0, 1.0, 0.28125, 0.0, 0.0,",
+      "original_chars": 1039196,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:43: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertEqual failed: (\"[-4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, 737.28, 128.00009, 256.00037, 1.0, 737.28, 128.00009, 256.00037, 1",
+      "original_chars": 3403,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:38: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertNil failed: \"LUT3D(size: 65, data: [0.0, 0.0, 0.0, 1.0, 0.015625, 0.0, 0.0, 1.0, 0.03125, 0.0, 0.0, 1.0, 0.046875, 0.0, 0.0, 1.0, 0.0625, 0.0, 0.0, 1.0, 0.078125, 0.0, 0.0, 1.0, 0.09375, 0.0, 0.0, 1.0, 0.109375, 0.0, 0.0, 1.0, 0.125, 0.0, 0.0, 1.0, 0.140625, ",
+      "original_chars": 8762940,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NeutralAbsoluteWhiteBalanceGPUIdentityTests.swift:43: error: -[LumenPipelineTests.NeutralAbsoluteWhiteBalanceGPUIdentityTests testNeutralAbsoluteWhiteBalancePreservesSignedAndHDRPixels] : XCTAssertEqual failed: (\"[-4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, -4.937138e-06, 0.18000019, 0.30000022, 1.0, 737.28, 128.00009, 256.00037, 1.0, 737.28, 128.00009, 256.00037, 1",
+      "original_chars": 3403,
+      "prefix_truncated": true
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/NeutralAbsoluteWhiteBalanceIdentityTests.swift:15: error: -[LumenCoreTests.NeutralAbsoluteWhiteBalanceIdentityTests testNeutralAbsoluteFlagMatchesExactEngineIdentity] : XCTAssertEqual failed: (\"false\") is not equal to (\"true\")",
+      "original_chars": 278,
+      "prefix_truncated": false
+    },
+    {
+      "prefix": "/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/NeutralAbsoluteWhiteBalanceIdentityTests.swift:15: error: -[LumenCoreTests.NeutralAbsoluteWhiteBalanceIdentityTests testNeutralAbsoluteFlagMatchesExactEngineIdentity] : XCTAssertEqual failed: (\"false\") is not equal to (\"true\")",
+      "original_chars": 278,
+      "prefix_truncated": false
+    }
+  ],
+  "mutation_provenance_verbatim": "a4bc1506e0e744f58089b56bfbc8953b2d3e6fc0\n025639fb1c05a774c32365fb3b8763550d8ef9de981282e34281c1498c3752f0  Sources/LumenCore/Engine/ReferenceRenderer.swift\ndiff --git a/Sources/LumenCore/Engine/ReferenceRenderer.swift b/Sources/LumenCore/Engine/ReferenceRenderer.swift\nindex 92fa981..1dba699 100644\n--- a/Sources/LumenCore/Engine/ReferenceRenderer.swift\n+++ b/Sources/LumenCore/Engine/ReferenceRenderer.swift\n@@ -547,7 +547,7 @@ public enum ReferenceRenderer {\n                                             targetKelvin: 1e6 / Swift.max(mired, 1e-9),\n                                             targetTint: effectiveTint, space: space)\n             self.matrix = engine.matrix\n-            self.isIdentity = engine.isIdentity\n+            self.isIdentity = false\n         }\n \n         /// The one place that decides which spelling a mask is using, so the reference\n025639fb1c05a774c32365fb3b8763550d8ef9de981282e34281c1498c3752f0  Sources/LumenCore/Engine/ReferenceRenderer.swift\n",
+  "source_before_after_matches_current_sha256": "025639fb1c05a774c32365fb3b8763550d8ef9de981282e34281c1498c3752f0",
+  "retrieval_note": "Specialized job-log reader returned Transport closed three times. Public workflow artifact ZIP recovered and matched GitHub digest. Full19MB mutant log stays in hosted artifact/scratch; this JSON deliberately bounds prefixes, not a verbatim full log."
+}

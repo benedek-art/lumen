@@ -1,0 +1,743 @@
+﻿2026-10-18T17:04:45.1716500Z Current runner version: '2.337.0'
+2026-10-18T17:04:45.1732850Z ##[group]Runner Image Provisioner
+2026-10-18T17:04:45.1733400Z Hosted Compute Agent
+2026-10-18T17:04:45.1733770Z Version: 20260828.587
+2026-10-18T17:04:45.1734170Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-18T17:04:45.1734660Z Build Date: 2026-08-28T16:44:25Z
+2026-10-18T17:04:45.1735120Z Worker ID: {d6bc4627-e2a6-439e-a7fa-8484881649ef}
+2026-10-18T17:04:45.1735590Z Azure Region: westus
+2026-10-18T17:04:45.1735970Z ##[endgroup]
+2026-10-18T17:04:45.1736910Z ##[group]Operating System
+2026-10-18T17:04:45.1737300Z macOS
+2026-10-18T17:04:45.1737640Z 15.7.9
+2026-10-18T17:04:45.1737980Z 24G830
+2026-10-18T17:04:45.1738330Z ##[endgroup]
+2026-10-18T17:04:45.1738700Z ##[group]Runner Image
+2026-10-18T17:04:45.1739100Z Image: macos-15-arm64
+2026-10-18T17:04:45.1739500Z Version: 20260907.0337.1
+2026-10-18T17:04:45.1740490Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-18T17:04:45.1741700Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-18T17:04:45.1742400Z ##[endgroup]
+2026-10-18T17:04:45.1743210Z ##[group]GITHUB_TOKEN Permissions
+2026-10-18T17:04:45.1744360Z Contents: read
+2026-10-18T17:04:45.1744760Z Metadata: read
+2026-10-18T17:04:45.1745210Z ##[endgroup]
+2026-10-18T17:04:45.1746610Z Secret source: Actions
+2026-10-18T17:04:45.1747210Z Cache mode: write
+2026-10-18T17:04:45.1747740Z Prepare workflow directory
+2026-10-18T17:04:45.2003870Z Prepare all required actions
+2026-10-18T17:04:45.2041850Z Getting action download info
+2026-10-18T17:04:45.4575260Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-18T17:04:45.6888350Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-18T17:04:45.8873740Z Complete job name: dehaze-completion-cost
+2026-10-18T17:04:45.9346330Z ##[group]Run actions/checkout@v4
+2026-10-18T17:04:45.9346920Z with:
+2026-10-18T17:04:45.9347240Z   fetch-depth: 0
+2026-10-18T17:04:45.9347580Z   repository: benedek-art/lumen
+2026-10-18T17:04:45.9350250Z   token: ***
+2026-10-18T17:04:45.9350570Z   ssh-strict: true
+2026-10-18T17:04:45.9350890Z   ssh-user: git
+2026-10-18T17:04:45.9351230Z   persist-credentials: true
+2026-10-18T17:04:45.9351600Z   clean: true
+2026-10-18T17:04:45.9351940Z   sparse-checkout-cone-mode: true
+2026-10-18T17:04:45.9352320Z   fetch-tags: false
+2026-10-18T17:04:45.9352660Z   show-progress: true
+2026-10-18T17:04:45.9352990Z   lfs: false
+2026-10-18T17:04:45.9353310Z   submodules: false
+2026-10-18T17:04:45.9353650Z   set-safe-directory: true
+2026-10-18T17:04:45.9354030Z   allow-unsafe-pr-checkout: false
+2026-10-18T17:04:45.9354520Z ##[endgroup]
+2026-10-18T17:04:46.3397790Z Syncing repository: benedek-art/lumen
+2026-10-18T17:04:46.3399710Z ##[group]Getting Git version info
+2026-10-18T17:04:46.3400490Z Working directory is '/Users/runner/work/lumen/lumen'
+2026-10-18T17:04:46.3401480Z [command]/opt/homebrew/bin/git version
+2026-10-18T17:04:46.3913860Z git version 2.55.0
+2026-10-18T17:04:46.3999410Z ##[endgroup]
+2026-10-18T17:04:46.4003900Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/45d7fd9b-d565-4007-9612-5cf05a22dd4f/.gitconfig'
+2026-10-18T17:04:46.4121390Z Temporarily overriding HOME='/Users/runner/work/_temp/45d7fd9b-d565-4007-9612-5cf05a22dd4f' before making global git config changes
+2026-10-18T17:04:46.4122650Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T17:04:46.4125860Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T17:04:46.4342180Z Deleting the contents of '/Users/runner/work/lumen/lumen'
+2026-10-18T17:04:46.4347200Z ##[group]Initializing the repository
+2026-10-18T17:04:46.4349800Z [command]/opt/homebrew/bin/git init /Users/runner/work/lumen/lumen
+2026-10-18T17:04:46.4632570Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-18T17:04:46.4634390Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-18T17:04:46.4635380Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-18T17:04:46.4636040Z hint: call:
+2026-10-18T17:04:46.4636620Z hint:
+2026-10-18T17:04:46.4637240Z hint: 	git config --global init.defaultBranch <name>
+2026-10-18T17:04:46.4638000Z hint:
+2026-10-18T17:04:46.4638650Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-18T17:04:46.4639490Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-18T17:04:46.4640300Z hint:
+2026-10-18T17:04:46.4640870Z hint: 	git branch -m <name>
+2026-10-18T17:04:46.4641390Z hint:
+2026-10-18T17:04:46.4642060Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-18T17:04:46.4643420Z Initialized empty Git repository in /Users/runner/work/lumen/lumen/.git/
+2026-10-18T17:04:46.4648800Z [command]/opt/homebrew/bin/git remote add origin https://github.com/benedek-art/lumen
+2026-10-18T17:04:46.4748230Z ##[endgroup]
+2026-10-18T17:04:46.4749390Z ##[group]Disabling automatic garbage collection
+2026-10-18T17:04:46.4750320Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-18T17:04:46.4805730Z ##[endgroup]
+2026-10-18T17:04:46.4806410Z ##[group]Setting up auth
+2026-10-18T17:04:46.4810680Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T17:04:46.4894390Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T17:04:46.5992670Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T17:04:46.6065800Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T17:04:46.6894780Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T17:04:46.6958960Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T17:04:46.7998470Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-18T17:04:46.8071730Z ##[endgroup]
+2026-10-18T17:04:46.8072520Z ##[group]Fetching the repository
+2026-10-18T17:04:46.8077610Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+2026-10-18T17:04:48.2998760Z From https://github.com/benedek-art/lumen
+2026-10-18T17:04:48.3002260Z  * [new branch]      claude/jolly-sagan-k7ch7z -> origin/claude/jolly-sagan-k7ch7z
+2026-10-18T17:04:48.3005340Z  * [new branch]      claude/nostalgic-jepsen-7517b7 -> origin/claude/nostalgic-jepsen-7517b7
+2026-10-18T17:04:48.3009100Z  * [new branch]      claude/photo-editor-design-plan-8ahzmm -> origin/claude/photo-editor-design-plan-8ahzmm
+2026-10-18T17:04:48.3012810Z  * [new branch]      codex/lumen-audit-2026-09-22 -> origin/codex/lumen-audit-2026-09-22
+2026-10-18T17:04:48.3016410Z  * [new branch]      codex/lumen-october-consolidation -> origin/codex/lumen-october-consolidation
+2026-10-18T17:04:48.3020210Z  * [new branch]      codex/lumen-proof-cause -> origin/codex/lumen-proof-cause
+2026-10-18T17:04:48.3023430Z  * [new branch]      codex/lumen-second-wave -> origin/codex/lumen-second-wave
+2026-10-18T17:04:48.3026670Z  * [new branch]      codex/lumen-third-wave  -> origin/codex/lumen-third-wave
+2026-10-18T17:04:48.3030090Z  * [new branch]      codex/lumen-verified-repairs -> origin/codex/lumen-verified-repairs
+2026-10-18T17:04:48.3034180Z  * [new branch]      codex/raw-accuracy-qualification -> origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:48.3039630Z  * [new branch]      codex/raw-cloud-followup -> origin/codex/raw-cloud-followup
+2026-10-18T17:04:48.3044350Z  * [new branch]      main                    -> origin/main
+2026-10-18T17:04:48.3046830Z  * [new tag]         dev-latest              -> dev-latest
+2026-10-18T17:04:48.3053490Z [command]/opt/homebrew/bin/git branch --list --remote origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:48.3087100Z   origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:48.3095470Z [command]/opt/homebrew/bin/git rev-parse refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:48.3153300Z 222cf96276d9e9c3a027c2f0ed18404a73401014
+2026-10-18T17:04:48.3157720Z ##[endgroup]
+2026-10-18T17:04:48.3159100Z ##[group]Determining the checkout info
+2026-10-18T17:04:48.3160720Z ##[endgroup]
+2026-10-18T17:04:48.3168010Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-18T17:04:48.3253160Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-18T17:04:48.3318130Z ##[group]Checking out the ref
+2026-10-18T17:04:48.3323460Z [command]/opt/homebrew/bin/git checkout --progress --force -B codex/raw-accuracy-qualification refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T17:04:48.5935070Z Switched to a new branch 'codex/raw-accuracy-qualification'
+2026-10-18T17:04:48.5940940Z branch 'codex/raw-accuracy-qualification' set up to track 'origin/codex/raw-accuracy-qualification'.
+2026-10-18T17:04:48.5949760Z ##[endgroup]
+2026-10-18T17:04:48.6043130Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-18T17:04:48.6102520Z 222cf96276d9e9c3a027c2f0ed18404a73401014
+2026-10-18T17:04:48.6287600Z ##[group]Run set -euo pipefail
+2026-10-18T17:04:48.6288690Z [36;1mset -euo pipefail[0m
+2026-10-18T17:04:48.6289790Z [36;1mbaseline_sha=0e9e4a483e37e3fd5be04daec159a0ccdba72609[0m
+2026-10-18T17:04:48.6291030Z [36;1mbaseline_dir="$RUNNER_TEMP/lumen-dehaze-before"[0m
+2026-10-18T17:04:48.6292550Z [36;1mtarget=DehazeCompletionCostTests/testGeneratedChangingAmountCompletedFrames[0m
+2026-10-18T17:04:48.6294330Z [36;1mtest_file=Tests/LumenPipelineTests/DehazeCompletionCostTests.swift[0m
+2026-10-18T17:04:48.6295650Z [36;1msw_vers > dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6296760Z [36;1muname -m >> dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6297910Z [36;1mxcodebuild -version >> dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6299150Z [36;1mgit rev-parse HEAD >> dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6300370Z [36;1mshasum -a 256 "$test_file" >> dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6301740Z [36;1mgit worktree add --detach "$baseline_dir" "$baseline_sha"[0m
+2026-10-18T17:04:48.6302880Z [36;1mcp "$test_file" "$baseline_dir/$test_file"[0m
+2026-10-18T17:04:48.6303850Z [36;1mcmp "$test_file" "$baseline_dir/$test_file"[0m
+2026-10-18T17:04:48.6304890Z [36;1mgit -C "$baseline_dir" diff --exit-code -- Sources[0m
+2026-10-18T17:04:48.6305820Z [36;1m([0m
+2026-10-18T17:04:48.6306410Z [36;1m  cd "$baseline_dir"[0m
+2026-10-18T17:04:48.6307460Z [36;1m  git rev-parse HEAD[0m
+2026-10-18T17:04:48.6308760Z [36;1m  shasum -a 256 Sources/LumenPipeline/RenderGraph.swift Sources/LumenPipeline/Kernels.swift[0m
+2026-10-18T17:04:48.6310210Z [36;1m) >> dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6311020Z [36;1m([0m
+2026-10-18T17:04:48.6311610Z [36;1m  cd "$baseline_dir"[0m
+2026-10-18T17:04:48.6312660Z [36;1m  LUMEN_DEHAZE_COST_LABEL=before swift test -c release --filter "$target"[0m
+2026-10-18T17:04:48.6313840Z [36;1m) 2>&1 | tee dehaze-cost-before.log[0m
+2026-10-18T17:04:48.6314810Z [36;1mgit -C "$baseline_dir" diff --exit-code -- Sources[0m
+2026-10-18T17:04:48.6316580Z [36;1mshasum -a 256 Sources/LumenPipeline/RenderGraph.swift Sources/LumenPipeline/Kernels.swift >> dehaze-cost-provenance.log[0m
+2026-10-18T17:04:48.6318860Z [36;1mLUMEN_DEHAZE_COST_LABEL=after swift test -c release --filter "$target" 2>&1 | tee dehaze-cost-after.log[0m
+2026-10-18T17:04:48.6320330Z [36;1mgit diff --exit-code -- Sources[0m
+2026-10-18T17:04:48.6321320Z [36;1mpython3 - <<'PY'[0m
+2026-10-18T17:04:48.6321980Z [36;1mimport json[0m
+2026-10-18T17:04:48.6322630Z [36;1mfrom pathlib import Path[0m
+2026-10-18T17:04:48.6323420Z [36;1mfor label in ('before', 'after'):[0m
+2026-10-18T17:04:48.6324500Z [36;1m    lines = Path(f'dehaze-cost-{label}.log').read_text().splitlines()[0m
+2026-10-18T17:04:48.6325860Z [36;1m    records = [json.loads(line.split('DEHAZE-COMPLETION-COST ', 1)[1])[0m
+2026-10-18T17:04:48.6327240Z [36;1m               for line in lines if line.startswith('DEHAZE-COMPLETION-COST ')][0m
+2026-10-18T17:04:48.6328530Z [36;1m    assert len(records) == 12, (label, len(records))[0m
+2026-10-18T17:04:48.6329680Z [36;1m    assert all(r['label'] == label and r['finite'] for r in records)[0m
+2026-10-18T17:04:48.6330880Z [36;1m    assert {(r['width'], r['amount']) for r in records} == {[0m
+2026-10-18T17:04:48.6332020Z [36;1m        (w, a) for w in (256, 1024) for a in (-50, -25, -10, 10, 25, 50)}[0m
+2026-10-18T17:04:48.6333290Z [36;1m    assert sum(r['firstContextFrame'] for r in records) == 2[0m
+2026-10-18T17:04:48.6334740Z [36;1m    Path(f'dehaze-cost-{label}.json').write_text(json.dumps(records, indent=2) + '\n')[0m
+2026-10-18T17:04:48.6336690Z [36;1mprint('DEHAZE-COST-COVERAGE before=12 after=12; one generated ordered pair, not GUI/RAW or statistical acceptance')[0m
+2026-10-18T17:04:48.6338200Z [36;1mPY[0m
+2026-10-18T17:04:48.6382590Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T17:04:48.6383610Z env:
+2026-10-18T17:04:48.6384210Z   LUMEN_DEHAZE_COST: 1
+2026-10-18T17:04:48.6384860Z ##[endgroup]
+2026-10-18T17:04:49.0698220Z Preparing worktree (detached HEAD 0e9e4a4)
+2026-10-18T17:04:49.3280790Z HEAD is now at 0e9e4a4 Qualify Dehaze sky terms and guard asynchronous Auto Tone sources
+2026-10-18T17:04:55.3758290Z warning: 'lumen-dehaze-before': Invalid Exclude '/Users/runner/work/_temp/lumen-dehaze-before/Tests/LumenCoreTests/Proof/evidence': File not found.
+2026-10-18T17:04:55.5717770Z Building for production...
+2026-10-18T17:04:55.5885520Z [0/14] /Users/runner/work/_temp/lumen-dehaze-before/.build/arm64-apple-macosx/release/LumenPackageTests.derived/runner.swift
+2026-10-18T17:04:55.5926050Z [1/14] Write sources
+2026-10-18T17:04:55.5926990Z [7/14] Copying Fixtures
+2026-10-18T17:04:55.7725370Z [9/14] Write swift-version--79AA4F9932D1E87A.txt
+2026-10-18T17:05:58.0966870Z [11/15] Compiling LumenCore BlobStore.swift
+2026-10-18T17:06:12.1463310Z [12/16] Compiling LumenPipeline AppleRawSource.swift
+2026-10-18T17:06:12.1478570Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenPipeline/Kernels.swift:1280:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:06:12.1542500Z 1278 | 
+2026-10-18T17:06:12.1552200Z 1279 |     private static func make(_ source: String) -> CIColorKernel? {
+2026-10-18T17:06:12.1552950Z 1280 |         CIColorKernel(source: source)
+2026-10-18T17:06:12.1654620Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:06:12.1756280Z 1281 |     }
+2026-10-18T17:06:12.1865940Z 1282 | 
+2026-10-18T17:06:12.1966580Z 
+2026-10-18T17:06:12.2070300Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenPipeline/Kernels.swift:1288:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:06:12.2173000Z 1286 |     /// graph around one on that basis.
+2026-10-18T17:06:12.2275400Z 1287 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+2026-10-18T17:06:12.2377410Z 1288 |         CIKernel(source: source)
+2026-10-18T17:06:12.2485810Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:06:12.2608720Z 1289 |     }
+2026-10-18T17:06:12.2709610Z 1290 | 
+2026-10-18T17:07:05.8926010Z [13/19] Compiling LumenPipelineTests AuditExportMetadataTests.swift
+2026-10-18T17:07:52.8088550Z [14/19] Compiling LumenApp AppState.swift
+2026-10-18T17:07:52.8261950Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:07:52.8367600Z  101 | 
+2026-10-18T17:07:52.8469520Z  102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+2026-10-18T17:07:52.8572060Z  103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+2026-10-18T17:07:52.8673890Z      |         `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:07:52.8776040Z  104 |     }) {
+2026-10-18T17:07:52.8879220Z  105 |         self.matteProducer = matteProducer
+2026-10-18T17:07:52.8981070Z 
+2026-10-18T17:07:52.9084220Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:07:52.9184990Z 3041 |                 await MainActor.run {
+2026-10-18T17:07:52.9284960Z 3042 |                     // Another open started meanwhile: that one is what the user wants.
+2026-10-18T17:07:52.9386360Z 3043 |                     guard let self,
+2026-10-18T17:07:52.9490550Z      |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:07:52.9612370Z 3044 |                           self.expansionRequests.isCurrent(ticket,
+2026-10-18T17:07:52.9700740Z 3045 |                                                            scanGeneration: self.scanGeneration)
+2026-10-18T17:07:52.9811300Z 
+2026-10-18T17:07:52.9916490Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/AppState.swift:3239:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.0021000Z 3237 |                 // Open folder A, then B before A finishes, and A's scan can land
+2026-10-18T17:07:53.0124680Z 3238 |                 // second. The newest folder the user asked for is the one on screen.
+2026-10-18T17:07:53.0226240Z 3239 |                 guard let self, self.scanGeneration == generation else { return false }
+2026-10-18T17:07:53.0335770Z      |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.0467290Z 3240 |                 var reconciled = stored
+2026-10-18T17:07:53.0569120Z 3241 |                 if self.sourceMutationRevision != openingMutation {
+2026-10-18T17:07:53.0669380Z 
+2026-10-18T17:07:53.0771250Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/CatalogService.swift:1429:61: warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:07:53.0870850Z 1427 |             queue.async { [store] in
+2026-10-18T17:07:53.0971680Z 1428 |                 do {
+2026-10-18T17:07:53.1072800Z 1429 |                     continuation.resume(returning: try body(store))
+2026-10-18T17:07:53.1175240Z      |                                                             `- warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:07:53.1276600Z 1430 |                 } catch {
+2026-10-18T17:07:53.1382290Z 1431 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+2026-10-18T17:07:53.1478220Z 
+2026-10-18T17:07:53.1580920Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenCore/Catalog/CatalogStore.swift:1057:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:07:53.1682660Z 1055 | // MARK: - Store
+2026-10-18T17:07:53.1742110Z 1056 | 
+2026-10-18T17:07:53.1858070Z 1057 | public final class CatalogStore {
+2026-10-18T17:07:53.1960190Z      |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:07:53.2063250Z 1058 | 
+2026-10-18T17:07:53.2164810Z 1059 |     // MARK: Stored state
+2026-10-18T17:07:53.2268210Z 
+2026-10-18T17:07:53.2370360Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/CatalogService.swift:19:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:07:53.2484080Z   17 | import Foundation
+2026-10-18T17:07:53.2598520Z   18 | import CryptoKit
+2026-10-18T17:07:53.2656880Z   19 | import LumenCore
+2026-10-18T17:07:53.2663850Z      | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:07:53.2672650Z   20 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+2026-10-18T17:07:53.2722650Z   21 | // with the rest of the platform-image code rather than in LumenCore.
+2026-10-18T17:07:53.2744450Z 
+2026-10-18T17:07:53.2847730Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/EDRViewport.swift:82:31: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:07:53.2955380Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:07:53.2985050Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:07:53.3007380Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:07:53.3013490Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:07:53.3018610Z  49 | 
+2026-10-18T17:07:53.3053560Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:07:53.3064540Z     :
+2026-10-18T17:07:53.3081060Z  80 |                 observers.append(center.addObserver(forName: name, object: nil,
+2026-10-18T17:07:53.3128290Z  81 |                                                     queue: .main) { [weak self] _ in
+2026-10-18T17:07:53.3138370Z  82 |                     guard let self else { return }
+2026-10-18T17:07:53.3143020Z     |                               `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:07:53.3156430Z  83 |                     MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:07:53.3168570Z  84 |                 })
+2026-10-18T17:07:53.3177870Z 
+2026-10-18T17:07:53.3187840Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/EDRViewport.swift:89:27: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:07:53.3203720Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:07:53.3253470Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:07:53.3270420Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:07:53.3275760Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:07:53.3315650Z  49 | 
+2026-10-18T17:07:53.3330300Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:07:53.3337560Z     :
+2026-10-18T17:07:53.3348520Z  87 |         if timer == nil {
+2026-10-18T17:07:53.3357190Z  88 |             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+2026-10-18T17:07:53.3364650Z  89 |                 guard let self else { return }
+2026-10-18T17:07:53.3471220Z     |                           `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:07:53.3523660Z  90 |                 MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:07:53.3562980Z  91 |             }
+2026-10-18T17:07:53.3611740Z 
+2026-10-18T17:07:53.3637640Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/GridView.swift:421:22: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:07:53.3679380Z 419 | 
+2026-10-18T17:07:53.3696810Z 420 |     private func loadThumbnail() async {
+2026-10-18T17:07:53.3715820Z 421 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+2026-10-18T17:07:53.3750490Z     |                      `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:07:53.3767630Z 422 |             if image !== hit { image = hit }
+2026-10-18T17:07:53.3783920Z 423 |             return
+2026-10-18T17:07:53.3820340Z 
+2026-10-18T17:07:53.3830760Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/Keymap.swift:46:30: warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.3834010Z  44 |         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+2026-10-18T17:07:53.3835140Z  45 |             guard let self else { return event }
+2026-10-18T17:07:53.3835670Z  46 |             return MainActor.assumeIsolated {
+2026-10-18T17:07:53.3836700Z     |                              `- warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.3838650Z  47 |                 self.handle(event) ? nil : event
+2026-10-18T17:07:53.3839260Z  48 |             }
+2026-10-18T17:07:53.3839660Z 
+2026-10-18T17:07:53.3840080Z :1:1: note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:07:53.3843030Z 1 | @_nonSendable(_assumed)
+2026-10-18T17:07:53.3843750Z   | `- note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:07:53.3844210Z 
+2026-10-18T17:07:53.3845490Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/RenderCoordinator.swift:634:60: warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.3851210Z  632 |         return renderer.renderMaskAlpha(source: source, recipe: recipe,
+2026-10-18T17:07:53.3852660Z  633 |                                         maskID: maskID, strokeSets: strokeSets,
+2026-10-18T17:07:53.3853300Z  634 |                                         longEdge: AppState.maskThumbnailLongEdge)
+2026-10-18T17:07:53.3854930Z      |                                                            `- warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.3859530Z  635 |     }
+2026-10-18T17:07:53.3862630Z  636 | 
+2026-10-18T17:07:53.3862970Z 
+2026-10-18T17:07:53.3863420Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/AppState.swift:902:16: note: static property declared here
+2026-10-18T17:07:53.3866050Z  900 |     /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+2026-10-18T17:07:53.3867190Z  901 |     /// editor does it live is that they compute it at mask resolution.
+2026-10-18T17:07:53.3867850Z  902 |     static let maskThumbnailLongEdge = 96
+2026-10-18T17:07:53.3868800Z      |                `- note: static property declared here
+2026-10-18T17:07:53.3874930Z  903 | 
+2026-10-18T17:07:53.3876810Z  904 |     /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+2026-10-18T17:07:53.3881650Z 
+2026-10-18T17:07:53.3886080Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/ScopeData.swift:204:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.3890610Z 202 |         Task { [weak self] in
+2026-10-18T17:07:53.3894180Z 203 |             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+2026-10-18T17:07:53.3895100Z 204 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:07:53.3916810Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.3940560Z 205 |                     from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:07:53.3986470Z     |                                                  `- note: property access is 'async'
+2026-10-18T17:07:53.4062070Z 206 |                 else { return nil }
+2026-10-18T17:07:53.4062920Z 207 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:07:53.4067220Z 
+2026-10-18T17:07:53.4069950Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/ScopeData.swift:311:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.4071150Z 309 |                 // The traces stay at the proxy long edge whatever the render's size:
+2026-10-18T17:07:53.4076160Z 310 |                 // the extra pixels were commissioned for the count, not for the shape.
+2026-10-18T17:07:53.4077620Z 311 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:07:53.4080830Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.4081930Z 312 |                     from: result.image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:07:53.4083120Z     |                                                         `- note: property access is 'async'
+2026-10-18T17:07:53.4087190Z 313 |                 else { return nil }
+2026-10-18T17:07:53.4088700Z 314 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:07:53.4095080Z 
+2026-10-18T17:07:53.4099010Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/ScopeData.swift:486:42: warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.4103320Z 140 |     /// which is the viewport in device pixels. 24 MP is a 6K viewport at 1:1 with room
+2026-10-18T17:07:53.4108660Z 141 |     /// over it, and costs 96 MB of transient bytes at the ceiling.
+2026-10-18T17:07:53.4115610Z 142 |     static let scopeTapPixelCeiling: Int = 24_000_000
+2026-10-18T17:07:53.4119260Z     |                `- note: static property declared here
+2026-10-18T17:07:53.4136180Z 143 | 
+2026-10-18T17:07:53.4146830Z 144 |     /// Measure the scopes off the frame the viewer already has.
+2026-10-18T17:07:53.4148530Z     :
+2026-10-18T17:07:53.4153420Z 484 |         let height: Int = image.height
+2026-10-18T17:07:53.4154490Z 485 |         guard width > 0, height > 0 else { return nil }
+2026-10-18T17:07:53.4161270Z 486 |         guard width * height <= AppState.scopeTapPixelCeiling else { return nil }
+2026-10-18T17:07:53.4162480Z     |                                          `- warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.4164130Z 487 |         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+2026-10-18T17:07:53.4167110Z 488 |         var bytes = [UInt8](repeating: 0, count: width * height * 4)
+2026-10-18T17:07:53.4167810Z 
+2026-10-18T17:07:53.4168940Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/ViewerOverlays.swift:1120:18: warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.4173730Z  992 |     /// compositing at the sampler's full 4096 was interpolating an interpolation at
+2026-10-18T17:07:53.4174720Z  993 |     /// four times the cost. 2048 keeps a downscale on the way to the screen.
+2026-10-18T17:07:53.4175500Z  994 |     static let compositeLongEdge = 2048
+2026-10-18T17:07:53.4178680Z      |                `- note: static property declared here
+2026-10-18T17:07:53.4180670Z  995 | 
+2026-10-18T17:07:53.4181380Z  996 |     private struct BuildKey: Equatable {
+2026-10-18T17:07:53.4183630Z      :
+2026-10-18T17:07:53.4184690Z 1118 |         let cap = MaskOverlay.compositeLongEdge(
+2026-10-18T17:07:53.4186960Z 1119 |             alphaLongEdge: Swift.max(alpha.width, alpha.height),
+2026-10-18T17:07:53.4195490Z 1120 |             cap: compositeLongEdge)
+2026-10-18T17:07:53.4199040Z      |                  `- warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:07:53.4214280Z 1121 |         let longest = Swift.max(rawWidth, rawHeight)
+2026-10-18T17:07:53.4234360Z 1122 |         let shrink = longest > cap ? Double(cap) / Double(longest) : 1
+2026-10-18T17:07:53.4249260Z [14/19] Write Objects.LinkFileList
+2026-10-18T17:07:56.2243740Z [15/19] Linking LumenApp
+2026-10-18T17:09:06.7690780Z [17/20] Compiling LumenCoreTests AIDenoiseRenderedHelpTests.swift
+2026-10-18T17:09:06.7699430Z /Users/runner/work/_temp/lumen-dehaze-before/Tests/LumenCoreTests/MaskDependencyAdversarialTests.swift:401:77: warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:09:06.7702350Z 399 |         // of narrowing here is that a `.model` kind must never reach the segmenter.
+2026-10-18T17:09:06.7816320Z 400 |         let bareDotNone: Set<MaskKind> = MaskDependency.wantedMattes(in: recipe,
+2026-10-18T17:09:06.7834160Z 401 |                                                                      from: .none)
+2026-10-18T17:09:06.7854880Z     |                                                                             `- warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:09:06.7855960Z 402 |         XCTAssertEqual(bareDotNone, everything,
+2026-10-18T17:09:06.7856620Z 403 |                        "if this is now empty the ambiguity has been closed")
+2026-10-18T17:09:06.7857210Z 
+2026-10-18T17:09:06.7857820Z /Users/runner/work/_temp/lumen-dehaze-before/Tests/LumenCoreTests/OperationReportTests.swift:45:43: warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:09:06.7859180Z  43 |         first.finish(.cancelled)
+2026-10-18T17:09:06.7859670Z  44 |         second.finish(.completed)
+2026-10-18T17:09:06.7860150Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:09:06.7860880Z     |                                           `- warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:09:06.7861410Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:09:06.7861830Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:09:06.7862000Z 
+2026-10-18T17:09:06.7862600Z /Users/runner/work/_temp/lumen-dehaze-before/Tests/LumenCoreTests/OperationReportTests.swift:46:44: warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:09:06.7863330Z  44 |         second.finish(.completed)
+2026-10-18T17:09:06.7863670Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:09:06.7863940Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:09:06.7864600Z     |                                            `- warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:09:06.7865130Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:09:06.8017400Z  48 |         let staleSaved = try await store.save(stale)
+2026-10-18T17:09:10.8456050Z [18/20] Compiling LumenAppTests AppStateSeamTests.swift
+2026-10-18T17:09:10.8595240Z /Users/runner/work/_temp/lumen-dehaze-before/Tests/LumenAppTests/HistoryPanelTests.swift:54:52: warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:09:10.8706520Z  52 |     /// One recipe step on one photograph, built the way `updateRecipe` builds one.
+2026-10-18T17:09:10.8809460Z  53 |     private func step(_ url: URL, key: String?,
+2026-10-18T17:09:10.8913870Z  54 |                       label: String = HistoryStack.unnamedLabel) -> HistoryStack.Step {
+2026-10-18T17:09:10.9015430Z     |                                                    `- warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:09:10.9115620Z  55 |         var after = Recipe()
+2026-10-18T17:09:10.9217830Z  56 |         after.develop.tone.exposure = 0.4
+2026-10-18T17:09:10.9319600Z 
+2026-10-18T17:09:10.9423760Z /Users/runner/work/_temp/lumen-dehaze-before/Sources/LumenApp/HistoryStack.swift:62:16: note: class property declared here
+2026-10-18T17:09:10.9533390Z  60 |     /// named this step" and derives a name from the coalescing key instead — and a
+2026-10-18T17:09:10.9636750Z  61 |     /// literal `"Edit"` written in two files is how that agreement would quietly end.
+2026-10-18T17:09:10.9737400Z  62 |     static let unnamedLabel = "Edit"
+2026-10-18T17:09:10.9772580Z     |                `- note: class property declared here
+2026-10-18T17:09:10.9790090Z  63 | 
+2026-10-18T17:09:10.9795850Z  64 |     /// A drag that pauses longer than this starts a new undo step, so "nudge, think,
+2026-10-18T17:09:13.3126360Z [19/21] Compiling LumenPackageTests runner.swift
+2026-10-18T17:09:13.3191910Z [19/21] Write Objects.LinkFileList
+2026-10-18T17:09:19.0739110Z [20/21] Linking LumenPackageTests
+2026-10-18T17:09:19.0870730Z Build complete! (263.73s)
+2026-10-18T17:09:31.8381700Z Test Suite 'Selected tests' started at 2026-10-18 17:09:20.870.
+2026-10-18T17:09:31.8382900Z Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 17:09:20.876.
+2026-10-18T17:09:31.8383390Z Test Suite 'DehazeCompletionCostTests' started at 2026-10-18 17:09:20.876.
+2026-10-18T17:09:31.8384260Z Test Case '-[LumenPipelineTests.DehazeCompletionCostTests testGeneratedChangingAmountCompletedFrames]' started.
+2026-10-18T17:09:31.8385790Z DEHAZE-COMPLETION-COST {"amount":-50,"assemblySeconds":0.29573449999998047,"centerR":0.65808689594268799,"completedSeconds":0.50396979166669098,"finite":true,"firstContextFrame":true,"frame":0,"height":128,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.20823529166671051,"width":256}
+2026-10-18T17:09:31.8388210Z DEHAZE-COMPLETION-COST {"amount":-25,"assemblySeconds":0.0036276249999218635,"centerR":0.63573938608169556,"completedSeconds":0.0059037083333350893,"finite":true,"firstContextFrame":false,"frame":1,"height":128,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0022760833334132258,"width":256}
+2026-10-18T17:09:31.8391430Z DEHAZE-COMPLETION-COST {"amount":-10,"assemblySeconds":0.0035256250000657019,"centerR":0.62233090400695801,"completedSeconds":0.0065155833333392366,"finite":true,"firstContextFrame":false,"frame":2,"height":128,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0029899583332735347,"width":256}
+2026-10-18T17:09:31.8393820Z DEHAZE-COMPLETION-COST {"amount":10,"assemblySeconds":0.0028504583333415212,"centerR":0.59601187705993652,"completedSeconds":0.0050692916667003374,"finite":true,"firstContextFrame":false,"frame":3,"height":128,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0022188333333588162,"width":256}
+2026-10-18T17:09:31.8396860Z DEHAZE-COMPLETION-COST {"amount":25,"assemblySeconds":0.0033329166666362653,"centerR":0.56994187831878662,"completedSeconds":0.0054926666666688106,"finite":true,"firstContextFrame":false,"frame":4,"height":128,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0021597500000325454,"width":256}
+2026-10-18T17:09:31.8398850Z DEHAZE-COMPLETION-COST {"amount":50,"assemblySeconds":0.0027555833333963164,"centerR":0.52649182081222534,"completedSeconds":0.004738875000043663,"finite":true,"firstContextFrame":false,"frame":5,"height":128,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0019832916666473466,"width":256}
+2026-10-18T17:09:31.8403280Z DEHAZE-COMPLETION-COST {"amount":-50,"assemblySeconds":0.13608025000007729,"centerR":0.661865234375,"completedSeconds":0.40529658333343832,"finite":true,"firstContextFrame":true,"frame":0,"height":512,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.26921633333336104,"width":1024}
+2026-10-18T17:09:31.8405310Z DEHAZE-COMPLETION-COST {"amount":-25,"assemblySeconds":0.005855375000010099,"centerR":0.63680130243301392,"completedSeconds":0.018906125000057727,"finite":true,"firstContextFrame":false,"frame":1,"height":512,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.013050750000047628,"width":1024}
+2026-10-18T17:09:31.8407420Z DEHAZE-COMPLETION-COST {"amount":-10,"assemblySeconds":0.0060918333333574992,"centerR":0.62176299095153809,"completedSeconds":0.022729041666707417,"finite":true,"firstContextFrame":false,"frame":2,"height":512,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.016637208333349918,"width":1024}
+2026-10-18T17:09:31.8409590Z DEHAZE-COMPLETION-COST {"amount":10,"assemblySeconds":0.0089642916666434758,"centerR":0.59567254781723022,"completedSeconds":0.026117333333331771,"finite":true,"firstContextFrame":false,"frame":3,"height":512,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.017153041666688296,"width":1024}
+2026-10-18T17:09:31.8413230Z DEHAZE-COMPLETION-COST {"amount":25,"assemblySeconds":0.0072974583333689225,"centerR":0.57157522439956665,"completedSeconds":0.02153287500004808,"finite":true,"firstContextFrame":false,"frame":4,"height":512,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.014235416666679157,"width":1024}
+2026-10-18T17:09:31.8415570Z DEHAZE-COMPLETION-COST {"amount":50,"assemblySeconds":0.0079779166667321988,"centerR":0.53141295909881592,"completedSeconds":0.022436666666749261,"finite":true,"firstContextFrame":false,"frame":5,"height":512,"label":"before","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.014458750000017062,"width":1024}
+2026-10-18T17:09:31.8417820Z Test Case '-[LumenPipelineTests.DehazeCompletionCostTests testGeneratedChangingAmountCompletedFrames]' passed (10.844 seconds).
+2026-10-18T17:09:31.8418990Z Test Suite 'DehazeCompletionCostTests' passed at 2026-10-18 17:09:31.720.
+2026-10-18T17:09:31.8419470Z 	 Executed 1 test, with 0 failures (0 unexpected) in 10.844 (10.844) seconds
+2026-10-18T17:09:31.8420000Z Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 17:09:31.720.
+2026-10-18T17:09:31.8420510Z 	 Executed 1 test, with 0 failures (0 unexpected) in 10.844 (10.844) seconds
+2026-10-18T17:09:31.8420900Z Test Suite 'Selected tests' passed at 2026-10-18 17:09:31.720.
+2026-10-18T17:09:31.8421410Z 	 Executed 1 test, with 0 failures (0 unexpected) in 10.844 (10.850) seconds
+2026-10-18T17:09:31.8423640Z ◇ Test run started.
+2026-10-18T17:09:31.8424100Z ↳ Testing Library Version: 124.4
+2026-10-18T17:09:31.8424560Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-10-18T17:09:31.8425150Z ✔ Test run with 0 tests passed after 0.001 seconds.
+2026-10-18T17:09:33.8048240Z warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+2026-10-18T17:09:34.0597030Z Building for production...
+2026-10-18T17:09:34.0733540Z [0/14] /Users/runner/work/lumen/lumen/.build/arm64-apple-macosx/release/LumenPackageTests.derived/runner.swift
+2026-10-18T17:09:34.0801360Z [1/14] Write sources
+2026-10-18T17:09:34.0808610Z [1/14] Copying Fixtures
+2026-10-18T17:09:34.0836000Z [1/14] Write sources
+2026-10-18T17:09:34.2762820Z [9/14] Write swift-version--79AA4F9932D1E87A.txt
+2026-10-18T17:10:36.7867930Z [11/15] Compiling LumenCore BlobStore.swift
+2026-10-18T17:10:49.4709220Z [12/16] Compiling LumenPipeline AppleRawSource.swift
+2026-10-18T17:10:49.4722050Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1299:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:10:49.4736040Z 1297 | 
+2026-10-18T17:10:49.4869070Z 1298 |     private static func make(_ source: String) -> CIColorKernel? {
+2026-10-18T17:10:49.4996710Z 1299 |         CIColorKernel(source: source)
+2026-10-18T17:10:49.5132280Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:10:49.5285750Z 1300 |     }
+2026-10-18T17:10:49.5386920Z 1301 | 
+2026-10-18T17:10:49.5487740Z 
+2026-10-18T17:10:49.5500760Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1307:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:10:49.5560530Z 1305 |     /// graph around one on that basis.
+2026-10-18T17:10:49.5662400Z 1306 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+2026-10-18T17:10:49.5662850Z 1307 |         CIKernel(source: source)
+2026-10-18T17:10:49.5764190Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:10:49.5769120Z 1308 |     }
+2026-10-18T17:10:49.5870870Z 1309 | 
+2026-10-18T17:11:50.7478970Z [13/19] Compiling LumenPipelineTests AuditExportMetadataTests.swift
+2026-10-18T17:12:40.2581640Z [14/19] Compiling LumenApp AppState.swift
+2026-10-18T17:12:40.2583240Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:12:40.2585930Z  101 | 
+2026-10-18T17:12:40.2587050Z  102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+2026-10-18T17:12:40.2587620Z  103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+2026-10-18T17:12:40.2588740Z      |         `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:12:40.2599080Z  104 |     }) {
+2026-10-18T17:12:40.2599510Z  105 |         self.matteProducer = matteProducer
+2026-10-18T17:12:40.2599730Z 
+2026-10-18T17:12:40.2600500Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2601560Z 3041 |                 await MainActor.run {
+2026-10-18T17:12:40.2602060Z 3042 |                     // Another open started meanwhile: that one is what the user wants.
+2026-10-18T17:12:40.2602730Z 3043 |                     guard let self,
+2026-10-18T17:12:40.2603590Z      |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2604610Z 3044 |                           self.expansionRequests.isCurrent(ticket,
+2026-10-18T17:12:40.2605200Z 3045 |                                                            scanGeneration: self.scanGeneration)
+2026-10-18T17:12:40.2605550Z 
+2026-10-18T17:12:40.2606330Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3239:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2607310Z 3237 |                 // Open folder A, then B before A finishes, and A's scan can land
+2026-10-18T17:12:40.2608120Z 3238 |                 // second. The newest folder the user asked for is the one on screen.
+2026-10-18T17:12:40.2608840Z 3239 |                 guard let self, self.scanGeneration == generation else { return false }
+2026-10-18T17:12:40.2609820Z      |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2646370Z 3240 |                 var reconciled = stored
+2026-10-18T17:12:40.2646910Z 3241 |                 if self.sourceMutationRevision != openingMutation {
+2026-10-18T17:12:40.2647160Z 
+2026-10-18T17:12:40.2649540Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:1429:61: warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:12:40.2651300Z 1427 |             queue.async { [store] in
+2026-10-18T17:12:40.2653210Z 1428 |                 do {
+2026-10-18T17:12:40.2654460Z 1429 |                     continuation.resume(returning: try body(store))
+2026-10-18T17:12:40.2655250Z      |                                                             `- warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:12:40.2671050Z 1430 |                 } catch {
+2026-10-18T17:12:40.2708680Z 1431 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+2026-10-18T17:12:40.2709140Z 
+2026-10-18T17:12:40.2712960Z /Users/runner/work/lumen/lumen/Sources/LumenCore/Catalog/CatalogStore.swift:1057:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:12:40.2718270Z 1055 | // MARK: - Store
+2026-10-18T17:12:40.2718700Z 1056 | 
+2026-10-18T17:12:40.2719770Z 1057 | public final class CatalogStore {
+2026-10-18T17:12:40.2720360Z      |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:12:40.2772570Z 1058 | 
+2026-10-18T17:12:40.2773870Z 1059 |     // MARK: Stored state
+2026-10-18T17:12:40.2774430Z 
+2026-10-18T17:12:40.2775920Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:19:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:12:40.2777980Z   17 | import Foundation
+2026-10-18T17:12:40.2778730Z   18 | import CryptoKit
+2026-10-18T17:12:40.2779510Z   19 | import LumenCore
+2026-10-18T17:12:40.2780730Z      | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:12:40.2831890Z   20 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+2026-10-18T17:12:40.2832860Z   21 | // with the rest of the platform-image code rather than in LumenCore.
+2026-10-18T17:12:40.2833270Z 
+2026-10-18T17:12:40.2833840Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:82:31: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:12:40.2834950Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:12:40.2835480Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:12:40.2836040Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:12:40.2836520Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:12:40.2837000Z  49 | 
+2026-10-18T17:12:40.2837400Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:12:40.2837900Z     :
+2026-10-18T17:12:40.2838290Z  80 |                 observers.append(center.addObserver(forName: name, object: nil,
+2026-10-18T17:12:40.2838910Z  81 |                                                     queue: .main) { [weak self] _ in
+2026-10-18T17:12:40.2839470Z  82 |                     guard let self else { return }
+2026-10-18T17:12:40.2839980Z     |                               `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:12:40.2840690Z  83 |                     MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:12:40.2841040Z  84 |                 })
+2026-10-18T17:12:40.2841210Z 
+2026-10-18T17:12:40.2841830Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:89:27: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:12:40.2843300Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:12:40.2843950Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:12:40.2844400Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:12:40.2844890Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:12:40.2845500Z  49 | 
+2026-10-18T17:12:40.2845780Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:12:40.2846200Z     :
+2026-10-18T17:12:40.2846480Z  87 |         if timer == nil {
+2026-10-18T17:12:40.2847050Z  88 |             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+2026-10-18T17:12:40.2847530Z  89 |                 guard let self else { return }
+2026-10-18T17:12:40.2848130Z     |                           `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:12:40.2848740Z  90 |                 MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:12:40.2849150Z  91 |             }
+2026-10-18T17:12:40.2849300Z 
+2026-10-18T17:12:40.2849750Z /Users/runner/work/lumen/lumen/Sources/LumenApp/GridView.swift:421:22: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:12:40.2850360Z 419 | 
+2026-10-18T17:12:40.2850660Z 420 |     private func loadThumbnail() async {
+2026-10-18T17:12:40.2851240Z 421 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+2026-10-18T17:12:40.2852040Z     |                      `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:12:40.2852710Z 422 |             if image !== hit { image = hit }
+2026-10-18T17:12:40.2853040Z 423 |             return
+2026-10-18T17:12:40.2853270Z 
+2026-10-18T17:12:40.2853880Z /Users/runner/work/lumen/lumen/Sources/LumenApp/Keymap.swift:46:30: warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2854950Z  44 |         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+2026-10-18T17:12:40.2855590Z  45 |             guard let self else { return event }
+2026-10-18T17:12:40.2856100Z  46 |             return MainActor.assumeIsolated {
+2026-10-18T17:12:40.2856890Z     |                              `- warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2857500Z  47 |                 self.handle(event) ? nil : event
+2026-10-18T17:12:40.2857970Z  48 |             }
+2026-10-18T17:12:40.2858090Z 
+2026-10-18T17:12:40.2858480Z :1:1: note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:12:40.2859060Z 1 | @_nonSendable(_assumed)
+2026-10-18T17:12:40.2859540Z   | `- note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:12:40.2860000Z 
+2026-10-18T17:12:40.2860750Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:634:60: warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2862310Z  632 |         return renderer.renderMaskAlpha(source: source, recipe: recipe,
+2026-10-18T17:12:40.2862760Z  633 |                                         maskID: maskID, strokeSets: strokeSets,
+2026-10-18T17:12:40.2863290Z  634 |                                         longEdge: AppState.maskThumbnailLongEdge)
+2026-10-18T17:12:40.2864170Z      |                                                            `- warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2864950Z  635 |     }
+2026-10-18T17:12:40.2865260Z  636 | 
+2026-10-18T17:12:40.2865540Z 
+2026-10-18T17:12:40.2865960Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:902:16: note: static property declared here
+2026-10-18T17:12:40.2867420Z  900 |     /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+2026-10-18T17:12:40.2868110Z  901 |     /// editor does it live is that they compute it at mask resolution.
+2026-10-18T17:12:40.2868810Z  902 |     static let maskThumbnailLongEdge = 96
+2026-10-18T17:12:40.2869530Z      |                `- note: static property declared here
+2026-10-18T17:12:40.2870260Z  903 | 
+2026-10-18T17:12:40.2870710Z  904 |     /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+2026-10-18T17:12:40.2937240Z 
+2026-10-18T17:12:40.2938080Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:204:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2939070Z 202 |         Task { [weak self] in
+2026-10-18T17:12:40.2939540Z 203 |             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+2026-10-18T17:12:40.2940340Z 204 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:12:40.2943280Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2944990Z 205 |                     from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:12:40.2946320Z     |                                                  `- note: property access is 'async'
+2026-10-18T17:12:40.2947230Z 206 |                 else { return nil }
+2026-10-18T17:12:40.2948360Z 207 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:12:40.2948760Z 
+2026-10-18T17:12:40.2949220Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:311:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2950190Z 309 |                 // The traces stay at the proxy long edge whatever the render's size:
+2026-10-18T17:12:40.2950930Z 310 |                 // the extra pixels were commissioned for the count, not for the shape.
+2026-10-18T17:12:40.2951420Z 311 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:12:40.2952210Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2952890Z 312 |                     from: result.image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:12:40.2953430Z     |                                                         `- note: property access is 'async'
+2026-10-18T17:12:40.2953880Z 313 |                 else { return nil }
+2026-10-18T17:12:40.2954320Z 314 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:12:40.2954740Z 
+2026-10-18T17:12:40.2955460Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:486:42: warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2956480Z 140 |     /// which is the viewport in device pixels. 24 MP is a 6K viewport at 1:1 with room
+2026-10-18T17:12:40.2957080Z 141 |     /// over it, and costs 96 MB of transient bytes at the ceiling.
+2026-10-18T17:12:40.2957860Z 142 |     static let scopeTapPixelCeiling: Int = 24_000_000
+2026-10-18T17:12:40.2958450Z     |                `- note: static property declared here
+2026-10-18T17:12:40.2958780Z 143 | 
+2026-10-18T17:12:40.2959170Z 144 |     /// Measure the scopes off the frame the viewer already has.
+2026-10-18T17:12:40.2959710Z     :
+2026-10-18T17:12:40.2959960Z 484 |         let height: Int = image.height
+2026-10-18T17:12:40.2961490Z 485 |         guard width > 0, height > 0 else { return nil }
+2026-10-18T17:12:40.2962560Z 486 |         guard width * height <= AppState.scopeTapPixelCeiling else { return nil }
+2026-10-18T17:12:40.2963760Z     |                                          `- warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2966140Z 487 |         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+2026-10-18T17:12:40.2967500Z 488 |         var bytes = [UInt8](repeating: 0, count: width * height * 4)
+2026-10-18T17:12:40.2967840Z 
+2026-10-18T17:12:40.2968500Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ViewerOverlays.swift:1120:18: warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2970070Z  992 |     /// compositing at the sampler's full 4096 was interpolating an interpolation at
+2026-10-18T17:12:40.2970810Z  993 |     /// four times the cost. 2048 keeps a downscale on the way to the screen.
+2026-10-18T17:12:40.2971410Z  994 |     static let compositeLongEdge = 2048
+2026-10-18T17:12:40.2972400Z      |                `- note: static property declared here
+2026-10-18T17:12:40.2972720Z  995 | 
+2026-10-18T17:12:40.2973010Z  996 |     private struct BuildKey: Equatable {
+2026-10-18T17:12:40.2973300Z      :
+2026-10-18T17:12:40.2973670Z 1118 |         let cap = MaskOverlay.compositeLongEdge(
+2026-10-18T17:12:40.2974120Z 1119 |             alphaLongEdge: Swift.max(alpha.width, alpha.height),
+2026-10-18T17:12:40.2974600Z 1120 |             cap: compositeLongEdge)
+2026-10-18T17:12:40.2975810Z      |                  `- warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:12:40.2976560Z 1121 |         let longest = Swift.max(rawWidth, rawHeight)
+2026-10-18T17:12:40.2977080Z 1122 |         let shrink = longest > cap ? Double(cap) / Double(longest) : 1
+2026-10-18T17:12:40.2977820Z [14/19] Write Objects.LinkFileList
+2026-10-18T17:12:43.6964970Z [15/19] Linking LumenApp
+2026-10-18T17:13:56.1362630Z [17/20] Compiling LumenCoreTests AIDenoiseRenderedHelpTests.swift
+2026-10-18T17:13:56.1468020Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/MaskDependencyAdversarialTests.swift:401:77: warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:13:56.1571060Z 399 |         // of narrowing here is that a `.model` kind must never reach the segmenter.
+2026-10-18T17:13:56.1573000Z 400 |         let bareDotNone: Set<MaskKind> = MaskDependency.wantedMattes(in: recipe,
+2026-10-18T17:13:56.1675790Z 401 |                                                                      from: .none)
+2026-10-18T17:13:56.1780100Z     |                                                                             `- warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:13:56.1789260Z 402 |         XCTAssertEqual(bareDotNone, everything,
+2026-10-18T17:13:56.1789890Z 403 |                        "if this is now empty the ambiguity has been closed")
+2026-10-18T17:13:56.1790370Z 
+2026-10-18T17:13:56.1791120Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:45:43: warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:13:56.1792190Z  43 |         first.finish(.cancelled)
+2026-10-18T17:13:56.1792690Z  44 |         second.finish(.completed)
+2026-10-18T17:13:56.1793430Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:13:56.1794240Z     |                                           `- warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:13:56.1816320Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:13:56.1816990Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:13:56.1828340Z 
+2026-10-18T17:13:56.1829260Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:46:44: warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:13:56.1830100Z  44 |         second.finish(.completed)
+2026-10-18T17:13:56.1830470Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:13:56.1831040Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:13:56.1831650Z     |                                            `- warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:13:56.1832860Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:13:56.1833220Z  48 |         let staleSaved = try await store.save(stale)
+2026-10-18T17:14:00.8954100Z [18/20] Compiling LumenAppTests AppStateSeamTests.swift
+2026-10-18T17:14:00.8973230Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/HistoryPanelTests.swift:54:52: warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:14:00.8974870Z  52 |     /// One recipe step on one photograph, built the way `updateRecipe` builds one.
+2026-10-18T17:14:00.8976840Z  53 |     private func step(_ url: URL, key: String?,
+2026-10-18T17:14:00.8977890Z  54 |                       label: String = HistoryStack.unnamedLabel) -> HistoryStack.Step {
+2026-10-18T17:14:00.8995840Z     |                                                    `- warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:14:00.8998430Z  55 |         var after = Recipe()
+2026-10-18T17:14:00.8999350Z  56 |         after.develop.tone.exposure = 0.4
+2026-10-18T17:14:00.8999820Z 
+2026-10-18T17:14:00.9000650Z /Users/runner/work/lumen/lumen/Sources/LumenApp/HistoryStack.swift:62:16: note: class property declared here
+2026-10-18T17:14:00.9005020Z  60 |     /// named this step" and derives a name from the coalescing key instead — and a
+2026-10-18T17:14:00.9006330Z  61 |     /// literal `"Edit"` written in two files is how that agreement would quietly end.
+2026-10-18T17:14:00.9007730Z  62 |     static let unnamedLabel = "Edit"
+2026-10-18T17:14:00.9008870Z     |                `- note: class property declared here
+2026-10-18T17:14:00.9010830Z  63 | 
+2026-10-18T17:14:00.9012570Z  64 |     /// A drag that pauses longer than this starts a new undo step, so "nudge, think,
+2026-10-18T17:14:03.0750800Z [19/21] Compiling LumenPackageTests runner.swift
+2026-10-18T17:14:03.0802140Z [19/21] Write Objects.LinkFileList
+2026-10-18T17:14:07.0419360Z [20/21] Linking LumenPackageTests
+2026-10-18T17:14:07.0464850Z Build complete! (273.26s)
+2026-10-18T17:14:09.2018030Z Test Suite 'Selected tests' started at 2026-10-18 17:14:07.844.
+2026-10-18T17:14:09.2019540Z Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 17:14:07.846.
+2026-10-18T17:14:09.2021290Z Test Suite 'DehazeCompletionCostTests' started at 2026-10-18 17:14:07.846.
+2026-10-18T17:14:09.2023570Z Test Case '-[LumenPipelineTests.DehazeCompletionCostTests testGeneratedChangingAmountCompletedFrames]' started.
+2026-10-18T17:14:09.2027530Z DEHAZE-COMPLETION-COST {"amount":-50,"assemblySeconds":0.1742151250000461,"centerR":0.65808689594268799,"completedSeconds":0.37321758333337129,"finite":true,"firstContextFrame":true,"frame":0,"height":128,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.19900245833332519,"width":256}
+2026-10-18T17:14:09.2032510Z DEHAZE-COMPLETION-COST {"amount":-25,"assemblySeconds":0.0073854583333741175,"centerR":0.63573938608169556,"completedSeconds":0.012448583333366514,"finite":true,"firstContextFrame":false,"frame":1,"height":128,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0050631249999923966,"width":256}
+2026-10-18T17:14:09.2035530Z DEHAZE-COMPLETION-COST {"amount":-10,"assemblySeconds":0.0059531250000190994,"centerR":0.62233090400695801,"completedSeconds":0.0084047083333871342,"finite":true,"firstContextFrame":false,"frame":2,"height":128,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0024515833333680348,"width":256}
+2026-10-18T17:14:09.2037660Z DEHAZE-COMPLETION-COST {"amount":10,"assemblySeconds":0.0041365833333202318,"centerR":0.59601187705993652,"completedSeconds":0.0063811666666424571,"finite":true,"firstContextFrame":false,"frame":3,"height":128,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0022445833333222254,"width":256}
+2026-10-18T17:14:09.2039690Z DEHAZE-COMPLETION-COST {"amount":25,"assemblySeconds":0.0044326666666165693,"centerR":0.56994187831878662,"completedSeconds":0.0070114999999759675,"finite":true,"firstContextFrame":false,"frame":4,"height":128,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0025788333333593982,"width":256}
+2026-10-18T17:14:09.2041690Z DEHAZE-COMPLETION-COST {"amount":50,"assemblySeconds":0.0040047500000355285,"centerR":0.52649182081222534,"completedSeconds":0.0066785416667016761,"finite":true,"firstContextFrame":false,"frame":5,"height":128,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.0026737916666661476,"width":256}
+2026-10-18T17:14:09.2044070Z DEHAZE-COMPLETION-COST {"amount":-50,"assemblySeconds":0.10601774999997815,"centerR":0.661865234375,"completedSeconds":0.27589879166669107,"finite":true,"firstContextFrame":true,"frame":0,"height":512,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.16988104166671292,"width":1024}
+2026-10-18T17:14:09.2045940Z DEHAZE-COMPLETION-COST {"amount":-25,"assemblySeconds":0.0059328333333041883,"centerR":0.63680130243301392,"completedSeconds":0.017208249999953296,"finite":true,"firstContextFrame":false,"frame":1,"height":512,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.011275416666649107,"width":1024}
+2026-10-18T17:14:09.2049030Z DEHAZE-COMPLETION-COST {"amount":-10,"assemblySeconds":0.0087900833333378614,"centerR":0.62176299095153809,"completedSeconds":0.028397416666621211,"finite":true,"firstContextFrame":false,"frame":2,"height":512,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.01960733333328335,"width":1024}
+2026-10-18T17:14:09.2051010Z DEHAZE-COMPLETION-COST {"amount":10,"assemblySeconds":0.0063200416666404635,"centerR":0.59567254781723022,"completedSeconds":0.01937720833336698,"finite":true,"firstContextFrame":false,"frame":3,"height":512,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.013057166666726516,"width":1024}
+2026-10-18T17:14:09.2052950Z DEHAZE-COMPLETION-COST {"amount":25,"assemblySeconds":0.0060572500000262153,"centerR":0.57157522439956665,"completedSeconds":0.018662500000004911,"finite":true,"firstContextFrame":false,"frame":4,"height":512,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.012605249999978696,"width":1024}
+2026-10-18T17:14:09.2054830Z DEHAZE-COMPLETION-COST {"amount":50,"assemblySeconds":0.0063876666666828896,"centerR":0.53141295909881592,"completedSeconds":0.019922166666674457,"finite":true,"firstContextFrame":false,"frame":5,"height":512,"label":"after","nativeGUIAcceptance":false,"privatePhotoAcceptance":false,"readbackSeconds":0.013534499999991567,"width":1024}
+2026-10-18T17:14:09.2056370Z Test Case '-[LumenPipelineTests.DehazeCompletionCostTests testGeneratedChangingAmountCompletedFrames]' passed (1.272 seconds).
+2026-10-18T17:14:09.2057040Z Test Suite 'DehazeCompletionCostTests' passed at 2026-10-18 17:14:09.118.
+2026-10-18T17:14:09.2057950Z 	 Executed 1 test, with 0 failures (0 unexpected) in 1.272 (1.273) seconds
+2026-10-18T17:14:09.2058420Z Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 17:14:09.118.
+2026-10-18T17:14:09.2059650Z 	 Executed 1 test, with 0 failures (0 unexpected) in 1.272 (1.273) seconds
+2026-10-18T17:14:09.2060180Z Test Suite 'Selected tests' passed at 2026-10-18 17:14:09.118.
+2026-10-18T17:14:09.2060620Z 	 Executed 1 test, with 0 failures (0 unexpected) in 1.272 (1.275) seconds
+2026-10-18T17:14:09.2061750Z ◇ Test run started.
+2026-10-18T17:14:09.2062120Z ↳ Testing Library Version: 124.4
+2026-10-18T17:14:09.2062490Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-10-18T17:14:09.2063010Z ✔ Test run with 0 tests passed after 0.001 seconds.
+2026-10-18T17:14:09.4479450Z DEHAZE-COST-COVERAGE before=12 after=12; one generated ordered pair, not GUI/RAW or statistical acceptance
+2026-10-18T17:14:09.4748530Z ##[group]Run actions/upload-artifact@v4
+2026-10-18T17:14:09.4748890Z with:
+2026-10-18T17:14:09.4749250Z   name: dehaze-completion-cost-222cf96276d9e9c3a027c2f0ed18404a73401014
+2026-10-18T17:14:09.4749920Z   path: dehaze-cost-before.log
+dehaze-cost-after.log
+dehaze-cost-before.json
+dehaze-cost-after.json
+dehaze-cost-provenance.log
+
+2026-10-18T17:14:09.4750440Z   if-no-files-found: error
+2026-10-18T17:14:09.4750690Z   retention-days: 14
+2026-10-18T17:14:09.4750890Z   compression-level: 6
+2026-10-18T17:14:09.4751120Z   overwrite: false
+2026-10-18T17:14:09.4751360Z   include-hidden-files: false
+2026-10-18T17:14:09.4751580Z ##[endgroup]
+2026-10-18T17:14:10.0526280Z (node:13228) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-18T17:14:10.0527370Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-18T17:14:10.0593640Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-10-18T17:14:10.0600320Z The least common ancestor is /Users/runner/work/lumen/lumen. This will be the root directory of the artifact
+2026-10-18T17:14:10.0600920Z With the provided path, there will be 5 files uploaded
+2026-10-18T17:14:10.0601680Z Artifact name is valid!
+2026-10-18T17:14:10.0604700Z Root directory input is valid!
+2026-10-18T17:14:10.3900460Z Beginning upload of artifact content to blob storage
+2026-10-18T17:14:10.4186250Z (node:13228) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-18T17:14:10.5495290Z Uploaded bytes 14052
+2026-10-18T17:14:10.5896710Z Finished uploading artifact content to blob storage!
+2026-10-18T17:14:10.5998830Z SHA256 digest of uploaded artifact zip is 9f9da22baa341d0adda896cf19ae65b9d7e2bf8a7c1d8d1cfb9562719cf285ea
+2026-10-18T17:14:10.6098970Z Finalizing artifact upload
+2026-10-18T17:14:10.8535280Z Artifact dehaze-completion-cost-222cf96276d9e9c3a027c2f0ed18404a73401014.zip successfully finalized. Artifact ID 12144715720
+2026-10-18T17:14:10.8536870Z Artifact dehaze-completion-cost-222cf96276d9e9c3a027c2f0ed18404a73401014 has been successfully uploaded! Final size is 14052 bytes. Artifact ID is 12144715720
+2026-10-18T17:14:10.8537870Z Artifact download URL: https://github.com/benedek-art/lumen/actions/runs/39147903843/artifacts/12144715720
+2026-10-18T17:14:10.8809820Z Post job cleanup.
+2026-10-18T17:14:11.0285200Z [command]/opt/homebrew/bin/git version
+2026-10-18T17:14:11.0362520Z git version 2.55.0
+2026-10-18T17:14:11.0381660Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/2722c7a8-748f-4a6b-ab68-0cc792f22019/.gitconfig'
+2026-10-18T17:14:11.0393170Z Temporarily overriding HOME='/Users/runner/work/_temp/2722c7a8-748f-4a6b-ab68-0cc792f22019' before making global git config changes
+2026-10-18T17:14:11.0395270Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T17:14:11.0396950Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T17:14:11.0488320Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T17:14:11.0565440Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T17:14:11.2140520Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T17:14:11.2215160Z http.https://github.com/.extraheader
+2026-10-18T17:14:11.2235600Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-18T17:14:11.2344780Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T17:14:11.4070880Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T17:14:11.4368770Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T17:14:11.6342150Z Cleaning up orphan processes
+2026-10-18T17:14:14.2437280Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

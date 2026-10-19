@@ -1,0 +1,17 @@
+Test Suite 'All tests' started at 2026-10-18 21:36:02.556
+Test Suite 'regular-export-portable.xctest' started at 2026-10-18 21:36:02.558
+Test Suite 'RegularSourceFileIdentityTests' started at 2026-10-18 21:36:02.558
+Test Case 'RegularSourceFileIdentityTests.testRegularOriginalAndSymlinkUseTheSameGeneration' started at 2026-10-18 21:36:02.558
+Test Case 'RegularSourceFileIdentityTests.testRegularOriginalAndSymlinkUseTheSameGeneration' passed (0.005 seconds)
+Test Case 'RegularSourceFileIdentityTests.testDirectoriesDevicesAndMissingPlaceholdersDoNotBindImplicitly' started at 2026-10-18 21:36:02.563
+/workspace/scratch/2982a056243e/regular-export-portable/tests.swift:29: error: RegularSourceFileIdentityTests.testDirectoriesDevicesAndMissingPlaceholdersDoNotBindImplicitly : XCTAssertNil failed: "SourceFileIdentity(token: "1731307:4096:1792325162:659577401:1792325162:659577401")" -
+/workspace/scratch/2982a056243e/regular-export-portable/tests.swift:32: error: RegularSourceFileIdentityTests.testDirectoriesDevicesAndMissingPlaceholdersDoNotBindImplicitly : XCTAssertNil failed: "SourceFileIdentity(token: "9:0:1792305247:687340743:1792305247:687340743")" -
+Test Case 'RegularSourceFileIdentityTests.testDirectoriesDevicesAndMissingPlaceholdersDoNotBindImplicitly' failed (0.103 seconds)
+Test Case 'RegularSourceFileIdentityTests.testReplacementStillChangesGenerationAndBrokenSymlinkIsUnbound' started at 2026-10-18 21:36:02.666
+Test Case 'RegularSourceFileIdentityTests.testReplacementStillChangesGenerationAndBrokenSymlinkIsUnbound' passed (0.003 seconds)
+Test Suite 'RegularSourceFileIdentityTests' failed at 2026-10-18 21:36:02.669
+	 Executed 3 tests, with 2 failures (0 unexpected) in 0.111 (0.111) seconds
+Test Suite 'regular-export-portable.xctest' failed at 2026-10-18 21:36:02.669
+	 Executed 3 tests, with 2 failures (0 unexpected) in 0.111 (0.111) seconds
+Test Suite 'All tests' failed at 2026-10-18 21:36:02.669
+	 Executed 3 tests, with 2 failures (0 unexpected) in 0.111 (0.111) seconds

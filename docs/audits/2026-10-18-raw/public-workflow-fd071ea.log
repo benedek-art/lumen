@@ -1,0 +1,64 @@
+2026-10-18T12:45:23.1743870Z 	 Executed 1 test, with 0 failures (0 unexpected) in 80.934 (80.935) seconds
+2026-10-18T12:45:23.1748490Z 	 Executed 1 test, with 0 failures (0 unexpected) in 80.934 (80.935) seconds
+2026-10-18T12:45:23.1751820Z 	 Executed 1 test, with 0 failures (0 unexpected) in 80.934 (80.936) seconds
+2026-10-18T12:45:23.1753640Z WORKFLOWBENCH count=5000 open=2743.21 ms
+2026-10-18T12:45:23.1754450Z WORKFLOWBENCH count=5000 cold-photo-order p50=15.4136 p95=23.4640 p99=23.4640 ms
+2026-10-18T12:45:23.1755220Z WORKFLOWBENCH count=5000 cursor-selection-bookkeeping p50=0.0615 p95=0.2004 p99=0.3848 ms
+2026-10-18T12:45:23.1755910Z WORKFLOWBENCH count=5000 drag-selected-1 p50=0.0250 p95=0.0312 p99=0.1977 ms
+2026-10-18T12:45:23.1756470Z WORKFLOWBENCH count=5000 release-selected=1 2.4286 ms
+2026-10-18T12:45:23.1757100Z WORKFLOWBENCH count=5000 catalog-commit-selected=1 release-to-barrier=27.1783 ms
+2026-10-18T12:45:23.1757920Z WORKFLOWBENCH count=5000 sidecar-flush-selected=1 call=6.2838 release-to-flush=33.4734 ms
+2026-10-18T12:45:23.1758630Z WORKFLOWBENCH count=5000 undo-selected=1 0.1251 ms
+2026-10-18T12:45:23.1759140Z WORKFLOWBENCH count=5000 drag-selected-40 p50=0.4063 p95=0.9195 p99=1.1930 ms
+2026-10-18T12:45:23.1759690Z WORKFLOWBENCH count=5000 release-selected=40 0.1240 ms
+2026-10-18T12:45:23.1760290Z WORKFLOWBENCH count=5000 catalog-commit-selected=40 release-to-barrier=321.9971 ms
+2026-10-18T12:45:23.1762290Z WORKFLOWBENCH count=5000 sidecar-flush-selected=40 call=129.6478 release-to-flush=451.6612 ms
+2026-10-18T12:45:23.1763810Z WORKFLOWBENCH count=5000 undo-selected=40 0.4441 ms
+2026-10-18T12:45:23.1764970Z WORKFLOWBENCH count=5000 drag-selected-200 p50=2.6190 p95=5.7068 p99=8.8659 ms
+2026-10-18T12:45:23.1766340Z WORKFLOWBENCH count=5000 release-selected=200 0.4778 ms
+2026-10-18T12:45:23.1767580Z WORKFLOWBENCH count=5000 catalog-commit-selected=200 release-to-barrier=1393.3899 ms
+2026-10-18T12:45:23.1769210Z WORKFLOWBENCH count=5000 sidecar-flush-selected=200 call=456.2303 release-to-flush=1849.6433 ms
+2026-10-18T12:45:23.1770510Z WORKFLOWBENCH count=5000 undo-selected=200 1.8391 ms
+2026-10-18T12:45:23.1771790Z WORKFLOWBENCH count=5000 drag-selected-1000 p50=20.0087 p95=29.2928 p99=34.2017 ms
+2026-10-18T12:45:23.1773180Z WORKFLOWBENCH count=5000 release-selected=1000 2.2413 ms
+2026-10-18T12:45:23.1776900Z WORKFLOWBENCH count=5000 catalog-commit-selected=1000 release-to-barrier=7067.9464 ms
+2026-10-18T12:45:23.1778660Z WORKFLOWBENCH count=5000 sidecar-flush-selected=1000 call=2505.5293 release-to-flush=9573.5207 ms
+2026-10-18T12:45:23.1779210Z WORKFLOWBENCH count=5000 undo-selected=1000 17.7755 ms
+2026-10-18T12:45:23.1779830Z CATALOGINDEXBENCH count=5000 catalog-id-explicit-reset-cold p50=1.7672 p95=2.9816 p99=4.9586 ms
+2026-10-18T12:45:23.1780480Z CATALOGINDEXBENCH count=5000 catalog-id-warm p50=0.0006 p95=0.0008 p99=0.0008 ms
+2026-10-18T12:45:23.1781350Z WORKFLOWBENCH count=5000 rss-before=45924352 rss-after=709918720 bytes
+2026-10-18T12:45:23.1781920Z WORKFLOWBENCH count=20000 open=8774.10 ms
+2026-10-18T12:45:23.1782540Z WORKFLOWBENCH count=20000 cold-photo-order p50=72.3218 p95=84.2298 p99=84.2298 ms
+2026-10-18T12:45:23.1783240Z WORKFLOWBENCH count=20000 cursor-selection-bookkeeping p50=0.0643 p95=0.0850 p99=0.2420 ms
+2026-10-18T12:45:23.1785560Z WORKFLOWBENCH count=20000 drag-selected-1 p50=0.0253 p95=0.0756 p99=0.0865 ms
+2026-10-18T12:45:23.1787390Z WORKFLOWBENCH count=20000 release-selected=1 13.7522 ms
+2026-10-18T12:45:23.1788670Z WORKFLOWBENCH count=20000 catalog-commit-selected=1 release-to-barrier=22.1457 ms
+2026-10-18T12:45:23.1790220Z WORKFLOWBENCH count=20000 sidecar-flush-selected=1 call=5.1963 release-to-flush=27.4141 ms
+2026-10-18T12:45:23.1791340Z WORKFLOWBENCH count=20000 undo-selected=1 0.0814 ms
+2026-10-18T12:45:23.1792690Z WORKFLOWBENCH count=20000 drag-selected-40 p50=0.4506 p95=1.2134 p99=1.4536 ms
+2026-10-18T12:45:23.1793820Z WORKFLOWBENCH count=20000 release-selected=40 0.1982 ms
+2026-10-18T12:45:23.1795040Z WORKFLOWBENCH count=20000 catalog-commit-selected=40 release-to-barrier=314.6404 ms
+2026-10-18T12:45:23.1796450Z WORKFLOWBENCH count=20000 sidecar-flush-selected=40 call=134.2296 release-to-flush=448.8859 ms
+2026-10-18T12:45:23.1797720Z WORKFLOWBENCH count=20000 undo-selected=40 0.7499 ms
+2026-10-18T12:45:23.1798930Z WORKFLOWBENCH count=20000 drag-selected-200 p50=2.8875 p95=5.4020 p99=6.9290 ms
+2026-10-18T12:45:23.1800110Z WORKFLOWBENCH count=20000 release-selected=200 1.0176 ms
+2026-10-18T12:45:23.1801390Z WORKFLOWBENCH count=20000 catalog-commit-selected=200 release-to-barrier=1194.5977 ms
+2026-10-18T12:45:23.1802950Z WORKFLOWBENCH count=20000 sidecar-flush-selected=200 call=404.3338 release-to-flush=1598.9549 ms
+2026-10-18T12:45:23.1867950Z WORKFLOWBENCH count=20000 undo-selected=200 1.8626 ms
+2026-10-18T12:45:23.1868590Z WORKFLOWBENCH count=20000 drag-selected-1000 p50=15.4727 p95=20.8707 p99=22.9920 ms
+2026-10-18T12:45:23.1869130Z WORKFLOWBENCH count=20000 release-selected=1000 2.8870 ms
+2026-10-18T12:45:23.1869630Z WORKFLOWBENCH count=20000 catalog-commit-selected=1000 release-to-barrier=5902.1231 ms
+2026-10-18T12:45:23.1870270Z WORKFLOWBENCH count=20000 sidecar-flush-selected=1000 call=2341.6699 release-to-flush=8243.8100 ms
+2026-10-18T12:45:23.1870800Z WORKFLOWBENCH count=20000 undo-selected=1000 7.6505 ms
+2026-10-18T12:45:23.1871310Z CATALOGINDEXBENCH count=20000 catalog-id-explicit-reset-cold p50=15.6629 p95=20.9691 p99=21.1103 ms
+2026-10-18T12:45:23.1871910Z CATALOGINDEXBENCH count=20000 catalog-id-warm p50=0.0007 p95=0.0037 p99=0.0067 ms
+2026-10-18T12:45:23.1872490Z WORKFLOWBENCH count=20000 rss-before=500416512 rss-after=1249001472 bytes
+2026-10-18T12:45:26.3586120Z 	 Executed 1 test, with 0 failures (0 unexpected) in 0.343 (0.343) seconds
+2026-10-18T12:45:26.3587080Z 	 Executed 1 test, with 0 failures (0 unexpected) in 0.343 (0.343) seconds
+2026-10-18T12:45:26.3588240Z 	 Executed 1 test, with 0 failures (0 unexpected) in 0.343 (0.345) seconds
+2026-10-18T12:46:14.3906840Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/ExportSourceGenerationTests.swift:153: error: -[LumenPipelineTests.ExportSourceGenerationTests testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial] : XCTAssertThrowsError failed: did not throw an error
+2026-10-18T12:46:14.3908800Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/ExportSourceGenerationTests.swift:160: error: -[LumenPipelineTests.ExportSourceGenerationTests testReplacementAfterEncoderCompletionRefusesFinalPublicationAndRemovesPartial] : XCTAssertEqual failed: ("813 bytes") is not equal to ("27 bytes")
+2026-10-18T12:46:14.3941420Z 	 Executed 1 test, with 2 failures (0 unexpected) in 0.866 (0.866) seconds
+2026-10-18T12:46:14.3942320Z 	 Executed 1 test, with 2 failures (0 unexpected) in 0.866 (0.866) seconds
+2026-10-18T12:46:14.3943290Z 	 Executed 1 test, with 2 failures (0 unexpected) in 0.866 (0.867) seconds
+2026-10-18T12:46:14.4156010Z EXPORT-SOURCE-CAUSAL baseline=GREEN final-check-removed=RED source-restored=true

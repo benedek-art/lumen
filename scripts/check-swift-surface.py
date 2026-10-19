@@ -198,6 +198,8 @@ GENERIC_NAME = re.compile(r"\b([A-Z]\w*)\s*(?::|,|$)")
 # not declared in-tree gets reported, so adding a genuinely new platform type means
 # adding it here — which is the point. Single capital letters are generic parameters.
 KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
+    # Darwin signal constants used by the killed-process durability regression.
+    "SIGSTOP", "SIGKILL",
     # Native APIs used by the audited persistence/export safety regressions.
     "SQLITE_OPEN_READONLY", "RENAME_EXCL", "NSBitmapImageRep",
     # POSIX errno values and open(2) flags: the export's no-overwrite fallback
@@ -206,7 +208,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "EIO", "ENOSPC", "O_CREAT", "O_EXCL", "O_WRONLY",
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
-    "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
+    "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup", "DispatchSpecificKey",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
     "UInt64", "Double", "Float", "Float16", "Float32", "Float64", "SIMD2", "SIMD3", "SIMD4", "SIMD8", "Bool", "String", "Substring",
@@ -229,6 +231,8 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "RandomNumberGenerator", "WritableKeyPath", "ReferenceWritableKeyPath", "KeyPath",
     "ObjCBool", "Duration", "ContinuousClock", "SuspendingClock",
     # Foundation
+    # NSError userInfo keys used by bounded test-only failure diagnostics.
+    "NSUnderlyingErrorKey", "NSLocalizedDescriptionKey",
     "Foundation", "Data", "Date", "DateComponents", "DateFormatter", "TimeInterval",
     "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",

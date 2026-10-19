@@ -29,6 +29,44 @@ import Foundation
 import LumenCore
 import SwiftUI
 
+/// A pointer gesture belongs to the exact targets and channel that received its press.
+struct CurvePointerContext: Equatable {
+    var primary: URL?
+    var selection: Set<URL>
+    var targetMaskID: String?
+    var activeMaskID: String?
+    var channel: String
+}
+
+/// The production delivery seam for motion AND release. Rejected target changes stay
+/// rejected even if the original target returns before the mouse button comes up.
+final class CurvePointerSession {
+    private let context: CurvePointerContext
+    private var active = true
+
+    init(context: CurvePointerContext) { self.context = context }
+
+    func invalidate() { active = false }
+
+    private func accepts(_ current: CurvePointerContext) -> Bool {
+        guard active, current == context else { active = false; return false }
+        return true
+    }
+
+    func changed(at point: CGPoint, context current: CurvePointerContext,
+                 apply: (CGPoint) -> Void) {
+        guard accepts(current) else { return }
+        apply(point)
+    }
+
+    func ended(at point: CGPoint, context current: CurvePointerContext,
+               apply: (CGPoint) -> Void, finish: () -> Void) {
+        defer { active = false; finish() }
+        guard accepts(current) else { return }
+        apply(point)
+    }
+}
+
 // MARK: - Plot point
 
 // A control point is `[x, y]` and a curve is `[[Double]]`, which is the wire form and
@@ -141,6 +179,7 @@ struct CurveEditorView: View {
     @State private var dragPointIndex: Int? = nil
     @State private var dragSplitIndex: Int? = nil
     @State private var dragBegan: Bool = false
+    @State private var pointerSession: CurvePointerSession?
     /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5):
     /// a curve-point drag writes the recipe per event and paid per-event persistence.
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
@@ -274,6 +313,17 @@ struct CurveEditorView: View {
         }
     }
 
+    private var pointerContext: CurvePointerContext {
+        let maskID: String?
+        switch target {
+        case .global: maskID = nil
+        case .mask(let id): maskID = id
+        }
+        return CurvePointerContext(primary: state.primarySelection?.id,
+                                   selection: state.selection, targetMaskID: maskID,
+                                   activeMaskID: state.activeMaskID, channel: channel.rawValue)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             LumenSegmented(options: channelOptions, selection: $channel)
@@ -298,6 +348,10 @@ struct CurveEditorView: View {
         .padding(.vertical, 6)
         .background(Lumen.panelBackground)
         .foregroundStyle(Lumen.primaryText)
+        .onChange(of: pointerContext) { _, _ in pointerSession?.invalidate() }
+        .onDisappear {
+            if pointerSession != nil { pointerSession?.invalidate(); finishDrag() }
+        }
     }
 
     private var channelOptions: [(value: CurveChannel, label: String)] {
@@ -817,38 +871,55 @@ struct CurveEditorView: View {
     private func plotGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                sliderGestureChanged(true)
                 if !dragBegan {
                     dragBegan = true
+                    pointerSession = CurvePointerSession(context: pointerContext)
+                    sliderGestureChanged(true)
                     beginDrag(at: value.startLocation, size: size)
                 }
-                guard !dragConsumed else { return }
-                updateDrag(to: value.location, size: size)
+                pointerSession?.changed(at: value.location, context: pointerContext) { point in
+                    guard !dragConsumed else { return }
+                    sliderGestureChanged(true)
+                    updateDrag(to: point, size: size)
+                }
             }
             .onEnded { value in
-                if !dragConsumed { endDrag(at: value.location, size: size) }
-                finishDrag()
+                guard let session = pointerSession else { finishDrag(); return }
+                session.ended(at: value.location, context: pointerContext,
+                              apply: { point in
+                                  if !dragConsumed { endDrag(at: point, size: size) }
+                              }, finish: { finishDrag() })
             }
     }
 
-    /// The rail's own gesture, sharing the plot's drag state because one mouse cannot
-    /// be in both at once — and because the split being dragged has to be the same fact
-    /// on both surfaces, which is what draws the lit triangle.
+    /// The rail and plot share press identity and release delivery. A release is a
+    /// motion sample even when AppKit dropped all intermediate motion events.
     private func railGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 if !dragBegan {
                     dragBegan = true
+                    pointerSession = CurvePointerSession(context: pointerContext)
                     sliderGestureChanged(true)
                     beginSplitDrag(at: value.startLocation, size: size)
                 }
-                guard !dragConsumed, let index = dragSplitIndex else { return }
-                moveSplit(index, toX: value.location.x, size: size)
+                pointerSession?.changed(at: value.location, context: pointerContext) { point in
+                    guard !dragConsumed, let index = dragSplitIndex else { return }
+                    moveSplit(index, toX: point.x, size: size)
+                }
             }
-            .onEnded { _ in finishDrag() }
+            .onEnded { value in
+                guard let session = pointerSession else { finishDrag(); return }
+                session.ended(at: value.location, context: pointerContext,
+                              apply: { point in
+                                  guard !dragConsumed, let index = dragSplitIndex else { return }
+                                  moveSplit(index, toX: point.x, size: size)
+                              }, finish: { finishDrag() })
+            }
     }
 
     private func finishDrag() {
+        pointerSession = nil
         dragBegan = false
         dragConsumed = false
         dragPointIndex = nil
@@ -948,16 +1019,25 @@ struct CurveEditorView: View {
     ///
     /// It cannot take an anchor with it: `deletePoint` refuses those, so pulling the
     /// black point down and left — which is a thing photographers do to a curve on
-    /// purpose — leaves it where the drag last put it instead of removing it.
+    /// purpose — settles it at the clamped release coordinate instead of removing it.
     private func endDrag(at location: CGPoint, size: CGSize) {
-        guard channel != .parametric, let index = dragPointIndex else { return }
         guard size.width > 1, size.height > 1 else { return }
+        if channel == .parametric {
+            updateDrag(to: location, size: size)
+            return
+        }
+        guard let index = dragPointIndex else { return }
         let escaped: Bool = CurveEditing.escapes(
             x: Double(location.x / size.width),
             y: Double(location.y / size.height),
             marginX: Double(CurveEditorView.hitRadius / size.width),
             marginY: Double(CurveEditorView.hitRadius / size.height))
-        if escaped { deletePoint(at: index) }
+        if escaped, CurveEditing.isDeletable(index: index, count: currentPoints.count) {
+            deletePoint(at: index)
+        } else {
+            // Interior points and permanent anchors receive the release coordinate.
+            updateDrag(to: location, size: size)
+        }
     }
 
     // MARK: Point editing

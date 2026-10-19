@@ -1,0 +1,19 @@
+{
+  "purpose": "Classify original SIGILL using identical binary with Swift backtrace enabled; not a repeat for green",
+  "original_execution_exit": -4,
+  "binary_sha256": "506144e86e88e7a21f2b49d78d691adf3029a0857819840133513c1a20ad3115",
+  "command": [
+    "/workspace/scratch/2982a056243e/lumen-local-epsilon/docs/audits/2026-10-18-raw/local-amount-epsilon/probe",
+    "/workspace/scratch/2982a056243e/local-epsilon-backtrace-20261018"
+  ],
+  "SWIFT_BACKTRACE": "enable=yes,interactive=no",
+  "execution_exit": 0,
+  "seconds": 0.36304659400047967,
+  "core_manifest_matched": true,
+  "outputs": [
+    "backtrace-execution.log",
+    "summary.json",
+    "metrics.csv",
+    "domain-controls.csv"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "source": "0e9e4a483e37e3fd5be04daec159a0ccdba72609",
+  "run": "https://github.com/benedek-art/lumen/actions/runs/39145605311",
+  "job": 117728686639,
+  "skyBaseline": {"tests": 7, "failures": 0, "seconds": 13.325},
+  "positiveSkyRemoved": {"tests": 3, "assertionFailures": 7, "seconds": 1.859, "negativeControlPassed": true},
+  "negativeSkyRemoved": {"tests": 3, "assertionFailures": 11, "seconds": 1.486, "positiveControlPassed": true},
+  "autoToneBaselineIncludingExistingMidGesture": {"tests": 4, "failures": 0, "seconds": 0.835},
+  "autoToneGuardBypassed": {"tests": 4, "assertionFailures": 10, "seconds": 1.493, "healthyAndExistingMidGestureControlsPassed": true},
+  "sourceRestoredAndCompared": true,
+  "cameraAcceptance": false,
+  "generalDehazeParityAcceptance": false,
+  "nativeGUIAcceptance": false
+}

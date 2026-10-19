@@ -1,0 +1,120 @@
+2026-10-18T16:37:37.1732400Z [557/596] Compiling LumenAppTests AutoToneSourceIntegrityTests.swift
+2026-10-18T16:39:04.8943120Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8944760Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault]' skipped (0.002 seconds).
+2026-10-18T16:39:04.8947210Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8948770Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity]' skipped (0.002 seconds).
+2026-10-18T16:39:04.8950890Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8952290Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode]' skipped (0.001 seconds).
+2026-10-18T16:39:04.8954470Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8955690Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels]' skipped (0.001 seconds).
+2026-10-18T16:39:04.8957630Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testNativeCachePromotionPrecisionEvidence] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8958800Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeCachePromotionPrecisionEvidence]' skipped (0.001 seconds).
+2026-10-18T16:39:04.8960810Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8962130Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache]' skipped (0.001 seconds).
+2026-10-18T16:39:04.8987580Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8988760Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix]' skipped (0.001 seconds).
+2026-10-18T16:39:04.8990750Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:51: -[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile] : Test skipped - LUMEN_AUDIT_RAW_DIR unset; private RAW tests are opt-in
+2026-10-18T16:39:04.8991970Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile]' skipped (0.000 seconds).
+2026-10-18T16:39:04.8993210Z 	 Executed 8 tests, with 8 tests skipped and 0 failures (0 unexpected) in 0.009 (0.010) seconds
+2026-10-18T16:39:04.8995830Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/BroadRawQualificationTests.swift:16: -[LumenPipelineTests.BroadRawQualificationTests testBroadCameraDecodeAndDefaultPreview] : Test skipped - Private broad RAW compatibility pass is opt-in
+2026-10-18T16:39:04.8997020Z Test Case '-[LumenPipelineTests.BroadRawQualificationTests testBroadCameraDecodeAndDefaultPreview]' skipped (0.000 seconds).
+2026-10-18T16:39:04.8998240Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+2026-10-18T16:39:04.9011690Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/CanonicalDecodePolicyTests.swift:85: -[LumenPipelineTests.CanonicalDecodePolicyTests testPublicRawEligibleFailureRetriesWithoutCachingAnAlternateImage] : Test skipped - Public RAW directory is not configured
+2026-10-18T16:39:04.9013050Z Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testPublicRawEligibleFailureRetriesWithoutCachingAnAlternateImage]' skipped (0.002 seconds).
+2026-10-18T16:39:04.9014290Z 	 Executed 7 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.028 (0.028) seconds
+2026-10-18T16:39:04.9016530Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/CaptureDecodeCorpusTests.swift:15: -[LumenPipelineTests.CaptureDecodeCorpusTests testCaptureAmountAndLensCacheAgreeWithFreshDecoders] : Test skipped - LUMEN_AUDIT_RAW_DIR unset
+2026-10-18T16:39:04.9017880Z Test Case '-[LumenPipelineTests.CaptureDecodeCorpusTests testCaptureAmountAndLensCacheAgreeWithFreshDecoders]' skipped (0.001 seconds).
+2026-10-18T16:39:04.9019050Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds
+2026-10-18T16:40:12.3191350Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift:21: -[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical] : Test skipped - opt-in decode reconstruction/order diagnostic
+2026-10-18T16:40:12.3207150Z Test Case '-[LumenPipelineTests.DecodeReconstructionContinuityTests testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical]' skipped (0.002 seconds).
+2026-10-18T16:40:12.3233860Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.002 (0.002) seconds
+2026-10-18T16:40:12.3273090Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DehazeCompletionCostTests.swift:13: -[LumenPipelineTests.DehazeCompletionCostTests testGeneratedChangingAmountCompletedFrames] : Test skipped - opt-in completed-frame Dehaze measurement
+2026-10-18T16:40:12.3297210Z Test Case '-[LumenPipelineTests.DehazeCompletionCostTests testGeneratedChangingAmountCompletedFrames]' skipped (0.001 seconds).
+2026-10-18T16:40:12.3314810Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds
+2026-10-18T16:40:12.3316810Z Test Suite 'DehazeSkyContractTests' started at 2026-10-18 16:39:11.418.
+2026-10-18T16:40:12.3353740Z Test Case '-[LumenPipelineTests.DehazeSkyContractTests testBrightFlatPlateauMatchesBothDocumentedSkyTerms]' started.
+2026-10-18T16:40:12.3495110Z Test Case '-[LumenPipelineTests.DehazeSkyContractTests testBrightFlatPlateauMatchesBothDocumentedSkyTerms]' passed (1.581 seconds).
+2026-10-18T16:40:12.3600300Z Test Suite 'DehazeSkyContractTests' passed at 2026-10-18 16:39:13.000.
+2026-10-18T16:40:12.3762780Z Test Suite 'DehazeSkyFieldTests' started at 2026-10-18 16:39:13.000.
+2026-10-18T16:40:12.3770180Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testExactEVAndCentralTensorAgainstIndependentFiniteSums]' started.
+2026-10-18T16:40:12.3841570Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testExactEVAndCentralTensorAgainstIndependentFiniteSums]' passed (0.122 seconds).
+2026-10-18T16:40:12.4065330Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testFullGraphReadbackTilesAndTranslatedExtent]' started.
+2026-10-18T16:40:12.4067660Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testFullGraphReadbackTilesAndTranslatedExtent]' passed (0.386 seconds).
+2026-10-18T16:40:12.4074910Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testGlobalLocalGroupAndSoftMaskSkyContractWithDetailControls]' started.
+2026-10-18T16:40:12.4185350Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testGlobalLocalGroupAndSoftMaskSkyContractWithDetailControls]' passed (1.243 seconds).
+2026-10-18T16:40:12.4231130Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testNegativeSkyKernelEquationWithColoredAirlight]' started.
+2026-10-18T16:40:12.4267550Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testNegativeSkyKernelEquationWithColoredAirlight]' passed (0.157 seconds).
+2026-10-18T16:40:12.4279360Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testPositiveSkyKernelEquationWithColoredAirlight]' started.
+2026-10-18T16:40:12.4283710Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testPositiveSkyKernelEquationWithColoredAirlight]' passed (0.146 seconds).
+2026-10-18T16:40:12.4290640Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testPresenceSkySourceIsFrozenBeforeNonzeroDetail]' started.
+2026-10-18T16:40:12.4291620Z Test Case '-[LumenPipelineTests.DehazeSkyFieldTests testPresenceSkySourceIsFrozenBeforeNonzeroDetail]' passed (0.353 seconds).
+2026-10-18T16:40:12.4292250Z Test Suite 'DehazeSkyFieldTests' passed at 2026-10-18 16:39:15.408.
+2026-10-18T16:40:12.4295260Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DisplayedDenoiseQualificationTests.swift:39: -[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes] : Test skipped - Private displayed denoise requires configured input and evidence directories
+2026-10-18T16:40:12.4300830Z Test Case '-[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes]' skipped (0.000 seconds).
+2026-10-18T16:40:12.4302290Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.001) seconds
+2026-10-18T16:40:37.5831370Z DEHAZE-SKY-CONTRACT amount=100.0 cpu=0.7777777910232544 gpu=0.7777777910232544 expectedCPU=0.7777777777777778 historicalGPU=0.5555555555555556 maxRGBDifference=0.0 referenceTransmission=0.23999999463558197 referenceAirlight=1.0 qualityAcceptance=false controlledPlateauParity=true
+2026-10-18T16:40:37.5963090Z DEHAZE-SKY-CONTRACT amount=-100.0 cpu=0.9800000190734863 gpu=0.9800000190734863 expectedCPU=0.9800000000000001 historicalGPU=0.9368000000000001 maxRGBDifference=0.0 referenceTransmission=0.23999999463558197 referenceAirlight=1.0 qualityAcceptance=false controlledPlateauParity=true
+2026-10-18T16:40:37.5966170Z DEHAZE-SKY-FIELDS longEdge=19 radius=1 maxEV=3.691420118467903e-07 maxGradient=5.248665395640728e-07
+2026-10-18T16:40:37.6070790Z DEHAZE-SKY-FIELDS longEdge=800 radius=4 maxEV=3.691420118467903e-07 maxGradient=8.477061638895167e-06
+2026-10-18T16:40:37.6172570Z DEHAZE-SKY-GLOBAL amount=-100.0 detail=false value=0.9800000190734863 firstMs=166.70400000009522
+2026-10-18T16:40:37.6275390Z DEHAZE-SKY-GLOBAL amount=-100.0 detail=true value=0.9795389175415039 firstMs=377.89712500000405
+2026-10-18T16:40:37.6376700Z DEHAZE-SKY-GLOBAL amount=-35.0 detail=false value=0.8630000352859497 firstMs=15.046708333329661
+2026-10-18T16:40:37.6477640Z DEHAZE-SKY-GLOBAL amount=-35.0 detail=true value=0.8628386855125427 firstMs=17.344250000064676
+2026-10-18T16:40:37.6584640Z DEHAZE-SKY-GLOBAL amount=0.0 detail=false value=0.800000011920929 firstMs=13.540291666686244
+2026-10-18T16:40:37.6687300Z DEHAZE-SKY-GLOBAL amount=0.0 detail=true value=0.800000011920929 firstMs=39.55533333339645
+2026-10-18T16:40:37.6819510Z DEHAZE-SKY-GLOBAL amount=35.0 detail=false value=0.7922222018241882 firstMs=30.45350000002145
+2026-10-18T16:40:37.6924260Z DEHAZE-SKY-GLOBAL amount=35.0 detail=true value=0.792242169380188 firstMs=27.23145833340368
+2026-10-18T16:40:37.7027360Z DEHAZE-SKY-GLOBAL amount=100.0 detail=false value=0.7777777910232544 firstMs=18.004249999989952
+2026-10-18T16:40:37.7130920Z DEHAZE-SKY-GLOBAL amount=100.0 detail=true value=0.7778347134590149 firstMs=26.282666666702426
+2026-10-18T16:40:37.7241710Z DEHAZE-SKY-STAGE correctError=0.0 wrongSourceGap=0.18787246942520142
+2026-10-18T16:42:46.9044730Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalAmountEpsilonDiagnosticTests.swift:13: -[LumenPipelineTests.LocalAmountEpsilonDiagnosticTests testCurrentPositiveAmountDomainAndCPUAgreement] : Test skipped - opt-in positive local/group Amount diagnostic
+2026-10-18T16:42:46.9079680Z Test Case '-[LumenPipelineTests.LocalAmountEpsilonDiagnosticTests testCurrentPositiveAmountDomainAndCPUAgreement]' skipped (0.001 seconds).
+2026-10-18T16:42:46.9081830Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds
+2026-10-18T16:42:46.9084810Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalAmountSignedDomainCharacterizationTests.swift:13: -[LumenPipelineTests.LocalAmountSignedDomainCharacterizationTests testSignedWheelAmountStageAndNormalCompositeCharacterization] : Test skipped - opt-in signed local Amount characterization
+2026-10-18T16:47:08.8837080Z Test Case '-[LumenPipelineTests.LocalAmountSignedDomainCharacterizationTests testSignedWheelAmountStageAndNormalCompositeCharacterization]' skipped (0.000 seconds).
+2026-10-18T16:47:08.8841850Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+2026-10-18T16:47:08.8873890Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalRawControlSweepTests.swift:84: -[LumenPipelineTests.LocalRawControlSweepTests testLocalControlsOnNativeRawROIs] : Test skipped - LUMEN_AUDIT_RAW_DIR unset
+2026-10-18T16:47:08.8874960Z Test Case '-[LumenPipelineTests.LocalRawControlSweepTests testLocalControlsOnNativeRawROIs]' skipped (0.003 seconds).
+2026-10-18T16:47:08.8876130Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.003 (0.003) seconds
+2026-10-18T16:47:23.0898620Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:375: -[LumenPipelineTests.NativeConsumerConsistencyTests testCroppedNativeTIFF16WriteReadbackFirstRepeatAndBoundaryPolicies] : Test skipped - LUMEN_AUDIT_NATIVE_EXPORT16=1 required for actual TIFF16 consumer lane
+2026-10-18T16:47:23.0900840Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testCroppedNativeTIFF16WriteReadbackFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T16:47:23.0902990Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:68: -[LumenPipelineTests.NativeConsumerConsistencyTests testEDRHalfFloatFirstRepeatAndBoundaryPolicies] : Test skipped - LUMEN_AUDIT_RAW_DIR unset
+2026-10-18T16:47:23.0904290Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testEDRHalfFloatFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T16:47:23.0906640Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:68: -[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies] : Test skipped - LUMEN_AUDIT_RAW_DIR unset
+2026-10-18T16:47:23.0908000Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T16:47:23.0912430Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift:68: -[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies] : Test skipped - LUMEN_AUDIT_RAW_DIR unset
+2026-10-18T16:47:23.0914210Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T16:47:23.0915580Z 	 Executed 5 tests, with 4 tests skipped and 0 failures (0 unexpected) in 0.006 (0.006) seconds
+2026-10-18T16:47:23.0918250Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/NativeDenoiseQualificationTests.swift:22: -[LumenPipelineTests.NativeDenoiseQualificationTests testNativeDenoiseRegions] : Test skipped - Configure LUMEN_DENOISE_RAW_DIR and LUMEN_DENOISE_EVIDENCE_DIR for private native crops
+2026-10-18T16:47:23.0920780Z Test Case '-[LumenPipelineTests.NativeDenoiseQualificationTests testNativeDenoiseRegions]' skipped (0.000 seconds).
+2026-10-18T16:47:23.0922070Z 	 Executed 1 test, with 1 test skipped and 0 failures (0 unexpected) in 0.000 (0.000) seconds
+2026-10-18T16:47:23.0943620Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testAMonochromeSensorProducesNoColour] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.0944800Z Test Case '-[LumenPipelineTests.RawCorpusTests testAMonochromeSensorProducesNoColour]' skipped (0.002 seconds).
+2026-10-18T16:47:23.0946930Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testAnExportReopensWithTheDimensionsItClaims] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1037240Z Test Case '-[LumenPipelineTests.RawCorpusTests testAnExportReopensWithTheDimensionsItClaims]' skipped (0.001 seconds).
+2026-10-18T16:47:23.1040860Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testAPortraitFrameComesOutPortrait] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1042460Z Test Case '-[LumenPipelineTests.RawCorpusTests testAPortraitFrameComesOutPortrait]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1049630Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testATruncatedFileIsRefusedRatherThanHalfDecoded] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1050940Z Test Case '-[LumenPipelineTests.RawCorpusTests testATruncatedFileIsRefusedRatherThanHalfDecoded]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1053240Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testDeliveredDimensionsArePlausibleAgainstTheFilesOwnEXIF] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1054500Z Test Case '-[LumenPipelineTests.RawCorpusTests testDeliveredDimensionsArePlausibleAgainstTheFilesOwnEXIF]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1056720Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testEveryFileEitherDecodesCleanlyOrRefusesCleanly] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1057920Z Test Case '-[LumenPipelineTests.RawCorpusTests testEveryFileEitherDecodesCleanlyOrRefusesCleanly]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1062980Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testMonochromeDecodeOptionSweep] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1064110Z Test Case '-[LumenPipelineTests.RawCorpusTests testMonochromeDecodeOptionSweep]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1069050Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testMonochromeExactDecoderContextMatrix] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1070370Z Test Case '-[LumenPipelineTests.RawCorpusTests testMonochromeExactDecoderContextMatrix]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1075970Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testTheDecoderVersionPinIsPresentAndStable] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1077410Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheDecoderVersionPinIsPresentAndStable]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1079670Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testTheMetadataReaderGetsRealFilesRight] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1083830Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheMetadataReaderGetsRealFilesRight]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1086150Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testTheMostNeutralPatchInEachFrameIsNeutral] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1087300Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheMostNeutralPatchInEachFrameIsNeutral]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1089680Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testTheRenderAgreesWithTheCamerasOwnPreview] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1090770Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheRenderAgreesWithTheCamerasOwnPreview]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1092690Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/RawCorpusTests.swift:549: -[LumenPipelineTests.RawCorpusTests testTheRenderIsNeitherBlankNorPoisoned] : Test skipped - LUMEN_RAW_CORPUS unset — the RAW corpus lane is the only lane that sets it
+2026-10-18T16:47:23.1093980Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheRenderIsNeitherBlankNorPoisoned]' skipped (0.000 seconds).
+2026-10-18T16:47:23.1095210Z 	 Executed 13 tests, with 13 tests skipped and 0 failures (0 unexpected) in 0.005 (0.007) seconds
+2026-10-18T16:47:36.1204000Z 	 Executed 272 tests, with 35 tests skipped and 0 failures (0 unexpected) in 577.898 (577.942) seconds
+2026-10-18T16:47:36.1205280Z 	 Executed 272 tests, with 35 tests skipped and 0 failures (0 unexpected) in 577.898 (577.944) seconds
+2026-10-18T16:47:36.4395760Z 	 Executed 272 tests, with 35 tests skipped and 0 failures (0 unexpected) in 577.898 (577.944) seconds

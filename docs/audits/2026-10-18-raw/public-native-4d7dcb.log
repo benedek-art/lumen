@@ -1,0 +1,157 @@
+Public/licensed fixture evidence only.
+Source: 4d7dcbd4542fa4bc34d6a6b8819ba048a1bf7486
+CI: https://github.com/benedek-art/lumen/actions/runs/39109020879
+Job: 117620963855; selected exact log lines, timestamps removed.
+Commands/environment: .github/workflows/raw-corpus.yml at the source SHA.
+Baseline failures retained; this is not an overall pass or camera/beauty certification.
+
+corpus-mono-decoder: 1087 variant=no-version-set flat=false requested=unset selected-default=6 actual=6 context=rec2020-f16 extent=747x499 mean-rgb=-1.306438984771674e-10,-1.306439123549552e-10,-1.30643926232743e-10 r-min=-1.306438984771674e-10 r-max=-1.306438984771674e-10 r-std=0.0 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=no-version-set flat=false requested=unset selected-default=6 actual=6 context=linear-srgb-f32 extent=747x499 mean-rgb=-1.306438984771674e-10,-1.306439123549552e-10,-1.30643926232743e-10 r-min=-1.306438984771674e-10 r-max=-1.306438984771674e-10 r-std=0.0 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=no-version-set flat=true requested=unset selected-default=6 actual=6 context=rec2020-f16 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222342453897 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=no-version-set flat=true requested=unset selected-default=6 actual=6 context=linear-srgb-f32 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222342453897 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-current flat=false requested=6 selected-default=6 actual=6 context=rec2020-f16 extent=747x499 mean-rgb=-1.306438984771674e-10,-1.306439123549552e-10,-1.30643926232743e-10 r-min=-1.306438984771674e-10 r-max=-1.306438984771674e-10 r-std=0.0 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-current flat=false requested=6 selected-default=6 actual=6 context=linear-srgb-f32 extent=747x499 mean-rgb=-1.306438984771674e-10,-1.306439123549552e-10,-1.30643926232743e-10 r-min=-1.306438984771674e-10 r-max=-1.306438984771674e-10 r-std=0.0 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-current flat=true requested=6 selected-default=6 actual=6 context=rec2020-f16 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222342453897 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-current flat=true requested=6 selected-default=6 actual=6 context=linear-srgb-f32 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222342453897 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6.dng flat=false requested=6.dng selected-default=6 actual=6.dng context=rec2020-f16 extent=747x499 mean-rgb=4.871991698962574e-10,-9.265360700894121e-11,-1.3111038643653927e-10 r-min=4.871991698962574e-10 r-max=4.871991698962574e-10 r-std=1.1160839304376059e-15 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6.dng flat=false requested=6.dng selected-default=6 actual=6.dng context=linear-srgb-f32 extent=747x499 mean-rgb=4.871991698962574e-10,-9.265360700894121e-11,-1.3111038643653927e-10 r-min=4.871991698962574e-10 r-max=4.871991698962574e-10 r-std=1.1160839304376059e-15 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6.dng flat=true requested=6.dng selected-default=6 actual=6.dng context=rec2020-f16 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222351767122746 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6.dng flat=true requested=6.dng selected-default=6 actual=6.dng context=linear-srgb-f32 extent=747x499 mean-rgb=-0.0042222342453897,-0.004222234711050987,-0.004222234711050987 r-min=-0.0042222342453897 r-max=-0.0042222342453897 r-std=9.06713945301948e-09 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-7.dng flat=false requested=7.dng selected-default=6 actual=7.dng context=rec2020-f16 extent=747x499 mean-rgb=4.871991698962574e-10,-9.265360700894121e-11,-1.3111038643653927e-10 r-min=4.871991698962574e-10 r-max=4.871991698962574e-10 r-std=1.1160839304376059e-15 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-7.dng flat=false requested=7.dng selected-default=6 actual=7.dng context=linear-srgb-f32 extent=747x499 mean-rgb=4.871991698962574e-10,-9.265360700894121e-11,-1.3111038643653927e-10 r-min=4.871991698962574e-10 r-max=4.871991698962574e-10 r-std=1.1160839304376059e-15 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-7.dng flat=true requested=7.dng selected-default=6 actual=7.dng context=rec2020-f16 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222351767122746 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-7.dng flat=true requested=7.dng selected-default=6 actual=7.dng context=linear-srgb-f32 extent=747x499 mean-rgb=-0.0042222342453897,-0.004222234711050987,-0.004222234711050987 r-min=-0.0042222342453897 r-max=-0.0042222342453897 r-std=9.06713945301948e-09 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-8.dng flat=false requested=8.dng selected-default=6 actual=8.dng context=rec2020-f16 extent=747x499 mean-rgb=4.871991698962574e-10,-9.265360700894121e-11,-1.3111038643653927e-10 r-min=4.871991698962574e-10 r-max=4.871991698962574e-10 r-std=1.1160839304376059e-15 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-8.dng flat=false requested=8.dng selected-default=6 actual=8.dng context=linear-srgb-f32 extent=747x499 mean-rgb=4.871991698962574e-10,-9.265360700894121e-11,-1.3111038643653927e-10 r-min=4.871991698962574e-10 r-max=4.871991698962574e-10 r-std=1.1160839304376059e-15 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-8.dng flat=true requested=8.dng selected-default=6 actual=8.dng context=rec2020-f16 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222351767122746 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-8.dng flat=true requested=8.dng selected-default=6 actual=8.dng context=linear-srgb-f32 extent=747x499 mean-rgb=-0.0042222342453897,-0.004222234711050987,-0.004222234711050987 r-min=-0.0042222342453897 r-max=-0.0042222342453897 r-std=9.06713945301948e-09 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6 flat=false requested=6 selected-default=6 actual=6 context=rec2020-f16 extent=747x499 mean-rgb=-1.306438984771674e-10,-1.306439123549552e-10,-1.30643926232743e-10 r-min=-1.306438984771674e-10 r-max=-1.306438984771674e-10 r-std=0.0 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6 flat=false requested=6 selected-default=6 actual=6 context=linear-srgb-f32 extent=747x499 mean-rgb=-1.306438984771674e-10,-1.306439123549552e-10,-1.30643926232743e-10 r-min=-1.306438984771674e-10 r-max=-1.306438984771674e-10 r-std=0.0 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6 flat=true requested=6 selected-default=6 actual=6 context=rec2020-f16 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222342453897 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder: 1087 variant=assign-supported-6 flat=true requested=6 selected-default=6 actual=6 context=linear-srgb-f32 extent=747x499 mean-rgb=-0.004222233779728413,-0.004222234711050987,-0.0042222342453897 r-min=-0.004222233779728413 r-max=-0.004222233779728413 r-std=1.1464988481752232e-08 nonfinite-pixels=0/372753
+corpus-mono-decoder-summary: 1087 decoderVariants=6 settingVariants=2 contexts=2 rows=24
+native-precision: fixture1 decoder=7 lazy-repeat=0.0 explicit-materialization=3.042072e-05 first-cache=3.042072e-05 materialized-cache=0.0 cache-repeat=0.0 held-bytes=112265216 materialize-ms=346.090042
+native-precision: fixture2 decoder=8 lazy-repeat=0.0 explicit-materialization=0.0 first-cache=0.0 materialized-cache=0.0 cache-repeat=0.0 held-bytes=81254400 materialize-ms=65.659333
+displayed-denoise fixture1 region=0 mode=off rmsCodes=0.0
+displayed-denoise fixture1 region=1 mode=off rmsCodes=0.0
+displayed-denoise fixture1 region=2 mode=off rmsCodes=0.0
+displayed-denoise fixture1 region=0 mode=imported-classic-default rmsCodes=0.7695775835251907
+displayed-denoise fixture1 region=1 mode=imported-classic-default rmsCodes=0.7208805289783053
+displayed-denoise fixture1 region=2 mode=imported-classic-default rmsCodes=0.7474492062519652
+displayed-denoise fixture1 region=0 mode=classic25 rmsCodes=0.9246287209496243
+displayed-denoise fixture1 region=1 mode=classic25 rmsCodes=0.8702981728079306
+displayed-denoise fixture1 region=2 mode=classic25 rmsCodes=0.8989680457468897
+displayed-denoise fixture1 region=0 mode=classic50 rmsCodes=1.1032903774911083
+displayed-denoise fixture1 region=1 mode=classic50 rmsCodes=1.0335507388712626
+displayed-denoise fixture1 region=2 mode=classic50 rmsCodes=1.0677979536890931
+displayed-denoise fixture1 region=0 mode=classic100 rmsCodes=1.3152132358726711
+displayed-denoise fixture1 region=1 mode=classic100 rmsCodes=1.2264888825067515
+displayed-denoise fixture1 region=2 mode=classic100 rmsCodes=1.2655519776538406
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/DisplayedDenoiseQualificationTests.swift:94: error: -[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes] : XCTAssertEqual failed: ("1") is not equal to ("0") - fixture1 region0 AI-Apple-standin0 changed displayed pixels
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin0 rmsCodes=0.08652991215355671
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin25 rmsCodes=1.548743166415586
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin25 rmsCodes=1.368679749737764
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin25 rmsCodes=1.4065475077008134
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin50 rmsCodes=1.6429148894398018
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin50 rmsCodes=1.4660877833689985
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin50 rmsCodes=1.499904145392171
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin100 rmsCodes=2.0362325384812263
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin100 rmsCodes=1.7728375544313895
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin100 rmsCodes=1.8949027392932412
+displayed-denoise fixture1 region=0 mode=off-return rmsCodes=0.0
+displayed-denoise fixture1 region=1 mode=off-return rmsCodes=0.0
+displayed-denoise fixture1 region=2 mode=off-return rmsCodes=0.0
+displayed-denoise fixture2 region=0 mode=off rmsCodes=0.0
+displayed-denoise fixture2 region=1 mode=off rmsCodes=0.0
+displayed-denoise fixture2 region=2 mode=off rmsCodes=0.0
+displayed-denoise fixture2 region=0 mode=imported-classic-default rmsCodes=1.048571827808809
+displayed-denoise fixture2 region=1 mode=imported-classic-default rmsCodes=1.1598665543336666
+displayed-denoise fixture2 region=2 mode=imported-classic-default rmsCodes=1.3652735789457344
+displayed-denoise fixture2 region=0 mode=classic25 rmsCodes=1.156907677452985
+displayed-denoise fixture2 region=1 mode=classic25 rmsCodes=1.2154271730455506
+displayed-denoise fixture2 region=2 mode=classic25 rmsCodes=1.4951273491656376
+displayed-denoise fixture2 region=0 mode=classic50 rmsCodes=1.3492444151780147
+displayed-denoise fixture2 region=1 mode=classic50 rmsCodes=1.3515887893008303
+displayed-denoise fixture2 region=2 mode=classic50 rmsCodes=1.7571018911393825
+displayed-denoise fixture2 region=0 mode=classic100 rmsCodes=1.6297373886746158
+displayed-denoise fixture2 region=1 mode=classic100 rmsCodes=1.525056724031043
+displayed-denoise fixture2 region=2 mode=classic100 rmsCodes=2.1013577197142337
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin25 rmsCodes=1.1042826104425434
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin25 rmsCodes=1.1033818903820312
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin25 rmsCodes=1.5355565346879638
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin50 rmsCodes=1.3189438078190432
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin50 rmsCodes=1.4494806807444474
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin50 rmsCodes=1.9856841434861559
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin100 rmsCodes=1.645204565955529
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin100 rmsCodes=1.889538524254414
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin100 rmsCodes=2.6005285059496686
+displayed-denoise fixture2 region=0 mode=off-return rmsCodes=0.0
+displayed-denoise fixture2 region=1 mode=off-return rmsCodes=0.0
+displayed-denoise fixture2 region=2 mode=off-return rmsCodes=0.0
+native-causal-timing: fixture1 render=1 total-ms=198.264542 decode-call-ms=13.614041 width=108 height=162
+native-causal-timing: fixture1 render=2 total-ms=203.865083 decode-call-ms=179.344666 width=108 height=162
+native-causal: fixture1 off-first-vs-off-repeat changedBytes=421 maxCode=1 bytes=69984/69984
+native-causal-timing: fixture1 render=3 total-ms=8.591833 decode-call-ms=0.002709 width=108 height=162
+native-causal: fixture1 off-repeat-vs-ai0 changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=4 total-ms=102.441541 decode-call-ms=5.35725 width=108 height=162
+native-causal-timing: fixture1 render=5 total-ms=168.071166 decode-call-ms=137.988167 width=108 height=162
+native-causal: fixture1 ai0-first-vs-off-repeat changedBytes=421 maxCode=1 bytes=69984/69984
+native-causal-timing: fixture1 render=6 total-ms=105.654292 decode-call-ms=0.000167 width=108 height=162
+native-causal-timing: fixture1 render=7 total-ms=7.105833 decode-call-ms=0.000708 width=108 height=162
+native-causal: fixture1 fixed-lazy-same-renderer-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=8 total-ms=5.717042 decode-call-ms=0.000125 width=108 height=162
+native-causal: fixture1 fixed-lazy-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=9 total-ms=111.406708 decode-call-ms=0.000375 width=108 height=162
+native-causal: fixture1 fixed-lazy-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=10 total-ms=31.728041 decode-call-ms=4.1e-05 width=108 height=162
+native-causal: fixture1 fixed-lazy-vs-explicit-plane changedBytes=421 maxCode=1 bytes=69984/69984
+native-causal-timing: fixture1 render=11 total-ms=6.483625 decode-call-ms=0.000125 width=108 height=162
+native-causal: fixture1 fixed-plane-repeat changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=12 total-ms=6.025292 decode-call-ms=0.000167 width=108 height=162
+native-causal: fixture1 fixed-plane-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=13 total-ms=67.265708 decode-call-ms=8.3e-05 width=108 height=162
+native-causal: fixture1 fixed-plane-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=14 total-ms=47.993959 decode-call-ms=4.2e-05 width=108 height=162
+native-causal: fixture1 inserted-intermediate-vs-explicit-plane changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=15 total-ms=6.639833 decode-call-ms=0.000291 width=108 height=162
+native-causal: fixture1 inserted-intermediate-mode-change changedBytes=0 maxCode=0 bytes=69984/69984
+native-causal-timing: fixture1 render=16 total-ms=103.970375 decode-call-ms=0.000167 width=108 height=162
+native-causal: fixture1 inserted-intermediate-fresh-renderer changedBytes=0 maxCode=0 bytes=69984/69984
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:475: error: -[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix] : failed - fixture1 exact displayed identity failed: off-first-vs-off-repeat maxCode=1 changedBytes=421
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:475: error: -[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix] : failed - fixture1 exact displayed identity failed: ai0-first-vs-off-repeat maxCode=1 changedBytes=421
+/Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/AuditRawAccuracyTests.swift:475: error: -[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix] : failed - fixture1 exact displayed identity failed: fixed-lazy-vs-explicit-plane maxCode=1 changedBytes=421
+native-causal-timing: fixture2 render=1 total-ms=817.069375 decode-call-ms=752.07125 width=130 height=98
+native-causal-timing: fixture2 render=2 total-ms=11.779208 decode-call-ms=0.013958 width=130 height=98
+native-causal: fixture2 off-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=3 total-ms=6.479625 decode-call-ms=0.005083 width=130 height=98
+native-causal: fixture2 off-repeat-vs-ai0 changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=4 total-ms=200.266541 decode-call-ms=138.339208 width=130 height=98
+native-causal-timing: fixture2 render=5 total-ms=8.203542 decode-call-ms=0.00925 width=130 height=98
+native-causal: fixture2 ai0-first-vs-off-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=6 total-ms=59.667833 decode-call-ms=0.00025 width=130 height=98
+native-causal-timing: fixture2 render=7 total-ms=7.907334 decode-call-ms=0.000125 width=130 height=98
+native-causal: fixture2 fixed-lazy-same-renderer-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=8 total-ms=10.413709 decode-call-ms=0.000125 width=130 height=98
+native-causal: fixture2 fixed-lazy-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=9 total-ms=63.311167 decode-call-ms=8.4e-05 width=130 height=98
+native-causal: fixture2 fixed-lazy-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=10 total-ms=20.490708 decode-call-ms=4.2e-05 width=130 height=98
+native-causal: fixture2 fixed-lazy-vs-explicit-plane changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=11 total-ms=5.433875 decode-call-ms=0.000125 width=130 height=98
+native-causal: fixture2 fixed-plane-repeat changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=12 total-ms=6.199375 decode-call-ms=8.3e-05 width=130 height=98
+native-causal: fixture2 fixed-plane-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=13 total-ms=81.139834 decode-call-ms=8.3e-05 width=130 height=98
+native-causal: fixture2 fixed-plane-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=14 total-ms=22.38175 decode-call-ms=4.2e-05 width=130 height=98
+native-causal: fixture2 inserted-intermediate-vs-explicit-plane changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=15 total-ms=7.384959 decode-call-ms=0.000166 width=130 height=98
+native-causal: fixture2 inserted-intermediate-mode-change changedBytes=0 maxCode=0 bytes=50960/50960
+native-causal-timing: fixture2 render=16 total-ms=52.691583 decode-call-ms=4.2e-05 width=130 height=98
+native-causal: fixture2 inserted-intermediate-fresh-renderer changedBytes=0 maxCode=0 bytes=50960/50960
+

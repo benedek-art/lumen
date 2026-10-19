@@ -1,0 +1,789 @@
+﻿2026-10-18T17:35:52.0344070Z Current runner version: '2.337.0'
+2026-10-18T17:35:52.0377140Z ##[group]Runner Image Provisioner
+2026-10-18T17:35:52.0377690Z Hosted Compute Agent
+2026-10-18T17:35:52.0378070Z Version: 20260828.587
+2026-10-18T17:35:52.0378470Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-10-18T17:35:52.0378930Z Build Date: 2026-08-28T16:44:25Z
+2026-10-18T17:35:52.0379370Z Worker ID: {d697c6ce-6d46-4266-a8a8-05b3a323203b}
+2026-10-18T17:35:52.0379820Z Azure Region: westus
+2026-10-18T17:35:52.0380200Z ##[endgroup]
+2026-10-18T17:35:52.0381190Z ##[group]Operating System
+2026-10-18T17:35:52.0381580Z macOS
+2026-10-18T17:35:52.0381900Z 15.7.9
+2026-10-18T17:35:52.0382230Z 24G830
+2026-10-18T17:35:52.0382550Z ##[endgroup]
+2026-10-18T17:35:52.0382890Z ##[group]Runner Image
+2026-10-18T17:35:52.0383260Z Image: macos-15-arm64
+2026-10-18T17:35:52.0383630Z Version: 20260907.0337.1
+2026-10-18T17:35:52.0384450Z Included Software: https://github.com/actions/runner-images/blob/macos-15-arm64/20260907.0337/images/macos/macos-15-arm64-Readme.md
+2026-10-18T17:35:52.0385450Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15-arm64%2F20260907.0337
+2026-10-18T17:35:52.0386100Z ##[endgroup]
+2026-10-18T17:35:52.0386800Z ##[group]GITHUB_TOKEN Permissions
+2026-10-18T17:35:52.0387800Z Contents: read
+2026-10-18T17:35:52.0388150Z Metadata: read
+2026-10-18T17:35:52.0388510Z ##[endgroup]
+2026-10-18T17:35:52.0389840Z Secret source: Actions
+2026-10-18T17:35:52.0390400Z Cache mode: write
+2026-10-18T17:35:52.0390820Z Prepare workflow directory
+2026-10-18T17:35:52.0596390Z Prepare all required actions
+2026-10-18T17:35:52.0628850Z Getting action download info
+2026-10-18T17:35:52.3245670Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-18T17:35:52.5435840Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-18T17:35:52.7689280Z Complete job name: accuracy-followup-causal
+2026-10-18T17:35:52.8264410Z ##[group]Run actions/checkout@v4
+2026-10-18T17:35:52.8265140Z with:
+2026-10-18T17:35:52.8265550Z   fetch-depth: 0
+2026-10-18T17:35:52.8265920Z   repository: benedek-art/lumen
+2026-10-18T17:35:52.8269230Z   token: ***
+2026-10-18T17:35:52.8269600Z   ssh-strict: true
+2026-10-18T17:35:52.8269990Z   ssh-user: git
+2026-10-18T17:35:52.8270390Z   persist-credentials: true
+2026-10-18T17:35:52.8270790Z   clean: true
+2026-10-18T17:35:52.8271170Z   sparse-checkout-cone-mode: true
+2026-10-18T17:35:52.8271620Z   fetch-tags: false
+2026-10-18T17:35:52.8272010Z   show-progress: true
+2026-10-18T17:35:52.8272410Z   lfs: false
+2026-10-18T17:35:52.8272790Z   submodules: false
+2026-10-18T17:35:52.8273160Z   set-safe-directory: true
+2026-10-18T17:35:52.8273630Z   allow-unsafe-pr-checkout: false
+2026-10-18T17:35:52.8274320Z ##[endgroup]
+2026-10-18T17:35:53.2252440Z Syncing repository: benedek-art/lumen
+2026-10-18T17:35:53.2253920Z ##[group]Getting Git version info
+2026-10-18T17:35:53.2254540Z Working directory is '/Users/runner/work/lumen/lumen'
+2026-10-18T17:35:53.2255410Z [command]/opt/homebrew/bin/git version
+2026-10-18T17:35:53.2750740Z git version 2.55.0
+2026-10-18T17:35:53.2775250Z ##[endgroup]
+2026-10-18T17:35:53.2783530Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/c6b1cd64-86e8-4bbb-9562-b26ed57f1d22/.gitconfig'
+2026-10-18T17:35:53.2798760Z Temporarily overriding HOME='/Users/runner/work/_temp/c6b1cd64-86e8-4bbb-9562-b26ed57f1d22' before making global git config changes
+2026-10-18T17:35:53.2802770Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T17:35:53.2805160Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T17:35:53.3195320Z Deleting the contents of '/Users/runner/work/lumen/lumen'
+2026-10-18T17:35:53.3200240Z ##[group]Initializing the repository
+2026-10-18T17:35:53.3200850Z [command]/opt/homebrew/bin/git init /Users/runner/work/lumen/lumen
+2026-10-18T17:35:53.3541230Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-18T17:35:53.3546010Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-18T17:35:53.3547950Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-18T17:35:53.3548980Z hint: call:
+2026-10-18T17:35:53.3549300Z hint:
+2026-10-18T17:35:53.3549690Z hint: 	git config --global init.defaultBranch <name>
+2026-10-18T17:35:53.3550140Z hint:
+2026-10-18T17:35:53.3550580Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-18T17:35:53.3551240Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-18T17:35:53.3551770Z hint:
+2026-10-18T17:35:53.3552090Z hint: 	git branch -m <name>
+2026-10-18T17:35:53.3552440Z hint:
+2026-10-18T17:35:53.3552930Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-18T17:35:53.3553640Z Initialized empty Git repository in /Users/runner/work/lumen/lumen/.git/
+2026-10-18T17:35:53.3556760Z [command]/opt/homebrew/bin/git remote add origin https://github.com/benedek-art/lumen
+2026-10-18T17:35:53.3636680Z ##[endgroup]
+2026-10-18T17:35:53.3637460Z ##[group]Disabling automatic garbage collection
+2026-10-18T17:35:53.3639500Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+2026-10-18T17:35:53.3704580Z ##[endgroup]
+2026-10-18T17:35:53.3705270Z ##[group]Setting up auth
+2026-10-18T17:35:53.3709830Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T17:35:53.3779860Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T17:35:53.4913930Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T17:35:53.4982580Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T17:35:53.5853870Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T17:35:53.5926150Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T17:35:53.6755750Z [command]/opt/homebrew/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-18T17:35:53.6820080Z ##[endgroup]
+2026-10-18T17:35:53.6820790Z ##[group]Fetching the repository
+2026-10-18T17:35:53.6826500Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+2026-10-18T17:35:55.5942950Z From https://github.com/benedek-art/lumen
+2026-10-18T17:35:55.5945300Z  * [new branch]      claude/jolly-sagan-k7ch7z -> origin/claude/jolly-sagan-k7ch7z
+2026-10-18T17:35:55.5948180Z  * [new branch]      claude/nostalgic-jepsen-7517b7 -> origin/claude/nostalgic-jepsen-7517b7
+2026-10-18T17:35:55.5952830Z  * [new branch]      claude/photo-editor-design-plan-8ahzmm -> origin/claude/photo-editor-design-plan-8ahzmm
+2026-10-18T17:35:55.5954660Z  * [new branch]      codex/lumen-audit-2026-09-22 -> origin/codex/lumen-audit-2026-09-22
+2026-10-18T17:35:55.5955770Z  * [new branch]      codex/lumen-october-consolidation -> origin/codex/lumen-october-consolidation
+2026-10-18T17:35:55.5957440Z  * [new branch]      codex/lumen-proof-cause -> origin/codex/lumen-proof-cause
+2026-10-18T17:35:55.5958370Z  * [new branch]      codex/lumen-second-wave -> origin/codex/lumen-second-wave
+2026-10-18T17:35:55.5959290Z  * [new branch]      codex/lumen-third-wave  -> origin/codex/lumen-third-wave
+2026-10-18T17:35:55.5960380Z  * [new branch]      codex/lumen-verified-repairs -> origin/codex/lumen-verified-repairs
+2026-10-18T17:35:55.5961600Z  * [new branch]      codex/raw-accuracy-qualification -> origin/codex/raw-accuracy-qualification
+2026-10-18T17:35:55.5963290Z  * [new branch]      codex/raw-cloud-followup -> origin/codex/raw-cloud-followup
+2026-10-18T17:35:55.5964180Z  * [new branch]      main                    -> origin/main
+2026-10-18T17:35:55.5964970Z  * [new tag]         dev-latest              -> dev-latest
+2026-10-18T17:35:55.5967100Z [command]/opt/homebrew/bin/git branch --list --remote origin/codex/raw-accuracy-qualification
+2026-10-18T17:35:55.6052780Z   origin/codex/raw-accuracy-qualification
+2026-10-18T17:35:55.6061650Z [command]/opt/homebrew/bin/git rev-parse refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T17:35:55.6130100Z 29ad3b029eca4d5e9f26dc487c819aa98c4779d1
+2026-10-18T17:35:55.6140300Z ##[endgroup]
+2026-10-18T17:35:55.6142390Z ##[group]Determining the checkout info
+2026-10-18T17:35:55.6144730Z ##[endgroup]
+2026-10-18T17:35:55.6148410Z [command]/opt/homebrew/bin/git sparse-checkout disable
+2026-10-18T17:35:55.6231180Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-18T17:35:55.6284580Z ##[group]Checking out the ref
+2026-10-18T17:35:55.6287120Z [command]/opt/homebrew/bin/git checkout --progress --force -B codex/raw-accuracy-qualification refs/remotes/origin/codex/raw-accuracy-qualification
+2026-10-18T17:35:55.8143470Z Switched to a new branch 'codex/raw-accuracy-qualification'
+2026-10-18T17:35:55.8147050Z branch 'codex/raw-accuracy-qualification' set up to track 'origin/codex/raw-accuracy-qualification'.
+2026-10-18T17:35:55.8152810Z ##[endgroup]
+2026-10-18T17:35:55.8233870Z [command]/opt/homebrew/bin/git log -1 --format=%H
+2026-10-18T17:35:55.8291910Z 29ad3b029eca4d5e9f26dc487c819aa98c4779d1
+2026-10-18T17:35:55.8544270Z ##[group]Run set -euo pipefail
+2026-10-18T17:35:55.8544970Z [36;1mset -euo pipefail[0m
+2026-10-18T17:35:55.8545660Z [36;1mtarget=LocalWhiteBalanceExactMatrixTests[0m
+2026-10-18T17:35:55.8546760Z [36;1mswift test -c release --filter "$target" 2>&1 | tee local-wb-exact-baseline.log[0m
+2026-10-18T17:35:55.8548040Z [36;1mgrep -q 'Executed 3 tests, with 0 failures' local-wb-exact-baseline.log[0m
+2026-10-18T17:35:55.8549170Z [36;1msource_file=Sources/LumenPipeline/RenderGraph.swift[0m
+2026-10-18T17:35:55.8550260Z [36;1msource_backup=$(mktemp "$RUNNER_TEMP/local-wb-exact-baseline.XXXXXX")[0m
+2026-10-18T17:35:55.8551240Z [36;1mcp "$source_file" "$source_backup"[0m
+2026-10-18T17:35:55.8552160Z [36;1mtrap 'cp "$source_backup" "$source_file"; rm -f "$source_backup"' EXIT[0m
+2026-10-18T17:35:55.8553340Z [36;1mgit rev-parse HEAD > local-wb-exact-mutation-provenance.log[0m
+2026-10-18T17:35:55.8555260Z [36;1mshasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log[0m
+2026-10-18T17:35:55.8557410Z [36;1mpython3 docs/audits/2026-10-18-raw/local-wb-rowdot/mutate-ci-matrix-route.py --source-root .[0m
+2026-10-18T17:35:55.8558860Z [36;1mgit diff -- "$source_file" >> local-wb-exact-mutation-provenance.log[0m
+2026-10-18T17:35:55.8559810Z [36;1mset +e[0m
+2026-10-18T17:35:55.8560700Z [36;1mswift test -c release --filter "$target" > local-wb-exact-original-route.log 2>&1[0m
+2026-10-18T17:35:55.8561770Z [36;1moriginal_status=$?[0m
+2026-10-18T17:35:55.8562370Z [36;1mset -e[0m
+2026-10-18T17:35:55.8562970Z [36;1mcat local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8564110Z [36;1mtest "$original_status" -ne 0[0m
+2026-10-18T17:35:55.8565210Z [36;1mgrep -Eq 'Executed 3 tests, with [1-9][0-9]* failure' local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8566770Z [36;1mgrep -Eq 'XCTAssert(Equal|LessThanOrEqual) failed' local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8568770Z [36;1mgrep -Eq 'XCTAssertLessThanOrEqual failed:.*relative, amount=1\.0, cube=.*independent matrix' local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8571160Z [36;1mgrep -Eq 'XCTAssertLessThanOrEqual failed:.*relative, amount=1\.0, cube=.*global matrix' local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8573480Z [36;1mgrep -Fq "testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' failed" local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8576300Z [36;1mgrep -Fq "testNeutralAndZeroBalanceRetainExactIdentity]' passed" local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8578470Z [36;1mgrep -Fq "testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' passed" local-wb-exact-original-route.log[0m
+2026-10-18T17:35:55.8580040Z [36;1mcp "$source_backup" "$source_file"[0m
+2026-10-18T17:35:55.8580820Z [36;1mcmp "$source_backup" "$source_file"[0m
+2026-10-18T17:35:55.8582490Z [36;1mshasum -a 256 "$source_file" Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift >> local-wb-exact-mutation-provenance.log[0m
+2026-10-18T17:35:55.8584660Z [36;1mgit diff --exit-code -- Sources Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift[0m
+2026-10-18T17:35:55.8587120Z [36;1mecho 'LOCAL-WB-ROWDOT-CAUSAL baseline=GREEN complete-222-CIColorMatrix-rendergraph=RED neutral-zero-and-finite-compatibility=GREEN exact-source-restored=true'[0m
+2026-10-18T17:35:55.8635100Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-18T17:35:55.8635930Z ##[endgroup]
+2026-10-18T17:36:05.2475230Z warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+2026-10-18T17:36:05.6681420Z Building for production...
+2026-10-18T17:36:05.6852540Z [0/14] /Users/runner/work/lumen/lumen/.build/arm64-apple-macosx/release/LumenPackageTests.derived/runner.swift
+2026-10-18T17:36:05.6956680Z [1/14] Write sources
+2026-10-18T17:36:05.7034040Z [4/14] Copying Fixtures
+2026-10-18T17:36:05.7075150Z [4/14] Write sources
+2026-10-18T17:36:05.9073390Z [9/14] Write swift-version--79AA4F9932D1E87A.txt
+2026-10-18T17:37:13.1213220Z [11/15] Compiling LumenCore BlobStore.swift
+2026-10-18T17:37:23.9131020Z [12/16] Compiling LumenPipeline AppleRawSource.swift
+2026-10-18T17:37:23.9133300Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1312:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:37:23.9140100Z 1310 | 
+2026-10-18T17:37:23.9140920Z 1311 |     private static func make(_ source: String) -> CIColorKernel? {
+2026-10-18T17:37:23.9141730Z 1312 |         CIColorKernel(source: source)
+2026-10-18T17:37:23.9142740Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:37:23.9145570Z 1313 |     }
+2026-10-18T17:37:23.9146020Z 1314 | 
+2026-10-18T17:37:23.9198260Z 
+2026-10-18T17:37:23.9199670Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1320:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:37:23.9201090Z 1318 |     /// graph around one on that basis.
+2026-10-18T17:37:23.9207030Z 1319 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+2026-10-18T17:37:23.9207610Z 1320 |         CIKernel(source: source)
+2026-10-18T17:37:23.9212350Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:37:23.9335650Z 1321 |     }
+2026-10-18T17:37:23.9417280Z 1322 | 
+2026-10-18T17:38:14.3584480Z [13/19] Compiling LumenPipelineTests AuditExportMetadataTests.swift
+2026-10-18T17:38:59.1396580Z [14/19] Compiling LumenApp AppState.swift
+2026-10-18T17:38:59.1467860Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:38:59.1567760Z  101 | 
+2026-10-18T17:38:59.1670030Z  102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+2026-10-18T17:38:59.1771500Z  103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+2026-10-18T17:38:59.1959300Z      |         `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:38:59.1961290Z  104 |     }) {
+2026-10-18T17:38:59.1962280Z  105 |         self.matteProducer = matteProducer
+2026-10-18T17:38:59.1962730Z 
+2026-10-18T17:38:59.1963390Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.1965120Z 3041 |                 await MainActor.run {
+2026-10-18T17:38:59.1966280Z 3042 |                     // Another open started meanwhile: that one is what the user wants.
+2026-10-18T17:38:59.1966800Z 3043 |                     guard let self,
+2026-10-18T17:38:59.1970730Z      |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.1973800Z 3044 |                           self.expansionRequests.isCurrent(ticket,
+2026-10-18T17:38:59.1976540Z 3045 |                                                            scanGeneration: self.scanGeneration)
+2026-10-18T17:38:59.1980210Z 
+2026-10-18T17:38:59.1981120Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3239:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.1983450Z 3237 |                 // Open folder A, then B before A finishes, and A's scan can land
+2026-10-18T17:38:59.1989770Z 3238 |                 // second. The newest folder the user asked for is the one on screen.
+2026-10-18T17:38:59.2017130Z 3239 |                 guard let self, self.scanGeneration == generation else { return false }
+2026-10-18T17:38:59.2018990Z      |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2020550Z 3240 |                 var reconciled = stored
+2026-10-18T17:38:59.2021450Z 3241 |                 if self.sourceMutationRevision != openingMutation {
+2026-10-18T17:38:59.2021790Z 
+2026-10-18T17:38:59.2023820Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:1429:61: warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:38:59.2026490Z 1427 |             queue.async { [store] in
+2026-10-18T17:38:59.2026990Z 1428 |                 do {
+2026-10-18T17:38:59.2027500Z 1429 |                     continuation.resume(returning: try body(store))
+2026-10-18T17:38:59.2030360Z      |                                                             `- warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:38:59.2032630Z 1430 |                 } catch {
+2026-10-18T17:38:59.2048930Z 1431 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+2026-10-18T17:38:59.2050350Z 
+2026-10-18T17:38:59.2051060Z /Users/runner/work/lumen/lumen/Sources/LumenCore/Catalog/CatalogStore.swift:1057:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:38:59.2062430Z 1055 | // MARK: - Store
+2026-10-18T17:38:59.2062880Z 1056 | 
+2026-10-18T17:38:59.2063120Z 1057 | public final class CatalogStore {
+2026-10-18T17:38:59.2064880Z      |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:38:59.2065730Z 1058 | 
+2026-10-18T17:38:59.2068170Z 1059 |     // MARK: Stored state
+2026-10-18T17:38:59.2068780Z 
+2026-10-18T17:38:59.2071360Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:19:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:38:59.2073330Z   17 | import Foundation
+2026-10-18T17:38:59.2073870Z   18 | import CryptoKit
+2026-10-18T17:38:59.2074250Z   19 | import LumenCore
+2026-10-18T17:38:59.2075150Z      | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:38:59.2076790Z   20 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+2026-10-18T17:38:59.2077530Z   21 | // with the rest of the platform-image code rather than in LumenCore.
+2026-10-18T17:38:59.2077930Z 
+2026-10-18T17:38:59.2078500Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:82:31: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:38:59.2079320Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:38:59.2080160Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:38:59.2080560Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:38:59.2081470Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:38:59.2081900Z  49 | 
+2026-10-18T17:38:59.2082640Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:38:59.2083190Z     :
+2026-10-18T17:38:59.2083600Z  80 |                 observers.append(center.addObserver(forName: name, object: nil,
+2026-10-18T17:38:59.2084330Z  81 |                                                     queue: .main) { [weak self] _ in
+2026-10-18T17:38:59.2085380Z  82 |                     guard let self else { return }
+2026-10-18T17:38:59.2086030Z     |                               `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:38:59.2086540Z  83 |                     MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:38:59.2087020Z  84 |                 })
+2026-10-18T17:38:59.2087580Z 
+2026-10-18T17:38:59.2087990Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:89:27: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:38:59.2089010Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:38:59.2089740Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:38:59.2090220Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:38:59.2090810Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:38:59.2091290Z  49 | 
+2026-10-18T17:38:59.2091980Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:38:59.2092380Z     :
+2026-10-18T17:38:59.2092720Z  87 |         if timer == nil {
+2026-10-18T17:38:59.2093380Z  88 |             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+2026-10-18T17:38:59.2094060Z  89 |                 guard let self else { return }
+2026-10-18T17:38:59.2094620Z     |                           `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:38:59.2095520Z  90 |                 MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:38:59.2095950Z  91 |             }
+2026-10-18T17:38:59.2096160Z 
+2026-10-18T17:38:59.2096640Z /Users/runner/work/lumen/lumen/Sources/LumenApp/GridView.swift:421:22: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:38:59.2097280Z 419 | 
+2026-10-18T17:38:59.2097630Z 420 |     private func loadThumbnail() async {
+2026-10-18T17:38:59.2098150Z 421 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+2026-10-18T17:38:59.2098700Z     |                      `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:38:59.2099260Z 422 |             if image !== hit { image = hit }
+2026-10-18T17:38:59.2099740Z 423 |             return
+2026-10-18T17:38:59.2099950Z 
+2026-10-18T17:38:59.2100450Z /Users/runner/work/lumen/lumen/Sources/LumenApp/Keymap.swift:46:30: warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2101340Z  44 |         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+2026-10-18T17:38:59.2101970Z  45 |             guard let self else { return event }
+2026-10-18T17:38:59.2102840Z  46 |             return MainActor.assumeIsolated {
+2026-10-18T17:38:59.2103470Z     |                              `- warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2104210Z  47 |                 self.handle(event) ? nil : event
+2026-10-18T17:38:59.2104620Z  48 |             }
+2026-10-18T17:38:59.2104850Z 
+2026-10-18T17:38:59.2105150Z :1:1: note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:38:59.2105660Z 1 | @_nonSendable(_assumed)
+2026-10-18T17:38:59.2106340Z   | `- note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:38:59.2107240Z 
+2026-10-18T17:38:59.2108090Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:634:60: warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2110240Z  632 |         return renderer.renderMaskAlpha(source: source, recipe: recipe,
+2026-10-18T17:38:59.2110840Z  633 |                                         maskID: maskID, strokeSets: strokeSets,
+2026-10-18T17:38:59.2111350Z  634 |                                         longEdge: AppState.maskThumbnailLongEdge)
+2026-10-18T17:38:59.2113020Z      |                                                            `- warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2113840Z  635 |     }
+2026-10-18T17:38:59.2114510Z  636 | 
+2026-10-18T17:38:59.2114640Z 
+2026-10-18T17:38:59.2115010Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:902:16: note: static property declared here
+2026-10-18T17:38:59.2116080Z  900 |     /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+2026-10-18T17:38:59.2116650Z  901 |     /// editor does it live is that they compute it at mask resolution.
+2026-10-18T17:38:59.2117220Z  902 |     static let maskThumbnailLongEdge = 96
+2026-10-18T17:38:59.2117600Z      |                `- note: static property declared here
+2026-10-18T17:38:59.2117940Z  903 | 
+2026-10-18T17:38:59.2118350Z  904 |     /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+2026-10-18T17:38:59.2119060Z 
+2026-10-18T17:38:59.2119510Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:204:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2120270Z 202 |         Task { [weak self] in
+2026-10-18T17:38:59.2120860Z 203 |             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+2026-10-18T17:38:59.2123700Z 204 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:38:59.2124310Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2124940Z 205 |                     from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:38:59.2125590Z     |                                                  `- note: property access is 'async'
+2026-10-18T17:38:59.2125920Z 206 |                 else { return nil }
+2026-10-18T17:38:59.2126430Z 207 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:38:59.2127020Z 
+2026-10-18T17:38:59.2127590Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:311:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2128330Z 309 |                 // The traces stay at the proxy long edge whatever the render's size:
+2026-10-18T17:38:59.2129170Z 310 |                 // the extra pixels were commissioned for the count, not for the shape.
+2026-10-18T17:38:59.2129930Z 311 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:38:59.2130970Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2131570Z 312 |                     from: result.image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:38:59.2132300Z     |                                                         `- note: property access is 'async'
+2026-10-18T17:38:59.2132770Z 313 |                 else { return nil }
+2026-10-18T17:38:59.2133410Z 314 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:38:59.2133730Z 
+2026-10-18T17:38:59.2134540Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:486:42: warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2135600Z 140 |     /// which is the viewport in device pixels. 24 MP is a 6K viewport at 1:1 with room
+2026-10-18T17:38:59.2136300Z 141 |     /// over it, and costs 96 MB of transient bytes at the ceiling.
+2026-10-18T17:38:59.2136910Z 142 |     static let scopeTapPixelCeiling: Int = 24_000_000
+2026-10-18T17:38:59.2137280Z     |                `- note: static property declared here
+2026-10-18T17:38:59.2137670Z 143 | 
+2026-10-18T17:38:59.2137990Z 144 |     /// Measure the scopes off the frame the viewer already has.
+2026-10-18T17:38:59.2138480Z     :
+2026-10-18T17:38:59.2138800Z 484 |         let height: Int = image.height
+2026-10-18T17:38:59.2139690Z 485 |         guard width > 0, height > 0 else { return nil }
+2026-10-18T17:38:59.2140190Z 486 |         guard width * height <= AppState.scopeTapPixelCeiling else { return nil }
+2026-10-18T17:38:59.2141290Z     |                                          `- warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2142140Z 487 |         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+2026-10-18T17:38:59.2142720Z 488 |         var bytes = [UInt8](repeating: 0, count: width * height * 4)
+2026-10-18T17:38:59.2142940Z 
+2026-10-18T17:38:59.2144100Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ViewerOverlays.swift:1120:18: warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2145120Z  992 |     /// compositing at the sampler's full 4096 was interpolating an interpolation at
+2026-10-18T17:38:59.2145640Z  993 |     /// four times the cost. 2048 keeps a downscale on the way to the screen.
+2026-10-18T17:38:59.2145980Z  994 |     static let compositeLongEdge = 2048
+2026-10-18T17:38:59.2146440Z      |                `- note: static property declared here
+2026-10-18T17:38:59.2146680Z  995 | 
+2026-10-18T17:38:59.2146850Z  996 |     private struct BuildKey: Equatable {
+2026-10-18T17:38:59.2147130Z      :
+2026-10-18T17:38:59.2322340Z 1118 |         let cap = MaskOverlay.compositeLongEdge(
+2026-10-18T17:38:59.2322930Z 1119 |             alphaLongEdge: Swift.max(alpha.width, alpha.height),
+2026-10-18T17:38:59.2323240Z 1120 |             cap: compositeLongEdge)
+2026-10-18T17:38:59.2323830Z      |                  `- warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:38:59.2324470Z 1121 |         let longest = Swift.max(rawWidth, rawHeight)
+2026-10-18T17:38:59.2324800Z 1122 |         let shrink = longest > cap ? Double(cap) / Double(longest) : 1
+2026-10-18T17:38:59.2325090Z [14/19] Write Objects.LinkFileList
+2026-10-18T17:39:01.8344480Z [15/19] Linking LumenApp
+2026-10-18T17:40:00.9578030Z [17/20] Compiling LumenCoreTests AIDenoiseRenderedHelpTests.swift
+2026-10-18T17:40:00.9777650Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/MaskDependencyAdversarialTests.swift:401:77: warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:40:01.0008050Z 399 |         // of narrowing here is that a `.model` kind must never reach the segmenter.
+2026-10-18T17:40:01.0123660Z 400 |         let bareDotNone: Set<MaskKind> = MaskDependency.wantedMattes(in: recipe,
+2026-10-18T17:40:01.0235670Z 401 |                                                                      from: .none)
+2026-10-18T17:40:01.0338740Z     |                                                                             `- warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:40:01.0440360Z 402 |         XCTAssertEqual(bareDotNone, everything,
+2026-10-18T17:40:01.0541680Z 403 |                        "if this is now empty the ambiguity has been closed")
+2026-10-18T17:40:01.0642800Z 
+2026-10-18T17:40:01.0755080Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:45:43: warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:40:01.0856490Z  43 |         first.finish(.cancelled)
+2026-10-18T17:40:01.0957530Z  44 |         second.finish(.completed)
+2026-10-18T17:40:01.1058480Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:40:01.1159810Z     |                                           `- warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:40:01.1269800Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:40:01.1370980Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:40:01.1471800Z 
+2026-10-18T17:40:01.1574650Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:46:44: warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:40:01.1678480Z  44 |         second.finish(.completed)
+2026-10-18T17:40:01.1680240Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:40:01.1788490Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:40:01.1890420Z     |                                            `- warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:40:01.1994460Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:40:01.2098810Z  48 |         let staleSaved = try await store.save(stale)
+2026-10-18T17:40:04.8846790Z [18/20] Compiling LumenAppTests AppStateSeamTests.swift
+2026-10-18T17:40:04.8847980Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/HistoryPanelTests.swift:54:52: warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:40:04.8849120Z  52 |     /// One recipe step on one photograph, built the way `updateRecipe` builds one.
+2026-10-18T17:40:04.8849730Z  53 |     private func step(_ url: URL, key: String?,
+2026-10-18T17:40:04.8850290Z  54 |                       label: String = HistoryStack.unnamedLabel) -> HistoryStack.Step {
+2026-10-18T17:40:04.8851230Z     |                                                    `- warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:40:04.8851960Z  55 |         var after = Recipe()
+2026-10-18T17:40:04.8852480Z  56 |         after.develop.tone.exposure = 0.4
+2026-10-18T17:40:04.8852840Z 
+2026-10-18T17:40:04.8853210Z /Users/runner/work/lumen/lumen/Sources/LumenApp/HistoryStack.swift:62:16: note: class property declared here
+2026-10-18T17:40:04.8855500Z  60 |     /// named this step" and derives a name from the coalescing key instead — and a
+2026-10-18T17:40:04.8856700Z  61 |     /// literal `"Edit"` written in two files is how that agreement would quietly end.
+2026-10-18T17:40:04.8857210Z  62 |     static let unnamedLabel = "Edit"
+2026-10-18T17:40:04.8857640Z     |                `- note: class property declared here
+2026-10-18T17:40:04.8858070Z  63 | 
+2026-10-18T17:40:04.8858480Z  64 |     /// A drag that pauses longer than this starts a new undo step, so "nudge, think,
+2026-10-18T17:40:06.8893800Z [19/21] Compiling LumenPackageTests runner.swift
+2026-10-18T17:40:06.9208310Z [19/21] Write Objects.LinkFileList
+2026-10-18T17:40:10.5751840Z [20/21] Linking LumenPackageTests
+2026-10-18T17:40:10.5792500Z Build complete! (245.38s)
+2026-10-18T17:40:21.2167830Z Test Suite 'Selected tests' started at 2026-10-18 17:40:11.654.
+2026-10-18T17:40:21.2269100Z Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 17:40:11.657.
+2026-10-18T17:40:21.2370400Z Test Suite 'LocalWhiteBalanceExactMatrixTests' started at 2026-10-18 17:40:11.657.
+2026-10-18T17:40:21.2471450Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' started.
+2026-10-18T17:40:21.2576690Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.013863000000014836,"contrast":0,"cube":33,"graphAssemblySeconds":0.00012820833330806636,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":0.0099950626390636899},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.2681160Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.0014052083333808696,"contrast":0,"cube":65,"graphAssemblySeconds":5.7166666692864965e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":0.0099950626390636899},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.2788940Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0013839583333492556,"contrast":0,"cube":33,"graphAssemblySeconds":6.3458333329435845e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.009974554181098938,0.17996855080127716,0.30020779371261597],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099745532497763634,0.17996855080127716,0.30020779371261597],"newVsCPU":9.3132257461547852e-10,"old":[2.1366699002101086e-05,0.17996849119663239,0.30020794272422791],"oldVsCPU":0.0099959208801010391,"oldVsNew":0.0099959199487784645},{"cpu":[0.18005920946598053,0.29994297027587891,0.50034785270690918],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18005919456481934,0.29994297027587891,0.50034785270690918],"newVsCPU":1.4901161193847656e-08,"old":[0.18005944788455963,0.29994282126426697,0.50034886598587036],"oldVsCPU":1.0132789611816406e-06,"oldVsNew":1.0132789611816406e-06},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[1024.1065673828125,127.95045471191406,256.18447875976562],"newVsCPU":0,"old":[737.36334228515625,127.95610809326172,256.18267822265625],"oldVsCPU":286.74322509765625,"oldVsNew":286.74322509765625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.2897170Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0011483750000138571,"contrast":0,"cube":65,"graphAssemblySeconds":4.6166666663793876e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.009974554181098938,0.17996855080127716,0.30020779371261597],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099745532497763634,0.17996855080127716,0.30020779371261597],"newVsCPU":9.3132257461547852e-10,"old":[2.1364228814491071e-05,0.17996849119663239,0.30020794272422791],"oldVsCPU":0.0099959184099134291,"oldVsNew":0.0099959174785908544},{"cpu":[0.18005920946598053,0.29994297027587891,0.50034785270690918],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18005919456481934,0.29994297027587891,0.50034785270690918],"newVsCPU":1.4901161193847656e-08,"old":[0.18005944788455963,0.29994311928749084,0.50034886598587036],"oldVsCPU":1.0132789611816406e-06,"oldVsNew":1.0132789611816406e-06},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[1024.1065673828125,127.95045471191406,256.18447875976562],"newVsCPU":0,"old":[737.36187744140625,127.95695495605469,256.18234252929688],"oldVsCPU":286.74468994140625,"oldVsNew":286.74468994140625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3022990Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0011173749999784377,"contrast":0,"cube":33,"graphAssemblySeconds":4.1291666661891213e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0075365975499153137,0.1768072247505188,0.32160848379135132],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.007536598015576601,0.1768072098493576,0.32160848379135132],"newVsCPU":1.4901161193847656e-08,"old":[0.0025420414749532938,0.17678017914295197,0.32161897420883179],"oldVsCPU":0.010078639024868608,"oldVsNew":0.010078639490529895},{"cpu":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"newVsCPU":0,"old":[0.18575026094913483,0.29420456290245056,0.53618723154067993],"oldVsCPU":2.5540590286254883e-05,"oldVsNew":2.5540590286254883e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[1034.3619384765625,123.06410980224609,275.18292236328125],"newVsCPU":0,"old":[745.30645751953125,123.58885955810547,274.969482421875],"oldVsCPU":289.05548095703125,"oldVsNew":289.05548095703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3124700Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0013174583333466217,"contrast":0,"cube":65,"graphAssemblySeconds":6.1541666639186587e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0075365975499153137,0.1768072247505188,0.32160848379135132],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.007536598015576601,0.1768072098493576,0.32160848379135132],"newVsCPU":1.4901161193847656e-08,"old":[0.0025418240111321211,0.1767822802066803,0.32161802053451538],"oldVsCPU":0.010078421561047435,"oldVsNew":0.010078422026708722},{"cpu":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"newVsCPU":0,"old":[0.18574602901935577,0.29421770572662354,0.53618192672729492],"oldVsCPU":1.239776611328125e-05,"oldVsNew":1.239776611328125e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[1034.3619384765625,123.06410980224609,275.18292236328125],"newVsCPU":0,"old":[745.26953125,123.69134521484375,274.95309448242188],"oldVsCPU":289.0924072265625,"oldVsNew":289.0924072265625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3246080Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.055499999999994998,"contrast":30,"cube":33,"graphAssemblySeconds":0.033779708333327108,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626390636899,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":0},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3349840Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.23207508333331361,"contrast":30,"cube":65,"graphAssemblySeconds":0.22916762500000232,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626390636899,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":0},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3457410Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.030335208333326591,"contrast":30,"cube":33,"graphAssemblySeconds":0.028426333333356979,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099696815013885498,0.17988061904907227,0.30006110668182373],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[2.1351715986384079e-05,0.17988677322864532,0.30007177591323853],"newVsCPU":0.0099910332173749339,"old":[2.135700015060138e-05,0.17988668382167816,0.30007192492485046],"oldVsCPU":0.0099910385015391512,"oldVsNew":1.4901161193847656e-07},{"cpu":[0.18020285665988922,0.30018225312232971,0.50074702501296997],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18020334839820862,0.30018296837806702,0.50074863433837891],"newVsCPU":1.6093254089355469e-06,"old":[0.18020340800285339,0.30018264055252075,0.50074893236160278],"oldVsCPU":1.9073486328125e-06,"oldVsNew":3.2782554626464844e-07},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[737.362060546875,127.95726013183594,256.18255615234375],"newVsCPU":286.7445068359375,"old":[737.36334228515625,127.95610809326172,256.18267822265625],"oldVsCPU":286.74322509765625,"oldVsNew":0.00128173828125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3567610Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.24085220833330823,"contrast":30,"cube":65,"graphAssemblySeconds":0.23721412499997996,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099696815013885498,0.17988061904907227,0.30006110668182373],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[2.1351703253458254e-05,0.17988666892051697,0.30007177591323853],"newVsCPU":0.0099910332046420081,"old":[2.1354524506023154e-05,0.17988668382167816,0.30007162690162659],"oldVsCPU":0.009991036025894573,"oldVsNew":1.4901161193847656e-07},{"cpu":[0.18020285665988922,0.30018225312232971,0.50074702501296997],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18020334839820862,0.30018296837806702,0.50074863433837891],"newVsCPU":1.6093254089355469e-06,"old":[0.18020322918891907,0.30018264055252075,0.5007479190826416],"oldVsCPU":8.9406967163085938e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[737.362060546875,127.95726013183594,256.18255615234375],"newVsCPU":286.7445068359375,"old":[737.36187744140625,127.95695495605469,256.18234252929688],"oldVsCPU":286.74468994140625,"oldVsNew":0.00030517578125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3676000Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.030761541666663561,"contrast":30,"cube":33,"graphAssemblySeconds":0.028815375000021959,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0071771466173231602,0.16837456822395325,0.30626967549324036],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[0.0024287360720336437,0.16893528401851654,0.30733737349510193],"newVsCPU":0.0096058826893568039,"old":[0.0024291749577969313,0.16893115639686584,0.30733931064605713],"oldVsCPU":0.0096063215751200914,"oldVsNew":4.1276216506958008e-06},{"cpu":[0.20115981996059418,0.31865471601486206,0.58068555593490601],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.2011914849281311,0.31870481371879578,0.58077722787857056],"newVsCPU":9.1671943664550781e-05,"old":[0.20120124518871307,0.31867662072181702,0.58078867197036743],"oldVsCPU":0.00010311603546142578,"oldVsNew":2.8192996978759766e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[745.2576904296875,123.71819305419922,274.94659423828125],"newVsCPU":289.104248046875,"old":[745.30645751953125,123.58885955810547,274.969482421875],"oldVsCPU":289.05548095703125,"oldVsNew":0.12933349609375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:21.3783530Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.24977637500001038,"contrast":30,"cube":65,"graphAssemblySeconds":0.24670583333335117,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0071771466173231602,0.16837456822395325,0.30626967549324036],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[0.002428688807412982,0.16893202066421509,0.30733126401901245],"newVsCPU":0.0096058354247361422,"old":[0.0024289204739034176,0.16892983019351959,0.30733230710029602],"oldVsCPU":0.0096060670912265778,"oldVsNew":2.1904706954956055e-06},{"cpu":[0.20115981996059418,0.31865471601486206,0.58068555593490601],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.20117555558681488,0.31867951154708862,0.58073121309280396],"newVsCPU":4.5657157897949219e-05,"old":[0.20118068158626556,0.31866618990898132,0.58073681592941284],"oldVsCPU":5.1259994506835938e-05,"oldVsNew":1.3321638107299805e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[745.2576904296875,123.71819305419922,274.94659423828125],"newVsCPU":289.104248046875,"old":[745.26953125,123.69134521484375,274.95309448242188],"oldVsCPU":289.0924072265625,"oldVsNew":0.02684783935546875}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.8948220Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.0016420416666846904,"contrast":0,"cube":33,"graphAssemblySeconds":5.2374999995663529e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":0.0099950626354257111},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.8976750Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.0013717083332949187,"contrast":0,"cube":65,"graphAssemblySeconds":7.7041666656896268e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":0.0099950626354257111},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9025560Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0011197499999866523,"contrast":0,"cube":33,"graphAssemblySeconds":3.9041666695993626e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"newVsCPU":0,"old":[-0.00034179794602096081,0.17989365756511688,0.30268821120262146],"oldVsCPU":0.0099864399526268244,"oldVsNew":0.0099864399526268244},{"cpu":[0.17928574979305267,0.2998683750629425,0.50449657440185547],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17928576469421387,0.29986840486526489,0.50449657440185547],"newVsCPU":2.9802322387695312e-08,"old":[0.17928455770015717,0.29986608028411865,0.50449866056442261],"oldVsCPU":2.2947788238525391e-06,"oldVsNew":2.3245811462402344e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[1022.880859375,128.14872741699219,258.37655639648438],"newVsCPU":6.103515625e-05,"old":[736.39886474609375,128.07568359375,258.35269165039062],"oldVsCPU":286.4820556640625,"oldVsNew":286.48199462890625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9035100Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0018843749999746251,"contrast":0,"cube":65,"graphAssemblySeconds":6.5958333323123952e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"newVsCPU":0,"old":[-0.00034173921449109912,0.17989382147789001,0.30268821120262146],"oldVsCPU":0.0099864986841566861,"oldVsNew":0.0099864986841566861},{"cpu":[0.17928574979305267,0.2998683750629425,0.50449657440185547],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17928576469421387,0.29986840486526489,0.50449657440185547],"newVsCPU":2.9802322387695312e-08,"old":[0.17928518354892731,0.29986730217933655,0.50449824333190918],"oldVsCPU":1.6689300537109375e-06,"oldVsNew":1.6689300537109375e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[1022.880859375,128.14872741699219,258.37655639648438],"newVsCPU":6.103515625e-05,"old":[736.40325927734375,128.07627868652344,258.35064697265625],"oldVsCPU":286.4776611328125,"oldVsNew":286.47760009765625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9044890Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0012954166666645506,"contrast":0,"cube":33,"graphAssemblySeconds":5.0041666668221296e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.047346558421850204,0.15478461980819702,0.73205280303955078],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.047346554696559906,0.15478460490703583,0.73205280303955078],"newVsCPU":1.4901161193847656e-08,"old":[-0.038312025368213654,0.15497013926506042,0.73224294185638428],"oldVsCPU":0.0090345330536365509,"oldVsNew":0.0090345293283462524},{"cpu":[0.099165260791778564,0.26336535811424255,1.2230825424194336],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.099165275692939758,0.26336535811424255,1.2230825424194336],"newVsCPU":1.4901161193847656e-08,"old":[0.098976850509643555,0.26285094022750854,1.2232685089111328],"oldVsCPU":0.00051441788673400879,"oldVsNew":0.00051441788673400879},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[898.8397216796875,132.85441589355469,638.38519287109375],"newVsCPU":1.52587890625e-05,"old":[638.52398681640625,124.36791229248047,634.4315185546875],"oldVsCPU":260.31573486328125,"oldVsNew":260.31573486328125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9052610Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0012657500000159416,"contrast":0,"cube":65,"graphAssemblySeconds":5.0583333347731241e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.047346558421850204,0.15478461980819702,0.73205280303955078],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.047346554696559906,0.15478460490703583,0.73205280303955078],"newVsCPU":1.4901161193847656e-08,"old":[-0.038304693996906281,0.15501010417938232,0.73222255706787109],"oldVsCPU":0.009041864424943924,"oldVsNew":0.0090418606996536255},{"cpu":[0.099165260791778564,0.26336535811424255,1.2230825424194336],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.099165275692939758,0.26336535811424255,1.2230825424194336],"newVsCPU":1.4901161193847656e-08,"old":[0.099060848355293274,0.26311510801315308,1.223170280456543],"oldVsCPU":0.00025025010108947754,"oldVsNew":0.00025025010108947754},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[898.8397216796875,132.85441589355469,638.38519287109375],"newVsCPU":1.52587890625e-05,"old":[639.05560302734375,124.82535552978516,634.13714599609375],"oldVsCPU":259.78411865234375,"oldVsNew":259.78411865234375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9060840Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.045995791666712194,"contrast":30,"cube":33,"graphAssemblySeconds":0.043627833333346189,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626354257111,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":0},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9067910Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.25508629166665742,"contrast":30,"cube":65,"graphAssemblySeconds":0.25097587499999463,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626354257111,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":0},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9075050Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.030743374999985917,"contrast":30,"cube":33,"graphAssemblySeconds":0.028659416666641846,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010323191992938519,0.17980349063873291,0.30253911018371582],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.00034151715226471424,0.17981238663196564,0.30255070328712463],"newVsCPU":0.0099816748406738043,"old":[-0.00034164282260462642,0.17981187999248505,0.30255106091499329],"oldVsCPU":0.0099815491703338921,"oldVsNew":5.0663948059082031e-07},{"cpu":[0.17942878603935242,0.30010759830474854,0.50489902496337891],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17942926287651062,0.30010831356048584,0.50490069389343262],"newVsCPU":1.6689300537109375e-06,"old":[0.17942789196968079,0.30010583996772766,0.50490206480026245],"oldVsCPU":3.0398368835449219e-06,"oldVsNew":2.4735927581787109e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[736.4046630859375,128.0767822265625,258.35025024414062],"newVsCPU":286.47625732421875,"old":[736.39886474609375,128.07568359375,258.35269165039062],"oldVsCPU":286.4820556640625,"oldVsNew":0.00579833984375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9085190Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.25894991666666556,"contrast":30,"cube":65,"graphAssemblySeconds":0.25606245833336061,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010323191992938519,0.17980349063873291,0.30253911018371582],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0003415169776417315,0.17981228232383728,0.30255070328712463],"newVsCPU":0.009981675015296787,"old":[-0.00034158400376327336,0.17981205880641937,0.30255076289176941],"oldVsCPU":0.0099816079891752452,"oldVsNew":2.2351741790771484e-07},{"cpu":[0.17942878603935242,0.30010759830474854,0.50489902496337891],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17942926287651062,0.30010831356048584,0.50490069389343262],"newVsCPU":1.6689300537109375e-06,"old":[0.1794283390045166,0.30010703206062317,0.50490057468414307],"oldVsCPU":1.5497207641601562e-06,"oldVsNew":1.2814998626708984e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[736.4046630859375,128.0767822265625,258.35025024414062],"newVsCPU":286.47625732421875,"old":[736.40325927734375,128.07627868652344,258.35064697265625],"oldVsCPU":286.4776611328125,"oldVsNew":0.00140380859375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9103930Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.031722624999986238,"contrast":30,"cube":33,"graphAssemblySeconds":0.029724874999999429,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.045088406652212143,0.1474023163318634,0.69713819026947021],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.03659597784280777,0.14817406237125397,0.69969600439071655],"newVsCPU":0.0084924288094043732,"old":[-0.036611516028642654,0.14808949828147888,0.69973182678222656],"oldVsCPU":0.0084768906235694885,"oldVsNew":8.4564089775085449e-05},{"cpu":[0.10739716142416,0.28522783517837524,1.3246129751205444],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.10741408169269562,0.28527259826660156,1.3248220682144165],"newVsCPU":0.00020909309387207031,"old":[0.1072099357843399,0.2847149670124054,1.325020432472229],"oldVsCPU":0.00051286816596984863,"oldVsNew":0.00055763125419616699},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[639.2227783203125,124.99493408203125,634.020263671875],"newVsCPU":259.616943359375,"old":[638.52398681640625,124.36791229248047,634.4315185546875],"oldVsCPU":260.31573486328125,"oldVsNew":0.69879150390625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9124780Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.24247329166661302,"contrast":30,"cube":65,"graphAssemblySeconds":0.23908012499998677,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.045088406652212143,0.1474023163318634,0.69713819026947021],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.036595262587070465,0.14817120134830475,0.69968211650848389],"newVsCPU":0.0084931440651416779,"old":[-0.036603596061468124,0.1481248140335083,0.69969850778579712],"oldVsCPU":0.0084848105907440186,"oldVsNew":4.6387314796447754e-05},{"cpu":[0.10739716142416,0.28522783517837524,1.3246129751205444],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.10740558803081512,0.2852499783039093,1.3247171640396118],"newVsCPU":0.00010418891906738281,"old":[0.10729240626096725,0.28497821092605591,1.3248089551925659],"oldVsCPU":0.00024962425231933594,"oldVsNew":0.00027176737785339355},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[639.2227783203125,124.99493408203125,634.020263671875],"newVsCPU":259.616943359375,"old":[639.05560302734375,124.82535552978516,634.13714599609375],"oldVsCPU":259.78411865234375,"oldVsNew":0.16957855224609375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:40:24.9138630Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' passed (12.035 seconds).
+2026-10-18T17:40:24.9141500Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testNeutralAndZeroBalanceRetainExactIdentity]' started.
+2026-10-18T17:40:24.9144150Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testNeutralAndZeroBalanceRetainExactIdentity]' passed (0.020 seconds).
+2026-10-18T17:40:24.9146740Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' started.
+2026-10-18T17:40:25.0437480Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' passed (1.181 seconds).
+2026-10-18T17:40:25.0443990Z Test Suite 'LocalWhiteBalanceExactMatrixTests' passed at 2026-10-18 17:40:24.894.
+2026-10-18T17:40:25.0444990Z 	 Executed 3 tests, with 0 failures (0 unexpected) in 13.236 (13.237) seconds
+2026-10-18T17:40:25.0445650Z Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 17:40:24.894.
+2026-10-18T17:40:25.0446440Z 	 Executed 3 tests, with 0 failures (0 unexpected) in 13.236 (13.237) seconds
+2026-10-18T17:40:25.0447200Z Test Suite 'Selected tests' passed at 2026-10-18 17:40:24.894.
+2026-10-18T17:40:25.0447840Z 	 Executed 3 tests, with 0 failures (0 unexpected) in 13.236 (13.240) seconds
+2026-10-18T17:40:25.0449720Z ◇ Test run started.
+2026-10-18T17:40:25.0450240Z ↳ Testing Library Version: 124.4
+2026-10-18T17:40:25.0450910Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-10-18T17:40:25.0451460Z ✔ Test run with 0 tests passed after 0.001 seconds.
+2026-10-18T17:40:25.4400480Z Installed entire222 CIColorMatrix route SHA256=9e5ffb64e0dc595e404a44a49c8c126a896cb37f4b6702d1de095c86c0815962
+2026-10-18T17:40:25.4401230Z Candidate source restoration remains required; no tests executed.
+2026-10-18T17:42:31.2381650Z warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+2026-10-18T17:42:31.2383290Z [0/1] Planning build
+2026-10-18T17:42:31.2383850Z Building for production...
+2026-10-18T17:42:31.2384930Z [0/4] Write sources
+2026-10-18T17:42:31.2385270Z [1/4] Write swift-version--79AA4F9932D1E87A.txt
+2026-10-18T17:42:31.2385840Z [3/5] Compiling LumenPipeline AppleRawSource.swift
+2026-10-18T17:42:31.2386860Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1312:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:42:31.2388270Z 1310 | 
+2026-10-18T17:42:31.2388630Z 1311 |     private static func make(_ source: String) -> CIColorKernel? {
+2026-10-18T17:42:31.2389340Z 1312 |         CIColorKernel(source: source)
+2026-10-18T17:42:31.2390210Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:42:31.2390930Z 1313 |     }
+2026-10-18T17:42:31.2391250Z 1314 | 
+2026-10-18T17:42:31.2400680Z 
+2026-10-18T17:42:31.2401430Z /Users/runner/work/lumen/lumen/Sources/LumenPipeline/Kernels.swift:1320:9: warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:42:31.2402540Z 1318 |     /// graph around one on that basis.
+2026-10-18T17:42:31.2403010Z 1319 |     private static func makeGeneral(_ source: String) -> CIKernel? {
+2026-10-18T17:42:31.2403610Z 1320 |         CIKernel(source: source)
+2026-10-18T17:42:31.2404510Z      |         `- warning: 'init(source:)' was deprecated in macOS 10.14: Core Image Kernel Language API deprecated. (Define CI_SILENCE_GL_DEPRECATION to silence these warnings)
+2026-10-18T17:42:31.2405330Z 1321 |     }
+2026-10-18T17:42:31.2405780Z 1322 | 
+2026-10-18T17:42:31.2406220Z [4/8] Compiling LumenPipelineTests AuditExportMetadataTests.swift
+2026-10-18T17:42:31.2406870Z [5/8] Compiling LumenApp AppState.swift
+2026-10-18T17:42:31.2407600Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:103:9: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:42:31.2408440Z  101 | 
+2026-10-18T17:42:31.2408810Z  102 |     init(matteProducer: @escaping MatteProducer = { image, kinds in
+2026-10-18T17:42:31.2409490Z  103 |         await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+2026-10-18T17:42:31.2410320Z      |         `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:42:31.2410760Z  104 |     }) {
+2026-10-18T17:42:31.2411300Z  105 |         self.matteProducer = matteProducer
+2026-10-18T17:42:31.2411490Z 
+2026-10-18T17:42:31.2420500Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3043:31: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2421630Z 3041 |                 await MainActor.run {
+2026-10-18T17:42:31.2422300Z 3042 |                     // Another open started meanwhile: that one is what the user wants.
+2026-10-18T17:42:31.2422810Z 3043 |                     guard let self,
+2026-10-18T17:42:31.2423640Z      |                               `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2424590Z 3044 |                           self.expansionRequests.isCurrent(ticket,
+2026-10-18T17:42:31.2425160Z 3045 |                                                            scanGeneration: self.scanGeneration)
+2026-10-18T17:42:31.2425610Z 
+2026-10-18T17:42:31.2426310Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:3239:27: warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2427210Z 3237 |                 // Open folder A, then B before A finishes, and A's scan can land
+2026-10-18T17:42:31.2428040Z 3238 |                 // second. The newest folder the user asked for is the one on screen.
+2026-10-18T17:42:31.2429000Z 3239 |                 guard let self, self.scanGeneration == generation else { return false }
+2026-10-18T17:42:31.2429780Z      |                           `- warning: reference to captured var 'self' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2430610Z 3240 |                 var reconciled = stored
+2026-10-18T17:42:31.2565310Z 3241 |                 if self.sourceMutationRevision != openingMutation {
+2026-10-18T17:42:31.2565620Z 
+2026-10-18T17:42:31.2566430Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:1429:61: warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:42:31.2567580Z 1427 |             queue.async { [store] in
+2026-10-18T17:42:31.2568360Z 1428 |                 do {
+2026-10-18T17:42:31.2570280Z 1429 |                     continuation.resume(returning: try body(store))
+2026-10-18T17:42:31.2573230Z      |                                                             `- warning: capture of 'store' with non-sendable type 'CatalogStore' in a '@Sendable' closure
+2026-10-18T17:42:31.2575290Z 1430 |                 } catch {
+2026-10-18T17:42:31.2579410Z 1431 |                     NSLog("Lumen catalog: %@ failed — %@", what, String(describing: error))
+2026-10-18T17:42:31.2579860Z 
+2026-10-18T17:42:31.2580420Z /Users/runner/work/lumen/lumen/Sources/LumenCore/Catalog/CatalogStore.swift:1057:20: note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:42:31.2581200Z 1055 | // MARK: - Store
+2026-10-18T17:42:31.2581480Z 1056 | 
+2026-10-18T17:42:31.2581940Z 1057 | public final class CatalogStore {
+2026-10-18T17:42:31.2582280Z      |                    `- note: class 'CatalogStore' does not conform to the 'Sendable' protocol
+2026-10-18T17:42:31.2582950Z 1058 | 
+2026-10-18T17:42:31.2583270Z 1059 |     // MARK: Stored state
+2026-10-18T17:42:31.2583400Z 
+2026-10-18T17:42:31.2584040Z /Users/runner/work/lumen/lumen/Sources/LumenApp/CatalogService.swift:19:1: warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:42:31.2584850Z   17 | import Foundation
+2026-10-18T17:42:31.2585080Z   18 | import CryptoKit
+2026-10-18T17:42:31.2585490Z   19 | import LumenCore
+2026-10-18T17:42:31.2585940Z      | `- warning: add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'LumenCore'
+2026-10-18T17:42:31.2586510Z   20 | // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
+2026-10-18T17:42:31.2587120Z   21 | // with the rest of the platform-image code rather than in LumenCore.
+2026-10-18T17:42:31.2587440Z 
+2026-10-18T17:42:31.2588350Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:82:31: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:42:31.2589140Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:42:31.2589650Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:42:31.2590080Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:42:31.2590450Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:42:31.2590900Z  49 | 
+2026-10-18T17:42:31.2591190Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:42:31.2591530Z     :
+2026-10-18T17:42:31.2591820Z  80 |                 observers.append(center.addObserver(forName: name, object: nil,
+2026-10-18T17:42:31.2592310Z  81 |                                                     queue: .main) { [weak self] _ in
+2026-10-18T17:42:31.2592630Z  82 |                     guard let self else { return }
+2026-10-18T17:42:31.2593140Z     |                               `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:42:31.2593720Z  83 |                     MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:42:31.2594060Z  84 |                 })
+2026-10-18T17:42:31.2594250Z 
+2026-10-18T17:42:31.2594680Z /Users/runner/work/lumen/lumen/Sources/LumenApp/EDRViewport.swift:89:27: warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:42:31.2595410Z  46 | /// Not `@MainActor`, for `LoupeViewport`'s reason: `shared` is read from a view's
+2026-10-18T17:42:31.2596090Z  47 | /// property initializer. The members that touch AppKit are.
+2026-10-18T17:42:31.2596620Z  48 | final class EDRDisplay: ObservableObject {
+2026-10-18T17:42:31.2597410Z     |             `- note: class 'EDRDisplay' does not conform to the 'Sendable' protocol
+2026-10-18T17:42:31.2598010Z  49 | 
+2026-10-18T17:42:31.2598230Z  50 |     static let shared = EDRDisplay()
+2026-10-18T17:42:31.2598690Z     :
+2026-10-18T17:42:31.2598870Z  87 |         if timer == nil {
+2026-10-18T17:42:31.2599380Z  88 |             timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+2026-10-18T17:42:31.2599870Z  89 |                 guard let self else { return }
+2026-10-18T17:42:31.2600680Z     |                           `- warning: capture of 'self' with non-sendable type 'EDRDisplay?' in a '@Sendable' closure
+2026-10-18T17:42:31.2601190Z  90 |                 MainActor.assumeIsolated { self.refresh() }
+2026-10-18T17:42:31.2601610Z  91 |             }
+2026-10-18T17:42:31.2601770Z 
+2026-10-18T17:42:31.2602160Z /Users/runner/work/lumen/lumen/Sources/LumenApp/GridView.swift:421:22: warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:42:31.2602850Z 419 | 
+2026-10-18T17:42:31.2603160Z 420 |     private func loadThumbnail() async {
+2026-10-18T17:42:31.2603540Z 421 |         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
+2026-10-18T17:42:31.2604050Z     |                      `- warning: no 'async' operations occur within 'await' expression
+2026-10-18T17:42:31.2604410Z 422 |             if image !== hit { image = hit }
+2026-10-18T17:42:31.2604730Z 423 |             return
+2026-10-18T17:42:31.2604900Z 
+2026-10-18T17:42:31.2605420Z /Users/runner/work/lumen/lumen/Sources/LumenApp/Keymap.swift:46:30: warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2606240Z  44 |         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+2026-10-18T17:42:31.2606750Z  45 |             guard let self else { return event }
+2026-10-18T17:42:31.2607070Z  46 |             return MainActor.assumeIsolated {
+2026-10-18T17:42:31.2607820Z     |                              `- warning: conformance of 'NSEvent' to 'Sendable' is unavailable; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2608370Z  47 |                 self.handle(event) ? nil : event
+2026-10-18T17:42:31.2608700Z  48 |             }
+2026-10-18T17:42:31.2608870Z 
+2026-10-18T17:42:31.2609070Z :1:1: note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:42:31.2609490Z 1 | @_nonSendable(_assumed)
+2026-10-18T17:42:31.2609990Z   | `- note: conformance of 'NSEvent' to 'Sendable' has been explicitly marked unavailable here
+2026-10-18T17:42:31.2610270Z 
+2026-10-18T17:42:31.2611040Z /Users/runner/work/lumen/lumen/Sources/LumenApp/RenderCoordinator.swift:634:60: warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2612190Z  632 |         return renderer.renderMaskAlpha(source: source, recipe: recipe,
+2026-10-18T17:42:31.2612710Z  633 |                                         maskID: maskID, strokeSets: strokeSets,
+2026-10-18T17:42:31.2613100Z  634 |                                         longEdge: AppState.maskThumbnailLongEdge)
+2026-10-18T17:42:31.2613990Z      |                                                            `- warning: main actor-isolated static property 'maskThumbnailLongEdge' can not be referenced on a nonisolated actor instance; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2614810Z  635 |     }
+2026-10-18T17:42:31.2615020Z  636 | 
+2026-10-18T17:42:31.2615110Z 
+2026-10-18T17:42:31.2615440Z /Users/runner/work/lumen/lumen/Sources/LumenApp/AppState.swift:902:16: note: static property declared here
+2026-10-18T17:42:31.2616350Z  900 |     /// own alpha" affordable at all — the idea is old and the reason nobody in a raw
+2026-10-18T17:42:31.2616800Z  901 |     /// editor does it live is that they compute it at mask resolution.
+2026-10-18T17:42:31.2617270Z  902 |     static let maskThumbnailLongEdge = 96
+2026-10-18T17:42:31.2617610Z      |                `- note: static property declared here
+2026-10-18T17:42:31.2617940Z  903 | 
+2026-10-18T17:42:31.2618230Z  904 |     /// One grey image per mask, keyed by mask id. Published so a row redraws when its
+2026-10-18T17:42:31.2618590Z 
+2026-10-18T17:42:31.2619120Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:204:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2620170Z 202 |         Task { [weak self] in
+2026-10-18T17:42:31.2620560Z 203 |             let data = await Task.detached(priority: .utility) { () -> ScopeData? in
+2026-10-18T17:42:31.2620980Z 204 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:42:31.2621550Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2622270Z 205 |                     from: image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:42:31.2622720Z     |                                                  `- note: property access is 'async'
+2026-10-18T17:42:31.2623090Z 206 |                 else { return nil }
+2026-10-18T17:42:31.2623470Z 207 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:42:31.2623890Z 
+2026-10-18T17:42:31.2624600Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:311:36: warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2625400Z 309 |                 // The traces stay at the proxy long edge whatever the render's size:
+2026-10-18T17:42:31.2625890Z 310 |                 // the extra pixels were commissioned for the count, not for the shape.
+2026-10-18T17:42:31.2626310Z 311 |                 guard let buffer = AppState.buffer(
+2026-10-18T17:42:31.2626930Z     |                                    `- warning: expression is 'async' but is not marked with 'await'; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2627720Z 312 |                     from: result.image, targetLongEdge: AppState.scopeProxyLongEdge)
+2026-10-18T17:42:31.2628220Z     |                                                         `- note: property access is 'async'
+2026-10-18T17:42:31.2628580Z 313 |                 else { return nil }
+2026-10-18T17:42:31.2629030Z 314 |                 var measured = AppState.measure(buffer, includeScopes: wantsScopes,
+2026-10-18T17:42:31.2629330Z 
+2026-10-18T17:42:31.2630020Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ScopeData.swift:486:42: warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2631120Z 140 |     /// which is the viewport in device pixels. 24 MP is a 6K viewport at 1:1 with room
+2026-10-18T17:42:31.2631550Z 141 |     /// over it, and costs 96 MB of transient bytes at the ceiling.
+2026-10-18T17:42:31.2632170Z 142 |     static let scopeTapPixelCeiling: Int = 24_000_000
+2026-10-18T17:42:31.2632960Z     |                `- note: static property declared here
+2026-10-18T17:42:31.2633310Z 143 | 
+2026-10-18T17:42:31.2633760Z 144 |     /// Measure the scopes off the frame the viewer already has.
+2026-10-18T17:42:31.2634020Z     :
+2026-10-18T17:42:31.2634200Z 484 |         let height: Int = image.height
+2026-10-18T17:42:31.2634610Z 485 |         guard width > 0, height > 0 else { return nil }
+2026-10-18T17:42:31.2635230Z 486 |         guard width * height <= AppState.scopeTapPixelCeiling else { return nil }
+2026-10-18T17:42:31.2636000Z     |                                          `- warning: main actor-isolated static property 'scopeTapPixelCeiling' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2636790Z 487 |         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+2026-10-18T17:42:31.2637350Z 488 |         var bytes = [UInt8](repeating: 0, count: width * height * 4)
+2026-10-18T17:42:31.2637590Z 
+2026-10-18T17:42:31.2638320Z /Users/runner/work/lumen/lumen/Sources/LumenApp/ViewerOverlays.swift:1120:18: warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2639390Z  992 |     /// compositing at the sampler's full 4096 was interpolating an interpolation at
+2026-10-18T17:42:31.2640000Z  993 |     /// four times the cost. 2048 keeps a downscale on the way to the screen.
+2026-10-18T17:42:31.2640350Z  994 |     static let compositeLongEdge = 2048
+2026-10-18T17:42:31.2640680Z      |                `- note: static property declared here
+2026-10-18T17:42:31.2640960Z  995 | 
+2026-10-18T17:42:31.2641230Z  996 |     private struct BuildKey: Equatable {
+2026-10-18T17:42:31.2641490Z      :
+2026-10-18T17:42:31.2641740Z 1118 |         let cap = MaskOverlay.compositeLongEdge(
+2026-10-18T17:42:31.2642120Z 1119 |             alphaLongEdge: Swift.max(alpha.width, alpha.height),
+2026-10-18T17:42:31.2642580Z 1120 |             cap: compositeLongEdge)
+2026-10-18T17:42:31.2643200Z      |                  `- warning: main actor-isolated static property 'compositeLongEdge' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2643930Z 1121 |         let longest = Swift.max(rawWidth, rawHeight)
+2026-10-18T17:42:31.2644330Z 1122 |         let shrink = longest > cap ? Double(cap) / Double(longest) : 1
+2026-10-18T17:42:31.2644700Z [5/9] Write Objects.LinkFileList
+2026-10-18T17:42:31.2644990Z [6/9] Linking LumenApp
+2026-10-18T17:42:31.2645240Z [8/10] Compiling LumenAppTests AppStateSeamTests.swift
+2026-10-18T17:42:31.2646130Z /Users/runner/work/lumen/lumen/Tests/LumenAppTests/HistoryPanelTests.swift:54:52: warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2647190Z  52 |     /// One recipe step on one photograph, built the way `updateRecipe` builds one.
+2026-10-18T17:42:31.2647680Z  53 |     private func step(_ url: URL, key: String?,
+2026-10-18T17:42:31.2648090Z  54 |                       label: String = HistoryStack.unnamedLabel) -> HistoryStack.Step {
+2026-10-18T17:42:31.2648860Z     |                                                    `- warning: main actor-isolated class property 'unnamedLabel' can not be referenced from a nonisolated context; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2649530Z  55 |         var after = Recipe()
+2026-10-18T17:42:31.2649860Z  56 |         after.develop.tone.exposure = 0.4
+2026-10-18T17:42:31.2650100Z 
+2026-10-18T17:42:31.2650420Z /Users/runner/work/lumen/lumen/Sources/LumenApp/HistoryStack.swift:62:16: note: class property declared here
+2026-10-18T17:42:31.2651250Z  60 |     /// named this step" and derives a name from the coalescing key instead — and a
+2026-10-18T17:42:31.2651820Z  61 |     /// literal `"Edit"` written in two files is how that agreement would quietly end.
+2026-10-18T17:42:31.2652260Z  62 |     static let unnamedLabel = "Edit"
+2026-10-18T17:42:31.2652530Z     |                `- note: class property declared here
+2026-10-18T17:42:31.2652790Z  63 | 
+2026-10-18T17:42:31.2653520Z  64 |     /// A drag that pauses longer than this starts a new undo step, so "nudge, think,
+2026-10-18T17:42:31.2653990Z [9/10] Compiling LumenCoreTests AIDenoiseRenderedHelpTests.swift
+2026-10-18T17:42:31.2654970Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/MaskDependencyAdversarialTests.swift:401:77: warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:42:31.2655990Z 399 |         // of narrowing here is that a `.model` kind must never reach the segmenter.
+2026-10-18T17:42:31.2656530Z 400 |         let bareDotNone: Set<MaskKind> = MaskDependency.wantedMattes(in: recipe,
+2026-10-18T17:42:31.2657000Z 401 |                                                                      from: .none)
+2026-10-18T17:42:31.2657650Z     |                                                                             `- warning: assuming you mean 'Optional<MaskKind.MatteProvider>.none'; did you mean 'MaskKind.MatteProvider.none' instead?
+2026-10-18T17:42:31.2658250Z 402 |         XCTAssertEqual(bareDotNone, everything,
+2026-10-18T17:42:31.2658700Z 403 |                        "if this is now empty the ambiguity has been closed")
+2026-10-18T17:42:31.2659250Z 
+2026-10-18T17:42:31.2659830Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:45:43: warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2660620Z  43 |         first.finish(.cancelled)
+2026-10-18T17:42:31.2660880Z  44 |         second.finish(.completed)
+2026-10-18T17:42:31.2661130Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:42:31.2661660Z     |                                           `- warning: reference to captured var 'first' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2662230Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:42:31.2662620Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:42:31.2662880Z 
+2026-10-18T17:42:31.2663510Z /Users/runner/work/lumen/lumen/Tests/LumenCoreTests/OperationReportTests.swift:46:44: warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2664310Z  44 |         second.finish(.completed)
+2026-10-18T17:42:31.2664640Z  45 |         async let savedFirst = store.save(first)
+2026-10-18T17:42:31.2665010Z  46 |         async let savedSecond = store.save(second)
+2026-10-18T17:42:31.2665670Z     |                                            `- warning: reference to captured var 'second' in concurrently-executing code; this is an error in the Swift 6 language mode
+2026-10-18T17:42:31.2666490Z  47 |         _ = try await (savedFirst, savedSecond)
+2026-10-18T17:42:31.2666870Z  48 |         let staleSaved = try await store.save(stale)
+2026-10-18T17:42:31.2667180Z [9/11] Write Objects.LinkFileList
+2026-10-18T17:42:31.2667480Z [10/11] Linking LumenPackageTests
+2026-10-18T17:42:31.2667750Z Build complete! (117.04s)
+2026-10-18T17:42:31.2668080Z Test Suite 'Selected tests' started at 2026-10-18 17:42:23.986.
+2026-10-18T17:42:31.2668550Z Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 17:42:23.989.
+2026-10-18T17:42:31.2669060Z Test Suite 'LocalWhiteBalanceExactMatrixTests' started at 2026-10-18 17:42:23.989.
+2026-10-18T17:42:31.2669960Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' started.
+2026-10-18T17:42:31.2675160Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.01264520833331062,"contrast":0,"cube":33,"graphAssemblySeconds":0.0026906666665809098,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":0.0099950626390636899},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2684730Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.0035019166666643287,"contrast":0,"cube":65,"graphAssemblySeconds":0.00010579166666957462,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":0.0099950626390636899},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2693530Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.086099624999974367,"contrast":0,"cube":33,"graphAssemblySeconds":0.00013329166665698722,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.009974554181098938,0.17996855080127716,0.30020779371261597],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.01000085286796093,0.17998962104320526,0.30020049214363098],"newVsCPU":2.6298686861991882e-05,"old":[2.1366699002101086e-05,0.17996849119663239,0.30020794272422791],"oldVsCPU":0.0099959208801010391,"oldVsNew":0.010022219566963031},{"cpu":[0.18005920946598053,0.29994297027587891,0.50034785270690918],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18001537024974823,0.2999826967716217,0.50033414363861084],"newVsCPU":4.3839216232299805e-05,"old":[0.18005944788455963,0.29994282126426697,0.50034886598587036],"oldVsCPU":1.0132789611816406e-06,"oldVsNew":4.4077634811401367e-05},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[1024.08740234375,127.99261474609375,256.17108154296875],"newVsCPU":0.0421600341796875,"old":[737.36334228515625,127.95610809326172,256.18267822265625],"oldVsCPU":286.74322509765625,"oldVsNew":286.72406005859375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2702340Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0027211249999936626,"contrast":0,"cube":65,"graphAssemblySeconds":8.445833339010278e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.009974554181098938,0.17996855080127716,0.30020779371261597],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.01000085286796093,0.17998962104320526,0.30020049214363098],"newVsCPU":2.6298686861991882e-05,"old":[2.1364228814491071e-05,0.17996849119663239,0.30020794272422791],"oldVsCPU":0.0099959184099134291,"oldVsNew":0.010022217096775421},{"cpu":[0.18005920946598053,0.29994297027587891,0.50034785270690918],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18001537024974823,0.2999826967716217,0.50033414363861084],"newVsCPU":4.3839216232299805e-05,"old":[0.18005944788455963,0.29994311928749084,0.50034886598587036],"oldVsCPU":1.0132789611816406e-06,"oldVsNew":4.4077634811401367e-05},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[1024.08740234375,127.99261474609375,256.17108154296875],"newVsCPU":0.0421600341796875,"old":[737.36187744140625,127.95695495605469,256.18234252929688],"oldVsCPU":286.74468994140625,"oldVsNew":286.72552490234375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2710900Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.015099458333338589,"contrast":0,"cube":33,"graphAssemblySeconds":9.8166666703036753e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0075365975499153137,0.1768072247505188,0.32160848379135132],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.007536598015576601,0.1768072098493576,0.32160848379135132],"newVsCPU":1.4901161193847656e-08,"old":[0.0025420414749532938,0.17678017914295197,0.32161897420883179],"oldVsCPU":0.010078639024868608,"oldVsNew":0.010078639490529895},{"cpu":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"newVsCPU":0,"old":[0.18575026094913483,0.29420456290245056,0.53618723154067993],"oldVsCPU":2.5540590286254883e-05,"oldVsNew":2.5540590286254883e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[1034.3619384765625,123.06410980224609,275.18292236328125],"newVsCPU":0,"old":[745.30645751953125,123.58885955810547,274.969482421875],"oldVsCPU":289.05548095703125,"oldVsNew":289.05548095703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2720520Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0011880416666372184,"contrast":0,"cube":65,"graphAssemblySeconds":7.1375000061379978e-05,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0075365975499153137,0.1768072247505188,0.32160848379135132],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.007536598015576601,0.1768072098493576,0.32160848379135132],"newVsCPU":1.4901161193847656e-08,"old":[0.0025418240111321211,0.1767822802066803,0.32161802053451538],"oldVsCPU":0.010078421561047435,"oldVsNew":0.010078422026708722},{"cpu":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18574109673500061,0.29423010349273682,0.53617650270462036],"newVsCPU":0,"old":[0.18574602901935577,0.29421770572662354,0.53618192672729492],"oldVsCPU":1.239776611328125e-05,"oldVsNew":1.239776611328125e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[1034.3619384765625,123.06410980224609,275.18292236328125],"newVsCPU":0,"old":[745.26953125,123.69134521484375,274.95309448242188],"oldVsCPU":289.0924072265625,"oldVsNew":289.0924072265625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2727840Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.031481333333317707,"contrast":30,"cube":33,"graphAssemblySeconds":0.029195875000027627,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371378736395855e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626386089425,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":4.5474735088646412e-13},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2734680Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.22698995833331992,"contrast":30,"cube":65,"graphAssemblySeconds":0.22262733333332108,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371378736395855e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626386089425,"old":[-4.9371374188922346e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626390636899,"oldVsNew":4.5474735088646412e-13},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2741860Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.05343849999997019,"contrast":30,"cube":33,"graphAssemblySeconds":0.031068041666685531,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099696815013885498,0.17988061904907227,0.30006110668182373],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9353175199939869e-06,0.17990806698799133,0.30006438493728638],"newVsCPU":0.0099647461838685558,"old":[2.135700015060138e-05,0.17988668382167816,0.30007192492485046],"oldVsCPU":0.0099910385015391512,"oldVsNew":2.6292317670595367e-05},{"cpu":[0.18020285665988922,0.30018225312232971,0.50074702501296997],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18015947937965393,0.30022275447845459,0.50073486566543579],"newVsCPU":4.3377280235290527e-05,"old":[0.18020340800285339,0.30018264055252075,0.50074893236160278],"oldVsCPU":1.9073486328125e-06,"oldVsNew":4.3928623199462891e-05},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[737.34295654296875,127.99270629882812,256.17144775390625],"newVsCPU":286.76361083984375,"old":[737.36334228515625,127.95610809326172,256.18267822265625],"oldVsCPU":286.74322509765625,"oldVsNew":0.03659820556640625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2749040Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.23231858333326727,"contrast":30,"cube":65,"graphAssemblySeconds":0.22939595833327076,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0099696815013885498,0.17988061904907227,0.30006110668182373],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9353161557519343e-06,0.17990796267986298,0.30006438493728638],"newVsCPU":0.0099647461852327979,"old":[2.1354524506023154e-05,0.17988668382167816,0.30007162690162659],"oldVsCPU":0.009991036025894573,"oldVsNew":2.6289840661775088e-05},{"cpu":[0.18020285665988922,0.30018225312232971,0.50074702501296997],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18015947937965393,0.30022275447845459,0.50073486566543579],"newVsCPU":4.3377280235290527e-05,"old":[0.18020322918891907,0.30018264055252075,0.5007479190826416],"oldVsCPU":8.9406967163085938e-07,"oldVsNew":4.3749809265136719e-05},{"cpu":[1024.1065673828125,127.95045471191406,256.18447875976562],"input":[1024,128,256],"new":[737.34295654296875,127.99270629882812,256.17144775390625],"newVsCPU":286.76361083984375,"old":[737.36187744140625,127.95695495605469,256.18234252929688],"oldVsCPU":286.74468994140625,"oldVsNew":0.0357513427734375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2756370Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.052033625000035499,"contrast":30,"cube":33,"graphAssemblySeconds":0.030033833333391158,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0071771466173231602,0.16837456822395325,0.30626967549324036],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[0.0024287360720336437,0.16893528401851654,0.30733737349510193],"newVsCPU":0.0096058826893568039,"old":[0.0024291749577969313,0.16893115639686584,0.30733931064605713],"oldVsCPU":0.0096063215751200914,"oldVsNew":4.1276216506958008e-06},{"cpu":[0.20115981996059418,0.31865471601486206,0.58068555593490601],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.2011914849281311,0.31870481371879578,0.58077722787857056],"newVsCPU":9.1671943664550781e-05,"old":[0.20120124518871307,0.31867662072181702,0.58078867197036743],"oldVsCPU":0.00010311603546142578,"oldVsNew":2.8192996978759766e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[745.2576904296875,123.71819305419922,274.94659423828125],"newVsCPU":289.104248046875,"old":[745.30645751953125,123.58885955810547,274.969482421875],"oldVsCPU":289.05548095703125,"oldVsNew":0.12933349609375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2764380Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.22702800000001844,"contrast":30,"cube":65,"graphAssemblySeconds":0.22361275000002934,"mixedToneAccuracyAcceptance":false,"mode":"relative","patches":[{"cpu":[-0.0071771466173231602,0.16837456822395325,0.30626967549324036],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[0.002428688807412982,0.16893202066421509,0.30733126401901245],"newVsCPU":0.0096058354247361422,"old":[0.0024289204739034176,0.16892983019351959,0.30733230710029602],"oldVsCPU":0.0096060670912265778,"oldVsNew":2.1904706954956055e-06},{"cpu":[0.20115981996059418,0.31865471601486206,0.58068555593490601],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.20117555558681488,0.31867951154708862,0.58073121309280396],"newVsCPU":4.5657157897949219e-05,"old":[0.20118068158626556,0.31866618990898132,0.58073681592941284],"oldVsCPU":5.1259994506835938e-05,"oldVsNew":1.3321638107299805e-05},{"cpu":[1034.3619384765625,123.06410980224609,275.18292236328125],"input":[1024,128,256],"new":[745.2576904296875,123.71819305419922,274.94659423828125],"newVsCPU":289.104248046875,"old":[745.26953125,123.69134521484375,274.95309448242188],"oldVsCPU":289.0924072265625,"oldVsNew":0.02684783935546875}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2771410Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.0016723333333175106,"contrast":0,"cube":33,"graphAssemblySeconds":6.7749999971056241e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":0.0099950626354257111},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2777800Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.0012525833333256742,"contrast":0,"cube":65,"graphAssemblySeconds":5.8999999964726157e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"newVsCPU":0,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":0.0099950626354257111},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.18000000715255737,0.30000001192092896,0.5],"newVsCPU":0,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":7.152557373046875e-07},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[1024,128,256],"newVsCPU":0,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":286.719970703125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2785080Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0013930000000073051,"contrast":0,"cube":33,"graphAssemblySeconds":7.200000004559115e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"newVsCPU":0,"old":[-0.00034179794602096081,0.17989365756511688,0.30268821120262146],"oldVsCPU":0.0099864399526268244,"oldVsNew":0.0099864399526268244},{"cpu":[0.17928574979305267,0.2998683750629425,0.50449657440185547],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17928576469421387,0.29986840486526489,0.50449657440185547],"newVsCPU":2.9802322387695312e-08,"old":[0.17928455770015717,0.29986608028411865,0.50449866056442261],"oldVsCPU":2.2947788238525391e-06,"oldVsNew":2.3245811462402344e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[1022.880859375,128.14872741699219,258.37655639648438],"newVsCPU":6.103515625e-05,"old":[736.39886474609375,128.07568359375,258.35269165039062],"oldVsCPU":286.4820556640625,"oldVsNew":286.48199462890625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2793280Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.0016289583332991242,"contrast":0,"cube":65,"graphAssemblySeconds":6.4875000020947482e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.010328237898647785,0.17989137768745422,0.30268698930740356],"newVsCPU":0,"old":[-0.00034173921449109912,0.17989382147789001,0.30268821120262146],"oldVsCPU":0.0099864986841566861,"oldVsNew":0.0099864986841566861},{"cpu":[0.17928574979305267,0.2998683750629425,0.50449657440185547],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17928576469421387,0.29986840486526489,0.50449657440185547],"newVsCPU":2.9802322387695312e-08,"old":[0.17928518354892731,0.29986730217933655,0.50449824333190918],"oldVsCPU":1.6689300537109375e-06,"oldVsNew":1.6689300537109375e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[1022.880859375,128.14872741699219,258.37655639648438],"newVsCPU":6.103515625e-05,"old":[736.40325927734375,128.07627868652344,258.35064697265625],"oldVsCPU":286.4776611328125,"oldVsNew":286.47760009765625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2800520Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0016753749999907086,"contrast":0,"cube":33,"graphAssemblySeconds":8.0958333342096012e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.047346558421850204,0.15478461980819702,0.73205280303955078],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.047346554696559906,0.15478460490703583,0.73205280303955078],"newVsCPU":1.4901161193847656e-08,"old":[-0.038312025368213654,0.15497013926506042,0.73224294185638428],"oldVsCPU":0.0090345330536365509,"oldVsNew":0.0090345293283462524},{"cpu":[0.099165260791778564,0.26336535811424255,1.2230825424194336],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.099165275692939758,0.26336535811424255,1.2230825424194336],"newVsCPU":1.4901161193847656e-08,"old":[0.098976850509643555,0.26285094022750854,1.2232685089111328],"oldVsCPU":0.00051441788673400879,"oldVsNew":0.00051441788673400879},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[898.8397216796875,132.85441589355469,638.38519287109375],"newVsCPU":1.52587890625e-05,"old":[638.52398681640625,124.36791229248047,634.4315185546875],"oldVsCPU":260.31573486328125,"oldVsNew":260.31573486328125}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2808740Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.0017513750000262007,"contrast":0,"cube":65,"graphAssemblySeconds":8.0958333342096012e-05,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.047346558421850204,0.15478461980819702,0.73205280303955078],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.047346554696559906,0.15478460490703583,0.73205280303955078],"newVsCPU":1.4901161193847656e-08,"old":[-0.038304693996906281,0.15501010417938232,0.73222255706787109],"oldVsCPU":0.009041864424943924,"oldVsNew":0.0090418606996536255},{"cpu":[0.099165260791778564,0.26336535811424255,1.2230825424194336],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.099165275692939758,0.26336535811424255,1.2230825424194336],"newVsCPU":1.4901161193847656e-08,"old":[0.099060848355293274,0.26311510801315308,1.223170280456543],"oldVsCPU":0.00025025010108947754,"oldVsNew":0.00025025010108947754},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[898.8397216796875,132.85441589355469,638.38519287109375],"newVsCPU":1.52587890625e-05,"old":[639.05560302734375,124.82535552978516,634.13714599609375],"oldVsCPU":259.78411865234375,"oldVsNew":259.78411865234375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2816210Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.031693666666683384,"contrast":30,"cube":33,"graphAssemblySeconds":0.029595791666679361,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371378736395855e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626386089425,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":3.1832314562052488e-12},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2823140Z LOCAL-WB-COMPATIBILITY {"amount":1e-08,"completedSeconds":0.2296067499999026,"contrast":30,"cube":65,"graphAssemblySeconds":0.22565295833328491,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-4.9371378736395855e-06,0.1800001859664917,0.30000022053718567],"newVsCPU":0.0099950626386089425,"old":[-4.9371410568710417e-06,0.1800001859664917,0.30000022053718567],"oldVsCPU":0.0099950626354257111,"oldVsNew":3.1832314562052488e-12},{"cpu":[0.18000000715255737,0.30000001192092896,0.5],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"newVsCPU":7.152557373046875e-07,"old":[0.1800001859664917,0.30000022053718567,0.5000007152557373],"oldVsCPU":7.152557373046875e-07,"oldVsNew":0},{"cpu":[1024,128,256],"input":[1024,128,256],"new":[737.280029296875,128.00009155273438,256.0003662109375],"newVsCPU":286.719970703125,"old":[737.280029296875,128.00009155273438,256.0003662109375],"oldVsCPU":286.719970703125,"oldVsNew":0}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2830630Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.031141208333338,"contrast":30,"cube":33,"graphAssemblySeconds":0.028442125000083252,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010323191992938519,0.17980349063873291,0.30253911018371582],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.00034151715226471424,0.17981238663196564,0.30255070328712463],"newVsCPU":0.0099816748406738043,"old":[-0.00034164282260462642,0.17981187999248505,0.30255106091499329],"oldVsCPU":0.0099815491703338921,"oldVsNew":5.0663948059082031e-07},{"cpu":[0.17942878603935242,0.30010759830474854,0.50489902496337891],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17942926287651062,0.30010831356048584,0.50490069389343262],"newVsCPU":1.6689300537109375e-06,"old":[0.17942789196968079,0.30010583996772766,0.50490206480026245],"oldVsCPU":3.0398368835449219e-06,"oldVsNew":2.4735927581787109e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[736.4046630859375,128.0767822265625,258.35025024414062],"newVsCPU":286.47625732421875,"old":[736.39886474609375,128.07568359375,258.35269165039062],"oldVsCPU":286.4820556640625,"oldVsNew":0.00579833984375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2839970Z LOCAL-WB-COMPATIBILITY {"amount":1,"completedSeconds":0.23413795833323547,"contrast":30,"cube":65,"graphAssemblySeconds":0.23070870833328172,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.010323191992938519,0.17980349063873291,0.30253911018371582],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.0003415169776417315,0.17981228232383728,0.30255070328712463],"newVsCPU":0.009981675015296787,"old":[-0.00034158400376327336,0.17981205880641937,0.30255076289176941],"oldVsCPU":0.0099816079891752452,"oldVsNew":2.2351741790771484e-07},{"cpu":[0.17942878603935242,0.30010759830474854,0.50489902496337891],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.17942926287651062,0.30010831356048584,0.50490069389343262],"newVsCPU":1.6689300537109375e-06,"old":[0.1794283390045166,0.30010703206062317,0.50490057468414307],"oldVsCPU":1.5497207641601562e-06,"oldVsNew":1.2814998626708984e-06},{"cpu":[1022.8809204101562,128.14872741699219,258.37652587890625],"input":[1024,128,256],"new":[736.4046630859375,128.0767822265625,258.35025024414062],"newVsCPU":286.47625732421875,"old":[736.40325927734375,128.07627868652344,258.35064697265625],"oldVsCPU":286.4776611328125,"oldVsNew":0.00140380859375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2848740Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.03991316666667899,"contrast":30,"cube":33,"graphAssemblySeconds":0.036845416666665187,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.045088406652212143,0.1474023163318634,0.69713819026947021],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.03659597784280777,0.14817406237125397,0.69969600439071655],"newVsCPU":0.0084924288094043732,"old":[-0.036611516028642654,0.14808949828147888,0.69973182678222656],"oldVsCPU":0.0084768906235694885,"oldVsNew":8.4564089775085449e-05},{"cpu":[0.10739716142416,0.28522783517837524,1.3246129751205444],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.10741408169269562,0.28527259826660156,1.3248220682144165],"newVsCPU":0.00020909309387207031,"old":[0.1072099357843399,0.2847149670124054,1.325020432472229],"oldVsCPU":0.00051286816596984863,"oldVsNew":0.00055763125419616699},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[639.2227783203125,124.99493408203125,634.020263671875],"newVsCPU":259.616943359375,"old":[638.52398681640625,124.36791229248047,634.4315185546875],"oldVsCPU":260.31573486328125,"oldVsNew":0.69879150390625}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2858050Z LOCAL-WB-COMPATIBILITY {"amount":100,"completedSeconds":0.24281879166665021,"contrast":30,"cube":65,"graphAssemblySeconds":0.23865095833332362,"mixedToneAccuracyAcceptance":false,"mode":"absolute","patches":[{"cpu":[-0.045088406652212143,0.1474023163318634,0.69713819026947021],"input":[-0.0099999997764825821,0.18000000715255737,0.30000001192092896],"new":[-0.036595262587070465,0.14817120134830475,0.69968211650848389],"newVsCPU":0.0084931440651416779,"old":[-0.036603596061468124,0.1481248140335083,0.69969850778579712],"oldVsCPU":0.0084848105907440186,"oldVsNew":4.6387314796447754e-05},{"cpu":[0.10739716142416,0.28522783517837524,1.3246129751205444],"input":[0.18000000715255737,0.30000001192092896,0.5],"new":[0.10740558803081512,0.2852499783039093,1.3247171640396118],"newVsCPU":0.00010418891906738281,"old":[0.10729240626096725,0.28497821092605591,1.3248089551925659],"oldVsCPU":0.00024962425231933594,"oldVsNew":0.00027176737785339355},{"cpu":[898.8397216796875,132.85443115234375,638.38519287109375],"input":[1024,128,256],"new":[639.2227783203125,124.99493408203125,634.020263671875],"newVsCPU":259.616943359375,"old":[639.05560302734375,124.82535552978516,634.13714599609375],"oldVsCPU":259.78411865234375,"oldVsNew":0.16957855224609375}],"savedLookIdentityClaim":false,"timingScope":"tiny generated fixture, ordered, not GUI\/RAW\/statistical speed proof"}
+2026-10-18T17:42:31.2862350Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testCompatibilityRecordsCompareOldFusedNewSequentialAndDirectCPU]' passed (5.192 seconds).
+2026-10-18T17:42:31.2863290Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testNeutralAndZeroBalanceRetainExactIdentity]' started.
+2026-10-18T17:42:31.2864150Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testNeutralAndZeroBalanceRetainExactIdentity]' passed (0.025 seconds).
+2026-10-18T17:42:31.2865070Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' started.
+2026-10-18T17:42:31.2866720Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:80: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=33 independent matrix
+2026-10-18T17:42:31.2868930Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:81: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=33 direct CPU
+2026-10-18T17:42:31.2871210Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:82: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=33 global matrix
+2026-10-18T17:42:31.2873820Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.010540008544921875") is greater than ("0.001") - mask, relative, amount=1.0, cube=33 alpha=0.25
+2026-10-18T17:42:31.2876260Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.031620025634765625") is greater than ("0.001") - mask, relative, amount=1.0, cube=33 alpha=0.75
+2026-10-18T17:42:31.2878590Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=33 alpha=1.0
+2026-10-18T17:42:31.2880840Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:80: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=65 independent matrix
+2026-10-18T17:42:31.2883230Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:81: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=65 direct CPU
+2026-10-18T17:42:31.2885430Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:82: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=65 global matrix
+2026-10-18T17:42:31.2888070Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.010540008544921875") is greater than ("0.001") - mask, relative, amount=1.0, cube=65 alpha=0.25
+2026-10-18T17:42:31.2890300Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.031620025634765625") is greater than ("0.001") - mask, relative, amount=1.0, cube=65 alpha=0.75
+2026-10-18T17:42:31.2892760Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - mask, relative, amount=1.0, cube=65 alpha=1.0
+2026-10-18T17:42:31.2895750Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:80: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=33 independent matrix
+2026-10-18T17:42:31.2898590Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:81: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=33 direct CPU
+2026-10-18T17:42:31.2902490Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:82: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=33 global matrix
+2026-10-18T17:42:31.2905080Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.010540008544921875") is greater than ("0.001") - group, relative, amount=1.0, cube=33 alpha=0.25
+2026-10-18T17:42:31.2908140Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.031620025634765625") is greater than ("0.001") - group, relative, amount=1.0, cube=33 alpha=0.75
+2026-10-18T17:42:31.2910950Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=33 alpha=1.0
+2026-10-18T17:42:31.2913340Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:80: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=65 independent matrix
+2026-10-18T17:42:31.2923890Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:81: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=65 direct CPU
+2026-10-18T17:42:31.2926280Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:82: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=65 global matrix
+2026-10-18T17:42:31.2928700Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.010540008544921875") is greater than ("0.001") - group, relative, amount=1.0, cube=65 alpha=0.25
+2026-10-18T17:42:31.2930940Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.031620025634765625") is greater than ("0.001") - group, relative, amount=1.0, cube=65 alpha=0.75
+2026-10-18T17:42:31.2937030Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:97: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.0421600341796875") is greater than ("0.001") - group, relative, amount=1.0, cube=65 alpha=1.0
+2026-10-18T17:42:31.2940230Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:123: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.010540156950156643") is greater than ("0.001") - premultiplied RGBA alpha=0.25
+2026-10-18T17:42:31.2942540Z /Users/runner/work/lumen/lumen/Tests/LumenPipelineTests/LocalWhiteBalanceExactMatrixTests.swift:123: error: -[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha] : XCTAssertLessThanOrEqual failed: ("0.03162047085048414") is greater than ("0.001") - premultiplied RGBA alpha=0.75
+2026-10-18T17:42:31.2944530Z Test Case '-[LumenPipelineTests.LocalWhiteBalanceExactMatrixTests testWhiteBalanceOnlyMatchesIndependentSignedInteriorHDRMatrixAndAlpha]' failed (1.863 seconds).
+2026-10-18T17:42:31.2945290Z Test Suite 'LocalWhiteBalanceExactMatrixTests' failed at 2026-10-18 17:42:31.069.
+2026-10-18T17:42:31.2945690Z 	 Executed 3 tests, with 26 failures (0 unexpected) in 7.080 (7.080) seconds
+2026-10-18T17:42:31.2946060Z Test Suite 'LumenPackageTests.xctest' failed at 2026-10-18 17:42:31.069.
+2026-10-18T17:42:31.2946430Z 	 Executed 3 tests, with 26 failures (0 unexpected) in 7.080 (7.080) seconds
+2026-10-18T17:42:31.2946770Z Test Suite 'Selected tests' failed at 2026-10-18 17:42:31.069.
+2026-10-18T17:42:31.2947330Z 	 Executed 3 tests, with 26 failures (0 unexpected) in 7.080 (7.083) seconds
+2026-10-18T17:42:31.2947930Z ◇ Test run started.
+2026-10-18T17:42:31.2948120Z ↳ Testing Library Version: 124.4
+2026-10-18T17:42:31.2948350Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-10-18T17:42:31.2948620Z ✔ Test run with 0 tests passed after 0.001 seconds.
+2026-10-18T17:42:31.4066770Z LOCAL-WB-ROWDOT-CAUSAL baseline=GREEN complete-222-CIColorMatrix-rendergraph=RED neutral-zero-and-finite-compatibility=GREEN exact-source-restored=true
+2026-10-18T17:42:31.4419910Z ##[group]Run actions/upload-artifact@v4
+2026-10-18T17:42:31.4420270Z with:
+2026-10-18T17:42:31.4420640Z   name: accuracy-followup-causal-29ad3b029eca4d5e9f26dc487c819aa98c4779d1
+2026-10-18T17:42:31.4421970Z   path: dehaze-sky-baseline.log
+dehaze-sky-positive-mutant.log
+dehaze-sky-negative-mutant.log
+dehaze-sky-mutation-provenance.log
+auto-tone-source-baseline.log
+auto-tone-source-mutant.log
+auto-tone-source-mutation-provenance.log
+local-wb-exact-baseline.log
+local-wb-exact-original-route.log
+local-wb-exact-mutation-provenance.log
+
+2026-10-18T17:42:31.4423260Z   if-no-files-found: error
+2026-10-18T17:42:31.4423470Z   retention-days: 14
+2026-10-18T17:42:31.4423660Z   compression-level: 6
+2026-10-18T17:42:31.4423840Z   overwrite: false
+2026-10-18T17:42:31.4424120Z   include-hidden-files: false
+2026-10-18T17:42:31.4424400Z ##[endgroup]
+2026-10-18T17:42:31.9938010Z (node:7634) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-18T17:42:31.9938730Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-18T17:42:31.9990680Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-10-18T17:42:31.9998550Z The least common ancestor is /Users/runner/work/lumen/lumen. This will be the root directory of the artifact
+2026-10-18T17:42:31.9999100Z With the provided path, there will be 3 files uploaded
+2026-10-18T17:42:32.0003540Z Artifact name is valid!
+2026-10-18T17:42:32.0003870Z Root directory input is valid!
+2026-10-18T17:42:32.3910710Z Beginning upload of artifact content to blob storage
+2026-10-18T17:42:32.4380820Z (node:7634) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-18T17:42:32.6237320Z Uploaded bytes 21814
+2026-10-18T17:42:32.6707280Z Finished uploading artifact content to blob storage!
+2026-10-18T17:42:32.6708070Z SHA256 digest of uploaded artifact zip is 6a86338280c10578bfe5c0a210cd79db898639cf77145640a9294825db704d9d
+2026-10-18T17:42:32.6710520Z Finalizing artifact upload
+2026-10-18T17:42:32.9184860Z Artifact accuracy-followup-causal-29ad3b029eca4d5e9f26dc487c819aa98c4779d1.zip successfully finalized. Artifact ID 12145236850
+2026-10-18T17:42:32.9185870Z Artifact accuracy-followup-causal-29ad3b029eca4d5e9f26dc487c819aa98c4779d1 has been successfully uploaded! Final size is 21814 bytes. Artifact ID is 12145236850
+2026-10-18T17:42:32.9186780Z Artifact download URL: https://github.com/benedek-art/lumen/actions/runs/39150313444/artifacts/12145236850
+2026-10-18T17:42:32.9553950Z Post job cleanup.
+2026-10-18T17:42:33.1251880Z [command]/opt/homebrew/bin/git version
+2026-10-18T17:42:33.1394680Z git version 2.55.0
+2026-10-18T17:42:33.1421820Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/6571f4af-6807-4f13-a1ef-5ea70c3a5f74/.gitconfig'
+2026-10-18T17:42:33.1431620Z Temporarily overriding HOME='/Users/runner/work/_temp/6571f4af-6807-4f13-a1ef-5ea70c3a5f74' before making global git config changes
+2026-10-18T17:42:33.1432500Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T17:42:33.1437250Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/lumen/lumen
+2026-10-18T17:42:33.1522840Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T17:42:33.1599560Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T17:42:33.3030240Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T17:42:33.3116720Z http.https://github.com/.extraheader
+2026-10-18T17:42:33.3130340Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-18T17:42:33.3204000Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T17:42:33.5195900Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T17:42:33.5519440Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T17:42:33.7211080Z Cleaning up orphan processes
+2026-10-18T17:42:36.7088610Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

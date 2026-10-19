@@ -1,0 +1,10 @@
+{
+  "actualNativeGPUExecuted" : false,
+  "extractedLocalPlan" : true,
+  "finiteStagePairs" : 160,
+  "independentNormalAlphaFormula" : true,
+  "lowerDomainEndpoint" : -4.93713745573762e-06,
+  "rows" : 640,
+  "upperDomainEndpoint" : 737.28,
+  "zeroIdentityChecks" : 32
+}

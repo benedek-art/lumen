@@ -1,0 +1,6 @@
+/workspace/scratch/2982a056243e/local-wb-exact-portable/main.swift:2:18: error: module 'LumenCore' was not compiled for testing
+ 1 | import Foundation
+ 2 | @testable import LumenCore
+   |                  `- error: module 'LumenCore' was not compiled for testing
+ 3 | // Explicit trilinear evaluation of ACTUAL LUT3D.data matches the shipping lookup
+ 4 | // interpolant. Core LUT3D.sample uses tetrahedra and is deliberately not used.

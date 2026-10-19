@@ -65,8 +65,29 @@ final class LumenAppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 struct LumenApp: App {
-    @StateObject private var state = AppState()
+    @StateObject private var state: AppState
     @NSApplicationDelegateAdaptor(LumenAppDelegate.self) private var delegate
+    /// Explicit local qualification runs use copies and a separate catalog/cache.
+    /// Ordinary launches retain the production locations and reopen behavior.
+    private let qualificationRoot: URL?
+
+    init() {
+        let path = ProcessInfo.processInfo.environment["LUMEN_QUALIFICATION_ROOT"] ?? ""
+        if path.hasPrefix("/") {
+            let root = URL(fileURLWithPath: path, isDirectory: true)
+            qualificationRoot = root
+            _state = StateObject(wrappedValue: AppState(catalogDirectory: {
+                let directory = root.appendingPathComponent("catalog", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                return directory
+            }, previewDirectory: {
+                root.appendingPathComponent("previews", isDirectory: true)
+            }))
+        } else {
+            qualificationRoot = nil
+            _state = StateObject(wrappedValue: AppState())
+        }
+    }
 
     var body: some Scene {
         WindowGroup("Lumen") {
@@ -105,7 +126,9 @@ struct LumenApp: App {
                     // Files handed over by Finder during launch win over the reopen:
                     // the photographer asked for THOSE, this launch.
                     let launchedWith = delegate.attach(state)
-                    if launchedWith.isEmpty {
+                    if let root = qualificationRoot, launchedWith.isEmpty {
+                        state.openSources([root.appendingPathComponent("photos", isDirectory: true)])
+                    } else if launchedWith.isEmpty {
                         // The owner's first Mac session started at the empty state and
                         // so has every launch since; a daily driver reopens where you
                         // left off. Quiet no-op when the bookmark is gone or revoked.
@@ -117,9 +140,11 @@ struct LumenApp: App {
                     // replaces itself from the rolling dev release. Delayed so the
                     // launch render wins the disk and the network first; silent
                     // unless there is genuinely a newer build.
-                    Task {
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
-                        await AppUpdater.shared.checkQuietly()
+                    if qualificationRoot == nil {
+                        Task {
+                            try? await Task.sleep(nanoseconds: 3_000_000_000)
+                            await AppUpdater.shared.checkQuietly()
+                        }
                     }
                 }
         }

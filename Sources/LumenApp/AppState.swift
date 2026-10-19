@@ -660,7 +660,7 @@ final class AppState: ObservableObject {
     /// nothing else that changes with it is: a pass that cannot run changes neither
     /// the available nor the attempted set, so the panel would never re-body to say so.
     @Published private(set) var unreadableMatteSources: Set<URL> = []
-    private var pendingMattes: Set<URL> = []
+    private(set) var pendingMattes: Set<URL> = []
 
     func maskMatteKinds(for url: URL) -> Set<String> { availableMattes[url] ?? [] }
 
@@ -704,7 +704,7 @@ final class AppState: ObservableObject {
     /// Ask for whatever Vision mattes the current photo's masks need. Cheap and
     /// idempotent: it returns immediately when the recipe has no AI component at all,
     /// which is the overwhelming majority of photographs, and the coordinator's own
-    /// fast path is two dictionary lookups when every kind has already been tried.
+    /// fast path refreshes the source stat when every kind has already been tried.
     ///
     /// There is deliberately NO "this file was already attempted" short circuit here.
     /// The ledger below is a copy of a bounded cache the renderer owns, so a guard
@@ -715,8 +715,10 @@ final class AppState: ObservableObject {
     /// `attemptedSoFar` is the union of every kind previous re-entries already tried for
     /// this photograph. Empty from the outside; carried forward by the one recursive
     /// call, which is what turns "try again" into "try again only if the last try got
-    /// somewhere". See the note at the re-entry below for what it costs when it does not.
-    func ensureMaskMattes(attemptedSoFar: Set<String> = []) {
+    /// somewhere". A discarded source generation gets one additional bounded retry.
+    /// See the note at the re-entry below for what it costs when it does not.
+    func ensureMaskMattes(attemptedSoFar: Set<String> = [],
+                          sourceChangeRetriesRemaining: Int = 1) {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
@@ -736,8 +738,8 @@ final class AppState: ObservableObject {
             // to call back in. One re-entry closes the gap: it no-ops unless the
             // recipe wants a kind the pass did not attempt.
             //
-            // AND IT ONLY RE-ENTERS ON PROGRESS, which is what stops it being an
-            // unbounded loop. `RenderCoordinator.ensureMattes` records `attempted` only
+            // Normally it only re-enters on progress, which stops an unreadable
+            // original from creating an unbounded loop. `RenderCoordinator.ensureMattes` records `attempted` only
             // INSIDE its optional-binding chain, so when the source cannot be built —
             // the original is missing, the volume is ejected, Apple RAW refuses the file
             // — nothing is attempted, the `allSatisfy` is false forever, and the
@@ -748,12 +750,19 @@ final class AppState: ObservableObject {
             // fine. Requiring the attempted set to have GROWN makes a pass that could
             // not run a pass that will not run again.
             let progressed = !pass.attempted.isSubset(of: attemptedSoFar)
-            if progressed,
+            // A discarded source generation made no attempt, but deserves one fresh
+            // request. Carry the budget through progress retries too, so a file that
+            // keeps changing cannot create an automatic segmentation loop.
+            let retryChangedSource = pass.sourceChanged && sourceChangeRetriesRemaining > 0
+            if progressed || retryChangedSource,
                self.primarySelection?.id == url,
                let current = self.primarySelection.map(self.recipe(for:)),
                !VisionMattes.kinds(in: current)
                    .allSatisfy({ pass.attempted.contains($0.rawValue) }) {
-                self.ensureMaskMattes(attemptedSoFar: attemptedSoFar.union(pass.attempted))
+                self.ensureMaskMattes(
+                    attemptedSoFar: attemptedSoFar.union(pass.attempted),
+                    sourceChangeRetriesRemaining: sourceChangeRetriesRemaining
+                        - (retryChangedSource ? 1 : 0))
             }
         }
     }
@@ -1502,6 +1511,12 @@ final class AppState: ObservableObject {
     /// the same click and the same coordinate inverse, and four booleans would be four
     /// chances for two of them to be true at once.
     @Published var pickTarget: PickTarget?
+    private var pickRequestGeneration: UInt64 = 0
+    /// A small deterministic async seam after sampling, before context validation.
+    /// Production leaves the barrier nil; the retained task also permits awaiting
+    /// exact completion in regressions without replacing the rendering math.
+    var pickResolutionBarrier: (() async -> Void)?
+    private(set) var pickResolutionTask: Task<Void, Never>?
 
     /// Which mixer band the Colour panel is editing, and whether it is editing all
     /// eight at once.
@@ -1624,7 +1639,7 @@ final class AppState: ObservableObject {
     /// catalog could not be opened — a session without one browses out of memory, which
     /// is what every session did before this was wired.
     private(set) var previews: PreviewStore?
-    let renderCoordinator = RenderCoordinator()
+    let renderCoordinator: RenderCoordinator
 
     /// The export recipes, as edited. Persisted on every change.
     ///
@@ -1757,6 +1772,8 @@ final class AppState: ObservableObject {
     /// past, so a test that redirected only the catalog would still leave a directory
     /// behind in the owner's Library and would still not be an isolated test.
     private let previewDirectory: () -> URL?
+    /// Read on the main actor: a stationary physical press is not a lost release.
+    private let primaryButtonPressed: @MainActor () -> Bool
 
     /// Production's catalog location: `~/Library/Application Support/Lumen`, created if
     /// it is not there. Lifted verbatim out of `openCatalog` — same lookup, same
@@ -1778,9 +1795,15 @@ final class AppState: ObservableObject {
     /// outside them.
     init(catalogDirectory: @escaping () throws -> URL
             = AppState.applicationSupportCatalogDirectory,
-         previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory) {
+         previewDirectory: @escaping () -> URL? = PreviewStore.defaultDirectory,
+         renderCoordinator: RenderCoordinator = RenderCoordinator(),
+         primaryButtonPressed: @escaping @MainActor () -> Bool = {
+             NSEvent.pressedMouseButtons & 1 != 0
+         }) {
+        self.renderCoordinator = renderCoordinator
         self.catalogDirectory = catalogDirectory
         self.previewDirectory = previewDirectory
+        self.primaryButtonPressed = primaryButtonPressed
         openCatalog()
         // Every history mutation, and nothing else. `refresh` is equality-guarded, so
         // a drag — one coalesced step, label "Edit" from first event to last — reaches
@@ -1966,24 +1989,30 @@ final class AppState: ObservableObject {
     /// the catalog is gone.
     private func memoryOrdered() -> [PhotoItem] {
         let filtered = filter.isActive ? allPhotos.filter { filter.matches($0) } : allPhotos
-        let ascending = sortAscending
-        func by(_ ordered: Bool) -> Bool { ascending ? ordered : !ordered }
-        switch sortOrder {
+        return filtered.sorted {
+            Self.memoryOrderPrecedes($0, $1, order: sortOrder, ascending: sortAscending)
+        }
+    }
+
+    /// Strict ordering for the catalog-free preview roll. Reversing `<` with `!`
+    /// makes ties precede themselves and each other, reversing equal-key runs.
+    /// Keep ties equivalent so the stable sort retains the incoming source order.
+    static func memoryOrderPrecedes(_ lhs: PhotoItem, _ rhs: PhotoItem,
+                                    order: SortOrder, ascending: Bool) -> Bool {
+        func by<T: Comparable>(_ first: T, _ second: T) -> Bool {
+            ascending ? first < second : first > second
+        }
+        switch order {
         case .rating:
-            return filtered.sorted { by($0.rating < $1.rating) }
+            return by(lhs.rating, rhs.rating)
         case .flag:
-            return filtered.sorted { by($0.flag.rawValue < $1.flag.rawValue) }
+            return by(lhs.flag.rawValue, rhs.flag.rawValue)
         case .label:
-            // Unlabelled first, then key order — the order the old Int-raw app enum
-            // sorted in (`.none = 0, red, …, purple`). Not `rawValue`, which is the
-            // String name now and would sort alphabetically.
-            return filtered.sorted {
-                by(($0.label?.metaSlot ?? 0) < ($1.label?.metaSlot ?? 0))
-            }
+            // Unlabelled first, then keyboard slot order, never alphabetical names.
+            return by(lhs.label?.metaSlot ?? 0, rhs.label?.metaSlot ?? 0)
         default:
-            return filtered.sorted {
-                by($0.filename.localizedStandardCompare($1.filename) == .orderedAscending)
-            }
+            let comparison = lhs.filename.localizedStandardCompare(rhs.filename)
+            return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
         }
     }
 
@@ -2055,6 +2084,8 @@ final class AppState: ObservableObject {
         libraryQueryGeneration &+= 1
         let generation = scanGeneration
         let mutation = sourceMutationRevision
+        let openingPhotos = allPhotos
+        let openingRecipes = recipes
         let mappingRevision = sourceRevision
         let folder = folderURL
         let loader = querySourceLoader
@@ -2070,25 +2101,41 @@ final class AppState: ObservableObject {
                 // Reload catalog truth after any mapping change; simply rebasing old
                 // URLs would retain wrong subtree membership after an actual move.
                 var observedMapping = mappingRevision
+                var baselinePhotos = openingPhotos
+                var baselineRecipes = openingRecipes
+                var baselineMutation = mutation
                 while self.sourceRevision != observedMapping {
+                    // A relink starts a fresh read of the new mapping. Commit the
+                    // current draft before that read without ending an active pointer
+                    // gesture or changing its undo epoch or later-sample deferral.
+                    self.persistGestureSnapshot()
                     observedMapping = self.sourceRevision
+                    baselinePhotos = self.allPhotos
+                    baselineRecipes = self.recipes
+                    baselineMutation = self.sourceMutationRevision
                     entries = try await catalog.querySource(scope: scope, folderPath: folder?.path)
                     guard self.scanGeneration == generation, self.folderURL == folder else { return }
                 }
                 // Edits made while reading belong to the old visible roll. Flush them
                 // and retain its latest values for overlapping catalog identities.
                 self.sliderGesture(active: false)
-                let changed = self.sourceMutationRevision != mutation
-                var oldByID: [Int64: PhotoItem] = [:]
-                if changed { for item in self.allPhotos { if let id = item.catalogID { oldByID[id] = item } } }
+                let changed = self.sourceMutationRevision != baselineMutation
+                var beforeByURL: [URL: PhotoItem] = [:]
+                var currentByURL: [URL: PhotoItem] = [:]
+                if changed {
+                    beforeByURL = Dictionary(baselinePhotos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    currentByURL = Dictionary(self.allPhotos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                }
                 var states: [URL: CatalogService.StoredState] = [:]
                 for entry in entries {
-                    var state = entry.state
-                    if let old = oldByID[state.catalogID] {
-                        state.flag = old.flag; state.rating = old.rating; state.label = old.label
-                        state.recipe = self.recipes[old.id]
+                    var loaded = entry.state
+                    if let before = beforeByURL[entry.url],
+                       let reconciled = FolderScanReconciliation.merge(row: loaded, before: before,
+                            current: currentByURL[entry.url], openingRecipe: baselineRecipes[entry.url],
+                            currentRecipe: self.recipes[entry.url]) {
+                        loaded = reconciled
                     }
-                    states[entry.url] = state
+                    states[entry.url] = loaded
                 }
                 self.isApplyingQuerySource = true
                 self.activeSmartCollection = album
@@ -2861,6 +2908,10 @@ final class AppState: ObservableObject {
         return []
     }
 
+    /// Gesture identity projects only the edit selection, without an intermediate
+    /// URL array or a walk of the visible roll on each pointer event.
+    var editTargetIDs: Set<URL> { Set(editTargets.lazy.map(\.id)) }
+
     // MARK: Catalog
 
     private func openCatalog() {
@@ -2900,7 +2951,8 @@ final class AppState: ObservableObject {
             }
         } catch {
             catalog = nil
-            catalogStatus = "Catalog unavailable — edits live in memory this session "
+            catalogStatus = "Catalog unavailable. Saved edits and masks were not loaded. "
+                + "Preview edits remain in memory this session; export is unavailable. "
                 + "(\(error.localizedDescription))"
         }
     }
@@ -3151,6 +3203,11 @@ final class AppState: ObservableObject {
         scanGeneration &+= 1
         let generation = scanGeneration
         let catalog = self.catalog
+        // The old roll remains editable while registration reads its catalog snapshot.
+        // Keep a baseline so only edits made during this scan supersede that snapshot.
+        let openingPhotos = allPhotos
+        let openingRecipes = recipes
+        let openingMutation = sourceMutationRevision
         // The previous folder's culling pass is measuring photographs that are leaving
         // the screen; it stops after the one it is on.
         catalog?.cancelCullingAnalysis()
@@ -3180,7 +3237,17 @@ final class AppState: ObservableObject {
                 // Open folder A, then B before A finishes, and A's scan can land
                 // second. The newest folder the user asked for is the one on screen.
                 guard let self, self.scanGeneration == generation else { return false }
-                self.applyScan(found, stored: stored)
+                var reconciled = stored
+                if self.sourceMutationRevision != openingMutation {
+                    let currentPhotos = Dictionary(self.allPhotos.map { ($0.id, $0) },
+                                                   uniquingKeysWith: { first, _ in first })
+                    for before in openingPhotos {
+                        reconciled[before.id] = FolderScanReconciliation.merge(
+                            row: reconciled[before.id], before: before, current: currentPhotos[before.id],
+                            openingRecipe: openingRecipes[before.id], currentRecipe: self.recipes[before.id])
+                    }
+                }
+                self.applyScan(found, stored: reconciled)
                 return true
             }
             guard stillCurrent else { return }
@@ -3285,7 +3352,12 @@ final class AppState: ObservableObject {
         // open; wiping early opened the scan-window loss above. Both ends of the
         // history live here now.)
         history.clear()
-        var items = urls.map { PhotoItem(id: $0) }
+        // An initialized catalog must positively supply each editable photo's state.
+        // A missing row after a storage failure must never become an editable default.
+        var items = urls.filter { url in
+            guard let row = stored[url] else { return catalog == nil }
+            return !row.recipeUnavailable
+        }.map { PhotoItem(id: $0) }
         // Built locally and assigned once. `recipes` signals every write, and a folder
         // of five thousand photographs would otherwise signal five thousand times
         // before the first frame is drawn.
@@ -3753,12 +3825,14 @@ final class AppState: ObservableObject {
 
     /// Arm the next click on the image, and say what it is for.
     func beginPick(_ target: PickTarget) {
+        pickRequestGeneration &+= 1
         pickTarget = target
         statusMessage = target.prompt
         showLoupe()          // the catcher lives on the loupe
     }
 
     func cancelPick() {
+        pickRequestGeneration &+= 1
         pickTarget = nil
         statusMessage = nil
     }
@@ -3782,30 +3856,80 @@ final class AppState: ObservableObject {
     func resolvePick(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
         guard let target = pickTarget else { return }
         let current = recipe(for: photo)
+        // The pick must see the same loaded painted retouch as the displayed graph.
+        let strokes = strokeSets(for: current)
         let url = photo.id                      // PhotoItem.id IS the URL
         // Disarmed BEFORE the hop, not after: cleared on the far side of the await, a
         // second click while the first solve was in flight spawned a second task and a
         // colour mask collected its sample twice.
         pickTarget = nil
-        Task {
-            // Every branch below awaits an actor whose queue can hold a cold decode,
-            // then writes through `updateRecipe` — which reads the CURRENT selection.
-            // Without this re-check, arrowing to the next photo mid-solve landed
-            // DSC_1's neutral in DSC_2's recipe, persisted, with a status line saying
-            // it worked. The sibling refreshes all carry this guard; the one path
-            // that WRITES was the one that lacked it.
-            // (@MainActor because a local func does NOT inherit the Task closure's
-            // actor isolation the way its surrounding statements do.)
-            @MainActor func selectionStillOnPickedPhoto() -> Bool {
-                if primarySelection?.id == url { return true }
-                statusMessage = "Pick discarded — the selection moved before it resolved."
-                return false
+        pickRequestGeneration &+= 1
+        let requestGeneration = pickRequestGeneration
+        let requestSourceRevision = sourceRevision
+        let requestTargets = editTargets
+        let requestRecipes = requestTargets.map { recipe(for: $0) }
+        // Preserve the first snapshot even when its identity is nil. Repeated linear
+        // searches here made a large batch pick quadratic before sampling could start.
+        var firstTargetByURL: [URL: PhotoItem] = [:]
+        for target in requestTargets where firstTargetByURL[target.id] == nil {
+            firstTargetByURL[target.id] = target
+        }
+        // One stat per distinct source: batch writes must not land on a replacement
+        // secondary photo either. The app revision alone cannot observe external writes.
+        let requestSourceIdentities = Set(requestTargets.map(\.id)).union([url]).map { sourceURL in
+            (url: sourceURL, actual: SourceFileIdentity.read(sourceURL),
+             expected: sourceURL == url ? photo.sourceIdentity
+                : firstTargetByURL[sourceURL]?.sourceIdentity)
+        }
+        // Catalog-backed snapshots already name a generation. Do not sample B using
+        // the displayed A snapshot's recipe even if B changed before this click.
+        guard requestSourceIdentities.allSatisfy({ source in
+            guard let expected = source.expected else { return true }
+            guard let actual = source.actual else { return false }
+            return SourceFileIdentity.sameGeneration(stored: expected.token, current: actual.token)
+        }) else {
+            statusMessage = "Pick discarded: an original changed or became unavailable before it resolved."
+            return
+        }
+        let requestMaskID = activeMaskID
+        let requestComponent = activeComponentIndex
+        let resolutionBarrier = pickResolutionBarrier
+        pickResolutionTask = Task {
+            // The sample was computed from a snapshot. A live batch, swatch index or
+            // mask component can change while the renderer actor is busy, even when
+            // the primary URL stays the same. Exact recipes conservatively invalidate
+            // cosmetic changes too; this cost is paid once per click, not per frame.
+            @MainActor func requestContextStillCurrent() -> Bool {
+                // An older request must not clear a newly armed pick or its prompt.
+                guard requestGeneration == pickRequestGeneration else { return false }
+                let currentTargets = editTargets
+                let sameTargets = currentTargets.map(\.id) == requestTargets.map(\.id)
+                let sameRecipes = sameTargets && zip(currentTargets, requestRecipes).allSatisfy {
+                    recipe(for: $0.0) == $0.1
+                }
+                let sameMaskSelection = !target.samplesTheMaskStage
+                    || (activeMaskID == requestMaskID && activeComponentIndex == requestComponent)
+                guard primarySelection?.id == url,
+                      sourceRevision == requestSourceRevision,
+                      recipe(for: photo) == current,
+                      sameRecipes, sameMaskSelection else {
+                    statusMessage = "Pick discarded: the photo, edit targets or recipe changed before it resolved."
+                    return false
+                }
+                guard requestSourceIdentities.allSatisfy({
+                    SourceFileIdentity.read($0.url) == $0.actual
+                }) else {
+                    statusMessage = "Pick discarded: an original changed or became unavailable before it resolved."
+                    return false
+                }
+                return true
             }
             switch target {
             case .neutral:
                 let solved = await renderCoordinator.solveNeutral(
                     url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                guard selectionStillOnPickedPhoto() else { return }
+                if let resolutionBarrier { await resolutionBarrier() }
+                guard requestContextStillCurrent() else { return }
                 guard let solved else {
                     statusMessage = "Too dark there to read a neutral — try a lit grey."
                     return
@@ -3840,18 +3964,19 @@ final class AppState: ObservableObject {
                     }
                     sample = await renderCoordinator.sampleMaskReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
-                        pointColorSwatch: swatch)
+                        pointColorSwatch: swatch, strokeSets: strokes)
                 } else if let tap = target.colorSelectionTap(
                     existingPointColors: current.develop.pointColors.count) {
                     // Through the colour stage as far as the selection reads (AI-02):
                     // the stage input alone sits before the primaries and the Mixer.
                     sample = await renderCoordinator.samplePointColorReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
-                        tap: tap)
+                        tap: tap, strokeSets: strokes)
                 } else {
                     sample = nil
                 }
-                guard selectionStillOnPickedPhoto() else { return }
+                if let resolutionBarrier { await resolutionBarrier() }
+                guard requestContextStillCurrent() else { return }
                 guard let sample else {
                     statusMessage = "Could not read a colour there."
                     return
@@ -4065,10 +4190,12 @@ final class AppState: ObservableObject {
     /// rebuild never delivers it, and the latch used to stay shut — every LATER edit,
     /// gesture or not, deferred its catalog write until the next completed gesture,
     /// a folder switch, or quit. A real drag's events are milliseconds apart, so
-    /// silence this long means the release is not coming; the watchdog closes the
-    /// gesture and lands the deferred writes. The photo switch in
+    /// silence alone cannot distinguish a stationary held press from a lost release.
+    /// Once silent, the watchdog waits for the primary button to be up before it
+    /// closes the gesture and lands the deferred writes. The photo switch in
     /// `primarySelection.didSet` is the second unlatch: a gesture cannot span photos.
     static let gestureSilenceTimeout: TimeInterval = 8
+    private static let gestureHeldPollNanoseconds: UInt64 = 100_000_000
     private var lastGestureEventAt = Date.distantPast
     private var gestureWatchdog: Task<Void, Never>?
 
@@ -4178,6 +4305,13 @@ final class AppState: ObservableObject {
                 let silence = Date().timeIntervalSince(self.lastGestureEventAt)
                 let remaining = Self.gestureSilenceTimeout - silence
                 if remaining <= 0 {
+                    if self.primaryButtonPressed() {
+                        // Do not rewrite the actual-event clock: after button-up a
+                        // lost release needs one short poll, not another eight seconds.
+                        try? await Task.sleep(nanoseconds: Self.gestureHeldPollNanoseconds)
+                        if Task.isCancelled { return }
+                        continue
+                    }
                     self.sliderGestureActive = false
                     self.gestureWatchdog = nil
                     self.flushSliderGesture()
@@ -4187,6 +4321,13 @@ final class AppState: ObservableObject {
                 if Task.isCancelled { return }
             }
         }
+    }
+
+    /// Publish a draft before a source-mapping read without ending its pointer
+    /// gesture. Retain pending values so release still publishes the latest sample.
+    func persistGestureSnapshot() {
+        guard sliderGestureActive, !pendingGesturePersist.isEmpty else { return }
+        persist(pendingGesturePersist)
     }
 
     /// Also called from `prepareToQuit`: a gesture whose release the app never saw
@@ -4214,12 +4355,18 @@ final class AppState: ObservableObject {
     /// "Edited: no" filter honest.
     func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
+        var registered: [CatalogService.RecipeSave] = []
         for (url, recipe) in changes {
-            // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
-            // of the whole source, per changed photo, per mouse event, on the main
-            // actor, in front of the render. See `catalogIDCache`.
-            catalog.saveRecipe(recipe, url: url, catalogID: catalogID(for: url))
+            // Keep the cached identity lookup on the main actor; sorting and recipe
+            // work happen on the catalog queue once for the released edit batch.
+            if let id = catalogID(for: url) {
+                registered.append(CatalogService.RecipeSave(recipe: recipe, url: url, catalogID: id))
+            } else {
+                // Preserve the existing source-only compatibility path.
+                catalog.saveRecipe(recipe, url: url, catalogID: nil)
+            }
         }
+        catalog.saveRecipes(registered)
         refreshLibraryQueryIfEditStateShows()
     }
 

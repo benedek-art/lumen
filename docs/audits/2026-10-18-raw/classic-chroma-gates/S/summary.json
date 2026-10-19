@@ -1,0 +1,50 @@
+{
+  "aboveOneInputRGBChannels" : 0,
+  "basisQualification" : "Rec2020 constant linear Y is not constant arithmetic-mean orthonormal Y0; production applies per-RGB VST before Y0U0V0 rotation, so linearY0 coefficient is not claimed to be actual VST Y0 amplitude",
+  "calls" : 7,
+  "cameraAcceptance" : false,
+  "detailComparisons" : [
+    {
+      "exactEqualToDetail0" : true,
+      "maxFloatDifferenceToDetail0" : 0,
+      "setting" : "iso-default-chroma-only-detail-0"
+    },
+    {
+      "exactEqualToDetail0" : true,
+      "maxFloatDifferenceToDetail0" : 0,
+      "setting" : "iso-default-chroma-only-detail-50"
+    },
+    {
+      "exactEqualToDetail0" : true,
+      "maxFloatDifferenceToDetail0" : 0,
+      "setting" : "iso-default-chroma-only-detail-100"
+    },
+    {
+      "exactEqualToDetail0" : true,
+      "maxFloatDifferenceToDetail0" : 0,
+      "setting" : "maximum-chroma-only-detail-0"
+    },
+    {
+      "exactEqualToDetail0" : true,
+      "maxFloatDifferenceToDetail0" : 0,
+      "setting" : "maximum-chroma-only-detail-50"
+    },
+    {
+      "exactEqualToDetail0" : true,
+      "maxFloatDifferenceToDetail0" : 0,
+      "setting" : "maximum-chroma-only-detail-100"
+    }
+  ],
+  "finiteOutputs" : 7,
+  "inputClipping" : false,
+  "inputXXH64" : "4177df68f4a227fc",
+  "linearOrthonormalY0DirectionCoefficient" : 0.35364832860538586,
+  "mode" : "S",
+  "negativeInputRGBChannels" : 0,
+  "noiseA" : 0.0006399999999999997,
+  "noiseB" : 3.000000000000004e-06,
+  "qualityAcceptance" : false,
+  "rec2020YDirectionCoefficient" : 0,
+  "sourceExperiment" : "original vs separate E computed-edge->1 and S late-mix->0 mutants; raw f32 outputs saved for independent full-array comparisons",
+  "zeroExactIdentities" : 1
+}

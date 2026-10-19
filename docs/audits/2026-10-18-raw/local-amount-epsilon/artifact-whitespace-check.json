@@ -1,0 +1,22 @@
+{
+  "whole_command": "git diff --cached --check",
+  "whole_exit": 2,
+  "whole_output": "docs/audits/2026-10-18-raw/local-amount-epsilon/LocalPlan-verbatim.swift:121: new blank line at EOF.\ndocs/audits/2026-10-18-raw/local-amount-epsilon/LocalPlan-zero-bypass-disabled.swift:121: new blank line at EOF.\n",
+  "scoped_command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check",
+    "--",
+    ".",
+    ":(exclude)docs/audits/2026-10-18-raw/local-amount-epsilon/LocalPlan-verbatim.swift",
+    ":(exclude)docs/audits/2026-10-18-raw/local-amount-epsilon/LocalPlan-zero-bypass-disabled.swift"
+  ],
+  "scoped_exit": 0,
+  "scoped_output": "",
+  "preserved_verbatim_artifact_sha256": {
+    "docs/audits/2026-10-18-raw/local-amount-epsilon/LocalPlan-verbatim.swift": "9edcf05758b20057b701c0ed95f84c1134245c290250eef4b3c278641b361cf7",
+    "docs/audits/2026-10-18-raw/local-amount-epsilon/LocalPlan-zero-bypass-disabled.swift": "b5485094738d6605380ba82713613a725141ee9a77b211148bcc764d854278ca"
+  },
+  "reason": "Exact executed extracted-source bytes retain terminal blank line; no production/test/workflow whitespace exemption or policy change."
+}

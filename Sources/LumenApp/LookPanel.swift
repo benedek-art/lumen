@@ -990,10 +990,20 @@ struct LookPanel: View {
         // names the zone — but the COALESCING KEYS still carry the title, because they
         // are what makes one drag one undo step and they must not collide between
         // zones. That is why `title` is passed even when nothing draws it.
-        LumenColorWheel(title: "",
+        let state = self.state
+        // Capture the State-backed binding, not the selected zone's current value.
+        let selectedZone = $gradeZone
+        return LumenColorWheel(title: "",
                         hue: bindWheel(path, \Wheel.hue, key: "wheel.\(title).hue"),
                         sat: bindWheel(path, \Wheel.sat, key: "wheel.\(title).sat"),
                         lum: bindWheel(path, \Wheel.lum, key: "wheel.\(title).lum"),
+                        dragContext: {
+                            ColorWheelTargetContext(primary: state.primarySelection?.id,
+                                                    selection: state.selection,
+                                                    activeMaskID: state.activeMaskID,
+                                                    wheelRole: title,
+                                                    selectedRole: selectedZone.wrappedValue.rawValue)
+                        },
                         diameter: diameter,
                         // The owner could not tell what the bar under the wheel was:
                         // centre it on the wheel and caption it (docs/32 Stream D

@@ -1,0 +1,30 @@
+{
+  "command": [
+    "xcrun",
+    "xctest",
+    "-XCTest",
+    "LumenPipelineTests.SyntheticMaterializationLoadTests/testSameSizeConstantGraphSharedMaterializerUnderLoad",
+    "/Users/runner/work/lumen/lumen/.build/arm64-apple-macosx/release/LumenPackageTests.xctest"
+  ],
+  "processes": {
+    "serial": {
+      "pid": 6652,
+      "startNanoseconds": 460238818208,
+      "exitStatus": 0,
+      "endNanoseconds": 467661099916
+    },
+    "loaded-primary": {
+      "pid": 6663,
+      "startNanoseconds": 467664233875,
+      "exitStatus": 0,
+      "endNanoseconds": 477155989791
+    },
+    "loaded-peer": {
+      "pid": 6664,
+      "startNanoseconds": 467668433708,
+      "exitStatus": 0,
+      "endNanoseconds": 477170712666
+    }
+  },
+  "rawGraphMemoryEquivalent": false
+}

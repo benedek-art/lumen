@@ -1,0 +1,240 @@
+name: Decode reconstruction
+on:
+  push:
+    paths:
+      - '.github/workflows/decode-reconstruction.yml'
+      - 'Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift'
+      - 'Tests/LumenPipelineTests/SyntheticMaterializationLoadTests.swift'
+      - 'Sources/LumenPipeline/AppleRawSource.swift'
+      - 'Sources/LumenPipeline/DecodeMaterializer.swift'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: decode-reconstruction-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ordered-serial-and-loaded:
+    if: github.ref == 'refs/heads/codex/raw-accuracy-qualification' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[decode-reconstruction]'))
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      LUMEN_DECODE_RECONSTRUCTION: '1'
+      LUMEN_DECODE_RECONSTRUCTION_IDS: '1346,5812,2349,2607,4671'
+      LUMEN_DECODE_RECONSTRUCTION_LIMIT: '5'
+      # Descriptions are enabled only in this verified public-fixture job. Local
+      # diagnostic runs retain domain/code but withhold potentially private paths.
+      LUMEN_DECODE_RECONSTRUCTION_PUBLIC_ERRORS: '1'
+      LUMEN_AUDIT_RAW_DIR: ${{ github.workspace }}/.decode-reconstruction-corpus
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exactly five existing SHA-pinned CC0 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re, urllib.request
+          root = pathlib.Path(os.environ['LUMEN_AUDIT_RAW_DIR'])
+          root.mkdir(exist_ok=True)
+          expected = set(os.environ['LUMEN_DECODE_RECONSTRUCTION_IDS'].split(','))
+          assert len(expected) == 5
+          rows = {}
+          for line in pathlib.Path('.github/workflows/raw-corpus.yml').read_text().splitlines():
+              fields = line.strip().split(';')
+              if fields[0] not in expected: continue
+              key = fields[0]
+              assert len(fields) == 10 and key not in rows
+              assert re.fullmatch(key + r'\.[A-Za-z0-9]+', fields[1])
+              assert re.fullmatch(r'[0-9a-f]{64}', fields[2]) and int(fields[3]) > 0
+              assert fields[7] == 'CC0' and 'negative' not in fields[6]
+              assert fields[9].startswith('https://raw.pixls.us/getfile.php/' + key + '/')
+              rows[key] = fields
+          assert rows.keys() == expected
+          for key in sorted(rows):
+              fields = rows[key]
+              request = urllib.request.Request(fields[9], headers={'User-Agent': 'lumen-decode-reconstruction/1 (+https://github.com/benedek-art/lumen)'})
+              with urllib.request.urlopen(request, timeout=300) as response:
+                  data = response.read()
+              assert len(data) == int(fields[3]), (key, 'byte count')
+              assert hashlib.sha256(data).hexdigest() == fields[2], (key, 'digest')
+              (root / fields[1]).write_bytes(data)
+              print(f'verified CC0 fixture {key} sha256={fields[2]} bytes={len(data)}')
+          (root / 'corpus.tsv').write_text('\n'.join(';'.join(rows[k]) for k in sorted(rows)) + '\n')
+          PY
+      - name: Record source and runtime and build the optimized test executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            git rev-parse HEAD
+            sw_vers
+            uname -m
+            xcodebuild -version
+            swift --version
+            shasum -a 256 Sources/LumenPipeline/AppleRawSource.swift Sources/LumenPipeline/DecodeMaterializer.swift Tests/LumenPipelineTests/DecodeReconstructionContinuityTests.swift
+          } 2>&1 | tee decode-reconstruction-provenance.log
+          # `swift build --build-tests -c release` does not enable @testable imports
+          # on this toolchain. Test discovery builds the same optimized test bundle
+          # with its required testing flags, without executing any RAW checks.
+          swift test -c release --list-tests > decode-reconstruction-test-roster.log 2>&1
+          grep -Fq 'DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical' decode-reconstruction-test-roster.log
+      - name: Contrast baseline, released planes and first-Off-only under serial and peer load
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DECODE_TEST_BIN_DIR
+          DECODE_TEST_BIN_DIR=$(swift build -c release --show-bin-path)
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          from pathlib import Path
+          bundle = Path(os.environ['DECODE_TEST_BIN_DIR']) / 'LumenPackageTests.xctest'
+          assert bundle.is_dir(), str(bundle)
+          selector = 'LumenPipelineTests.DecodeReconstructionContinuityTests/testOrderedNativeOffReturnAndExplicitReconstructionRemainIdentical'
+          command = ['xcrun', 'xctest', '-XCTest', selector, str(bundle)]
+          all_coverage = {}
+          for arm in ('baseline', 'release-before-request', 'first-off-only'):
+              status = {'command': command, 'arm': arm, 'processes': {}}
+              def launch(label):
+                  stream = open(f'decode-reconstruction-{arm}-{label}.log', 'w')
+                  env = dict(os.environ, LUMEN_DECODE_RECONSTRUCTION_ARM=arm)
+                  start = time.monotonic_ns()
+                  process = subprocess.Popen(command, env=env, stdout=stream, stderr=subprocess.STDOUT)
+                  status['processes'][label] = {'pid': process.pid, 'startNanoseconds': start}
+                  return process, stream
+              def finish(label, launched):
+                  process, stream = launched
+                  code = process.wait()
+                  stream.close()
+                  status['processes'][label].update(exitStatus=code, endNanoseconds=time.monotonic_ns())
+              finish('serial', launch('serial'))
+              primary = launch('loaded-primary')
+              peer = launch('loaded-peer')
+              finish('loaded-primary', primary)
+              finish('loaded-peer', peer)
+              Path(f'decode-reconstruction-{arm}-status.json').write_text(json.dumps(status, indent=2) + '\n')
+              prefix = 'DECODE-RECONSTRUCTION '
+              diagnostic_prefix = 'DECODE-RECONSTRUCTION-DIAGNOSTIC '
+              summaries, coverage = {}, {}
+              expected = {'render': 30, 'pair': 15, 'file-summary': 10, 'summary': 1} if arm == 'first-off-only' else {'render': 190, 'pair': 105, 'file-summary': 10, 'summary': 1}
+              for label in ('serial', 'loaded-primary', 'loaded-peer'):
+                  lines = Path(f'decode-reconstruction-{arm}-{label}.log').read_text().splitlines()
+                  records = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+                  diagnostics = [json.loads(line[len(diagnostic_prefix):]) for line in lines if line.startswith(diagnostic_prefix)]
+                  counts = {tap: sum(r['tap'] == tap for r in records) for tap in expected}
+                  summary = [r for r in records if r['tap'] == 'summary']
+                  complete = len(records) == sum(expected.values()) and counts == expected and len(summary) == 1
+                  if len(summary) == 1:
+                      summaries[label] = summary[0]
+                      complete = complete and summary[0]['files'] == 5 and summary[0]['arm'] == arm
+                  changed = [r for r in records if r['tap'] == 'pair' and (r['changedDisplayBytes'] or r['sceneChangedSamples'])]
+                  ai_zero = [r for r in diagnostics if r['event'] == 'ai-zero-first-region-identity']
+                  releases = [r for r in diagnostics if r['event'] == 'release-before-request']
+                  expected_ai = 0 if arm == 'first-off-only' else 10
+                  expected_releases = 110 if arm == 'release-before-request' else 0
+                  # Eleven request calls per file-pass in the full arm, with ROI/scene hits unchanged.
+                  gates = len(ai_zero) == expected_ai and all(r['exactDisplay'] for r in ai_zero)
+                  gates = gates and len(releases) == expected_releases and all(r['heldAfter'] == 0 and r['heldBefore'] == r['releasedNominalBytes'] for r in releases)
+                  errors = [line for line in lines if 'error:' in line]
+                  coverage[label] = {'counts': counts, 'complete': complete, 'executedOneTest': any('Executed 1 test,' in line for line in lines),
+                                     'strictArmGates': gates, 'changedPairs': changed, 'errors': errors,
+                                     'aiZeroFirstRegionChecks': len(ai_zero), 'releaseRequests': len(releases),
+                                     'exitStatus': status['processes'][label]['exitStatus']}
+                  Path(f'decode-reconstruction-{arm}-{label}.json').write_text(json.dumps(records, indent=2) + '\n')
+                  Path(f'decode-reconstruction-{arm}-{label}-diagnostic.json').write_text(json.dumps(diagnostics, indent=2) + '\n')
+                  print('DECODE-RECONSTRUCTION-COVERAGE ' + arm + '/' + label + ': ' + json.dumps(coverage[label], sort_keys=True))
+                  failures = [r for r in diagnostics if r['event'].endswith('-threw') or r['event'] in ('materializer-nil', 'materializer-failure-reason')]
+                  for row in failures:
+                      print('DECODE-RECONSTRUCTION-TASK-FAILURE ' + arm + '/' + label + ': ' + json.dumps(row, sort_keys=True))
+                  if not complete and diagnostics:
+                      print('DECODE-RECONSTRUCTION-LAST-DIAGNOSTIC ' + arm + '/' + label + ': ' + json.dumps(diagnostics[-1], sort_keys=True))
+              overlap = None
+              if all(label in summaries for label in ('loaded-primary', 'loaded-peer')):
+                  a, b = summaries['loaded-primary'], summaries['loaded-peer']
+                  overlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])
+                  independent = a['processID'] != b['processID']
+              else:
+                  independent = status['processes']['loaded-primary']['pid'] != status['processes']['loaded-peer']['pid']
+              result = {'arm': arm, 'processes': coverage, 'testBodyOverlapSeconds': overlap, 'independentProcesses': independent,
+                        'overlapQualification': 'unknown when a body has no summary; wrapper lifetime is not body/GPU overlap',
+                        'GPUReclamationMeasured': False}
+              Path(f'decode-reconstruction-{arm}-coverage.json').write_text(json.dumps(result, indent=2) + '\n')
+              all_coverage[arm] = result
+              print('DECODE-RECONSTRUCTION-ARM ' + json.dumps(result, sort_keys=True))
+          # Always run and classify ALL arms/peers before enforcing any gate. A subsequent
+          # green result never erases baseline failures, partial output or a failed identity.
+          Path('decode-reconstruction-contrast.json').write_text(json.dumps(all_coverage, indent=2) + '\n')
+          assert all(r['complete'] and r['executedOneTest'] and r['strictArmGates'] and not r['changedPairs'] and r['exitStatus'] == 0
+                     for arm in all_coverage.values() for r in arm['processes'].values()), all_coverage
+          assert all(a['independentProcesses'] and a['testBodyOverlapSeconds'] is not None and a['testBodyOverlapSeconds'] > 0
+                     for a in all_coverage.values()), all_coverage
+          PY
+      - name: Diagnose same-size synthetic constant graphs separately from RAW failures
+        if: ${{ !cancelled() && contains(github.event.head_commit.message, '[materialization-synthetic]') }}
+        shell: bash
+        env:
+          LUMEN_MATERIALIZATION_SYNTHETIC: '1'
+        run: |
+          set -euo pipefail
+          export DECODE_TEST_BIN_DIR
+          DECODE_TEST_BIN_DIR=$(swift build -c release --show-bin-path)
+          python3 - <<'PYTHON'
+          import json, os, subprocess, time
+          from pathlib import Path
+          bundle = Path(os.environ['DECODE_TEST_BIN_DIR']) / 'LumenPackageTests.xctest'
+          assert bundle.is_dir(), str(bundle)
+          selector = 'LumenPipelineTests.SyntheticMaterializationLoadTests/testSameSizeConstantGraphSharedMaterializerUnderLoad'
+          command = ['xcrun', 'xctest', '-XCTest', selector, str(bundle)]
+          status = {'command': command, 'processes': {}, 'rawGraphMemoryEquivalent': False}
+          def launch(label):
+              stream = open(f'materialization-synthetic-{label}.log', 'w')
+              process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT)
+              status['processes'][label] = {'pid': process.pid, 'startNanoseconds': time.monotonic_ns()}
+              return process, stream
+          def finish(label, launched):
+              process, stream = launched
+              code = process.wait()
+              stream.close()
+              status['processes'][label].update(exitStatus=code, endNanoseconds=time.monotonic_ns())
+          finish('serial', launch('serial'))
+          primary = launch('loaded-primary')
+          peer = launch('loaded-peer')
+          finish('loaded-primary', primary)
+          finish('loaded-peer', peer)
+          Path('materialization-synthetic-status.json').write_text(json.dumps(status, indent=2) + '\n')
+          coverage, summaries = {}, {}
+          prefix = 'MATERIALIZATION-SYNTHETIC '
+          for label in ('serial', 'loaded-primary', 'loaded-peer'):
+              lines = Path(f'materialization-synthetic-{label}.log').read_text().splitlines()
+              rows = [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+              Path(f'materialization-synthetic-{label}.json').write_text(json.dumps(rows, indent=2) + '\n')
+              attempts = [r for r in rows if 'iteration' in r]
+              summary = [r for r in rows if r.get('tap') == 'summary']
+              if len(summary) == 1: summaries[label] = summary[0]
+              exact = sum(r.get('finite') is True and r.get('exactKnownConstant') is True for r in attempts)
+              failures = [r for r in attempts if r.get('outcome') != 'materialized-and-read' or not r.get('exactKnownConstant')]
+              coverage[label] = {'records': len(rows), 'attempts': len(attempts), 'exactKnownConstant': exact,
+                  'complete': len(rows) == 61 and len(attempts) == 60 and len(summary) == 1 and summary[0]['attempts'] == 60,
+                  'executedOneTest': any('Executed 1 test,' in line for line in lines),
+                  'exitStatus': status['processes'][label]['exitStatus'], 'failures': failures}
+              print('MATERIALIZATION-SYNTHETIC-COVERAGE ' + label + ': ' + json.dumps(coverage[label], sort_keys=True))
+          # Always classify both peers, including partial/failing runs, before assertions.
+          Path('materialization-synthetic-coverage.json').write_text(json.dumps(coverage, indent=2) + '\n')
+          assert all(r['complete'] and r['executedOneTest'] for r in coverage.values()), coverage
+          a, b = summaries['loaded-primary'], summaries['loaded-peer']
+          overlap = min(a['endUptime'], b['endUptime']) - max(a['beginUptime'], b['beginUptime'])
+          assert a['processID'] != b['processID'] and overlap > 0, (a, b, overlap)
+          print(f'MATERIALIZATION-SYNTHETIC-LOAD actualTestBodyOverlapSeconds={overlap}; different graph, NOT RAW memory equivalence or simultaneous GPU proof')
+          assert all(r['exitStatus'] == 0 and r['exactKnownConstant'] == 60 for r in coverage.values()), coverage
+          PYTHON
+      - name: Keep exact records and failures without images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-reconstruction-${{ github.sha }}
+          path: |
+            decode-reconstruction-*.log
+            decode-reconstruction-*.json
+            materialization-synthetic-*.log
+            materialization-synthetic-*.json
+          if-no-files-found: error
+          retention-days: 14

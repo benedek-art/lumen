@@ -31,6 +31,15 @@ public enum RenderError: Error {
     case kernelsUnavailable([String])
 }
 
+/// A queued export must not apply the previous source's edits to replacement bytes.
+public struct ExportSourceChangedError: LocalizedError {
+    public let url: URL
+    public init(url: URL) { self.url = url }
+    public var errorDescription: String? {
+        "Export refused because the source original changed or became unavailable: " + url.lastPathComponent
+    }
+}
+
 /// What a renderer believes about its kernels.
 ///
 /// A value with a `live` default rather than a direct read of `KernelLibrary` at each
@@ -69,8 +78,16 @@ public final class PipelineRenderer {
                                                  category: "render")
 
     private let context: CIContext
+    /// Internal immutable dependency for deterministic publication-boundary tests.
+    /// Production always uses nil; the callback runs only after encoding completed.
+    private let beforeExportPublication: ((URL) throws -> Void)?
 
-    public init() {
+    public convenience init() {
+        self.init(beforeExportPublication: nil)
+    }
+
+    init(beforeExportPublication: ((URL) throws -> Void)?) {
+        self.beforeExportPublication = beforeExportPublication
         // Extended-range linear Rec.2020: unbounded, so values above display white and
         // below zero survive the graph (docs/14 §1.1), and wide enough that the HDR
         // path is the same pipeline pointed at a higher peak.
@@ -814,7 +831,13 @@ public final class PipelineRenderer {
                        strokeSets: [String: BrushStrokeSet] = [:],
                        softProof: SoftProof? = nil,
                        allowOverwrite: Bool = false,
-                       catalogKeywords: [String]? = nil) throws -> [String] {
+                       catalogKeywords: [String]? = nil,
+                       expectedSourceIdentity: SourceFileIdentity? = nil) throws -> [String] {
+        // App jobs always supply their enqueue token. Synthetic/non-regular sources
+        // remain unbound unless a token is explicit; direct regular-file callers
+        // opportunistically bind the generation present at entry, following symlinks.
+        let sourceIdentity = expectedSourceIdentity ?? SourceFileIdentity.readRegularFile(source.url)
+        try Self.validateExportSource(url: source.url, expected: sourceIdentity)
         try exportRecipe.metadata.validateContact()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
@@ -824,10 +847,13 @@ public final class PipelineRenderer {
         let hdr = try exportedHDRImage(source: source, recipe: recipe,
                                        using: exportRecipe, strokeSets: strokeSets,
                                        softProof: softProof)
+        let sourceProperties = Self.sourceImageProperties(source.url)
+        try Self.validateExportSource(url: source.url, expected: sourceIdentity)
         try write(image, to: destination, using: exportRecipe,
-                  sourceProperties: Self.sourceImageProperties(source.url),
+                  sourceProperties: sourceProperties,
                   allowOverwrite: allowOverwrite, hdrImage: hdr,
-                  catalogKeywords: catalogKeywords)
+                  catalogKeywords: catalogKeywords,
+                  sourceURL: source.url, expectedSourceIdentity: sourceIdentity)
         return availability.unavailable
     }
 
@@ -1364,6 +1390,16 @@ public final class PipelineRenderer {
         return image.settingProperties(properties as [AnyHashable: Any])
     }
 
+    /// Generation checks bound queue/decode/encode races; they are not a content
+    /// digest or an atomic lock on the original. A replacement after the final check
+    /// remains a filesystem TOCTOU limitation, not an exact file-descriptor binding.
+    public static func validateExportSource(url: URL, expected: SourceFileIdentity?) throws {
+        guard let expected else { return }
+        guard let current = SourceFileIdentity.read(url),
+              SourceFileIdentity.sameGeneration(stored: expected.token, current: current.token)
+        else { throw ExportSourceChangedError(url: url) }
+    }
+
     /// THE DELIVERED PATH IS ONLY EVER CREATED BY A RENAME.
     ///
     /// Every encoder below used to be handed `destination` directly, so the file a
@@ -1390,7 +1426,9 @@ public final class PipelineRenderer {
                        sourceProperties: [String: Any]? = nil,
                        allowOverwrite: Bool = false,
                        hdrImage: CIImage? = nil,
-                       catalogKeywords: [String]? = nil) throws {
+                       catalogKeywords: [String]? = nil,
+                       sourceURL: URL,
+                       expectedSourceIdentity: SourceFileIdentity?) throws {
         guard let colorSpace = Self.cgColorSpace(recipe.colorSpace) else {
             throw RenderError.unsupportedFormat(recipe.colorSpace.rawValue)
         }
@@ -1487,6 +1525,8 @@ public final class PipelineRenderer {
                 }
                 return result == 0 ? 0 : errno
             })
+            try beforeExportPublication?(partial)
+            try Self.validateExportSource(url: sourceURL, expected: expectedSourceIdentity)
             try ExclusivePublish.publish(partial, as: destination,
                                          allowOverwrite: allowOverwrite, using: calls)
         } catch {
@@ -2177,10 +2217,10 @@ public final class PipelineRenderer {
     /// the user moves a slider — sampling after white balance would make the picked
     /// neutral depend on the white balance it is being used to compute.
     ///
-    /// Cheap despite decoding at full resolution: Core Image is lazy, so rendering a
-    /// five-pixel-square bounds computes that region and its filter support, not the
-    /// frame. The square is an average because a single pixel of a real photograph is
-    /// noise — the same reason every other editor's eyedropper samples an area.
+    /// Samples a small square after obtaining the source's native decode. An eligible
+    /// Apple RAW crosses its canonical half-float boundary on the first request, so
+    /// a cold pick can pay a whole-frame decode and allocation; a cache hit reuses it.
+    /// The square averages sensor noise rather than relying on one pixel.
     public func sampleSceneLinear(source: any ImageSource, recipe: Recipe,
                                   sourceX: Double, sourceY: Double,
                                   radius: Int = 2) -> RGB? {
@@ -2269,7 +2309,8 @@ public final class PipelineRenderer {
     public func sampleMaskStageInput(source: any ImageSource, recipe: Recipe,
                                      sourceX: Double, sourceY: Double,
                                      pointColorSwatch: (maskID: String, index: Int)? = nil,
-                                     radius: Int = 2) -> RGB? {
+                                     radius: Int = 2,
+                                     strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
         Self.stampRenderIdentity(source)
@@ -2280,7 +2321,7 @@ public final class PipelineRenderer {
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let staged = RenderGraph().localStageInput(
+        let staged = RenderGraph(healStrokesOf: recipe, strokeSets: strokeSets).localStageInput(
             decoded, plan: plan,
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
         // Cropped back to the decode's own extent so the normalized coordinate means
@@ -2320,20 +2361,24 @@ public final class PipelineRenderer {
     public func sampleColorStageInput(source: any ImageSource, recipe: Recipe,
                                       sourceX: Double, sourceY: Double,
                                       tap: ColorEngine.SelectionTap,
-                                      radius: Int = 2) -> RGB? {
+                                      radius: Int = 2,
+                                      strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
         guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
         else { return nil }
         Self.stampRenderIdentity(source)
         let plan = RenderPlan(recipe: recipe,
                               asShotKelvin: source.asShotTemperature,
                               asShotTint: source.asShotTint,
+                              captureISO: source.captureMetadata.iso,
                               bandMeanHues: ColorEngine.needsMeasuredBandHues(
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let staged = RenderGraph().colorStageInput(
+        let staged = RenderGraph(healStrokesOf: recipe, strokeSets: strokeSets).colorStageInput(
             decoded, plan: plan,
-            options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
+            // This is the global colour picker's actual S9 input, not a mask
+            // raster proxy: denoise and presence must both precede the sample.
+            options: RenderGraph.Options(longEdge: longEdge, maskSource: false))
         guard let input = sampleMean(staged.cropped(to: decoded.extent),
                                      sourceX: sourceX, sourceY: sourceY, radius: radius)
         else { return nil }

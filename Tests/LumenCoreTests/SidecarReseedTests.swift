@@ -174,16 +174,19 @@ final class SidecarReseedTests: XCTestCase {
 /// flush then writes that reduced recipe back over the document it was read from.
 final class SidecarNewerFormatTests: XCTestCase {
 
-    func testThisBuildDeclinesToStateARecipeItCannotRepresent() {
+    func testThisBuildDeclinesToStateARecipeOrPaintingItCannotRepresent() {
         let newer = supportedPipelineVersion + 1
-        let all: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes]
+        let all: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes, .keywords]
+        // SidecarFuturePaintingTests reproduces both replacement and deletion of
+        // the payload belonging to a protected future recipe. Its painting must
+        // share the recipe's refusal; independent culling and keywords stay writable.
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: newer),
-                       [.rating, .flag, .label, .strokes],
-                       "a rating still lands; the recipe does not")
+                       [.rating, .flag, .label, .keywords],
+                       "the future recipe and its painting are protected together")
     }
 
     func testAnOlderOrEqualDocumentIsWrittenNormally() {
-        let all: SidecarStatedFields = [.rating, .recipe]
+        let all: SidecarStatedFields = [.rating, .recipe, .strokes, .keywords]
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: supportedPipelineVersion),
                        all, "this build's own format is not a newer one")
         XCTAssertEqual(XMPSidecar.writableFields(all, documentVersion: 1), all,

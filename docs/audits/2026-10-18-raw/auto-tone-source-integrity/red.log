@@ -1,0 +1,9 @@
+healthy: accepted=true, expected=true
+unexpected suggestion: accepted=true, expected=false
+folder switch: accepted=true, expected=false
+catalog remap: accepted=true, expected=false
+same URL replacement: accepted=true, expected=false
+known stale preflight: accepted=true, expected=true
+removed original: accepted=true, expected=false
+unknown virtual compatibility: accepted=true, expected=true
+failures=5

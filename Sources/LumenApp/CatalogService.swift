@@ -15,6 +15,7 @@
 #if os(macOS)
 
 import Foundation
+import CryptoKit
 import LumenCore
 // `CaptureMetadataReader` reads EXIF through ImageIO, so it lives in LumenPipeline
 // with the rest of the platform-image code rather than in LumenCore.
@@ -28,15 +29,24 @@ final class CatalogService: @unchecked Sendable {
         var rating: Int
         var label: ColorLabel?
         var recipe: Recipe?
+        /// Omit this photo from editing/export until its stored edit can be read safely.
+        var recipeUnavailable: Bool = false
         /// The capture ISO the backfill read, carried through so an unedited photo can
         /// start on the noise-reduction defaults its own gain calls for.
         var iso: Int?
         var sourceIdentity: SourceFileIdentity? = nil
     }
 
+    private var unresolvedSidecarConflicts: Set<URL> = []
+    /// A failed database marker write must still contain this session's source.
+    /// Queue-confined; it cannot promise durability when storage rejects the marker.
+    private var unavailableExternalPhotoIDs: Set<Int64> = []
+    var conflictBackupWriter: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
+
     private var relinkedSources: [Int64: URL] = [:]
     private let store: CatalogStore
     private let queue = DispatchQueue(label: "dev.lumenapp.catalog", qos: .utility)
+    private let queueKey = DispatchSpecificKey<Void>()
 
     /// Where a long enrichment pass DRIVES from, so that `queue` only ever holds the
     /// database work.
@@ -77,17 +87,18 @@ final class CatalogService: @unchecked Sendable {
     /// only on reads would call every one of our own writes "the sidecar changed".
     private var pendingSidecars:
         [URL: (photoID: Int64?, content: SidecarContent,
-               stated: SidecarStatedFields)] = [:]
+               stated: SidecarStatedFields, generation: String?)] = [:]
     /// Read adapter permits deterministic filesystem failures in service regressions.
     var sidecarDataReader: (URL) throws -> Data = { try Data(contentsOf: $0) }
     private var sidecarFlushScheduled = false
     private var sidecarsClosed = false
     /// One actionable notice per photo/outage, reset after a successful write.
     private var reportedSidecarFailures: Set<URL> = []
-    /// Sidecars owed since a quit whose final flush failed, keyed by photo path, and
-    /// mirrored into `meta` (`UnsavedSidecarRecord.metaKey`) so the debt survives the
-    /// process. Guarded by `sidecarLock`.
+    /// Unpublished catalog intent, keyed by photo path and committed to `meta`
+    /// with each recipe/culling/keyword mutation. Guarded by `sidecarLock`.
     private var unsavedSidecars: [String: UnsavedSidecarRecord] = [:]
+    /// Unknown journal contents must survive open/close and must not authorize edits.
+    private var sidecarJournalFailure: String?
     /// Bare sidecars already reported as of ambiguous ownership this session.
     /// Confined to `queue`, where `establishLegacySidecarOwners` runs.
     private var reportedAmbiguousSidecars: Set<String> = []
@@ -142,6 +153,7 @@ final class CatalogService: @unchecked Sendable {
         self.store = try CatalogStore(
             path: directory.appendingPathComponent("lumen.db").path,
             cachePath: directory.appendingPathComponent("cache.db").path)
+        queue.setSpecific(key: queueKey, value: ())
 
         // AND THE STROKES COME BACK WITH IT (K-018). A restore that returns the catalog
         // and not the blob store returns a library whose every brush mask rasterizes to
@@ -175,9 +187,18 @@ final class CatalogService: @unchecked Sendable {
             self?.backUp(force: false)
         }
 
-        // REL-09, the quit half: what the last quit could not write is owed now.
-        let owed = UnsavedSidecarRecord.decode(
-            try? store.metaValue(UnsavedSidecarRecord.metaKey))
+        // Recover committed publication intent after either an orderly quit or
+        // sudden termination before the debounce could publish it.
+        let owed: [UnsavedSidecarRecord]
+        do {
+            owed = try UnsavedSidecarRecord.decodeValidated(store.metaValue(UnsavedSidecarRecord.metaKey))
+        } catch {
+            let message = "Portable publication intent could not be read (\(error)). Edits are paused; the original journal was preserved."
+            sidecarJournalFailure = message
+            unsavedSidecarNotice = message
+            NSLog("Lumen catalog: %@", message)
+            owed = []
+        }
         if !owed.isEmpty {
             unsavedSidecarNotice = UnsavedSidecarRecord.notice(for: owed)
             NSLog("Lumen catalog: %@", unsavedSidecarNotice ?? "")
@@ -189,12 +210,19 @@ final class CatalogService: @unchecked Sendable {
     /// Rebuild the owed fields from the CATALOG, the newer truth by now, and queue them.
     /// Runs on `queue`. A record that cannot be rebuilt (the photo is gone from the
     /// catalog) is reported once and dropped, so it does not nag every launch.
-    private func requeueUnsavedSidecars(_ records: [UnsavedSidecarRecord]) {
+    private func requeueUnsavedSidecars(_ records: [UnsavedSidecarRecord], isRecovery: Bool = true) {
         var dropped = false
         for record in records {
             let url = URL(fileURLWithPath: record.photoPath)
             let stated = record.statedFields
-            guard let id = record.photoID, let row = try? store.photo(id: id) else {
+            let row: PhotoRow?
+            do {
+                row = try record.photoID.flatMap { try store.photo(id: $0) }
+            } catch {
+                report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt because the catalog could not be read (\(error)). Its portable write remains owed.")
+                continue
+            }
+            guard let id = record.photoID, let row else {
                 report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt: "
                        + "the photo is no longer in the catalog.")
                 sidecarLock.lock()
@@ -205,15 +233,40 @@ final class CatalogService: @unchecked Sendable {
             }
             var recipeFields: (json: String, fingerprint: String, version: Int)?
             var strokes: String?? = nil
-            if !stated.isDisjoint(with: [.recipe, .strokes]),
-               let recipe = try? store.currentRecipe(photoID: id),
-               let json = try? CanonicalJSON.canonicalRecipeJSON(recipe),
-               let fingerprint = try? RecipeFingerprint.fingerprint(recipe) {
-                if stated.contains(.recipe) {
-                    recipeFields = (json, fingerprint,
-                                    Swift.min(recipe.pipelineVersion, supportedPipelineVersion))
+            if !stated.isDisjoint(with: [.recipe, .strokes]) {
+                do {
+                    guard try !externalRecipeUnavailable(photoID: id) else {
+                        throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
+                    }
+                    guard let recipe = try readableCurrentRecipe(photoID: id) else {
+                        throw CatalogError.invalid("the owed recipe is absent")
+                    }
+                    let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
+                    let fingerprint = try RecipeFingerprint.fingerprint(recipe)
+                    if stated.contains(.recipe) {
+                        recipeFields = (json, fingerprint, recipe.pipelineVersion)
+                    }
+                    if stated.contains(.strokes) {
+                        if isRecovery {
+                            let sets = try validatedSidecarStrokeSets(recipe)
+                            guard let complete = sidecarStrokes(for: recipe, url: url,
+                                                               validatedStrokeSets: sets) else {
+                                throw CatalogError.invalid("the complete painting cannot be embedded in a sidecar")
+                            }
+                            strokes = .some(complete)
+                        } else {
+                            // Ordinary edits stay queued while dependencies are being
+                            // restored. Flush validates/rebuilds the exact disk map.
+                            strokes = sidecarStrokes(for: recipe, url: url)
+                        }
+                    }
+                } catch {
+                    // Keep the durable debt and the external document unchanged. A
+                    // newer/corrupt edit cannot be safely reduced to this build's
+                    // schema, even when it arrived through quit/reopen recovery.
+                    report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt because its stored edit cannot be read safely (\(error)). The stored edit and portable sidecar were preserved.")
+                    continue
                 }
-                if stated.contains(.strokes) { strokes = sidecarStrokes(for: recipe, url: url) }
             }
             let flag: SidecarFlag?
             switch row.flag {
@@ -222,13 +275,22 @@ final class CatalogService: @unchecked Sendable {
             case .unflagged: flag = stated.contains(.flag) ? SidecarFlag.none : nil
             }
             var keywordEdit: SidecarKeywordEdit?
-            if stated.contains(.keywords), let words = try? store.keywords(photoID: id) {
+            if stated.contains(.keywords) {
+                let words: [String]
+                do { words = try store.keywords(photoID: id) }
+                catch {
+                    report("The sidecar owed for \(url.lastPathComponent) cannot be rebuilt because its keywords could not be read (\(error)). Its portable write remains owed.")
+                    continue
+                }
                 let leaves = Set(words.map(KeywordPath.leaf))
                 if let owed = record.keywordEdit {
                     // The catalog may have changed after this durable record was made.
                     // Never resurrect a removed tag or replay an outlived removal.
                     keywordEdit = SidecarKeywordEdit(
-                        added: Array(leaves),
+                        // Modern committed intents retain their exact merged delta
+                        // across restart. Only legacy records lacked that guarantee.
+                        // Never resurrect an unrelated external removal.
+                        added: isRecovery && record.generation == nil ? Array(leaves) : owed.added.filter { leaves.contains($0) },
                         removed: owed.removed.filter { !leaves.contains($0) })
                 } else {
                     // Older records did not carry removals; preserve their additive
@@ -241,7 +303,7 @@ final class CatalogService: @unchecked Sendable {
                            flag: flag,
                            label: stated.contains(.label) ? .some(row.label) : nil,
                            recipe: recipeFields, strokes: strokes,
-                           keywordEdit: keywordEdit)
+                           keywordEdit: keywordEdit, owedFields: stated)
         }
         if dropped { persistUnsavedSidecars() }
     }
@@ -249,6 +311,7 @@ final class CatalogService: @unchecked Sendable {
     /// Mirror `unsavedSidecars` into `meta`. Runs on `queue`; reads the map at the time
     /// it runs, so an earlier-scheduled call can never overwrite a later state.
     private func persistUnsavedSidecars() {
+        guard sidecarJournalFailure == nil else { return }
         sidecarLock.lock()
         let value = UnsavedSidecarRecord.encode(Array(unsavedSidecars.values))
         sidecarLock.unlock()
@@ -355,49 +418,111 @@ final class CatalogService: @unchecked Sendable {
                                                         filename: name)
                         else { continue }
 
-                        // A stored recipe that will not decode costs THIS photo's
-                        // edits and nothing else. The photo still reaches the grid
-                        // with its rating, flag and label, because those live in
-                        // `photo` columns and were never in question — and the merge
-                        // below still runs, so a readable `.xmp` beside the file
-                        // recovers the edit rather than merely reporting it lost.
-                        //
-                        // Nothing deletes the row that would not decode. `nil` here
-                        // means "the catalog is silent about this photo's recipe",
-                        // which is the same posture `SidecarMerge` already takes
-                        // toward a sidecar that will not parse, and it leaves the
-                        // stored document on disk for a later build to read.
-                        var recipe: Recipe?
+                        // A corrupt/newer edit must never masquerade as an unedited
+                        // photo. Keep its catalog identity for scan reconciliation, but
+                        // omit it from the editable source and do not import a sidecar
+                        // over the unreadable current row.
+                        let recipe: Recipe?
                         do {
-                            recipe = try store.currentRecipe(photoID: row.id)
-                        } catch {
-                            recipe = nil
+                            recipe = try self.readableCurrentRecipe(photoID: row.id)
+                        } catch is UnavailableRecipeError {
+                            var unavailable = StoredState(catalogID: row.id,
+                                flag: row.flag, rating: row.rating,
+                                label: ColorLabel(storedName: row.label), recipe: nil,
+                                iso: row.iso)
+                            unavailable.recipeUnavailable = true
+                            result[file] = unavailable
                             withoutTheirEdits.append(name)
-                            NSLog("Lumen catalog: the stored recipe for %@ would not "
-                                  + "decode — the photo opens without its edits — %@",
-                                  name, String(describing: error))
+                            continue
                         }
 
                         let fingerprint = try? store.currentRecipeFingerprint(
                             photoID: row.id)
                         sidecarLock.lock()
-                        let unflushed = pendingSidecars[file] != nil
+                        let unflushed = pendingSidecars[file] != nil || unsavedSidecars[file.path] != nil
                         sidecarLock.unlock()
                         // Read ONCE. The merge and the stroke restore each read the
                         // file for themselves; the keyword import below would have
                         // made it three reads per photograph per folder open.
-                        var sidecar = Self.readSidecar(for: file)
+                        let sidecarPath = Self.sidecarURL(for: file)
+                        let observedBytes = try self.readSidecarBytes(at: sidecarPath)
+                        var sidecar = observedBytes.flatMap { XMPSidecar.parse($0) }
+                        if let owner = sidecar?.sourceExtension,
+                           owner != file.pathExtension.lowercased() { sidecar = nil }
+                        let wasUnavailable = try self.externalRecipeUnavailable(photoID: row.id)
+                        let portableRecipe = sidecar?.recipeJSON.flatMap {
+                            try? CanonicalJSON.decodeRecipe(from: Data($0.utf8))
+                        }
+                        let futurePortableEdit = sidecar.map { $0.pipelineVersion > supportedPipelineVersion } == true
+                            || Self.declaresFutureRecipeVersion(sidecar?.recipeJSON)
+                            || portableRecipe.map { $0.pipelineVersion > supportedPipelineVersion } == true
+                        if futurePortableEdit {
+                            // Preserve the existing catalog edit and identity. A
+                            // lossy decode must never enter saveRecipe's supported
+                            // version stamp or become an editable/default picture.
+                            try self.markExternalRecipeUnavailable(photoID: row.id,
+                                observation: observedBytes.map(Self.sidecarDigest) ?? "unavailable")
+                            if let observedBytes {
+                                do { try self.preserveSidecarConflict(for: file, photoID: row.id, data: observedBytes) }
+                                catch { self.report("The future portable edit for \(file.lastPathComponent) remains unavailable; its recovery copy could not be written (\(error)). The original sidecar and catalog edit were preserved.") }
+                            }
+                            result[file] = Self.unavailableState(row)
+                            withoutTheirEdits.append(name)
+                            continue
+                        }
+                        let supportedPortableEdit = sidecar?.parsedCleanly == true && portableRecipe != nil
+                        if wasUnavailable && !supportedPortableEdit {
+                            // A missing/damaged document is not evidence that a
+                            // future edit was deliberately replaced by a supported one.
+                            result[file] = Self.unavailableState(row)
+                            withoutTheirEdits.append(name)
+                            continue
+                        }
+                        if wasUnavailable, let portableRecipe {
+                            Self.restoreStrokes(from: sidecar, blobs: blobs)
+                            do { _ = try self.validatedSidecarStrokeSets(portableRecipe) }
+                            catch {
+                                self.report("The replacement portable edit for \(file.lastPathComponent) has unavailable painting dependencies (\(error)); editing/export remain unavailable.")
+                                result[file] = Self.unavailableState(row)
+                                withoutTheirEdits.append(name)
+                                continue
+                            }
+                        }
+                        let priorDigest = try self.sidecarObservation(photoID: row.id)
+                        let changed = observedBytes.flatMap { data in
+                            priorDigest.map { $0 != Self.sidecarDigest(data) }
+                        }
+                        // A legacy catalog has no byte baseline. Do not guess which
+                        // divergent edit is newer; preserve the external document
+                        // before acknowledging it under the existing merge rules.
+                        let legacyDivergence: Bool
+                        if priorDigest == nil, let recipe, let incomingJSON = sidecar?.recipeJSON {
+                            legacyDivergence = incomingJSON != (try CanonicalJSON.canonicalRecipeJSON(recipe))
+                        } else { legacyDivergence = false }
                         sidecarLock.lock()
-                        let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit
+                        // An explicit flush temporarily owns the pending entry.
+                        // Its committed delta still governs imports until settled.
+                        let owedKeywordEdit = unsavedSidecars[file.path].flatMap {
+                            $0.photoID == row.id ? $0.keywordEdit : nil
+                        }
+                        let pendingKeywordEdit = pendingSidecars[file]?.content.keywordEdit ?? owedKeywordEdit
                         sidecarLock.unlock()
-                        if let pendingKeywordEdit, var projected = sidecar {
-                            projected.keywords = pendingKeywordEdit.apply(to: projected.keywords ?? [])
+                        if let pendingKeywordEdit, !pendingKeywordEdit.isEmpty, var projected = sidecar {
+                            // Match recovery's outlived-intent policy, including
+                            // legacy records: do not revive an obsolete addition
+                            // or replay a removal after the tag was added again.
+                            let leaves = Set(try store.keywords(photoID: row.id).map(KeywordPath.leaf))
+                            let currentEdit = SidecarKeywordEdit(
+                                added: pendingKeywordEdit.added.filter { leaves.contains($0) },
+                                removed: pendingKeywordEdit.removed.filter { !leaves.contains($0) })
+                            projected.keywords = currentEdit.apply(to: projected.keywords ?? [])
                             sidecar = projected
                         }
                         let resolution = Self.merge(row: row, recipe: recipe,
                                                     recipeFingerprint: fingerprint,
                                                     hasUnflushedEdits: unflushed,
-                                                    file: file, sidecar: sidecar)
+                                                    file: file, sidecar: sidecar,
+                                                    sidecarChanged: changed)
                         // Before anything reads the recovered recipe: put the sidecar's
                         // brush strokes back into the blob store, so a `strokesRef` in
                         // it resolves to a painting rather than to nothing. Run for
@@ -415,9 +540,20 @@ final class CatalogService: @unchecked Sendable {
                         // filter, and a recovered recipe rendered while the Edited chip
                         // excluded it. The view and the query disagreed about the same
                         // photograph.
-                        Self.persistRecovered(resolution, row: row,
+                        let recovered = self.persistRecovered(resolution, row: row,
                                               storedRecipe: recipe,
-                                              store: store, file: file)
+                                              store: store, file: file,
+                                              observedBytes: observedBytes,
+                                              preserveLegacyDivergence: legacyDivergence)
+                        if wasUnavailable {
+                            guard recovered else {
+                                result[file] = Self.unavailableState(row)
+                                withoutTheirEdits.append(name)
+                                continue
+                            }
+                            try store.setMetaValue(Self.externalUnavailableKey(row.id), nil)
+                            self.unavailableExternalPhotoIDs.remove(row.id)
+                        }
                         result[file] = Self.stored(resolution.state, row: row)
                         result[file]?.sourceIdentity = SourceFileIdentity.read(file)
                     } catch {
@@ -433,10 +569,10 @@ final class CatalogService: @unchecked Sendable {
                     let n = withoutTheirEdits.count
                     self.onFailure?(
                         "\(n) photo\(n == 1 ? "" : "s") in "
-                        + "\(folder.lastPathComponent) opened without "
-                        + "\(n == 1 ? "its" : "their") edits — the stored recipe could "
-                        + "not be read. Ratings, flags and labels are intact, and "
-                        + "nothing was overwritten.")
+                        + "\(folder.lastPathComponent) unavailable for editing/export because "
+                        + "the stored or portable edit cannot be read safely: "
+                        + Self.unavailableRecipeNames(withoutTheirEdits)
+                        + ". Original files and stored edits were preserved.")
                 }
                 if !withoutTheirRow.isEmpty {
                     let n = withoutTheirRow.count
@@ -774,7 +910,8 @@ final class CatalogService: @unchecked Sendable {
     /// and the enum mapping.
     private static func merge(row: PhotoRow, recipe: Recipe?,
                               recipeFingerprint: String?, hasUnflushedEdits: Bool,
-                              file: URL, sidecar: SidecarContent?) -> SidecarMerge.Resolution {
+                              file: URL, sidecar: SidecarContent?,
+                              sidecarChanged: Bool? = nil) -> SidecarMerge.Resolution {
         SidecarMerge.resolve(
             catalog: SidecarMerge.State(
                 rating: row.rating,
@@ -788,7 +925,8 @@ final class CatalogService: @unchecked Sendable {
                 sidecarMTime: row.sidecarMTime,
                 hasUnflushedEdits: hasUnflushedEdits),
             sidecar: sidecar,
-            sidecarMTime: modificationTime(of: sidecarURL(for: file)))
+            sidecarMTime: modificationTime(of: sidecarURL(for: file)),
+            sidecarChanged: sidecarChanged)
     }
 
     /// Put a sidecar's brush strokes back into the blob store.
@@ -852,6 +990,51 @@ final class CatalogService: @unchecked Sendable {
                     iso: row.iso)
     }
 
+    /// A flush can be invoked outside the catalog lane. Only its database/conflict
+    /// work hops here, leaving filesystem adapters free to enqueue newer edits.
+    private func onCatalogQueue<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil { return try body() }
+        return try queue.sync(execute: body)
+    }
+
+    /// Keep the exact external document before acknowledging/replacing a conflict.
+    /// The content-addressed file also retains payloads/foreign XML snapshots cannot.
+    private func preserveSidecarConflict(for url: URL, photoID: Int64, data: Data) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
+        let folder = directory.appendingPathComponent("sidecar-conflicts", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let key = String(XXH64.hash(Array(data)), radix: 16)
+        let backup = folder.appendingPathComponent("photo-\(photoID)-\(key).xmp")
+        if FileManager.default.fileExists(atPath: backup.path) {
+            guard try Data(contentsOf: backup) == data else {
+                throw CatalogError.invalid("sidecar recovery identity collision")
+            }
+        } else {
+            try conflictBackupWriter(data, backup)
+            guard try Data(contentsOf: backup) == data else {
+                throw CatalogError.invalid("sidecar recovery verification failed")
+            }
+        }
+        // Snapshots are a convenient restore path when every dependency is available;
+        // the verified exact document above remains the recovery copy in all cases.
+        if let content = XMPSidecar.parse(String(decoding: data, as: UTF8.self)),
+           content.parsedCleanly, content.pipelineVersion <= supportedPipelineVersion,
+           let json = content.recipeJSON,
+           let recipe = try? CanonicalJSON.decodeRecipe(from: Data(json.utf8)),
+           recipe.pipelineVersion <= supportedPipelineVersion {
+            Self.restoreStrokes(from: content, blobs: blobs)
+            let name = "Imported sidecar conflict \(key)"
+            if try !store.namedSnapshots(photoID: photoID).contains(where: { $0.name == name }) {
+                do {
+                    try PhotoSnapshotDependencies.validate(recipe, blobs: blobs)
+                    try store.createNamedSnapshot(recipe, photoID: photoID, name: name)
+                } catch {
+                    onFailure?("Conflicting sidecar for \(url.lastPathComponent) was preserved at \(backup.path), but could not become a restorable snapshot (\(error)).")
+                }
+            }
+        }
+    }
+
     /// Write back whatever the merge concluded, so the catalog agrees with the grid.
     ///
     /// Only fields the merge actually CHANGED are written. Under rule 1 that means the
@@ -864,11 +1047,22 @@ final class CatalogService: @unchecked Sendable {
     /// was the second half of LIB-08: even once the merge decided the sidecar had the
     /// newer edit, nothing wrote it, so the grid showed one recipe and the catalog held
     /// another — and the next flush pushed the catalog's stale one back over the sidecar.
-    private static func persistRecovered(_ resolution: SidecarMerge.Resolution,
+    @discardableResult
+    private func persistRecovered(_ resolution: SidecarMerge.Resolution,
                                          row: PhotoRow, storedRecipe: Recipe?,
-                                         store: CatalogStore, file: URL) {
-        let state = stored(resolution.state, row: row)
+                                         store: CatalogStore, file: URL,
+                                         observedBytes: Data?,
+                                         preserveLegacyDivergence: Bool) -> Bool {
+        let state = Self.stored(resolution.state, row: row)
         do {
+            var preservedExternal = false
+            if resolution.decision == .conflictCatalogWins || preserveLegacyDivergence {
+                unresolvedSidecarConflicts.insert(file)
+                guard let observedBytes else { throw CatalogError.invalid("the conflicting sidecar could not be read") }
+                try preserveSidecarConflict(for: file, photoID: row.id, data: observedBytes)
+                unresolvedSidecarConflicts.remove(file)
+                preservedExternal = true
+            }
             if state.rating != row.rating {
                 try store.setRating(state.rating, photoID: row.id)
             }
@@ -889,32 +1083,67 @@ final class CatalogService: @unchecked Sendable {
                                      isRenderedFile: PhotoFormats.isRendered(file))
             }
 
+            if !preservedExternal, let observedBytes,
+               let externalJSON = XMPSidecar.parse(observedBytes)?.recipeJSON {
+                let actualJSON = try store.currentEdit(photoID: row.id)?.recipeJSON
+                if !Self.sameRecipeJSON(actualJSON, externalJSON) {
+                    // Unknown fields, malformed recipes or lossy decode/clamping
+                    // must not be silently acknowledged as imported. Preserve the
+                    // captured external bytes before advancing their observation.
+                    unresolvedSidecarConflicts.insert(file)
+                    try preserveSidecarConflict(for: file, photoID: row.id, data: observedBytes)
+                    unresolvedSidecarConflicts.remove(file)
+                }
+            }
+
             // Stamp what we have just READ. Without this half, a sidecar we have never
             // written — one that arrived beside a photo copied in from another machine —
             // has no baseline, so the next scan cannot tell "changed since" from "never
             // seen", and rule 2 could never fire for it a second time.
-            if let stamp = modificationTime(of: sidecarURL(for: file)) {
+            if let stamp = Self.modificationTime(of: Self.sidecarURL(for: file)) {
                 try store.setSidecarMTime(stamp, photoID: row.id)
             }
-
-            if resolution.decision == .conflictCatalogWins {
-                // docs/15 §15.5 rule 3 says the sidecar's state is preserved as a
-                // snapshot named "Imported from sidecar <date>". Snapshots do not exist
-                // (LIB-06: `saveRecipe` only ever writes `kind = .working`), so the
-                // catalog wins as specified and the sidecar's divergent recipe is NOT
-                // kept. Logged rather than dropped in silence, which is the most this
-                // can honestly promise until snapshots ship.
-                NSLog("Lumen catalog: %@ changed under an unflushed edit — the catalog "
-                      + "kept its version and the sidecar's could not be snapshotted",
-                      sidecarURL(for: file).lastPathComponent)
+            if let observedBytes {
+                try store.setMetaValue(Self.sidecarObservationKey(row.id), Self.sidecarDigest(observedBytes))
             }
+            return true
         } catch {
             // A recovery that cannot be persisted is not worth failing the folder open
             // over: the grid still shows the merged state for this session, and the next
             // launch will try again from the same sidecar.
             NSLog("Lumen catalog: could not persist sidecar recovery — %@",
                   String(describing: error))
+            if unresolvedSidecarConflicts.contains(file) {
+                onFailure?("Could not preserve conflicting sidecar for \(file.lastPathComponent). Portable writes are paused; the original sidecar was left untouched (\(error)).")
+            }
+            return false
         }
+    }
+
+    /// The same SQL commit owns the edit and its portable debt. A process can
+    /// disappear before enqueue/debounce without forgetting the publication.
+    private func commitSidecarIntent(_ mutation: () throws -> [UnsavedSidecarRecord]) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
+        if let sidecarJournalFailure { throw CatalogError.invalid(sidecarJournalFailure) }
+        var changedPaths = Set<String>()
+        let result = try store.withSidecarIntent {
+            let records = try mutation().map { record -> UnsavedSidecarRecord in
+                var updated = record; updated.generation = UUID().uuidString
+                return updated
+            }
+            changedPaths = Set(records.map(\.photoPath))
+            return ((), records)
+        }
+        sidecarLock.lock()
+        unsavedSidecars = Dictionary(result.debt.map { ($0.photoPath, $0) }, uniquingKeysWith: { _, latest in latest })
+        sidecarLock.unlock()
+        requeueUnsavedSidecars(result.debt.filter { changedPaths.contains($0.photoPath) }, isRecovery: false)
+    }
+
+    private func sidecarIntent(for url: URL, photoID: Int64, stated: SidecarStatedFields,
+                               keywordEdit: SidecarKeywordEdit? = nil) -> UnsavedSidecarRecord {
+        UnsavedSidecarRecord(photoPath: (relinkedSources[photoID] ?? url).path, photoID: photoID,
+                             stated: stated, keywordEdit: keywordEdit)
     }
 
     // MARK: - Culling state
@@ -931,23 +1160,126 @@ final class CatalogService: @unchecked Sendable {
         let url = photo.id
         queue.async {
             do {
-                try self.store.setFlag(flag, photoID: id)
-                try self.store.setRating(rating, photoID: id)
-                try self.store.setLabel(label, photoID: id)
+                try self.commitSidecarIntent {
+                    try self.store.setCullingState(flag: flag, rating: rating, label: label, photoID: id)
+                    var fields: SidecarStatedFields = [.rating, .flag]
+                    if labelChanged { fields.insert(.label) }
+                    return [self.sidecarIntent(for: url, photoID: id, stated: fields)]
+                }
             } catch {
                 NSLog("Lumen catalog: culling write failed — %@", String(describing: error))
                 self.onFailure?("Could not save the flag or rating — \(error)")
+                return
             }
-            self.enqueueSidecar(
-                for: url, photoID: id, rating: rating, flag: SidecarFlag(flag),
-                label: SidecarLabelPolicy.write(
-                    appLabel: label?.rawValue,
-                    labelChanged: labelChanged),
-                recipe: nil)
+
         }
     }
 
     // MARK: - Recipes
+
+    private struct UnavailableRecipeError: Error, CustomStringConvertible {
+        let reason: String
+        var description: String { reason }
+    }
+
+    private static func unavailableRecipeNames(_ names: [String]) -> String {
+        names.prefix(10).joined(separator: ", ")
+            + (names.count > 10 ? " (+\(names.count - 10) more)" : "")
+    }
+
+    /// Distinguish a genuinely absent edit from an unreadable or newer edit.
+    /// Database/I/O errors propagate; only recipe errors permit per-photo omission.
+    private func readableCurrentRecipe(photoID: Int64) throws -> Recipe? {
+        guard let row = try store.currentEdit(photoID: photoID) else { return nil }
+        if row.pipelineVersion > supportedPipelineVersion {
+            throw UnavailableRecipeError(reason: "stored edit requires a newer pipeline")
+        }
+        let recipe: Recipe
+        do { recipe = try CanonicalJSON.decodeRecipe(from: Data(row.recipeJSON.utf8)) }
+        catch { throw UnavailableRecipeError(reason: String(describing: error)) }
+        if recipe.pipelineVersion > supportedPipelineVersion {
+            throw UnavailableRecipeError(reason: "stored edit requires a newer pipeline")
+        }
+        return recipe
+    }
+
+    struct RecipeSave: Sendable {
+        let recipe: Recipe
+        let url: URL
+        let catalogID: Int64
+    }
+
+    /// Commit bounded prefixes without repeatedly encoding the whole journal per photo.
+    /// A rejected photo retains its old edit. A journal failure rolls back only its
+    /// chunk; earlier chunks remain durable and the unattempted tail is refused.
+    func saveRecipes(_ requests: [RecipeSave]) {
+        guard !requests.isEmpty else { return }
+        if requests.count == 1, let request = requests.first {
+            saveRecipe(request.recipe, url: request.url, catalogID: request.catalogID)
+            return
+        }
+        queue.async {
+            guard !self.sidecarsClosed else {
+                self.report("Could not save the edit batch — the catalog is closed")
+                return
+            }
+            let ordered = requests.sorted(by: { $0.url.absoluteString < $1.url.absoluteString })
+            var committedCount = 0
+            // Keep every chunk in this already-enqueued block: close cannot overtake
+            // an asynchronously scheduled tail. 64 bounds the first commit window;
+            // it is a measured compromise, not a universal throughput optimum.
+            for start in stride(from: 0, to: ordered.count, by: 64) {
+                let end = min(start + 64, ordered.count)
+                var rejected: [String] = []
+                var prepared: [(request: RecipeSave, fields: SidecarStatedFields)] = []
+                // Inspect only this chunk before opening SQL. Painting inspection
+                // may report an existing size warning and must stay outside SQL.
+                for request in ordered[start..<end] {
+                    do {
+                        _ = try CanonicalJSON.canonicalRecipeJSON(request.recipe)
+                        _ = try RecipeFingerprint.fingerprint(request.recipe)
+                    } catch {
+                        rejected.append("Could not save the edit for \(request.url.lastPathComponent) — it contains a value the recipe format cannot represent")
+                        continue
+                    }
+                    let painting = self.sidecarStrokes(for: request.recipe, url: request.url)
+                    var fields: SidecarStatedFields = [.recipe]
+                    if painting != nil { fields.insert(.strokes) }
+                    prepared.append((request, fields))
+                }
+                var acceptedCount = 0
+                do {
+                    if !prepared.isEmpty {
+                        try self.commitSidecarIntent {
+                            var intents: [UnsavedSidecarRecord] = []
+                            for item in prepared {
+                                let request = item.request
+                                do {
+                                    try self.requireAvailablePhotoOnQueue(photoID: request.catalogID)
+                                    // This photo's transaction becomes a SAVEPOINT.
+                                    try self.store.saveRecipe(request.recipe, photoID: request.catalogID,
+                                        isCurrent: true, isRenderedFile: PhotoFormats.isRendered(request.url))
+                                    intents.append(self.sidecarIntent(for: request.url, photoID: request.catalogID,
+                                                                      stated: item.fields))
+                                } catch {
+                                    rejected.append("Could not save the edit for \(request.url.lastPathComponent) — \(error)")
+                                }
+                            }
+                            acceptedCount = intents.count
+                            return intents
+                        }
+                    }
+                } catch {
+                    // No report callback runs while the outer transaction is open.
+                    for message in rejected { self.report(message) }
+                    self.report("Could not finish the edit batch — \(committedCount) earlier edits remain committed; \(end - start) photos in this chunk were not committed (\(acceptedCount) accepted edits were rolled back); \(ordered.count - end) remaining photos were not attempted (\(error))")
+                    return
+                }
+                committedCount += acceptedCount
+                for message in rejected { self.report(message) }
+            }
+        }
+    }
 
     func saveRecipe(_ recipe: Recipe, url: URL, catalogID: Int64?) {
         // If a recipe cannot be canonicalized, write NOTHING. The previous code fell
@@ -982,18 +1314,27 @@ final class CatalogService: @unchecked Sendable {
                                 + "it contains a value the recipe format cannot represent")
                 return
             }
+            let strokes = self.sidecarStrokes(for: recipe, url: url)
             if let id = catalogID {
                 do {
-                    try self.store.saveRecipe(
+                    try self.requireAvailablePhotoOnQueue(photoID: id)
+                    try self.commitSidecarIntent {
+                        try self.store.saveRecipe(
                         recipe, photoID: id, isCurrent: true,
                         // The pencil badge and the "Edited: no" chip both read the
                         // `edited` this sets, and both were lit on every untouched
                         // rendered file in the library until this argument existed.
                         isRenderedFile: PhotoFormats.isRendered(url))
+                        var fields: SidecarStatedFields = [.recipe]
+                        if strokes != nil { fields.insert(.strokes) }
+                        return [self.sidecarIntent(for: url, photoID: id, stated: fields)]
+                    }
+                    return
                 } catch {
                     NSLog("Lumen catalog: recipe write failed — %@", String(describing: error))
                     self.onFailure?("Could not save the edit for "
                                     + "\(url.lastPathComponent) — \(error)")
+                    return
                 }
             }
             // The strokes ride WITH the recipe, resolved out of the blob store here
@@ -1014,7 +1355,6 @@ final class CatalogService: @unchecked Sendable {
             // the file stays there. The catalog and — since K-018 — the blob backup are
             // the copies that actually carry a painting this size; the sidecar's job is
             // to carry what it can and never to destroy what it cannot.
-            let strokes = self.sidecarStrokes(for: recipe, url: url)
             self.enqueueSidecar(for: url, photoID: catalogID, rating: nil, label: nil,
                                 recipe: (json, fingerprint,
                                          Swift.min(recipe.pipelineVersion,
@@ -1023,10 +1363,34 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// A write must not replace a complete portable painting with a partial map
+    /// just because a referenced local blob is temporarily missing or damaged.
+    private func validatedSidecarStrokeSets(_ recipe: Recipe) throws -> [String: BrushStrokeSet] {
+        var references = Set(recipe.masks.flatMap { mask in
+            mask.components.filter { $0.kind == .brush }.compactMap(\.strokesRef)
+        }.filter { !$0.isEmpty })
+        if let ref = BrushStrokes.healReference(in: recipe) { references.insert(ref) }
+        var sets: [String: BrushStrokeSet] = [:]
+        for ref in references {
+            guard let path = blobs.url(for: ref), let bytes = try? Data(contentsOf: path),
+                  BrushStrokeSet.blobRef(for: bytes) == ref else {
+                throw CatalogError.invalid("sidecar painting is missing or damaged: \(ref)")
+            }
+            let painting = try BrushStrokeSet.decode(bytes)
+            guard painting.version <= BrushStrokeSet.schemaVersion else {
+                throw CatalogError.invalid("sidecar painting requires a newer build")
+            }
+            sets[ref] = painting
+        }
+        return sets
+    }
+
     /// What a sidecar write says about brush strokes for `recipe`; see `saveRecipe`.
-    private func sidecarStrokes(for recipe: Recipe, url: URL) -> String?? {
-        switch BrushStrokeSidecar.decision(for: recipe, blob: {
-            self.blobs.strokeSet(for: $0)
+    private func sidecarStrokes(for recipe: Recipe, url: URL,
+                                validatedStrokeSets: [String: BrushStrokeSet]? = nil) -> String?? {
+        switch BrushStrokeSidecar.decision(for: recipe, blob: { ref in
+            if let sets = validatedStrokeSets { return sets[ref] }
+            return self.blobs.strokeSet(for: ref)
         }) {
         case .none:
             return .some(nil)
@@ -1347,16 +1711,15 @@ final class CatalogService: @unchecked Sendable {
         // On the catalog's queue, after the row write, like every other sidecar
         // enqueue in this file: a sidecar is never told something the catalog was not.
         await onQueue("keyword write", fallback: ()) { [self] store in
-            let keywordID = try store.addKeyword(name, photoIDs: ids)
-            // The sidecar's `dc:subject` is flat: it gets the keyword's own name — not
-            // the "Places > Iceland" path that was typed, and not a synonym that was
-            // typed for it, but the keyword that was actually tagged.
-            let word = try store.keywordName(id: keywordID) ?? KeywordPath.leaf(name)
-            for target in targets {
-                self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
-                                    label: nil, recipe: nil,
-                                    keywordEdit: SidecarKeywordEdit(added: [word]))
+            var edits: [(id: Int64, url: URL, edit: SidecarKeywordEdit)] = []
+            try self.commitSidecarIntent {
+                let keywordID = try store.addKeyword(name, photoIDs: ids)
+                let word = try store.keywordName(id: keywordID) ?? KeywordPath.leaf(name)
+                edits = targets.map { ($0.id, $0.url, SidecarKeywordEdit(added: [word])) }
+                return edits.map { self.sidecarIntent(for: $0.url, photoID: $0.id,
+                    stated: [.keywords], keywordEdit: $0.edit) }
             }
+
         }
     }
 
@@ -1365,19 +1728,22 @@ final class CatalogService: @unchecked Sendable {
         // On the catalog's queue, after the row write, like every other sidecar
         // enqueue in this file: a sidecar is never told something the catalog was not.
         await onQueue("keyword write", fallback: ()) { [self] store in
-            var before: [Int64: Set<String>] = [:]
-            for target in targets {
-                before[target.id] = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+            var edits: [(id: Int64, url: URL, edit: SidecarKeywordEdit)] = []
+            try self.commitSidecarIntent {
+                var before: [Int64: Set<String>] = [:]
+                for target in targets {
+                    before[target.id] = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+                }
+                try store.removeKeyword(name, photoIDs: ids)
+                for target in targets {
+                    let after = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+                    let removed = (before[target.id] ?? []).subtracting(after)
+                    edits.append((target.id, target.url, SidecarKeywordEdit(removed: Array(removed))))
+                }
+                return edits.map { self.sidecarIntent(for: $0.url, photoID: $0.id,
+                    stated: [.keywords], keywordEdit: $0.edit) }
             }
-            try store.removeKeyword(name, photoIDs: ids)
-            for target in targets {
-                let after = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
-                let removed = (before[target.id] ?? []).subtracting(after)
-                self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
-                                    label: nil, recipe: nil,
-                                    keywordEdit: SidecarKeywordEdit(
-                                        removed: Array(removed)))
-            }
+
         }
     }
 
@@ -1474,7 +1840,8 @@ final class CatalogService: @unchecked Sendable {
                                 label: String??,
                                 recipe: (json: String, fingerprint: String, version: Int)?,
                                 strokes: String?? = nil,
-                                keywordEdit: SidecarKeywordEdit? = nil) {
+                                keywordEdit: SidecarKeywordEdit? = nil,
+                                owedFields: SidecarStatedFields? = nil) {
         let url = photoID.flatMap { relinkedSources[$0] } ?? url
         sidecarLock.lock()
         guard !sidecarsClosed else { sidecarLock.unlock(); return }
@@ -1510,6 +1877,7 @@ final class CatalogService: @unchecked Sendable {
         // writes back. Unioned with what was already queued, because a rating and a
         // label enqueued 200 ms apart are one write and both were stated.
         var stated = queued?.stated ?? []
+        if let owedFields { stated.formUnion(owedFields) }
         if rating != nil { stated.insert(.rating) }
         if flag != nil { stated.insert(.flag) }
         if label != nil { stated.insert(.label) }
@@ -1518,7 +1886,7 @@ final class CatalogService: @unchecked Sendable {
         if keywordEdit != nil { stated.insert(.keywords) }
 
         pendingSidecars[url] = (photoID: photoID ?? queued?.photoID, content: content,
-                                stated: stated)
+                                stated: stated, generation: unsavedSidecars[url.path]?.generation)
         let shouldSchedule = !sidecarFlushScheduled
         sidecarFlushScheduled = true
         sidecarLock.unlock()
@@ -1543,10 +1911,125 @@ final class CatalogService: @unchecked Sendable {
         // forever, which quietly falsifies "losing the catalog costs speed, never
         // work" for exactly the frames edited during the outage.
         var failed: [(url: URL, entry: (photoID: Int64?, content: SidecarContent,
-                                        stated: SidecarStatedFields))] = []
+                                        stated: SidecarStatedFields, generation: String?))] = []
 
-        for (url, entry) in batch {
+        typealias Entry = (photoID: Int64?, content: SidecarContent,
+                          stated: SidecarStatedFields, generation: String?)
+        typealias Prepared = (url: URL, entry: Entry, bytes: Data,
+                             sourceData: Data?, mayAdvanceObservation: Bool)
+        var prepared: [Prepared] = []
+        var preparedByteCount = 0
+        // Nominal staged output Data only, not an RSS bound: parsed XML/content
+        // and the current input also occupy memory. Never truncate an oversized
+        // document; publish it alone instead of retaining a group beside it.
+        let preparedByteLimit = 8 * 1_024 * 1_024
+
+        func publicationIsClosed() -> Bool {
+            sidecarLock.lock()
+            defer { sidecarLock.unlock() }
+            return sidecarsClosed
+        }
+
+        func publicationFailed(_ url: URL, _ entry: Entry, _ error: Error) {
+            let path = Self.sidecarURL(for: url)
+            NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
+                  path.lastPathComponent, String(describing: error))
+            failed.append((url, entry))
+            sidecarLock.lock()
+            let firstFailure = reportedSidecarFailures.insert(url).inserted
+            sidecarLock.unlock()
+            if firstFailure {
+                report("Could not save portable sidecar \(path.lastPathComponent). "
+                       + "Check that the photo's volume is connected and writable. "
+                       + "Lumen will retry while open; the sidecar is not up to date "
+                       + "(\(error.localizedDescription)).")
+            }
+        }
+
+        func publishPrepared() {
+            guard !prepared.isEmpty else { return }
+            let group = prepared
+            prepared.removeAll(keepingCapacity: true)
+            preparedByteCount = 0
+            var failures: [(Prepared, Error)] = []
+            do {
+                try onCatalogQueue {
+                    // A reader adapter can close the service while preparing. Do
+                    // not even read the closed store, let alone recreate old debt.
+                    guard !sidecarsClosed else { return }
+                    if let sidecarJournalFailure { throw CatalogError.invalid(sidecarJournalFailure) }
+                    let owed = try UnsavedSidecarRecord.decodeValidated(store.metaValue(UnsavedSidecarRecord.metaKey))
+                    let byPath = Dictionary(uniqueKeysWithValues: owed.map { ($0.photoPath, $0) })
+                    var written: [(Prepared, SidecarIntentPublication)] = []
+                    for item in group {
+                        guard let current = byPath[item.url.path],
+                              current.photoID == item.entry.photoID,
+                              current.generation == item.entry.generation else { continue }
+                        do {
+                            if item.entry.stated.contains(.recipe), let json = item.entry.content.recipeJSON {
+                                if let id = item.entry.photoID, try externalRecipeUnavailable(photoID: id) {
+                                    throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
+                                }
+                                // A later adapter may remove a dependency without
+                                // changing this generation or the existing XMP.
+                                let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+                                _ = try validatedSidecarStrokeSets(recipe)
+                            }
+                            let path = Self.sidecarURL(for: item.url)
+                            var mayObserve = item.mayAdvanceObservation
+                            if mayObserve, !item.entry.stated.contains(.recipe),
+                               let id = item.entry.photoID, let base = item.sourceData,
+                               let externalJSON = XMPSidecar.parse(base)?.recipeJSON {
+                                // A later adapter can import a catalog recipe
+                                // without changing this culling intent's generation.
+                                let currentJSON = try readableCurrentRecipe(photoID: id)
+                                    .map { try CanonicalJSON.canonicalRecipeJSON($0) }
+                                mayObserve = Self.sameRecipeJSON(currentJSON, externalJSON)
+                            }
+                            // No injected adapter runs under this queue boundary.
+                            // Later preparation may have changed an earlier base;
+                            // refuse instead of overwriting newly arrived bytes.
+                            guard try Self.physicalSidecarBytes(at: path) == item.sourceData else {
+                                throw CatalogError.invalid("the portable document changed while publication was being prepared")
+                            }
+                            try item.bytes.write(to: path, options: .atomic)
+                            let observation: SidecarIntentPublication.Observation? = mayObserve
+                                ? .init(modificationTime: Self.modificationTime(of: path), digest: Self.sidecarDigest(item.bytes)) : nil
+                            written.append((item, SidecarIntentPublication(photoPath: item.url.path,
+                                photoID: item.entry.photoID, generation: item.entry.generation, observation: observation)))
+                        } catch { failures.append((item, error)) }
+                    }
+                    guard !written.isEmpty else { return }
+                    do {
+                        // Physical I/O above holds no SQL transaction. Observation
+                        // and matching generation settlement commit together now.
+                        let result = try store.settleSidecarIntents(written.map { $0.1 })
+                        let settledPaths = Set(result.settled.map(\.photoPath))
+                        sidecarLock.lock()
+                        for (item, _) in written where settledPaths.contains(item.url.path) {
+                            reportedSidecarFailures.remove(item.url)
+                            if unsavedSidecars[item.url.path]?.generation == item.entry.generation {
+                                unsavedSidecars.removeValue(forKey: item.url.path)
+                            }
+                        }
+                        sidecarLock.unlock()
+                    } catch {
+                        // Every successful physical write is still owed if any
+                        // observation or the journal's final SQL write fails.
+                        failures.append(contentsOf: written.map { ($0.0, error) })
+                    }
+                }
+            } catch { failures.append(contentsOf: group.map { ($0, error) }) }
+            // Preserve the adapter/callback context of the flush caller. In
+            // particular an explicit off-queue flush can accept a newer edit.
+            for (item, error) in failures { publicationFailed(item.url, item.entry, error) }
+        }
+
+        for (url, queuedEntry) in batch {
+            if publicationIsClosed() { break }
+            var entry = queuedEntry
             var content = entry.content
+            var mayAdvanceObservation = true
             let path = Self.sidecarURL(for: url)
 
             // An existing sidecar is somebody else's document that Lumen is allowed to
@@ -1590,13 +2073,55 @@ final class CatalogService: @unchecked Sendable {
                 }
             }
 
+            // Keep the newly saved catalog edit, but never replace a complete
+            // portable painting with an empty/partial map when a local dependency
+            // vanished. Validate at publication, including removals after enqueue.
+            if entry.stated.contains(.recipe), let json = entry.content.recipeJSON {
+                do {
+                    if let id = entry.photoID,
+                       try onCatalogQueue({ try externalRecipeUnavailable(photoID: id) }) {
+                        throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
+                    }
+                    let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+                    let sets = try onCatalogQueue { try validatedSidecarStrokeSets(recipe) }
+                    if entry.stated.contains(.strokes) {
+                        // Rebuild from these exact validated disk bytes. An enqueue
+                        // can precede either a dependency disappearing or returning.
+                        if let painting = onCatalogQueue({
+                            sidecarStrokes(for: recipe, url: url, validatedStrokeSets: sets)
+                        }) {
+                            entry.content.strokesPayload = painting
+                            content.strokesPayload = painting
+                        } else {
+                            // An available painting beyond the existing size cap
+                            // keeps the current external payload, as before.
+                            entry.stated.remove(.strokes)
+                            entry.content.strokesPayload = nil
+                            content.strokesPayload = nil
+                        }
+                    }
+                } catch {
+                    entry.stated.insert(.strokes)
+                    refuse("the complete painting is unavailable (\(error))")
+                    continue
+                }
+            }
+
             let document: XMPSidecar.SidecarDocument
+            var sourceData: Data?
             do {
-                document = XMPSidecar.classify(try sidecarDataReader(path))
+                let data = try sidecarDataReader(path)
+                // An explicit reader can synchronously close the service. Do not
+                // inspect another staged entry or touch its closed catalog next.
+                if publicationIsClosed() { break }
+                sourceData = data
+                document = XMPSidecar.classify(data)
             } catch {
+                if publicationIsClosed() { break }
                 let failure = error as NSError
                 if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)
                     || (failure.domain == NSPOSIXErrorDomain && failure.code == ENOENT) {
+                    sourceData = nil
                     document = .absent
                 } else {
                     refuse("the existing sidecar could not be read (\(error.localizedDescription))")
@@ -1635,10 +2160,56 @@ final class CatalogService: @unchecked Sendable {
                         refuse("the existing document does not parse completely")
                         continue
                     }
+                    let futureExternalEdit = fresh.pipelineVersion > supportedPipelineVersion
+                        || Self.declaresFutureRecipeVersion(fresh.recipeJSON)
+                    if futureExternalEdit {
+                        do {
+                            try onCatalogQueue {
+                                guard let id = entry.photoID else {
+                                    throw CatalogError.invalid("the future portable edit has no catalog identity")
+                                }
+                                let bytes = sourceData ?? Data(existing.utf8)
+                                try markExternalRecipeUnavailable(photoID: id, observation: Self.sidecarDigest(bytes))
+                                try preserveSidecarConflict(for: url, photoID: id, data: bytes)
+                            }
+                        } catch {
+                            refuse("the future portable edit could not be marked unavailable and preserved (\(error))")
+                            continue
+                        }
+                        if !entry.stated.isDisjoint(with: [.recipe, .strokes]) {
+                            // Startup debt recovery precedes a folder scan. Never
+                            // mistake a skipped future recipe for a completed write,
+                            // or overwrite an embedded future recipe whose envelope
+                            // still declares this build's version. Keep the whole debt.
+                            refuse("the portable recipe or painting requires a newer build; its entire pending write remains owed")
+                            continue
+                        }
+                    }
+
                     // And a document from a build newer than this one keeps its own
                     // recipe: `writableFields` drops `.recipe` from what this write may
                     // state, so the re-seed above carries the file's recipe trio back
                     // out verbatim instead of the reduced copy this build decoded.
+                    if let id = entry.photoID, entry.stated.contains(.recipe) {
+                        do {
+                            try onCatalogQueue {
+                                let row = try store.photo(id: id)
+                                let priorDigest = try sidecarObservation(photoID: id)
+                                let moved = priorDigest.map { $0 != Self.sidecarDigest(sourceData ?? Data(existing.utf8)) }
+                                    ?? (row?.sidecarMTime != Self.modificationTime(of: path))
+                                if unresolvedSidecarConflicts.contains(url)
+                                    || ((moved || priorDigest == nil) && fresh.recipeJSON != entry.content.recipeJSON && fresh.recipeJSON != nil) {
+                                    unresolvedSidecarConflicts.insert(url)
+                                    try preserveSidecarConflict(for: url, photoID: id,
+                                        data: sourceData ?? Data(existing.utf8))
+                                    unresolvedSidecarConflicts.remove(url)
+                                }
+                            }
+                        } catch {
+                            refuse("the conflicting external edit could not be preserved (\(error))")
+                            continue
+                        }
+                    }
                     let honoured = XMPSidecar.writableFields(
                         entry.stated, documentVersion: fresh.pipelineVersion)
                     if honoured != entry.stated {
@@ -1647,6 +2218,24 @@ final class CatalogService: @unchecked Sendable {
                               + "is; the rating, flag and label still go in",
                               path.lastPathComponent, fresh.pipelineVersion,
                               supportedPipelineVersion)
+                    }
+                    if let id = entry.photoID, !honoured.contains(.recipe),
+                       let externalJSON = fresh.recipeJSON {
+                        do {
+                            let currentJSON = try onCatalogQueue {
+                                try readableCurrentRecipe(photoID: id).map {
+                                    try CanonicalJSON.canonicalRecipeJSON($0)
+                                }
+                            }
+                            // Publishing a rating or keyword does not import an
+                            // external edit. Keep the previous observation so the
+                            // next scan can still adopt it, or archive it before a
+                            // later recipe publication overwrites it.
+                            mayAdvanceObservation = Self.sameRecipeJSON(currentJSON, externalJSON)
+                        } catch {
+                            refuse("the catalog edit could not be checked before acknowledging the external document (\(error))")
+                            continue
+                        }
                     }
                     content = XMPSidecar.reseed(content, fields: honoured, onto: fresh)
                 }
@@ -1659,25 +2248,59 @@ final class CatalogService: @unchecked Sendable {
                 text = XMPSidecar.serialize(content)
             }
 
-            do {
-                // Atomic: a sidecar half-written by a crash is worse than no sidecar.
-                try Data(text.utf8).write(to: path, options: .atomic)
-                sidecarLock.lock()
-                reportedSidecarFailures.remove(url)
-                let settled = unsavedSidecars.removeValue(forKey: url.path) != nil
-                sidecarLock.unlock()
-                if settled {
-                    queue.async { [weak self] in self?.persistUnsavedSidecars() }
+            if entry.photoID != nil {
+                let bytes = Data(text.utf8)
+                if !prepared.isEmpty, bytes.count > preparedByteLimit - preparedByteCount {
+                    publishPrepared()
                 }
-                // And record the mtime we just gave it. This is half of what makes
-                // §15.5 rule 1 answerable: without a stamp taken on OUR writes, the very
-                // next scan sees a file newer than nothing and has to guess. `photoID`
-                // is nil only for a queue entry that predates knowing the row — the
-                // stamp is then taken on the next read instead.
-                if let id = entry.photoID, let stamp = Self.modificationTime(of: path) {
-                    queue.async { [store] in
-                        try? store.setSidecarMTime(stamp, photoID: id)
+                prepared.append((url, entry, bytes, sourceData, mayAdvanceObservation))
+                preparedByteCount += bytes.count
+                if prepared.count == 64 || preparedByteCount >= preparedByteLimit { publishPrepared() }
+                continue
+            }
+            // Preserve the source-only, unregistered compatibility path. It does
+            // not require a registered durable record to authorize publication.
+            publishPrepared()
+            do {
+                let publishedBytes = Data(text.utf8)
+                try onCatalogQueue {
+                    guard !sidecarsClosed else { return }
+                    if let sidecarJournalFailure { throw CatalogError.invalid(sidecarJournalFailure) }
+                    let owed = try UnsavedSidecarRecord.decodeValidated(store.metaValue(UnsavedSidecarRecord.metaKey))
+                    if entry.photoID != nil {
+                        guard let current = owed.first(where: { $0.photoPath == url.path }),
+                              current.photoID == entry.photoID,
+                              current.generation == entry.generation else {
+                            // Nil generations belong only to an explicit legacy
+                            // record, never to an absent/already-settled intent.
+                            return
+                        }
+                    } else if let generation = entry.generation,
+                              owed.first(where: { $0.photoPath == url.path })?.generation != generation {
+                        // A newer SQL commit owns a complete queued fieldset, or has
+                        // already published it. This older batch must not write at all.
+                        return
                     }
+                    // Serialize the atomic publication with catalog intent commits.
+                    // An earlier generation either writes before the newer commit,
+                    // or is rejected above after it; it cannot finish out of order.
+                    guard try Self.physicalSidecarBytes(at: path) == sourceData else {
+                        throw CatalogError.invalid("the portable document changed while publication was being prepared")
+                    }
+                    try publishedBytes.write(to: path, options: .atomic)
+                    if let id = entry.photoID, mayAdvanceObservation {
+                        if let stamp = Self.modificationTime(of: path) {
+                            try store.setSidecarMTime(stamp, photoID: id)
+                        }
+                        try store.setMetaValue(Self.sidecarObservationKey(id), Self.sidecarDigest(publishedBytes))
+                    }
+                    let settled = try store.settleSidecarIntent(photoPath: url.path, generation: entry.generation)
+                    sidecarLock.lock()
+                    reportedSidecarFailures.remove(url)
+                    if settled, unsavedSidecars[url.path]?.generation == entry.generation {
+                        unsavedSidecars.removeValue(forKey: url.path)
+                    }
+                    sidecarLock.unlock()
                 }
             } catch {
                 NSLog("Lumen: sidecar write failed for %@ — will retry — %@",
@@ -1695,18 +2318,26 @@ final class CatalogService: @unchecked Sendable {
             }
         }
 
+        publishPrepared()
+
         guard !failed.isEmpty else { return }
         sidecarLock.lock()
+        guard !sidecarsClosed else { sidecarLock.unlock(); return }
         // A newer entry can state only one field. Preserve the older debt in
         // fields it did not replace, with newer values winning and keyword deltas
         // composed in time order. Dropping the older entry loses unrelated edits.
         for (url, entry) in failed {
+            if entry.photoID != nil {
+                guard let current = unsavedSidecars[url.path], current.photoID == entry.photoID,
+                      current.generation == entry.generation else { continue }
+            } else if let generation = entry.generation,
+                      unsavedSidecars[url.path]?.generation != generation { continue }
             if let newer = pendingSidecars[url] {
                 var combined = XMPSidecar.reseed(newer.content, fields: newer.stated,
                                                 onto: entry.content)
                 combined.keywordEdit = entry.content.keywordEdit.then(newer.content.keywordEdit)
                 pendingSidecars[url] = (photoID: newer.photoID ?? entry.photoID,
-                    content: combined, stated: entry.stated.union(newer.stated))
+                    content: combined, stated: entry.stated.union(newer.stated), generation: newer.generation)
             } else {
                 pendingSidecars[url] = entry
             }
@@ -1715,13 +2346,17 @@ final class CatalogService: @unchecked Sendable {
             if let entry = pendingSidecars[url] {
                 unsavedSidecars[url.path] = UnsavedSidecarRecord(
                     photoPath: url.path, photoID: entry.photoID, stated: entry.stated,
-                    keywordEdit: entry.stated.contains(.keywords) ? entry.content.keywordEdit : nil)
+                    keywordEdit: entry.stated.contains(.keywords) ? entry.content.keywordEdit : nil,
+                    generation: entry.generation)
             }
         }
         let shouldSchedule = !sidecarFlushScheduled && !pendingSidecars.isEmpty
         if shouldSchedule { sidecarFlushScheduled = true }
         sidecarLock.unlock()
-        queue.async { [weak self] in self?.persistUnsavedSidecars() }
+        queue.async { [weak self] in
+            guard let self, !self.sidecarsClosed else { return }
+            self.persistUnsavedSidecars()
+        }
         if shouldSchedule {
             queue.asyncAfter(deadline: .now() + Self.sidecarRetryDelay) { [weak self] in
                 self?.flushSidecars()
@@ -1729,8 +2364,124 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
-    /// Whole seconds since the epoch, the denomination `photo.sidecar_mtime` and
-    /// `photo.file_mtime` are both stored in. Nil when the file is not there.
+    private static func sameRecipeJSON(_ lhs: String?, _ rhs: String?) -> Bool {
+        if lhs == rhs { return true }
+        guard let lhs, let rhs,
+              let first = try? JSONDecoder().decode(JSONValue.self, from: Data(lhs.utf8)),
+              let second = try? JSONDecoder().decode(JSONValue.self, from: Data(rhs.utf8)) else { return false }
+        // JSONValue keeps booleans distinct from numbers; NSDictionary bridges
+        // both through NSNumber and can equate a malformed 1 with a valid true.
+        return first == second
+    }
+
+    private static func declaresFutureRecipeVersion(_ json: String?) -> Bool {
+        guard let json,
+              let value = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)),
+              case .object(let object) = value,
+              case .number(let version)? = object["pipelineVersion"],
+              version.isFinite, version.rounded(.towardZero) == version else { return false }
+        // Compare in floating point without converting an untrusted value to Int.
+        // Even a finite integral declaration beyond Int.max is unsupported, rather
+        // than an overflow trap or a reason to decode the rest as an editable recipe.
+        return version > Double(supportedPipelineVersion)
+    }
+
+    private static func unavailableState(_ row: PhotoRow) -> StoredState {
+        var state = StoredState(catalogID: row.id, flag: row.flag, rating: row.rating,
+                                label: ColorLabel(storedName: row.label), recipe: nil, iso: row.iso)
+        state.recipeUnavailable = true
+        return state
+    }
+
+    private static func externalUnavailableKey(_ photoID: Int64) -> String {
+        "sidecar_unavailable_v1:\(photoID)"
+    }
+
+    private func externalRecipeUnavailable(photoID: Int64) throws -> Bool {
+        if unavailableExternalPhotoIDs.contains(photoID) { return true }
+        return try store.metaValue(Self.externalUnavailableKey(photoID)) != nil
+    }
+
+    private func markExternalRecipeUnavailable(photoID: Int64, observation: String) throws {
+        let first = unavailableExternalPhotoIDs.insert(photoID).inserted
+        do { try store.setMetaValue(Self.externalUnavailableKey(photoID), observation) }
+        catch {
+            if first {
+                report("The unavailable state for catalog photo \(photoID) could not be persisted (\(error)). This session remains blocked; a fresh scan is required after restart because storage did not retain the marker.")
+            }
+            throw error
+        }
+    }
+
+    private func requireAvailablePhotoOnQueue(photoID: Int64) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
+        if let sidecarJournalFailure { throw CatalogError.invalid(sidecarJournalFailure) }
+        guard try !externalRecipeUnavailable(photoID: photoID) else {
+            throw UnavailableRecipeError(reason: "the portable edit requires a newer build")
+        }
+        guard try store.photo(id: photoID) != nil else {
+            throw CatalogError.invalid("the photo is no longer in the catalog")
+        }
+        _ = try readableCurrentRecipe(photoID: photoID)
+    }
+
+    /// Always checked at an action boundary, including export without keywords.
+    func requireAvailablePhoto(photoID: Int64) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result { try self.requireAvailablePhotoOnQueue(photoID: photoID) })
+            }
+        }
+    }
+
+    private static func sidecarObservationKey(_ photoID: Int64) -> String {
+        SidecarIntentPublication.observationKey(photoID: photoID)
+    }
+
+    private static func sidecarDigest(_ data: Data) -> String {
+        "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// No schema change: older builds retain their timestamp and ignore this key.
+    /// Keys follow stable catalog photo IDs. A future hard-delete/reuse workflow
+    /// must remove or rebind this metadata with the row before it reuses an ID.
+    /// Read errors and malformed observations are refusals, never invented baselines.
+    /// Identity does not certify XMP validity or supported version: existing parse,
+    /// ownership and future-document write interlocks remain independently required.
+    private func sidecarObservation(photoID: Int64) throws -> String? {
+        guard let value = try store.metaValue(Self.sidecarObservationKey(photoID)) else { return nil }
+        let digest = value.dropFirst(7)
+        guard value.hasPrefix("sha256:"), digest.count == 64,
+              digest.allSatisfy({ $0.isASCII && $0.isHexDigit && ($0.isNumber || $0.isLowercase) }) else {
+            throw CatalogError.invalid("the sidecar byte observation cannot be read safely")
+        }
+        return value
+    }
+
+    private func readSidecarBytes(at path: URL) throws -> Data? {
+        do { return try sidecarDataReader(path) }
+        catch {
+            let failure = error as NSError
+            if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)
+                || (failure.domain == NSPOSIXErrorDomain && failure.code == ENOENT) { return nil }
+            throw error
+        }
+    }
+
+    /// Recheck physical bytes without invoking an external read adapter while the
+    /// catalog queue serializes final publication with new committed intents.
+    private static func physicalSidecarBytes(at path: URL) throws -> Data? {
+        do { return try Data(contentsOf: path) }
+        catch {
+            let failure = error as NSError
+            if (failure.domain == NSCocoaErrorDomain && failure.code == NSFileReadNoSuchFileError)
+                || (failure.domain == NSPOSIXErrorDomain && failure.code == ENOENT) { return nil }
+            throw error
+        }
+    }
+
+    /// Whole seconds since the epoch, retained for older catalogs/builds.
+    /// Byte observations independently detect equal-timestamp sidecar rewrites.
     static func modificationTime(of url: URL) -> Int64? {
         guard let attributes = try? FileManager.default
             .attributesOfItem(atPath: url.path),
@@ -2262,10 +3013,15 @@ final class CatalogService: @unchecked Sendable {
                 let record = UnsavedSidecarRecord(photoPath: url.path, photoID: entry.photoID,
                                                   stated: entry.stated,
                                                   keywordEdit: entry.stated.contains(.keywords)
-                                                    ? entry.content.keywordEdit : nil)
+                                                    ? entry.content.keywordEdit : nil,
+                                                  generation: entry.generation)
                 unsavedSidecars[url.path] = record
             }
-            let names = pendingSidecars.keys.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
+            // Recovery can refuse an unreadable recipe before it becomes a queued
+            // write. That durable debt is still unsaved and must be reported at quit.
+            let owedURLs = Set(pendingSidecars.keys).union(
+                unsavedSidecars.keys.map { URL(fileURLWithPath: $0) })
+            let names = owedURLs.map { Self.sidecarURL(for: $0).lastPathComponent }.sorted()
             sidecarLock.unlock()
             persistUnsavedSidecars()
             return names
@@ -2304,6 +3060,7 @@ extension CatalogService {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
                 continuation.resume(with: Result {
+                    try self.requireAvailablePhotoOnQueue(photoID: photoID)
                     try PhotoSnapshotDependencies.validate(recipe, blobs: self.blobs)
                     _ = try self.store.createNamedSnapshot(recipe, photoID: photoID, name: name)
                 })
@@ -2315,6 +3072,7 @@ extension CatalogService {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 continuation.resume(with: Result {
+                    try self.requireAvailablePhotoOnQueue(photoID: photoID)
                     let row = try self.store.namedSnapshot(id: id, photoID: photoID)
                     guard row.pipelineVersion <= supportedPipelineVersion else {
                         throw CatalogError.invalid("snapshot requires a newer pipeline")
@@ -2361,11 +3119,20 @@ extension CatalogService {
         }
     }
 
+    /// Preserve the relink API's typed refusal for unsupported edit payloads.
+    private func requireRelinkAvailablePhotoOnQueue(photoID: Int64) throws {
+        do { try requireAvailablePhotoOnQueue(photoID: photoID) }
+        catch is UnavailableRecipeError { throw OriginalRelinkError.unavailableEditPayload }
+    }
+
     func prepareOriginalRelink(photoID: Int64, candidateURL: URL) async throws -> OriginalRelinkPreparation {
         try await withCheckedThrowingContinuation { continuation in
             maintenance.async {
                 do {
-                    let target = try self.queue.sync { try self.store.originalRelinkTarget(photoID: photoID) }
+                    let target = try self.queue.sync {
+                        try self.requireRelinkAvailablePhotoOnQueue(photoID: photoID)
+                        return try self.store.originalRelinkTarget(photoID: photoID)
+                    }
                     guard target.original.pathExtension.lowercased() == candidateURL.pathExtension.lowercased() else {
                         throw OriginalRelinkError.mismatch
                     }
@@ -2409,6 +3176,7 @@ extension CatalogService {
             queue.async {
                 do {
                     let target = preparation.target
+                    try self.requireRelinkAvailablePhotoOnQueue(photoID: target.photoID)
                     let candidate = preparation.candidate
                     Self.forgetSiblings()
                     guard Self.sidecarURL(for: candidate.url) == preparation.sidecar,
@@ -2421,7 +3189,7 @@ extension CatalogService {
                     if let edit = try self.store.currentEdit(photoID: target.photoID), edit.pipelineVersion > supportedPipelineVersion {
                         throw OriginalRelinkError.unavailableEditPayload
                     }
-                    let recipe = try self.store.currentRecipe(photoID: target.photoID)
+                    let recipe = try self.readableCurrentRecipe(photoID: target.photoID)
                     if let recipe {
                         let refs = recipe.masks.flatMap(\.components).filter { $0.kind == .brush }
                             .compactMap(\.strokesRef).filter { !$0.isEmpty }
@@ -2456,7 +3224,7 @@ extension CatalogService {
                         if recipe != nil { fields.formUnion([.recipe, .strokes]) }
                         fields.formUnion(pending?.stated ?? [])
                         let extra = [UnsavedSidecarRecord(photoPath: target.original.path, photoID: target.photoID,
-                            stated: fields, keywordEdit: pending?.content.keywordEdit)]
+                            stated: fields, keywordEdit: pending?.content.keywordEdit, generation: UUID().uuidString)]
                         result = try self.store.relinkOriginal(target, candidate: candidate, additionalSidecarDebt: extra,
                             sidecarMTime: Self.modificationTime(of: preparation.sidecar))
                         if let pending {
@@ -2512,16 +3280,29 @@ extension CatalogService {
                     let rows = try self.store.photos(matching: query, folderID: folderID)
                     let paths = Dictionary(uniqueKeysWithValues: try self.store.folders().map { ($0.id, $0.path) })
                     var identities = Set<URL>()
-                    let entries = try rows.map { row -> SourceEntry in
+                    var unavailable: [String] = []
+                    let entries = try rows.compactMap { row -> SourceEntry? in
                         guard let path = paths[row.folderID] else { throw CatalogError.notFound("source folder") }
                         let url = URL(fileURLWithPath: path).appendingPathComponent(row.filename).standardizedFileURL.resolvingSymlinksInPath()
                         guard identities.insert(url).inserted else {
                             throw CatalogError.invalid("multiple catalog rows identify the same source file; repair overlapping folder registrations before opening this scope")
                         }
+                        if try self.externalRecipeUnavailable(photoID: row.id) {
+                            unavailable.append(row.filename)
+                            return nil
+                        }
+                        let recipe: Recipe?
+                        do { recipe = try self.readableCurrentRecipe(photoID: row.id) }
+                        catch is UnavailableRecipeError { unavailable.append(row.filename); return nil }
                         return SourceEntry(url: url, state: StoredState(catalogID: row.id,
                             flag: row.flag, rating: row.rating, label: ColorLabel(storedName: row.label),
-                            recipe: try self.store.currentRecipe(photoID: row.id), iso: row.iso,
+                            recipe: recipe, iso: row.iso,
                             sourceIdentity: SourceFileIdentity.read(url)))
+                    }
+                    if !unavailable.isEmpty {
+                        self.onFailure?("\(unavailable.count) photo(s) unavailable for editing/export because the stored or portable edit cannot be read safely: "
+                            + Self.unavailableRecipeNames(unavailable)
+                            + ". Original files and stored edits were preserved.")
                     }
                     continuation.resume(returning: entries)
                 } catch { continuation.resume(throwing: error) }

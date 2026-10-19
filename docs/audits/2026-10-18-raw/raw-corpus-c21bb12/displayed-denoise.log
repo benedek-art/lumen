@@ -1,0 +1,80 @@
+warning: 'lumen': Invalid Exclude '/Users/runner/work/lumen/lumen/Tests/LumenCoreTests/Proof/evidence': File not found.
+[0/1] Planning build
+Building for production...
+[0/3] Write swift-version--79AA4F9932D1E87A.txt
+Build complete! (0.43s)
+Test Suite 'Selected tests' started at 2026-10-18 18:13:42.548.
+Test Suite 'LumenPackageTests.xctest' started at 2026-10-18 18:13:42.551.
+Test Suite 'DisplayedDenoiseQualificationTests' started at 2026-10-18 18:13:42.551.
+Test Case '-[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes]' started.
+displayed-denoise fixture1 region=0 mode=off rmsCodes=0.0
+displayed-denoise fixture1 region=1 mode=off rmsCodes=0.0
+displayed-denoise fixture1 region=2 mode=off rmsCodes=0.0
+displayed-denoise fixture1 region=0 mode=imported-classic-default rmsCodes=0.7699240951746071
+displayed-denoise fixture1 region=1 mode=imported-classic-default rmsCodes=0.7211464090186881
+displayed-denoise fixture1 region=2 mode=imported-classic-default rmsCodes=0.7476287181837307
+displayed-denoise fixture1 region=0 mode=classic25 rmsCodes=0.9252775507669906
+displayed-denoise fixture1 region=1 mode=classic25 rmsCodes=0.8707716307281227
+displayed-denoise fixture1 region=2 mode=classic25 rmsCodes=0.9007788295737733
+displayed-denoise fixture1 region=0 mode=classic50 rmsCodes=1.1045243724407594
+displayed-denoise fixture1 region=1 mode=classic50 rmsCodes=1.0348297601377898
+displayed-denoise fixture1 region=2 mode=classic50 rmsCodes=1.0679236181623526
+displayed-denoise fixture1 region=0 mode=classic100 rmsCodes=1.3150828568141788
+displayed-denoise fixture1 region=1 mode=classic100 rmsCodes=1.2266217323062931
+displayed-denoise fixture1 region=2 mode=classic100 rmsCodes=1.266006329638628
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin25 rmsCodes=1.5489338290276622
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin25 rmsCodes=1.368679749737764
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin25 rmsCodes=1.4065475077008134
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin50 rmsCodes=1.6427003411800252
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin50 rmsCodes=1.4660877833689985
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin50 rmsCodes=1.499904145392171
+displayed-denoise fixture1 region=0 mode=AI-Apple-standin100 rmsCodes=2.0360220067448678
+displayed-denoise fixture1 region=1 mode=AI-Apple-standin100 rmsCodes=1.7728375544313895
+displayed-denoise fixture1 region=2 mode=AI-Apple-standin100 rmsCodes=1.8949027392932412
+displayed-denoise fixture1 region=0 mode=off-return rmsCodes=0.0
+displayed-denoise fixture1 region=1 mode=off-return rmsCodes=0.0
+displayed-denoise fixture1 region=2 mode=off-return rmsCodes=0.0
+displayed-denoise fixture2 region=0 mode=off rmsCodes=0.0
+displayed-denoise fixture2 region=1 mode=off rmsCodes=0.0
+displayed-denoise fixture2 region=2 mode=off rmsCodes=0.0
+displayed-denoise fixture2 region=0 mode=imported-classic-default rmsCodes=1.048983460482719
+displayed-denoise fixture2 region=1 mode=imported-classic-default rmsCodes=1.1580718018642693
+displayed-denoise fixture2 region=2 mode=imported-classic-default rmsCodes=1.3663932571348154
+displayed-denoise fixture2 region=0 mode=classic25 rmsCodes=1.1573825103433009
+displayed-denoise fixture2 region=1 mode=classic25 rmsCodes=1.2162126490645606
+displayed-denoise fixture2 region=2 mode=classic25 rmsCodes=1.4983687450930385
+displayed-denoise fixture2 region=0 mode=classic50 rmsCodes=1.348711034556973
+displayed-denoise fixture2 region=1 mode=classic50 rmsCodes=1.350688333539227
+displayed-denoise fixture2 region=2 mode=classic50 rmsCodes=1.7595761451912648
+displayed-denoise fixture2 region=0 mode=classic100 rmsCodes=1.6289184130067225
+displayed-denoise fixture2 region=1 mode=classic100 rmsCodes=1.524224416960991
+displayed-denoise fixture2 region=2 mode=classic100 rmsCodes=2.1022734998231916
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin0 rmsCodes=0.0
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin25 rmsCodes=1.1042826104425434
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin25 rmsCodes=1.1033818903820312
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin25 rmsCodes=1.5355565346879638
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin50 rmsCodes=1.3189438078190432
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin50 rmsCodes=1.4494806807444474
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin50 rmsCodes=1.9856841434861559
+displayed-denoise fixture2 region=0 mode=AI-Apple-standin100 rmsCodes=1.645204565955529
+displayed-denoise fixture2 region=1 mode=AI-Apple-standin100 rmsCodes=1.889538524254414
+displayed-denoise fixture2 region=2 mode=AI-Apple-standin100 rmsCodes=2.6005285059496686
+displayed-denoise fixture2 region=0 mode=off-return rmsCodes=0.0
+displayed-denoise fixture2 region=1 mode=off-return rmsCodes=0.0
+displayed-denoise fixture2 region=2 mode=off-return rmsCodes=0.0
+Test Case '-[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes]' passed (5.637 seconds).
+Test Suite 'DisplayedDenoiseQualificationTests' passed at 2026-10-18 18:13:48.188.
+	 Executed 1 test, with 0 failures (0 unexpected) in 5.637 (5.637) seconds
+Test Suite 'LumenPackageTests.xctest' passed at 2026-10-18 18:13:48.188.
+	 Executed 1 test, with 0 failures (0 unexpected) in 5.637 (5.637) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 18:13:48.188.
+	 Executed 1 test, with 0 failures (0 unexpected) in 5.637 (5.640) seconds
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests passed after 0.001 seconds.

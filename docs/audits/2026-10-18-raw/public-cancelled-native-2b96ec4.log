@@ -1,0 +1,4 @@
+2026-10-18T14:21:04.2692280Z Build complete! (507.96s)
+2026-10-18T14:21:28.6977690Z Test Suite 'All tests' started at 2026-10-18 14:21:05.741.
+2026-10-18T14:32:33.9247740Z ##[error]The operation was canceled.
+2026-10-18T14:32:38.2971960Z Terminate orphan process: pid (8668) (xctest)

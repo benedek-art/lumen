@@ -1,0 +1,6 @@
+warning: 'lumen-neutral-kelvin': Invalid Exclude '/workspace/scratch/2982a056243e/lumen-neutral-kelvin/Tests/LumenCoreTests/Proof/evidence': File not found.
+Building for production...
+[0/2] Write sources
+[1/2] Write swift-version--32D11F4AE80385AD.txt
+[3/3] Compiling LumenCore BlobStore.swift
+Build of target: 'LumenCore' complete! (68.03s)

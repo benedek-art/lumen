@@ -297,7 +297,10 @@ extension XMPSidecar {
     public static func writableFields(_ stated: SidecarStatedFields,
                                       documentVersion: Int) -> SidecarStatedFields {
         guard documentVersion > supportedPipelineVersion else { return stated }
-        return stated.subtracting(.recipe)
+        // The opaque painting belongs to the protected recipe. Replacing or
+        // clearing it with this build's reduced map can destroy that recipe's
+        // dependencies even while its JSON remains byte-for-byte intact.
+        return stated.subtracting([.recipe, .strokes])
     }
 }
 
@@ -408,7 +411,8 @@ public enum SidecarMerge {
     /// `catalog` as stored, `sidecar` as read from disk (nil when there is no sidecar or
     /// it did not parse), `sidecarMTime` the mtime of that file RIGHT NOW.
     public static func resolve(catalog: State, sidecar: SidecarContent?,
-                               sidecarMTime: Int64? = nil) -> Resolution {
+                               sidecarMTime: Int64? = nil,
+                               sidecarChanged: Bool? = nil) -> Resolution {
         guard let sidecar else {
             return Resolution(state: catalog, decision: .noSidecar)
         }
@@ -428,6 +432,10 @@ public enum SidecarMerge {
         // evidence is how a stale sidecar would overwrite a fresh catalog — the mirror
         // image of the bug being fixed. No stamp means rule 1.
         let moved: Bool = {
+            // A caller with a persisted identity of the actual document bytes can
+            // detect rewrites even when another application preserves the timestamp.
+            // Nil retains the legacy timestamp contract for existing callers.
+            if let sidecarChanged { return sidecarChanged }
             guard let last = catalog.sidecarMTime, let now = sidecarMTime else {
                 return false
             }
@@ -441,7 +449,8 @@ public enum SidecarMerge {
             return now != last
         }()
 
-        if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {
+        if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar,
+                                independentlyVerified: sidecarChanged == true) {
             if catalog.hasUnflushedEdits {
                 return Resolution(state: fillingIn(catalog, from: sidecar,
                                                    incoming: incoming),
@@ -504,9 +513,15 @@ public enum SidecarMerge {
     /// its mtime bumped — touched, re-synced, rewritten by another tool that left the
     /// lumen: namespace alone — never takes anything from the catalog.
     private static func recipeDiffers(catalog: State, incoming: Recipe?,
-                                      sidecar: SidecarContent) -> Bool {
+                                      sidecar: SidecarContent,
+                                      independentlyVerified: Bool = false) -> Bool {
         guard let incoming else { return false }
         guard let catalogRecipe = catalog.recipe else { return true }
+        if independentlyVerified {
+            // A changed document can carry a stale supplied fingerprint. Compare
+            // decoded render identities instead of trusting either metadata digest.
+            return !catalogRecipe.rendersSameAs(incoming)
+        }
         let theirs = sidecar.recipeFingerprint
             ?? (try? RecipeFingerprint.fingerprint(incoming))
         let ours = catalog.recipeFingerprint

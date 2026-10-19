@@ -35,6 +35,17 @@ public enum KernelLibrary {
     /// The shaper's domain → scene-linear. The twin of `LumenLog.decode`.
     static let logDecodeSource = LumenLog.decodeKernelSource
 
+    /// Matrix operations must retain small off-diagonal terms. The stock
+    /// CIColorMatrix took a diagonal-only path for a measured near-diagonal matrix.
+    /// Uniform float row products avoid that filter's matrix classification.
+    static let matrixRowsSource = """
+    kernel vec4 lumenMatrixRows(__sample image, vec3 redRow,
+                                             vec3 greenRow, vec3 blueRow) {
+        vec3 c = image.rgb;
+        return vec4(dot(redRow, c), dot(greenRow, c), dot(blueRow, c), image.a);
+    }
+    """
+
     /// Per-channel product of two images. Used for tone gain, vignette and any other
     /// "multiply by a field" stage; unlike CIMultiplyBlendMode it does not clamp,
     /// which matters when both sides are scene-referred and unbounded.
@@ -142,16 +153,42 @@ public enum KernelLibrary {
     /// Branchless, like every other kernel here: `positive` selects, and the unselected
     /// branch collapses to the identity on its own because its own amount term is zero.
     ///
-    /// Still missing versus the reference: the sky guard, which lifts the transmission
-    /// floor toward 0.9 where the frame is bright and flat. It needs the gradient and
-    /// log-luminance planes this kernel is not given. Tracked in BUILDING.md.
+    /// Sky evidence arrives in the reference's actual EV and central-difference
+    /// tensor units, independently of the encoded transmission guide.
+    static let dehazeLogEVSource = """
+    kernel vec4 lumenDehazeLogEV(__sample image, vec3 weights) {
+        float ev = log2(max(dot(image.rgb, weights) / 0.18, exp2(-20.0)));
+        return vec4(vec3(ev), 1.0);
+    }
+    """
+
+    /// Central-difference tensor on the exact EV plane. Four source taps replace
+    /// two convolution images plus a tensor image, without changing the stencil.
+    /// GENERAL kernel: samplerTransform preserves translated/source coordinates;
+    /// the caller declares the one-pixel neighbourhood and clamps frame borders.
+    static let dehazeCentralTensorSource = """
+    kernel vec4 lumenDehazeCentralTensor(sampler src) {
+        vec2 p = destCoord();
+        float xp = sample(src, samplerTransform(src, p + vec2(1.0, 0.0))).r;
+        float xm = sample(src, samplerTransform(src, p - vec2(1.0, 0.0))).r;
+        float yp = sample(src, samplerTransform(src, p + vec2(0.0, 1.0))).r;
+        float ym = sample(src, samplerTransform(src, p - vec2(0.0, 1.0))).r;
+        float gx = (xp - xm) * 0.5;
+        float gy = (yp - ym) * 0.5;
+        return vec4(gx * gx, gy * gy, gx * gy, 1.0);
+    }
+    """
+
     static let dehazeSource = """
-    kernel vec4 lumenDehaze(__sample image, __sample transmission, vec3 gain,
+    kernel vec4 lumenDehaze(__sample image, __sample transmission,
+                            __sample logEV, __sample gradient, vec3 gain,
                             vec3 lumaWeights, vec3 airlight, float airLuma,
                             float floorT, float amount) {
         vec3 c = image.rgb;
         float raw = transmission.r;
-        float t = max(raw, floorT);
+        float sky = clamp(smoothstep(0.5, 2.0, logEV.r)
+            * (1.0 - smoothstep(0.05, 0.35, gradient.r)), 0.0, 1.0);
+        float t = max(raw, mix(floorT, 0.9, sky));
 
         vec3 neutral = c * gain;
         float y0 = dot(neutral, lumaWeights);
@@ -166,7 +203,7 @@ public enum KernelLibrary {
 
         // Adding haze: more of it the FURTHER away the pixel reads, and low
         // transmission is what "far" looks like without a depth map.
-        float distant = clamp(1.0 - raw, 0.0, 1.0);
+        float distant = max(1.0 - raw, sky);
         float s = clamp(-min(amount, 0.0) * distant * 0.9, 0.0, 1.0);
         vec3 hazed = mix(c, airlight, s);
 
@@ -1102,6 +1139,7 @@ public enum KernelLibrary {
 
     public static let logEncode = make(logEncodeSource)
     public static let logDecode = make(logDecodeSource)
+    public static let matrixRows = make(matrixRowsSource)
     public static let multiply = make(multiplySource)
     public static let square = make(squareSource)
     public static let luminance = make(luminanceSource)
@@ -1129,6 +1167,8 @@ public enum KernelLibrary {
     public static let detailGainGated = make(detailGainGatedSource)
     public static let lumaRatio = make(lumaRatioSource)
     public static let tensorMagnitude = make(tensorMagnitudeSource)
+    public static let dehazeCentralTensor = makeGeneral(dehazeCentralTensorSource)
+    public static let dehazeLogEV = make(dehazeLogEVSource)
     public static let dehaze = make(dehazeSource)
     public static let addGlow = make(addGlowSource)
     public static let highlightEnergy = make(highlightEnergySource)
@@ -1185,6 +1225,7 @@ public enum KernelLibrary {
     public static var unavailableKernels: [String] {
         let all: [(String, CIKernel?)] = [
             ("logEncode", logEncode), ("logDecode", logDecode),
+            ("matrixRows", matrixRows),
             ("multiply", multiply), ("square", square), ("luminance", luminance),
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),
@@ -1199,7 +1240,8 @@ public enum KernelLibrary {
             // defect the comment on `unavailableMaskKernels` below describes.
             ("blendMask", blendMask), ("blendMaskMode", blendMaskMode),
             ("grain", grain), ("vignette", vignette),
-            ("detailGain", detailGain), ("dehaze", dehaze), ("addGlow", addGlow),
+            ("detailGain", detailGain), ("dehazeCentralTensor", dehazeCentralTensor),
+            ("dehazeLogEV", dehazeLogEV), ("dehaze", dehaze), ("addGlow", addGlow),
             ("sharpenDelta", sharpenDelta), ("lumaRatio", lumaRatio),
             ("subtract", subtract), ("thresholdMask", thresholdMask), ("detailRemap", detailRemap),
             ("structureTensor", structureTensor),

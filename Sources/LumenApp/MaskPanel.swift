@@ -204,10 +204,18 @@ struct MaskPanel: View {
     /// different kinds of question (docs/35 §4.1). Each is a surface now, and each says
     /// its own question beside its name, once.
     var body: some View {
-        switch role {
-        case .navigator: navigatorBody
-        case .adjustments: adjustmentsBody
+        Group {
+            switch role {
+            case .navigator: navigatorBody
+            case .adjustments: adjustmentsBody
+            }
         }
+        // Component and point-colour editors reuse their row positions. Pending
+        // numeric text must follow the chosen subtarget as well as the photograph.
+        .environment(\.sliderEditContext, SliderEditContext(
+            primary: state.primarySelection?.id, selection: state.selection,
+            maskID: state.activeMaskID, componentIndex: state.activeComponentIndex,
+            swatchIndex: selectedSwatch))
     }
 
     /// The pop-out: everything about MAKING the mask.
@@ -2857,17 +2865,33 @@ struct MaskPanel: View {
         return WhiteBalanceEngine.Neutral(kelvin: shown.temperature, tint: shown.tint)
     }
 
-    /// ONE control with two units, not two controls.
+    /// Whether a Kelvin mode can be seeded from an actual global white balance.
+    /// Relative shifts and leaving an existing Kelvin mode do not require this seed.
+    static func canSeedAbsoluteWhiteBalance(temp: Double?, tint: Double?,
+                                            asShot: WhiteBalanceEngine.Neutral?) -> Bool {
+        // Seeding writes both dimensions. One override does not establish the
+        // other; falling back to the reference would fabricate part of the seed.
+        return asShot != nil || (temp != nil && tint != nil)
+    }
+
+    private var canSeedAbsoluteWhiteBalance: Bool {
+        let raw = state.currentRecipe.develop.raw
+        return Self.canSeedAbsoluteWhiteBalance(temp: raw.temp, tint: raw.tint,
+                                                asShot: state.primaryAsShotNeutral)
+    }
+
+    /// Separate relative-shift and absolute-Kelvin modes.
     ///
     /// Every competitor's local white balance is a relative shift, which is correct
     /// until the global row moves and then silently wrong — a mask built to neutralize a
     /// tungsten window is a fixed nudge, so re-balancing the photograph re-lights the
-    /// window too. Kelvin says "this region is lit at 5600 K" and holds.
+    /// window too. Kelvin sets an absolute adaptation target. Adjacent global and
+    /// local adaptations compose to that target; intervening tone, presence, colour
+    /// and grading can still change the region, so this is not full-pipeline invariance.
     ///
-    /// The switch seeds from the balanced neutral in both directions, so flipping it
-    /// changes no pixel: the first thing a photographer does with a new control is press
-    /// it to find out what it is, and a control that jump-cuts the picture on that press
-    /// has taught them to distrust it.
+    /// Entering Kelvin starts at the current balanced neutral; leaving it restores
+    /// the stored relative shift. These are different corrections, not lossless unit
+    /// conversions, so switching an edited mode can change the picture.
     @ViewBuilder
     private func whiteBalanceRows(_ mask: Mask) -> some View {
         let neutral = balancedNeutral
@@ -2882,11 +2906,16 @@ struct MaskPanel: View {
                 selection: Binding(
                     get: { absolute },
                     set: { wantsAbsolute in
-                        guard wantsAbsolute != absolute else { return }
+                        // Read again when invoked: a source answer or a recipe edit
+                        // may have arrived since this view was evaluated.
+                        guard let current = self.mask(mask.id),
+                              wantsAbsolute != (current.adjust.kelvin != nil) else { return }
+                        guard !wantsAbsolute || canSeedAbsoluteWhiteBalance else { return }
+                        let currentNeutral = balancedNeutral
                         editMask(mask.id, key: "mask.wb.unit.\(mask.id)") { m in
                             if wantsAbsolute {
-                                m.adjust.kelvin = neutral.kelvin
-                                m.adjust.kelvinTint = neutral.tint
+                                m.adjust.kelvin = currentNeutral.kelvin
+                                m.adjust.kelvinTint = currentNeutral.tint
                             } else {
                                 m.adjust.kelvin = nil
                                 m.adjust.kelvinTint = nil
@@ -2895,6 +2924,10 @@ struct MaskPanel: View {
                     }),
                 marked: absolute ? [true] : [])
                 .frame(maxWidth: 140)
+                .disabled(!absolute && !canSeedAbsoluteWhiteBalance)
+                .help(!absolute && !canSeedAbsoluteWhiteBalance
+                      ? "Reading the photograph's white balance before Kelvin can be selected."
+                      : "Shift and Kelvin use separate settings. Switching modes can change the picture.")
         }
         .padding(.top, 2)
         if absolute {
@@ -2947,6 +2980,14 @@ struct MaskPanel: View {
                                      + "reach, for the selected area: positive is "
                                      + "magenta, negative green. Reset is the "
                                      + "photograph's own white balance.")
+            if let caption = WhiteBalanceTintCaption.text(
+                kelvin: mask.adjust.kelvin ?? neutral.kelvin,
+                tint: mask.adjust.kelvinTint ?? neutral.tint, atFullStrength: true) {
+                Text(caption)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         } else {
             adjustSlider(mask.id, "Temp", \.temp, -100...100,
                          help: "Warms or cools the selected area RELATIVE to however "
@@ -3005,9 +3046,15 @@ struct MaskPanel: View {
 
     private func wheel(_ id: String, _ t: String, _ p: WritableKeyPath<GradingWheels, Wheel>,
                        _ key: String) -> some View {
-        LumenColorWheel(title: t, hue: wheelValue(id, p, \.hue, key + ".hue"),
+        let state = self.state
+        return LumenColorWheel(title: t, hue: wheelValue(id, p, \.hue, key + ".hue"),
                         sat: wheelValue(id, p, \.sat, key + ".sat"),
-                        lum: wheelValue(id, p, \.lum, key + ".lum"))
+                        lum: wheelValue(id, p, \.lum, key + ".lum"),
+                        dragContext: {
+                            ColorWheelTargetContext(primary: state.primarySelection?.id,
+                                                    selection: state.selection, targetMaskID: id,
+                                                    activeMaskID: state.activeMaskID, wheelRole: key)
+                        })
     }
 
     private func wheelValue(_ id: String, _ p: WritableKeyPath<GradingWheels, Wheel>,

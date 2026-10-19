@@ -224,10 +224,11 @@ final class MaskWhiteBalanceTests: XCTestCase {
         XCTAssertEqual(out[0, 0].b, image[0, 0].b, accuracy: 1e-12)
     }
 
-    func testTheGlobalRowMovesAndTheMaskedRegionDoesNot() {
-        // The end-to-end statement of the headline claim, in pixels rather than in
-        // matrices: the same mask over two different global temperatures, compared
-        // against the two pictures the global row alone produces.
+    func testGlobalAndAbsoluteLocalAdaptationsCancelWithNoInterveningStages() {
+        // The matrix-composition property in Float32 pixels. This deliberately
+        // connects S6 directly to S11; it does not certify the complete render graph.
+        // S7 tone, S8 presence, S9 colour and S10 grading can act between these two
+        // adaptations, and nonlinear intervening edits need not commute with them.
         var mask = Mask(id: "m", name: "window")
         mask.adjust.kelvin = 5600
         let image = ImageBuffer(width: 2, height: 2) { _, _ in RGB(0.4, 0.35, 0.3) }
@@ -238,9 +239,9 @@ final class MaskWhiteBalanceTests: XCTestCase {
             var recipe = Recipe()
             recipe.develop.raw.temp = global
             let plan = RenderPlan(recipe: recipe, asShotKelvin: 5200, asShotTint: 0)
-            // The picture arriving at the local stage is the S6 output, which is what
-            // `applyMasks` is handed in the graph. Built from the engine rather than
-            // read off `plan.linear`, whose matrix has the exposure gain fused into it.
+            // Feed only S6 output to isolate adaptation composition. The complete
+            // graph supplies S10 output to applyMasks after its intervening stages.
+            // Build the matrix directly to exclude the exposure gain fused into S6.
             let wb = WhiteBalanceEngine(asShotKelvin: 5200, asShotTint: 0,
                                         targetKelvin: global, targetTint: nil,
                                         space: space).matrix
@@ -257,7 +258,7 @@ final class MaskWhiteBalanceTests: XCTestCase {
         XCTAssertEqual(masked[0].r, masked[1].r, accuracy: 1e-6)
         XCTAssertEqual(masked[0].g, masked[1].g, accuracy: 1e-6)
         XCTAssertEqual(masked[0].b, masked[1].b, accuracy: 1e-6,
-                       "5600 K is 5600 K whatever the global row was dragged to")
+                       "the two adaptations compose when no intervening stage changes the pixel")
     }
 
     // MARK: - Wire format

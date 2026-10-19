@@ -1,0 +1,18 @@
+Test Suite 'Selected tests' started at 2026-10-18 21:19:32.347
+Test Suite 'SidecarBatchSettlementTests' started at 2026-10-18 21:19:32.348
+Test Case 'SidecarBatchSettlementTests.testExactPathPhotoIDAndOptionalGenerationMatchIncludingExplicitLegacyNil' started at 2026-10-18 21:19:32.348
+Test Case 'SidecarBatchSettlementTests.testExactPathPhotoIDAndOptionalGenerationMatchIncludingExplicitLegacyNil' passed (0.037 seconds)
+Test Case 'SidecarBatchSettlementTests.testMalformedJournalAndDuplicatePublicationPathsRefuseWithoutObservationOrDebtLoss' started at 2026-10-18 21:19:32.386
+Test Case 'SidecarBatchSettlementTests.testMalformedJournalAndDuplicatePublicationPathsRefuseWithoutObservationOrDebtLoss' passed (0.128 seconds)
+Test Case 'SidecarBatchSettlementTests.testNewerIntentCannotBeObservedOrSettledByPreparedOlderPublication' started at 2026-10-18 21:19:32.514
+Test Case 'SidecarBatchSettlementTests.testNewerIntentCannotBeObservedOrSettledByPreparedOlderPublication' passed (0.025 seconds)
+Test Case 'SidecarBatchSettlementTests.testObservationAndJournalSQLFailuresRollBackWholeGroupAndRetainWrittenFilesForRetry' started at 2026-10-18 21:19:32.539
+Test Case 'SidecarBatchSettlementTests.testObservationAndJournalSQLFailuresRollBackWholeGroupAndRetainWrittenFilesForRetry' passed (0.061 seconds)
+Test Case 'SidecarBatchSettlementTests.testPartialGroupJournalUpsertFailureRollsBackObservationsAndPreservesExactRemainder' started at 2026-10-18 21:19:32.601
+Test Case 'SidecarBatchSettlementTests.testPartialGroupJournalUpsertFailureRollsBackObservationsAndPreservesExactRemainder' passed (0.027 seconds)
+Test Case 'SidecarBatchSettlementTests.testUnacknowledgedExternalRecipeKeepsPreviousObservationWhileSettlingPublication' started at 2026-10-18 21:19:32.628
+Test Case 'SidecarBatchSettlementTests.testUnacknowledgedExternalRecipeKeepsPreviousObservationWhileSettlingPublication' passed (0.026 seconds)
+Test Suite 'SidecarBatchSettlementTests' passed at 2026-10-18 21:19:32.654
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.305 (0.305) seconds
+Test Suite 'Selected tests' passed at 2026-10-18 21:19:32.654
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.305 (0.305) seconds

@@ -1,0 +1,5 @@
+1000x500 30px horizontal: brush=10.000000000000009px final=30.00000000000003px; expected rope=20px
+1000x500 30px vertical: brush=20.000000000000018px final=30.00000000000003px; expected rope=20px
+15px jitter horizontal brush=0.0px vertical brush=5.000000000000004px; both inside20px rope
+Diagnostic PASS: defect reproduced; square, disabled and final endpoint controls PASS
+RED: equal physical travel does not leave equal long-edge rope length

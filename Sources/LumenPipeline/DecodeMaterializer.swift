@@ -11,14 +11,12 @@
 // This file exists SEPARATELY from that one so the part that can go silently wrong can
 // be tested without a camera RAW.
 //
-// WHAT THIS FILE DOES NOT DECIDE, said here because the boundary moved: whether a given
-// decode is WORTH materializing. This type answers "can these pixels be held" — the
-// shape, the byte cost, the colour space — and `AppleRawSource.decode` answers "should
-// they be", because only the cache knows whether the key has ever come back. That
-// separation exists because the size-only rule was silently wrong for every caller that
-// decodes at `scaleFactor: 1.0` and reads five pixels: four eyedropper taps, the export
-// path and the HDR pair all paid a full-sensor demosaic and a quarter-gigabyte
-// allocation for a result nobody read twice.
+// Every eligible decode crosses this same precision boundary on its FIRST use.
+// A lazy first native image and a half-float cached image are not interchangeable:
+// hosted public RAWs reproduced history-dependent pixels even with denoise Off.
+// Deterministically oversized legacy decodes remain lazy for their entire cache
+// lifetime. An eligible allocation/render failure instead returns nil for retry.
+// RAW9 always requires its existing explicit colour-evaluation boundary.
 //
 // WHAT CAN GO SILENTLY WRONG. The whole contract of the RAW stage is that what leaves it
 // is scene-referred and keeps the headroom above display white — Apple's picture-forming
@@ -49,33 +47,9 @@ enum DecodeMaterializer {
         case raw9LinearSRGB
     }
 
-    /// Above this, decline the allocation. Ordinary decoders may stay lazy; a
-    /// required RAW9 colour boundary must fail instead.
-    ///
-    /// This was `DraftLadder.interactiveLongEdgeCeiling` (4096) under the claim that
-    /// every size that REPEATS sits at or below it — and the claim died the day the
-    /// zoomed settle went native (docs/32 owner round: a 7008 px ARW at 1142% was a
-    /// 4096 proxy blown up into mush, because 4096 was also the largest ask). The
-    /// zoomed settle now asks for the source's own long edge, it repeats on every
-    /// edit-at-zoom, and above this line `AppleRawSource` would cache the lazy
-    /// `CIRAWFilter.outputImage` — the INTENTION to decode rather than its pixels —
-    /// so every one of those settles would pay a full RAW demosaic again (measured at
-    /// 457 ms on the owner's machine, against an 8.5 ms materialized draft). That is
-    /// verbatim the defect this type exists to fix.
-    ///
-    /// So the limit covers any real sensor (a 150 MP back is 14204 px), and the cost
-    /// moves where it belongs: RESIDENCY, which `AppleRawSource.evictDecodes` bounds —
-    /// one budget-exempt native "inspection" entry per source, newest wins, everything
-    /// else under the byte budget exactly as before. An export at 60 MP now
-    /// materializes a half-gigabyte buffer it uses once; that is a copy (~tens of ms)
-    /// bought with the demosaic it was already paying, and the entry is evicted by
-    /// the same rule the moment anything else native lands.
-    ///
-    /// …AND THE RESIDENCY IT MOVED THE COST TO IS BOUNDED IN TWO PLACES NOW, because
-    /// this one line was doing both jobs and could only do one. See
-    /// `DraftLadder.materializedDecodeByteCeiling` for the byte half and
-    /// `AppleRawSource.evictDecodes` / `RenderCoordinator.trimDecodeResidency` for the
-    /// cache half. A long edge is a shape; what is being spent is memory.
+    /// Existing long-edge cap, unchanged. Byte admission is bounded separately by
+    /// DraftLadder.materializedDecodeByteCeiling (512 MiB). Oversized legacy
+    /// graphs remain lazy; RAW9 cannot bypass its required colour boundary.
     static let longEdgeLimit = DraftLadder.inspectionLongEdgeCeiling
 
     /// Half-float RGBA — four channels at two bytes. Named rather than spelled `8` at
@@ -124,61 +98,123 @@ enum DecodeMaterializer {
         ])
     }()
 
+    typealias Plane = (image: CIImage, bytes: Int)
+    typealias Materializer = (CIImage, EvaluationSpace) -> Plane?
+
+    /// Shared deterministic admission check. Refusal here must not be confused
+    /// with a transient allocation/GPU failure after an image was admitted.
+    static func isEligible(_ image: CIImage) -> Bool {
+        let extent = image.extent
+        guard !extent.isInfinite, extent.minX.isFinite, extent.minY.isFinite,
+              extent.width.isFinite, extent.height.isFinite,
+              extent.width >= 1, extent.height >= 1,
+              Swift.max(extent.width, extent.height) <= CGFloat(longEdgeLimit)
+        else { return false }
+        return DraftLadder.mayHoldAsPixels(width: Int(extent.width.rounded()),
+            height: Int(extent.height.rounded()), bytesPerPixel: bytesPerPixel)
+    }
+
+    /// A required RAW9 boundary can never fall back to a lazy image. Legacy images
+    /// too large for the existing caps keep their old lazy availability; all others
+    /// either return canonical pixels or fail without publishing alternate pixels.
+    static func prepareForCache(_ image: CIImage, evaluatingIn evaluation: EvaluationSpace,
+                                materializer: Materializer) -> Plane? {
+        let extent = image.extent
+        guard !extent.isInfinite, extent.minX.isFinite, extent.minY.isFinite,
+              extent.width.isFinite, extent.height.isFinite,
+              extent.width >= 1, extent.height >= 1 else { return nil }
+        guard isEligible(image) else {
+            switch evaluation {
+            case .pipeline: return (image, 0)
+            case .raw9LinearSRGB: return nil
+            }
+        }
+        return materializer(image, evaluation)
+    }
+
+    /// Opt-in failure observations for qualification. Production's existing wrapper
+    /// supplies nil: no logging, mutable hooks, retries or alternate pixel path.
+    enum MaterializationRenderPhase: String { case startTask, waitUntilCompleted }
+    enum MaterializationFailure {
+        case contextUnavailable
+        case admissionRefused
+        case workingColorSpaceUnavailable
+        // Core Video's CVReturn is the signed 32-bit status value.
+        case pixelBufferCreation(status: Int32)
+        case missingPixelBuffer
+        case renderTask(phase: MaterializationRenderPhase, error: NSError)
+    }
+
     /// `image`'s pixels and what they weigh, or nil when the boundary cannot be made.
     ///
-    /// Ordinary decoders may remain lazy on nil. A RAW9 caller MUST fail closed:
-    /// its unevaluated image is not safe to hand to the pipeline's working context.
+    /// Nil alone does not classify a refusal: prepareForCache separates deterministic
+    /// oversize from eligible allocation/render failure before calling this method.
+    /// A RAW9 caller must always fail closed when its boundary cannot be established.
     static func materialize(_ image: CIImage, evaluatingIn evaluation: EvaluationSpace = .pipeline)
+        -> (image: CIImage, bytes: Int)? {
+        materialize(image, evaluatingIn: evaluation, reportFailure: nil)
+    }
+
+    /// Same implementation as the two-argument entry point; observers run ONLY at
+    /// its existing failure returns. The Materializer typealias remains unchanged.
+    static func materialize(_ image: CIImage, evaluatingIn evaluation: EvaluationSpace,
+                            reportFailure: ((MaterializationFailure) -> Void)?)
         -> (image: CIImage, bytes: Int)? {
         let renderContext: CIContext
         switch evaluation {
         case .pipeline: renderContext = context
         case .raw9LinearSRGB:
-            guard let raw9Context else { return nil }
+            guard let raw9Context else {
+                reportFailure?(.contextUnavailable)
+                return nil
+            }
             renderContext = raw9Context
         }
+        guard isEligible(image) else {
+            reportFailure?(.admissionRefused)
+            return nil
+        }
+        guard let working = workingSpace else {
+            reportFailure?(.workingColorSpaceUnavailable)
+            return nil
+        }
         let extent = image.extent
-        guard !extent.isInfinite, extent.width >= 1, extent.height >= 1,
-              Swift.max(extent.width, extent.height) <= CGFloat(longEdgeLimit),
-              let working = workingSpace
-        else { return nil }
-
         let width = Int(extent.width.rounded())
         let height = Int(extent.height.rounded())
-        // THE COST, not the shape. `longEdgeLimit` above admits a 16384-square decode,
-        // which is 1.4 GB in one IOSurface allocation — and admits it for the same
-        // reason it admits a 16000 × 2000 panorama at 256 MB, because a long edge
-        // cannot tell those apart. The trade this whole type exists to make is memory
-        // against a repeated demosaic, so the bound has to be denominated in memory.
-        // The rule and its argument live in LumenCore, where they have tests.
-        guard DraftLadder.mayHoldAsPixels(width: width, height: height,
-                                          bytesPerPixel: bytesPerPixel)
-        else { return nil }
         var created: CVPixelBuffer?
         let attributes: [CFString: Any] = [
             // IOSurface-backed, so the buffer stays on the GPU and the graph that reads
             // it does not pay a CPU round trip for the privilege of not re-decoding.
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
         ]
-        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+        let creationStatus = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
                                   kCVPixelFormatType_64RGBAHalf,
                                   attributes as CFDictionary,
-                                  &created) == kCVReturnSuccess,
-              let buffer = created
-        else { return nil }
+                                  &created)
+        guard creationStatus == kCVReturnSuccess else {
+            reportFailure?(.pixelBufferCreation(status: creationStatus))
+            return nil
+        }
+        guard let buffer = created else {
+            reportFailure?(.missingPixelBuffer)
+            return nil
+        }
 
         let destination = CIRenderDestination(pixelBuffer: buffer)
         destination.colorSpace = working
         destination.isClamped = false
+        var taskPhase = MaterializationRenderPhase.startTask
         do {
             // `from` is in source coordinates; `at` is in the zero-origin buffer.
             // Passing a nonzero source extent as the buffer's render bounds kept
             // the metadata but wrote no pixels when that rectangle missed it.
             let task = try renderContext.startTask(toRender: image, from: extent,
                                                    to: destination, at: .zero)
+            taskPhase = .waitUntilCompleted
             _ = try task.waitUntilCompleted()
         } catch {
             // A required colour boundary is not established by a failed GPU task.
+            reportFailure?(.renderTask(phase: taskPhase, error: error as NSError))
             return nil
         }
         // Named explicitly on the way back in too, or Core Image assumes sRGB for a

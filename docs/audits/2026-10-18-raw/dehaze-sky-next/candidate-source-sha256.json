@@ -1,0 +1,6 @@
+{
+  "Sources/LumenPipeline/Kernels.swift": "daf3f9f7570b0cde46bd6bb6fb81cd49be81fa42335b79d87dde5cecdc3f0efa",
+  "Sources/LumenPipeline/RenderGraph.swift": "9168a53b06186e5709aad5ebecb72db2ee0be3f4eea800dd72678822f7b4bc42",
+  "Tests/LumenPipelineTests/DehazeCurrentDivergenceCharacterizationTests.swift": "5b8f49ebb6a0bb7c4c562c8edf4af51f0359539ad1a7d79571339e2c1881b029",
+  "Tests/LumenPipelineTests/DehazeSkyFieldTests.swift": "6a736a6b632415187e8a9b6467037840af422243813547a022e6a82a76783d0e"
+}

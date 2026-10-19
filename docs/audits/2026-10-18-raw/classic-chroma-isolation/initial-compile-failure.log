@@ -1,0 +1,19 @@
+/workspace/scratch/2982a056243e/lumen-chroma-isolation/docs/audits/2026-10-18-raw/classic-chroma-isolation/executed-harness.swift:134:29: error: ambiguous use of 'init'
+132 |             zip(previous.pixels, result.pixels).reduce(0.0) { max($0, abs(Double($1.0) - Double($1.1))) }
+133 |         }
+134 |         let fields = [name, String(Int(iso)), String(seed), inputHash, hash(result),
+    |                             `- error: ambiguous use of 'init'
+135 |             String(config.luma), String(config.chroma), String(config.hotPixels), String(config.lumaDetail),
+136 |             String(config.lumaContrast), String(config.colorDetail), String(config.colorSmoothness),
+
+Swift.String.init:2:19: note: found this candidate in module 'Swift'
+1 | struct String {
+2 | @inlinable public init<T>(_ value: T) where T : LosslessStringConvertible}
+  |                   `- note: found this candidate in module 'Swift'
+3 | 
+
+Swift.String.init:2:8: note: found this candidate in module 'Swift'
+1 | struct String {
+2 | public init<T>(_ value: T, radix: Int = 10, uppercase: Bool = false) where T : BinaryInteger}
+  |        `- note: found this candidate in module 'Swift'
+3 | 

@@ -1974,6 +1974,68 @@ public final class CatalogStore {
         }
     }
 
+    /// Commit catalog mutations and their portable publication intent together.
+    /// Existing mutation helpers nest through SQLite savepoints on this connection.
+    public func withSidecarIntent<T>(_ mutation: () throws -> (T, [UnsavedSidecarRecord])) throws
+        -> (value: T, debt: [UnsavedSidecarRecord]) {
+        try db.transaction {
+            let (value, intents) = try mutation()
+            var debt = try UnsavedSidecarRecord.decodeValidated(metaValue(UnsavedSidecarRecord.metaKey))
+            for intent in intents {
+                if let index = debt.firstIndex(where: { $0.photoPath == intent.photoPath }) {
+                    debt[index] = debt[index].merged(with: intent)
+                } else { debt.append(intent) }
+            }
+            try setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode(debt))
+            return (value, debt)
+        }
+    }
+
+    /// A completed older flush cannot acknowledge a newer committed edit.
+    @discardableResult
+    public func settleSidecarIntent(photoPath: String, generation: String?) throws -> Bool {
+        try db.transaction {
+            var debt = try UnsavedSidecarRecord.decodeValidated(metaValue(UnsavedSidecarRecord.metaKey))
+            guard let index = debt.firstIndex(where: { $0.photoPath == photoPath }),
+                  debt[index].generation == generation else { return false }
+            debt.remove(at: index)
+            try setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode(debt))
+            return true
+        }
+    }
+
+    /// Observe and settle a bounded group of completed physical publications.
+    /// The caller serializes physical generation checks/writes with intent commits;
+    /// this transaction independently rechecks exact identities before observing.
+    /// Any SQL failure leaves every observation and owed record in this group intact.
+    public func settleSidecarIntents(_ publications: [SidecarIntentPublication]) throws
+        -> (settled: [SidecarIntentPublication], debt: [UnsavedSidecarRecord]) {
+        try db.transaction {
+            let debt = try UnsavedSidecarRecord.decodeValidated(metaValue(UnsavedSidecarRecord.metaKey))
+            guard Set(publications.map(\.photoPath)).count == publications.count else {
+                throw CatalogError.invalid("duplicate sidecar publication path")
+            }
+            let byPath = Dictionary(uniqueKeysWithValues: debt.map { ($0.photoPath, $0) })
+            let matched = publications.filter { publication in
+                guard let current = byPath[publication.photoPath] else { return false }
+                return current.photoID == publication.photoID && current.generation == publication.generation
+            }
+            guard !matched.isEmpty else { return ([], debt) }
+            for publication in matched {
+                if let id = publication.photoID, let observation = publication.observation {
+                    if let stamp = observation.modificationTime {
+                        try setSidecarMTime(stamp, photoID: id)
+                    }
+                    try setMetaValue(SidecarIntentPublication.observationKey(photoID: id), observation.digest)
+                }
+            }
+            let settledPaths = Set(matched.map(\.photoPath))
+            let remaining = debt.filter { !settledPaths.contains($0.photoPath) }
+            try setMetaValue(UnsavedSidecarRecord.metaKey, UnsavedSidecarRecord.encode(remaining))
+            return (matched, remaining)
+        }
+    }
+
     public func catalogUUID() throws -> String {
         if let existing = try metaValue("catalog_uuid") { return existing }
         let generated = UUID().uuidString
@@ -2233,21 +2295,12 @@ public final class CatalogStore {
                                sidecarMTime: Int64? = nil) throws -> OriginalRelinkResult {
         try db.transaction {
             try self.validateOriginalRelink(target, candidate: candidate)
-            var debt: [UnsavedSidecarRecord] = []
-            if let raw = try self.metaValue(UnsavedSidecarRecord.metaKey) {
-                let supportedFields: SidecarStatedFields = [.rating, .flag, .label, .recipe, .strokes, .keywords]
-                guard let objects = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [[String: Any]],
-                      objects.allSatisfy({ object in
-                          guard Set(object.keys).isSubset(of: ["photoPath", "photoID", "stated", "keywordEdit"]) else { return false }
-                          if let edit = object["keywordEdit"] as? [String: Any], !Set(edit.keys).isSubset(of: ["added", "removed"]) { return false }
-                          return true
-                      }),
-                      let parsed = try? JSONDecoder().decode([UnsavedSidecarRecord].self, from: Data(raw.utf8)),
-                      Set(parsed.map { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) }).count == parsed.count,
-                      parsed.allSatisfy({ $0.stated & ~supportedFields.rawValue == 0 }) else {
-                    throw OriginalRelinkError.unsafeDebt
-                }
-                debt = parsed
+            let debtValue = try self.metaValue(UnsavedSidecarRecord.metaKey)
+            var debt: [UnsavedSidecarRecord]
+            do { debt = try UnsavedSidecarRecord.decodeValidated(debtValue) }
+            catch { throw OriginalRelinkError.unsafeDebt }
+            guard Set(debt.map { IngestLocation.fileIdentity(of: URL(fileURLWithPath: $0.photoPath)) }).count == debt.count else {
+                throw OriginalRelinkError.unsafeDebt
             }
             for record in additionalSidecarDebt {
                 guard record.photoID == target.photoID,
@@ -2940,6 +2993,17 @@ public final class CatalogStore {
     }
 
     // MARK: - Culling state
+
+    /// Save the complete culling gesture together. A later field's failure must not
+    /// leave an earlier field committed without a corresponding portable write.
+    public func setCullingState(flag: PhotoFlag, rating: Int, label: ColorLabel?,
+                                photoID: Int64) throws {
+        try db.transaction {
+            try db.run("UPDATE photo SET flag = ?, rating = ?, label = ? WHERE id = ?;",
+                       [.integer(Int64(flag.rawValue)), .int(min(5, max(0, rating))),
+                        .optionalText(label?.rawValue), .integer(photoID)])
+        }
+    }
 
     /// The decision write path: one transaction per action, never on the input path.
     public func setFlag(_ flag: PhotoFlag, photoID: Int64) throws {
@@ -5189,6 +5253,11 @@ public final class CatalogStore {
     public func setMetaValue(_ key: String, _ value: String?) throws {
         throw CatalogError.unavailable
     }
+    public func withSidecarIntent<T>(_ mutation: () throws -> (T, [UnsavedSidecarRecord])) throws
+        -> (value: T, debt: [UnsavedSidecarRecord]) { throw CatalogError.unavailable }
+    public func settleSidecarIntent(photoPath: String, generation: String?) throws -> Bool { throw CatalogError.unavailable }
+    public func settleSidecarIntents(_ publications: [SidecarIntentPublication]) throws
+        -> (settled: [SidecarIntentPublication], debt: [UnsavedSidecarRecord]) { throw CatalogError.unavailable }
     public func catalogUUID() throws -> String { throw CatalogError.unavailable }
     public func labelName(_ label: ColorLabel) throws -> String {
         throw CatalogError.unavailable
@@ -5336,6 +5405,10 @@ public final class CatalogStore {
         throw CatalogError.unavailable
     }
 
+    public func setCullingState(flag: PhotoFlag, rating: Int, label: ColorLabel?,
+                                photoID: Int64) throws {
+        throw CatalogError.unavailable
+    }
     public func setRating(_ rating: Int, photoID: Int64) throws {
         throw CatalogError.unavailable
     }

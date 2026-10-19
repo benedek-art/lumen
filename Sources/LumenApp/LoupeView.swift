@@ -1946,8 +1946,11 @@ struct LoupeView: View {
                                state.activeMaskID = id
                                state.activeComponentIndex = 0
                                state.flashMaskOverlay(id)
-                           }) { edit in
-                    MaskCanvas.apply(edit, in: state)
+                           }, editContext: MaskCanvasEditContext(
+                               photo: photo, geometry: recipe.develop.geometry,
+                               maskID: target.maskID, index: target.index,
+                               component: target.component)) { edit, context in
+                    MaskCanvas.apply(edit, context: context, in: state)
                 }
                 .frame(width: drawn.width, height: drawn.height)
             }
@@ -1970,20 +1973,17 @@ struct LoupeView: View {
                            selectedStroke: healTool.selectedStrokeIndex,
                            brush: healTool.brush,
                            brushSize: healTool.radius * 2,
-                           paint: { points in state.addHealStroke(points: points) },
                            selectStroke: { index in
                                HealTool.shared.selectedStrokeIndex = index
                                HealTool.shared.selectedSpotID = nil
                            },
-                           add: { x, y in state.addSpot(sourceX: x, sourceY: y) },
                            select: { id in
                                HealTool.shared.selectedSpotID = id
                                HealTool.shared.selectedStrokeIndex = nil
                            },
-                           drag: { spot, _ in
-                               state.updateSpot(id: spot.id,
-                                                coalescingKey: "heal.drag.\(spot.id)",
-                                                label: "Move Spot") { $0 = spot }
+                           editContext: HealCanvasEditContext(photo: photo, recipe: recipe),
+                           commit: { edit, context in
+                               state.applyHealCanvasEdit(edit, context: context)
                            })
                     .frame(width: drawn.width, height: drawn.height)
             }
@@ -2142,6 +2142,18 @@ struct LoupeView: View {
                 StraightenOverlayView(
                     currentAngle: geometry.angle,
                     isFlipped: geometry.flipH,
+                    sourceSize: source,
+                    dragContext: {
+                        StraightenDrawContext(photoID: photo.id,
+                            primaryID: state.primarySelection?.id,
+                            targetIDs: state.editTargetIDs,
+                            sourceSize: state.sourceFrameSize ?? model.image.map {
+                                CGSize(width: $0.width, height: $0.height)
+                            } ?? source,
+                            sourceRevision: state.sourceRevision,
+                            angle: state.currentRecipe.develop.geometry.angle,
+                            flipped: state.currentRecipe.develop.geometry.flipH)
+                    },
                     onAngle: { angle in applyRotation(angle) },
                     onFinish: { viewport.showStraighten = false })
                     .frame(width: usableDrawn.width, height: usableDrawn.height)

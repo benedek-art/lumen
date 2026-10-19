@@ -1,0 +1,2 @@
+import XCTest
+XCTMain([testCase([( "testNeutralAbsoluteFlagMatchesExactEngineIdentity", NeutralAbsoluteWhiteBalanceIdentityTests.testNeutralAbsoluteFlagMatchesExactEngineIdentity), ("testNonneutralAbsoluteMatrixAndFlagRetainEngineResult", NeutralAbsoluteWhiteBalanceIdentityTests.testNonneutralAbsoluteMatrixAndFlagRetainEngineResult)])])

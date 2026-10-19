@@ -1,0 +1,62 @@
+2026-10-18T13:26:35.8945770Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault]' skipped (0.002 seconds).
+2026-10-18T13:26:35.8955180Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9FirstNativeDisplayedOffAiZeroIdentity]' skipped (0.000 seconds).
+2026-10-18T13:26:35.8962370Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode]' skipped (0.000 seconds).
+2026-10-18T13:26:35.8968990Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels]' skipped (0.000 seconds).
+2026-10-18T13:26:35.8973310Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeCachePromotionPrecisionEvidence]' skipped (0.000 seconds).
+2026-10-18T13:26:35.8979310Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache]' skipped (0.000 seconds).
+2026-10-18T13:26:35.8982750Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testNativeFirstCacheDisplayedCausalMatrix]' skipped (0.000 seconds).
+2026-10-18T13:26:35.8986290Z Test Case '-[LumenPipelineTests.AuditRawAccuracyTests testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile]' skipped (0.000 seconds).
+2026-10-18T13:26:52.3968500Z Test Case '-[LumenAppTests.BatchRecipeSaveTests testChunkBoundaryChildFixture]' skipped (0.001 seconds).
+2026-10-18T13:26:52.4157530Z Test Case '-[LumenPipelineTests.BroadRawQualificationTests testBroadCameraDecodeAndDefaultPreview]' skipped (0.002 seconds).
+2026-10-18T13:26:57.6465170Z Test Suite 'BrushStabilizerSourceMetricTests' started at 2026-10-18 13:26:57.499.
+2026-10-18T13:26:57.6465980Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait]' started.
+2026-10-18T13:26:57.6467960Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testEqualPixelTravelHasOneLongEdgeRopeInLandscapeAndPortrait]' passed (0.000 seconds).
+2026-10-18T13:26:57.6470240Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testFinalReleaseIsExactAndDisabledSamplesRemainExact]' started.
+2026-10-18T13:26:57.6471400Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testFinalReleaseIsExactAndDisabledSamplesRemainExact]' passed (0.000 seconds).
+2026-10-18T13:26:57.6472470Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testLegacyUnitMetricAndInvalidDimensionsRetainTheirContract]' started.
+2026-10-18T13:26:57.6473570Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testLegacyUnitMetricAndInvalidDimensionsRetainTheirContract]' passed (0.000 seconds).
+2026-10-18T13:26:57.6474610Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testObliqueTravelAndReflectionUsePixelDistance]' started.
+2026-10-18T13:26:57.6475530Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testObliqueTravelAndReflectionUsePixelDistance]' passed (0.000 seconds).
+2026-10-18T13:26:57.6476550Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testUnrepresentableMetricAndNonfiniteRopeRemainSafe]' started.
+2026-10-18T13:26:57.6477530Z Test Case '-[LumenCoreTests.BrushStabilizerSourceMetricTests testUnrepresentableMetricAndNonfiniteRopeRemainSafe]' passed (0.000 seconds).
+2026-10-18T13:26:57.6478450Z Test Suite 'BrushStabilizerSourceMetricTests' passed at 2026-10-18 13:26:57.500.
+2026-10-18T13:27:00.1009140Z Test Case '-[LumenPipelineTests.CanonicalDecodePolicyTests testPublicRawEligibleFailureRetriesWithoutCachingAnAlternateImage]' skipped (0.001 seconds).
+2026-10-18T13:27:00.1059590Z Test Case '-[LumenPipelineTests.CaptureDecodeCorpusTests testCaptureAmountAndLensCacheAgreeWithFreshDecoders]' skipped (0.000 seconds).
+2026-10-18T13:33:06.4442970Z Test Case '-[LumenCoreTests.ControlProbeHarness testDumpTheRegistry]' skipped (0.001 seconds).
+2026-10-18T13:33:06.4445610Z Test Case '-[LumenCoreTests.ControlProbeHarness testProbeOneControl]' skipped (0.000 seconds).
+2026-10-18T13:34:01.6733460Z Test Case '-[LumenPipelineTests.DisplayedDenoiseQualificationTests testActualDisplayedNativeDenoiseModes]' skipped (0.001 seconds).
+2026-10-18T13:34:41.8138580Z Test Case '-[LumenAppTests.DurableSidecarIntentTests testAbruptExitChildFixture]' skipped (0.002 seconds).
+2026-10-18T13:35:19.5686090Z Test Case '-[LumenAppTests.GeneratedWorkflowCostTests testGeneratedLargeRollBookkeepingLatencyAndMemory]' skipped (0.001 seconds).
+2026-10-18T13:35:22.1739610Z Test Suite 'InflightKeywordScanTests' started at 2026-10-18 13:35:21.920.
+2026-10-18T13:35:22.1740250Z Test Case '-[LumenAppTests.InflightKeywordScanTests testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' started.
+2026-10-18T13:35:22.1770350Z Test Case '-[LumenAppTests.InflightKeywordScanTests testInflightLegacyAdditionThatOutlivedCatalogMembershipIsNotReimported]' passed (0.093 seconds).
+2026-10-18T13:35:22.1771190Z Test Case '-[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' started.
+2026-10-18T13:35:22.1773860Z Test Case '-[LumenAppTests.InflightKeywordScanTests testScanDuringInflightRemovalCannotResurrectCatalogKeyword]' passed (0.080 seconds).
+2026-10-18T13:35:22.1774760Z Test Suite 'InflightKeywordScanTests' passed at 2026-10-18 13:35:22.092.
+2026-10-18T13:35:25.1313190Z Test Case '-[LumenCoreTests.InteractiveCostBenchTests testCatalogQueriesOnATwentyThousandPhotoRoll]' skipped (0.001 seconds).
+2026-10-18T13:35:25.1315750Z Test Case '-[LumenCoreTests.InteractiveCostBenchTests testDecomposeOneSliderTick]' skipped (0.001 seconds).
+2026-10-18T13:35:51.7423010Z Test Case '-[LumenPipelineTests.LocalRawControlSweepTests testLocalControlsOnNativeRawROIs]' skipped (0.002 seconds).
+2026-10-18T13:36:08.0658030Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testCroppedNativeTIFF16WriteReadbackFirstRepeatAndBoundaryPolicies]' skipped (0.002 seconds).
+2026-10-18T13:36:08.0661690Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testEDRHalfFloatFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T13:36:08.0665590Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies]' skipped (0.001 seconds).
+2026-10-18T13:36:08.0672790Z Test Case '-[LumenPipelineTests.NativeConsumerConsistencyTests testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies]' skipped (0.000 seconds).
+2026-10-18T13:36:08.0679990Z Test Case '-[LumenPipelineTests.NativeDenoiseQualificationTests testNativeDenoiseRegions]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2900950Z Test Case '-[LumenPipelineTests.RawCorpusTests testAMonochromeSensorProducesNoColour]' skipped (0.002 seconds).
+2026-10-18T13:36:35.2904380Z Test Case '-[LumenPipelineTests.RawCorpusTests testAnExportReopensWithTheDimensionsItClaims]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2907450Z Test Case '-[LumenPipelineTests.RawCorpusTests testAPortraitFrameComesOutPortrait]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2913470Z Test Case '-[LumenPipelineTests.RawCorpusTests testATruncatedFileIsRefusedRatherThanHalfDecoded]' skipped (0.001 seconds).
+2026-10-18T13:36:35.2923960Z Test Case '-[LumenPipelineTests.RawCorpusTests testDeliveredDimensionsArePlausibleAgainstTheFilesOwnEXIF]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2934490Z Test Case '-[LumenPipelineTests.RawCorpusTests testEveryFileEitherDecodesCleanlyOrRefusesCleanly]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2942430Z Test Case '-[LumenPipelineTests.RawCorpusTests testMonochromeDecodeOptionSweep]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2951060Z Test Case '-[LumenPipelineTests.RawCorpusTests testMonochromeExactDecoderContextMatrix]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2960300Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheDecoderVersionPinIsPresentAndStable]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2968890Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheMetadataReaderGetsRealFilesRight]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2977490Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheMostNeutralPatchInEachFrameIsNeutral]' skipped (0.000 seconds).
+2026-10-18T13:36:35.2986030Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheRenderAgreesWithTheCamerasOwnPreview]' skipped (0.001 seconds).
+2026-10-18T13:36:36.9304520Z Test Case '-[LumenPipelineTests.RawCorpusTests testTheRenderIsNeitherBlankNorPoisoned]' skipped (0.001 seconds).
+2026-10-18T13:36:36.9654480Z Test Case '-[LumenCoreTests.RealRawColorAccuracyTests testRegisteredColourControlsAgainstIndependentOracleOnCameraSamples]' skipped (0.001 seconds).
+2026-10-18T13:36:36.9660310Z Test Case '-[LumenCoreTests.RealRawControlQualificationTests testEveryRegisteredControlOnPrivateCameraPhotographs]' skipped (0.000 seconds).
+2026-10-18T13:37:12.3891630Z Test Case '-[LumenCoreTests.SpeedBenchTests testInteractiveCPUPath]' skipped (0.001 seconds).
+2026-10-18T13:37:19.3009360Z 	 Executed 3502 tests, with 41 tests skipped and 0 failures (0 unexpected) in 309.621 (672.408) seconds
+2026-10-18T13:37:19.3010250Z 	 Executed 3502 tests, with 41 tests skipped and 0 failures (0 unexpected) in 309.621 (672.412) seconds
+2026-10-18T13:37:19.6731330Z 	 Executed 3502 tests, with 41 tests skipped and 0 failures (0 unexpected) in 309.621 (672.412) seconds

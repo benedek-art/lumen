@@ -1,0 +1,8 @@
+{
+  "tested_source_sha": "a4bc1506e0e744f58089b56bfbc8953b2d3e6fc0",
+  "source_tree": "971c52f010a80ccaf45533b59d31cde44b38ee07",
+  "test_tree": "41be4c3740cc33c7447e21ce65eee0de662f6ec6",
+  "workflow_tree": "6aaf116117ca027f5e3f85a9afb51f4cf9123515",
+  "policy": "This follow-up contains docs/evidence only; all non-docs paths remain byte-identical to the fully tested source. No native pass is attributed to an unexecuted docs-only SHA.",
+  "verification_command": "git diff --exit-code a4bc1506e0e744f58089b56bfbc8953b2d3e6fc0 HEAD -- Sources Tests .github scripts Package.swift"
+}

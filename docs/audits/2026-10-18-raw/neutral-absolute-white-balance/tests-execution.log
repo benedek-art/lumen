@@ -1,0 +1,13 @@
+Test Suite 'All tests' started at 2026-10-18 23:50:46.333
+Test Suite 'neutral-kelvin-evidence.xctest' started at 2026-10-18 23:50:46.335
+Test Suite 'NeutralAbsoluteWhiteBalanceIdentityTests' started at 2026-10-18 23:50:46.335
+Test Case 'NeutralAbsoluteWhiteBalanceIdentityTests.testNeutralAbsoluteFlagMatchesExactEngineIdentity' started at 2026-10-18 23:50:46.335
+Test Case 'NeutralAbsoluteWhiteBalanceIdentityTests.testNeutralAbsoluteFlagMatchesExactEngineIdentity' passed (0.001 seconds)
+Test Case 'NeutralAbsoluteWhiteBalanceIdentityTests.testNonneutralAbsoluteMatrixAndFlagRetainEngineResult' started at 2026-10-18 23:50:46.336
+Test Case 'NeutralAbsoluteWhiteBalanceIdentityTests.testNonneutralAbsoluteMatrixAndFlagRetainEngineResult' passed (0.0 seconds)
+Test Suite 'NeutralAbsoluteWhiteBalanceIdentityTests' passed at 2026-10-18 23:50:46.336
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'neutral-kelvin-evidence.xctest' passed at 2026-10-18 23:50:46.336
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'All tests' passed at 2026-10-18 23:50:46.336
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds

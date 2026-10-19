@@ -1,0 +1,5 @@
+I=0.8 A=1.0 t=0.24 base_floor=0.45 sky_floor=0.9
+positive CPU: analytic=0.777777777778; rounded_f32=0.777777791023
+positive GPU: analytic=0.555555555556; rounded_f32=0.555555582047
+negative CPU: analytic=0.98; rounded_f32=0.980000019073
+negative GPU: analytic=0.9368; rounded_f32=0.936800003052

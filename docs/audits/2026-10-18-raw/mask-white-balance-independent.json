@@ -1,0 +1,34 @@
+{
+  "diagnostic_only": true,
+  "source_commit": "4d7dcbd4542fa4bc34d6a6b8819ba048a1bf7486",
+  "python": "3.12.14",
+  "numpy": "2.3.5",
+  "inputs": {
+    "balanced_kelvin": 3200.0,
+    "relative_temp": 40.0,
+    "tint": 0,
+    "scene_linear_probe": [
+      0.4,
+      0.4,
+      0.4
+    ]
+  },
+  "relative_before": [
+    0.4154512038875123,
+    0.3980765138479735,
+    0.3537281249752296
+  ],
+  "kelvin_seeded_identity": [
+    0.4,
+    0.4,
+    0.4
+  ],
+  "max_scene_linear_separation": 0.046271875024770426,
+  "required_target_xyz": [
+    1.0463392599160395,
+    1.000084044206956,
+    0.5051715868161567
+  ],
+  "required_y_separation_from_one": 8.404420695606873e-05,
+  "interpretation": "Mode jump exists; exact Kelvin/tint-only conversion is unavailable for this witness"
+}

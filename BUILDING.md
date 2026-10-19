@@ -600,13 +600,20 @@ changed the picture.
   nothing measures until `⇧H` asks — `CatalogStore.photosMissingRawStatistics` is the
   background sweep's queue and has no driver. The `O` raw-clipping overlay is not built.
 
-- **Dehaze's sky guard is still reference-only.** The recombination now matches — one
-  luminance ratio rather than a per-channel divide, so a recovered sky keeps its colour
-  (measured: the old form rotated a veiled blue by 13.4°, the new one by 0.00°). What is
-  still missing is the per-pixel transmission floor the reference lifts toward 0.9 where
-  the frame is bright and flat, which needs the structure-tensor gradient and
-  log-luminance planes the kernel is not given. Its absence makes the GPU strip slightly
-  more haze from a clear sky than the reference does; it is not a colour error.
+- **Dehaze has remaining estimator and cross-control qualification gaps.** Recombination uses
+  one luminance ratio rather than a per-channel divide (the earlier veiled-blue witness
+  rotated13.4° before that correction and0.00° after it). The follow-up sky candidate
+  supplies the reference's exact EV/central-tensor fields and both documented sky terms:
+  the positive floor toward0.9 and negative distance `max(1-transmission, skyness)`.
+  It intentionally changes saved sky-region outputs to the documented equations;
+  historical bright-flat GPU values0.555555582/0.936800003 differ from the intended
+  0.777777791/0.980000019 at+100/-100. CPU formulas, defaults and tolerances are unchanged.
+  GPU airlight selection and transmission still differ in estimator and post-detail
+  source lifetime from the CPU's pre-Presence decomposition. Do not infer general
+  parity or real-sky quality from the controlled plateau. Candidate qualification,
+  native outcomes and compatibility limits are recorded in
+  `docs/audits/2026-10-18-raw/dehaze-sky-next/README.md` and CLOUD-PROGRESS.md;
+  the original divergence evidence remains in `dehaze-formula/README.md`.
 
 - **A rendered file gets Lumen's display transform on top of the one already baked in.**
   JPEG/HEIC/PNG/TIFF now decode and edit (`RenderedImageSource`), which they could not

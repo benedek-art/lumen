@@ -87,11 +87,23 @@ struct MattePass: Sendable {
     /// WORKING, and the panel said "Computing on this Mac" forever about a file on an
     /// ejected volume (audit F5-09).
     var sourceUnavailable: Bool = false
+    /// This pass finished after its source generation was invalidated. It published
+    /// neither planes nor attempts; the caller may make one bounded fresh request.
+    var sourceChanged: Bool = false
 }
 
 actor RenderCoordinator {
 
     private let renderer = PipelineRenderer()
+    typealias MatteProducer = @Sendable (CGImage, Set<MaskKind>) async -> [String: Plane]
+    private let matteProducer: MatteProducer
+    private var matteEpochs: [URL: UInt64] = [:]
+
+    init(matteProducer: @escaping MatteProducer = { image, kinds in
+        await VisionMatteWorker.shared.mattes(image: image, kinds: kinds)
+    }) {
+        self.matteProducer = matteProducer
+    }
     private var sources: [URL: any ImageSource] = [:]
     private var sourceIdentities: [URL: SourceFileIdentity] = [:]
     /// The identity each file had when a source was last built from it, KEPT PAST the
@@ -523,7 +535,9 @@ actor RenderCoordinator {
                 strokeSets: [String: BrushStrokeSet] = [:],
                 softProof: SoftProof? = nil,
                 allowOverwrite: Bool = false,
-                catalogKeywords: [String]? = nil) throws -> [String] {
+                catalogKeywords: [String]? = nil,
+                expectedSourceIdentity: SourceFileIdentity? = nil) throws -> [String] {
+        try PipelineRenderer.validateExportSource(url: url, expected: expectedSourceIdentity)
         let source = try self.source(for: url)
         // Same reason as `renderFullSize`, and more so for a batch: two hundred files
         // through this call is two hundred native decodes, each one bounded by the trim
@@ -537,7 +551,8 @@ actor RenderCoordinator {
                                    // Overwrite, on a file that was there before the run
                                    // (`ExportRecipe.placement`).
                                    allowOverwrite: allowOverwrite,
-                                   catalogKeywords: catalogKeywords)
+                                   catalogKeywords: catalogKeywords,
+                                   expectedSourceIdentity: expectedSourceIdentity)
     }
 
     /// The matte pass, run INLINE, for the delivery paths.
@@ -635,18 +650,40 @@ actor RenderCoordinator {
     /// Always safe to call. The authoritative check is here rather than in the caller
     /// deliberately: the cache this reads is the renderer's own, it is bounded, and a
     /// caller that decided for itself whether a pass was needed would be deciding from
-    /// a copy that eviction can silently invalidate. Two dictionary lookups is what the
-    /// fast path costs.
+    /// a copy that eviction can silently invalidate. The fast path also refreshes the
+    /// source stat token, so fully attempted mattes cannot outlive a replaced file.
     func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
-        let missing = missingMatteKinds(url: url, recipe: recipe)
         var unavailable = false
-        if !missing.isEmpty {
-            if let source = try? self.source(for: url),
-               let picture = renderer.matteSourceImage(source: source) {
-                let produced = await VisionMatteWorker.shared.mattes(image: picture,
-                                                                    kinds: missing)
-                record(evicted: renderer.storeMattes(
-                    produced, requested: Set(missing.map { $0.rawValue }), for: url))
+        var sourceChanged = false
+        // Refresh even a fully attempted entry: its picture may have changed while
+        // the URL remained the same. Recipes without Vision masks still read nothing.
+        if !VisionMattes.kinds(in: recipe).isEmpty {
+            if let source = try? self.source(for: url) {
+                let missing = missingMatteKinds(url: url, recipe: recipe)
+                if !missing.isEmpty {
+                    if let picture = renderer.matteSourceImage(source: source) {
+                        let identity = knownIdentities[url]
+                        let epoch = matteEpochs[url, default: 0]
+                        let produced = await matteProducer(picture, missing)
+                        let currentIdentity = SourceFileIdentity.read(url)
+                        if matteEpochs[url, default: 0] == epoch,
+                           knownIdentities[url] == identity {
+                            if currentIdentity == identity {
+                                record(evicted: renderer.storeMattes(
+                                    produced, requested: Set(missing.map { $0.rawValue }), for: url))
+                            } else {
+                                // No intervening actor call noticed this replacement.
+                                // Forget A without touching a newer B generation.
+                                invalidate(url: url)
+                                sourceChanged = true
+                            }
+                        } else {
+                            sourceChanged = true
+                        }
+                    } else {
+                        unavailable = true
+                    }
+                }
             } else {
                 unavailable = true
             }
@@ -656,7 +693,8 @@ actor RenderCoordinator {
         return MattePass(available: renderer.matteKinds(for: url),
                          attempted: renderer.attemptedMatteKinds(for: url),
                          evicted: Array(dropped),
-                         sourceUnavailable: unavailable)
+                         sourceUnavailable: unavailable,
+                         sourceChanged: sourceChanged)
     }
 
     /// Decode a photograph nobody has asked for yet, so that when they do, the file is
@@ -714,6 +752,7 @@ actor RenderCoordinator {
     }
 
     func invalidate(url: URL) {
+        matteEpochs[url, default: 0] &+= 1
         sources.removeValue(forKey: url)
         sourceIdentities.removeValue(forKey: url)
         knownIdentities.removeValue(forKey: url)
@@ -732,6 +771,9 @@ actor RenderCoordinator {
     /// costs no decode at all.
     func sampleSceneLinear(url: URL, recipe: Recipe,
                            sourceX: Double, sourceY: Double) -> RGB? {
+        // Sampling can mint a native decode even when its delivered result is tiny.
+        // Trim on every exit, including downstream nil/refusal, before the actor idles.
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.sampleSceneLinear(source: source, recipe: recipe,
                                           sourceX: sourceX, sourceY: sourceY)
@@ -752,6 +794,7 @@ actor RenderCoordinator {
     /// caching against the file rather than against the edit.
     func clippingStatistics(url: URL,
                             recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.clippingStatistics(source: source, recipe: recipe)
     }
@@ -783,12 +826,15 @@ actor RenderCoordinator {
     /// balance and earlier swatches, which is what the swatch compares.
     func sampleMaskReference(url: URL, recipe: Recipe,
                              sourceX: Double, sourceY: Double,
-                             pointColorSwatch: (maskID: String, index: Int)? = nil) -> RGB? {
+                             pointColorSwatch: (maskID: String, index: Int)? = nil,
+                             strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
                                                         sourceY: sourceY,
-                                                        pointColorSwatch: pointColorSwatch),
+                                                        pointColorSwatch: pointColorSwatch,
+                                                        strokeSets: strokeSets),
               sample.isFinite
         else { return nil }
         return sample
@@ -800,6 +846,7 @@ actor RenderCoordinator {
     /// Nil when nothing fits — the caller then places the source beside the spot.
     func healAutoSource(url: URL, recipe: Recipe, spot: HealSpot,
                         priorSpots: [HealSpot]) -> (x: Double, y: Double)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let found = renderer.healSearchBuffer(source: source, recipe: recipe,
                                                     spot: spot, priorSpots: priorSpots)
@@ -814,6 +861,7 @@ actor RenderCoordinator {
     /// `healAutoSource` uses — so the first of them is the source a click would pick.
     func healSourceCandidates(url: URL, recipe: Recipe, spot: HealSpot,
                               priorSpots: [HealSpot]) -> [(x: Double, y: Double)] {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let found = renderer.healSearchBuffer(source: source, recipe: recipe,
                                                     spot: spot, priorSpots: priorSpots)
@@ -829,6 +877,7 @@ actor RenderCoordinator {
     /// fits — the caller then keeps its provisional offset.
     func healStrokeAutoOffset(url: URL, recipe: Recipe, stroke: BrushStroke,
                               priorStrokes: [BrushStroke]) -> (dx: Double, dy: Double)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let found = renderer.healStrokeSearchBuffer(source: source, recipe: recipe,
                                                           stroke: stroke,
@@ -851,11 +900,14 @@ actor RenderCoordinator {
     /// reads (AI-02): the stage input alone is before the primaries and the Mixer.
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double,
-                                   tap: ColorEngine.SelectionTap) -> RGB? {
+                                   tap: ColorEngine.SelectionTap,
+                                   strokeSets: [String: BrushStrokeSet] = [:]) -> RGB? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
-                                                          sourceY: sourceY, tap: tap),
+                                                          sourceY: sourceY, tap: tap,
+                                                          strokeSets: strokeSets),
               sample.isFinite
         else { return nil }
         return sample
@@ -875,6 +927,7 @@ actor RenderCoordinator {
     /// it keeps this call correct without depending on the solver's internals.
     func solveNeutral(url: URL, recipe: Recipe,
                       sourceX: Double, sourceY: Double) -> (kelvin: Double, tint: Double)? {
+        defer { trimDecodeResidency() }
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
                                                      sourceX: sourceX, sourceY: sourceY),
@@ -923,6 +976,7 @@ actor RenderCoordinator {
         sourceIdentities.removeValue(forKey: url)
         sourceOrder.removeAll { $0 == url }
         if replaced {
+            matteEpochs[url, default: 0] &+= 1
             let hadMattes = !renderer.attemptedMatteKinds(for: url).isEmpty
             knownIdentities.removeValue(forKey: url)
             renderer.forgetMattes(for: url)

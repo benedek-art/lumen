@@ -1,21 +1,11 @@
 # The lane that answers "does this application actually open a photograph".
 #
-# Three hundred commits of audit and repair and nothing in this repository has ever
-# pointed the decoder at a file a camera made. Every test in Tests/ uses a synthetic
-# frame, a stub `ImageSource`, or a measurement harness — correctly, because those tests
-# are about the graph. The consequence is that `AppleRawSource` (CIRAWFilter),
-# `CaptureMetadataReader` (CGImageSourceCopyPropertiesAtIndex) and the whole decode path
-# have never seen a byte this repository did not generate. Both are `#if os(macOS)`, the
-# work happens on Linux, and the two macOS lanes that COULD see them — `build-macos` and
-# `test-fast` — compile them and then run tests that hand them nothing.
-#
-# So a whole class of defect is invisible: a camera whose orientation tag we mishandle, a
-# decode that returns unexpected dimensions, EXIF that does not land, a colour cast on one
-# manufacturer's files. `PipelineRenderer.applyMetadataPolicy` currently asserts, in a
-# comment, that the pixels it delivers "are already the right way up… by construction".
-# That is a claim about CIRAWFilter's output convention and it has never been checked
-# against a file whose EXIF orientation is anything but 1, because every file this project
-# has rendered was synthetic and upright.
+# Synthetic fixtures cannot qualify Apple's real camera container/decode behavior.
+# This lane uses SHA-pinned CC0 camera files to exercise source opening, metadata,
+# orientation, decoder settings and delivered pixels on a hosted Apple runtime.
+# Current executed results and unresolved alarms are recorded in
+# docs/audits/2026-10-18-raw/CLOUD-PROGRESS.md. A green synthetic suite is separate
+# from this lane and from owner-camera/display acceptance.
 #
 # WHAT THIS LANE IS NOT. It is not a golden suite. A golden per camera is sixteen
 # maintenance obligations that go stale the first time Apple ships a decoder update, and a
@@ -25,11 +15,9 @@
 # file — the EXIF orientation tag — and it is pinned because it lives in the file's bytes
 # and the file is pinned by sha256.
 #
-# THIS LANE HAS NEVER RUN. It was written on a Linux box from source reading and fetched
-# remote metadata. Every URL below returns HTTP 200 with the byte count listed and one
-# file was fetched in full and checksummed against the manifest; nothing else about it is
-# proven. The design, the reasoning, the invariants and the first thing to check are in
-# docs/audit-2026-09/w6/raw-corpus-plan.md — read §9 before reading a failure.
+# This lane has executed and currently exposes unresolved corpus alarms and a
+# reproducible first-native/cache precision discrepancy. Do not reset thresholds
+# or treat platform-oracle agreement alone as nonblank/camera acceptance.
 name: RAW corpus
 on:
   # Dispatch, this file's own path, and the handful of files that ARE the decode path
@@ -64,8 +52,12 @@ on:
     paths:
       - ".github/workflows/raw-corpus.yml"
       - "Sources/LumenPipeline/AppleRawSource.swift"
+      - "Sources/LumenPipeline/DecodeMaterializer.swift"
+      - "Tests/LumenPipelineTests/CanonicalDecodePolicyTests.swift"
       - "Tests/LumenPipelineTests/RawCorpusTests.swift"
       - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
+      - "Tests/LumenPipelineTests/DisplayedDenoiseQualificationTests.swift"
+      - "Tests/LumenPipelineTests/NativeConsumerConsistencyTests.swift"
       - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
       - "Tests/LumenPipelineTests/RawCorpus/**"
   workflow_dispatch:
@@ -85,7 +77,7 @@ jobs:
     # A lane that gets cancelled tells you the runner died, not which file killed it.
     # Sixty since AuditRawAccuracyTests joined: about five small-scale decodes per file
     # per decoder on top, under its own 20-minute step limit.
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CORPUS_DIR: ${{ github.workspace }}/.raw-corpus
     steps:
@@ -379,7 +371,7 @@ jobs:
           LUMEN_AUDIT_RAW_DIR: ${{ env.CORPUS_DIR }}
         run: |
           set +e
-          swift test --filter AuditRawAccuracyTests 2>&1 | tee audit-raw.log
+          swift test --filter AuditRawAccuracyTests --skip 'NativeCachePromotionPrecisionEvidence|NativeFirstCacheDisplayedCausalMatrix' 2>&1 | tee audit-raw.log
           status=$?
           echo "=== summary ==="
           grep -E "Executed [0-9]+ test" audit-raw.log | tail -1
@@ -480,6 +472,126 @@ jobs:
             exit 1
           fi
 
+      # Only pinned CC0 Sony/Panasonic files enter this directory. Never bind an
+      # owner-photo directory to a hosted evidence uploader.
+      - name: Isolate public native precision fixtures
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/public-native" "$CORPUS_DIR/evidence/native-precision"
+          cp "$CORPUS_DIR/2349.ARW" "$RUNNER_TEMP/public-native/"
+          cp "$CORPUS_DIR/2607.RW2" "$RUNNER_TEMP/public-native/"
+          mkdir -p "$RUNNER_TEMP/public-consumers"
+          for fixture in 1346.CR2 2349.ARW 2607.RW2 5283.ORF 5812.NEF; do
+            cp "$CORPUS_DIR/$fixture" "$RUNNER_TEMP/public-consumers/"
+          done
+
+      - name: Canonical decode allocation refusal and cache retry
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+        run: |
+          set -o pipefail
+          swift test -c release --filter CanonicalDecodePolicyTests 2>&1 | tee canonical-decode.log
+          test "$(grep -c '^canonical-decode-retry: ' canonical-decode.log)" -eq 1
+          grep -q 'Executed 7 tests, with 0 failures' canonical-decode.log
+
+      - name: Native decode precision before plans and dithering
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+        run: |
+          set -o pipefail
+          swift test -c release --filter AuditRawAccuracyTests.testNativeCachePromotionPrecisionEvidence 2>&1 | tee native-precision.log
+          test "$(grep -c '^native-precision: ' native-precision.log)" -eq 2
+
+      - name: Exact displayed Off versus zero and Off return on public RAWs
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_DENOISE_RAW_DIR: ${{ runner.temp }}/public-native
+          LUMEN_DENOISE_EVIDENCE_DIR: ${{ env.CORPUS_DIR }}/evidence/native-precision
+          LUMEN_DENOISE_LIMIT: '2'
+        run: |
+          set -o pipefail
+          swift test -c release --filter DisplayedDenoiseQualificationTests 2>&1 | tee displayed-denoise.log
+          test "$(grep -c '^displayed-denoise ' displayed-denoise.log)" -eq 60
+
+      - name: Isolate displayed decode history from plans and dithering
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-native
+        run: |
+          set -o pipefail
+          swift test -c release --filter AuditRawAccuracyTests.testNativeFirstCacheDisplayedCausalMatrix 2>&1 | tee native-causal.log
+          test "$(grep -c '^native-causal: ' native-causal.log)" -eq 26
+
+      - name: Native boundary through samples, Point Colour, Dehaze, EDR and TIFF16
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ runner.temp }}/public-consumers
+          LUMEN_AUDIT_NATIVE_EXPORT16: '1'
+          LUMEN_AUDIT_NATIVE_CONSUMER_LIMIT: '5'
+        run: |
+          set -o pipefail
+          swift test -c release --filter NativeConsumerConsistencyTests 2>&1 | tee native-consumers.log
+          # Five fixtures x seven consumers = 35 files and 105 policy timings.
+          # Preserve the original 150 pairs; Point Colour adds 25 matrix pairs
+          # plus five production-first/eager-first comparisons = 180 pairs.
+          test "$(grep -c '^native-consumer-file: ' native-consumers.log)" -eq 35
+          test "$(grep -c '^native-consumer-pair: ' native-consumers.log)" -eq 180
+          test "$(grep -c '^native-consumer-timing: ' native-consumers.log)" -eq 105
+
+      # Each cell starts a new test process. File-system caches are NOT flushed;
+      # time -l measures command peak RSS, not GPU residency or a cold disk load.
+      - name: Process-cold native samples, Point Colour and Dehaze
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          sw_vers > native-process-environment.log
+          swift --version >> native-process-environment.log
+          git rev-parse HEAD >> native-process-environment.log
+          fail=0
+          for fixture in 2349.ARW 2607.RW2; do
+            directory="$RUNNER_TEMP/native-process-$fixture"
+            mkdir -p "$directory"
+            cp "$CORPUS_DIR/$fixture" "$directory/"
+            for consumer in sample-scene sample-point-color dehazeSDR; do
+              if [ "$consumer" != dehazeSDR ]; then
+                method=testSceneColorAndMaskStageSamplersFirstRepeatAndBoundaryPolicies
+              else
+                method=testNonzeroDehazeSDRFirstRepeatAndBoundaryPolicies
+              fi
+              for policy in unchanged intermediate eager; do
+                log="native-process-$fixture-$consumer-$policy.log"
+                set +e
+                env LUMEN_AUDIT_RAW_DIR="$directory" \
+                  LUMEN_AUDIT_NATIVE_CONSUMER_LIMIT=1 \
+                  LUMEN_AUDIT_NATIVE_CONSUMER_POLICY="$policy" \
+                  LUMEN_AUDIT_NATIVE_CONSUMER_NAME="$consumer" \
+                  /usr/bin/time -l swift test -c release --skip-build \
+                    --filter "NativeConsumerConsistencyTests.$method" 2>&1 | tee "$log"
+                status=${PIPESTATUS[0]}
+                set -e
+                [ "$status" -eq 0 ] || fail=1
+                [ "$(grep -c '^native-consumer-file: ' "$log")" -eq 1 ] || fail=1
+                [ "$(grep -c '^native-consumer-pair: ' "$log")" -eq 1 ] || fail=1
+                [ "$(grep -c '^native-consumer-timing: ' "$log")" -eq 1 ] || fail=1
+              done
+            done
+          done
+          exit "$fail"
+
       # The evidence sheet, kept whatever the verdict.
       #
       # Per file: decoded or refused, the EXIF dimensions, CIRAWFilter's native size, the
@@ -501,6 +613,12 @@ jobs:
           path: |
             corpus.log
             audit-raw.log
+            native-precision.log
+            canonical-decode.log
+            native-causal.log
+            native-consumers.log
+            native-process-*.log
+            displayed-denoise.log
             ${{ env.CORPUS_DIR }}/corpus.tsv
             ${{ env.CORPUS_DIR }}/evidence/
           if-no-files-found: warn
