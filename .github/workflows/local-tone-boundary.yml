@@ -1,0 +1,89 @@
+name: Local tone boundary
+on:
+  push:
+    paths:
+      - 'Sources/LumenCore/Engine/ExactLocalToneStage.swift'
+      - 'Sources/LumenPipeline/RenderGraph.swift'
+      - 'Sources/LumenPipeline/Kernels.swift'
+      - 'Tests/LumenPipelineTests/ExactLocalToneBoundaryTests.swift'
+      - '.github/workflows/local-tone-boundary.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: local-tone-boundary-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  analytic-and-historical-renderer:
+    if: (github.ref == 'refs/heads/codex/raw-accuracy-qualification' || github.ref == 'refs/heads/codex/local-tone-native-d55d685') && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[local-tone-causal]'))
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Record immutable source and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            git rev-parse HEAD HEAD:Sources HEAD:Tests
+            sw_vers
+            uname -m
+            xcodebuild -version
+            swift --version
+            shasum -a 256 Sources/LumenCore/Engine/ExactLocalToneStage.swift Sources/LumenPipeline/RenderGraph.swift Sources/LumenPipeline/Kernels.swift Tests/LumenPipelineTests/ExactLocalToneBoundaryTests.swift
+          } 2>&1 | tee local-tone-provenance.log
+      - name: Require analytic renderer to pass strict independent and CPU checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test -c release --filter ExactLocalToneBoundaryTests 2>&1 | tee local-tone-analytic.log
+          grep -Eq 'Executed 6 tests, with 0 failures' local-tone-analytic.log
+          if grep -Eq 'Test Case .* skipped' local-tone-analytic.log; then exit 1; fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          prefix = 'EXACT-LOCAL-TONE '
+          rows = [json.loads(line[len(prefix):]) for line in Path('local-tone-analytic.log').read_text().splitlines() if line.startswith(prefix)]
+          assert sum(r.get('configurations', 0) for r in rows if r['tap'] == 'amount-summary') == 224
+          assert sum(r.get('configurations', 0) for r in rows if r['tap'] == 'alpha-order-summary') == 80
+          assert len([r for r in rows if r['tap'] == 'completed-cost']) == 12
+          Path('local-tone-analytic.json').write_text(json.dumps(rows, indent=2) + '\n')
+          PY
+      - name: Restore whole historical renderer and require active assertion failures with neutral controls green
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=Sources/LumenPipeline/RenderGraph.swift
+          cp "$file" local-tone-qualified-RenderGraph.swift
+          trap 'cp local-tone-qualified-RenderGraph.swift "$file"' EXIT
+          git show 84c8e15ef44fe02578f55969406230cf900016cb:Sources/LumenPipeline/RenderGraph.swift > "$file"
+          shasum -a 256 "$file" | tee local-tone-historical-source.log
+          set +e
+          swift test -c release --filter 'ExactLocalToneBoundaryTests/testSignedHDRToneAmountsMatchIndependentEquationAndCPU|ExactLocalToneBoundaryTests/testToneMaskAlphaAndExposureWhiteBalanceColorOrder|ExactLocalToneBoundaryTests/testFormerToneWBColorTableFixtureIsNowCubeIndependent|ExactLocalToneBoundaryTests/testNonopaqueSignedHDRStoragePreservesAlphaAndScalarEquation|ExactLocalToneBoundaryTests/testChangingAmountCompletedCosts' 2>&1 | tee local-tone-historical-active.log
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -Eq 'Executed 5 tests,' local-tone-historical-active.log
+          grep -Eq 'error:.*ExactLocalToneBoundaryTests.*XCTAssert' local-tone-historical-active.log
+          if grep -Eq 'Test Case .* skipped' local-tone-historical-active.log; then exit 1; fi
+          swift test -c release --filter 'ExactLocalToneBoundaryTests/testNeutralControlsRetainExactIdentity' 2>&1 | tee local-tone-historical-neutral.log
+          grep -Eq 'Executed 1 test, with 0 failures' local-tone-historical-neutral.log
+          if grep -Eq 'Test Case .* skipped' local-tone-historical-neutral.log; then exit 1; fi
+          cp local-tone-qualified-RenderGraph.swift "$file"
+          cmp local-tone-qualified-RenderGraph.swift "$file"
+          shasum -a 256 "$file" | tee local-tone-restored-source.log
+          swift test -c release --filter ExactLocalToneBoundaryTests 2>&1 | tee local-tone-restored.log
+          grep -Eq 'Executed 6 tests, with 0 failures' local-tone-restored.log
+          if grep -Eq 'Test Case .* skipped' local-tone-restored.log; then exit 1; fi
+      - name: Preserve public text evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-tone-${{ github.sha }}
+          path: |
+            local-tone-*.log
+            local-tone-*.json
+          if-no-files-found: error
+          retention-days: 14

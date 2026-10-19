@@ -756,6 +756,8 @@ final class KernelGoldenTests: XCTestCase {
         adjust.temp = 30
         adjust.sat = 35
         adjust.vibrance = 20
+        // Hue still uses the post-colour table; tone/WB/colour now evaluate exactly.
+        adjust.hue = 17
 
         // ---- The table is the size it was asked for. ----
         let anchors = RenderPlan(recipe: Recipe()).tone
@@ -770,14 +772,13 @@ final class KernelGoldenTests: XCTestCase {
                            "a mask with contrast, temp, saturation and vibrance "
                                + "declared itself identity, so this test measures "
                                + "a two-point cube and proves nothing")
-            // Contrast and Temp live in the table before the exact colour stage; the
-            // colour stage itself has no table since AI-03, and this set has no hue,
-            // tint or grade for the table after it.
-            let pre = try XCTUnwrap(local.preLUT, "contrast and temp need the pre table")
-            XCTAssertEqual(pre.size, size,
-                           "LocalPlan baked \(pre.size) when the render asked for \(size)")
+            // Keep the original table-size authority test on an operator that
+            // actually remains tabled. Independent exact-stage controls cover the
+            // original contrast/WB/saturation/vibrance fixture separately.
+            let post = try XCTUnwrap(local.postLUT, "hue needs the post-colour table")
+            XCTAssertEqual(post.size, size,
+                           "LocalPlan baked \(post.size) when the render asked for \(size)")
             XCTAssertFalse(local.colorStage.isIdentity, "saturation and vibrance are live")
-            XCTAssertNil(local.postLUT)
         }
 
         // ---- The size reaches pixels through the graph that ships. ----
