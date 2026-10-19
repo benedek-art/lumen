@@ -65,8 +65,10 @@ public struct ExactLocalToneStage: Sendable, Equatable {
         let reach = d >= 0 ? contrast.z : contrast.w
         if policy.z != 0 && reach > policy.x {
             let shoulder = Self.smooth(policy.y, 1, abs(d) / reach)
-            let effective = contrast.y + (1 - contrast.y) * shoulder
-            stops += contrast.x + d * effective - t
+            // mapped(t) - t = d * (slope - 1) * (1 - shoulder).
+            // Retain exact zero outside the contrast window rather than cancelling
+            // two large EV values in the GPU's mapped-value arithmetic.
+            stops += d * (contrast.y - 1) * (1 - shoulder)
         }
         let gain = exp2(stops)
         return RGB(Double(r * gain), Double(g * gain), Double(b * gain))
@@ -94,8 +96,7 @@ public struct ExactLocalToneStage: Sendable, Equatable {
         float reach = d >= 0.0 ? contrast.z : contrast.w;
         if (policy.z != 0.0 && reach > policy.x) {
             float shoulder = lumenLocalToneSmooth(policy.y, 1.0, abs(d) / reach);
-            float effective = contrast.y + (1.0 - contrast.y) * shoulder;
-            stops += contrast.x + d * effective - t;
+            stops += d * (contrast.y - 1.0) * (1.0 - shoulder);
         }
         return vec4(c * exp2(stops), image.a);
     }
