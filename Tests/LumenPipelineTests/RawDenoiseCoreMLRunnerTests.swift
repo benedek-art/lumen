@@ -55,7 +55,7 @@ private final class FakeDenoiseRunner: RawDenoiseRunning, @unchecked Sendable {
             lock.lock(); _steps += 1; lock.unlock()
             progress?(Double(i + 1) / Double(steps))
         }
-        return packed.map { $0 * 0.5 + 0.25 }
+        return packed.map { (v: Float) -> Float in v * 0.5 + 0.25 }
     }
 }
 
@@ -266,8 +266,8 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
 
     private func planes(width: Int = 3, height: Int = 2, seed: Float = 0) -> RawDenoisePlanes {
         let n = 4 * width * height
-        return RawDenoisePlanes(planes: (0..<n).map { Float($0) / Float(n) + seed - 0.01 },
-                                width: width, height: height)
+        let values: [Float] = (0..<n).map { (i: Int) -> Float in Float(i) / Float(n) + seed - 0.01 }
+        return RawDenoisePlanes(planes: values, width: width, height: height)
     }
 
     private func key(_ source: String = "photo-1") -> RawDenoiseCacheKey {
@@ -398,7 +398,7 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
         let provider = FakeCFAProvider(planes: planes())
         let prepass = RawDenoisePrepass(runner: runner)
         let first = try await prepass.denoised(source: source, key: key(), provider: provider)
-        XCTAssertEqual(first.planes, planes().planes.map { $0 * 0.5 + 0.25 })
+        XCTAssertEqual(first.planes, planes().planes.map { (v: Float) -> Float in v * 0.5 + 0.25 })
         let second = try await prepass.denoised(source: source, key: key(), provider: provider)
         XCTAssertEqual(second, first)
         XCTAssertEqual(runner.calls, 1)
@@ -487,7 +487,7 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
         }
         await latch.release()
         let result = try await staying.value
-        XCTAssertEqual(result.planes, planes().planes.map { $0 * 0.5 + 0.25 })
+        XCTAssertEqual(result.planes, planes().planes.map { (v: Float) -> Float in v * 0.5 + 0.25 })
         XCTAssertEqual(runner.calls, 1)
     }
 
@@ -535,7 +535,7 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
 
     func testStrengthIsABlendOverTheCachedResultAndClamped() {
         let original = planes()
-        let denoised = RawDenoisePlanes(planes: original.planes.map { $0 * 0.5 + 0.25 },
+        let denoised = RawDenoisePlanes(planes: original.planes.map { (v: Float) -> Float in v * 0.5 + 0.25 },
                                         width: original.width, height: original.height)
         XCTAssertEqual(RawDenoisePrepass.applyingStrength(1, denoised: denoised, original: original), denoised)
         XCTAssertEqual(RawDenoisePrepass.applyingStrength(0, denoised: denoised, original: original), original)
@@ -549,7 +549,7 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
     // MARK: - MLMultiArray plumbing (no model needed)
 
     func testMultiArrayRoundTripsInEveryInputType() throws {
-        let values: [Float] = (0..<(4 * 3 * 5)).map { Float($0) / 7 - 1.5 }
+        let values: [Float] = (0..<(4 * 3 * 5)).map { (i: Int) -> Float in Float(i) / 7 - 1.5 }
         for type in [MLMultiArrayDataType.float32, .float16, .double] {
             let array = try RawDenoiseCoreMLRunner.makeArray(values, shape: [1, 4, 3, 5], dataType: type)
             XCTAssertEqual(array.dataType, type)
@@ -575,7 +575,12 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
                                                NSNumber(value: rowStride), 1],
                                      deallocator: { $0.deallocate() })
         let values = try RawDenoiseCoreMLRunner.readArray(array, shape: [1, 4, 2, 3])
-        XCTAssertEqual(values, (0..<c).flatMap { ci in (0..<h).flatMap { y in (0..<w).map { x in Float(100 * ci + 10 * y + x) } } })
+        var expected: [Float] = []
+        for ci in 0..<c { for y in 0..<h { for x in 0..<w {
+            let code: Int = 100 * ci + 10 * y + x
+            expected.append(Float(code))
+        } } }
+        XCTAssertEqual(values, expected)
         XCTAssertThrowsError(try RawDenoiseCoreMLRunner.readArray(array, shape: [1, 4, 3, 2]))
     }
 
@@ -794,7 +799,8 @@ final class RawDenoiseCoreMLRunnerTests: XCTestCase {
         let whole = try runner.denoise(packed: packed, width: w, height: h, params: params, tile: 1024, overlap: 64)
         XCTAssertEqual(whole.count, packed.count)
         XCTAssertTrue(whole.allSatisfy { $0.isFinite })
-        let meanAbsResidual = zip(whole, packed).map { abs($0 - $1) }.reduce(0, +) / Float(packed.count)
+        let absResiduals: [Float] = zip(whole, packed).map { (a: Float, b: Float) -> Float in abs(a - b) }
+        let meanAbsResidual: Float = absResiduals.reduce(0, +) / Float(packed.count)
         XCTAssertLessThan(meanAbsResidual, 0.05)
         XCTAssertGreaterThan(meanAbsResidual, 0, "the model returned its input unchanged")
 
