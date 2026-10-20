@@ -3077,6 +3077,93 @@ final class KernelGoldenTests: XCTestCase {
                               + "CIBoxBlur and the reference's box blur disagree")
     }
 
+    /// The packed guided filters against the unpacked chains they replaced, built here
+    /// from the kernels those chains used. Packing I, I² (and p) into one image only
+    /// changes how many channels each box blur carries, never what any channel holds, so
+    /// the answer is EXACTLY the same — a tolerance here would be the place a wrong
+    /// channel index or a dropped term hides. Two planes per radius, so a filter that
+    /// returned a stale or constant image cannot match both; one deliberately not grey,
+    /// because the coefficient kernels read `.r` and the packing must not care.
+    func testPackedGuidedFiltersMatchTheUnpackedChains() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 96, height = 64
+
+        func plane(seed: Double) -> ImageBuffer {
+            var image = ImageBuffer(width: width, height: height)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let step = x < width / 2 ? 0.25 : 0.7
+                    let noise = 0.03 * Foundation.sin(Double(x) * 1.9 * seed
+                                                          + Double(y) * 2.7)
+                    let v = step + noise
+                    image[x, y] = RGB(v, 0.5 * v + 0.1 * seed, 1 - v)
+                }
+            }
+            return image
+        }
+
+        func unpackedSelf(_ g: CIImage, radius: Int, epsilon: Double) -> CIImage? {
+            guard let squared = KernelLibrary.apply(KernelLibrary.square,
+                                                    extent: g.extent, [g]),
+                  let meanI = RenderGraph.boxBlur(g, radius: radius),
+                  let meanII = RenderGraph.boxBlur(squared, radius: radius),
+                  let coefficients = KernelLibrary.apply(
+                    KernelLibrary.guidedCoefficients, extent: g.extent,
+                    [meanI, meanII, Float(epsilon)]),
+                  let meanCoefficients = RenderGraph.boxBlur(coefficients, radius: radius)
+            else { return nil }
+            return KernelLibrary.apply(KernelLibrary.guidedApply, extent: g.extent,
+                                       [meanCoefficients, g])
+        }
+
+        func worst(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+            var d = 0.0
+            for y in 0..<height {
+                for x in 0..<width {
+                    for (p, q) in [(a[x, y].r, b[x, y].r), (a[x, y].g, b[x, y].g),
+                                   (a[x, y].b, b[x, y].b)] {
+                        d = Swift.max(d, abs(p - q))
+                    }
+                }
+            }
+            return d
+        }
+
+        var outputs: [ImageBuffer] = []
+        for radius in [3, 40] {
+            for seed in [1.0, 1.7] {
+                let image = ciImage(from: plane(seed: seed))
+                let guide = ciImage(from: plane(seed: seed + 0.4))
+                let epsilon = 0.0008
+                guard let packed = RenderGraph.guidedSelfFilter(image, radius: radius,
+                                                                epsilon: epsilon),
+                      let unpacked = unpackedSelf(image, radius: radius, epsilon: epsilon),
+                      let crossPacked = RenderGraph.crossGuidedFilterPacked(
+                        input: image, guide: guide, radius: radius, epsilon: epsilon),
+                      let crossUnpacked = RenderGraph.crossGuidedFilter(
+                        input: image, guide: guide, radius: radius, epsilon: epsilon),
+                      let p = readBack(packed, width: width, height: height),
+                      let u = readBack(unpacked, width: width, height: height),
+                      let cp = readBack(crossPacked, width: width, height: height),
+                      let cu = readBack(crossUnpacked, width: width, height: height)
+                else { return XCTFail("a guided filter produced nothing at r=\(radius)") }
+                let selfDiff = worst(p, u)
+                let crossDiff = worst(cp, cu)
+                print("PACKED GUIDED r=\(radius) seed=\(seed): self \(selfDiff), "
+                          + "cross \(crossDiff)")
+                XCTAssertEqual(selfDiff, 0,
+                               "packed self-guided filter differs by \(selfDiff) at r=\(radius)")
+                XCTAssertEqual(crossDiff, 0,
+                               "packed cross-guided filter differs by \(crossDiff) at r=\(radius)")
+                outputs.append(p)
+            }
+        }
+        // Different inputs must give different answers, or "identical" above could be
+        // two filters agreeing on nothing.
+        XCTAssertGreaterThan(worst(outputs[0], outputs[1]), 1e-3)
+        XCTAssertGreaterThan(worst(outputs[2], outputs[3]), 1e-3)
+    }
+
     /// The whole S3 chain against `ClassicalDenoise.apply`.
     ///
     /// Nine kernels, five à-trous levels, two edge maps and an inverse transform have to
