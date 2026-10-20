@@ -255,10 +255,19 @@ final class SliderScaleTests: XCTestCase {
         let shareOfChange = high / (low + high)
 
         let shareOfTrack = tempTrack.travelNeeded(from: 15000, to: 50000) / tempTrack.width
-        // 0.053 as measured; the linear axis misses by 0.685, so this still
-        // discriminates the two by better than 8×.
-        XCTAssertEqual(shareOfTrack, shareOfChange, accuracy: 0.08,
-                       "mired track share \(shareOfTrack) vs change share \(shareOfChange)")
+        // The mired axis's own geometry, from mired = 10⁶/K: the 15000–50000 K span is
+        // (1/15000 − 1/50000) / (1/2000 − 1/50000) = 0.0972 of the track.
+        let topSpan: Double = 1 / 15000.0 - 1 / 50000.0
+        let wholeSpan: Double = 1 / 2000.0 - 1 / 50000.0
+        let expected: Double = topSpan / wholeSpan
+        XCTAssertEqual(shareOfTrack, expected, accuracy: 0.002,
+                       "mired track share \(shareOfTrack), the mired geometry says \(expected)")
+        // Tied to the change: 0.097 of the track against 0.053 of the change (≈1.8×).
+        // Not an exact match, but the top span is neither dead nor oversized.
+        XCTAssertGreaterThan(shareOfTrack, shareOfChange,
+                             "mired track share \(shareOfTrack) vs change share \(shareOfChange)")
+        XCTAssertLessThan(shareOfTrack, 2.5 * shareOfChange,
+                          "mired track share \(shareOfTrack) vs change share \(shareOfChange)")
 
         let linearShare = linearTempTrack.travelNeeded(from: 15000, to: 50000)
             / linearTempTrack.width

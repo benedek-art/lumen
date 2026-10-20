@@ -71,12 +71,14 @@ final class AccuracyProbeTests: XCTestCase {
     }
 
     /// The four range sliders' endpoint targets, asserted through the full gain
-    /// stage against the engine's own DOCUMENTED constants (M2 calibration
-    /// contract): Highlights and Shadows own ±2.0 EV of range compression at full
-    /// deflection, Whites +100 lifts its shelf 1.3 EV, Blacks −100 drops its shelf
-    /// 2.2 EV. Measured as the peak stop shift over the whole tonal axis, so a
-    /// weight curve that stopped reaching 1, a solver that started scaling a
-    /// single-control move, or an edited constant all fail here by name.
+    /// stage against the DOCUMENTED numbers (M2 calibration contract,
+    /// docs/24-slider-dossier-tone.md): Highlights and Shadows own ±2.0 EV of range
+    /// compression at full deflection, Whites +100 lifts its shelf 1.3 EV, Blacks
+    /// −100 drops its shelf 2.2 EV. The expectations are literals, not the engine's
+    /// constants, so an edited constant fails here instead of moving both sides.
+    /// Measured as the peak stop shift over the whole tonal axis, so a weight curve
+    /// that stopped reaching 1 or a solver that started scaling a single-control
+    /// move fails too.
     func testTheToneEndpointsDeliverTheirDocumentedEV() {
         func peakShift(_ mutate: (inout Tone) -> Void) -> Double {
             var tone = Tone()
@@ -90,22 +92,18 @@ final class AccuracyProbeTests: XCTestCase {
             }
             return peak
         }
-        XCTAssertEqual(peakShift { $0.highlights = -100 },
-                       ToneEngine.highlightShadowRangeEV, accuracy: 0.05,
-                       "Highlights −100 must compress its zone by the documented "
-                           + "\(ToneEngine.highlightShadowRangeEV) EV")
-        XCTAssertEqual(peakShift { $0.shadows = 100 },
-                       ToneEngine.highlightShadowRangeEV, accuracy: 0.05,
-                       "Shadows +100 must lift its zone by the documented "
-                           + "\(ToneEngine.highlightShadowRangeEV) EV")
-        XCTAssertEqual(peakShift { $0.whites = 100 },
-                       ToneEngine.whiteToneEV, accuracy: 0.05,
-                       "Whites +100 must lift its shelf by the documented "
-                           + "\(ToneEngine.whiteToneEV) EV")
-        XCTAssertEqual(peakShift { $0.blacks = -100 },
-                       ToneEngine.blackToneEV, accuracy: 0.05,
-                       "Blacks −100 must drop its shelf by the documented "
-                           + "\(ToneEngine.blackToneEV) EV")
+        XCTAssertEqual(peakShift { $0.highlights = -100 }, 2.0, accuracy: 0.05,
+                       "docs/24: Highlights −100 compresses its zone by 2.0 EV "
+                           + "(highlightShadowRangeEV is \(ToneEngine.highlightShadowRangeEV))")
+        XCTAssertEqual(peakShift { $0.shadows = 100 }, 2.0, accuracy: 0.05,
+                       "docs/24: Shadows +100 lifts its zone by 2.0 EV "
+                           + "(highlightShadowRangeEV is \(ToneEngine.highlightShadowRangeEV))")
+        XCTAssertEqual(peakShift { $0.whites = 100 }, 1.3, accuracy: 0.05,
+                       "docs/24: Whites +100 lifts its shelf by 1.3 EV "
+                           + "(whiteToneEV is \(ToneEngine.whiteToneEV))")
+        XCTAssertEqual(peakShift { $0.blacks = -100 }, 2.2, accuracy: 0.05,
+                       "docs/24: Blacks −100 drops its shelf by 2.2 EV "
+                           + "(blackToneEV is \(ToneEngine.blackToneEV))")
     }
 
     /// The Zones panel's contract (docs/04): the five default pivots sit at

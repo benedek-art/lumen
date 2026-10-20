@@ -17,6 +17,10 @@
 //   of this file fails, and whoever wired it has to come here, delete the row, and move
 //   the field out of the "carried, not rendered" block. That is the point: the comment
 //   cannot rot, because a test fails when it becomes untrue.
+//
+// Covered: the reference renderer, both at S11 (`applyMasks`) and end to end with grain
+// on, each with a local-exposure positive control. NOT covered: the Metal path in
+// LumenPipeline, which has no test target on this lane.
 
 import XCTest
 @testable import LumenCore
@@ -76,6 +80,60 @@ final class MaskDeadFieldTests: XCTestCase {
                                + "move the field out of LocalAdjust's "
                                + "\"carried, not rendered\" block.")
         }
+
+        // Positive control: a field that IS wired moves pixels through the same call and
+        // alpha, so the zeros above are not a dead harness.
+        var live = Mask(id: "m", name: "exposure")
+        live.adjust.exposure = 1
+        let out = ReferenceRenderer.applyMasks(image, plan: plan,
+                                               alphas: [(live, alpha)], space: space)
+        var worst = 0.0
+        for i in 0..<out.pixels.count {
+            worst = Swift.max(worst, abs(Double(out.pixels[i] - untouched.pixels[i])))
+        }
+        XCTAssertGreaterThan(worst, 1e-3, "local exposure +1 moved nothing: the harness is dead")
+    }
+
+    /// The same promise through the whole reference renderer, with a full-frame mask and
+    /// creative grain switched on. `applyMasks` alone cannot see a field wired where
+    /// LocalAdjust's header says it would be: `grainAmount` into the grain stage, which
+    /// runs after S11. The GPU path (LumenPipeline) is not covered on this lane.
+    func testNoCarriedFieldChangesAPixelThroughTheWholeReferenceRender() {
+        let image = ImageBuffer(width: 16, height: 16) { u, v in
+            RGB(0.2 + u * 0.6, 0.5 + (v - 0.5) * 0.4,
+                0.3 + ((Int(u * 16) + Int(v * 16)) % 2 == 0 ? 0.35 : 0))
+        }
+        var whole = MaskComponent(op: .add, kind: .radial)
+        whole.center = [0.5, 0.5]
+        whole.radii = [2, 2]
+        whole.feather = 0
+
+        func render(_ set: (inout LocalAdjust) -> Void) -> ImageBuffer {
+            var recipe = Recipe()
+            recipe.look.grain = CreativeGrain(amount: 40)
+            var mask = Mask(id: "m", name: "whole", components: [whole])
+            set(&mask.adjust)
+            recipe.masks = [mask]
+            return ReferenceRenderer.render(image, plan: RenderPlan(recipe: recipe))
+        }
+        func worst(_ a: ImageBuffer, _ b: ImageBuffer) -> Double {
+            var worst = 0.0
+            for i in 0..<a.pixels.count {
+                worst = Swift.max(worst, abs(Double(a.pixels[i] - b.pixels[i])))
+            }
+            return worst
+        }
+        let untouched = render { _ in }
+
+        for (name, set, _) in Self.carried {
+            XCTAssertEqual(worst(render(set), untouched), 0, accuracy: 0,
+                           "\(name) moved a pixel in the full render. If it was WIRED, "
+                               + "delete its row here and move the field out of "
+                               + "LocalAdjust's \"carried, not rendered\" block.")
+        }
+        // Positive control: the mask covers the frame and a wired field reaches the output.
+        XCTAssertGreaterThan(worst(render { $0.exposure = 1 }, untouched), 1e-3,
+                             "local exposure +1 moved nothing: the mask or stage is dead")
     }
 
     func testTheGlobalEnginesTheBlockedTwoWaitOnAreStillAbsent() {

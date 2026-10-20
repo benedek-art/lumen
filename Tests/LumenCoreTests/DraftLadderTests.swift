@@ -1077,8 +1077,12 @@ final class DraftLadderTests: XCTestCase {
                           renderedLongEdge: ladder.longEdge(requested: 4096),
                           requested: 4096)
         }
-        XCTAssertEqual(ladder.longEdge(requested: 4096),
-                       ladder.longEdge(requested: 4096, notBelow: nil))
+        // Forty slow frames walk the ladder to its bottom rung; with no floor that
+        // stepped rung is the answer, not the ask.
+        XCTAssertEqual(ladder.longEdge(requested: 4096), DraftLadder.rungs.last!,
+                       "no floor: the stepped rung, not the ask")
+        // A floor visibly changes the answer, so omitting it is not a no-op by accident.
+        XCTAssertEqual(ladder.longEdge(requested: 4096, notBelow: 2048), 2048)
         XCTAssertNil(DraftLadder.sharpnessFloor(drawnDeviceLongEdge: nil))
     }
 

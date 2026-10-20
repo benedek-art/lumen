@@ -36,15 +36,13 @@
 //     below, so a scan over the raw text would be satisfied by the explanation of the
 //     code rather than by the code. That mistake has been made twice in this repository.
 //
-// The two caches are deliberately NOT symmetric, and the last scan is the guard on the
-// asymmetry rather than an omission. `BrushPlaneCache` COMPARES the strokes an entry was
-// painted from against the strokes being asked for, so its held plane is verified rather
-// than trusted, and holding it at any rung is safe. `MaskRasterCache` trusts its key
-// completely — and the key does not name the masks a `maskRef` component resolves
-// against, so editing mask A changes mask B's raster without moving B's key. That
-// under-key is survivable today only because every settle re-folds from nothing and
-// repairs it; holding the raster's settle rung would turn a one-frame draft artefact
-// into a frozen selection in the delivered file.
+// The two caches are deliberately NOT symmetric. `BrushPlaneCache` COMPARES the strokes
+// an entry was painted from against the strokes being asked for, so holding it at the
+// settle rung is safe. `MaskRasterCache` trusts its key; that key now closes over every
+// mask reachable through `maskRef` (`MaskDependency.closure` +
+// `maskSelectionFingerprint`, tested in MaskDependencyTests and, on macOS,
+// MaskReferencePipelineTests). Its refusal of rasters above the draft proxy is now a
+// MEMORY rule, and the last scan pins it as one.
 
 import XCTest
 @testable import LumenCore
@@ -226,47 +224,18 @@ final class MaskCostTests: XCTestCase {
             + "guard.")
     }
 
-    /// THE ASYMMETRY IS LOAD-BEARING. `MaskRasterCache` must keep refusing the settle
-    /// rung for as long as its key omits the masks a `maskRef` component reads.
-    ///
-    /// This is the one test here that guards an absence, and it is written as an
-    /// implication rather than a flat prohibition so that it stays green through the
-    /// fix: fix the key — make `maskJSON` a raster identity closed over every mask
-    /// reachable through `maskRef` and their stroke sets — and the scan stops
-    /// requiring the refusal. Remove the refusal without fixing the key and it fails,
-    /// which is the substitution the fix must not be able to skip.
-    ///
-    /// What is at stake if it is skipped: `MaskRaster.referenced` lends a mask's
-    /// finished alpha to any `maskRef` pointing at it, deliberately including masks
-    /// that are switched off — and a switched-off mask is not in `plan.masks`, so it is
-    /// never a client of the raster cache and can never announce that it changed. Edit
-    /// it and the referencing mask's held raster is simply wrong, with nothing to
-    /// invalidate it. Today the settle re-folds from nothing and repairs that within
-    /// one frame; a held settle raster would leave it in the delivered file.
-    func testTheRasterCacheRefusesTheSettleRungWhileItsKeyIsIncomplete() throws {
-        let renderer = try Self.pipelineSource("PipelineRenderer.swift")
-        // Does the key's mask term reach past THIS mask? The shipped term is
-        // `CanonicalJSON.tree(of: mask)` — one mask, serialized whole, and nothing it
-        // points at. While that is what the key is made of, the key is incomplete, and
-        // the refusal below is the only thing standing between a held settle raster and
-        // a frozen referenced selection. Replace that term with an identity that closes
-        // over `maskRef` and this scan steps aside of its own accord.
-        let keyIsOneMaskWhole = renderer.contains("CanonicalJSON.tree(of: mask)")
-        guard keyIsOneMaskWhole else { return }
-
+    /// `MaskRasterCache` holds only rasters at or below the draft proxy. This replaced
+    /// a scan that returned early, with no assertion, once the raster key was fixed to
+    /// close over `maskRef` targets. What is left is the retention rule: settle and
+    /// export rasters come at the render's resolution, and one 45 MP export raster is
+    /// ~180 MB of Float plane, so holding them would need its own byte budget.
+    func testTheRasterCacheHoldsOnlyTheDraftProxy() throws {
         let body = try Self.storeBody(of: "MaskRasterCache.swift")
         XCTAssertTrue(body.contains("PipelineRenderer.maskRasterLongEdge"),
-                      "MaskRasterCache is holding rasters above the draft proxy while "
-                      + "its key still names only THIS mask. A maskRef component's "
-                      + "alpha is another mask's finished alpha, and neither that "
-                      + "mask's definition nor its strokes are anywhere in the key — so "
-                      + "editing mask A changes mask B's raster without moving B's key. "
-                      + "The settle re-folding from nothing is the only thing repairing "
-                      + "that today. Fix `maskRasterKey` first: a raster identity "
-                      + "closed over every mask reachable through maskRef, which also "
-                      + "removes `adjust`, `amount`, `enabled`, `blend`, `name` and "
-                      + "`group` from a key none of them can change a pixel of. store "
-                      + "body was:\n" + body)
+                      "MaskRasterCache.store no longer bounds what it holds by the "
+                      + "draft proxy's long edge, so settle and export rasters (up to "
+                      + "~180 MB each) are retained with no byte budget. store body "
+                      + "was:\n" + body)
     }
 
     // MARK: - helpers

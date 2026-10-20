@@ -417,31 +417,61 @@ final class MaskEdgeShiftTests: XCTestCase {
     /// The fallback's actual claim: each edge moves by the SHIFT, whatever its own width
     /// is. Measured as the radius of the α = 0.5 crossing on each component separately,
     /// which is where a boundary is by definition.
+    ///
+    /// Sub-pixel: the crossing is interpolated between the two pixel centres that
+    /// straddle 0.5, and averaged over five rows and both horizontal rays. Measured on
+    /// the shipped code at 320²: hard 2.607 px and soft 2.560 px against a shift of
+    /// 2.56, at Edge −40 and (negated) at +40. This mask's coherence is 0, so this is
+    /// the advection path alone.
     func testAdvectionMovesTheHardAndSoftBoundariesByTheSameDistance() {
         let n = 320
-        let shift = (40.0 / 50) * 0.01 * Double(n)   // Edge −40 ⇒ 2.56 px
-        let base = folded(mixedMask, n, n)
-        let eroded = folded(mixedMask, n, n, edge: -40)
 
-        /// Where α crosses 0.5 along a horizontal ray from a component's centre.
-        func crossing(_ p: Plane, centreX: Double, centreY: Int) -> Double {
-            var last = Double(p.width)
-            for x in 0..<p.width {
-                let px = Double(x)
-                guard px >= centreX else { continue }
-                if p[x, centreY] < 0.5 { last = px; break }
+        /// Distance from `centreX` to where α first drops below 0.5 along row `y`,
+        /// walking in direction `dir` (±1). Pixel x has its centre at x + 0.5.
+        func crossing(_ p: Plane, centreX: Double, y: Int, dir: Int) -> Double {
+            var x = Int(centreX)
+            var previous = p[x, y]
+            while x + dir >= 0, x + dir < p.width {
+                let next = p[x + dir, y]
+                if next < 0.5 {
+                    let t = (previous - 0.5) / (previous - next)
+                    return abs(Double(x) + 0.5 + Double(dir) * t - centreX)
+                }
+                previous = next
+                x += dir
             }
-            return last - centreX
+            return .nan
         }
-        let hardBefore = crossing(base, centreX: 0.30 * Double(n), centreY: n / 2)
-        let hardAfter = crossing(eroded, centreX: 0.30 * Double(n), centreY: n / 2)
-        let softBefore = crossing(base, centreX: 0.70 * Double(n), centreY: n / 2)
-        let softAfter = crossing(eroded, centreX: 0.70 * Double(n), centreY: n / 2)
+        func radius(_ p: Plane, centreX: Double) -> Double {
+            var sum = 0.0
+            var count = 0
+            for y in (n / 2 - 2)...(n / 2 + 2) {
+                for dir in [1, -1] {
+                    sum += crossing(p, centreX: centreX, y: y, dir: dir)
+                    count += 1
+                }
+            }
+            return sum / Double(count)
+        }
 
-        XCTAssertEqual(hardBefore - hardAfter, shift, accuracy: 1.5,
-                       "the HARD boundary moved by \(hardBefore - hardAfter) px, not \(shift)")
-        XCTAssertEqual(softBefore - softAfter, shift, accuracy: 1.5,
-                       "the SOFT boundary moved by \(softBefore - softAfter) px, not \(shift)")
+        let base = folded(mixedMask, n, n)
+        let hardCentre = 0.30 * Double(n)
+        let softCentre = 0.70 * Double(n)
+        for edge in [-40.0, 40.0] {
+            // How far the radius shrinks: +2.56 px at Edge −40, −2.56 px at +40.
+            let shift = -(edge / 50) * 0.01 * Double(n)
+            let moved = folded(mixedMask, n, n, edge: edge)
+            let hard = radius(base, centreX: hardCentre) - radius(moved, centreX: hardCentre)
+            let soft = radius(base, centreX: softCentre) - radius(moved, centreX: softCentre)
+
+            XCTAssertEqual(hard, shift, accuracy: 0.15,
+                           "Edge \(edge): the HARD boundary moved by \(hard) px, not \(shift)")
+            XCTAssertEqual(soft, shift, accuracy: 0.15,
+                           "Edge \(edge): the SOFT boundary moved by \(soft) px, not \(shift)")
+            XCTAssertEqual(hard, soft, accuracy: 0.15,
+                           "Edge \(edge): hard moved \(hard) px and soft \(soft) px; the "
+                               + "advection must move both by the same distance")
+        }
     }
 
     // MARK: - The reference implementation

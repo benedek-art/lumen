@@ -677,9 +677,19 @@ final class ColorScienceTests: XCTestCase {
 
         // And the default stays the default: no space argument means rec2020,
         // bit-for-bit, so every existing golden keeps measuring what it measured.
-        XCTAssertEqual(plan.referenceColor(scene)
-                        .maxAbsDifference(plan.referenceColor(scene, space: .rec2020)),
-                       0)
+        // Computed explicitly with the rec2020 weights, not by calling with
+        // `space: .rec2020` (which is the default argument, so the same call).
+        // ITU-R BT.2020 publishes the blue luma weight as 0.0593.
+        XCTAssertEqual(RGBColorSpace.rec2020.luminance(RGB(0, 0, 1)), 0.0593,
+                       accuracy: 1e-4)
+        let lum20 = Swift.max(RGBColorSpace.rec2020.luminance(c), 0)
+        let expected20 = plan.finishedColor(encoded: LumenLog.encode(
+            c * plan.tone.gain(at: Num.safeLog2(lum20 / 0.18))))
+        XCTAssertGreaterThan(expected20.maxAbsDifference(expected), 1e-6,
+                             "the scene must tell rec2020 from P3 for this to mean anything")
+        XCTAssertEqual(plan.referenceColor(scene).maxAbsDifference(expected20), 0,
+                       accuracy: 1e-12,
+                       "referenceColor's default space is no longer rec2020")
     }
 
     /// The grid grades ZONES, and the zones are the ones the strip above the wheels

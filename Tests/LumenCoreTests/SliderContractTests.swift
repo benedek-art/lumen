@@ -184,20 +184,42 @@ final class SliderContractTests: XCTestCase {
     /// EffectsPanel's caption: "Stops at the corner, applied on scene-linear data
     /// before the display transform." Stops means stops: at −2 EV the corner's
     /// scene-linear attenuation must reach 2^−2 against the centre.
+    ///
+    /// This is the only end-to-end check of the unit (slider → RenderPlan → renderer);
+    /// the DetailEngine-level tests call the stage directly. Pixel [1, 1] is not the
+    /// exact corner: its centre sits at r = 62.5/64 = 0.9766, where the falloff is
+    /// 0.996, so the scene-linear gain is 2^(EV·0.996). The Linear preset's finish
+    /// table is not a pure ratio-preserver in the shadows (−2 EV reads 0.2596, not
+    /// 0.2514), so the expectation goes through the same finish stage.
     func testVignetteCornerIsTheStatedStops() {
         let flat = ImageBuffer(width: 128, height: 128) { _, _ in RGB(gray: 0.18) }
-        var recipe = Recipe()
-        recipe.look.render.preset = "Linear"   // read the attenuation, not the curve
-        let plain = rendered(flat, recipe)
-        recipe.look.vignette = -2
-        let vignetted = rendered(flat, recipe)
-        let centre = vignetted[64, 64].r / Swift.max(plain[64, 64].r, 1e-9)
-        let corner = vignetted[1, 1].r / Swift.max(plain[1, 1].r, 1e-9)
-        XCTAssertGreaterThan(centre, 0.95,
-            "a vignette must leave the centre alone (centre kept \(centre))")
-        XCTAssertEqual(corner, exp2(-2.0), accuracy: 0.12,
-            "vignette −2 EV attenuated the corner to \(corner) of the plain render "
-                + "— the slider's unit is stops at the corner, and 2^−2 is 0.25")
+        let r = abs((1.5 - 64.0) / 64.0)
+        let falloff = DetailEngine.vignetteFalloff(
+            radius: r, inner: DetailEngine.vignetteInnerRadius(feather: Look.vignetteFeatherDefault))
+        for ev in [-2.0, -1.0] {
+            var recipe = Recipe()
+            recipe.look.render.preset = "Linear"   // read the attenuation, not the curve
+            let plain = rendered(flat, recipe)
+            recipe.look.vignette = ev
+            let vignetted = rendered(flat, recipe)
+            let centre = vignetted[64, 64].r / Swift.max(plain[64, 64].r, 1e-9)
+            let corner = vignetted[1, 1].r / Swift.max(plain[1, 1].r, 1e-9)
+            XCTAssertGreaterThan(centre, 0.95,
+                "a vignette must leave the centre alone (centre kept \(centre))")
+
+            let plan = RenderPlan(recipe: recipe)
+            func displayed(_ gain: Double) -> Double {
+                plan.finishedColor(encoded: LumenLog.encode(RGB(gray: 0.18 * gain))).r
+            }
+            // The scene-linear gain is the stated stops, less the 0.4% the pixel
+            // centre sits inside the corner.
+            XCTAssertEqual(exp2(ev * falloff), exp2(ev), accuracy: 0.005)
+            let expected = displayed(exp2(ev * falloff)) / displayed(1)
+            XCTAssertEqual(corner, expected, accuracy: 1e-4,
+                "vignette \(ev) EV attenuated the corner to \(corner) of the plain "
+                    + "render, expected \(expected) — the slider's unit is stops at "
+                    + "the corner")
+        }
     }
 
     // MARK: - Point curve

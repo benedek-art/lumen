@@ -724,10 +724,37 @@ extension CreativeGrainTests {
 
     /// Nil is the old behaviour exactly, so every caller that does not know its
     /// resolution is untouched.
+    ///
+    /// Pinned as a golden because every other plate test here is relative (nil
+    /// against some scale), and a change to the octave count, base frequency or
+    /// smoothstep moves both sides together. GOLDEN CAPTURED FROM THE CURRENT CODE
+    /// (commit 3219754, Linux); regenerate only for an intentional plate change.
     func testNoScaleMeansEveryOctave() {
-        XCTAssertEqual(FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1,
-                                              renderPixelsPerCell: nil),
-                       FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1))
+        let plate = FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1,
+                                           renderPixelsPerCell: nil)
+        let golden: [(index: Int, value: Float)] = [
+            (0, -0.208824128), (1, -0.030078275), (129, 0.097036801),
+            (4097, -1.858311176), (8191, 1.235866666), (16383, -0.152700588),
+        ]
+        for (index, value) in golden {
+            XCTAssertEqual(plate[index], value, accuracy: 1e-6,
+                           "the nil-scale plate moved at index \(index)")
+        }
+        // FNV-1a over the Float bit patterns, little-endian bytes.
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for v in plate {
+            var bits = v.bitPattern
+            for _ in 0..<4 {
+                hash ^= UInt64(bits & 0xff)
+                hash = hash &* 0x0000_0100_0000_01b3
+                bits >>= 8
+            }
+        }
+        XCTAssertEqual(String(hash, radix: 16), "891735760d5aa815",
+                       "the nil-scale plate's bits changed")
+        // And nil is the same plate as a scale that keeps every octave.
+        XCTAssertEqual(plate, FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1,
+                                                     renderPixelsPerCell: 1e9))
     }
 
     /// A degenerate scale is ignored rather than dropping every octave and leaving a
