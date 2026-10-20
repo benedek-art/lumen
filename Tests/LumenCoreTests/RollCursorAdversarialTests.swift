@@ -198,12 +198,10 @@ final class RollCursorAdversarialTests: XCTestCase {
 
     // MARK: The owner keeps its half of the contract
 
+    /// Comment-blanked and whitespace-collapsed, so a commented-out bump cannot pass and
+    /// indentation does not matter.
     private static func appSource(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LumenApp/\(name).swift")
-        return try String(contentsOf: url, encoding: .utf8)
+        ShellSource.squashed(try ShellSource.code("Sources/LumenApp/\(name).swift"))
     }
 
     /// The revision is only as good as the owner that bumps it. `AppState.photos` is the
@@ -212,7 +210,7 @@ final class RollCursorAdversarialTests: XCTestCase {
     /// constant. A source contract because `AppState` is macOS-only; it runs on Linux.
     func testTheRollOwnerBumpsTheRevisionWhereItRebuildsAndEveryCursorReadsIt() throws {
         let state = try Self.appSource("AppState")
-        XCTAssertTrue(state.contains("photoCache = built\n        rollRevision &+= 1"),
+        XCTAssertTrue(state.contains("photoCache = built rollRevision &+= 1"),
                       "AppState rebuilds `photos` without bumping `rollRevision`")
         XCTAssertTrue(state.contains("revision: rollRevision) { list[$0].id }"),
                       "rollIndex does not key its cursor on the roll's revision")

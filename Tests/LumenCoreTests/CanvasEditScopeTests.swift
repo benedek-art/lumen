@@ -39,48 +39,10 @@ final class CanvasEditScopeTests: XCTestCase {
         return withoutComments(text)
     }
 
-    /// Comments blanked, string bodies kept, length and newlines preserved.
-    ///
-    /// The same walk `WorkspaceEntryTests` uses and for the same reason: a `//` inside a
-    /// string and a `"` inside a comment each break the other's regex, so one pass that
-    /// understands both is the only correct shape. Copied rather than shared because the
-    /// two files assert unrelated things and a shared helper between two scanners is a
-    /// third thing to keep true.
+    /// The shared `blankingComments(in:)` (CommentBlanking.swift): comments become
+    /// spaces, literals are kept, and length and lines match the input.
     private static func withoutComments(_ text: String) -> String {
-        var out = Array(text)
-        var i = 0
-        let n = out.count
-        func blank(_ from: Int, _ to: Int) {
-            for k in from..<to where out[k] != "\n" { out[k] = " " }
-        }
-        while i < n {
-            let c = out[i]
-            let next: Character? = i + 1 < n ? out[i + 1] : nil
-            if c == "/" && next == "/" {
-                var j = i
-                while j < n && out[j] != "\n" { j += 1 }
-                blank(i, j)
-                i = j
-            } else if c == "/" && next == "*" {
-                var j = i + 2
-                while j + 1 < n && !(out[j] == "*" && out[j + 1] == "/") { j += 1 }
-                let end = Swift.min(j + 2, n)
-                blank(i, end)
-                i = end
-            } else if c == "\"" {
-                var j = i + 1
-                while j < n {
-                    if out[j] == "\\" { j += 2; continue }
-                    if out[j] == "\"" { j += 1; break }
-                    if out[j] == "\n" { break }
-                    j += 1
-                }
-                i = Swift.min(j, n)
-            } else {
-                i += 1
-            }
-        }
-        return String(out)
+        blankingComments(in: text)
     }
 
     /// Every recipe write the canvas makes names its photograph.

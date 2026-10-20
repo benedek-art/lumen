@@ -74,9 +74,8 @@ final class ExportMetadataUITests: XCTestCase {
 
     private func sourceWithoutComments() throws -> String {
         let raw = try LayoutSource.read("Sources/LumenApp/ExportSheet.swift")
-        // Full-line comments are sufficient here: the pins below are complete code
-        // expressions and scoped bodies, never claims copied from prose.
-        return raw.replacingOccurrences(of: "(?m)^\\s*//[^\\n]*", with: "", options: .regularExpression)
+        // Every comment, trailing and block ones included, not only whole lines.
+        return blankingComments(in: raw)
     }
 
     private func body(_ declaration: String, in source: String) throws -> String {

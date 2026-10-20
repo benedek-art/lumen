@@ -47,8 +47,7 @@ final class AuditPanelResizeTests: XCTestCase {
     }
 
     func testResizeGestureIsMeasuredInAFixedCoordinateSpace() throws {
-        let source = try LayoutSource.read("Sources/LumenApp/ContentView.swift")
-            .replacingOccurrences(of: "(?m)^\\s*//[^\\n]*", with: "", options: .regularExpression)
+        let source = blankingComments(in: try LayoutSource.read("Sources/LumenApp/ContentView.swift"))
         let start = try XCTUnwrap(source.range(of: "private var columnResizer"))
         let end = try XCTUnwrap(source.range(of: "panelResizeDrag.width(", range: start.upperBound..<source.endIndex))
         let resizer = source[start.upperBound..<end.lowerBound]

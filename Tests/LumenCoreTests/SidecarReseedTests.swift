@@ -233,22 +233,28 @@ final class SidecarNewerFormatTests: XCTestCase {
     /// so without the clamp the number outlives the file it came from — the next build
     /// to read it declines to touch a recipe this build actually wrote.
     func testTheStampThisBuildWritesIsClampedToWhatItImplements() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/LumenApp")
-        let source = try String(contentsOf: root.appendingPathComponent(
-            "CatalogService.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("Swift.min(recipe.pipelineVersion,"),
-                      "the version handed to the sidecar must be clamped to this build's")
+        // Comment-blanked and whitespace-collapsed: the call at `saveRecipe` wraps.
+        let code = ShellSource.squashed(try ShellSource.code("Sources/LumenApp/CatalogService.swift"))
+        let clamp = "Swift.min(recipe.pipelineVersion, supportedPipelineVersion)"
+        // Both functions that hand a recipe trio to the sidecar queue, each checked in
+        // its own body so one clamped site cannot stand in for the other.
+        for marker in ["func requeueUnsavedSidecars(", "func saveRecipe(_ recipe: Recipe"] {
+            let body = try XCTUnwrap(ShellSource.body(after: marker, in: code), "\(marker) moved")
+            XCTAssertTrue(body.contains(clamp),
+                          "\(marker) hands the sidecar an unclamped pipeline version")
+        }
+        // And no third site: every `(json, fingerprint, …)` trio carries the clamp.
+        let trios = code.components(separatedBy: "(json, fingerprint,").count - 1
+        let clamps = code.components(separatedBy: clamp).count - 1
+        XCTAssertGreaterThanOrEqual(trios, 2)
+        XCTAssertEqual(trios, clamps,
+                       "a recipe trio is built for the sidecar without the version clamp")
     }
 
     /// And the refusal has to be wired into the flush, not merely available to it.
     func testTheFlushAsksWhichFieldsItMayState() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/LumenApp")
-        let source = try String(contentsOf: root.appendingPathComponent(
-            "CatalogService.swift"), encoding: .utf8)
+        let source = ShellSource.squashed(
+            try ShellSource.code("Sources/LumenApp/CatalogService.swift"))
         XCTAssertTrue(source.contains("XMPSidecar.writableFields("),
                       "flushSidecars must ask before it states a recipe")
         // The answer has to be what reaches `reseed`. Passing `entry.stated` straight

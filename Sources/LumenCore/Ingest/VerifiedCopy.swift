@@ -393,6 +393,10 @@ public struct VerifiedCopyDriver: Sendable {
     public var verify: Bool
     public var chunkSize: Int
     public var readback: any IngestReadback
+    /// How an unverified copy is removed. A test seam only (internal, behaviour
+    /// unchanged): a root runner ignores directory permissions, so the cleanup-failure
+    /// path cannot be reached there by making the directory read-only.
+    var removeItem: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
 
     public init(verify: Bool = true,
                 chunkSize: Int = IngestFileDigest.defaultChunkSize,
@@ -428,7 +432,7 @@ public struct VerifiedCopyDriver: Sendable {
         // This narrows the path race; filesystem APIs do not offer conditional unlink.
         guard let owner, InstalledOwnership.read(url) == owner else { return .destinationChanged }
         do {
-            try FileManager.default.removeItem(at: url)
+            try removeItem(url)
             return failure
         } catch {
             // Keep digests out of durable report details, as for ordinary mismatch reports.

@@ -12,6 +12,17 @@ private struct ReadbackMakesDestinationReadOnly: IngestReadback {
     }
 }
 
+/// Rewrites the landed copy in place (same inode, so the driver still owns it) so the
+/// read-back cannot match; no permissions involved.
+private struct ReadbackWritesUnverifiedCopy: IngestReadback {
+    var unreadable: Bool
+    func digest(of url: URL, chunkSize: Int) throws -> IngestDigest {
+        try Data("unverified copy".utf8).write(to: url)
+        if unreadable { throw CocoaError(.fileReadUnknown) }
+        return try IngestFileDigest.digest(of: url, chunkSize: chunkSize)
+    }
+}
+
 private struct ReadbackReplacesDestination: IngestReadback {
     var unreadable: Bool
     var matching = false
@@ -98,49 +109,80 @@ final class IngestCleanupFailureTests: XCTestCase {
         }
     }
 
+    /// End to end through POSIX permissions. Root ignores a read-only directory, so a
+    /// privileged run skips here before any work; the test below covers the same outcome
+    /// on every runner by injecting the removal failure.
     func testFailedReadbackCleanupReportsRetainedUnverifiedCopyAndNeverOffersEject() throws {
+        let probe = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-readonly-probe-\(UUID())")
+        try FileManager.default.createDirectory(at: probe, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: probe.path)
+        let privileged = FileManager.default.isWritableFile(atPath: probe.path)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: probe.path)
+        try? FileManager.default.removeItem(at: probe)
+        try XCTSkipIf(privileged, "running as root: a read-only directory does not stop removal; "
+                      + "testCleanupFailureIsReportedWithoutRelyingOnPermissions covers this path")
         for unreadable in [false, true] {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-readonly-copy-\(UUID())")
-            let destination = root.appendingPathComponent("destination")
-            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-            defer {
-                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
-                try? FileManager.default.removeItem(at: root)
+            try assertCleanupFailureIsReported(unreadable: unreadable, label: "readonly") { driver in
+                driver.readback = ReadbackMakesDestinationReadOnly(unreadable: unreadable)
             }
-            let source = root.appendingPathComponent("source.JPG")
-            let bytes = Data(repeating: 42, count: 2048)
-            try bytes.write(to: source)
-            let landed = destination.appendingPathComponent("copy.JPG")
-            let plan = IngestPlan(copies: [IngestPlannedCopy(source: source, byteCount: Int64(bytes.count),
-                destinations: [IngestPlannedDestination(url: landed, role: .primary)])])
-            let result = VerifiedCopyDriver(readback: ReadbackMakesDestinationReadOnly(unreadable: unreadable)).run(plan)
-            try XCTSkipIf(FileManager.default.isWritableFile(atPath: destination.path),
-                          "privileged runner bypasses readonly directory permissions")
-            XCTAssertFalse(result.allVerified)
-            XCTAssertEqual(result.framesVerified, 0)
-            XCTAssertEqual(result.failures.count, 1)
-            let file = try XCTUnwrap(result.failures.first)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: file.destination.path), "fault must retain the failed final copy")
-            XCTAssertEqual(try Data(contentsOf: file.destination), Data("unverified copy".utf8))
-            XCTAssertEqual(try Data(contentsOf: source), bytes)
-            XCTAssertFalse(file.isProven)
-            guard case .unverifiedCopyRemains(let reason, let cleanup) = file.failure else {
-                return XCTFail("retained unverified file requires the cleanup-failed outcome")
-            }
-            XCTAssertTrue(reason.contains(unreadable ? "Read-back failed" : "Verification mismatch"))
-            XCTAssertFalse(cleanup.isEmpty)
-            let message = try XCTUnwrap(file.failure?.message)
-            XCTAssertFalse(message.contains("was deleted"), "cleanup failure must not promise deletion")
-            XCTAssertTrue(message.contains("remains"), message)
-            XCTAssertTrue(message.contains("could not be removed"), message)
-            var durable = OperationReport(kind: .ingest, records: [])
-            durable.finishIngest(result, sources: [source])
-            let record = try XCTUnwrap(durable.records.first)
-            XCTAssertEqual(record.outcome, .failed)
-            XCTAssertNil(record.actualDestination)
-            XCTAssertEqual(record.attemptedDestination, landed.path)
-            XCTAssertTrue(record.detail?.contains("remains") == true)
-            XCTAssertFalse(record.detail?.contains("xxh64:") == true, "durable details must not retain image digests")
         }
+    }
+
+    /// The same outcome with the removal failure injected, so it also runs as root.
+    func testCleanupFailureIsReportedWithoutRelyingOnPermissions() throws {
+        for unreadable in [false, true] {
+            try assertCleanupFailureIsReported(unreadable: unreadable, label: "injected") { driver in
+                driver.readback = ReadbackWritesUnverifiedCopy(unreadable: unreadable)
+                driver.removeItem = { _ in throw CocoaError(.fileWriteNoPermission) }
+            }
+        }
+    }
+
+    private func assertCleanupFailureIsReported(unreadable: Bool, label: String,
+                                                line: UInt = #line,
+                                                configure: (inout VerifiedCopyDriver) -> Void) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lumen-\(label)-copy-\(UUID())")
+        let destination = root.appendingPathComponent("destination")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let source = root.appendingPathComponent("source.JPG")
+        let bytes = Data(repeating: 42, count: 2048)
+        try bytes.write(to: source)
+        let landed = destination.appendingPathComponent("copy.JPG")
+        let plan = IngestPlan(copies: [IngestPlannedCopy(source: source, byteCount: Int64(bytes.count),
+            destinations: [IngestPlannedDestination(url: landed, role: .primary)])])
+        var driver = VerifiedCopyDriver()
+        configure(&driver)
+        let result = driver.run(plan)
+        let context = "\(label), unreadable: \(unreadable)"
+        XCTAssertFalse(result.allVerified, context, line: line)
+        XCTAssertEqual(result.framesVerified, 0, context, line: line)
+        XCTAssertEqual(result.failures.count, 1, context, line: line)
+        let file = try XCTUnwrap(result.failures.first, context, line: line)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.destination.path),
+                      "fault must retain the failed final copy (\(context))", line: line)
+        XCTAssertEqual(try Data(contentsOf: file.destination), Data("unverified copy".utf8), context, line: line)
+        XCTAssertEqual(try Data(contentsOf: source), bytes, context, line: line)
+        XCTAssertFalse(file.isProven, context, line: line)
+        guard case .unverifiedCopyRemains(let reason, let cleanup) = file.failure else {
+            return XCTFail("retained unverified file requires the cleanup-failed outcome (\(context))", line: line)
+        }
+        XCTAssertTrue(reason.contains(unreadable ? "Read-back failed" : "Verification mismatch"), reason, line: line)
+        XCTAssertFalse(cleanup.isEmpty, context, line: line)
+        let message = try XCTUnwrap(file.failure?.message, context, line: line)
+        XCTAssertFalse(message.contains("was deleted"), "cleanup failure must not promise deletion", line: line)
+        XCTAssertTrue(message.contains("remains"), message, line: line)
+        XCTAssertTrue(message.contains("could not be removed"), message, line: line)
+        var durable = OperationReport(kind: .ingest, records: [])
+        durable.finishIngest(result, sources: [source])
+        let record = try XCTUnwrap(durable.records.first, context, line: line)
+        XCTAssertEqual(record.outcome, .failed, context, line: line)
+        XCTAssertNil(record.actualDestination, context, line: line)
+        XCTAssertEqual(record.attemptedDestination, landed.path, context, line: line)
+        XCTAssertTrue(record.detail?.contains("remains") == true, context, line: line)
+        XCTAssertFalse(record.detail?.contains("xxh64:") == true, "durable details must not retain image digests", line: line)
     }
 }

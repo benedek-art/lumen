@@ -68,12 +68,9 @@ final class SliderAccessibilityTests: XCTestCase {
 
     // MARK: The wiring (source contracts)
 
+    /// Comment-blanked (same length and lines as the file), so a pin cannot be met by prose.
     private static func appSource(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LumenApp/\(name).swift")
-        return try String(contentsOf: url, encoding: .utf8)
+        try ShellSource.code("Sources/LumenApp/\(name).swift")
     }
 
     /// The text from `struct <name>` to the next top-level declaration.
@@ -120,18 +117,17 @@ final class SliderAccessibilityTests: XCTestCase {
             .filter { $0.hasSuffix(".swift") }
         var untitled = 0
         for file in files {
-            let text = try String(contentsOf: root.appendingPathComponent(file),
-                                  encoding: .utf8)
+            let text = try ShellSource.code("Sources/LumenApp/\(file)")
             var search = text.startIndex..<text.endIndex
             while let hit = text.range(of: "LumenSlider(title: \"\"", range: search) {
                 untitled += 1
-                // The call runs to its closing paren; 1,200 characters covers the
-                // longest commented call in the tree.
-                let call = text[hit.lowerBound...].prefix(1200)
-                let close = call.range(of: "accessibilityName:")
-                XCTAssertNotNil(close, "\(file): an untitled LumenSlider has no "
-                                + "accessibilityName, so VoiceOver announces it as "
-                                + "\"Adjustment\"")
+                // Exactly this call's argument list, comments blanked: a name in a
+                // comment or in the next call does not count, and length does not matter.
+                let call = ShellSource.call(after: "LumenSlider", in: String(text[hit.lowerBound...]))
+                XCTAssertTrue(call?.contains("accessibilityName:") ?? false,
+                              "\(file): an untitled LumenSlider has no "
+                              + "accessibilityName, so VoiceOver announces it as "
+                              + "\"Adjustment\"")
                 search = hit.upperBound..<text.endIndex
             }
         }

@@ -17,16 +17,42 @@ enum ShellSource {
             .deletingLastPathComponent()      // <package>
     }
 
-    /// The file at `path` (package-relative) with every comment removed.
+    /// The file at `path` (package-relative) with every comment blanked by the shared
+    /// `blankingComments(in:)`: same length and lines as the file, comments as spaces.
     static func code(_ path: String) throws -> String {
         let text = try String(contentsOf: ShellSource.packageRoot.appendingPathComponent(path),
                               encoding: .utf8)
-        return stripComments(text)
+        return blankingComments(in: text)
     }
 
     /// The brace-balanced body that follows the first `{` after `marker`, or nil when the
     /// marker is absent. `occurrence` picks a later match of the marker.
     static func body(after marker: String, in code: String, occurrence: Int = 0) -> String? {
+        balanced(after: marker, in: code, occurrence: occurrence, open: openBrace, close: closeBrace)
+    }
+
+    /// The parenthesis-balanced argument list that follows the first `(` after `marker`
+    /// (both parentheses included), or nil when the marker is absent. Run it on code
+    /// that is already comment-blanked.
+    static func call(after marker: String, in code: String, occurrence: Int = 0) -> String? {
+        balanced(after: marker, in: code, occurrence: occurrence, open: openParen, close: closeParen)
+    }
+
+    /// Whitespace-collapsed, so a pin does not depend on line wrapping.
+    static func squashed(_ text: String) -> String {
+        text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+            .joined(separator: " ")
+    }
+
+    // Braces and parentheses by value rather than as literals, so a scanner that does
+    // not parse strings (check-swift-surface.py is one) reads this file balanced.
+    private static let openBrace = Character("\u{7B}")
+    private static let closeBrace = Character("\u{7D}")
+    private static let openParen = Character("\u{28}")
+    private static let closeParen = Character("\u{29}")
+
+    private static func balanced(after marker: String, in code: String, occurrence: Int,
+                                 open: Character, close: Character) -> String? {
         var searchFrom = code.startIndex
         var found: Range<String.Index>? = nil
         for _ in 0...occurrence {
@@ -37,70 +63,18 @@ enum ShellSource {
             searchFrom = r.upperBound
         }
         guard let start = found,
-              let open = code[start.upperBound...].firstIndex(of: openBrace) else { return nil }
+              let first = code[start.upperBound...].firstIndex(of: open) else { return nil }
         var depth = 0
-        var index = open
+        var index = first
         while index < code.endIndex {
             let c = code[index]
-            if c == openBrace { depth += 1 }
-            if c == closeBrace {
+            if c == open { depth += 1 }
+            if c == close {
                 depth -= 1
-                if depth == 0 { return String(code[open...index]) }
+                if depth == 0 { return String(code[first...index]) }
             }
             index = code.index(after: index)
         }
         return nil
-    }
-
-    /// Whitespace-collapsed, so a pin does not depend on line wrapping.
-    static func squashed(_ text: String) -> String {
-        text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
-            .joined(separator: " ")
-    }
-
-    // Quotes, backslashes, braces and comment markers by value rather than as literals,
-    // so a scanner that does not parse strings (check-swift-surface.py is one) reads this
-    // file with its braces balanced and no comment opened inside a string.
-    private static let quote = Character("\u{22}")
-    private static let backslash = Character("\u{5C}")
-    private static let blockOpen = "/" + "*"
-    private static let blockClose = "*" + "/"
-    private static let lineComment = "/" + "/"
-    private static let openBrace = Character("\u{7B}")
-    private static let closeBrace = Character("\u{7D}")
-
-    private static func stripComments(_ source: String) -> String {
-        var out = ""
-        var index = source.startIndex
-        var inBlock = false
-        var inString = false
-        while index < source.endIndex {
-            let rest = source[index...]
-            if inBlock {
-                if rest.hasPrefix(blockClose) { inBlock = false; index = source.index(index, offsetBy: 2) }
-                else { index = source.index(after: index) }
-                continue
-            }
-            if inString {
-                out.append(source[index])
-                if source[index] == backslash {
-                    index = source.index(after: index)
-                    if index < source.endIndex { out.append(source[index]) }
-                } else if source[index] == quote || source[index] == "\n" {
-                    inString = false
-                }
-                if index < source.endIndex { index = source.index(after: index) }
-                continue
-            }
-            if rest.hasPrefix(blockOpen) { inBlock = true; index = source.index(index, offsetBy: 2); continue }
-            if rest.hasPrefix(lineComment) {
-                while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-                continue
-            }
-            if source[index] == quote { inString = true }
-            out.append(source[index])
-            index = source.index(after: index)
-        }
-        return out
     }
 }

@@ -102,11 +102,19 @@ final class LookBrowserVerbTests: XCTestCase {
     func testTheRowsVerbsAreWords() throws {
         let panel = Self.strippingComments(try Self.appSource("LookPanel.swift"))
         let row = try Self.body(after: "private func savedLookRow(", in: panel)
-        XCTAssertFalse(row.contains("Image(systemName: \"trash\")"),
-                       "the row still hangs a bare trash glyph beside Apply: nothing "
-                       + "on it says what it does until it has done it")
+        // Any spelling of a trash glyph in the row itself. The menu below legitimately
+        // carries `symbol: "trash"` beside its "Delete" word, so this reads `row` only.
+        XCTAssertNil(row.range(of: #"(systemName|systemImage|symbol)\s*:\s*"trash(\.[a-z.]+)?""#,
+                               options: .regularExpression),
+                     "the row still hangs a bare trash glyph beside Apply: nothing "
+                     + "on it says what it does until it has done it")
+        // The verbs live in the row's menu, so the row must open THAT menu, and the
+        // titles are read from its body rather than anywhere in the panel.
+        XCTAssertTrue(row.contains("savedLookRowMenu(look)"),
+                      "the row no longer opens the menu that carries its verbs")
+        let menu = try Self.body(after: "private func savedLookRowMenu(", in: panel)
         for verb in ["\"Apply\"", "\"Rename\"", "\"Delete\""] {
-            XCTAssertTrue(panel.contains("title: " + verb),
+            XCTAssertTrue(menu.contains("LumenMenuItem(title: " + verb),
                           "the browser offers no \(verb) the photographer can read; a "
                           + "look library whose operations have to be discovered by "
                           + "clicking is one he will not use")

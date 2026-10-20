@@ -140,6 +140,51 @@ final class CommentBlankingTests: XCTestCase {
         XCTAssertEqual(offenders, [], "use blankingComments(in:) instead")
     }
 
+    /// The signature check above only knows one shape of walk. This one knows any: a
+    /// function named like a comment stripper must hand its work to the shared one.
+    /// `MaskPanelTests` keeps its own string-aware, nesting stripper, pinned by its own
+    /// fixtures (`testTheStripperHandlesEveryCommentShapeSwiftAllows`); it removes
+    /// rather than blanks, and those fixtures only run on macOS.
+    func testEveryNamedStripperDelegatesToTheSharedOne() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let fm = FileManager.default
+        let declaration = try NSRegularExpression(
+            pattern: #"func\s+(\w*([Ww]ithoutComments|[Ss]trip\w*Comments|[Bb]lank\w*Comments))\s*\("#)
+        var offenders: [String] = []
+        for target in ["LumenCoreTests", "LumenAppTests", "LumenPipelineTests"] {
+            let dir = tests.appendingPathComponent(target)
+            guard let walk = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for case let url as URL in walk where url.pathExtension == "swift" {
+                let name = url.lastPathComponent
+                if ["CommentBlanking.swift", "CommentBlankingTests.swift", "MaskPanelTests.swift"]
+                    .contains(name) { continue }
+                let code = blankingComments(in: try String(contentsOf: url, encoding: .utf8))
+                let range = NSRange(code.startIndex..., in: code)
+                for match in declaration.matches(in: code, range: range) {
+                    guard let r = Range(match.range, in: code) else { continue }
+                    let body = ShellSource.body(after: String(code[r]), in: String(code[r.lowerBound...])) ?? ""
+                    if !body.contains("blankingComments(in:") {
+                        offenders.append("\(target)/\(name)")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(offenders.sorted(), [], "a private comment stripper: call blankingComments(in:)")
+    }
+
+    /// The case the private walks got wrong: a `//` line inside a multi-line literal is
+    /// the literal's text, and the code after the literal is still code.
+    func testACommentShapedLineInAMultiLineLiteralIsKept() {
+        let q = "\"\"\""
+        let raw = "let s = \(q)\nhttps://x // y\n\(q)\nlet needle = 1 // gone\n"
+        let out = blankingComments(in: raw)
+        XCTAssertTrue(out.contains("https://x // y"))
+        XCTAssertTrue(out.contains("let needle = 1"))
+        XCTAssertFalse(out.contains("gone"))
+        assertOffsetsSurvive(raw, out)
+    }
+
     /// The other half-measure: dropping only lines that START with `//`. A trailing
     /// `// …` or a `/* … */` survives it and reads as code, so a needle written in a
     /// comment beside the line it guards passes a `contains` for the code that is gone.
@@ -149,13 +194,17 @@ final class CommentBlankingTests: XCTestCase {
         let fm = FileManager.default
         // Escaped so this file does not carry the signature it looks for.
         let signature = "{ !$0.trimmingCharacters(in: .whitespaces).hasPrefix(\"\u{2F}\u{2F}\") }"
+        // The same half-measure as a regex anchored at a line start (escaped likewise).
+        let regexSignature = "^\\\\s*\u{2F}\u{2F}"
         var offenders: [String] = []
         for target in ["LumenCoreTests", "LumenAppTests", "LumenPipelineTests"] {
             let dir = tests.appendingPathComponent(target)
             guard let walk = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }
             for case let url as URL in walk where url.pathExtension == "swift" {
                 let text = try String(contentsOf: url, encoding: .utf8)
-                if text.contains(signature) { offenders.append("\(target)/\(url.lastPathComponent)") }
+                if text.contains(signature) || text.contains(regexSignature) {
+                    offenders.append("\(target)/\(url.lastPathComponent)")
+                }
             }
         }
         XCTAssertEqual(offenders.sorted(), [], "use blankingComments(in:) instead")

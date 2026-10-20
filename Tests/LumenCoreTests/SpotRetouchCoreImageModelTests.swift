@@ -335,12 +335,9 @@ final class SpotRetouchCoreImageModelTests: XCTestCase {
         return try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
     }
 
-    /// Lines with their `//` comments removed. Kernel source has no `//` in it.
+    /// The shared `blankingComments(in:)`, so a `//` inside a string is not a comment.
     private static func stripComments(_ text: Substring) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
-            guard let r = line.range(of: "//") else { return line }
-            return line[..<r.lowerBound]
-        }.joined(separator: "\n")
+        blankingComments(in: String(text))
     }
 
     static func shippedGuards() throws -> Guards {

@@ -70,11 +70,7 @@ final class LibraryQueryPacingTests: XCTestCase {
     // MARK: The wiring
 
     func testTheFilterObserverAsksThePacingBeforeItQueries() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LumenApp/AppState.swift")
-        let source = Self.withoutComments(try String(contentsOf: url, encoding: .utf8))
+        let source = try ShellSource.code("Sources/LumenApp/AppState.swift")
         guard let start = source.range(of: "private func filterOrSortChanged(") else {
             return XCTFail("AppState.filterOrSortChanged is gone; the filter's didSet "
                            + "must still route through one function that paces it")
@@ -90,51 +86,15 @@ final class LibraryQueryPacingTests: XCTestCase {
         XCTAssertTrue(body.contains(".cancel()"),
                       "a newer keystroke must supersede the pending query, or a typed "
                           + "word is still one query per letter, only later")
-        // The filter's didSet must go through it, not around it.
-        guard let didSet = source.range(of: "@Published var filter = LibraryFilter()") else {
-            return XCTFail("the filter property moved")
+        // The filter's didSet must go through it, not around it. Scoped to the didSet's
+        // own braces, so its length does not matter and the next member is not read.
+        guard let property = ShellSource.body(after: "@Published var filter = LibraryFilter()",
+                                              in: source),
+              let observer = ShellSource.body(after: "didSet", in: property) else {
+            return XCTFail("the filter property or its didSet moved")
         }
-        let observer = String(source[didSet.upperBound...].prefix(200))
         XCTAssertTrue(observer.contains("filterOrSortChanged(oldValue)"))
         XCTAssertFalse(observer.contains("refreshLibraryQuery()"),
                        "the filter's didSet queries directly, past the pacing")
-    }
-
-    /// Comments blanked, string bodies kept, newlines preserved.
-    private static func withoutComments(_ text: String) -> String {
-        var out = Array(text)
-        var i = 0
-        let n = out.count
-        func blank(_ from: Int, _ to: Int) {
-            for k in from..<to where out[k] != "\n" { out[k] = " " }
-        }
-        while i < n {
-            let c = out[i]
-            let next: Character? = i + 1 < n ? out[i + 1] : nil
-            if c == "/" && next == "/" {
-                var j = i
-                while j < n && out[j] != "\n" { j += 1 }
-                blank(i, j)
-                i = j
-            } else if c == "/" && next == "*" {
-                var j = i + 2
-                while j + 1 < n && !(out[j] == "*" && out[j + 1] == "/") { j += 1 }
-                let end = Swift.min(j + 2, n)
-                blank(i, end)
-                i = end
-            } else if c == "\"" {
-                var j = i + 1
-                while j < n {
-                    if out[j] == "\\" { j += 2; continue }
-                    if out[j] == "\"" { j += 1; break }
-                    if out[j] == "\n" { break }
-                    j += 1
-                }
-                i = j
-            } else {
-                i += 1
-            }
-        }
-        return String(out)
     }
 }
