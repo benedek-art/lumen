@@ -16,10 +16,13 @@ swift run LumenApp       # launch directly
 scripts/build-app.sh     # or build dist/Lumen.app and `open dist/Lumen.app`
 ```
 
-**Or download it, already built.** Every push to main and every pull request builds the
-bundle on CI and attaches it (a branch with no open PR gets no run; dispatch CI on it by
-hand): open the latest run under the repository's **Actions** tab, and take the
-`Lumen-app` artifact from the summary page. Unzip and `open Lumen.app`.
+**Or download it, already built.** Every CI run builds the bundle and attaches it. CI
+runs on every pull request, whatever its base, and on pushes to main and to integration
+branches such as `denoise`. Agent branches (`claude/**`, `codex/**`) are tested through
+their pull request, so one with no open PR gets no run until you dispatch CI on it by
+hand, and a change that touches only `docs/**` starts no run at all. Open the latest run
+under the repository's **Actions** tab, and take the `Lumen-app` artifact from the
+summary page. Unzip and `open Lumen.app`.
 
 **Then clear the quarantine flag, or it will not open.** A bundle that arrives through
 a download carries `com.apple.quarantine`, and quarantine plus an ad-hoc signature
@@ -73,33 +76,59 @@ its own as `swift test --filter ControlProofTests`, which is what `proof.yml`'s
 `proof-linux` job does.
 
 It does NOT cover LumenPipeline or LumenApp, which are `#if os(macOS)` and need Core
-Image, AppKit and SwiftUI. Those go through the macOS runner, and locally
-`scripts/check-swift-surface.py` is the only feedback before a push — which is why that
-script runs a dozen-plus passes (one `pass_*` function each; see the `__main__` block of the
-script) rather than one. Two bugs shipped in a single afternoon that a compiler
+Image, AppKit and SwiftUI. Those go through the macOS runner. Locally, the feedback
+before a push is two things. The same toolchain parses them, because `swiftc -parse`
+reads inside `#if os(macOS)` — syntax only, no name resolution, no type checking:
+
+```sh
+swiftc -parse -swift-version 5 $(find Sources -name '*.swift')
+```
+
+And `scripts/check-swift-surface.py` covers part of what parsing cannot, which is why
+that script runs a dozen-plus passes (one `pass_*` function each; see the `__main__`
+block of the script) rather than one. Two bugs shipped in a single afternoon that a compiler
 catches in seconds: a member that did not exist on a type, and an overlay drawing
 against a rectangle the renderer had already applied.
 
 The machine this file was first written on had no Swift toolchain, and swift.org was
 blocked by its egress policy, so the verification loop started as **GitHub Actions'
-macOS runner**, and that is still where the macOS-only code is compiled. What CI runs
-today (`.github/workflows/`):
+macOS runner**, and that is still where the macOS-only code is compiled.
+
+Every workflow below runs on pull requests against any base and on pushes to every
+branch except agent branches (`claude/**`, `codex/**`, which run through their PR),
+unless its own triggers say otherwise. `ci.yml` skips a push or PR that touches only
+`docs/**` (except `docs/28-ui-refresh.md`, which `WorkspaceTests` reads); the others
+fire only on the paths named. The lanes that compile and test the Swift targets:
 
 - `build-macos` (`ci.yml`, macos-15) — `swift build` of the whole package: LumenCore,
   LumenPipeline and LumenApp (plus the `CSQLite3` system-library shim, which only
   matters on Linux).
 - `test-fast` (`ci.yml`, macos-15) — `swift test -c release` with no filter, so all
-  three test targets: LumenCoreTests, LumenPipelineTests and LumenAppTests.
+  three test targets: LumenCoreTests, LumenPipelineTests and LumenAppTests. Unfiltered
+  since 8ee85b8 (2026-10-07); before that it skipped the slow whole-pipeline tests.
+  `release-validation` (`ci.yml`, main only) runs the same command again.
 - `engine-linux` (`ci.yml`, ubuntu-24.04) — `swiftc -parse` over every file under
   `Sources/` (macOS-only ones included), then the LumenCore command above, in debug.
-- `proof-linux` (`proof.yml`) — `ControlProofTests`.
-- `gpu-parity.yml` — `swift test --filter LumenPipelineTests`, on pushes that touch
-  `Sources/**` or `Tests/LumenPipelineTests/**`.
+- `proof-linux` (`proof.yml`) — `ControlProofTests`, all 144 controls in release,
+  when `Sources/**`, `Tests/LumenCoreTests/Proof/**`, `Package.swift` or the toolchain
+  script change, and nightly on main.
+- `gpu-parity.yml` — `swift test --filter LumenPipelineTests` in debug, when LumenCore,
+  LumenPipeline, `Tests/LumenPipelineTests/**` or `Package.swift` change.
+- `ui-layout.yml` — `LayoutMetricTests`, when LumenCore, LumenApp,
+  `Tests/LumenAppTests/**` or `Package.swift` change.
+
+The rest: `fixtures-linux` (`ci.yml`) runs `scripts/gen-fixtures.py --check`,
+`check-swift-surface.py` and its fixture suite, and the other scripts' self-tests;
+`app-bundle` builds the `Lumen-app` artifact; `publish-release` runs only on a dispatch
+on main; `raw-corpus.yml` runs on dispatch and on pushes to the RAW decode tests and
+`AppleRawSource.swift`; `proof-numerics.yml` is a dispatch-only diagnostic.
 
 The CI log is filtered down to deduplicated diagnostics so a round is readable.
 
 > **Resolved — kept as history.** The outage below ended; LumenPipeline and LumenApp
-> have been compiled on every push by `build-macos` and tested by `test-fast` since.
+> have been compiled by `build-macos` and tested by `test-fast` on every non-docs push
+> since. `test-fast` has run the unfiltered suite only since 2026-10-07; before that it
+> skipped the slow whole-pipeline tests.
 >
 > **⚠️ A large batch of commits went uncompiled for a while.** Partway through
 > 2026-08-20 GitHub stopped allocating runners — every run failed in about three
@@ -128,12 +157,14 @@ The CI log is filtered down to deduplicated diagnostics so a round is readable.
 > `scripts/test-check-swift-surface.py` is the guard on the guard: it runs the checker
 > against known-good and known-bad fixture trees (`scripts/check-swift-surface-fixtures`)
 > on every push.
-> Each pass is verified able to fail by substituting wrong code; the third exists
-> because a missing `await` was found by hand in code the first two both accepted, and
-> the fifth because pass 1 waved `SQLITE_CORRUPT` through — its known-platform list is
+> Each pass is verified able to fail by substituting wrong code. The pass numbers below
+> are the script's `# Pass N` headers, not the order of the list above (method-call
+> labels has no number): pass 3 (`await`) exists because a missing `await` was found by
+> hand in code the first two both accepted, and pass 5 (module imports) because pass 1
+> waved `SQLITE_CORRUPT` through — its known-platform list is
 > global, imports are per-file, and "that is a real symbol" was never the same question
 > as "that symbol is in scope here". Pass 5 now reproduces the compiler's diagnostic on
-> that file and line exactly. The sixth followed the same way: `photo.url` reached a
+> that file and line exactly. Pass 6 (members on a typed value) followed the same way: `photo.url` reached a
 > compiler because `PhotoItem.id` IS the URL, and pass 4 only ever checked
 > `TypeName.member`, never a member on an instance. Pass 6 scopes by FUNCTION — a
 > per-file version was written first, reported a clean tree, and was structurally blind,
@@ -372,13 +403,13 @@ These are tracked, not hidden.
   compares it against `ClassicalDenoise.apply` on real frames, so the golden suite can
   catch drift in it. All seven controls are on the wire and in the panel, the profile
   follows the capture ISO, and Off is off including Hot Pixels. Two things it is NOT:
-  `ReferenceRenderer.render` still starts at S6, so the CPU stage runs one level up in
+  `ReferenceRenderer.render` still starts at S5, so the CPU stage runs one level up in
   `PipelineRenderer.renderReference` rather than inside the reference's own stage list;
   and Tier 2 remains a cached-artifact design with no model, so `.ai` still drives the
   decoder's own denoise from its Amount. Capture sharpening (S4) is unchanged: Apple's
   at-demosaic sharpener scaled by the slider. `richardsonLucy` is reached only through
   `DetailEngine.captureSharpen`, and no render stage calls that (`ReferenceRenderer`
-  starts at S6, and `RenderGraph` never calls it), so it does not ship. It is tested on
+  starts at S5, after S4, and `RenderGraph` never calls it), so it does not ship. It is tested on
   Linux, though: `FieldBaselineProbeTests.testPrintsTheSharpenBaseline` pushes a
   σ-blurred edge through `captureSharpen` and asserts the edge rise recovers by more
   than 1.1×, and `CaptureSharpenSwitchTests` (in `PSFEstimateTests.swift`) pins that
@@ -488,8 +519,9 @@ These are tracked, not hidden.
   a pure function over filenames) keeps the newest 3 snapshots plus the newest of each
   of the last 4 distinct weeks, never deletes the newest, and never deletes a name it
   cannot date; `CatalogService.pruneBackups` applies it after each backup, and
-  `BackupPolicyTests` covers it. There is no monthly tier — the doc comment on
-  `keepNewest` explains the seven-copy disk ceiling that rules one out.
+  `BackupPolicyTests` covers it. There is no monthly tier. The doc comments on
+  `keepNewest` and `keepWeeks` give the two reasons: a seven-copy disk ceiling, and a
+  catalog more than a month stale is worse to restore than a rescan.
 - **HDR export writes an ISO 21496-1 gain map** (HEIC and JPEG; macOS 15). When
   `ExportRecipe.hdrIsWritable` (`hdr != nil && format.supportsGainMap`), `export`
   renders a second rendition with `exportedHDRImage` at `gainMapWhiteTargetPercent`
@@ -574,6 +606,14 @@ These are tracked, not hidden.
   space at least as wide as sRGB changes little on screen — the flag and the paper
   simulation are what carry information there. A wider preview surface is the EDR
   viewport's job. Compare panes do not proof; the loupe does.
+- **A ProPhoto proof and a ProPhoto export adapt white differently.** The soft proof,
+  the gamut warning and the output-profile scope readout go through
+  `RGBColorSpace.matrix(to:)`, which adapts D65→D50 with CAT16. The exported file is
+  tagged ROMM (`CGColorSpace.rommrgb`) and converted by CoreGraphics, which adapts with
+  ICC Bradford. Rec.2020→ProPhoto by the two routes differs by up to 0.022 linear per
+  matrix coefficient, so what the proof shows and flags is not exactly what the file
+  holds. `ChromaticAdaptation.bradford` is declared but unused. The fix (Bradford in
+  `matrix(to:)` for D65↔D50) changes Lumen's own numbers and waits on that decision.
 - **8-bit exports are dithered.** There was no dithering code in the repository and the
   export sheet said so. `PipelineRenderer.applyDither` now adds a tiled 8×8 ordered
   pattern of at most half an output code immediately before the encoder, after every

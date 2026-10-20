@@ -383,8 +383,9 @@ in 07-spec-denoise.md.
   Lightroom 15.4's pulled release is the standing cautionary tale.
   *As built (2026-10-20):* no five-loop perf gate runs in CI and there is no headless CLI
   renderer. `PerfProbeTests` asserts only a sanity ceiling; the goldens are the synthetic kernel
-  goldens that `gpu-parity.yml` runs under `swift test` (see the note at the top of
-  14-pipeline.md §8).
+  goldens. Both run in `ci.yml`'s `test-fast` on every non-docs push and PR, in
+  `release-validation` on main, and the goldens again in debug in `gpu-parity.yml` (see the note
+  at the top of 14-pipeline.md §8).
 - **Ship-to-self weekly.** The owner runs the newest build on real shoots every week from Phase 1
   (16-roadmap.md). Dogfooding cadence is the antidote to both the Exposure failure (stagnation)
   and the ON1 failure (features outrunning the foundation).

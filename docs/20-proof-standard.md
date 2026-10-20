@@ -133,8 +133,10 @@ project has found to record an INVALID PROBE as a finding.
 
 Every proof writes `Tests/LumenCoreTests/Proof/records/<control-id>.json`, committed. The
 suite (`Tests/LumenCoreTests/Proof/ControlProofTests.swift`) regenerates them and fails if a
-committed record no longer matches within tolerance; `proof-numerics.yml` also runs
-`git diff --exit-code -- Tests/LumenCoreTests/Proof/records`.
+committed record no longer matches within tolerance; `proof.yml` runs it on engine, pipeline,
+app and proof-harness changes and nightly, and `test-fast` runs it as part of the full suite.
+The manual diagnostic `proof-numerics.yml` only checks that it left the committed records
+untouched; it regenerates nothing and cannot see drift.
 
 That makes a behaviour change **visible in a diff**, which is the property this project
 has been missing: every defect in docs/19 was invisible until somebody thought to

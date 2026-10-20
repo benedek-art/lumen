@@ -393,8 +393,8 @@ tweak. §5.2 proposes the narrow version and the argument for it.
 - **The slider's geometry is pinned in LumenCore.** `SliderDragTests` bakes in
   320 − 78 − 52 = 158 pt of track. Changing `labelWidth` to fix the truncated labels
   moves a tested constant.
-- **135 controls are proof-swept in CI** (`proof.yml`, ~66–80 min, nightly) against
-  committed records. Renaming or regrouping controls touches that registry.
+- **144 controls are proof-swept in CI** (`proof.yml`, release build, on engine/pipeline/app
+  changes and nightly; also inside `test-fast`) against committed records. Renaming or regrouping controls touches that registry.
 
 ### 4.5 Verification is asymmetric — and this is the biggest practical risk
 

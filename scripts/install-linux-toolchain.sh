@@ -34,9 +34,10 @@
 #
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
 # Image, AppKit and SwiftUI. They still need the macOS runner (build-macos and
-# test-fast in ci.yml). The mechanical checker (scripts/check-swift-surface.py) remains
-# the only local feedback on those, which is why it runs many passes rather than one
-# (one pass_* function each; see the __main__ block of the script).
+# test-fast in ci.yml). Locally, the feedback on those is `swiftc -parse` from this
+# toolchain (syntax only, no type checking) and the mechanical checker
+# (scripts/check-swift-surface.py), which is why the checker runs many passes rather
+# than one (one pass_* function each; see the __main__ block of the script).
 #
 # Requires outbound access to download.swift.org. If the environment's network policy is
 # "trusted" rather than "all", this returns 403 at CONNECT and there is nothing to do
@@ -80,6 +81,8 @@ rm -f "$TARBALL"
 "$PREFIX/usr/bin/swift" --version
 echo
 echo "Build:  $PREFIX/usr/bin/swift build --target LumenCore"
-echo "Test:   $PREFIX/usr/bin/swift test --filter LumenCoreTests"
+echo "Test:   $PREFIX/usr/bin/swift test --parallel --filter LumenCoreTests --skip ControlProofTests"
+echo "Proof:  $PREFIX/usr/bin/swift test --filter ControlProofTests"
+echo "Parse:  $PREFIX/usr/bin/swiftc -parse -swift-version 5 \$(find Sources -name '*.swift')"
 echo
 echo "Add to PATH for the session:  export PATH=\"$PREFIX/usr/bin:\$PATH\""

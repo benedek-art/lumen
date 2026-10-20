@@ -616,12 +616,17 @@ in the engine — there is a peak parameter.
 
 > **As built (2026-10-20).** This section is the design target, not the current CI.
 > - There is no migration ledger, no re-bake script and no CI step that checks a ledger.
-> - `currentPipelineVersion` (`Sources/LumenCore/Recipe/Recipe.swift`, now 2) is a recipe stamp
->   plus a refusal/clamp for newer documents (`CatalogStore`, `CatalogService`). No renderer keeps
->   per-version math, so every recipe renders with the current math. The only pin on the value is
->   `CreativeLUTTests.testTheLUTWireKeysAreTheOnesEveryVersion2BuildDecodes`.
+> - `Sources/LumenCore/Recipe/Recipe.swift` holds three numbers. `currentPipelineVersion` (2) is
+>   the default stamp written on recipes, sidecars and the catalog. `supportedPipelineVersion` (3)
+>   is what the newer-document refusal/clamp guards in `CatalogStore`, `CatalogService` and
+>   `XMPSidecar` compare against. A recipe with heal spots states `healSpotsPipelineVersion` (3).
+>   No renderer branches on the version, so every recipe renders with the current math. The value
+>   2 is pinned explicitly by `CreativeLUTTests.testTheLUTWireKeysAreTheOnesEveryVersion2BuildDecodes`
+>   and implicitly by the canonical strings in `Fixtures/canonical.json` (`CanonicalJSONTests`).
 > - Goldens are the synthetic kernel and whole-graph goldens in `Tests/LumenPipelineTests`
->   (`KernelGoldenTests` and others, run by `.github/workflows/gpu-parity.yml`). There are no
+>   (`KernelGoldenTests` and others). `ci.yml`'s `test-fast` runs them, with `PerfProbeTests`, on
+>   every non-docs push and PR, `release-validation` again on main, and `gpu-parity.yml` in debug
+>   when the engine or pipeline changes. There are no
 >   environment-keyed goldens per (macOS version, `decoderVersion`). `raw-corpus.yml` is a
 >   real-file property lane and says itself that it is not a golden suite.
 > - Performance (§8.3): `PerfProbeTests` prints stage timings and asserts only a loose sanity

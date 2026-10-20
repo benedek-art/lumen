@@ -3,12 +3,12 @@
 
 This is NOT a type checker and must never be described as one. Each pass is one
 `pass_*` function, all called from `__main__` at the bottom; there are thirteen as of
-2026-10-20 (symbols, inits, method_labels, actor_await, members, module_imports,
-intree_imports, value_members, unbound_receivers, cross_module_access,
-argument_values, switch_exhaustive, kernel_reserved), and the comment block above (or
-docstring inside) each function says what it catches. The first four, the original set,
-catch error classes that a tree that has not been compiled in a while is likely to
-carry:
+2026-10-20 (symbols, inits, actor_await, members, module_imports, intree_imports,
+value_members, unbound_receivers, cross_module_access, argument_values,
+switch_exhaustive, kernel_reserved, plus method_labels, which has no `# Pass N`
+header), and the comment block above (or docstring inside) each function says what it
+catches. The four numbered below, the original set, catch error classes that a tree
+that has not been compiled in a while is likely to carry:
 
   1. a capitalized identifier that is declared nowhere in-tree and is not a known
      platform name — a typo, a rename that missed a site, a type from a module that is
