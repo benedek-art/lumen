@@ -578,7 +578,7 @@ enum SliderInventory {
 
         // Masks — the develop column half: what the mask DOES.
         SliderSpec("Strength", "MaskPanel.swift:342", .developTop, 0...200, step: 1),
-        SliderSpec("Exposure", "MaskPanel.swift:2153", .developTop, -5...5,
+        SliderSpec("Exposure", "MaskPanel.swift:2155", .developTop, -5...5,
                    hard: -10...10, step: 0.01, decimals: 2),
         SliderSpec("Contrast", "MaskPanel.swift:2156", .developTop, -100...100, step: 1),
         SliderSpec("Highlights", "MaskPanel.swift:2160", .developTop, -100...100, step: 1),
@@ -599,7 +599,7 @@ enum SliderInventory {
         SliderSpec("Dehaze", "MaskPanel.swift:2414", .developTop, -100...100, step: 1),
         SliderSpec("Sharpness", "MaskPanel.swift:2419", .developTop, -100...100, step: 1),
         SliderSpec("Temp", "MaskPanel.swift:2933", .developTop, 2000...50000, step: 50),
-        SliderSpec("Tint", "MaskPanel.swift:2945", .developTop, -150...150,
+        SliderSpec("Tint", "MaskPanel.swift:2950", .developTop, -150...150,
                    hard: -300...300, step: 1),
         SliderSpec("Temp", "MaskPanel.swift:2951", .developTop, -100...100, step: 1),
         SliderSpec("Tint", "MaskPanel.swift:2955", .developTop, -100...100, step: 1),
@@ -643,7 +643,7 @@ enum SliderInventory {
         SliderSpec("Soften", "MaskPanel.swift:2103", .maskDetail, 0...100, step: 1, glyph: true),
         SliderSpec("Ramp from", "MaskPanel.swift:2112", .maskDetail, 0...100, step: 1),
         SliderSpec("Ramp to", "MaskPanel.swift:2113", .maskDetail, 0...100, step: 1),
-        SliderSpec("Ramp shape", "MaskPanel.swift:2114", .maskDetail, 0.2...5,
+        SliderSpec("Ramp shape", "MaskPanel.swift:2116", .maskDetail, 0.2...5,
                    step: 0.05, decimals: 2),
 
         // The grading wheels' lightness bar — one call site, two geometries, and the

@@ -2117,8 +2117,10 @@ struct MaskPanel: View {
             // not be defended; "Start"/"End" were a 1994 histogram dialog.
             levelsSlider(mask.id, "Ramp from", low: true)
             levelsSlider(mask.id, "Ramp to", low: false)
+            // A gamma, so 0.2 and 5 are equal-strength opposites: on the log axis
+            // the neutral 1 sits at the middle of the track instead of at 17 %.
             refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
-                         step: 0.05, decimals: 2, bipolar: true,
+                         step: 0.05, decimals: 2, bipolar: true, scale: .log,
                          help: "Bends the fade between Ramp from and Ramp to. "
                              + "Below 1 the selection holds back and arrives late; "
                              + "above 1 it comes up early and eases in.")
@@ -2819,6 +2821,7 @@ struct MaskPanel: View {
     private func refineSlider(_ id: String, _ t: String, _ p: WritableKeyPath<MaskRefine, Double>,
                               _ r: ClosedRange<Double>, _ d: Double, step: Double = 1,
                               decimals: Int = 0, bipolar: Bool = false,
+                              scale: SliderScale = .linear,
                               help: String? = nil,
                               behaviour: BehaviourShape? = nil,
                               behaviourValue: Double = 0) -> some View {
@@ -2826,7 +2829,7 @@ struct MaskPanel: View {
                     value: maskValue(id, t, get: { $0.refine[keyPath: p] },
                                      set: { $0.refine[keyPath: p] =
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: d, step: step, decimals: decimals,
+                    range: r, scale: scale, defaultValue: d, step: step, decimals: decimals,
                     bipolar: bipolar,
                     behaviour: behaviour, behaviourValue: behaviourValue,
                     help: help)

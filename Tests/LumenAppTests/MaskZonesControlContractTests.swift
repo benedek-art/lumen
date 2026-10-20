@@ -71,5 +71,25 @@ final class MaskZonesControlContractTests: XCTestCase {
         XCTAssertTrue(helper.contains("Num.clamp($1, limit.lowerBound, limit.upperBound)"))
         XCTAssertTrue(helper.contains("hardRange: hardRange"))
     }
+
+    // MARK: - Finding 12: Ramp shape is a gamma, so its track is logarithmic
+
+    func testRampShapeIsOnTheLogAxisWithNeutralAtTheMiddle() throws {
+        let panel = try source("MaskPanel.swift")
+        let row = try slice(panel, from: "refineSlider(mask.id, \"Ramp shape\"", to: "help:")
+        XCTAssertTrue(row.contains("0.2...5"))
+        XCTAssertTrue(row.contains("scale: .log"),
+                      "a gamma on a linear track puts 1.0 at 17 % of the travel")
+        let helper = try slice(panel, from: "private func refineSlider(",
+                               to: "private func levelsSlider(")
+        XCTAssertTrue(helper.contains("scale: scale"), "refineSlider drops its scale")
+
+        // 0.2 and 5 are reciprocal, so the neutral gamma lands at exactly half way.
+        let ratio = SliderTrack(width: 142, lowerBound: 0.2, upperBound: 5, step: 0.05,
+                                scale: .log)
+        XCTAssertEqual(ratio.fraction(of: 1), 0.5, accuracy: 1e-9)
+        let linear = SliderTrack(width: 142, lowerBound: 0.2, upperBound: 5, step: 0.05)
+        XCTAssertEqual(linear.fraction(of: 1), 0.8 / 4.8, accuracy: 1e-9)
+    }
 }
 #endif
