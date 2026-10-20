@@ -103,12 +103,16 @@ public final class BlobStore: @unchecked Sendable {
     /// verified too: a torn file on either side must not be published as the payload.
     /// Lands by an atomic write (beside, then rename), so a crash leaves either the old
     /// file or the whole new one under the name — never a prefix.
+    ///
+    /// A source that cannot be READ throws, as the plain copy it replaced did: the
+    /// catalog backup publishes its database only when every payload made it across,
+    /// and a silent skip here let it publish a restore point missing masks.
     private static func copyPayload(named name: String, from source: URL,
                                     to destination: URL) throws -> Bool {
         let target = destination.appendingPathComponent(name)
         if holdsPayload(at: target, named: name) { return false }
-        guard let bytes = try? Data(contentsOf: source.appendingPathComponent(name)),
-              filename(for: BrushStrokeSet.blobRef(for: bytes)) == name else { return false }
+        let bytes = try Data(contentsOf: source.appendingPathComponent(name))
+        guard filename(for: BrushStrokeSet.blobRef(for: bytes)) == name else { return false }
         try bytes.write(to: target, options: .atomic)
         return true
     }

@@ -92,4 +92,17 @@ final class BlobStoreTornWriteTests: XCTestCase {
         XCTAssertEqual(try BlobStore(directory: liveDir).restore(from: backup), 0)
         XCTAssertEqual(try files(in: liveDir), [])
     }
+
+    /// A payload the backup cannot read must fail the backup, not be skipped: the
+    /// catalog publishes its restore point only when every payload copied. (macOS pins
+    /// this with an unreadable file in `AuditPersistenceSafetyTests`; root on Linux
+    /// ignores permissions, so this reads a directory standing under a payload name.)
+    func testAPayloadThatCannotBeReadFailsTheBackup() throws {
+        let liveDir = root.appendingPathComponent("live", isDirectory: true)
+        let store = try BlobStore(directory: liveDir)
+        let name = try XCTUnwrap(BlobStore.filename(for: BrushStrokeSet.blobRef(for: payload)))
+        try FileManager.default.createDirectory(at: liveDir.appendingPathComponent(name),
+                                                withIntermediateDirectories: true)
+        XCTAssertThrowsError(try store.backUp(to: root.appendingPathComponent("backup")))
+    }
 }
