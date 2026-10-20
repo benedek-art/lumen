@@ -87,4 +87,55 @@ final class CoreCorrectnessTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Crop drags
+
+    /// Dragging an unlocked handle past the frame edge used to move the opposite edge:
+    /// the overflow went to `normalized`, which keeps the size and slides the rectangle.
+    func testAnUnlockedOvershootDoesNotMoveTheAnchor() {
+        let start = Crop(x: 0.2, y: 0.2, w: 0.6, h: 0.6)
+        let l = CropGeometry.resize(start, handle: .left, dx: -0.3)
+        XCTAssertEqual(l.x, 0, accuracy: 1e-12)
+        XCTAssertEqual(l.x + l.w, 0.8, accuracy: 1e-12)
+        let r = CropGeometry.resize(start, handle: .right, dx: 0.3)
+        XCTAssertEqual(r.x, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(r.x + r.w, 1.0, accuracy: 1e-12)
+        let t = CropGeometry.resize(start, handle: .top, dy: -0.5)
+        XCTAssertEqual(t.y, 0, accuracy: 1e-12)
+        XCTAssertEqual(t.y + t.h, 0.8, accuracy: 1e-12)
+        let b = CropGeometry.resize(start, handle: .bottom, dy: 0.3)
+        XCTAssertEqual(b.y, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(b.y + b.h, 1.0, accuracy: 1e-12)
+        let tl = CropGeometry.resize(start, handle: .topLeft, dx: -0.3, dy: -0.3)
+        XCTAssertEqual(tl.x, 0, accuracy: 1e-12)
+        XCTAssertEqual(tl.y, 0, accuracy: 1e-12)
+        XCTAssertEqual(tl.x + tl.w, 0.8, accuracy: 1e-12)
+        XCTAssertEqual(tl.y + tl.h, 0.8, accuracy: 1e-12)
+        let br = CropGeometry.resize(start, handle: .bottomRight, dx: 0.3, dy: 0.3)
+        XCTAssertEqual(br.x, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(br.y, 0.2, accuracy: 1e-12)
+    }
+
+    /// A locked corner dragged inward along one axis used to do nothing: the corner
+    /// branch took the LARGER extent, which is the axis that did not move.
+    func testALockedCornerDragInwardShrinks() {
+        let start = Crop(x: 0.2, y: 0.2, w: 0.4, h: 0.4)
+        let out = CropGeometry.resize(start, handle: .bottomRight, dx: -0.2, dy: 0,
+                                      lockedAspect: 1.5, frameAspect: 1.5)
+        XCTAssertEqual(out.x, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(out.y, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(out.w, 0.2, accuracy: 1e-9)
+        XCTAssertEqual(out.h, 0.2, accuracy: 1e-9)
+        let up = CropGeometry.resize(start, handle: .topLeft, dx: 0, dy: 0.1,
+                                     lockedAspect: 1.5, frameAspect: 1.5)
+        XCTAssertEqual(up.w, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(up.h, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(up.x + up.w, 0.6, accuracy: 1e-12)
+        XCTAssertEqual(up.y + up.h, 0.6, accuracy: 1e-12)
+        // Growing still follows the axis pushed further.
+        let grow = CropGeometry.resize(start, handle: .bottomRight, dx: 0.1, dy: 0.2,
+                                       lockedAspect: 1.5, frameAspect: 1.5)
+        XCTAssertEqual(grow.w, 0.6, accuracy: 1e-9)
+        XCTAssertEqual(grow.h, 0.6, accuracy: 1e-9)
+    }
 }
