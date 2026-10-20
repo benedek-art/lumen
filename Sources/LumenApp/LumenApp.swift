@@ -513,6 +513,15 @@ private struct LumenCommands: Commands {
                 Button("Export…") { state.showExportSheet = true }
                     .keyboardShortcut("e", modifiers: [.command])
                     .disabled(!commands.hasSelection)
+                // Lightroom's chord: the last folder and the checked recipes, no sheet
+                // and no panel. Falls back to the sheet when it cannot (no folder yet,
+                // folder gone) and says why — `QuickExport.plan`.
+                Button("Export with Previous") { state.exportWithPrevious() }
+                    .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+                    .disabled(!commands.hasSelection)
+                Divider()
+                // No chord: Lightroom has none, and it is not a repeated gesture.
+                Button("Show Last Export in Finder") { state.revealLastExport() }
             }
 
             CommandGroup(replacing: .help) {

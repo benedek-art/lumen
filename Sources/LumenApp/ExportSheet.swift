@@ -355,6 +355,7 @@ struct ExportSheet: View {
                 .font(.lumenBody)
                 .foregroundStyle(summaryColor)
             Spacer()
+            ExportRevealWhenDoneOption()
             OperationReportsButton(state: state)
             Button("Export…") {
                 guard contactEligibility.canExport else { return }
