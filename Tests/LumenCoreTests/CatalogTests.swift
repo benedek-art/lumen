@@ -1086,6 +1086,26 @@ final class CatalogTests: XCTestCase {
                        "the second copy of the work is not the same as the first")
     }
 
+    /// The same through the sidecar with every recipe field off its default: XML
+    /// escaping of the canonical JSON must not touch any field's value.
+    func testSidecarRoundTripsAFullyPopulatedRecipe() throws {
+        let recipe = RecipeSamples.populated()
+        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let fingerprint = try RecipeFingerprint.fingerprint(recipe)
+        let content = SidecarContent(rating: 4, label: "red",
+                                     pipelineVersion: recipe.pipelineVersion,
+                                     recipeFingerprint: fingerprint,
+                                     recipeJSON: json)
+        let parsed = try XCTUnwrap(XMPSidecar.parse(XMPSidecar.serialize(content)))
+        XCTAssertTrue(parsed.parsedCleanly)
+        XCTAssertEqual(parsed.recipeJSON, json, "the sidecar altered the recipe text")
+        XCTAssertEqual(parsed.recipeFingerprint, fingerprint)
+        XCTAssertEqual(parsed.pipelineVersion, recipe.pipelineVersion)
+        let restored = try CanonicalJSON.decodeRecipe(
+            from: Data(try XCTUnwrap(parsed.recipeJSON).utf8))
+        XCTAssertEqual(restored, recipe)
+    }
+
     // MARK: - A photo's identity inside its folder
 
     /// The folder scan is recursive and `photo` is UNIQUE(folder_id, filename), so if

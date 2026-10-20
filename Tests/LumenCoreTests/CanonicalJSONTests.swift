@@ -183,6 +183,27 @@ final class CanonicalJSONTests: XCTestCase {
         XCTAssertEqual(decoded, expected)
     }
 
+    /// The full-fidelity sample (every field off its default: masks, groups, heal spots,
+    /// LUT, grain, curves, point colours, upright, defringe, crop) through the path
+    /// catalog rows and sidecars take: sparse, canonical numbers, merge, decode.
+    /// The other round trips here carry a handful of scalars.
+    func testAFullyPopulatedRecipeSurvivesTheCanonicalWire() throws {
+        let recipe = RecipeSamples.populated()
+        let text = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let back = try CanonicalJSON.decodeRecipe(from: Data(text.utf8))
+        XCTAssertEqual(back, recipe, "a field was lost or changed on the canonical wire")
+        XCTAssertEqual(try CanonicalJSON.canonicalRecipeJSON(back), text,
+                       "re-serializing a decoded recipe changed its text")
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(back),
+                       try RecipeFingerprint.fingerprint(recipe))
+
+        let look = RecipeSamples.lookSubset()
+        let lookText = try CanonicalJSON.canonicalLookJSON(look)
+        let lookBack = try CanonicalJSON.decodeLookSubset(from: Data(lookText.utf8))
+        XCTAssertEqual(lookBack, look, "a saved look was lost or changed on the wire")
+        XCTAssertEqual(try CanonicalJSON.canonicalLookJSON(lookBack), lookText)
+    }
+
     func testUnknownKeysAreForwardCompatible() throws {
         let futureDoc = """
         {"pipelineVersion":1,"develop":{"tone":{"exposure":1.5}},"someFutureFeature":{"x":1}}

@@ -21,6 +21,20 @@ final class ExportRecipeDecodeTests: XCTestCase {
         try JSONDecoder().decode(ExportRecipe.self, from: Data(json.utf8))
     }
 
+    /// The encoded recipe flattened to dotted leaf paths.
+    private func leaves(of recipe: ExportRecipe) throws -> [String: JSONValue] {
+        var out: [String: JSONValue] = [:]
+        func walk(_ value: JSONValue, _ path: String) {
+            if case .object(let o) = value {
+                for (k, v) in o { walk(v, path.isEmpty ? k : path + "." + k) }
+            } else {
+                out[path] = value
+            }
+        }
+        walk(try CanonicalJSON.tree(of: recipe), "")
+        return out
+    }
+
     // MARK: - The defect
 
     /// The shape of every future field addition: a payload this build has never seen,
@@ -76,7 +90,32 @@ final class ExportRecipeDecodeTests: XCTestCase {
                                   resizeMode: .longEdge, resizeValue: 3000,
                                   allowUpscale: true, resolutionPPI: 240,
                                   filenameTemplate: "{name}-{date}", subfolder: "out")
-        recipe.watermark = Watermark(text: "©", opacity: 40)
+        recipe.watermark = Watermark(text: "©", position: .topLeft, opacity: 40,
+                                     sizePercent: 5, insetPercent: 4)
+        recipe.sharpen = OutputSharpen(medium: .matte, amount: .high)
+        recipe.metadata = MetadataPolicy(includeEXIF: false, includeCameraSerial: true,
+                                         includeGPS: true, includeKeywords: false,
+                                         copyright: "© X", contact: "x@y.z")
+        recipe.sequenceStart = 250
+        recipe.collision = .skip
+        recipe.hdr = HDRSettings(headroomEV: 1.5, mapScale: 0.5, deliberateSDRBase: false)
+
+        // Every encoded leaf must differ from the default, or a decoder that ignores the
+        // key passes (the decoder falls back to exactly that default). Optionals are
+        // compared against their own type's default, so a nil left here fails too.
+        // `id` and `name` have generated fallbacks, not defaults.
+        let reference = ExportRecipe(name: "", watermark: Watermark(),
+                                     subfolder: "", hdr: HDRSettings())
+        var referenceTree = try leaves(of: reference)
+        referenceTree["metadata.copyright"] = .string("")
+        referenceTree["metadata.contact"] = .string("")
+        let sampleTree = try leaves(of: recipe)
+        XCTAssertEqual(Set(sampleTree.keys), Set(referenceTree.keys).union(["id", "name"]),
+                       "the sample leaves a field unset")
+        for (path, value) in referenceTree where path != "id" && path != "name" {
+            XCTAssertNotEqual(sampleTree[path], value, "\(path) is sampled at its default")
+        }
+
         let data = try JSONEncoder().encode(recipe)
         XCTAssertEqual(try JSONDecoder().decode(ExportRecipe.self, from: data), recipe,
                        "a field the encoder wrote came back different or missing")
