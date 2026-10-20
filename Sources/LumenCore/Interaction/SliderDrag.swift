@@ -260,10 +260,39 @@ public struct SliderTrack: Sendable, Equatable {
     ///
     /// A pure function of the CURRENT pointer position. No accumulator, no dependence
     /// on how many samples came before — which is the property the whole file is about.
+    ///
+    /// ZERO TRAVEL IS ZERO CHANGE, and it used not to be. The slider's gesture has a
+    /// minimum distance of zero, so clicking the thumb without moving it delivers a
+    /// sample and a release that both carry `travelled == 0` — and both committed
+    /// `snapped(clamped(start))`. Two kinds of value legitimately sit off the soft
+    /// range's step grid, and a click rewrote both: the as-shot white balance (Temp
+    /// shows the camera's 5137.4 K while `raw.temp` is nil; a click wrote 5150, pinned
+    /// an override and flipped the preset to Custom) and a value typed into the hard
+    /// range (Exposure −8 EV became −5 EV). A gesture that has not moved has not said
+    /// anything, so it hands back what it found.
+    ///
+    /// And the first real travel moves the value from WHERE IT IS. The clamp is to the
+    /// soft range, as before, but widened just far enough to include `start` — the rule
+    /// `nudged` already applies to arrows and the wheel. A value inside the soft range
+    /// still cannot be dragged out of it; one already out there is moved by the travel
+    /// rather than evicted three stops to the soft limit by the first point of it. The
+    /// widening is done in AXIS space, so the reciprocal and log scales keep working.
     public func value(from start: Double, travelled: Double) -> Double {
         guard isUsable, travelled.isFinite else { return resolve(start) }
-        let startAxis = clampedAxis(scale.axis(clamped(start)))
-        return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        if travelled == 0, start.isFinite { return start }
+        let rawAxis = scale.axis(start)
+        guard start.isFinite, rawAxis.isFinite else {
+            let startAxis = clampedAxis(scale.axis(clamped(start)))
+            return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        }
+        let lowAxis = Swift.min(axisLower, rawAxis)
+        let highAxis = Swift.max(axisUpper, rawAxis)
+        let movedAxis = Swift.min(Swift.max(rawAxis + (travelled / width) * axisSpan, lowAxis), highAxis)
+        // Clamp then snap, in that order, against the same widened window in value
+        // space — identical to `resolve` whenever `start` is inside the soft range.
+        let low = Swift.min(lowerBound, start)
+        let high = Swift.max(upperBound, start)
+        return snapped(Swift.min(Swift.max(scale.value(atAxis: movedAxis), low), high))
     }
 
     /// How far the pointer has to travel to move a control from `from` to `to`. The
