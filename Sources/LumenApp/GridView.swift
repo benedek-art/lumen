@@ -422,7 +422,13 @@ struct PhotoCell: View {
             if image !== hit { image = hit }
             return
         }
-        if let loaded = await loader.image(for: photo.id, size: pixels) {
+        // The await can resume AFTER this task was superseded — the slider crossed a
+        // bucket or the source was replaced, so `.task(id:)` cancelled it and started
+        // the next request — when the decode finished before the cancellation's
+        // `abandon` reached the queue. Assigning then would let the stale pixels land
+        // on top of whatever the newer request already put up.
+        if let loaded = await loader.image(for: photo.id, size: pixels),
+           !Task.isCancelled {
             image = loaded
         }
     }

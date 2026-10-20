@@ -246,7 +246,17 @@ final class ThumbnailLoader: ObservableObject {
     /// The scroll path's only question: is it here already? Never blocks, never
     /// decodes, never allocates a task.
     func thumbnail(for url: URL, size: Int) -> CGImage? {
-        let key = Key(url: url, pixels: thumbnailBucket(for: size))
+        cachedImage(for: Key(url: url, pixels: thumbnailBucket(for: size)))
+    }
+
+    /// The lookup behind `thumbnail(for:size:)`, for callers that already hold a key.
+    ///
+    /// A `Key` is not free: building one `stat`s the file (`SourceFileIdentity.read`),
+    /// and it does so on the main actor. `image(for:size:)` used to build the same key
+    /// twice — once inside `thumbnail(for:size:)` and once for the queue — and the
+    /// prefetch ring built every key twice, once to enqueue it and once for the keep
+    /// set. One key per question is the same answer for half the syscalls.
+    private func cachedImage(for key: Key) -> CGImage? {
         guard var entry = cache[key] else { return nil }
         clock += 1
         entry.lastUsed = clock
@@ -258,8 +268,8 @@ final class ThumbnailLoader: ObservableObject {
     /// size. If the caller's task is cancelled — the cell scrolled away — the wait
     /// ends immediately and the work is dropped if nobody else still wants it.
     func image(for url: URL, size: Int, priority: Int = Priority.visible) async -> CGImage? {
-        if let hit = thumbnail(for: url, size: size) { return hit }
         let key = Key(url: url, pixels: thumbnailBucket(for: size))
+        if let hit = cachedImage(for: key) { return hit }
         if failed.contains(key) { return nil }
         if Task.isCancelled { return nil }
 
@@ -387,12 +397,18 @@ final class ThumbnailLoader: ObservableObject {
             // the next keystroke and queues below the visible work.
             let aheadPriority = rank == 0 ? Priority.lookahead : Priority.prefetch
             let behindPriority = rank == 0 ? Priority.prefetch : Priority.background
-            request(ahead, size: level, priority: aheadPriority)
-            request(behind, size: level, priority: behindPriority)
+            // Each key is built ONCE and used for both the queue and the keep set —
+            // see `cachedImage(for:)` for what building one costs.
             let pixels = thumbnailBucket(for: level)
             managed.insert(pixels)
-            for url in ahead { keep.insert(Key(url: url, pixels: pixels)) }
-            for url in behind { keep.insert(Key(url: url, pixels: pixels)) }
+            let aheadKeys = ahead.map { Key(url: $0, pixels: pixels) }
+            let behindKeys = behind.map { Key(url: $0, pixels: pixels) }
+            for key in aheadKeys { enqueue(key, priority: aheadPriority) }
+            pump()
+            for key in behindKeys { enqueue(key, priority: behindPriority) }
+            pump()
+            keep.formUnion(aheadKeys)
+            keep.formUnion(behindKeys)
         }
         pruneSpeculative(keeping: keep, levels: managed)
     }
