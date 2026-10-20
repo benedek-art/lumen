@@ -9,18 +9,21 @@
 # its own file is in the paths so the push that lands a lane change also exercises it.
 #
 # ci.yml's test-fast already runs these tests on every PR, in release. This lane runs
-# them in DEBUG, where `assert`/`precondition` are live and floating point is not
-# reordered by the optimizer. That is what it adds.
+# them in DEBUG, where `assert` is live (`precondition` is live in both) and the code
+# is unoptimized. That is what it adds; floating-point results should not differ.
 name: GPU parity
 on:
-  # Pushes to main and pull requests against it, as in ci.yml: a PR run tests the merge
-  # with main, and a branch push no longer starts a second macOS run for the same PR.
+  # Same triggers as ci.yml: pull requests against any base (a PR run tests the merge
+  # with its base) and pushes to every branch except agent feature branches, so a PR
+  # does not start this macOS run twice.
   #
   # Pipeline, engine and their tests only. Compile errors elsewhere in Sources (runs #13
   # and #14 died on LumenApp errors) are build-macos's to report; `swift test` still
   # builds the whole package here, so such an error also fails this lane when it runs.
   push:
-    branches: [main]
+    # main and long-lived integration branches (e.g. `denoise`, which PRs target).
+    # Agent feature branches are tested through their pull request instead.
+    branches-ignore: ["claude/**", "codex/**"]
     paths:
       - "Sources/LumenPipeline/**"
       - "Sources/LumenCore/**"
@@ -30,7 +33,6 @@ on:
       - "scripts/check-xctest-skips.py"
       - ".github/workflows/gpu-parity.yml"
   pull_request:
-    branches: [main]
     paths:
       - "Sources/LumenPipeline/**"
       - "Sources/LumenCore/**"
@@ -72,6 +74,7 @@ jobs:
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
           # Nearly every golden here starts with an XCTSkipUnless on kernel availability,
-          # and a few turn a nil render into a skip. Any skip outside the allowlist fails.
+          # so a kernel that fails to compile reads as a skip. Any skip outside the
+          # allowlist fails.
           python3 scripts/check-xctest-skips.py parity.log || status=1
           exit $status

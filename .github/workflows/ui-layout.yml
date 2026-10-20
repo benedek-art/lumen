@@ -30,11 +30,13 @@ name: UI layout
 # the complete suite; this lane is the separately named verdict and its readable report.
 
 on:
-  # Pushes to main and pull requests against it, as in ci.yml, so a PR does not start
-  # this macOS run twice. Only the targets LayoutMetricTests builds on: a docs-only or
+  # Same triggers as ci.yml (PRs against any base, pushes except agent branches), so a
+  # PR does not start this macOS run twice. Only the targets LayoutMetricTests builds on: a docs-only or
   # pipeline-only change has never moved a panel inset.
   push:
-    branches: [main]
+    # main and long-lived integration branches (e.g. `denoise`, which PRs target).
+    # Agent feature branches are tested through their pull request instead.
+    branches-ignore: ["claude/**", "codex/**"]
     paths:
       - "Sources/LumenApp/**"
       - "Sources/LumenCore/**"
@@ -42,7 +44,6 @@ on:
       - "Package.swift"
       - ".github/workflows/ui-layout.yml"
   pull_request:
-    branches: [main]
     paths:
       - "Sources/LumenApp/**"
       - "Sources/LumenCore/**"

@@ -4,16 +4,20 @@ permissions:
   contents: read
 
 on:
-  # Pushes to main, and pull requests against it. A pull_request run checks out the
-  # MERGE of the branch with main, so two PRs that are each green on their own branch
-  # but break main together are caught before the second one lands. Feature-branch
-  # pushes no longer start a run of their own: with both triggers every PR branch ran
-  # the whole macOS fleet twice per push. The cost is that a branch with no open PR
-  # gets no CI until a PR is opened or the workflow is dispatched on it.
+  # Pull requests against any base, and pushes to every branch except agent feature
+  # branches (claude/**, codex/**). A pull_request run checks out the MERGE of the
+  # branch with its base, so two PRs that are each green on their own branch but break
+  # main together are caught before the second one lands. Agent branches are not also
+  # run on push: every PR branch would otherwise run the whole macOS fleet twice per
+  # push. The cost is that an agent branch with no open PR gets no CI until a PR is
+  # opened or the workflow is dispatched on it. main and integration branches such as
+  # `denoise` (which PRs target) still run on push.
   # merge_group is inert until a merge queue is turned on; it is here so turning one
   # on needs no workflow change.
   push:
-    branches: [main]
+    # main and long-lived integration branches (e.g. `denoise`, which PRs target).
+    # Agent feature branches are tested through their pull request instead.
+    branches-ignore: ["claude/**", "codex/**"]
     # A push that touches only prose must not cancel the run that is compiling the
     # code. The concurrency group below is per ref and cancels in progress, which
     # is right for a burst of code pushes and wrong for a status note pushed while a
@@ -29,7 +33,6 @@ on:
       - "!docs/**"
       - "docs/28-ui-refresh.md"
   pull_request:
-    branches: [main]
     paths:
       - "**"
       - "!docs/**"
@@ -91,8 +94,8 @@ jobs:
   #
   # A skipped test reads as green, so the step also fails on any skip that
   # .github/expected-skips.txt does not list (the environment-gated corpus, bench and
-  # probe tests), via scripts/check-xctest-skips.py. A kernel that fails to compile, a
-  # render that returns nil or a renamed function a scan looks for all surface as skips.
+  # probe tests), via scripts/check-xctest-skips.py. A kernel that fails to compile
+  # surfaces as a skip (the GPU goldens gate on kernel availability).
   test-fast:
     runs-on: macos-15
     timeout-minutes: 35

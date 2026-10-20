@@ -14,7 +14,9 @@
 name: Proof sweep
 on:
   push:
-    branches: [main]
+    # main and long-lived integration branches (e.g. `denoise`, which PRs target).
+    # Agent feature branches are tested through their pull request instead.
+    branches-ignore: ["claude/**", "codex/**"]
     paths:
       - "Sources/LumenCore/**"
       # THE TWO THAT WERE MISSING, and the gap they left. The sweep renders through
@@ -35,9 +37,8 @@ on:
       - "Sources/CSQLite3/**"
       - "scripts/install-linux-toolchain.sh"
       - ".github/workflows/proof.yml"
-  # A PR run tests the merge with main. Same paths as push.
+  # A PR run tests the merge with its base. Same paths as push.
   pull_request:
-    branches: [main]
     paths:
       - "Sources/LumenCore/**"
       - "Sources/LumenPipeline/**"

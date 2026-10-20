@@ -52,14 +52,13 @@ on:
   # runs with the evidence sheet read by a human, and R-5's and R-7's thresholds re-set
   # from those measurements. Then `Sources/LumenPipeline/**` joins the paths.
   #
-  # Status (October 2026): no run of this lane has passed yet; main fails the same
-  # assertions each time (testTheMostNeutralPatchInEachFrameIsNeutral on the Nikon Z 30
-  # and Panasonic GH5S files, testTheRenderIsNeitherBlankNorPoisoned on the Leica M
-  # Monochrom DNG). Until it is green, a decode change in CaptureMetadataReader.swift,
+  # Status (2026-10-20): no run of this lane has passed yet. The latest runs on every
+  # branch fail the same assertions (testTheMostNeutralPatchInEachFrameIsNeutral on
+  # the Nikon Z 30 and Panasonic GH5S files, testTheRenderIsNeitherBlankNorPoisoned on
+  # the Leica M Monochrom DNG); an older main run also failed on the Sigma DP1, stub
+  # and Phase One files. Until it is green, a decode change in CaptureMetadataReader.swift,
   # DecodeMaterializer.swift, ImageSource.swift or PipelineRenderer.swift does NOT run
-  # this lane, although RawCorpusTests exercises all four. Dispatch it by hand for
-  # those, and add them (or the whole directory) here, with a pull_request trigger,
-  # once a dispatched run on main is green.
+  # this lane, although RawCorpusTests exercises all four: dispatch it by hand for those.
   #
   # The narrow exception, added because a lane that triggers only on itself never sees
   # the change it guards: the decoder wrapper, the test that consumes the corpus, the

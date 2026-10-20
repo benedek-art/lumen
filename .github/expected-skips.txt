@@ -3,8 +3,8 @@
 # XCTest summary counts more skips than this file lists.
 #
 # Every entry is gated on an environment variable that ordinary CI runs do not set.
-# A test that skips because a kernel did not compile, a render returned nil or a
-# scanned function was renamed is NOT environment-gated and does not belong here.
+# A test that skips because a kernel did not compile is NOT environment-gated and
+# does not belong here.
 
 # LUMEN_RAW_CORPUS: set only by raw-corpus.yml (RawCorpusTests.corpus()).
 RawCorpusTests.testEveryFileEitherDecodesCleanlyOrRefusesCleanly
