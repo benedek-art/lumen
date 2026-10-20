@@ -340,6 +340,19 @@ struct ZonePivotStrip: View {
         .padding(.vertical, 2)
     }
 
+    /// Where a handle drag puts the pivot, or nil while the pointer has not moved.
+    ///
+    /// A PRESS IS NOT A MOVE (B3-05, as on the mixer ring). `minimumDistance: 0`
+    /// delivers the press as a change at zero translation, and writing it sent the
+    /// handle's DRAWN position back through the setter — which is not always the stored
+    /// pivot (a saturated or balance-shifted handle, or a float round trip), so a plain
+    /// click could move the pivot and record an undo step.
+    static func draggedPivot(from start: Double, translation: CGFloat,
+                             width: CGFloat) -> Double? {
+        guard width > 0, translation != 0 else { return nil }
+        return Num.saturate(start + Double(translation / width))
+    }
+
     private func handle(index: Int, position: Double,
                         width: CGFloat, height: CGFloat) -> some View {
         let x = CGFloat(position) * width
@@ -361,8 +374,10 @@ struct ZonePivotStrip: View {
                     sliderGestureChanged(true)
                     let start = dragOrigin ?? position
                     if dragOrigin == nil { dragOrigin = start }
-                    let moved = start + Double(drag.translation.width / width)
-                    onPivotChanged(index, Num.saturate(moved))
+                    guard let moved = ZonePivotStrip.draggedPivot(
+                        from: start, translation: drag.translation.width, width: width)
+                    else { return }
+                    onPivotChanged(index, moved)
                 }
                 .onEnded { _ in
                     dragOrigin = nil

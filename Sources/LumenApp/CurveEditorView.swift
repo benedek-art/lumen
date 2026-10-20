@@ -691,7 +691,24 @@ struct CurveEditorView: View {
 
     // MARK: Curve evaluation
 
-    private var stack: CurveStack { CurveStack(curveSet) }
+    /// The stack for the curve on screen, built once per distinct curve.
+    ///
+    /// It was `CurveStack(curveSet)` on every read, and a read bakes the parametric
+    /// curve's 1024-entry table: one body pass reads it for the samples, the handles,
+    /// the eased-scale caption and the hover readout, and the hover alone re-bodies
+    /// this view on every mouse move over the plot — up to four bakes per motion for
+    /// a curve that had not changed. Keyed on the `CurveSet` value, so any edit misses.
+    private var stack: CurveStack { CurveEditorView.memoizedStack(for: curveSet) }
+
+    @MainActor private static var stackMemo: (curves: CurveSet, stack: CurveStack)? = nil
+
+    @MainActor
+    static func memoizedStack(for curves: CurveSet) -> CurveStack {
+        if let memo = stackMemo, memo.curves == curves { return memo.stack }
+        let built: CurveStack = CurveStack(curves)
+        stackMemo = (curves: curves, stack: built)
+        return built
+    }
 
     /// The one evaluation the graph draws, matched to the selected curve. Parametric
     /// and Point both show the master curve, because the master *is* the parametric
@@ -823,6 +840,11 @@ struct CurveEditorView: View {
                     beginDrag(at: value.startLocation, size: size)
                 }
                 guard !dragConsumed else { return }
+                // A PRESS IS NOT A MOVE (B3-05, as on the mixer ring). The press arrives
+                // as a change at zero translation, and moving the held point to it put
+                // the point under the cursor — up to `hitRadius` away — so a plain click
+                // on a point reshaped the curve and recorded an undo step.
+                guard value.translation != .zero else { return }
                 updateDrag(to: value.location, size: size)
             }
             .onEnded { value in
@@ -843,6 +865,7 @@ struct CurveEditorView: View {
                     beginSplitDrag(at: value.startLocation, size: size)
                 }
                 guard !dragConsumed, let index = dragSplitIndex else { return }
+                guard value.translation.width != 0 else { return }
                 moveSplit(index, toX: value.location.x, size: size)
             }
             .onEnded { _ in finishDrag() }
