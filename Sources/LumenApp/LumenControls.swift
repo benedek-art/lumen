@@ -1166,6 +1166,12 @@ struct LumenSlider: View {
                                 reset()
                                 return
                             }
+                            // The latch opens BEFORE the press writes anything: a track
+                            // press's jump written unlatched was an immediate catalog
+                            // write and an undo step with no epoch, which a pause
+                            // mid-drag could split in two.
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -1181,10 +1187,14 @@ struct LumenSlider: View {
                             // the same one with an anchor that ⇧ can move.
                             gearbox = FineDrag(startValue: dragStartValue,
                                                fine: Self.shiftIsDown)
-                            onEditingChanged?(true)
-                            sliderGestureChanged(true)
                         }
                         if pressWasReset { return }
+                        // EVERY SAMPLE re-asserts the latch. Repeated `true` only
+                        // refreshes the watchdog's clock, but if something closed the
+                        // latch under a held button — the 8-second watchdog, ⌘Z, a stale
+                        // closer — the rest of the drag would otherwise persist and
+                        // re-bin the scopes on every mouse event.
+                        sliderGestureChanged(true)
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         // ⇧ read off the live AppKit modifier flags rather than from the
                         // gesture, because SwiftUI's `DragGesture.Value` carries no
@@ -1301,8 +1311,10 @@ struct LumenSlider: View {
                                     scrubGearbox = FineDrag(startValue: value,
                                                             fine: Self.shiftIsDown)
                                     onEditingChanged?(true)
-                                    sliderGestureChanged(true)
                                 }
+                                // Every sample, as on the track: re-latch if something
+                                // closed the gesture under a held button.
+                                sliderGestureChanged(true)
                                 let travelled = Double(drag.location.x
                                                        - drag.startLocation.x)
                                 let out = scrubGearbox.resolving(
