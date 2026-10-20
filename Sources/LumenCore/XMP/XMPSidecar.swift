@@ -743,9 +743,33 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
         "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp", "lumen:sourceExtension",
     ]
 
+    /// Prefixes in scope that are bound to the XMP basic namespace, innermost scope
+    /// last. XMP names a property by URI, not by prefix: Photoshop 7–CS2 and Bridge 1.x
+    /// bound it to `xap:`, so `xap:Rating` IS `xmp:Rating`. Matching the literal name
+    /// read such a sidecar as "no fields" and the rating and label never arrived.
+    private var xmpPrefixScopes: [Set<String>] = []
+
+    /// `name` with an alias of the XMP basic prefix rewritten to `xmp:`, so everything
+    /// below matches one spelling. Only a prefix actually bound to the URI qualifies —
+    /// `xap:` bound to somebody else's namespace is somebody else's property.
+    private func canonical(_ name: String) -> String {
+        guard let colon = name.firstIndex(of: ":") else { return name }
+        let prefix = String(name[..<colon])
+        guard prefix != "xmp", xmpPrefixScopes.last?.contains(prefix) == true else { return name }
+        return "xmp" + name[colon...]
+    }
+
     func parser(_ parser: XMLParser, didStartElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?,
                 attributes attributeDict: [String: String]) {
+        // Bindings first: `xmlns:xap` and `xap:Rating` routinely sit on the same tag.
+        var scope = xmpPrefixScopes.last ?? []
+        for (key, value) in attributeDict where key.hasPrefix("xmlns:") {
+            let prefix = String(key.dropFirst("xmlns:".count))
+            if value == XMPMerge.xmpNamespace { scope.insert(prefix) } else { scope.remove(prefix) }
+        }
+        xmpPrefixScopes.append(scope)
+        let elementName = canonical(elementName)
         // XMP carries a simple property EITHER as a child element or as an attribute
         // on rdf:Description, and the two forms are interchangeable. Lumen writes the
         // element form; Adobe writes the attribute form. Reading only elements meant
@@ -753,8 +777,9 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
         // found", so `parse` returned nil, the rating and label were invisible, and the
         // caller started from a blank document — which is what made overwriting one
         // silently destructive rather than merely lossy.
-        for (key, value) in attributeDict where Self.interesting.contains(key) {
-            absorb(key, value)
+        for (key, value) in attributeDict {
+            let key = canonical(key)
+            if Self.interesting.contains(key) { absorb(key, value) }
         }
         if elementName == "dc:subject" {
             inSubject = true
@@ -780,6 +805,9 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
+        // Canonicalised in the element's own scope, then the scope closes.
+        let elementName = canonical(elementName)
+        if !xmpPrefixScopes.isEmpty { xmpPrefixScopes.removeLast() }
         if inSubjectItem && elementName == "rdf:li" {
             inSubjectItem = false
             let word = subjectItem.trimmingCharacters(in: .whitespacesAndNewlines)
