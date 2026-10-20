@@ -67,8 +67,13 @@ final class SliderLatchContractTests: XCTestCase {
         let body = try Self.trackChanged()
         let branch = try XCTUnwrap(ShellSource.body(after: "clickCount ?? 1) >= 2", in: body))
         let putBack = try XCTUnwrap(branch.range(of: "value = origin")).lowerBound
-        let reset = try XCTUnwrap(branch.range(of: "reset()")).lowerBound
+        let reset = try XCTUnwrap(branch.range(of: "reset(latched: true)")).lowerBound
         XCTAssertLessThan(putBack, reset)
+        // One latch around both, so `onReset`'s write under another key folds in.
+        let open = try XCTUnwrap(branch.range(of: "sliderGestureChanged(true)")).lowerBound
+        let close = try XCTUnwrap(branch.range(of: "sliderGestureChanged(false)")).lowerBound
+        XCTAssertLessThan(open, putBack)
+        XCTAssertLessThan(reset, close)
         XCTAssertTrue(branch.contains("NSEvent.doubleClickInterval"),
                       "an origin from some earlier press must not be put back")
         let afterBranch = try XCTUnwrap(body.range(of: branch)).upperBound
@@ -94,5 +99,14 @@ final class SliderLatchContractTests: XCTestCase {
         XCTAssertTrue(ShellSource.squashed(open).contains(
             "if wheelGestureOwner != nil { closeSliderGesture() }"),
             "a gesture starting must end a wheel burst")
+    }
+
+    /// Finding: the colour wheel's release ignored the drag value, so a drag let go
+    /// while the main actor lagged stopped short. Its release is a sample, as here.
+    func testTheWheelTakesItsReleaseAsASample() throws {
+        let code = try ShellSource.code("Sources/LumenApp/LumenControls.swift")
+        let wheel = try XCTUnwrap(ShellSource.body(after: "struct LumenColorWheel: View", in: code))
+        let ended = try XCTUnwrap(ShellSource.body(after: ".onEnded", in: wheel))
+        XCTAssertTrue(ended.contains("if dragMoved { follow(drag) }"))
     }
 }

@@ -1177,22 +1177,24 @@ struct LumenSlider: View {
                             if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
                                 pressWasReset = true
                                 // PUT BACK THE FIRST CLICK'S JUMP before resetting (the
-                                // B3-05 rule ColorPanel's hue handle follows). Written
-                                // under this row's key, it folds into that click's undo
-                                // step and empties it, so a reset through `onReset` —
-                                // which writes under another key — is the only step,
-                                // and one ⌘Z does not land on the click-point value.
+                                // B3-05 rule ColorPanel's hue handle follows), and do
+                                // both inside ONE latch: they share an epoch, so they
+                                // fold into that click's undo step and the reset is the
+                                // only step. On an optional-backed row the put-back
+                                // writes the getter's stand-in, not nil, so only the
+                                // shared epoch lets `onReset`'s write (another key)
+                                // fold in rather than make a second step.
+                                onEditingChanged?(true)
+                                sliderGestureChanged(true)
                                 if let origin = firstClickOrigin, origin != value,
                                    Date().timeIntervalSince(firstClickAt)
                                        <= NSEvent.doubleClickInterval {
-                                    onEditingChanged?(true)
-                                    sliderGestureChanged(true)
                                     value = origin
-                                    onEditingChanged?(false)
-                                    sliderGestureChanged(false)
                                 }
                                 firstClickOrigin = nil
-                                reset()
+                                reset(latched: true)
+                                onEditingChanged?(false)
+                                sliderGestureChanged(false)
                                 return
                             }
                             firstClickOrigin = value
@@ -1429,9 +1431,15 @@ struct LumenSlider: View {
     // copy of it sitting in this file is how the two would come to round differently
     // without anything being able to notice.
 
-    private func reset() {
+    /// `latched`: the caller already holds the gesture latch, so the write must not
+    /// open or close one of its own (closing it would end the caller's gesture early).
+    private func reset(latched: Bool = false) {
         if let onReset {
             onReset()
+            return
+        }
+        if latched {
+            value = defaultValue
             return
         }
         onEditingChanged?(true)
@@ -2082,12 +2090,16 @@ struct LumenColorWheel: View {
                         sliderGestureChanged(true)
                         follow(drag)
                     }
-                    .onEnded { _ in
+                    .onEnded { drag in
                         dragActive = false
                         if pressWasReset {
                             pressWasReset = false
                             return
                         }
+                        // THE RELEASE IS A SAMPLE, as on `LumenSlider`: AppKit coalesces
+                        // the trailing motion when the main actor is behind, so the puck
+                        // would otherwise stop short of where the hand let go.
+                        if dragMoved { follow(drag) }
                         let moved = dragMoved
                         let box = gearbox
                         dragMoved = false

@@ -189,6 +189,36 @@ final class GestureUndoStepTests: XCTestCase {
         }
     }
 
+    /// An optional-backed row (Temp: nil means As Shot): the put-back writes the
+    /// getter's stand-in, not nil, so it does not empty the click's step on its own.
+    /// The put-back and `onReset` share one latch, so the reset folds in by epoch and
+    /// the whole double-click leaves nothing to undo back to a pinned override.
+    @MainActor
+    func testADoubleClickResetOnAnOptionalRowLeavesNoPinnedStep() throws {
+        try withState { state, photo in
+            let original = state.recipe(for: photo)
+            XCTAssertNil(original.develop.raw.temp)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wb.temp", targets: [photo]) { _, r in
+                r.develop.raw.temp = 7000
+            }
+            state.sliderGesture(active: false)
+
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wb.temp", targets: [photo]) { _, r in
+                r.develop.raw.temp = 5500
+            }
+            state.updateRecipe(coalescingKey: "wb.preset", targets: [photo]) { _, r in
+                r.develop.raw.temp = nil
+            }
+            state.sliderGesture(active: false)
+
+            XCTAssertTrue(state.history.steps.isEmpty,
+                          "a double-click on an As Shot row must not leave a pinned step")
+            XCTAssertEqual(state.recipe(for: photo), original)
+        }
+    }
+
     /// The same rule on the bare stack: a step folded back to its start is gone.
     @MainActor
     func testAStepFoldedBackToItsStartIsDropped() {
