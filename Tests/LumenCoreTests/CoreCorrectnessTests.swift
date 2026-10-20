@@ -138,4 +138,17 @@ final class CoreCorrectnessTests: XCTestCase {
         XCTAssertEqual(grow.w, 0.6, accuracy: 1e-9)
         XCTAssertEqual(grow.h, 0.6, accuracy: 1e-9)
     }
+
+    // MARK: - Zone crossfade
+
+    /// A NaN position failed every bracket comparison and indexed past `pivots`.
+    func testZoneCrossfadeOfNaNDoesNotTrap() {
+        let pivots = [0.1, 0.3, 0.5, 0.7, 0.9]
+        let r = ZoneWeights.crossfade(x: .nan, pivots: pivots)
+        XCTAssertEqual(r.index, 0)
+        XCTAssertEqual(r.weight, 1)
+        XCTAssertEqual(ZoneWeights.weights(x: .nan, pivots: pivots).reduce(0, +), 1, accuracy: 1e-12)
+        XCTAssertEqual(ZoneWeights.crossfade(x: 0.1, pivots: pivots).index, 0)
+        XCTAssertEqual(ZoneWeights.crossfade(x: 0.2, pivots: pivots).weight, 0.5, accuracy: 1e-12)
+    }
 }
