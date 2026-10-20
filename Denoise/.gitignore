@@ -5,3 +5,4 @@ reports/zeroshot/
 .venv/
 __pycache__/
 *.pyc
+reports/gate/
