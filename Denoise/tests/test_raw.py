@@ -142,3 +142,17 @@ def test_load_synthetic_dng(tmp_path):
     np.testing.assert_array_equal(rawio.denormalize(r, r.cfa), a)
     noisy = r.cfa * np.float32(0.9) + np.float32(0.01)
     np.testing.assert_array_equal(rawio.denormalize(r, noisy), _old_denorm(noisy, full, bls, white))
+
+
+def test_denormalize_keeps_values_above_white():
+    """GX85 RW2 stores some blown px at 4096-4097 with white_level 4095: strength 0 must stay lossless."""
+    bls, white = [128, 128, 128, 128], 4095
+    raw = np.full((4, 6), 2000, np.uint16)
+    raw[0, 0], raw[1, 3] = 4096, 4097
+    colors = np.array([[0, 1], [3, 2]])
+    bl = np.array(bls, np.float32)
+    cfa = (raw.astype(np.float32) - 128) / (white - 128)
+    r = rawio.Raw(cfa, "RGGB", bl, float(white), np.ones(4, np.float32), 100.0, "DMC-GX85",
+                  raw, bl, colors, "Panasonic")
+    np.testing.assert_array_equal(rawio.denormalize(r, cfa), raw)
+    assert rawio.denormalize(r, cfa + 1).max() == 4097  # still clipped, at the source's max

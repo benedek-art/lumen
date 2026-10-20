@@ -40,14 +40,16 @@ def load(path) -> Raw:
 
 
 def denormalize(r: Raw, cfa_norm) -> np.ndarray:
-    """Exact inverse of load's normalization -> uint16 (H, W) DN."""
+    """Exact inverse of load's normalization -> uint16 (H, W) DN. Clips at the source's own max
+    when it exceeds white_level (GX85 stores blown px at 4096-4097 > 4095), so strength 0 is lossless."""
     bls = np.asarray(r.black_levels, np.float32)
     scale = r.white - np.mean(bls.astype(np.float64))
+    hi = max(r.white, float(r.raw.max())) if r.raw is not None and r.raw.size else r.white
     out = np.empty(cfa_norm.shape, np.uint16)
     for k in range(4):
         i, j = k // 2, k % 2
         v = cfa_norm[i::2, j::2] * scale + bls[r.colors[i, j]]
-        out[i::2, j::2] = np.clip(np.round(v), 0, r.white)
+        out[i::2, j::2] = np.clip(np.round(v), 0, hi)
     return out
 
 
