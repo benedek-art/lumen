@@ -1373,15 +1373,30 @@ public struct ColorEngine: Sendable {
     /// deepen while the transmitting one holds, so the colour darkens as it saturates,
     /// the way stacked dye does, instead of pushing channels apart toward neon.
     /// Neutrals have unit ratios and are therefore exact fixed points.
+    ///
+    /// Only POSITIVE ratios are densified. Nothing between S6 and this stage clamps or
+    /// gamut-maps (that is S14's job), so a colour outside the working gamut — a
+    /// narrow-band LED through a 3x3 camera matrix — arrives with a negative channel,
+    /// and a negative ratio is not an absorbing dye layer: the model has nothing to say
+    /// about it. The old signed power (`spow`) pulled it TOWARD zero, walking the colour
+    /// back into the gamut, so positive Saturation at the default Density took chroma
+    /// AWAY — 17% from a 490 nm cyan at +100, more the further the slider went.
+    /// Negatives are now held where they are; every all-positive colour is bit-identical
+    /// to before. The cost is a C0 (not C1) join where a ratio crosses zero, which only
+    /// an out-of-gamut gradient can reach. Once negatives are gamut-mapped before S9
+    /// (docs/23 #13) this guard becomes a no-op. Mirrored in `ExactColorTwin.subtractive`
+    /// and the GLSL `lumenSubtractive`.
+    /// (SaturationOutOfGamutChromaTests)
     public static func subtractivePush(_ c: RGB, amount: Double) -> RGB {
         guard amount > 0 else { return c }
         let norm = c.maxComponent
         guard norm > 1e-9, norm.isFinite else { return c }
         let gamma = 1 + amount * densityGammaRange
         guard gamma > 0 else { return c }
-        let r = Num.spow(c.r / norm, gamma)
-        let g = Num.spow(c.g / norm, gamma)
-        let b = Num.spow(c.b / norm, gamma)
+        func densify(_ ratio: Double) -> Double { ratio > 0 ? Foundation.pow(ratio, gamma) : ratio }
+        let r = densify(c.r / norm)
+        let g = densify(c.g / norm)
+        let b = densify(c.b / norm)
         let out = RGB(r * norm, g * norm, b * norm)
         return out.isFinite ? out : c
     }

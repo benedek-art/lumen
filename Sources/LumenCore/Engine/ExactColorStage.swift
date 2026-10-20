@@ -463,9 +463,11 @@ enum ExactColorTwin {
         guard norm > 1e-9, norm < 3.0e38 else { return c }
         let gamma = 1 + amount
         let r = c / norm
-        let p = F3(sgn(r.x) * pow(max(abs(r.x), 1e-30), gamma),
-                   sgn(r.y) * pow(max(abs(r.y), 1e-30), gamma),
-                   sgn(r.z) * pow(max(abs(r.z), 1e-30), gamma))
+        // Positive ratios only: a negative (out-of-gamut) channel is not a dye layer
+        // and is held, as in `ColorEngine.subtractivePush`.
+        let p = F3(r.x > 0 ? pow(max(r.x, 1e-30), gamma) : r.x,
+                   r.y > 0 ? pow(max(r.y, 1e-30), gamma) : r.y,
+                   r.z > 0 ? pow(max(r.z, 1e-30), gamma) : r.z)
         let out = p * norm
         return finite(out) ? out : c
     }
@@ -630,9 +632,9 @@ public enum ExactColorKernelSource {
         if (!(norm > 1e-9 && norm < 3.0e38)) { return c; }
         float gamma = 1.0 + amount;
         vec3 r = c / norm;
-        vec3 p = vec3(lumenSgn(r.x) * pow(max(abs(r.x), 1e-30), gamma),
-                      lumenSgn(r.y) * pow(max(abs(r.y), 1e-30), gamma),
-                      lumenSgn(r.z) * pow(max(abs(r.z), 1e-30), gamma));
+        vec3 p = vec3(r.x > 0.0 ? pow(max(r.x, 1e-30), gamma) : r.x,
+                      r.y > 0.0 ? pow(max(r.y, 1e-30), gamma) : r.y,
+                      r.z > 0.0 ? pow(max(r.z, 1e-30), gamma) : r.z);
         vec3 o = p * norm;
         return lumenFinite(o) ? o : c;
     }
