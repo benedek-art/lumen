@@ -321,13 +321,27 @@ public struct DisplayTransform: Sendable {
         let perChannel = RGB(tone(inset.r), tone(inset.g), tone(inset.b))
 
         // Hue-stable: curve the norm, keep the ratios.
-        // The black fallback keys on the UNfloored max: `norm` is floored for the
+        //
+        // Below the black anchor the curve is flat at `black`, so the ratio scale
+        // tone(peak)/peak is black/peak and grows without bound as the peak falls
+        // toward zero. A shadow-noise pixel with a peak near zero and partners near
+        // −0.01 had those partners multiplied by ~1.5e5, and the outset's negative
+        // off-diagonals turned them into R ≈ 126. Below the anchor the hue-stable
+        // branch therefore fades into the per-channel one, in proportion to how far
+        // the peak sits under it. The per-channel branch is already exactly `black`
+        // there. The faded ratio term reduces to inset·black/anchor, which is bounded
+        // and keeps neutrals at `black`. At and above the anchor the weight is exactly
+        // 1, so nothing a visible pixel renders through changes.
+        //
+        // The black fallback keys on the UNfloored peak: `norm` is floored for the
         // log below, and testing it instead made the fallback unreachable, so scene
         // black rendered at 0 rather than the black target whenever hue preservation
         // was on (0.3·black at the Film Base preset's 70, black only at 0).
-        let maxComponent = inset.maxComponent
-        let norm = Swift.max(maxComponent, 1e-9)
-        let ratio = maxComponent > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
+        let peak = inset.maxComponent
+        let norm = Swift.max(peak, 1e-9)
+        let ratio = peak > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
+        let blackAnchorScene = DisplayTransform.midGrey * exp2(minEV)
+        let aboveBlack = Num.saturate(peak / blackAnchorScene)
 
         // Path to white. Ratios may hold through the midtones, but a display cannot
         // show "brighter than white": above the pivot the only honest rendering of
@@ -339,7 +353,7 @@ public struct DisplayTransform: Sendable {
         let t = Num.clamp(params.huePreservation, 0, 100) / 100
         let evX = (log2(norm / DisplayTransform.midGrey) - minEV) / range
         let shoulderU = Num.saturate((evX - pivotX) / Swift.max(1 - pivotX, 1e-6))
-        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU))
+        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU) * aboveBlack)
 
         out = outsetMatrix.apply(out)
         out = RGB(Swift.max(out.r, 0), Swift.max(out.g, 0), Swift.max(out.b, 0))

@@ -137,6 +137,39 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// A shadow-noise pixel stays at the black floor. It must not come back as a red
+    /// many times brighter than display white.
+    ///
+    /// The hue-stable branch divides the inset pixel by its peak and multiplies by
+    /// tone(peak). Below the black anchor the curve is flat at `black`, so that scale
+    /// is black/peak, and it has no upper bound as the peak falls toward zero. The old
+    /// guard floored the peak at 1e-9 before checking `norm > 0`, which meant the
+    /// intended black fallback could never run. High-ISO noise has a peak at or just
+    /// above zero and partners near −0.01. Those partners were multiplied by about
+    /// 1.5e5, and the outset's negative off-diagonals turned them into R ≈ 126 in
+    /// exactColor and renderExact. The pixels below are the audit's examples, plus a
+    /// scan of tiny positive peaks: guarding only the sign moves the blow-up rather
+    /// than removing it.
+    func testShadowNoiseBelowTheBlackAnchorStaysAtTheBlackFloor() {
+        let p = DisplayTransformParams.neutral
+        let t = DisplayTransform(p)
+        let toInset = DisplayTransform.insetSpace(.rec2020, attenuation: p.attenuation,
+                                                  rotation: p.rotation).matrix(to: .rec2020)
+        let fromInset = toInset.inverse
+        var scene: [RGB] = [RGB(0.002082, -0.010601, -0.010395),
+                            RGB(0.00027, -0.003206, -0.000946)]
+        for peak in [0.0, 1e-10, 1e-9, 1e-7, 1e-5, 1e-4] {
+            scene.append(fromInset.apply(RGB(peak, -0.01, -0.01)))
+            scene.append(fromInset.apply(RGB(-0.01, peak, -0.002)))
+        }
+        for c in scene {
+            let out = t.apply(c, gamut: nil)
+            XCTAssertTrue(out.r.isFinite && out.g.isFinite && out.b.isFinite, "\(c) → \(out)")
+            XCTAssertLessThan(out.maxComponent, 0.01,
+                              "scene \(c) sits below the black anchor but rendered \(out)")
+        }
+    }
+
     // MARK: - Tone engine
 
     /// Highlights is a SHELF: nothing at mid-grey, full strength at the white anchor.
