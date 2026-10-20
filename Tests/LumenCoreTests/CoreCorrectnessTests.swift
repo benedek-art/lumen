@@ -173,4 +173,47 @@ final class CoreCorrectnessTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Recipe identity
+
+    /// A look never carries spots, but it copied the retouched source's spot stamp (3)
+    /// and raised every target to it: a changed recipe_fp, and an older build refusing
+    /// to write photographs it can represent fully.
+    func testALookSavedOffARetouchedFrameDoesNotStampTargetsWithTheSpotVersion() throws {
+        var source = Recipe()
+        source.look.vignette = -0.5
+        source.develop.heal.spots = [HealSpot(id: "s1", x: 0.5, y: 0.5, sourceX: 0.6, sourceY: 0.6)]
+        XCTAssertEqual(source.pipelineVersion, healSpotsPipelineVersion, "precondition")
+        let result = LookSubset.extracted(from: source).applied(to: Recipe())
+        XCTAssertTrue(result.develop.heal.spots.isEmpty)
+        XCTAssertEqual(result.pipelineVersion, currentPipelineVersion)
+        var clean = Recipe()
+        clean.look = source.look
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(result),
+                       try RecipeFingerprint.fingerprint(LookSubset.extracted(from: clean).applied(to: Recipe())))
+        // A look already stored with the spot stamp is capped on the way in too.
+        let stored = LookSubset(pipelineVersion: healSpotsPipelineVersion, look: source.look)
+        XCTAssertEqual(stored.applied(to: Recipe()).pipelineVersion, currentPipelineVersion)
+        // A target with its own spots keeps its own stamp.
+        var retouched = Recipe()
+        retouched.develop.heal.spots = source.develop.heal.spots
+        XCTAssertEqual(stored.applied(to: retouched).pipelineVersion, healSpotsPipelineVersion)
+    }
+
+    /// Spots decoded without an id all got "", so deleting the selected one deleted
+    /// every such spot.
+    func testIdlessHealSpotsDecodeToDistinctStableIDs() throws {
+        let json = #"{"pipelineVersion":3,"develop":{"heal":{"spots":[{"x":0.2,"y":0.2,"sourceX":0.3,"sourceY":0.3},{"x":0.7,"y":0.7,"sourceX":0.6,"sourceY":0.6},{"id":"a","x":0.1,"y":0.1,"sourceX":0.2,"sourceY":0.2},{"id":"a","x":0.9,"y":0.9,"sourceX":0.8,"sourceY":0.8}]}}}"#
+        let recipe = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+        let ids = recipe.develop.heal.spots.map(\.id)
+        XCTAssertEqual(ids.count, 4)
+        XCTAssertEqual(Set(ids).count, 4, "\(ids)")
+        XCTAssertEqual(ids[2], "a", "a unique id is kept")
+        var edited = recipe
+        let target = ids[1]
+        edited.develop.heal.spots.removeAll { $0.id == target }
+        XCTAssertEqual(edited.develop.heal.spots.count, 3)
+        let again = try CanonicalJSON.decodeRecipe(from: Data(json.utf8))
+        XCTAssertEqual(again.develop.heal.spots.map(\.id), ids, "deterministic")
+    }
 }

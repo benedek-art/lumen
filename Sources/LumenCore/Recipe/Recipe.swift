@@ -1622,7 +1622,31 @@ public struct Heal: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.strokesRef = try c.decodeIfPresent(String.self, forKey: .strokesRef)
         self.count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
-        self.spots = try c.decodeIfPresent([HealSpot].self, forKey: .spots) ?? []
+        self.spots = Heal.distinctIDs(
+            try c.decodeIfPresent([HealSpot].self, forKey: .spots) ?? [])
+    }
+
+    /// Spots are addressed by id (select, drag, delete), and a spot decoded without one
+    /// used to get "" — so every id-less spot in a hand-edited or foreign document
+    /// shared it, and deleting the selected spot deleted all of them. Empty and repeated
+    /// ids get `spot-<index>`, deterministically, so decoding the same document twice
+    /// gives the same recipe. Ids never reach the render.
+    static func distinctIDs(_ spots: [HealSpot]) -> [HealSpot] {
+        var seen: Set<String> = []
+        var out = spots
+        for i in out.indices {
+            if out[i].id.isEmpty || seen.contains(out[i].id) {
+                var candidate = "spot-\(i)"
+                var n = 2
+                while seen.contains(candidate) || spots.contains(where: { $0.id == candidate }) {
+                    candidate = "spot-\(i)-\(n)"
+                    n += 1
+                }
+                out[i].id = candidate
+            }
+            seen.insert(out[i].id)
+        }
+        return out
     }
 
     /// Written out rather than synthesized for ONE reason: an empty spot list is
