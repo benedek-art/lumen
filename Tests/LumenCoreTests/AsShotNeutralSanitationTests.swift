@@ -100,6 +100,48 @@ final class AsShotNeutralSanitationTests: XCTestCase {
         XCTAssertEqual(fallback.tint, 0)
     }
 
+    /// The eyedropper must model the neutral the render actually adapts from, and
+    /// that is the CLAMPED as-shot pair: `init` pulls a reported neutral into
+    /// 2000–50000 K × ±300 before it builds the matrix. The picker used to sanitise
+    /// the pair and stop there, so on a file reporting 1800 K it solved for
+    /// M(1800 → target) while the render applied M(2000 → target) — the two differ by
+    /// a cone-space gain that is not the identity, and the patch the photographer
+    /// clicked came back bluish (blue/mean ≈ 1.2) instead of grey. The fallback answer
+    /// had the same split: it wrote 1800 into a slider that cannot show it.
+    func testTheEyedropperNeutralisesWhenAsShotIsOutsideTheSliderRange() {
+        let shots: [(kelvin: Double, tint: Double)] = [(1800, 0), (1700, 0), (60_000, 0), (5000, 400)]
+        for shot in shots {
+            let current = WhiteBalanceEngine(asShotKelvin: shot.kelvin, asShotTint: shot.tint,
+                                             targetKelvin: nil, targetTint: nil)
+            // A grey card lit by 3000 K / -20 as the RENDER sees it: what the clamped
+            // forward model maps to grey at that target.
+            let decoded = WhiteBalanceEngine.adaptation(asShot: current.asShot,
+                                                        target: (3000, -20),
+                                                        space: .rec2020)
+                .inverse.apply(RGB(0.18, 0.18, 0.18))
+            let picked = WhiteBalanceEngine.neutralizing(sample: current.apply(decoded),
+                                                         asShotKelvin: shot.kelvin,
+                                                         asShotTint: shot.tint,
+                                                         current: current)
+            let rendered = WhiteBalanceEngine(asShotKelvin: shot.kelvin, asShotTint: shot.tint,
+                                              targetKelvin: picked.kelvin,
+                                              targetTint: picked.tint).apply(decoded)
+            let mean = (rendered.r + rendered.g + rendered.b) / 3
+            let n = rendered / mean
+            for (name, v) in [("r", n.r), ("g", n.g), ("b", n.b)] {
+                XCTAssertEqual(v, 1, accuracy: 1e-3,
+                               "as-shot \(shot): picked \(picked) renders the patch \(name)/mean = \(v)")
+            }
+
+            let fallback = WhiteBalanceEngine.neutralizing(sample: RGB(0, 0, 0),
+                                                           asShotKelvin: shot.kelvin,
+                                                           asShotTint: shot.tint,
+                                                           current: current)
+            XCTAssertEqual(fallback.kelvin, current.asShot.kelvin, "as-shot \(shot)")
+            XCTAssertEqual(fallback.tint, current.asShot.tint, "as-shot \(shot)")
+        }
+    }
+
     // MARK: - The whole reference render
 
     /// The defect as the corpus saw it, end to end on the reference renderer: a mid-grey
