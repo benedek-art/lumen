@@ -173,12 +173,15 @@ final class HistoryStack: ObservableObject {
                 }
                 return
             }
-            // The open step keeps its own key and epoch: it is still the same step,
-            // and a wheel drag's second field must not rename it.
+            // The open step keeps its own key: it is still the same step, and a wheel
+            // drag's second field must not rename it. It takes the incoming epoch, so a
+            // gesture whose first write folded in by key brings the rest of its fields
+            // with it — a wheel's double-click reset writes `sat` (folds) then `lum`,
+            // which under the old epoch split off as a second step.
             steps[position - 1] = Step(before: open.before, after: merged,
                                        coalescingKey: open.coalescingKey,
                                        label: open.label,
-                                       gestureEpoch: open.gestureEpoch)
+                                       gestureEpoch: gestureEpoch ?? open.gestureEpoch)
             return
         }
 

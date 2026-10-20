@@ -98,9 +98,15 @@ final class GestureUndoStepTests: XCTestCase {
     /// writes — and the second click's reset writes `sat` in a new gesture. The reset
     /// folds in only because the placement's step carries the `sat` key; written hue
     /// first, one ⌘Z landed on a tint nobody chose.
+    ///
+    /// The wheel starts with a luminance, because the reset also writes `lum`: under
+    /// another key, it folds only because the step adopts the reset's epoch.
     @MainActor
     func testAWheelDoubleClickIsOneUndoStep() throws {
         try withState { state, photo in
+            state.updateRecipe(coalescingKey: "setup", targets: [photo]) { _, r in
+                r.look.wheels.shadows.lum = 0.3
+            }
             let original = state.recipe(for: photo)
             state.sliderGesture(active: true)
             state.updateRecipe(coalescingKey: "wheel.Shadows.sat", targets: [photo]) { _, r in
@@ -115,10 +121,14 @@ final class GestureUndoStepTests: XCTestCase {
             state.updateRecipe(coalescingKey: "wheel.Shadows.sat", targets: [photo]) { _, r in
                 r.look.wheels.shadows.sat = 0
             }
+            state.updateRecipe(coalescingKey: "wheel.Shadows.lum", targets: [photo]) { _, r in
+                r.look.wheels.shadows.lum = 0
+            }
             state.sliderGesture(active: false)
 
-            XCTAssertEqual(state.history.steps.count, 1,
-                           "a double-click on the wheel made \(state.history.steps.count) "
+            // the setup edit, then the double-click
+            XCTAssertEqual(state.history.steps.count, 2,
+                           "a double-click on the wheel made \(state.history.steps.count - 1) "
                                + "undo steps")
             state.undo()
             XCTAssertEqual(state.recipe(for: photo), original,
