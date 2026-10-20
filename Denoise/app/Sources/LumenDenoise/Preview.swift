@@ -173,7 +173,7 @@ struct BeforeAfterView: View {
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
-            .onKeyPress(keys: [.space, "z", "Z", "0", "1", "\\"], phases: [.down, .repeat, .up]) { handleKey($0) }
+            .onKeyPress(phases: [.down, .repeat, .up]) { handleKey($0) }
             Divider()
             strengthBar
         }
@@ -282,27 +282,37 @@ struct BeforeAfterView: View {
             }
         }
         .frame(width: size.width, height: size.height)
-        .coordinateSpace(.named("lumenPreviewPane"))
+        .coordinateSpace(name: "lumenPreviewPane")
         .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 2)
-            .onChanged { v in
-                if zoomed {
-                    let start = panStart ?? offset
-                    if panStart == nil { panStart = offset }
-                    offset = clamped(CGSize(width: start.width + v.translation.width,
-                                            height: start.height + v.translation.height), in: size)
-                } else if showAfter && splitOn {
-                    split = min(max(v.location.x / max(size.width, 1), 0), 1)
-                }
-            }
-            .onEnded { _ in panStart = nil })
+        .gesture(panGesture(size))
         .onTapGesture(count: 2) { p in setZoom(!zoomed, at: p) }
         .simultaneousGesture(TapGesture().onEnded { focused = true })
-        .simultaneousGesture(MagnifyGesture().onEnded { v in
+        .simultaneousGesture(magnifyGesture)
+        .overlay(alignment: .bottom) { caption.padding(10) }
+    }
+
+    private func panGesture(_ size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { v in
+                if zoomed {
+                    let start: CGSize = panStart ?? offset
+                    if panStart == nil { panStart = offset }
+                    let moved = CGSize(width: start.width + v.translation.width,
+                                       height: start.height + v.translation.height)
+                    offset = clamped(moved, in: size)
+                } else if showAfter && splitOn {
+                    let x: CGFloat = v.location.x / max(size.width, 1)
+                    split = min(max(x, 0), 1)
+                }
+            }
+            .onEnded { _ in panStart = nil }
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture().onEnded { v in
             if v.magnification > 1.15 { setZoom(true, at: v.startLocation) }
             else if v.magnification < 0.87 { setZoom(false, at: nil) }
-        })
-        .overlay(alignment: .bottom) { caption.padding(10) }
+        }
     }
 
     /// Both images share one scale and one centre, each at its own size (the raw and the DNG crop can differ by
@@ -355,23 +365,23 @@ struct BeforeAfterView: View {
             else if !inside && cursorPushed { NSCursor.pop(); cursorPushed = false }
         }
         .onDisappear { if cursorPushed { NSCursor.pop(); cursorPushed = false } }
-        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("lumenPreviewPane"))
+        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: CoordinateSpace.named("lumenPreviewPane"))
             .onChanged { v in split = min(max(v.location.x / max(size.width, 1), 0), 1) })
         .position(x: x, y: size.height / 2)
     }
 
     private var labels: some View {
         HStack {
-            if before != nil && (!showAfter || splitOn) { tag("Before") }
+            if before != nil && (!showAfter || splitOn) { cornerTag("Before") }
             Spacer()
-            if showAfter { tag("After") }
+            if showAfter { cornerTag("After") }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(10)
         .allowsHitTesting(false)
     }
 
-    private func tag(_ s: String) -> some View {
+    private func cornerTag(_ s: String) -> some View {
         Text(s).font(.caption.weight(.semibold))
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(.regularMaterial, in: Capsule())
@@ -408,6 +418,8 @@ struct BeforeAfterView: View {
     // MARK: Actions
 
     private func handleKey(_ p: KeyPress) -> KeyPress.Result {
+        let previewKeys: [KeyEquivalent] = [.space, "z", "Z", "0", "1", "\\"]
+        guard previewKeys.contains(p.key) else { return .ignored }
         if p.key == .space { holdBefore = p.phase != .up; return .handled }
         guard p.phase == .down else { return p.phase == .repeat ? .handled : .ignored }   // no beeps on auto-repeat
         let cmd = p.modifiers.contains(.command)

@@ -215,24 +215,30 @@ because it would also fire while you edit a text field.
 
 The cloud sessions that wrote this code could not build macOS targets. `Engine.swift` and `Core.swift` were compiled
 and tested on Linux. The three UI files were checked with `swiftc -parse` and by reading them against the macOS 14
-SDK. These are the most likely compile problems; line numbers are as of this PR:
+SDK. A final pass already replaced the riskiest forms: `import Darwin` in `Model.swift`, literal EXIF keys instead of
+`kCGImagePropertyExifRecommendedExposureIndex`/`...SubsecTimeOriginal`, `onKeyPress(phases:)` with the key filter in
+the handler, `CoordinateSpace.named` on both sides, a plain `switch` instead of a switch expression, and
+`@MainActor` + `MainActor.assumeIsolated` on the snapshot hook. These are the remaining likely compile problems; line
+numbers are as of this PR:
 
 | Where | Risk and fix |
 | --- | --- |
-| `Model.swift:605`, `:609` | `rename`, `strerror`, `errno` and `setxattr` come from Darwin through Foundation. If one is "not in scope", add `import Darwin` at the top of the file. |
-| `Model.swift:891` | `kCGImagePropertyExifSubsecTimeOriginal`. If it is missing, use `"SubsecTimeOriginal"` as the key. |
-| `Model.swift:387` | `URLResourceValues.isVolume` via `.isVolumeKey`. |
-| `Model.swift:355` | `Task.detached` returning `[(String, Bool)]`. This compiled on Linux in Swift 5 and 6 modes. If Sendable checking complains, map to a small `struct: Sendable`. |
-| `Model.swift:473-475`, `:794` | `MainActor.assumeIsolated` inside engine and preview callbacks. Valid on macOS 14; it traps at runtime if a callback arrives off the main queue, which would be an Engine bug. |
 | `Preview.swift:82-84` | `CIRAWFilter.baselineExposure`, `neutralTemperature` and `neutralTint` setters (macOS 12+ API). If the compiler rejects them, delete those three lines; the preview then loses only the exposure match. |
-| `Preview.swift:285`, `:358` | `.coordinateSpace(.named(...))` and `DragGesture(coordinateSpace: .named(...))` with the macOS 14 `NamedCoordinateSpace`. If the call is ambiguous, write `.coordinateSpace(name: "lumenPreviewPane")` and `coordinateSpace: CoordinateSpace.named("lumenPreviewPane")`. |
-| `Preview.swift:176`, `LumenDenoiseApp.swift:253` | `onKeyPress(keys:phases:action:)` with string-literal `KeyEquivalent`s (macOS 14). |
-| `Preview.swift:301` | `MagnifyGesture` and `Value.startLocation` (macOS 14). If `startLocation` is missing, pass `nil` instead. |
-| `Preview.swift:50` | `withCheckedContinuation` returning a tuple with a non-Sendable `CGImage` inside an `@unchecked Sendable` struct. At most a warning. |
-| `LumenDenoiseApp.swift:353` | `let s: Double? = switch …` is a Swift 5.9 switch expression with mixed `Double` and `Double?` branches. If it is rejected, write `item.usedStrength ?? strength as Double?` on the `.done` branch, or use a plain `switch` with assignments. |
-| `LumenDenoiseApp.swift:378` | `some ShapeStyle` parameter called with `.secondary`, `.green`, `.red` or `.orange`. If that is ambiguous, pass `Color.secondary` and so on. |
-| `LumenDenoiseApp.swift:257` | Two-parameter `onChange(of:)` (macOS 14) on an optional UUID. |
-| `LumenDenoiseApp.swift:698` | `NSApp` used inside `DispatchQueue.main.asyncAfter`. This is unchanged from v0.1, which built; Swift 6 language mode would need `MainActor.assumeIsolated`. |
+| `Preview.swift:313` | `MagnifyGesture.Value.startLocation` (macOS 14). If it is missing, pass `nil` instead (zoom then centres). |
+| `Preview.swift:285`, `:368` | `.coordinateSpace(name:)` with `CoordinateSpace.named(...)` in the handle's `DragGesture`. May warn as deprecated on the macOS 15 SDK; not an error. |
+| `Preview.swift:176`, `:421-422`; `LumenDenoiseApp.swift:253`, `:271-272` | `onKeyPress(phases:action:)` with the key list checked in the handler (`[KeyEquivalent].contains`). If keys stop working, check that the handler returns `.ignored` for everything else (arrow keys in the list). |
+| `Preview.swift:288` | `onTapGesture(count:perform:)` with a `CGPoint` location (macOS 14). If rejected, use `SpatialTapGesture(count: 2).onEnded { setZoom(!zoomed, at: $0.location) }`. |
+| `Preview.swift:294-316` | `panGesture(_:)`/`magnifyGesture` return `some Gesture`. If "too complex to type-check" still appears in `pane()`, give the helpers concrete types (`_EndedGesture<_ChangedGesture<DragGesture>>`) or split `pane()` further. |
+| `Preview.swift:50` | `withCheckedContinuation` returning a non-Sendable `CGImage` inside an `@unchecked Sendable` struct. At most a warning. |
+| `Preview.swift:180`, `:207`; `LumenDenoiseApp.swift:158`, `:614` | `.task` and `Binding(get:set:)` closures touching main-actor state. If the SDK marks them `@Sendable`, Swift 5 mode only warns. |
+| `Preview.swift:251`; `LumenDenoiseApp.swift:300`, `:306` | `Button` titles that are a ternary of two (interpolated) string literals. If ambiguous, wrap as `Button(LocalizedStringKey(cond ? "..." : "..."))` or build a `let title: String` first. |
+| `LumenDenoiseApp.swift:380` | `some ShapeStyle` parameter called with `.secondary`, `.green`, `.red` or `.orange`. If that is ambiguous, pass `Color.secondary` and so on. |
+| `LumenDenoiseApp.swift:257`, `:504`; `Preview.swift:169`, `:181-182` | Two- and zero-parameter `onChange(of:)` (macOS 14), one on an optional UUID. |
+| `LumenDenoiseApp.swift:660` | `TextField(value:format: .number.grouping(.never))` on an `Int`. If rejected, use `format: IntegerFormatStyle<Int>().grouping(.never)`. |
+| `LumenDenoiseApp.swift:173-181` | `loadObject(ofClass: URL.self)` and `group.notify(queue: .main)` with `MainActor.assumeIsolated` in the drop handler. Captures are `@unchecked Sendable`; at most warnings. |
+| `Model.swift:163`, `:168`, `:356` | `Task.detached` returning `[URL]`, `[FileMeta]` and `[(String, Bool)]`. This compiled on Linux in Swift 5 mode. If Sendable checking complains, map the tuple to a small `struct: Sendable`. |
+| `Model.swift:388` | `URLResourceValues.isVolume` via `.isVolumeKey`. |
+| `Model.swift:474-476`, `:795`; `LumenDenoiseApp.swift:181`, `:704` | `MainActor.assumeIsolated` in engine, preview, drop and snapshot callbacks. Valid on macOS 14; it traps at runtime if a callback arrives off the main queue, which would be a bug in `EngineRun.deliver` or `writePreviewPNG` (both call back on main today). |
 | `Core.swift:252` | Darwin `getxattr(path, name, value, size, position, options)` with 6 arguments. The Linux branch is the one that was tested. |
 
 General tips: `swift build 2>&1 | grep -E "error|warning: .*will be an error"` gives the short list. Warnings about

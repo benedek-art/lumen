@@ -250,7 +250,7 @@ struct QueueList: View {
             }
             .onDeleteCommand { m.remove(m.selection) }
             // Preview keys (hold Space = Before, Z = 100%, \ = split) also work while the list has focus.
-            .onKeyPress(keys: [.space, "z", "Z", "\\"], phases: [.down, .repeat, .up]) { press in
+            .onKeyPress(phases: [.down, .repeat, .up]) { press in
                 forwardPreviewKey(press)
             }
             // Follow the photo in progress, but only while the user isn't browsing a selection.
@@ -268,7 +268,8 @@ struct QueueList: View {
 
     /// Posts PreviewZoom.keyNotification for the visible BeforeAfterView. Auto-repeat is swallowed (no beeps).
     private func forwardPreviewKey(_ press: KeyPress) -> KeyPress.Result {
-        guard m.selectedItem != nil, !press.modifiers.contains(.command) else { return .ignored }
+        let keys: [KeyEquivalent] = [.space, "z", "Z", "\\"]
+        guard keys.contains(press.key), m.selectedItem != nil, !press.modifiers.contains(.command) else { return .ignored }
         var action: String?
         if press.key == .space {
             if press.phase == .down { action = "holdOn" } else if press.phase == .up { action = "holdOff" }
@@ -350,10 +351,11 @@ struct QueueRow: View {
         }
         if let iso = item.iso { parts.append("ISO \(iso)") }
         // Finished outputs show the strength they were made with; a skipped file's strength is unknown unless recorded.
-        let s: Double? = switch item.state {
-        case .done: item.usedStrength ?? strength
-        case .skipped: item.usedStrength
-        default: strength
+        let s: Double?
+        switch item.state {
+        case .done: s = item.usedStrength ?? strength
+        case .skipped: s = item.usedStrength
+        default: s = strength
         }
         if let s { parts.append("\(Int((s * 100).rounded()))%" + (item.strengthOverride != nil ? " (custom)" : "")) }
         if let cam = item.camera, !cam.isEmpty { parts.append(cam) }
@@ -438,9 +440,12 @@ struct BottomBar: View {
 
     /// "ISO ≤800 55% · ≤3200 75% · ≤12800 90% · above 100%"
     private var bandSummary: String {
-        "ISO " + m.strength.bands.sorted { $0.maxISO < $1.maxISO }.map {
-            ($0.maxISO == Int.max ? "above" : "≤\($0.maxISO)") + " \(Int(($0.strength * 100).rounded()))%"
-        }.joined(separator: " · ")
+        let sorted = m.strength.bands.sorted { $0.maxISO < $1.maxISO }
+        let parts: [String] = sorted.map { (b: ISOBand) -> String in
+            let limit: String = b.maxISO == Int.max ? "above" : "≤\(b.maxISO)"
+            return limit + " \(Int((b.strength * 100).rounded()))%"
+        }
+        return "ISO " + parts.joined(separator: " · ")
     }
 
     private var outputControls: some View {
@@ -540,7 +545,7 @@ struct SettingsView: View {
                 // would otherwise index out of range.
                 ForEach(m.strength.bands) { band in
                     BandRow(band: bandBinding(band), isCatchAll: band.maxISO == Int.max,
-                            onCommit: sortBands, onDelete: { remove(band.id) })
+                            onCommit: { sortBands() }, onDelete: { remove(band.id) })
                 }
                 .disabled(!m.strength.autoByISO)
                 HStack(spacing: 10) {
@@ -693,14 +698,15 @@ func runSelfTest() -> Bool {
 }
 
 /// Debug: LUMEN_SNAPSHOT=/path.png writes the window contents to a PNG (works without screen-recording permission) and quits.
+@MainActor
 func snapshotIfRequested() {
     guard let path = ProcessInfo.processInfo.environment["LUMEN_SNAPSHOT"] else { return }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated {
         if let v = NSApp.windows.first(where: { $0.contentView != nil && $0.isVisible })?.contentView?.superview,
            let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
             v.cacheDisplay(in: v.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         }
         NSApp.terminate(nil)
-    }
+    } }
 }

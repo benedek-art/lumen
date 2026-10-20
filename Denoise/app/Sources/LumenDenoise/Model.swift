@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import ImageIO
 import UserNotifications
+import Darwin   // rename, strerror, errno, setxattr
 
 // The app's state: the queue, settings and the batch runner that glues Core (pure logic) to Engine (processes).
 // Everything here runs on the main actor; engine callbacks arrive on the main queue (EngineRun contract).
@@ -862,7 +863,8 @@ private func readMeta(_ url: URL) -> FileMeta {
         let exif = props[kCGImagePropertyExifDictionary as String] as? [String: Any]
         if let v = (exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [NSNumber])?.first?.intValue, v > 0 { iso = v }
         // ISOSpeedRatings saturates at 65535; RecommendedExposureIndex carries the real value above that.
-        if iso == nil || iso == 65535, let rei = (exif?[kCGImagePropertyExifRecommendedExposureIndex as String] as? NSNumber)?.intValue,
+        // (literal key = value of kCGImagePropertyExifRecommendedExposureIndex)
+        if iso == nil || iso == 65535, let rei = (exif?["RecommendedExposureIndex"] as? NSNumber)?.intValue,
            rei > 0 { iso = rei }
         let tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
         camera = (tiff?[kCGImagePropertyTIFFModel as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -888,7 +890,8 @@ private func shotID(_ path: String) -> (date: String, subsec: String?, model: St
         return s?.isEmpty == false ? s : nil
     }
     let tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
-    return (date, text(exif[kCGImagePropertyExifSubsecTimeOriginal as String]), text(tiff?[kCGImagePropertyTIFFModel as String]))
+    // "SubsecTimeOriginal" is the value of kCGImagePropertyExifSubsecTimeOriginal (literal: the SDK symbol name has varied).
+    return (date, text(exif["SubsecTimeOriginal"]), text(tiff?[kCGImagePropertyTIFFModel as String]))
 }
 
 /// False only when both files carry a capture time and they (or sub-seconds / camera, where both have them) differ.
