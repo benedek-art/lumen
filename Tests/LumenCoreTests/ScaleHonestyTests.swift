@@ -561,4 +561,52 @@ final class ScaleHonestyTests: XCTestCase {
                           "a 3x average did not attenuate grain at all (\(ratio)), so "
                               + "this harness is not averaging anything")
     }
+
+    /// Texture's band window is truncated at level 0, so the realized weight is 1.309 at
+    /// 1280 px (centre 0) but the full 1.617 at 2560 px (centre 1). The engine rescales
+    /// to the untruncated total. The spatial-stage test above cannot see this: 300 px
+    /// and 1200 px both sit at centre 0. Expected weights are the Hann window
+    /// 0.5(1 + cos(pi d)) at d = 0 and 1/1.6, written as literals: 1 and
+    /// (1 - sin(pi/8))/2.
+    func testTextureDeliversTheUntruncatedBandWeightAtEveryBandCentre() {
+        let side = 0.30865828381745514           // (1 - sin(pi/8)) / 2
+        let reference = 1 + 2 * side             // 1.6173165676349103
+        let cases: [(longEdge: Int, weights: [Double])] = [
+            (1280, [1, side, 0, 0, 0].map { $0 * reference / (1 + side) }),
+            (2560, [side, 1, side, 0, 0]),
+            (5120, [0, side, 1, side, 0]),
+        ]
+        let amount = -50.0
+        for (longEdge, weights) in cases {
+            XCTAssertEqual(weights.reduce(0, +), reference, accuracy: 1e-12)
+            // A thin strip keeps the test cheap; only the long edge sets the centre.
+            let image = ImageBuffer(width: longEdge, height: 8) { u, v in
+                RGB(gray: 0.18 * (1 + 0.2 * sin(u * Double(longEdge) * 1.3)
+                                    * cos(v * 8 * 2.1)
+                                    + 0.1 * sin(u * Double(longEdge) * 0.31)))
+            }
+            let d = DetailEngine.Decomposition(image: image, workingRadius: 4)
+            XCTAssertEqual(d.details.count, weights.count)
+            let out = DetailEngine.applyTexture(image, amount: amount, decomposition: d)
+            var worst = 0.0
+            var energy = 0.0
+            for y in 0..<image.height {
+                for x in 0..<image.width {
+                    // Negative Texture is gated by 1 - coherence.
+                    let gate = 1 - Swift.min(Swift.max(d.coherence[x, y], 0), 1)
+                    var expected = 0.0
+                    for i in 0..<weights.count {
+                        expected += amount / 100 * weights[i] * gate * d.details[i][x, y]
+                    }
+                    let actual = log2(out[x, y].g / image[x, y].g)
+                    worst = Swift.max(worst, abs(actual - expected))
+                    energy = Swift.max(energy, abs(expected))
+                }
+            }
+            XCTAssertGreaterThan(energy, 0.01, "\(longEdge) px: no texture to measure")
+            XCTAssertLessThan(worst, 1e-5,
+                              "\(longEdge) px: Texture's per-level weights do not sum to "
+                                  + "the untruncated window (worst \(worst) EV)")
+        }
+    }
 }

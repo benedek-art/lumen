@@ -87,6 +87,9 @@ final class SidecarAndIngestTests: XCTestCase {
 
     func testXMPSerializationMatchesFixtureBytes() throws {
         let fixture = try Fixtures.load("xmp", as: XMPFixture.self)
+        XCTAssertEqual(Set(fixture.cases.map(\.name)),
+                       ["full", "cullOnly", "rejectedButRated", "controlCharacters",
+                        "escaping", "everything", "carriageReturnAndNonCharacter"])
         for c in fixture.cases {
             XCTAssertEqual(XMPSidecar.serialize(sidecarContent(c.content)), c.xmp,
                            "xmp case \(c.name) serialization drifted")
@@ -95,6 +98,9 @@ final class SidecarAndIngestTests: XCTestCase {
 
     func testXMPParseRecoversFields() throws {
         let fixture = try Fixtures.load("xmp", as: XMPFixture.self)
+        XCTAssertEqual(Set(fixture.cases.map(\.name)),
+                       ["full", "cullOnly", "rejectedButRated", "controlCharacters",
+                        "escaping", "everything", "carriageReturnAndNonCharacter"])
         for c in fixture.cases {
             guard let parsed = XMPSidecar.parse(c.xmp) else {
                 XCTFail("xmp case \(c.name) failed to parse")
@@ -730,6 +736,7 @@ final class SidecarAndIngestTests: XCTestCase {
 
     func testRenameTemplatesMatchReference() throws {
         let fixture = try Fixtures.load("rename", as: RenameFixture.self)
+        XCTAssertEqual(fixture.cases.count, 7, "the rename fixture changed size")
         for c in fixture.cases {
             var date = DateComponents()
             date.year = c.context.captureDate["year"]

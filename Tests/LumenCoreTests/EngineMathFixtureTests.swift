@@ -138,6 +138,7 @@ final class EngineMathFixtureTests: XCTestCase {
     /// could have drifted apart silently and neither noticed when the whole limiter
     /// was replaced.
     func testParametricCurveMatchesTheReference() throws {
+        var bindingRows = 0
         for row in try rows(fixture(), "parametric") {
             var p = ParametricCurve()
             p.shadows = double(row, "shadows")
@@ -169,12 +170,24 @@ final class EngineMathFixtureTests: XCTestCase {
                 XCTAssertEqual(baked.evaluate(x), double(sample, "y"), accuracy: 1e-9,
                                "the baked curve diverged at \(x) for \(label)")
             }
+
+            // The scale CurveStack REPORTS (it drives the limiter caption) must be the
+            // one the mirror applied, not just the one baked into the LUT.
+            var set = CurveSet()
+            set.parametric = p
+            let wantScale = double(row, "scale")
+            XCTAssertEqual(CurveStack(set).parametricAppliedScale, wantScale,
+                           accuracy: 1e-9, "applied limiter scale diverged for \(label)")
+            if wantScale < 0.999 { bindingRows += 1 }
         }
+        XCTAssertGreaterThanOrEqual(bindingRows, 1,
+                                    "the fixture no longer exercises the binding limiter")
     }
 
     // MARK: - Chroma scaling
 
     func testShapedChromaScaleMatchesTheReference() throws {
+        var compared = 0
         for row in try rows(fixture(), "shapedChromaScale") {
             guard let rgb = row["rgb"] as? [NSNumber], rgb.count == 3,
                   let want = row["out"] as? [NSNumber], want.count == 3 else {
@@ -190,15 +203,18 @@ final class EngineMathFixtureTests: XCTestCase {
                                      primaries: Primaries(), bw: nil)
             let expected = RGB(want[0].doubleValue, want[1].doubleValue,
                                want[2].doubleValue)
-            // The rolloff attenuates a push, so only the non-positive side is a
-            // like-for-like comparison with the bare chroma scale. The positive side
-            // is covered by `testSaturationThroughThePublicPathMatchesTheReference`,
-            // which drives the mirror through the same rolloff — before that existed,
-            // these rows were skipped in silence and the test reported success.
-            guard gain <= 1 else { continue }
+            // The rolloff attenuates a push, so only gains below 1 are a like-for-like
+            // comparison with the bare chroma scale, and the generator emits only
+            // those. The positive side is covered by
+            // `testSaturationThroughThePublicPathMatchesTheReference`.
+            XCTAssertLessThan(gain, 1, "a push row cannot be compared here")
+            XCTAssertGreaterThan(input.maxAbsDifference(expected), 1e-3,
+                                 "an identity row compares nothing (\(input), \(gain))")
             XCTAssertLessThan(engine.apply(input).maxAbsDifference(expected), 1e-9,
                               "chroma scale diverged for \(input) at gain \(gain)")
+            compared += 1
         }
+        XCTAssertEqual(compared, 9, "the shapedChromaScale fixture changed size")
     }
 
     /// Saturation as the panel exposes it, at both signs.

@@ -77,4 +77,23 @@ final class ProofRecordComparisonTests: XCTestCase {
         XCTAssertFalse(measured.agrees(with: committed))
         XCTAssertEqual(measured.comparisonDifferences(with: committed).count, 4)
     }
+
+    func testMetadataAndClaimFieldsAreCompared() throws {
+        let committed = try record()
+        let mutations: [(String, (inout ProofRecord) -> Void)] = [
+            ("panel", { $0.panel += "-other" }),
+            ("travelLow", { $0.travelLow -= 1 }),
+            ("travelHigh", { $0.travelHigh += 1 }),
+            ("baselineTier", { $0.baselineTier = "c" }),
+            ("baselineNote", { $0.baselineNote = "x" }),
+        ]
+        for (name, mutate) in mutations {
+            var measured = committed
+            mutate(&measured)
+            XCTAssertFalse(measured.agrees(with: committed), name)
+            let differences = measured.comparisonDifferences(with: committed)
+            XCTAssertEqual(differences.count, 1, name)
+            XCTAssertTrue(differences.first?.hasPrefix(name + ":") ?? false, name)
+        }
+    }
 }

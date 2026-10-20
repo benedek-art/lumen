@@ -109,6 +109,25 @@ struct ProofRecord: Codable, Equatable {
             }
         }
         if id != other.id { differences.append("id: committed \(other.id), measured \(id)") }
+        if panel != other.panel {
+            differences.append("panel: committed \(other.panel), measured \(panel)")
+        }
+        // Travel is copied from the registry, not measured, so it compares exactly.
+        if travelLow != other.travelLow {
+            differences.append("travelLow: committed \(other.travelLow), measured \(travelLow)")
+        }
+        if travelHigh != other.travelHigh {
+            differences.append("travelHigh: committed \(other.travelHigh), measured \(travelHigh)")
+        }
+        // A baseline claim written into a record by hand is exactly what must not pass.
+        if baselineTier != other.baselineTier {
+            differences.append("baselineTier: committed \(String(describing: other.baselineTier)), "
+                + "measured \(String(describing: baselineTier))")
+        }
+        if baselineNote != other.baselineNote {
+            differences.append("baselineNote: committed \(String(describing: other.baselineNote)), "
+                + "measured \(String(describing: baselineNote))")
+        }
         if frame != other.frame {
             differences.append("frame: committed \(other.frame), measured \(frame)")
         }

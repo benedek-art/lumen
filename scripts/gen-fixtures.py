@@ -1648,28 +1648,31 @@ def gen_engine_checks():
     # --- texture band weights are resolution independent -------------------
     half_width = 1.6
     reference = sum(band_weight(l, 0.0, half_width) for l in range(-32, 33))
+    # The untruncated total, derived by hand: levels 0 and +-1 inside a half-width of
+    # 1.6, 1 + 2 * 0.5 * (1 + cos(pi/1.6)) = 2 - sin(pi/8).
+    REFERENCE_LITERAL = 1.6173165676349103
+    check(abs(reference - REFERENCE_LITERAL) < 1e-12,
+          f"untruncated texture window sums to {reference}, not 2 - sin(pi/8)")
     for long_edge in [640, 1280, 2560, 5120, 10240, 20480]:
         center = band_center(long_edge)
-        realized = sum(band_weight(i, center, half_width) for i in range(5))
+        weights = [band_weight(i, center, half_width) for i in range(5)]
+        realized = sum(weights)
         check(realized > 1e-9, f"no realized band weight at {long_edge}")
-        # NOT `sum(w_i · reference/realized) == reference`. That is
-        # `realized · (reference/realized)`, which is `x·(k/x) = k` — an algebraic
-        # identity that holds for ANY window function whatsoever, including a
-        # triangle, a box, or nonsense. It was the only check on the fix it was
-        # written to protect, and it could not fail.
-        #
-        # What is actually claimed is that the NORMALIZER, applied to the same
-        # slider at any resolution, delivers the same total. Computing it the way
-        # the engine does and comparing against a separately-derived reference is
-        # the same statement without the cancellation.
+        # The normalizer as the engine computes it, checked against the literal: an
+        # un-normalized (normalizer = 1) or wrongly-normalized window fails at 640 and
+        # 1280 px, where the window is truncated at level 0. The engine side of this is
+        # ScaleHonestyTests.testTextureDeliversTheUntruncatedBandWeightAtEveryBandCentre.
         normalizer = reference / realized
-        check(abs(realized * normalizer - reference) < 1e-9,
-              f"texture weight not normalized at long edge {long_edge}")
-        check(normalizer > 0 and math.isfinite(normalizer),
-              f"texture normalizer at {long_edge} is {normalizer}")
-    # And the un-normalized sums really did differ, or the fix was a no-op.
+        delivered = sum(w * normalizer for w in weights)
+        check(abs(delivered - REFERENCE_LITERAL) < 1e-9,
+              f"texture weight at long edge {long_edge} delivers {delivered}, "
+              f"not {REFERENCE_LITERAL}")
+    # And the un-normalized sums really did differ, or the fix was a no-op. Literals
+    # from the window: 1 + (1 - sin(pi/8))/2 at centre 0, 2 - sin(pi/8) at centre 1.
     raw = [sum(band_weight(i, band_center(le), half_width) for i in range(5))
            for le in (1280, 2560)]
+    check(abs(raw[0] - 1.3086582838174551) < 1e-9 and abs(raw[1] - REFERENCE_LITERAL) < 1e-9,
+          f"truncated texture band sums moved: {raw}")
     check(abs(raw[0] - raw[1]) > 0.2,
           "texture band weights did not actually differ across resolutions")
 
@@ -4165,9 +4168,12 @@ def gen_enginemath_fixture():
             entry["stops"].append({"t": t, "value": e.stops(t)})
         tone.append(entry)
 
+    # Desaturating gains only: the Swift replay drives these through Saturation, whose
+    # push side is attenuated by the rolloff (covered by chroma_push below), and gain 1
+    # would compare an identity with an identity. Every row emitted here is compared.
     chroma = []
     for c in ((0.9, 0.2, 0.05), (0.45, 0.34, 0.22), (0.31, 0.30, 0.29)):
-        for gain in (0.0, 0.5, 1.0, 1.6, 3.0):
+        for gain in (0.0, 0.25, 0.5):
             chroma.append({"rgb": list(c), "gain": gain,
                            "out": list(shaped_chroma_scale(c, gain))})
 

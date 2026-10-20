@@ -64,7 +64,14 @@ final class MathTests: XCTestCase {
 
     func testMonotoneCubicMatchesReference() throws {
         let fixture = try Fixtures.load("curves", as: CurvesFixture.self)
+        // zip() stops at the shorter array, so an empty or truncated fixture would
+        // otherwise pass while comparing nothing.
+        XCTAssertEqual(Set(fixture.cases.map(\.name)),
+                       ["identity", "sCurve", "matteFade", "flatSegment", "steepMonotone",
+                        "singlePoint", "duplicateX", "unsorted"])
         for c in fixture.cases {
+            XCTAssertFalse(c.samples.isEmpty, "curve \(c.name)")
+            XCTAssertEqual(c.samples.count, c.values.count, "curve \(c.name)")
             let curve = MonotoneCubic(points: c.points)
             for (x, expected) in zip(c.samples, c.values) {
                 XCTAssertEqual(curve.evaluate(x), expected, accuracy: eps,
@@ -93,7 +100,10 @@ final class MathTests: XCTestCase {
 
     func testZoneWeightsMatchReference() throws {
         let fixture = try Fixtures.load("zones", as: ZonesFixture.self)
+        XCTAssertEqual(Set(fixture.cases.map(\.name)), ["default", "custom4"])
         for c in fixture.cases {
+            XCTAssertFalse(c.samples.isEmpty, "zones \(c.name)")
+            XCTAssertEqual(c.samples.count, c.weights.count, "zones \(c.name)")
             for (x, expected) in zip(c.samples, c.weights) {
                 let w = ZoneWeights.weights(x: x, pivots: c.pivots)
                 XCTAssertEqual(w.count, expected.count)
@@ -105,6 +115,8 @@ final class MathTests: XCTestCase {
             }
         }
         let e = fixture.exposure
+        XCTAssertFalse(e.samples.isEmpty, "exposure")
+        XCTAssertEqual(e.samples.count, e.stops.count, "exposure")
         for (x, expected) in zip(e.samples, e.stops) {
             XCTAssertEqual(
                 ZoneWeights.exposureStops(x: x, pivots: e.pivots,
@@ -115,6 +127,9 @@ final class MathTests: XCTestCase {
 
     func testMaskAlgebraMatchesReference() throws {
         let fixture = try Fixtures.load("maskalgebra", as: MaskFixture.self)
+        XCTAssertEqual(Set(fixture.cases.map(\.name)),
+                       ["singleAdd", "addUnion", "skyMinusBrush", "docsCoreCase",
+                        "invertedAdd", "startsWithSubtract", "amountScaling", "clampedInput"])
         for c in fixture.cases {
             let stack = c.stack.map { comp in
                 (op: MaskOp(rawValue: comp.op)!, invert: comp.invert,
