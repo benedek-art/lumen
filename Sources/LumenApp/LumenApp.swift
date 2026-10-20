@@ -404,6 +404,12 @@ private struct LumenCommands: Commands {
                     .disabled(!state.hasCopiedSettings)
                     Button("Paste Masks") { state.pasteMasks() }
                         .disabled(!state.hasCopiedMasks)
+                    // The tenth time, when the crop must stay: tick groups, or apply a
+                    // saved preset. See `SelectivePaste` and AppStatePasteSelected.swift.
+                    Button("Paste Selected Settings & Presets…") {
+                        state.openPasteSelected()
+                    }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
                     // Spot removal is local work on one photograph's blemishes, so the
                     // two whole-recipe pastes leave it behind unless this is ticked —
                     // LR's sync default, as a checkable item rather than a dialog for the

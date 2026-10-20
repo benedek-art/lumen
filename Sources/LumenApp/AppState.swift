@@ -283,7 +283,7 @@ struct StackSummary: Equatable, Sendable {
 // MARK: - Sheets
 
 enum SheetKind: String, Identifiable, Sendable {
-    case keyReference, export, ingest
+    case keyReference, export, ingest, pasteSelected
     var id: String { rawValue }
 }
 
@@ -4312,7 +4312,7 @@ final class AppState: ObservableObject {
     /// `@Published` because two menu items are `.disabled` on whether it is nil, and a
     /// plain stored property does not tell SwiftUI to look again — so "Paste Masks"
     /// would stay greyed out until something else happened to redraw the menu bar.
-    @Published private var copiedRecipe: Recipe?
+    @Published private(set) var copiedRecipe: Recipe?
     /// Published for the same reason as `copiedRecipe`: Paste Look is `.disabled` on
     /// whether it is nil, and a plain stored property does not tell SwiftUI to look
     /// again. It was plain, so Paste Look was always enabled — and before anything had

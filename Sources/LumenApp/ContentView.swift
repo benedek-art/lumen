@@ -250,6 +250,7 @@ struct ContentView: View {
             case .keyReference: KeyReferenceSheet()
             case .export: ExportSheet()
             case .ingest: IngestSheet()
+            case .pasteSelected: PasteSelectedSheet()
             }
         }
     }

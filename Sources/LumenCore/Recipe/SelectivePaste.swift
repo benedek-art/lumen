@@ -79,7 +79,7 @@ public enum PasteGroup: String, Codable, CaseIterable, Sendable, Hashable {
 
     /// Groups in display order, for a stable list in UI and in stored presets.
     public static func ordered(_ groups: Set<PasteGroup>) -> [PasteGroup] {
-        allCases.filter(groups.contains)
+        Self.allCases.filter(groups.contains)
     }
 }
 

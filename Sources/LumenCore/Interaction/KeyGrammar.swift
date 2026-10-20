@@ -227,6 +227,8 @@ public enum KeyGrammar {
                    "Cut — text fields only; Lumen has no cut for photographs"),
             KeyRow(KeyBinding("v", command: true, shift: true),
                    "Paste settings, leaving this frame's masks alone"),
+            KeyRow(KeyBinding("s", command: true, shift: true),
+                   "Paste selected settings (pick groups, keep crops) and presets"),
             KeyRow(KeyBinding("c", command: true, option: true), "Copy Look"),
             KeyRow(KeyBinding("v", command: true, option: true), "Paste Look"),
             KeyRow(KeyBinding("r", command: true, shift: true), "Reset settings"),
