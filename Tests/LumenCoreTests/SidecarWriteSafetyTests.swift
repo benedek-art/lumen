@@ -80,4 +80,37 @@ final class SidecarWriteSafetyTests: XCTestCase {
         XCTAssertEqual(XMPSidecar.parse(written)?.rating, 2)
         XCTAssertTrue(written.contains("tiff:Make=\"Nikon\""))
     }
+
+    // MARK: - Real-valued ratings
+
+    /// XMP types `xmp:Rating` as a Closed Choice of Real; "4.0" is a legal spelling.
+    func testARealValuedRatingIsReadAndSurvivesAKeywordWrite() throws {
+        let doc = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+         <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+           xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+           xmp:Rating="4.0" crs:Exposure2012="+0.35"/>
+        </rdf:RDF></x:xmpmeta>
+        """
+        let fresh = try XCTUnwrap(XMPSidecar.parse(doc))
+        XCTAssertEqual(fresh.rating, 4)
+        var queued = SidecarContent()
+        queued.keywordEdit = SidecarKeywordEdit(added: ["fjord"])
+        let merged = try XCTUnwrap(XMPSidecar.update(doc, with:
+            XMPSidecar.reseed(queued, fields: [.keywords], onto: fresh)))
+        XCTAssertEqual(XMPSidecar.parse(merged)?.rating, 4)
+        XCTAssertFalse(merged.contains("<xmp:Rating>0</xmp:Rating>"),
+                       "a keyword write overwrote four stars with zero")
+        XCTAssertTrue(merged.contains("crs:Exposure2012=\"+0.35\""))
+
+        let rejected = try XCTUnwrap(XMPSidecar.parse(
+            doc.replacingOccurrences(of: "\"4.0\"", with: "\"-1.0\"")))
+        XCTAssertEqual(rejected.flag, .reject)
+        XCTAssertEqual(rejected.rating, 0)
+        XCTAssertEqual(XMPSidecar.parse(
+            doc.replacingOccurrences(of: "\"4.0\"", with: "\"9.0\""))?.rating, 5)
+        XCTAssertEqual(XMPSidecar.parse(
+            doc.replacingOccurrences(of: "\"4.0\"", with: "\"nan\""))?.rating, 0)
+    }
+
 }

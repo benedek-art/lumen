@@ -861,7 +861,16 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
             // not overwrite a `lumen:flag` that has already been read: this build's own
             // word about its own photograph outranks another tool's convention, and
             // field order in the document is not something to depend on.
-            let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            //
+            // AND IT IS A REAL, not an integer: XMP types it as a Closed Choice of Real,
+            // so "4.0" and "-1.0" are legal spellings (exiftool writes them). `Int("4.0")`
+            // is nil, which read four stars as zero — and the next write of any field
+            // re-emitted that zero over the stripped original. Clamped before the
+            // conversion so a huge value cannot trap.
+            let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parsed = Int(text) ?? Double(text).flatMap {
+                $0.isFinite ? Int(Swift.min(Swift.max($0.rounded(), -1), 5)) : nil
+            } ?? 0
             if parsed < 0 {
                 content.rating = 0
                 if content.flag == .none { content.flag = .reject }
