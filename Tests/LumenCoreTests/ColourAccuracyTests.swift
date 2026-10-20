@@ -24,4 +24,25 @@ final class ColourAccuracyTests: XCTestCase {
         XCTAssertEqual(p5000.x, 0.3451, accuracy: 5e-4)
         XCTAssertEqual(p5000.y, 0.3516, accuracy: 5e-4)
     }
+
+    // MARK: - Display transform
+
+    /// Scene black must land on the black target whatever hue preservation is set to.
+    /// Before the fix the hue-stable branch returned 0 for a zero input (its fallback
+    /// tested the floored norm, which is never 0), so the floor read 0 at the default
+    /// hue preservation of 100 and the black target only at 0.
+    func testSceneBlackLandsOnTheBlackTargetAtAnyHuePreservation() {
+        var perChannel = DisplayTransformParams()
+        perChannel.huePreservation = 0
+        let expected = DisplayTransform(perChannel).apply(RGB(0, 0, 0))
+        XCTAssertGreaterThan(expected.g, 1e-5, "black target is 0.0152% of white")
+        for hp in [100.0, 70.0, 30.0] {
+            var p = DisplayTransformParams()
+            p.huePreservation = hp
+            let out = DisplayTransform(p).apply(RGB(0, 0, 0))
+            XCTAssertEqual(out.r, expected.r, accuracy: 1e-9, "hue preservation \(hp)")
+            XCTAssertEqual(out.g, expected.g, accuracy: 1e-9, "hue preservation \(hp)")
+            XCTAssertEqual(out.b, expected.b, accuracy: 1e-9, "hue preservation \(hp)")
+        }
+    }
 }
