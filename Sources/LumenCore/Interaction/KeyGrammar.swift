@@ -138,6 +138,11 @@ public enum KeyGrammar {
             KeyRow(keys: "-", action: "Purple label (outside the loupe)"),
             KeyRow(keys: "A", action: "Toggle auto-advance — in Compare and Survey, "
                   + "to the next compared frame"),
+            // Lightroom's override: a decision key with Shift held (or Caps Lock on)
+            // moves to the next photo even while auto-advance is off (`CullAdvance`).
+            KeyRow(keys: "⇧P ⇧X ⇧U ⇧0–9 ⇧-",
+                   action: "Decide and move to the next photo, even with auto-advance "
+                       + "off; Caps Lock does the same"),
             KeyRow(keys: "B", action: "Add the selection to the target album"),
             KeyRow(keys: "← →", action: "Previous / next photo; in Compare and Survey, "
                   + "the next frame of the comparison"),
@@ -253,6 +258,22 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("r", command: true, shift: true), "Reset settings"),
             KeyRow(KeyBinding("a", command: true), "Select all"),
             KeyRow(KeyBinding("d", command: true), "Select none"),
+            // Lightroom's Select Flagged and Deselect Unflagged chords. Invert, Select
+            // Rejects, Select Unflagged and Select by Rating are menu-only (Edit menu).
+            KeyRow(KeyBinding("a", command: true, option: true), "Select the picks shown"),
+            KeyRow(KeyBinding("d", command: true, shift: true, option: true),
+                   "Deselect everything that is not a pick"),
+            // The Library menu's filter shortcuts. ⌘L is Lightroom's Enable Filters;
+            // each flag or rating chord pressed again takes its criterion back off.
+            KeyRow(KeyBinding("l", command: true), "Filters off / back on, keeping them"),
+            KeyRow(KeyBinding("p", command: true, option: true), "Show picks only"),
+            KeyRow(KeyBinding("u", command: true, option: true), "Show unflagged only"),
+            KeyRow(KeyBinding("x", command: true, option: true), "Show rejected only"),
+            KeyRow(KeyBinding("1", command: true, control: true), "Show rated 1★ or more"),
+            KeyRow(KeyBinding("2", command: true, control: true), "Show rated 2★ or more"),
+            KeyRow(KeyBinding("3", command: true, control: true), "Show rated 3★ or more"),
+            KeyRow(KeyBinding("4", command: true, control: true), "Show rated 4★ or more"),
+            KeyRow(KeyBinding("5", command: true, control: true), "Show rated 5★"),
             KeyRow(KeyBinding("a", command: true, shift: true), "Auto Tone"),
             KeyRow(KeyBinding("e", command: true), "Export"),
             KeyRow(KeyBinding("e", command: true, shift: true, option: true),

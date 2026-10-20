@@ -47,7 +47,7 @@ extension AppState {
     /// handle. Returns true when it has dealt with the advance (moved the cursor inside
     /// the comparison, or decided to stay); false hands over to `advanceIfNeeded`'s
     /// step through the roll.
-    func advanceHandledByCullRule() -> Bool {
+    func advanceHandledByCullRule(forced: Bool = false) -> Bool {
         let surface = cullSurface
         let set: [PhotoItem] = surface.isComparing ? comparisonSet : []
         let cursor: Int?
@@ -57,7 +57,7 @@ extension AppState {
             cursor = nil
         }
         let step = CullTargeting.advance(on: surface,
-                                         autoAdvance: autoAdvance,
+                                         autoAdvance: autoAdvance || forced,
                                          selectionCount: selection.count,
                                          comparisonCursor: cursor,
                                          comparisonCount: set.count)
