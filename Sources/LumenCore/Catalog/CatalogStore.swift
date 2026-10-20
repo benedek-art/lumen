@@ -1501,12 +1501,12 @@ public final class CatalogStore {
         try migrate()
         try seedMetaIfNeeded()
         try rebuildTextIndexIfNeeded()
-        // photo.id has no AUTOINCREMENT, so after a restore from backup (or a fresh
-        // lumen.db beside an old cache.db) the next photo reuses the id of one only the
-        // lost catalog knew. Cache rows for that id would hand the new frame another
-        // frame's previews, scores and raw stats. The cache is derived; drop them now,
-        // before any id can be reused. Failing to sweep must not block opening.
-        try? sweepCacheOrphans()
+        // photo.id has no AUTOINCREMENT, so after a restore from backup the next photo
+        // reuses the id of one only the lost catalog knew. Cache rows for that id would
+        // hand the new frame another frame's previews, scores and raw stats. The cache
+        // is derived; drop them before any id can be reused. Failing must not block
+        // opening.
+        try? sweepCacheRowsAboveLastPhoto()
         try? database.execute(CatalogStore.quarterTurnedAspectRepair)
     }
 
@@ -1973,6 +1973,25 @@ public final class CatalogStore {
                 removed += deleted
             }
             return removed
+        }
+    }
+
+    /// The part of `sweepCacheOrphans` that cannot wait: rows for ids ABOVE the
+    /// catalog's highest photo id are exactly the ids the next inserts will be given.
+    /// A catalog with no photos yet is left alone — its cache rows may be the ones
+    /// the photos about to be scanned will match (a migrated cache, a first scan).
+    private func sweepCacheRowsAboveLastPhoto() throws {
+        guard let last = try db.scalarInt("SELECT MAX(id) FROM main.photo;") else { return }
+        try db.transaction {
+            for table in ["raw_stats", "frame_score", "face", "feature_print",
+                          "preview", "artifact"] {
+                try self.db.run("DELETE FROM cache.\(table) WHERE photo_id > ?;",
+                                [.integer(last)])
+            }
+            if self.ftsEnabled {
+                try self.db.run("DELETE FROM cache.photo_fts WHERE rowid > ?;",
+                                [.integer(last)])
+            }
         }
     }
 
