@@ -75,6 +75,16 @@ on Apple's runtime, where a solo developer gets the largest fraction of it for f
 
 Single app process. One Swift Package, five targets:
 
+> **As built (2026-10-20).** The layout below is the original plan. `Package.swift` actually
+> declares `CSQLite3` (Linux-only system-library module map for SQLite), `LumenCore`,
+> `LumenPipeline` and `LumenApp`, plus the test targets `LumenCoreTests`, `LumenPipelineTests`
+> and `LumenAppTests`. There is no GRDB: the catalog uses SQLite3 directly through
+> `Sources/LumenCore/Catalog/SQLite.swift` (recorded under Deviations in BUILDING.md). There is
+> no `LumenML` target, no `TestAssets` target (fixtures live under
+> `Tests/LumenCoreTests/Fixtures`, and the real-file RAW corpus is downloaded and cached by
+> `.github/workflows/raw-corpus.yml` from a manifest written inside that workflow) and no `lumen-render` CLI
+> (golden and perf checks are XCTest targets).
+
 ```
 LumenCore      — no UI, no Metal. Catalog access (GRDB), recipe model + codecs,
                  XMP sidecar I/O, folder scanning/watching, preview-cache index,
@@ -371,6 +381,10 @@ in 07-spec-denoise.md.
   performance gate (first-browse, grid scroll, slider drag, photo switch, AI round-trip — budgets
   defined in 12-spec-ux.md, D47) run on every merge. A feature that busts its loop doesn't ship;
   Lightroom 15.4's pulled release is the standing cautionary tale.
+  *As built (2026-10-20):* no five-loop perf gate runs in CI and there is no headless CLI
+  renderer. `PerfProbeTests` asserts only a sanity ceiling; the goldens are the synthetic kernel
+  goldens that `gpu-parity.yml` runs under `swift test` (see the note at the top of
+  14-pipeline.md §8).
 - **Ship-to-self weekly.** The owner runs the newest build on real shoots every week from Phase 1
   (16-roadmap.md). Dogfooding cadence is the antidote to both the Exposure failure (stagnation)
   and the ON1 failure (features outrunning the foundation).

@@ -1,7 +1,9 @@
 // swift-tools-version:6.0
 // Lumen — a personal RAW photo editor for macOS.
 //
-// Target layout follows docs/13-architecture.md:
+// Target layout (docs/13-architecture.md §2 is the original plan; its "As built" note
+// lists what differs):
+//   CSQLite3      — Linux-only sqlite3 module map; macOS uses the SDK's SQLite3.
 //   LumenCore     — no UI, no Apple-only frameworks. The whole engine as pure Swift
 //                   (colour science, tone, grade, film, detail, denoise, masks,
 //                   scopes, the f32 reference renderer), plus the recipe model,

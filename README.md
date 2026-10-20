@@ -36,7 +36,7 @@ What is built, by phase:
 |---|---|
 | 1 — Walking skeleton | Done, and replaced. Apple's RAW stage now runs *flat*: its tone curve, shadow boost and gamut mapping are off, and picture formation is Lumen's. |
 | 2 — Catalog + culling | SQLite catalog with migrations, folder scan, the full bare-key culling grammar, filter/sort in SQL, preview cache with direction-aware prefetch, recipes in both the catalog and XMP sidecars. |
-| 3 — Develop engine | The whole stack: CAT16 white balance, the six-slider tone contract on an edge-aware guided mask, THE display transform, curves, presence off one decomposition, capture and creative sharpening, crop, deterministic Auto and session history. Persisted per-photo named snapshots remain planned. |
+| 3 — Develop engine | The whole stack: CAT16 white balance, the six-slider tone contract on an edge-aware guided mask, THE display transform, curves, presence off one decomposition, capture and creative sharpening, crop, deterministic Auto and session history. Per-photo named snapshots persist in the catalog as `edit.kind = snapshot` rows (save, restore and delete from the History panel; see [docs/PHOTO_SNAPSHOTS.md](docs/PHOTO_SNAPSHOTS.md)); they live in the catalog and its backups, not in XMP sidecars. |
 | 4 — Masking | Component stacks with add/subtract/intersect, every geometric and range component rasterized, the refine chain, local adjustments including the local curve and local wheels Lightroom lacks. AI components await models. |
 | 5 — Denoise | Profiled VST + wavelet classical NR, the cached AI-splice model, ISO-adaptive defaults, tiling. Classical NR runs on the GPU in the interactive and export renders (`RenderGraph.applyDenoise`, golden-tested against the reference; a view decoded below `contributingNoiseScale` skips it, since the downsample already averaged the noise away); Apple's decode-stage NR is off under Off and Classic and drives only the AI mode's stand-in until a model ships. |
 | 6 — Colour depth | Eight-band mixer, point colour, three-way wheels with visible pivots, printer lights in twelfths of a stop, primaries, B&W — all in an H-K-aware perceptual model. |
@@ -49,8 +49,8 @@ The owner has run it on a Mac four times (2026-08-23 ×2, and sessions A and B o
 sessions' defects (slow sliders, the temperature scale, the inverted tint) were fixed
 and session A re-verified the tone controls by hand (MAC-04 closed); session B's
 findings — the pastel overexposure and the notchy drags — were root-caused and fixed
-with independent-implementation proof (docs/26). `docs/23-master-plan.md` is the
-living plan; [BUILDING.md](BUILDING.md) is the honest ledger: how to run it, how it
+with independent-implementation proof (docs/26). [The October master plan](docs/audits/2026-10-07-deep/MASTER-PLAN.md) is the
+living plan (`docs/23-master-plan.md` is the earlier plan, kept as history); [BUILDING.md](BUILDING.md) is the honest ledger: how to run it, how it
 was verified, and every known gap.
 
 ## What "better, for me" means — measurably

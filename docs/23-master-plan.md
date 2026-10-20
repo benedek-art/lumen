@@ -1,9 +1,12 @@
 # 23 — The master plan
 
-> Status lives in three places only: the proof records, the CI lane results, and the
-> checkboxes in THIS file, updated in the same commit as the work. Every other document
-> in this repository may be stale; this one may not. If a checkbox and a commit
-> disagree, the commit is wrong.
+> **Superseded (note added 2026-10-20).** Since the 2026-10-07 consolidation, current status
+> and the backlog live in
+> [docs/audits/2026-10-07-deep/CURRENT-STATE.md](audits/2026-10-07-deep/CURRENT-STATE.md) and
+> [docs/audits/2026-10-07-deep/MASTER-PLAN.md](audits/2026-10-07-deep/MASTER-PLAN.md) (IDs
+> APP-/CORE-/RENDER-xx etc.). The MAC-xx checkboxes below are kept as history and are not
+> updated any more. The original header read: "Status lives in three places only: the proof
+> records, the CI lane results, and the checkboxes in THIS file."
 
 ## Why this document exists
 

@@ -61,6 +61,8 @@ For each implemented item record: current trigger; baseline reproduction and its
 
 ## Prioritized backlog
 
+> Status note (2026-10-20): CORE-02 is resolved. The drift was a one-ULP atan2f difference between libm platforms; `ExactColorStage.lch` now evaluates the angle in Double before rounding to Float (`Sources/LumenCore/Engine/ExactColorStage.swift`). Three records / four fields were re-pinned against a 90-digit independent oracle and the `1e-6` tolerance was kept. See [CURRENT-STATE.md](CURRENT-STATE.md) "Numerical proof" and [the proof-numerics report](../2026-10-07-proof-numerics/README.md). This plan replaces the older [docs/23-master-plan.md](../../23-master-plan.md); its MAC-xx IDs predate the APP-/CORE-/RENDER-xx IDs used here.
+
 
 | ID | Priority | Kind | Work | Owner | Acceptance | Gate | State |
 |---|---|---|---|---|---|---|---|
@@ -102,7 +104,7 @@ For each implemented item record: current trigger; baseline reproduction and its
 | RENDER-11 | P2 | feature | Add painted-heal source drag and re-pick | heal-ui | Coordinate transforms, undo/reopen/blob backup, async stale-result guards | Synthetic/macOS tests now | planned |
 | RENDER-12 | P1 | investigation | Classify confirmed unrenderable RAW and uncertain chroma alarms | raw | No blanket all-black refusal; capability/fixture-backed rejection; known-neutral references | Synthetic/macOS tests now | planned |
 | CORE-01 | P1 | validation | Requalify contrast intersection inherited from unpublished September tests | colour | Whites+100/Pivot+4/Contrast-100 exact and native GPU; preserve original numerical limits | Synthetic/macOS tests now | planned |
-| CORE-02 | P1 | investigation | Resolve macOS versus Linux proof-record drift | proof | Emit fieldwise differences on protectSkin/red hue/BW red; repeated native and Linux runs; no blind re-pinning | Synthetic/macOS tests now | planned |
+| CORE-02 | P1 | investigation | Resolve macOS versus Linux proof-record drift | proof | Emit fieldwise differences on protectSkin/red hue/BW red; repeated native and Linux runs; no blind re-pinning | Synthetic/macOS tests now | integrated-green |
 | OUT-01 | P1 | defect | Prevent same-batch overwrite through case/hard-link aliases | integration | Prior delivery alias always renamed under all policies; normal pre-run overwrite remains opt-in | Synthetic/macOS tests now | integrated-green |
 | OUT-02 | P2 | feature | Merge Lumen catalog keyword additions into delivery metadata | export-metadata | Catalog leaf additions merge with embedded source IPTC; keyword switch strips; source removal authority deferred until import/tombstone model | Synthetic/macOS tests now | integrated-green-additions-only |
 | OUT-03 | P2 | feature | Implement destination-specific gamut mapping intent | export-colour | Opt-in per recipe; in-gamut unchanged; saturated wedges finite/hue-controlled; real-photo review later | Synthetic/macOS tests now | planned |

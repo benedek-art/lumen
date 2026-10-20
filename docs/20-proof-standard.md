@@ -131,8 +131,10 @@ project has found to record an INVALID PROBE as a finding.
 
 ## The record
 
-Every proof writes `Tests/Proof/records/<control-id>.json`, committed. The suite
-regenerates them and fails if a committed record no longer matches within tolerance.
+Every proof writes `Tests/LumenCoreTests/Proof/records/<control-id>.json`, committed. The
+suite (`Tests/LumenCoreTests/Proof/ControlProofTests.swift`) regenerates them and fails if a
+committed record no longer matches within tolerance; `proof-numerics.yml` also runs
+`git diff --exit-code -- Tests/LumenCoreTests/Proof/records`.
 
 That makes a behaviour change **visible in a diff**, which is the property this project
 has been missing: every defect in docs/19 was invisible until somebody thought to
@@ -142,7 +144,9 @@ either a fix or a regression, and the commit message has to say which.
 ## Evidence images
 
 Each control renders three frames — neutral, full negative, full positive — through the
-reference at a fixed size, written as PNG under `Tests/Proof/evidence/`. These are not
+reference at a fixed size, written as PNG under `Tests/LumenCoreTests/Proof/evidence/`
+(gitignored, not committed; `proof.yml` uploads it as the `proof-evidence-linux` CI
+artifact). These are not
 assertions; they are what lets the owner judge with his eyes the moment he is at a Mac,
 without re-deriving what was measured or trusting a number he did not watch being taken.
 
@@ -155,6 +159,10 @@ evidence image carries a note saying the picture shown is the reference's.
 `docs/21-proof-ledger.md` is generated from the records: one row per control, six
 columns, the authority number, and the P6 source letter. It is the answer to "does every
 slider work well", and it is regenerated rather than edited.
+
+*Not built (note added 2026-10-20):* no generator exists and there is no
+`docs/21-proof-ledger.md` (docs/21 is `21-where-we-stand.md`). Until one is written, the
+committed records directory, `Tests/LumenCoreTests/Proof/records/`, is the ledger.
 
 ## The rule that keeps this honest
 

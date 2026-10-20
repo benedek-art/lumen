@@ -614,6 +614,19 @@ in the engine — there is a peak parameter.
 
 ## 8. Golden-image testing and `pipelineVersion` discipline
 
+> **As built (2026-10-20).** This section is the design target, not the current CI.
+> - There is no migration ledger, no re-bake script and no CI step that checks a ledger.
+> - `currentPipelineVersion` (`Sources/LumenCore/Recipe/Recipe.swift`, now 2) is a recipe stamp
+>   plus a refusal/clamp for newer documents (`CatalogStore`, `CatalogService`). No renderer keeps
+>   per-version math, so every recipe renders with the current math. The only pin on the value is
+>   `CreativeLUTTests.testTheLUTWireKeysAreTheOnesEveryVersion2BuildDecodes`.
+> - Goldens are the synthetic kernel and whole-graph goldens in `Tests/LumenPipelineTests`
+>   (`KernelGoldenTests` and others, run by `.github/workflows/gpu-parity.yml`). There are no
+>   environment-keyed goldens per (macOS version, `decoderVersion`). `raw-corpus.yml` is a
+>   real-file property lane and says itself that it is not a golden suite.
+> - Performance (§8.3): `PerfProbeTests` prints stage timings and asserts only a loose sanity
+>   ceiling. No latency budget fails the build.
+
 The pipeline is only refactorable because it is testable, and only trustworthy because it never
 changes silently.
 

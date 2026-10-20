@@ -1,5 +1,7 @@
 # Proof numerical portability investigation — 7 October 2026
 
+> **Resolution (note added 2026-10-20).** This page records the investigation as it stood on 7 October. The difference was later traced to a one-ULP atan2f disagreement between libm platforms. It was fixed by evaluating the angle in Double (`Sources/LumenCore/Engine/ExactColorStage.swift`, `lch`). Three records / four fields were re-pinned against a 90-digit oracle, the `1e-6` tolerance was kept, and the proof suite now passes. See [CURRENT-STATE.md](CURRENT-STATE.md) and [the proof-numerics report](../2026-10-07-proof-numerics/README.md). "The original 1e-6 release gate remains red" below describes 7 October, not now.
+
 The optimized macOS 15 CI run 37691834119 (job 113033668921) reproduces the same three differences measured on the unchanged October baseline and local macOS 27. The records were generated on Linux with Swift 6.1; Linux baseline checks passed.
 
 | Control | Field | Linux record | Darwin measurement | Absolute difference |

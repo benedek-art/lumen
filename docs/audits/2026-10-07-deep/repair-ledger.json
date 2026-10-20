@@ -377,7 +377,7 @@
       "owner": "proof",
       "acceptance": "Emit fieldwise differences on protectSkin/red hue/BW red; repeated native and Linux runs; no blind re-pinning",
       "gate": "Synthetic/macOS tests now",
-      "status": "planned"
+      "status": "integrated-green"
     },
     {
       "id": "OUT-01",
