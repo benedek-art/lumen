@@ -275,6 +275,8 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("4", command: true, control: true), "Show rated 4★ or more"),
             KeyRow(KeyBinding("5", command: true, control: true), "Show rated 5★"),
             KeyRow(KeyBinding("a", command: true, shift: true), "Auto Tone"),
+            KeyRow(KeyBinding("m", command: true, shift: true, option: true),
+                   "Match total exposures to the active photo"),
             KeyRow(KeyBinding("e", command: true), "Export"),
             KeyRow(KeyBinding("e", command: true, shift: true, option: true),
                    "Export with Previous — the last folder and the checked recipes, "
