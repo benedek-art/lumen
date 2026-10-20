@@ -464,6 +464,17 @@ public final class PipelineRenderer {
         /// a read of tens of megabytes before a pixel is computed. The owner's "six to
         /// seven seconds" on a photo change is unattributed until this is on the HUD.
         public let decodeMilliseconds: Double
+        /// The other three phases, stamped beside the signposts that already bound
+        /// them, so a slow settle can be attributed without attaching Instruments.
+        /// Plan: building the `RenderPlan`, including any exact colour-table bake.
+        public let planMilliseconds: Double
+        /// Graph: `makeGraph` (mask rasterisation, stale-raster lending) plus the
+        /// lazy build, geometry and dither assembly after it. CPU only; no pixel is
+        /// evaluated here.
+        public let graphMilliseconds: Double
+        /// Render: the `createCGImage` call alone, where the lazy graph is actually
+        /// evaluated. On a cold frame this includes Core Image's kernel compile.
+        public let renderMilliseconds: Double
     }
 
     /// `showingUncropped` is set while the crop tool is open, so the tool draws its
@@ -550,10 +561,13 @@ public final class PipelineRenderer {
         Self.signposter.endInterval("decode", decodeInterval)
 
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let planStarted = DispatchTime.now().uptimeNanoseconds
         let planInterval = Self.signposter.beginInterval("plan")
         let plan = previewPlan(source: source, recipe: recipe, draft: draft,
                                softProof: softProof)
         Self.signposter.endInterval("plan", planInterval)
+        let graphStarted = DispatchTime.now().uptimeNanoseconds
+        let planMs = Double(graphStarted - planStarted) / 1e6
         let rasterInterval = Self.signposter.beginInterval("rasterize")
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -580,6 +594,7 @@ public final class PipelineRenderer {
         // judging the sky was judging an artifact the file does not have. Same plate,
         // same amplitude table, same everything as the export's.
         image = Self.applyDither(image, colorSpace: .srgb, bitDepth: 8)
+        let graphMs = Double(DispatchTime.now().uptimeNanoseconds - graphStarted) / 1e6
 
         // The graph is lazy, so THIS is where the GPU actually evaluates it — and
         // where a region ask changes what a zoomed render costs: only the sub-rect's
@@ -626,11 +641,13 @@ public final class PipelineRenderer {
                     height: integral.height / fullExtent.height)
             }
         }
+        let renderStarted = DispatchTime.now().uptimeNanoseconds
         let renderInterval = Self.signposter.beginInterval("render")
         let cgImage = context.createCGImage(
             image, from: rasterRect, format: .RGBA8,
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         Self.signposter.endInterval("render", renderInterval)
+        let renderMs = Double(DispatchTime.now().uptimeNanoseconds - renderStarted) / 1e6
         guard let cgImage else {
             throw RenderError.renderFailed
         }
@@ -643,7 +660,10 @@ public final class PipelineRenderer {
             : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
                                fullPixelSize: fullPixelSize,
-                               decodeMilliseconds: decodeMs)
+                               decodeMilliseconds: decodeMs,
+                               planMilliseconds: planMs,
+                               graphMilliseconds: graphMs,
+                               renderMilliseconds: renderMs)
     }
 
     // MARK: - EDR preview
@@ -732,9 +752,13 @@ public final class PipelineRenderer {
         }
         let decodeMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1e6
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        // The same three phase stamps as the SDR path's, without its signposts.
+        let planStarted = DispatchTime.now().uptimeNanoseconds
         let plan = edrPreviewPlan(source: source, recipe: recipe, draft: draft,
                                   softProof: softProof,
                                   displayWhiteTarget: displayWhiteTarget)
+        let graphStarted = DispatchTime.now().uptimeNanoseconds
+        let planMs = Double(graphStarted - planStarted) / 1e6
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
                               allowStaleRasters: draft,
@@ -747,6 +771,7 @@ public final class PipelineRenderer {
                                                              noiseScale: scale * scale))
         image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
                                    skipCrop: showingUncropped)
+        let graphMs = Double(DispatchTime.now().uptimeNanoseconds - graphStarted) / 1e6
 
         let fullExtent: CGRect = image.extent
         var rasterRect: CGRect = fullExtent
@@ -772,10 +797,14 @@ public final class PipelineRenderer {
                     height: integral.height / fullExtent.height)
             }
         }
-        guard let space = Self.edrColorSpace,
-              let cgImage = context.createCGImage(image, from: rasterRect,
-                                                  format: .RGBAh, colorSpace: space)
-        else {
+        guard let space = Self.edrColorSpace else {
+            throw RenderError.renderFailed
+        }
+        let renderStarted = DispatchTime.now().uptimeNanoseconds
+        let rendered = context.createCGImage(image, from: rasterRect,
+                                             format: .RGBAh, colorSpace: space)
+        let renderMs = Double(DispatchTime.now().uptimeNanoseconds - renderStarted) / 1e6
+        guard let cgImage = rendered else {
             throw RenderError.renderFailed
         }
         let fullPixelSize: CGSize = extentUsable
@@ -783,7 +812,10 @@ public final class PipelineRenderer {
             : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
                                fullPixelSize: fullPixelSize,
-                               decodeMilliseconds: decodeMs)
+                               decodeMilliseconds: decodeMs,
+                               planMilliseconds: planMs,
+                               graphMilliseconds: graphMs,
+                               renderMilliseconds: renderMs)
     }
 
     // MARK: - Export
