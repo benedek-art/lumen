@@ -4250,8 +4250,8 @@ final class AppState: ObservableObject {
             ensureMaskMattes()
         }
         // The hand has stopped: ask every viewer for the quality pass its drag
-        // deferred. Unconditional — a gesture that changed nothing costs one settle
-        // whose every table and decode is already cached, and a gesture that landed on
+        // deferred. Unconditional — a viewer whose settle already answers the request
+        // skips it (`FrameDelivery.settleIsRedundant`), and a gesture that landed on
         // its last drafted value would otherwise never settle at all.
         settleTick &+= 1
     }

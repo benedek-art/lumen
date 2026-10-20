@@ -119,6 +119,16 @@ struct ViewerRenderKey: Equatable {
     /// the preview off — a key equal to the one it was before this field existed.
     var edrWhiteTarget: Double? = nil
 
+    /// This key with the tick taken out: every render INPUT, so two requests that
+    /// differ only by a release compare equal.
+    var ignoringSettleTick: ViewerRenderKey {
+        ViewerRenderKey(url: url, recipe: recipe, longEdge: longEdge,
+                        strokeRefs: strokeRefs, softProof: softProof,
+                        matteKinds: matteKinds, showingUncropped: showingUncropped,
+                        settleTick: 0, regionUnit: regionUnit,
+                        sourceRevision: sourceRevision, edrWhiteTarget: edrWhiteTarget)
+    }
+
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
     /// Reads the beside-the-recipe inputs from the one place they live.
     @MainActor

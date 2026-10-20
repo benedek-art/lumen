@@ -314,6 +314,9 @@ private struct ComparePane: View {
                          // gives these panes' ladders their `gestureEnded()`, which they
                          // have never once received.
                          settleTick: state.settleTick,
+                         requestKey: ViewerRenderKey.current(url: photo.id, recipe: recipe,
+                                                             longEdge: longEdge,
+                                                             state: state),
                          gestureInFlight: { state.sliderGestureActive },
                          )
     }
@@ -548,6 +551,9 @@ private struct SurveyCell: View {
                          // above. A survey grid renders many panes, so the settle storm
                          // this removes is multiplied by however many are on screen.
                          settleTick: state.settleTick,
+                         requestKey: ViewerRenderKey.current(url: photo.id, recipe: recipe,
+                                                             longEdge: longEdge,
+                                                             state: state),
                          gestureInFlight: { state.sliderGestureActive },
                          )
     }
