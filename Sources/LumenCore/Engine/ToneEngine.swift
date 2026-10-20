@@ -135,15 +135,27 @@ public struct ToneEngine: Sendable {
     public let effectiveWhites: Double
     public let effectiveBlacks: Double
 
-    public init(tone: Tone = Tone(), zones: Zones = Zones()) {
+    /// `baseWhiteAnchorEV` / `baseBlackAnchorEV` are where Whites and Blacks at zero put
+    /// the anchors. The global engine leaves them at the factory 5 / −9 EV. A MASK's
+    /// engine passes the global plan's live anchors, because its sub-recipe is a delta
+    /// evaluated against the picture the global stage already formed (docs/08 §8.4),
+    /// and the display transform downstream clips at the GLOBAL anchors. Built from the
+    /// factory ones, a masked Contrast +100 under global Whites +100 held its fixed
+    /// point at 5 EV while display white sat at 3.5, carried 3.5 EV to 4.16 and clipped
+    /// every tone from 2.47 EV up inside the mask — the local grade had already adopted
+    /// the global anchors for the same reason (COLOR-16).
+    /// `MaskingTests.testAMaskedContrastPinsTheGlobalDisplayAnchorsNotTheFactoryOnes`.
+    public init(tone: Tone = Tone(), zones: Zones = Zones(),
+                baseWhiteAnchorEV: Double = ToneEngine.defaultWhiteAnchorEV,
+                baseBlackAnchorEV: Double = ToneEngine.defaultBlackAnchorEV) {
         self.tone = tone
         self.zones = zones
         let highlights = Num.clamp(tone.highlights, -100, 100) / 100
         let shadows = Num.clamp(tone.shadows, -100, 100) / 100
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        let hi = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
-        let lo = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        let hi = baseWhiteAnchorEV - Self.whiteBlackRangeEV * whites
+        let lo = baseBlackAnchorEV - Self.whiteBlackRangeEV * blacks
         self.whiteAnchorEV = hi
         self.blackAnchorEV = lo
         // A scale over the zonal contribution, found in closed form, rather than a cap
@@ -315,6 +327,7 @@ public struct ToneEngine: Sendable {
         // same code the renderer runs, rather than a second copy of the same arithmetic
         // that can drift away from it.
         let unit = ToneEngine(tone: tone, zones: Zones(),
+                              whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV,
                               effectiveHighlights: highlights, effectiveShadows: shadows,
                               effectiveWhites: whites, effectiveBlacks: blacks,
                               zonalScale: 1)
@@ -390,6 +403,8 @@ public struct ToneEngine: Sendable {
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
         self.init(tone: tone, zones: Zones(),
+                  whiteAnchorEV: Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites,
+                  blackAnchorEV: Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks,
                   effectiveHighlights: highlights * (highlights < 0 ? upper : 1),
                   effectiveShadows: shadows * (shadows > 0 ? lower : 1),
                   effectiveWhites: whites * (whites < 0 ? upper : 1),
@@ -400,16 +415,19 @@ public struct ToneEngine: Sendable {
     /// The probe the solver measures on. Private because a `ToneEngine` whose scales
     /// were not solved for its own settings is a half-built object — it exists to be
     /// measured, never to render.
+    ///
+    /// It takes the anchors already resolved rather than re-deriving them from the
+    /// factory ones: a mask's engine sits on the global anchors, and a probe measured
+    /// on different windows than the engine it solves for would solve the wrong curve.
     private init(tone: Tone, zones: Zones,
+                 whiteAnchorEV: Double, blackAnchorEV: Double,
                  effectiveHighlights: Double, effectiveShadows: Double,
                  effectiveWhites: Double, effectiveBlacks: Double,
                  zonalScale: Double) {
         self.tone = tone
         self.zones = zones
-        let whites = Num.clamp(tone.whites, -100, 100) / 100
-        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        self.whiteAnchorEV = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
-        self.blackAnchorEV = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        self.whiteAnchorEV = whiteAnchorEV
+        self.blackAnchorEV = blackAnchorEV
         self.effectiveHighlights = effectiveHighlights
         self.effectiveShadows = effectiveShadows
         self.effectiveWhites = effectiveWhites

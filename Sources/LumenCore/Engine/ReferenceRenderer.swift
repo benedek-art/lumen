@@ -349,7 +349,13 @@ public enum ReferenceRenderer {
                                          highlights: a.highlights * scale,
                                          shadows: a.shadows * scale,
                                          whites: a.whites * scale,
-                                         blacks: a.blacks * scale))
+                                         blacks: a.blacks * scale),
+                              // The GLOBAL anchors: the display transform clips there,
+                              // so a masked Contrast's fixed point has to sit there too,
+                              // and local Whites/Blacks offset them rather than 5 / −9.
+                              // Kept in lockstep with `LocalPlan` on the GPU side.
+                              baseWhiteAnchorEV: plan.tone.whiteAnchorEV,
+                              baseBlackAnchorEV: plan.tone.blackAnchorEV)
             color = ColorEngine(mixer: Mixer(),
                                 pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
                                 // Density and protectSkin inherited from the global

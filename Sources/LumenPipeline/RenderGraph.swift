@@ -2301,7 +2301,12 @@ struct LocalPlan {
                                          highlights: adjust.highlights * scale,
                                          shadows: adjust.shadows * scale,
                                          whites: adjust.whites * scale,
-                                         blacks: adjust.blacks * scale))
+                                         blacks: adjust.blacks * scale),
+                              // The GLOBAL anchors, as `ReferenceRenderer.LocalColourFront`
+                              // passes them: the display transform clips there, so a
+                              // masked Contrast's fixed point has to sit there too.
+                              baseWhiteAnchorEV: whiteAnchorEV,
+                              baseBlackAnchorEV: blackAnchorEV)
         // Density and protectSkin inherited from the global colour panel — see
         // `ColorAdjust.local` (COLOR-27). Kept in lockstep with
         // `ReferenceRenderer.applyLocalAdjust`.
