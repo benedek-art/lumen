@@ -56,8 +56,28 @@ public struct BrushStabilizer: Sendable {
 
     private var brush: (x: Double, y: Double)?
 
-    /// `strength` is the panel's 0…100. `maxLength` is what 100 means.
-    public init(strength: Double, maxLength: Double = BrushStabilizer.maxLength) {
+    /// What one unit of each input axis is worth in long-edge units. The samples arrive
+    /// as per-axis SOURCE fractions — x of the width, y of the height — so on a 3:2
+    /// frame a y step is two thirds of the same x step in pixels. Measured without
+    /// these the rope was a circle in fractions and an ellipse in pixels: 120 px across
+    /// a 6000×4000 landscape and 80 px down it, so vertical jitter the rope promised to
+    /// swallow still moved the brush.
+    private let scaleX: Double
+    private let scaleY: Double
+
+    /// `strength` is the panel's 0…100. `maxLength` is what 100 means. `sourceWidth` and
+    /// `sourceHeight` are the pixel extent of the frame the samples are normalized to;
+    /// a missing or degenerate extent is treated as square.
+    public init(strength: Double, maxLength: Double = BrushStabilizer.maxLength,
+                sourceWidth: Double = 1, sourceHeight: Double = 1) {
+        let longEdge = Swift.max(sourceWidth, sourceHeight)
+        if sourceWidth > 0, sourceHeight > 0, longEdge.isFinite {
+            scaleX = sourceWidth / longEdge
+            scaleY = sourceHeight / longEdge
+        } else {
+            scaleX = 1
+            scaleY = 1
+        }
         let s = strength.isFinite ? Num.saturate(strength / 100) : 0
         // SQUARED, not linear. The useful range of a stabilizer is bunched at the bottom
         // — the difference between 0 and 10 is the difference between a jittery edge and
@@ -91,12 +111,17 @@ public struct BrushStabilizer: Sendable {
         }
         let dx = x - current.x
         let dy = y - current.y
-        let distance = (dx * dx + dy * dy).squareRoot()
+        // In long-edge units, the rope's own, so the circle is round in pixels.
+        let ex = dx * scaleX
+        let ey = dy * scaleY
+        let distance = (ex * ex + ey * ey).squareRoot()
         // Slack rope: the pointer moved inside the circle, so the brush does not.
         guard distance > length else { return nil }
-        let step = distance - length
-        let next = (x: current.x + dx / distance * step,
-                    y: current.y + dy / distance * step)
+        // Along the line to the pointer, by the part of it the rope does not cover: the
+        // same direction in pixels as in fractions, and exactly `length` behind.
+        let f = (distance - length) / distance
+        let next = (x: current.x + dx * f,
+                    y: current.y + dy * f)
         brush = next
         return next
     }

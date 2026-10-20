@@ -103,4 +103,57 @@ final class InteractionCorrectnessTests: XCTestCase {
             openEpoch: 4, epoch: 5))
         XCTAssertFalse(CurveEditing.placementLabel.isEmpty)
     }
+
+    // MARK: - The stabilizer rope is round in pixels
+
+    /// 6000×4000: inputs are per-axis source fractions, as MaskCanvas passes them. The
+    /// rope at Stabilize 100 is 2% of the long edge, 120 px, in every direction.
+    func testRopeIsIsotropicInSourcePixelsOnANonSquareFrame() {
+        let w = 6000.0, h = 4000.0
+        var horiz = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+        XCTAssertNotNil(horiz.next(x: 0.5, y: 0.5))
+        XCTAssertNil(horiz.next(x: 0.5 + 100 / w, y: 0.5), "100 px is inside the 120 px rope")
+        var vert = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+        XCTAssertNotNil(vert.next(x: 0.5, y: 0.5))
+        XCTAssertNil(vert.next(x: 0.5, y: 0.5 + 100 / h),
+                     "the rope must be the same length in pixels in every direction")
+        // A taut rope trails by exactly 120 px whichever way it is pulled.
+        var down = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+        _ = down.next(x: 0.5, y: 0.5)
+        let p = down.next(x: 0.5, y: 0.5 + 400 / h)
+        XCTAssertEqual(((0.5 + 400 / h) - (p?.y ?? .nan)) * h, 120, accuracy: 1e-6)
+        XCTAssertEqual(p?.x ?? .nan, 0.5, accuracy: 1e-12)
+        var across = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+        _ = across.next(x: 0.5, y: 0.5)
+        let q = across.next(x: 0.5 + 400 / w, y: 0.5)
+        XCTAssertEqual(((0.5 + 400 / w) - (q?.x ?? .nan)) * w, 120, accuracy: 1e-6)
+        // Diagonal: the brush stays on the line to the pointer, 120 px behind it.
+        var diag = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+        _ = diag.next(x: 0.5, y: 0.5)
+        let r = diag.next(x: 0.5 + 300 / w, y: 0.5 + 400 / h)
+        let gx = ((0.5 + 300 / w) - (r?.x ?? .nan)) * w
+        let gy = ((0.5 + 400 / h) - (r?.y ?? .nan)) * h
+        XCTAssertEqual((gx * gx + gy * gy).squareRoot(), 120, accuracy: 1e-6)
+        XCTAssertEqual(gx / gy, 300.0 / 400.0, accuracy: 1e-9)
+    }
+
+    /// Portrait: the short axis is x now.
+    func testRopeIsIsotropicOnAPortraitFrame() {
+        let w = 4000.0, h = 6000.0
+        var s = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+        _ = s.next(x: 0.5, y: 0.5)
+        XCTAssertNil(s.next(x: 0.5 + 100 / w, y: 0.5))
+        XCTAssertNotNil(s.next(x: 0.5 + 130 / w, y: 0.5))
+    }
+
+    /// A missing or degenerate extent falls back to a square frame, which is what every
+    /// existing caller and test describes.
+    func testRopeWithoutAnExtentIsTheSquareOne() {
+        for (w, h) in [(1.0, 1.0), (0.0, 0.0), (Double.nan, 4000.0), (6000.0, -1.0)] {
+            var s = BrushStabilizer(strength: 100, sourceWidth: w, sourceHeight: h)
+            _ = s.next(x: 0.5, y: 0.5)
+            XCTAssertNil(s.next(x: 0.5, y: 0.519))
+            XCTAssertNotNil(s.next(x: 0.5, y: 0.521))
+        }
+    }
 }
