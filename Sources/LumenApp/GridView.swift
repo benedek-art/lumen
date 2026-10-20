@@ -342,7 +342,8 @@ struct PhotoCell: View {
                     .opacity(photo.flag == .reject ? 0.4 : 1)
             }
         }
-        // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
+        // 120 ms, first decode only (docs/10 §10.2): never a white flash. A cache hit
+        // is assigned with animations disabled, so it does not fade.
         .animation(Lumen.motionState, value: image == nil)
         .frame(width: side, height: wellHeight)
         .overlay(alignment: .bottom) {
@@ -428,7 +429,13 @@ struct PhotoCell: View {
 
     private func loadThumbnail() async {
         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
-            if image !== hit { image = hit }
+            // Pixels already in memory appear at once: a rebuilt sheet replaying the
+            // well's fade-in on every cell reads as the whole grid blinking.
+            if image !== hit {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { image = hit }
+            }
             return
         }
         if let loaded = await loader.image(for: photo.id, size: pixels) {

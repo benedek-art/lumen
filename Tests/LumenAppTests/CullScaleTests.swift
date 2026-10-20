@@ -362,6 +362,23 @@ final class CullScaleTests: XCTestCase {
                 + "restarts every visible cell's load")
     }
 
+    /// `GridView` is rebuilt on every return from the loupe, so every visible cell is
+    /// a new view whose image starts nil. A cache hit assigned under the well's 120 ms
+    /// animation faded in every thumbnail at once, though all the pixels were in memory.
+    func testACachedThumbnailIsShownWithoutTheFade() throws {
+        let source = try code("GridView.swift")
+        let body = try Self.functionBody(named: "loadThumbnail", in: source)
+        guard let hit = body.range(of: "loader.thumbnail(for:"),
+              let decode = body.range(of: "loader.image(for:") else {
+            return XCTFail("loadThumbnail no longer has a cache-hit and a decode path")
+        }
+        let hitBranch = body[hit.upperBound..<decode.lowerBound]
+        XCTAssertTrue(hitBranch.contains("disablesAnimations = true")
+                          && hitBranch.contains("withTransaction("),
+                      "a cache hit is assigned under the well's fade-in again — the "
+                          + "whole sheet blinks on every return to the grid")
+    }
+
     /// The body of a function, by brace matching from its declaration. Used only on
     /// comment-and-string-blanked text, which is what makes the brace count honest.
     private static func functionBody(named name: String, in code: String) throws -> String {
