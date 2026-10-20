@@ -93,4 +93,20 @@ final class ColourAccuracyTests: XCTestCase {
         XCTAssertEqual(rendered.g, 0.18, accuracy: 1e-4)
         XCTAssertEqual(rendered.b, 0.18, accuracy: 1e-4)
     }
+
+    // MARK: - Colour grading
+
+    /// Lightroom's Balance: positive favours the Highlights wheel, negative Shadows.
+    /// Before the fix +100 gave weights (0.306, 0.694, 0) at mid-axis: all shadows.
+    func testGradeBalanceFavoursHighlightsWhenPositive() {
+        let plus = ZoneWindows(balance: 100).weights(atNormalized: 0.5)
+        XCTAssertGreaterThan(plus.high, 0.1)
+        XCTAssertEqual(plus.shadows, 0, accuracy: 1e-12)
+        let minus = ZoneWindows(balance: -100).weights(atNormalized: 0.5)
+        XCTAssertGreaterThan(minus.shadows, 0.1)
+        XCTAssertEqual(minus.high, 0, accuracy: 1e-12)
+        let zero = ZoneWindows(balance: 0)
+        XCTAssertLessThan(ZoneWindows(balance: 100).highlightPivot, zero.highlightPivot)
+        XCTAssertLessThan(ZoneWindows(balance: 100).shadowPivot, zero.shadowPivot)
+    }
 }
