@@ -125,6 +125,9 @@ extension AppState {
 /// recipe, or save/apply a named preset of the same groups.
 struct PasteSelectedSheet: View {
     @EnvironmentObject private var state: AppState
+    /// Observed because `differing` reads the active recipe: an edit made while the
+    /// sheet is up must redraw the "(same)" marks.
+    @EnvironmentObject private var edits: EditRevision
     @ObservedObject private var store = SettingsPresetStore.shared
     @State private var groups: Set<PasteGroup> = PasteGroup.syncDefault
     @State private var presetName = ""
