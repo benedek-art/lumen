@@ -1475,7 +1475,7 @@ final class RawCorpusTests: XCTestCase {
     /// ORIENTED, so its aspect is compared against the crop transposed for orientations
     /// 5-8, within 1.5 px on the short edge: the widest rounding gap the 2026-10-18 run
     /// shows between N's aspect and D is 0.96 px (1087, 5976x3992 -> 1024x685), and the
-    /// 16:9-opened-as-4:3 error is 193 px. There is no full-scale export probe to pin as
+    /// 16:9-opened-as-4:3 error is 192 px. There is no full-scale export probe to pin as
     /// well — R-8 exports at a 1600 px long edge — so N and D are what this checks.
     ///
     /// A failure is a real gap against Lightroom, not noise. The fix belongs in
@@ -1786,7 +1786,12 @@ final class RawCorpusTests: XCTestCase {
     /// scene-linear decode, at camera WB, linear Rec.2020. Gain is deliberately not
     /// compared — Apple/LibRaw green differs 1.14-1.35x with baseline exposure.
     ///
-    /// How the references were made (rawpy 0.27 / LibRaw 0.22, scratch refs.py):
+    /// How the references were made (rawpy 0.27 / LibRaw 0.22; "refs.py" below is a
+    /// scratch script that is not in the repository, and this paragraph is its recipe.
+    /// Re-measured independently on 2026-10-20 to the same three decimals on all eight
+    /// rows; a float variant that skips the 16-bit output clip moves a ratio by at most
+    /// ln 0.011 (2607 R/G; then 5283 B/G 0.009, 2607 B/G 0.006, 6929 B/G 0.004, the
+    /// rest <= 0.001) — the files with clipped areas, all well inside the bound below):
     /// `postprocess(use_camera_wb=True, output_color=XYZ, gamma=(1,1),
     /// no_auto_bright=True, output_bps=16, user_flip=0)`, XYZ (D65) -> linear Rec.2020,
     /// cropped to the file's default crop (A7 IV DefaultCrop; GX85 0x2f-0x32; for the
@@ -1835,11 +1840,27 @@ final class RawCorpusTests: XCTestCase {
                 + "libraw rg=\(RawCorpusTests.fmt(refRG, 3)) "
                 + "bg=\(RawCorpusTests.fmt(refBG, 3)) "
                 + "ln-dev rg=\(RawCorpusTests.fmt(devRG, 3)) "
-                + "bg=\(RawCorpusTests.fmt(devBG, 3)) · \(entry.label)")
+                + "bg=\(RawCorpusTests.fmt(devBG, 3)) "
+                + "N=\(p.native?.text ?? RawCorpusTests.dash) "
+                + "crop=\(entry.expectedCrop?.text ?? RawCorpusTests.dash) · \(entry.label)")
+            // The reference is a mean over the DEFAULT CROP, so on a crop= row whose
+            // Apple frame is not that crop the two means cover different pixels, and a
+            // miss can be framing rather than colour. Measured on 2547: LibRaw over the
+            // full 4:3 frame instead of its 16:9 crop gives B/G 0.820 against 0.768,
+            // ln +0.066, past the bound on its own. Asserted all the same — R-3b fails
+            // on that row too — but the message must not call it a matrix error.
+            var framing = ""
+            if let crop = entry.expectedCrop, let native = p.native,
+               native.w != crop.w || native.h != crop.h {
+                framing = " FRAMING: Apple's frame is \(native.text), the reference was "
+                    + "measured over the default crop \(crop.text), so part of this "
+                    + "deviation may be area, not colour (2547 full 4:3 vs 16:9: B/G "
+                    + "ln +0.066). Read R-3b's failure on this row first."
+            }
             let meaning = "Bound 0.05 is 1.8x the worst control (2349/2607, 0.028). "
                 + "Tens of percent is a channel swap, missing matrix, doubled WB or a "
                 + "wrong black; a few percent over the bound is a matrix/WB disagreement "
-                + "to read against the corpus-ratio lines."
+                + "to read against the corpus-ratio lines." + framing
             XCTAssertLessThanOrEqual(
                 abs(devRG), 0.05,
                 "\(entry.id) · \(entry.label): Apple's decode R/G is "
@@ -2238,13 +2259,18 @@ final class RawCorpusTests: XCTestCase {
                                                        context: DecodeMaterializer.context) }
                 return (on: on, off: off)
             })
-            _ = source.releaseDecodes()
             guard let pair = decoded else {
+                // NOT released here: on a timeout the leaked worker is still inside
+                // `source.decode`, and `releaseDecodes` from this thread would mutate
+                // the same decode cache under it — a data race that can take down the
+                // whole process and every test after this one. Same rule as `watched`:
+                // stop touching an abandoned source.
                 XCTFail("\(entry.id) · \(entry.label): the two 0.125-scale lens-toggle "
                         + "decodes did not finish inside "
                         + "\(Int(RawCorpusTests.watchdogSeconds))s.")
                 continue
             }
+            _ = source.releaseDecodes()
             guard let on = pair.on, let off = pair.off else {
                 let onState = pair.on == nil ? "nil" : "ok"
                 let offState = pair.off == nil ? "nil" : "ok"
