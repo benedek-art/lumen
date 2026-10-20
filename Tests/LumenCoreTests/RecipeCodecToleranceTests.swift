@@ -627,3 +627,27 @@ final class RecipeCodecToleranceTests: XCTestCase {
                                              amount: 65, collapsed: true)])
     }
 }
+
+/// Version stamping across the wire, for the vocabulary that raises it.
+final class RecipeVersionStampTests: XCTestCase {
+
+    /// A recipe given a heal stroke AFTER construction (how the app edits: mutate a
+    /// copy) must still state the heal version once it is written and read back.
+    /// An older build that reads "2" would open the document and drop the strokes.
+    func testAStrokeAddedByMutationStillStatesTheHealVersionOnTheWire() throws {
+        var recipe = Recipe()
+        recipe.develop.heal.strokesRef = "blob:xxh64:0000000000000001"
+        let wire = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let back = try CanonicalJSON.decodeRecipe(from: Data(wire.utf8))
+        XCTAssertEqual(back.develop.heal.strokesRef, recipe.develop.heal.strokesRef)
+        XCTAssertGreaterThanOrEqual(back.pipelineVersion, healSpotsPipelineVersion,
+                                    "wire: \(wire)")
+    }
+
+    /// Raise-only: a document from a NEWER build keeps its own number.
+    func testANewerDocumentKeepsItsVersion() throws {
+        let back = try CanonicalJSON.decodeRecipe(
+            from: Data(#"{"pipelineVersion":99}"#.utf8))
+        XCTAssertEqual(back.pipelineVersion, 99)
+    }
+}
