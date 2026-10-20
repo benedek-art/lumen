@@ -152,7 +152,8 @@ evidence image carries a note saying the picture shown is the reference's.
 
 ## The ledger
 
-`docs/21-proof-ledger.md` is generated from the records: one row per control, six
+A ledger is to be generated from the records (no such file exists yet; `docs/21` is
+`21-where-we-stand.md`, unrelated): one row per control, six
 columns, the authority number, and the P6 source letter. It is the answer to "does every
 slider work well", and it is regenerated rather than edited.
 

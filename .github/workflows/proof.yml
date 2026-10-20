@@ -29,9 +29,9 @@ on:
       - "Tests/LumenCoreTests/Proof/**"
       - "scripts/install-linux-toolchain.sh"
       - ".github/workflows/proof.yml"
-  # GitHub only fires a schedule on the repository's DEFAULT branch, so this is inert
-  # while the work lives on `claude/photo-editor-design-plan-8ahzmm` — the paths trigger
-  # above is the one doing the guarding, which is why the two lines added to it matter.
+  # GitHub only fires a schedule on the repository's DEFAULT branch. That is `main` now,
+  # so this nightly sweep runs against main; it never sees a feature branch, so the
+  # paths trigger above is still what guards a branch before it merges.
   schedule:
     - cron: "30 2 * * *"
   workflow_dispatch:
