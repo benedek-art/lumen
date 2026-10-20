@@ -233,10 +233,8 @@ struct ExportSheet: View {
         if let hdr = recipe.hdr, recipe.hdrIsWritable {
             parts.append(String(format: "HDR +%.1f EV", hdr.headroomEV))
         }
-        if recipe.resizeMode != .none {
-            let unit = recipe.resizeMode == .megapixels ? "MP" : "px"
-            parts.append("\(recipe.resizeMode.displayName) "
-                         + "\(Int(recipe.resizeValue.rounded()))\(unit)")
+        if let size = recipe.resizeSummary {
+            parts.append(size)
         }
         return parts.joined(separator: " · ")
     }
@@ -355,6 +353,7 @@ struct ExportSheet: View {
                 .font(.lumenBody)
                 .foregroundStyle(summaryColor)
             Spacer()
+            ExportRevealWhenDoneOption()
             OperationReportsButton(state: state)
             Button("Export…") {
                 guard contactEligibility.canExport else { return }
@@ -698,7 +697,7 @@ private struct ExportRecipeEditor: View {
     private var sizeSection: some View {
         VStack(alignment: .leading, spacing: 2) {
             LumenSectionHeader(title: "Size")
-            // ONE FIELD, TWO UNITS — so the mode change has to carry the number.
+            // ONE FIELD, THREE UNITS — so the mode change has to carry the number.
             //
             // Megapixels (0.5…100) and Pixels (320…8000) both write `resizeValue`, and
             // nothing converted it. Take the shipped "Web sRGB 2048" preset and switch to
@@ -710,19 +709,13 @@ private struct ExportRecipeEditor: View {
             //
             // Written through a wrapper binding rather than an `onChange` so the
             // conversion happens in the same update as the mode, and the row can never be
-            // drawn holding the other unit's number.
+            // drawn holding the other unit's number. The rule (px, MP, %, and the box's
+            // second side) is `ExportRecipe.setResizeMode`, tested in LumenCore.
             LumenMenuPicker(title: "Resize",
                             options: resizeOptions,
                             selection: Binding(
                                 get: { recipe.resizeMode },
-                                set: { mode in
-                                    let wasMP = recipe.resizeMode == .megapixels
-                                    let isMP = mode == .megapixels
-                                    recipe.resizeMode = mode
-                                    if wasMP != isMP {
-                                        recipe.resizeValue = isMP ? 24 : 2048
-                                    }
-                                }),
+                                set: { mode in recipe.setResizeMode(mode) }),
                             help: "Which measurement of the picture the number below "
                                 + "sets")
             if recipe.resizeMode == .none {
@@ -737,6 +730,24 @@ private struct ExportRecipeEditor: View {
                 LumenSlider(title: "Megapixels", value: $recipe.resizeValue,
                             range: 0.5...100, hardRange: 0.1...500, defaultValue: 24,
                             step: 0.5, decimals: 1, bipolar: false)
+            } else if recipe.resizeMode == .percent {
+                LumenSlider(title: "Percent", value: $recipe.resizeValue,
+                            range: 5...200, hardRange: 1...1000, defaultValue: 50,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Of the cropped frame's own size. Above 100 only "
+                                + "with Don't enlarge off.")
+            } else if recipe.resizeMode.usesBox {
+                LumenSlider(title: "Width", value: $recipe.resizeValue,
+                            range: 320...8000, hardRange: 16...30000, defaultValue: 2048,
+                            step: 8, decimals: 0, bipolar: false)
+                LumenSlider(title: "Height", value: $recipe.resizeHeight,
+                            range: 320...8000, hardRange: 16...30000, defaultValue: 2048,
+                            step: 8, decimals: 0, bipolar: false)
+                ExportNote(recipe.resizeMode == .dimensions
+                           ? "The box turns with the photo: its larger side bounds the "
+                               + "long edge, its smaller side the short edge."
+                           : "The photo fits inside this box as drawn, so a portrait "
+                               + "is bounded by Height.")
             } else if recipe.resizeMode != .none {
                 LumenSlider(title: "Pixels", value: $recipe.resizeValue,
                             range: 320...8000, hardRange: 16...30000, defaultValue: 2048,
@@ -818,6 +829,9 @@ private struct ExportRecipeEditor: View {
             ExportFieldRow("Filename") {
                 ExportTextEntry(text: $recipe.filenameTemplate, placeholder: "{name}",
                                 monospaced: true)
+            }
+            ExportFieldRow("Custom text") {
+                ExportTextEntry(text: optionalText(\.customText), placeholder: "{custom}")
             }
             ExportFieldRow("Subfolder") {
                 ExportTextEntry(text: optionalText(\.subfolder), placeholder: "none",
@@ -904,7 +918,10 @@ private struct ExportRecipeEditor: View {
         note += "Tokens: " + ExportNaming.documentedTokens.joined(separator: " ") + ". "
         note += "{date} and {time} are when the shutter fired, falling back to the file's "
         note += "creation date; {seq} counts the batch from Start at, four digits wide "
-        note += "({seq:N} for N). Anything else stays visible in the name rather than being "
+        note += "({seq:N} for N, {seq:auto} as wide as the batch's last number); "
+        note += "{orignum} is the camera's frame number, {folder} the original's folder, "
+        note += "{custom} the Custom text above, {total} the batch size. "
+        note += "Anything else stays visible in the name rather than being "
         note += "silently dropped, so a typo shows up here instead of in the delivered folder."
         return note
     }
@@ -913,6 +930,7 @@ private struct ExportRecipeEditor: View {
         let naming = AppState.namingContext(
             for: previewPhoto, source: previewSource, recipeName: recipe.name,
             sequence: recipe.sequenceNumber(forPhotoAt: 0))
+            .forRecipe(recipe, photoIndex: 0, batchCount: batchCount)
         let base = AppState.renderFilename(template: recipe.filenameTemplate, naming: naming)
         let file = base + "." + recipe.format.fileExtension
         // Through the same sanitizer the exporter uses. Concatenating the raw string

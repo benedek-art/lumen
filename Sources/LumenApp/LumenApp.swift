@@ -125,6 +125,8 @@ struct LumenApp: App {
         }
         .commands {
             LumenCommands(state: state, commands: state.commands)
+            // Culling selection and filter verbs (CullCommands.swift).
+            CullCommands(state: state, commands: state.commands)
         }
     }
 }
@@ -311,6 +313,29 @@ private struct LumenCommands: Commands {
                         Button("HDR Preview") { LoupeViewport.shared.toggleHDRPreview() }
                     }
                 }
+                // LIGHTROOM'S HABITS (`ParityKeys`). The two zoom chords are real menu
+                // shortcuts — ⌘ is menu territory — and the rest are dispatcher keys,
+                // shown in the label for the reason given above this menu.
+                Group {
+                    Divider()
+                    Button("Zoom In") { ParityKeys.zoomChord(zoomIn: true, state: state) }
+                        .keyboardShortcut("=", modifiers: [.command])
+                    Button("Zoom Out") { ParityKeys.zoomChord(zoomIn: false, state: state) }
+                        .keyboardShortcut("-", modifiers: [.command])
+                    Button("Info Overlay — I") { ParityKeys.cycleCaptureInfo(state: state) }
+                    Button("Clipping Overlay — J") {
+                        ParityKeys.toggleClippingOverlay(state: state)
+                    }
+                    Button("White Balance Picker — W") {
+                        ParityKeys.toggleNeutralPick(state: state)
+                    }
+                    Divider()
+                    Button("Hide / Show Panels — Tab") {
+                        ParityKeys.applyPanels(.sidePanels, state: state)
+                    }
+                    Button("Previous Photo — ⌘←") { state.selectPrevious() }
+                    Button("Next Photo — ⌘→") { state.selectNext() }
+                }
             }
 
             // Instruments for a test session, not features: everything here exists
@@ -410,6 +435,29 @@ private struct LumenCommands: Commands {
                     // reason the comment above gives. See `RetouchPaste`.
                     Toggle("Paste Includes Spot Removal", isOn: $commands.pasteIncludesRetouch)
                 }
+                // Lightroom's group-checkbox pair, for when the two commands above are
+                // not the right cut — WB and noise reduction only across an astro
+                // session, everything but the crop across a burst. The sheet remembers
+                // its last answer; see `SettingsSubsetSheet` and `SettingsGroup`.
+                // ⌃⌘V because LR's ⌥⌘V is Paste Look here, and ⌥⇧⌘V is the system's
+                // Paste and Match Style in every text field.
+                Group {
+                    Divider()
+                    Button("Copy Settings…") { state.presentSettingsSubsetSheet(.copySettings) }
+                        .keyboardShortcut("c", modifiers: [.command, .shift])
+                        .disabled(!commands.hasSelection)
+                    Button("Sync Settings…") { state.presentSettingsSubsetSheet(.syncSettings) }
+                        .keyboardShortcut("s", modifiers: [.command, .shift])
+                        .disabled(!commands.hasSelection)
+                    Button("Sync Settings Without Dialog") {
+                        state.syncSettings(groups: state.rememberedSettingsGroups)
+                    }
+                    .keyboardShortcut("s", modifiers: [.command, .shift, .option])
+                    .disabled(!commands.hasSelection)
+                    Button("Paste from Previous") { state.pasteFromPrevious() }
+                        .keyboardShortcut("v", modifiers: [.command, .control])
+                        .disabled(!commands.hasSelection)
+                }
                 // A SECOND GROUP because a builder takes ten children and Cut made this
                 // one eleven. Split where the divider already was rather than at the
                 // count, so the nesting matches a boundary the menu itself draws.
@@ -457,6 +505,10 @@ private struct LumenCommands: Commands {
                     Divider()
                     Button("Auto Tone") { state.applyAutoTone() }
                         .keyboardShortcut("a", modifiers: [.command, .shift])
+                    // Lightroom's chord for the same command. The active photo is the
+                    // reference; see AppStateMatchExposure.swift.
+                    Button("Match Total Exposures") { state.matchTotalExposures() }
+                        .keyboardShortcut("m", modifiers: [.command, .option, .shift])
                 }
                 // THE THREE CHORDS ⌥⌘S USED TO KILL, and they are here for the reason
                 // ⌘1–⌘5 are: a `.keyboardShortcut` on a view that is not in the hierarchy
@@ -507,12 +559,48 @@ private struct LumenCommands: Commands {
                     .keyboardShortcut("k", modifiers: [.command, .shift])
                     .disabled(!commands.hasCatalog)
                 }
+                // THE REJECT SWEEP. ⌘⌫ is Lightroom's Delete Rejected Photos; here it
+                // moves (to `_Rejected` or the Trash) after a count, and never deletes.
+                // Inside a text field the chord stays "delete to line start".
+                Group {
+                    Divider()
+                    Button("Move Rejected Photos…") {
+                        if RejectSweepGate.giveChordToTextField() { return }
+                        state.sweepRejectedPhotos()
+                    }
+                    .keyboardShortcut(.delete, modifiers: [.command])
+                    .disabled(!commands.hasCatalog)
+                    Button("Remove Rejected from Catalog…") { state.removeRejectedFromCatalog() }
+                        .disabled(!commands.hasCatalog)
+                }
+                // DEVELOP PRESETS: the ticked groups of one photo, saved under a name and
+                // applied to a whole selection — "Soccer ISO 6400" across a burst.
+                // ⇧⌘N is Lightroom's New Preset. The list is its own view so only it
+                // observes the preset library (`DevelopPresetSheets`).
+                Group {
+                    Divider()
+                    Button("New Develop Preset…") {
+                        state.presentSettingsSubsetSheet(.saveDevelopPreset)
+                    }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(!commands.hasSelection)
+                    DevelopPresetMenu(state: state, hasSelection: commands.hasSelection)
+                }
             }
 
             CommandMenu("Export") {
                 Button("Export…") { state.showExportSheet = true }
                     .keyboardShortcut("e", modifiers: [.command])
                     .disabled(!commands.hasSelection)
+                // Lightroom's chord: the last folder and the checked recipes, no sheet
+                // and no panel. Falls back to the sheet when it cannot (no folder yet,
+                // folder gone) and says why — `QuickExport.plan`.
+                Button("Export with Previous") { state.exportWithPrevious() }
+                    .keyboardShortcut("e", modifiers: [.command, .option, .shift])
+                    .disabled(!commands.hasSelection)
+                Divider()
+                // No chord: Lightroom has none, and it is not a repeated gesture.
+                Button("Show Last Export in Finder") { state.revealLastExport() }
             }
 
             CommandGroup(replacing: .help) {

@@ -265,6 +265,11 @@ private struct ComparePane: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
+            // Flag, stars and label, clickable; above the pan gesture, not inside it.
+            .overlay(alignment: .topLeading) {
+                CullBadgeStrip(photo: photo)
+                    .padding(8)
+            }
             .task(id: ViewerRenderKey.current(url: photo.id,
                                               recipe: state.recipe(for: photo),
                                               longEdge: longEdge, state: state)) {
@@ -476,6 +481,8 @@ private struct SurveyCell: View {
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
+                        // A rejected frame reads as rejected, as in the grid.
+                        .opacity(photo.flag == .reject ? 0.4 : 1)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if model.isUnreadable {
                     Text("Can't read \(photo.filename)")
@@ -514,6 +521,10 @@ private struct SurveyCell: View {
                     .strokeBorder(isPrimary ? Lumen.fillColor : Lumen.separator,
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
+            }
+            .overlay(alignment: .topLeading) {
+                CullBadgeStrip(photo: photo)
+                    .padding(6)
             }
             .task(id: ViewerRenderKey.current(url: photo.id,
                                               recipe: state.recipe(for: photo),

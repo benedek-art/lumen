@@ -642,14 +642,18 @@ public struct CullingAttention: Equatable, Sendable {
     public var burstSize: Int?
     /// 1-based place in the burst's evidence order (sharpest first).
     public var burstRank: Int?
+    /// Which burst, nil when it is not in one. Ranks only compare within one burst, so
+    /// "the sharpest of each burst" (`BurstPick`) needs to know which frames share it.
+    public var burstID: Int64?
 
     public init(sharpness: Double?, softFocus: Bool, eyesClosed: Bool,
-                burstSize: Int? = nil, burstRank: Int? = nil) {
+                burstSize: Int? = nil, burstRank: Int? = nil, burstID: Int64? = nil) {
         self.sharpness = sharpness
         self.softFocus = softFocus
         self.eyesClosed = eyesClosed
         self.burstSize = burstSize
         self.burstRank = burstRank
+        self.burstID = burstID
     }
 
     /// Whether the cell draws the dot. Burst membership alone is not attention: a burst
@@ -702,7 +706,8 @@ public struct CullingAttention: Equatable, Sendable {
                 sharpness: row.sharpness, softFocus: soft,
                 eyesClosed: closedEyes.contains(row.photoID),
                 burstSize: row.burstID.flatMap { burstSizes[$0] },
-                burstRank: row.burstID == nil ? nil : row.burstRank)
+                burstRank: row.burstID == nil ? nil : row.burstRank,
+                burstID: row.burstID)
         }
         return result
     }

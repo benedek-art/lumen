@@ -284,6 +284,10 @@ struct StackSummary: Equatable, Sendable {
 
 enum SheetKind: String, Identifiable, Sendable {
     case keyReference, export, ingest
+    /// The two faces of the group-checkbox sheet (`SettingsSubsetSheet`).
+    case copySettings, syncSettings
+    /// New Develop Preset… and Manage Presets… (`DevelopPresetSheets`).
+    case saveDevelopPreset, manageDevelopPresets
     var id: String { rawValue }
 }
 
@@ -340,6 +344,8 @@ final class AppState: ObservableObject {
                 refreshPhotoSnapshots()
             }
             guard primarySelection?.id != oldValue?.id else { return }
+            // Paste from Previous reads the photo being left (`PreviousPhoto`).
+            previousPhoto.note(primarySelection?.id)
             // A gesture cannot span photos: if a drag's release was dropped, the
             // switch is the moment its deferred writes land (audit queue item 4 —
             // the second unlatch beside the watchdog).
@@ -1362,6 +1368,9 @@ final class AppState: ObservableObject {
     }
 
     @Published var sidebarVisible = true
+    /// Tab's half of the develop column (`ParityKeys.panelChord`): the photographer's
+    /// own hide, ANDed with what the workspace and view mode allow. Not persisted.
+    @Published var developColumnHidden = false
 
     /// Persisted (docs/32 Stream A): the strip's visibility is furniture the
     /// photographer arranged, and an editor that forgets it makes them arrange it every
@@ -1467,6 +1476,11 @@ final class AppState: ObservableObject {
     var showIngestSheet: Bool {
         get { activeSheet == .ingest }
         set { present(newValue ? .ingest : (showIngestSheet ? nil : activeSheet)) }
+    }
+    /// Copy Settings… and Sync Settings… (and the develop preset sheets), through the
+    /// same guard as the others.
+    func presentSettingsSubsetSheet(_ sheet: SheetKind) {
+        present(sheet)
     }
 
     /// True while anything modal is on screen — the bare-key grammar stands down.
@@ -3223,6 +3237,12 @@ final class AppState: ObservableObject {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var found: [URL] = []
         for case let file as URL in enumerator {
+            // Where the reject sweep puts frames (⌘⌫). Descending would register them
+            // again on the next open and undo the sweep.
+            if RejectSweep.isSweepFolderName(file.lastPathComponent), isDirectory(file) {
+                enumerator.skipDescendants()
+                continue
+            }
             if extensions.contains(file.pathExtension.lowercased()),
                (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
                 found.append(file)
@@ -3270,6 +3290,31 @@ final class AppState: ObservableObject {
         Task {
             await renderCoordinator.invalidate(url: old)
             await renderCoordinator.invalidate(url: new)
+        }
+    }
+
+    /// Takes photographs the reject sweep moved away or removed from the catalog out of
+    /// the roll, without a rescan. The undo stack goes with them: its steps name files
+    /// that are no longer here, and undoing one would write a sidecar where none belongs.
+    func dropSweptPhotos(_ urls: Set<URL>) {
+        guard !urls.isEmpty else { return }
+        sliderGesture(active: false)
+        history.clear()
+        let leavingPrimary = primarySelection.map { urls.contains($0.id) } ?? false
+        let cursor = primarySelection.flatMap { rollIndex(of: $0) }
+        allPhotos = allPhotos.filter { !urls.contains($0.id) }
+        var kept = recipes
+        for url in urls { kept.removeValue(forKey: url) }
+        recipes = kept
+        selection = selection.subtracting(urls)
+        if let order = libraryOrder { libraryOrder = order.filter { !urls.contains($0) } }
+        if leavingPrimary { primarySelection = nil }
+        refreshLibraryQuery()
+        refreshLibrarySections()
+        // Land where the cursor was, as a reject under a filter does.
+        let list = photos
+        if primarySelection == nil, !list.isEmpty {
+            select(list[Swift.min(cursor ?? 0, list.count - 1)])
         }
     }
 
@@ -3500,26 +3545,28 @@ final class AppState: ObservableObject {
         activeComponentIndex = 0
     }
 
-    func setFlag(_ flag: PhotoFlag) {
+    /// `forceAdvance` is Shift (or Caps Lock) on the key: move on even with
+    /// auto-advance off (`CullAdvance`).
+    func setFlag(_ flag: PhotoFlag, forceAdvance: Bool = false) {
         let target: PhotoFlag = referenceItem?.flag == flag ? .unflagged : flag
         let from = cursorIndex
         mutateTargets("Flag") { $0.flag = target }
-        advanceIfNeeded(from: from)
+        advanceIfNeeded(from: from, forced: forceAdvance)
     }
 
-    func setRating(_ rating: Int) {
+    func setRating(_ rating: Int, forceAdvance: Bool = false) {
         let clamped = Swift.min(Swift.max(rating, 0), 5)
         let target = referenceItem?.rating == clamped ? 0 : clamped
         let from = cursorIndex
         mutateTargets("Rating") { $0.rating = target }
-        advanceIfNeeded(from: from)
+        advanceIfNeeded(from: from, forced: forceAdvance)
     }
 
-    func setLabel(_ label: ColorLabel) {
+    func setLabel(_ label: ColorLabel, forceAdvance: Bool = false) {
         let target: ColorLabel? = referenceItem?.label == label ? nil : label
         let from = cursorIndex
         mutateTargets("Label") { $0.label = target }
-        advanceIfNeeded(from: from)
+        advanceIfNeeded(from: from, forced: forceAdvance)
     }
 
     private func scopesBecameVisible(_ wasOn: Bool) {
@@ -3550,8 +3597,13 @@ final class AppState: ObservableObject {
     /// nothing, it silently undid whatever develop edit happened to be on top of the
     /// stack, on a possibly different photo. For an app whose highest-frequency job is
     /// the culling loop, its primary action had no undo.
-    private func mutateTargets(_ label: String, _ body: (inout PhotoItem) -> Void) {
-        let targets = Set(editTargets.map(\.id))
+    ///
+    /// The targets are `cullTargetIDs`, not `editTargets`: in Loupe, Compare and Survey a
+    /// cull key decides about the active frame only (`CullTargeting`). A batch verb
+    /// passes its own `targets`.
+    private func mutateTargets(_ label: String, targets explicit: Set<URL>? = nil,
+                               _ body: (inout PhotoItem) -> Void) {
+        let targets = explicit ?? Set(cullTargetIDs)
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
@@ -3592,6 +3644,15 @@ final class AppState: ObservableObject {
         // A rejected frame under a "Picked" chip has just left the grid, and only the
         // catalog knows it: the badge lives in `allPhotos`, the membership does not.
         refreshLibraryQueryIfCullingShowsInTheGrid()
+    }
+
+    /// The same culling step over photos named explicitly rather than the edit targets —
+    /// for batch verbs whose decision differs per photo ("Pick Sharpest in Each Burst").
+    /// One undo step under `label`, like a keystroke over a selection.
+    func mutateCulling(of targets: Set<URL>, label: String,
+                       _ body: (inout PhotoItem) -> Void) {
+        guard !targets.isEmpty else { return }
+        mutateTargets(label, targets: targets, body)
     }
 
     /// A culling change moves grid MEMBERSHIP or ORDER whenever a filter is lit or the
@@ -3644,8 +3705,13 @@ final class AppState: ObservableObject {
     /// does exactly that — and then it is no longer in `photos` to be found. Looking
     /// it up afterwards returned nil and sent the cursor to the top of the roll on
     /// every keystroke.
-    private func advanceIfNeeded(from index: Int?) {
-        guard autoAdvance, selection.count <= 1 else { return }
+    private func advanceIfNeeded(from index: Int?, forced: Bool = false) {
+        // Inside a Compare or Survey of a multi-selection the cursor steps through the
+        // comparison instead; `CullTargeting.advance` also owns the off switch and the
+        // multi-selection "stay". A Shift-held decision counts as auto-advance on.
+        if advanceHandledByCullRule(forced: forced) { return }
+        guard CullAdvance.shouldAdvance(autoAdvance: autoAdvance, forced: forced,
+                                        selectionCount: selection.count) else { return }
         let list = photos
         guard !list.isEmpty else { return }
         guard let current = primarySelection,
@@ -4319,6 +4385,14 @@ final class AppState: ObservableObject {
     /// been copied ⌥⌘V did nothing at all, no picture change and no message, which
     /// reads as the app being wedged (W2/D1-04).
     @Published private var copiedLook: Look?
+    /// The groups Copy Settings… ticked, travelling with `copiedRecipe`; nil after a
+    /// plain ⌘C, which copies the whole recipe as it always has. Both whole-recipe
+    /// pastes read it, so ⌘V after Copy Settings… pastes only what was ticked —
+    /// Lightroom's contract for its Copy Settings dialog.
+    private var copiedGroups: Set<SettingsGroup>?
+    /// The photograph the cursor was on before this one, for Paste from Previous.
+    /// Plain, not published: nothing draws it.
+    var previousPhoto = PreviousPhoto()
 
     /// A copy with nothing selected copies NOTHING — it does not empty the clipboard.
     /// `primarySelection.map` assigned nil, so a stray ⌘C or ⌥⌘C in the grid with the
@@ -4326,6 +4400,15 @@ final class AppState: ObservableObject {
     func copySettings() {
         guard let photo = primarySelection else { return }
         copiedRecipe = recipe(for: photo)
+        copiedGroups = nil
+    }
+
+    /// Copy Settings…: the same copy, remembering which groups the next paste carries.
+    func copySettings(groups: Set<SettingsGroup>) {
+        guard let photo = primarySelection else { return }
+        copiedRecipe = recipe(for: photo)
+        copiedGroups = groups
+        statusMessage = "Copied \(SettingsGroup.summary(groups)) — ⌘V pastes them"
     }
 
     /// Whether Paste Settings carries Heal and Clone spots and heal strokes. OFF by
@@ -4339,6 +4422,14 @@ final class AppState: ObservableObject {
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
+        if let groups = copiedGroups {
+            // Copy Settings… filled the clipboard: its checkboxes ARE the paste's
+            // masks and spot-removal answers, so the menu's toggle does not apply.
+            updateRecipe(label: "Paste Settings") { recipe in
+                recipe = recipe.adoptingSettings(from: source, groups: groups)
+            }
+            return
+        }
         // `Recipe.adoptingSettings` is the rule, in LumenCore where it is tested: the
         // develop, the look less the one leaf that describes the target
         // (`LookSubset.carriedRenderPreset` — four doors into a look, one decision),
@@ -4364,6 +4455,12 @@ final class AppState: ObservableObject {
     /// nine times out of ten. Two commands cost nothing and ask nothing.
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
+        if let groups = copiedGroups?.subtracting([.masks]) {
+            updateRecipe(label: "Paste Settings Without Masks") { recipe in
+                recipe = recipe.adoptingSettings(from: source, groups: groups)
+            }
+            return
+        }
         let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
             recipe = recipe.adoptingSettings(from: source, includingMasks: false,

@@ -250,6 +250,10 @@ struct ContentView: View {
             case .keyReference: KeyReferenceSheet()
             case .export: ExportSheet()
             case .ingest: IngestSheet()
+            case .copySettings: SettingsSubsetSheet(mode: .copy)
+            case .syncSettings: SettingsSubsetSheet(mode: .sync)
+            case .saveDevelopPreset: SaveDevelopPresetSheet()
+            case .manageDevelopPresets: ManageDevelopPresetsSheet()
             }
         }
     }
@@ -272,6 +276,7 @@ struct ContentView: View {
     /// is that list being empty, asked as a question.
     static func showsDevelopColumn(layout: WorkspaceLayout, state: AppState) -> Bool {
         layout.showsDevelopColumn
+            && !state.developColumnHidden      // Tab (`ParityKeys.panelChord`)
             && state.primarySelection != nil
             && (state.viewMode == .loupe || state.viewMode == .compare)
     }
