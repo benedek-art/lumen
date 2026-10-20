@@ -109,4 +109,23 @@ final class ColourAccuracyTests: XCTestCase {
         XCTAssertLessThan(ZoneWindows(balance: 100).highlightPivot, zero.highlightPivot)
         XCTAssertLessThan(ZoneWindows(balance: 100).shadowPivot, zero.shadowPivot)
     }
+
+    // MARK: - Gamut soft clip
+
+    /// The soft clip promises the boundary is approached but never crossed. Before the
+    /// fix the interpolated table overestimated the limit near the yellow-green cusp
+    /// and this colour came back as RGB(0.810, 1.008, 0.408).
+    func testSoftClipNeverLeavesTheGamutNearTheYellowGreenCusp() {
+        let context = OKLabTransform.working
+        let boundary = Gamut.Boundary()
+        var worst = 0.0
+        for hue in stride(from: 100.0, through: 140.0, by: 0.2) {
+            for L in stride(from: 0.90, through: 0.99, by: 0.003) {
+                let input = context.toRGB(OKLCh(L: L, C: 0.30, h: hue))
+                let out = Gamut.softClip(input, boundary: boundary, context: context)
+                worst = Swift.max(worst, out.maxComponent)
+            }
+        }
+        XCTAssertLessThanOrEqual(worst, 1 + 1e-5)
+    }
 }
