@@ -68,38 +68,53 @@ extension AppState {
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
         var applied: [URL: Recipe] = [:]
+        var landed = 0
         for (url, tone) in suggestions {
+            // The measurement is asynchronous, so the roll it was taken from may be
+            // gone by now (a folder switch, an album switch, a relink). `recipes` was
+            // replaced with the new roll's, so falling back to the starting recipe here
+            // would write defaults-plus-Auto over that photograph's real edit — into
+            // its sidecar — and record an undo step for a photo that is not open.
+            guard let photo = allPhotos.first(where: { $0.id == url }) else { continue }
+            landed += 1
             // The photo's real baseline, not bare defaults: Auto measured
             // through recipe(for:) — starting from Recipe() here installed a
             // recipe it never measured, stripping a JPEG's Linear preset
             // (second tone map) or a RAW's ISO denoise, unrecoverably (undo
             // recorded the same wrong `before`).
-            let iso = allPhotos.first(where: { $0.id == url })?.iso
-            let old = recipes[url]
-                ?? AppState.startingRecipe(for: url, iso: iso)
+            let old = recipe(for: photo)
             var updated = old
             updated.develop.tone = tone
+            // Auto pressed twice measures the same neutral probe and suggests the same
+            // tone: that is not an edit, and must not be an undo step or a write.
+            guard updated != old else { continue }
             before[url] = HistoryStack.PhotoEdit(recipe: old)
             after[url] = HistoryStack.PhotoEdit(recipe: updated)
             applied[url] = updated
             recipes[url] = updated
         }
-        history.record(before: before, after: after, coalescingKey: nil,
-                       label: "Auto Tone")
-        // THROUGH `persist`, not a hand-rolled save loop. Writing the catalog
-        // directly skipped everything else `persist` does — notably
-        // `refreshLibraryQueryIfEditStateShows`, so with the filter chip set to
-        // "Edited: no" an auto-toned frame stayed in a list claiming to hold only
-        // untouched photographs until something unrelated forced a requery.
-        persist(applied)
-        // AND THE INSTRUMENTS. `scheduleScopeRefresh` is the only producer of
-        // `AppState.scopes`, and every other write path calls it. Auto did not:
-        // press Auto with the histogram open and it kept describing the picture
-        // from BEFORE Auto ran, until you touched another control. The one
-        // instrument you would use to judge Auto was the one that did not move.
-        scheduleScopeRefresh()
-        statusMessage = "Auto applied to \(applied.count) photo"
-            + (applied.count == 1 ? "" : "s")
+        guard landed > 0 else {
+            statusMessage = "Auto finished after those photos were closed"
+            return
+        }
+        if !applied.isEmpty {
+            history.record(before: before, after: after, coalescingKey: nil,
+                           label: "Auto Tone")
+            // THROUGH `persist`, not a hand-rolled save loop. Writing the catalog
+            // directly skipped everything else `persist` does — notably
+            // `refreshLibraryQueryIfEditStateShows`, so with the filter chip set to
+            // "Edited: no" an auto-toned frame stayed in a list claiming to hold only
+            // untouched photographs until something unrelated forced a requery.
+            persist(applied)
+            // AND THE INSTRUMENTS. `scheduleScopeRefresh` is the only producer of
+            // `AppState.scopes`, and every other write path calls it. Auto did not:
+            // press Auto with the histogram open and it kept describing the picture
+            // from BEFORE Auto ran, until you touched another control. The one
+            // instrument you would use to judge Auto was the one that did not move.
+            scheduleScopeRefresh()
+        }
+        statusMessage = "Auto applied to \(landed) photo"
+            + (landed == 1 ? "" : "s")
     }
 
     private static func statistics(url: URL, recipe: Recipe,
