@@ -131,8 +131,26 @@ final class HistoryPanelTests: XCTestCase {
     func testTheHistoryPanelRefusesRowsThatCrossOtherPhotographs() throws {
         let panel = try Self.strippingComments(Self.appSource("HistoryPanel.swift"))
         XCTAssertTrue(panel.contains("HistoryStack.foreignPrefix(steps: history.steps"))
-        XCTAssertTrue(panel.contains(".disabled(foreign > 0)"),
+        XCTAssertTrue(panel.contains(".disabled(refused)"),
                       "a row whose walk reverts another photograph is still clickable")
+        XCTAssertTrue(panel.contains("on: Lumen.panelValue, enabled: !refused)"),
+                      "a refused row still shows the hover lift and the pointing hand")
+        XCTAssertTrue(panel.contains("if !isCurrent { move(to: entry.position) }"),
+                      "clicking the current row would walk off other photographs' steps")
+    }
+
+    /// Edit A, then B, view A: A's current row is one foreign step behind the cursor,
+    /// but it is where A already is, so it keeps its own tooltip and is not refused.
+    func testTheCurrentRowIsNeverRefused() {
+        let steps = [step(a, key: "tone.exposure"), step(b, key: "tone.contrast")]
+        let rows = HistoryStack.entries(steps: steps, for: a)
+        XCTAssertEqual(HistoryStack.currentRow(in: rows, position: 2), rows.count - 1)
+        let foreign = HistoryStack.foreignSteps(steps: steps, url: a, from: 2,
+                                                to: rows[rows.count - 1].position)
+        XCTAssertEqual(foreign, 1)
+        XCTAssertFalse(HistoryStack.refusesRow(isCurrent: true, foreign: foreign))
+        XCTAssertTrue(HistoryStack.refusesRow(isCurrent: false, foreign: foreign))
+        XCTAssertFalse(HistoryStack.refusesRow(isCurrent: false, foreign: 0))
     }
 
     /// THE CURRENT MARK IS THE LATEST LISTED STEP AT OR BEFORE THE CURSOR, and the

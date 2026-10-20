@@ -184,12 +184,15 @@ struct HistoryPanel: View {
         // steps would revert or reapply THOSE too, unseen. Such a row is refused.
         let foreign = HistoryStack.foreignSteps(prefix: crossing, from: history.position,
                                                 to: entry.position)
+        // The current row is where the photograph already is, so it is never refused;
+        // its click does nothing rather than walk off other photographs' steps.
+        let refused = HistoryStack.refusesRow(isCurrent: isCurrent, foreign: foreign)
         // Above the cursor: a step that has been made and walked back past. It is still
         // here and still clickable — that is the whole point of the cursor being a
         // cursor — so it is dimmed rather than removed.
         let isAhead = current.map { index > $0 } ?? false
         return Button {
-            move(to: entry.position)
+            if !isCurrent { move(to: entry.position) }
         } label: {
             HStack(spacing: 6) {
                 // THE MARK IS A DOT, NOT A FILL, and that is a constraint rather than a
@@ -222,7 +225,7 @@ struct HistoryPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(foreign > 0)
+        .disabled(refused)
         // The whole "this is clickable" statement in one call — fill and pointing hand
         // together, so a row cannot ship with half of it. `on:` is the PANEL value
         // because that is what this row sits on: the lift is additive, and the control
@@ -234,8 +237,8 @@ struct HistoryPanel: View {
         // that path exists — `state.hoverMaskOverlay`, with a 120 ms intent hold so a
         // pointer crossing the list does not strobe. There is no equivalent for a
         // recipe, so the tooltip carries the information instead.
-        .lumenInteractive(radius: Lumen.radiusChip, on: Lumen.panelValue)
-        .help(foreign > 0
+        .lumenInteractive(radius: Lumen.radiusChip, on: Lumen.panelValue, enabled: !refused)
+        .help(refused
               ? Self.blockedHelp(foreign)
               : helpText(entry, isCurrent: isCurrent, isAhead: isAhead, total: total))
     }

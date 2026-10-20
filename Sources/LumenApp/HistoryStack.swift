@@ -354,6 +354,12 @@ extension HistoryStack {
         return abs(prefix[clamp(to)] - prefix[clamp(from)])
     }
 
+    /// Whether the panel refuses a row: its walk crosses other photographs' steps and
+    /// it is not the row the photograph is already showing.
+    static func refusesRow(isCurrent: Bool, foreign: Int) -> Bool {
+        !isCurrent && foreign > 0
+    }
+
     /// Which row the photograph is showing, as an index into `entries`.
     ///
     /// The LAST row at or before the cursor, not the row whose position equals it — and
