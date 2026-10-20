@@ -469,15 +469,17 @@ public enum SidecarMerge {
             return now != last
         }()
 
-        // Rating, flag and label fill in only when the sidecar can be telling us
-        // something new: a row we never stamped, or a file that moved since our stamp.
-        // An UNCHANGED sidecar was absorbed by the read that stamped it, or written by
-        // us — so where it speaks and the catalog is silent, the silence is newer: a
-        // cleared rating, flag or label whose flush has not landed yet. Filling it back
-        // in would undo the last edit, the very thing rule 1 exists to prevent. The
-        // recipe is not gated: a nil recipe here means the stored one would not decode,
-        // and the sidecar is how that edit comes back.
-        let fillScalars = catalog.sidecarMTime == nil || moved
+        // Rating, flag and label fill in unless the catalog's silence is a clear that
+        // has not reached the file: an UNCHANGED sidecar while edits are still queued
+        // for it. Filling in there undid the clear — the very thing rule 1 exists to
+        // prevent — and the folder-open merge then persisted the old value.
+        //
+        // Not on the stamp alone: a Lumen write that states no scalars (a recipe or
+        // keyword edit) carries forward a rating another tool added since the last
+        // scan, and stamps the file. That file is "unchanged" and still holds news the
+        // catalog never absorbed. The recipe is not gated: a nil recipe here means the
+        // stored one would not decode, and the sidecar is how that edit comes back.
+        let fillScalars = catalog.sidecarMTime == nil || moved || !catalog.hasUnflushedEdits
 
         if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {
             if catalog.hasUnflushedEdits {

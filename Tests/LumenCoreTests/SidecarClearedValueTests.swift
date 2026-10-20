@@ -14,9 +14,10 @@ final class SidecarClearedValueTests: XCTestCase {
     private let stamp: Int64 = 1_800_000_000
 
     func testRule1DoesNotResurrectClearedFieldsFromAnUnchangedSidecar() throws {
-        // Lightroom's vocabulary: three stars, picked, red label — then cleared here.
+        // Lightroom's vocabulary: three stars, picked, red label — then cleared here,
+        // and the clear has not been flushed to the file yet.
         let catalog = SidecarMerge.State(rating: 0, flag: .none, label: nil,
-                                         sidecarMTime: stamp)
+                                         sidecarMTime: stamp, hasUnflushedEdits: true)
         let sidecar = SidecarContent(rating: 3, flag: .pick, label: "Red")
 
         let unchanged = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
@@ -33,14 +34,21 @@ final class SidecarClearedValueTests: XCTestCase {
         XCTAssertEqual(rejected.state.flag, SidecarFlag.none, "a cleared reject came back")
         XCTAssertEqual(rejected.state.rating, 0)
 
-        // Same while the clear is still waiting to be flushed.
-        var pending = catalog
-        pending.hasUnflushedEdits = true
-        let waiting = SidecarMerge.resolve(catalog: pending, sidecar: sidecar,
-                                           sidecarMTime: stamp)
-        XCTAssertEqual(waiting.state.rating, 0)
-        XCTAssertEqual(waiting.state.flag, SidecarFlag.none)
-        XCTAssertNil(waiting.state.label)
+    }
+
+    /// Bridge rates the photo 4 while Lumen has it at 0; a recipe-only Lumen write then
+    /// carries the 4 forward and stamps the file. Nothing is queued, so the stamped
+    /// file's 4 is news, and it fills in.
+    func testAStampedSidecarStillBringsInARatingAnotherToolAdded() throws {
+        let catalog = SidecarMerge.State(rating: 0, flag: .none, label: nil,
+                                         sidecarMTime: stamp, hasUnflushedEdits: false)
+        let sidecar = SidecarContent(rating: 4, flag: .pick, label: "Green")
+        let merged = SidecarMerge.resolve(catalog: catalog, sidecar: sidecar,
+                                          sidecarMTime: stamp)
+        XCTAssertEqual(merged.decision, .catalogWins)
+        XCTAssertEqual(merged.state.rating, 4)
+        XCTAssertEqual(merged.state.flag, .pick)
+        XCTAssertEqual(merged.state.label, "Green")
     }
 
     /// The fill-in the clear must not cost: a row we never stamped, and a file that
