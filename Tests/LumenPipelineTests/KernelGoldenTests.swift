@@ -2152,11 +2152,13 @@ final class KernelGoldenTests: XCTestCase {
         }
 
         func filtered(_ source: ImageBuffer) throws -> ImageBuffer {
-            guard let out = RenderGraph.guidedSelfFilter(ciImage(from: source),
-                                                         radius: 4, epsilon: epsilon),
-                  let result = readBack(out, width: source.width, height: source.height)
-            else { throw XCTSkip("guided filter produced no image") }
-            return result
+            // Kernels were checked available above, so nil here is a regression:
+            // fail, never skip.
+            let out = try XCTUnwrap(RenderGraph.guidedSelfFilter(ciImage(from: source),
+                                                                 radius: 4, epsilon: epsilon),
+                                    "guided filter returned nil with kernels available")
+            return try XCTUnwrap(readBack(out, width: source.width, height: source.height),
+                                 "guided filter read back nothing")
         }
 
         let quiet = step(amplitude: threshold / 4)
@@ -2400,13 +2402,10 @@ final class KernelGoldenTests: XCTestCase {
             var r = Recipe()
             mutate(&r)
             let p = RenderPlan(recipe: r, lutSize: LUT3D.exportSize)
-            guard let out = readBack(
+            return try XCTUnwrap(readBack(
                 RenderGraph().build(ciImage(from: frame), plan: p,
                                     options: RenderGraph.Options(longEdge: 64)),
-                width: frame.width, height: frame.height) else {
-                throw XCTSkip("render failed")
-            }
-            return out
+                width: frame.width, height: frame.height), "render failed")
         }
 
         /// Peak movement a slider produces on `frame`, GPU or reference.
@@ -4132,13 +4131,14 @@ final class KernelGoldenTests: XCTestCase {
                 ciImage(from: source), ev: -3,
                 feather: Look.vignetteFeatherDefault,
                 crop: Crop(), dithered: dithered)
-            guard let encoded = KernelLibrary.apply(KernelLibrary.logEncode,
-                                                    extent: vignetted.extent,
-                                                    [vignetted]),
-                  let decoded = KernelLibrary.apply(
-                      KernelLibrary.logDecode, extent: vignetted.extent,
-                      [encoded.insertingIntermediate()])
-            else { throw XCTSkip("encode/decode kernels failed to apply") }
+            // Kernels were checked available above, so nil here is a regression.
+            let encoded = try XCTUnwrap(KernelLibrary.apply(KernelLibrary.logEncode,
+                                                            extent: vignetted.extent,
+                                                            [vignetted]),
+                                        "logEncode failed to apply")
+            let decoded = try XCTUnwrap(KernelLibrary.apply(
+                KernelLibrary.logDecode, extent: vignetted.extent,
+                [encoded.insertingIntermediate()]), "logDecode failed to apply")
 
             var pixels = [Float](repeating: 0, count: width * height * 4)
             pixels.withUnsafeMutableBytes { raw in

@@ -334,12 +334,16 @@ final class CullScaleTests: XCTestCase {
 
     /// The body of a function, by brace matching from its declaration. Used only on
     /// comment-and-string-blanked text, which is what makes the brace count honest.
+    /// A missing declaration FAILS (not skips): a skip leaves CI green while the
+    /// guarantee above stops being checked.
     private static func functionBody(named name: String, in code: String) throws -> String {
         guard let decl = code.range(of: "func \(name)(") else {
-            throw XCTSkip("\(name) is no longer in the file under that name")
+            throw ScanFailure(description: "\(name) is no longer in AppState.swift under that "
+                                  + "name; the one-publish-per-cull-keystroke scan "
+                                  + "is reading nothing")
         }
         guard let open = code[decl.upperBound...].firstIndex(of: "{") else {
-            throw XCTSkip("\(name) has no body")
+            throw ScanFailure(description: "\(name) has no body")
         }
         var depth = 0
         var i = open
@@ -351,7 +355,11 @@ final class CullScaleTests: XCTestCase {
             }
             i = code.index(after: i)
         }
-        throw XCTSkip("\(name)'s body does not close")
+        throw ScanFailure(description: "\(name)'s body does not close")
+    }
+
+    private struct ScanFailure: Error, CustomStringConvertible {
+        let description: String
     }
 }
 #endif

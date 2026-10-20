@@ -271,6 +271,14 @@ final class RawCorpusTests: XCTestCase {
     static let comma = ","
     static let commaSpace = ", "
 
+    /// Mainstream Bayer files every later invariant must actually measure: CR2, two
+    /// NEFs, ARW, RW2 and DNG. Without a floor, a decode or probe that fails for EVERY
+    /// file turns R-3 to R-11 into zero-assertion passes. All six decoded and were
+    /// measured by R-4/R-5/R-7 in raw-corpus runs 37054817280 (main) and 39152441459.
+    /// The files Apple may not open (RAF X-H2, IIQ, X3F, GPR) stay free, so this pins
+    /// no more of Apple's support matrix than these six.
+    static let controlIDs: Set<String> = ["1346", "5812", "824", "2349", "2607", "6168"]
+
     private static func emit(_ line: String) {
         fputs("\n" + line + "\n", stdout)
         fflush(stdout)
@@ -1191,6 +1199,8 @@ final class RawCorpusTests: XCTestCase {
     /// asserting Apple's support matrix — which moves in the direction of MORE support,
     /// so pinning it would turn a good macOS update into a red build. The outcome per
     /// file goes to the inventory and the evidence sheet, where a change shows as a diff.
+    /// The one exception is `controlIDs`: six mainstream Bayer files must decode, or
+    /// every later invariant would pass having measured nothing.
     func testEveryFileEitherDecodesCleanlyOrRefusesCleanly() throws {
         let entries = try corpus()
         var decoded = 0
@@ -1215,6 +1225,10 @@ final class RawCorpusTests: XCTestCase {
             // R-2: exactly one of the two states.
             if p.openFailure != nil || p.decodeReturnedNil {
                 refused.append(entry.id)
+                XCTAssertFalse(RawCorpusTests.controlIDs.contains(entry.id),
+                               "\(entry.id) · \(entry.label) is a mainstream Bayer "
+                                   + "control and was refused (\(p.verdict)). If every "
+                                   + "control fires, decode is broken, not the corpus.")
                 continue
             }
             decoded += 1
@@ -1226,6 +1240,12 @@ final class RawCorpusTests: XCTestCase {
                                + "extent reaching the graph is an allocation of "
                                + "infinite size.")
         }
+        let controlsInManifest = Set(entries.map(\.id))
+            .intersection(RawCorpusTests.controlIDs)
+        XCTAssertEqual(controlsInManifest, RawCorpusTests.controlIDs,
+                       "control rows missing from the manifest: "
+                           + RawCorpusTests.controlIDs.subtracting(controlsInManifest)
+                               .sorted().joined(separator: RawCorpusTests.commaSpace))
         let refusedList = refused.isEmpty
             ? "none"
             : refused.joined(separator: RawCorpusTests.commaSpace)
@@ -1306,8 +1326,16 @@ final class RawCorpusTests: XCTestCase {
     func testAPortraitFrameComesOutPortrait() throws {
         let entries = try corpus()
         var rotatedSeen = 0
+        // Decoded files whose manifest orientation is 90°-class, and the ones actually
+        // checked: a nil EXIF read or delivered size must not silently drop a file.
+        var rotatedExpected = Set<String>()
+        var rotatedChecked = Set<String>()
+        var directions = Set<Int>()
         for entry in entries where !entry.isNegative {
             let p = probe(for: entry)
+            if p.decodedCleanly, (5...8).contains(entry.orientation ?? 0) {
+                rotatedExpected.insert(entry.id)
+            }
             guard p.decodedCleanly, let exif = p.exif, let delivered = p.delivered
             else { continue }
 
@@ -1332,6 +1360,8 @@ final class RawCorpusTests: XCTestCase {
 
             if (5...8).contains(orientation) {
                 rotatedSeen += 1
+                rotatedChecked.insert(entry.id)
+                directions.insert(orientation)
                 XCTAssertEqual(delivered.isLandscape, !exif.isLandscape,
                                "\(entry.id) · \(entry.label): EXIF orientation "
                                    + "\(orientation) is a 90°-class transform, so the "
@@ -1351,6 +1381,19 @@ final class RawCorpusTests: XCTestCase {
         RawCorpusTests.emit("corpus-summary: R-4 checked \(rotatedSeen) file(s) carrying "
             + "a 90°-class orientation tag. Below two, in both directions, this "
             + "invariant cannot tell 'rotated correctly' from 'rotated backwards'.")
+        let unchecked = rotatedExpected.subtracting(rotatedChecked)
+        XCTAssertTrue(unchecked.isEmpty,
+                      "R-4 skipped decoded 90°-class file(s) "
+                          + unchecked.sorted().joined(separator: RawCorpusTests.commaSpace)
+                          + ": the EXIF size, delivered size or orientation read is "
+                          + "missing, so the rotation was never checked")
+        // 5812 is orientation 8 and 2349 is 6, both controls; runs 37054817280 and
+        // 39152441459 checked 3 rotated files.
+        XCTAssertGreaterThanOrEqual(rotatedSeen, 2,
+                                    "R-4 checked fewer than two rotated files")
+        XCTAssertTrue(directions.contains(6) && directions.contains(8),
+                      "R-4 needs both 90° directions (6 and 8) to tell rotated from "
+                          + "rotated backwards; it saw \(directions.sorted())")
     }
 
     /// R-5. The camera's own embedded preview is a second opinion about the same
@@ -1370,6 +1413,7 @@ final class RawCorpusTests: XCTestCase {
     func testTheRenderAgreesWithTheCamerasOwnPreview() throws {
         let entries = try corpus()
         var measured: [Double] = []
+        var measuredIDs = Set<String>()
         for entry in entries where !entry.isNegative {
             let p = probe(for: entry)
             guard p.decodedCleanly else { continue }
@@ -1379,6 +1423,7 @@ final class RawCorpusTests: XCTestCase {
                 continue
             }
             measured.append(r)
+            measuredIDs.insert(entry.id)
             XCTAssertGreaterThanOrEqual(
                 r, 0.6,
                 "\(entry.id) · \(entry.label): the render correlates r = "
@@ -1390,6 +1435,13 @@ final class RawCorpusTests: XCTestCase {
         RawCorpusTests.emit("corpus-summary: R-5 measured \(measured.count) "
             + "correlations; min \(RawCorpusTests.fmt(measured.min())), "
             + "max \(RawCorpusTests.fmt(measured.max())). The floor is 0.6 BY GUESS.")
+        // Every control carries a camera preview; all six were measured in runs
+        // 37054817280 and 39152441459 (11 measured, only the mono 1087 skipped).
+        let missing = RawCorpusTests.controlIDs.subtracting(measuredIDs)
+        XCTAssertTrue(missing.isEmpty,
+                      "R-5 measured no correlation for control(s) "
+                          + missing.sorted().joined(separator: RawCorpusTests.commaSpace)
+                          + " — the preview or correlation path is broken, not the corpus")
     }
 
     // MARK: - Tier 2 — the render is a picture
@@ -1471,6 +1523,7 @@ final class RawCorpusTests: XCTestCase {
     func testTheMostNeutralPatchInEachFrameIsNeutral() throws {
         let entries = try corpus()
         var measured: [Double] = []
+        var measuredIDs = Set<String>()
         for entry in entries where !entry.isNegative && !entry.isMono {
             let p = probe(for: entry)
             guard p.decodedCleanly else { continue }
@@ -1480,6 +1533,7 @@ final class RawCorpusTests: XCTestCase {
                 continue
             }
             measured.append(chroma)
+            measuredIDs.insert(entry.id)
             XCTAssertLessThan(
                 chroma, 20.0,
                 "\(entry.id) · \(entry.label): the most neutral flat mid-tone block in "
@@ -1492,6 +1546,12 @@ final class RawCorpusTests: XCTestCase {
         RawCorpusTests.emit("corpus-summary: R-7 measured \(measured.count) neutral-patch "
             + "chromas; min \(RawCorpusTests.fmt(measured.min(), 3)), "
             + "max \(RawCorpusTests.fmt(measured.max(), 3)). The ceiling is 20 BY GUESS.")
+        // All six controls were measured in runs 37054817280 and 39152441459.
+        let missing = RawCorpusTests.controlIDs.subtracting(measuredIDs)
+        XCTAssertTrue(missing.isEmpty,
+                      "R-7 measured no neutral patch for control(s) "
+                          + missing.sorted().joined(separator: RawCorpusTests.commaSpace)
+                          + " — the chroma readback is broken, not the corpus")
     }
 
     /// R-7b. The Leica M Monochrom has no colour filter array — exiv2 confirms no
