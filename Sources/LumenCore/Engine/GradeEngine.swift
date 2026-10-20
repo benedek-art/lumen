@@ -6,9 +6,15 @@
 // What the spec actually specifies, and what this file therefore implements, is neither
 // ASC-CDL (slope/offset/power) nor lift/gamma/gain:
 //
-//   · a wheel tint is a CONSTANT-LUMINANCE hue/chroma offset — a translation of the
-//     OKLab (a, b) pair, weighted by the zone windows. L is not touched, so tinting a
-//     zone carries no luminance contamination and a wheel at sat = 0 is an exact no-op.
+//   · a wheel tint is a CONSTANT-LIGHTNESS hue/chroma offset — a translation of the
+//     OKLab (a, b) pair, weighted by the zone windows. OKLab L is not touched, so the
+//     tint holds perceptual lightness and a wheel at sat = 0 is an exact no-op. It does
+//     NOT hold scene luminance Y: L is a cube root of an LMS mix that the a, b move
+//     changes, so a full-deflection tint moves a mid-grey's Y by about ±10 % and a −3 EV
+//     shadow's by about ±20 % (teal up, red down), enough to push a channel negative
+//     there (S14 handles that). This used to say "no luminance contamination"; whether
+//     to restore Y or H-K brightness instead is open (B2-03, P13 DECISION 2). Pinned by
+//     WheelTintLightnessContractTests.
 //   · a wheel's Luminance is a PER-ZONE PERCEPTUAL LIGHTNESS GAIN through Lumen UCS
 //     (LumenUCS.scaleBrightness), not a linear multiply — so the move holds the colour's
 //     chroma ratio and its H-K corrected brightness reads evenly across hues.
@@ -716,8 +722,8 @@ public struct GradeEngine: Sendable {
     // MARK: Apply
 
     /// The wheels and the advanced grid, at one pixel. Zone weights come from the INPUT
-    /// pixel's tonal position (invariant 4), the tint is a constant-luminance
-    /// translation in OKLab, the lightness move is a perceptual gain in UCS, and the
+    /// pixel's tonal position (invariant 4), the tint is a constant-lightness
+    /// translation in OKLab (L held, scene Y not — see the file header), the lightness move is a perceptual gain in UCS, and the
     /// stage closes on the no gamut clip — see below.
     ///
     /// Order: wheels first, grid second, exactly as the panel stacks them — the grid is
