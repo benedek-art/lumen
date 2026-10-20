@@ -55,7 +55,7 @@ import Foundation
 /// keeps `w_mid ≥ 0` when the two pivots are dragged together.
 public struct ZoneWindows: Sendable {
 
-    /// Balance translates BOTH pivots; ±100 = ±this many stops.
+    /// Balance translates BOTH pivots; ±100 = ∓this many stops (+ moves them DOWN).
     public static let balanceRangeEV: Double = 2.0
     /// Crossfade half-width at Blending = 50 (falloff 0.5 × 3.0 EV) — docs/05 §D15.
     public static let nominalHalfWidthEV: Double = 1.5
@@ -116,14 +116,14 @@ public struct ZoneWindows: Sendable {
             p1 = centre + ZoneWindows.minimumPivotGap / 2
         }
 
-        let balanceShift: Double =
-            (Num.clamp(balance, -100, 100) / 100) * ZoneWindows.balanceRangeEV / span
-        // Subtracted, for Lightroom's direction: +Balance favours the Highlights wheel
-        // (both pivots move DOWN, so the highlight zone reaches into darker tones) and
-        // −Balance favours Shadows. Adding it ran the slider backwards: +100 grew the
-        // shadow zone to 0.47 of the axis and shrank the highlight zone to 0.19.
-        let ps: Double = p0 - balanceShift
-        let ph: Double = p1 - balanceShift
+        // `pivotShift` is negative for +Balance, for Lightroom's direction: +Balance
+        // favours the Highlights wheel (both pivots move DOWN, so the highlight zone
+        // reaches into darker tones) and −Balance favours Shadows. A positive shift
+        // ran the slider backwards: +100 grew the shadow zone to 0.47 of the axis and
+        // shrank the highlight zone to 0.19.
+        let balanceShift: Double = ZoneWindows.pivotShift(balance: balance, spanEV: span)
+        let ps: Double = p0 + balanceShift
+        let ph: Double = p1 + balanceShift
         self.shadowPivot = ps
         self.highlightPivot = ph
 
@@ -154,6 +154,26 @@ public struct ZoneWindows: Sendable {
         self.highlightHalfWidth = half
         self.shadowCrossfade = [ps - half, ps + half]
         self.highlightCrossfade = [ph - half, ph + half]
+    }
+
+    /// How far Balance moves BOTH pivots, on the normalized axis — signed so that it can
+    /// be added to a pivot. Positive Balance gives a NEGATIVE shift.
+    ///
+    /// That sign is Lightroom's, which docs/05 §D15 asks for: positive Balance hands
+    /// more of the frame to the Highlights wheel. Pivots moving DOWN the axis are what
+    /// do that — the Highlights zone is everything above the highlight pivot. This was
+    /// `+balance` once, which slid the pivots up and made +100 SHRINK the Highlights
+    /// zone (its weight at +1 EV fell from 0.80 to 0.004) while mid-grey became a pure
+    /// highlight at −100: the slider ran backwards against every LrC tutorial a user
+    /// learned it from. `GradeBalanceDirectionTests` pins the direction.
+    ///
+    /// One function because two places need it: these windows, and the panel's pivot
+    /// strip, which has to subtract exactly this shift to turn a dragged handle back
+    /// into a stored pivot. If they disagreed, the handle would jump under the pointer.
+    public static func pivotShift(balance: Double, spanEV: Double) -> Double {
+        let span: Double = spanEV.isFinite && spanEV > 1e-3 ? spanEV : 1.0
+        let b: Double = balance.isFinite ? Num.clamp(balance, -100, 100) : 0
+        return -(b / 100) * ZoneWindows.balanceRangeEV / span
     }
 
     /// The windows a `GradingWheels` describes. Per-mask grading passes the GLOBAL

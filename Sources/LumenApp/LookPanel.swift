@@ -792,7 +792,8 @@ struct LookPanel: View {
         LumenSlider(title: "Balance",
                     value: bindLook(\Look.wheels.balance, key: "wheels.balance"),
                     range: -100...100, defaultValue: 0, step: 1, decimals: 0,
-                    help: "Slides both pivots along the tonal axis together.")
+                    help: "Slides both pivots along the tonal axis together. Positive "
+                        + "widens the Highlights zone, negative the Shadows zone.")
 
         colorBalanceDisclosure
     }
@@ -1021,12 +1022,12 @@ struct LookPanel: View {
         state.updateRecipe(coalescingKey: "wheels.pivot.\(index)") { recipe in
             var pivots = LookPanel.normalizedPivots(recipe.look.wheels.pivots)
             // The handle is dragged where the user sees it — that is the pivot AFTER
-            // Balance — and ZoneWindows subtracts the balance shift, so the stored
-            // pivot is the handle plus it.
-            let shift = (Num.clamp(recipe.look.wheels.balance, -100, 100) / 100)
-                * ZoneWindows.balanceRangeEV / LookPanel.axisSpanEV
+            // Balance — and ZoneWindows adds `pivotShift` to the stored pivot, so the
+            // stored pivot is the handle minus that same shift.
+            let shift = ZoneWindows.pivotShift(balance: recipe.look.wheels.balance,
+                                               spanEV: LookPanel.axisSpanEV)
             let gap = ZoneWindows.minimumPivotGap
-            var value = Num.saturate(position + shift)
+            var value = Num.saturate(position - shift)
             if index == 0 {
                 value = min(value, pivots[1] - gap)
                 pivots[0] = Num.saturate(value)
