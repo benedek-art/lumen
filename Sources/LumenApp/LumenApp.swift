@@ -457,6 +457,10 @@ private struct LumenCommands: Commands {
                     Divider()
                     Button("Auto Tone") { state.applyAutoTone() }
                         .keyboardShortcut("a", modifiers: [.command, .shift])
+                    // Lightroom's chord for the same command. The active photo is the
+                    // reference; see AppStateMatchExposure.swift.
+                    Button("Match Total Exposures") { state.matchTotalExposures() }
+                        .keyboardShortcut("m", modifiers: [.command, .option, .shift])
                 }
                 // THE THREE CHORDS ⌥⌘S USED TO KILL, and they are here for the reason
                 // ⌘1–⌘5 are: a `.keyboardShortcut` on a view that is not in the hierarchy

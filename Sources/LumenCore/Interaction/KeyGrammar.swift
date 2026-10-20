@@ -233,6 +233,8 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("a", command: true), "Select all"),
             KeyRow(KeyBinding("d", command: true), "Select none"),
             KeyRow(KeyBinding("a", command: true, shift: true), "Auto Tone"),
+            KeyRow(KeyBinding("m", command: true, shift: true, option: true),
+                   "Match total exposures to the active photo"),
             KeyRow(KeyBinding("e", command: true), "Export"),
             KeyRow(KeyBinding("b", command: true),
                    "Assessment surround (ISO 12646 mid-grey)"),
