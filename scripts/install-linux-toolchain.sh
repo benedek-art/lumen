@@ -9,9 +9,12 @@
 # have caught in seconds: a member that did not exist on a type, and an overlay drawing
 # against the wrong rectangle.
 #
-# What this DOES cover: LumenCore. Eighteen thousand lines — the whole colour science,
-# tone, grade, film, detail, denoise, mask algebra, catalog and XMP — plus the tests in
-# LumenCoreTests. It builds in about ten seconds.
+# What this DOES cover: LumenCore — the whole colour science, tone, grade, film,
+# detail, denoise, mask algebra, catalog and XMP — plus the tests in LumenCoreTests.
+# It builds in about ten seconds. Run the tests the way CI's engine-linux lane does:
+#   swift test --parallel --filter LumenCoreTests --skip ControlProofTests
+# `--parallel` is required: a serial filtered run passes every test name as one
+# argument, overruns Linux's 128 KiB MAX_ARG_STRLEN, and fails before running anything.
 #
 # The catalog is included only because `Sources/CSQLite3` exists. Apple ships an
 # `SQLite3` module in the SDK; Ubuntu ships a header and a shared object and no
@@ -30,9 +33,10 @@
 # this toolchain, the answer is `git log -S <testname>`, not this comment.
 #
 # What it does NOT cover: LumenPipeline and LumenApp are `#if os(macOS)` and need Core
-# Image, AppKit and SwiftUI. They still need the macOS runner. The mechanical checker
-# (scripts/check-swift-surface.py) remains the only local feedback on those, which is
-# why it has eight passes rather than one.
+# Image, AppKit and SwiftUI. They still need the macOS runner (build-macos and
+# test-fast in ci.yml). The mechanical checker (scripts/check-swift-surface.py) remains
+# the only local feedback on those, which is why it runs many passes rather than one
+# (one pass_* function each; see the __main__ block of the script).
 #
 # Requires outbound access to download.swift.org. If the environment's network policy is
 # "trusted" rather than "all", this returns 403 at CONNECT and there is nothing to do

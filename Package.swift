@@ -2,16 +2,21 @@
 // Lumen — a personal RAW photo editor for macOS.
 //
 // Target layout follows docs/13-architecture.md:
-//   LumenCore     — no UI, no Apple-only frameworks. Recipe model, canonical JSON +
-//                   fingerprints, curve/zone/mask reference math, XMP sidecars,
-//                   catalog schema, ingest templates. Builds on macOS and Linux
-//                   (Linux is used for CI-style verification of the pure core).
+//   LumenCore     — no UI, no Apple-only frameworks. The whole engine as pure Swift
+//                   (colour science, tone, grade, film, detail, denoise, masks,
+//                   scopes, the f32 reference renderer), plus the recipe model,
+//                   canonical JSON + fingerprints, XMP sidecars, the SQLite catalog
+//                   and ingest templates. Builds on macOS and Linux (CI's
+//                   engine-linux lane tests it on Linux).
 //   LumenPipeline — the render path. Apple RAW stage wrapper, export. macOS-only
 //                   (sources are `#if os(macOS)` so the target stays declarable).
 //   LumenApp      — SwiftUI shell. macOS-only.
 //
 // On Linux, build/test only the core:  swift build --target LumenCore
-//                                      swift test  --filter LumenCoreTests
+//   swift test --parallel --filter LumenCoreTests --skip ControlProofTests
+// `--parallel` is required on Linux: a serial filtered run passes every test name as
+// one argument and overruns the 128 KiB MAX_ARG_STRLEN (see ci.yml, engine-linux).
+// ControlProofTests runs on its own: swift test --filter ControlProofTests.
 import PackageDescription
 
 let package = Package(

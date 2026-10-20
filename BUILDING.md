@@ -45,30 +45,61 @@ export it (⌘E).
 | Target | Contents | Platforms |
 |---|---|---|
 | `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
-| `LumenPipeline` | The Core Image render path: thirty-three small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenPipeline` | The Core Image render path: a few dozen small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
 | `LumenApp` | The SwiftUI application. | macOS |
 
 ## How this code was verified
 
 **LumenCore compiles and tests locally now.** `scripts/install-linux-toolchain.sh`
 fetches a Linux Swift toolchain; `swift build --target LumenCore` takes about ten
-seconds and `swift test --filter LumenCoreTests` runs the ~200 tests that do not need
-Core Image. That covers eighteen thousand lines — all the colour science, tone, grade,
-film, detail, denoise, mask algebra, catalog and XMP.
+seconds, and
+
+```sh
+swift test --parallel --filter LumenCoreTests --skip ControlProofTests
+```
+
+runs the LumenCore suite — the same command as CI's `engine-linux` lane, and the log's
+`Executed N tests` line is the count (about 2,600 test methods as of 2026-10-20, and
+only ever growing, which is why no other number is written here). That is all of
+LumenCore: the colour science, tone, grade, film, detail, denoise, mask algebra,
+catalog and XMP. **`--parallel` is required, not optional.** Any `--filter` or `--skip`
+in serial mode makes SwiftPM pass every selected test name as ONE argument, which is
+over Linux's 128 KiB `MAX_ARG_STRLEN` at this suite's size, and the run dies with
+`Argument list too long` before a single test runs (the comment above that step in
+`.github/workflows/ci.yml` has the history). `ControlProofTests` — the slider sweep,
+every control at 21 settings, each baking a 65³ cube — is skipped there and runs on
+its own as `swift test --filter ControlProofTests`, which is what `proof.yml`'s
+`proof-linux` job does.
 
 It does NOT cover LumenPipeline or LumenApp, which are `#if os(macOS)` and need Core
-Image, AppKit and SwiftUI. Those still go through the macOS runner, and
-`scripts/check-swift-surface.py` remains their only local feedback — which is why that
-script has eight passes rather than one. Two bugs shipped in a single afternoon that a
-compiler catches in seconds: a member that did not exist on a type, and an overlay
-drawing against a rectangle the renderer had already applied.
+Image, AppKit and SwiftUI. Those go through the macOS runner, and locally
+`scripts/check-swift-surface.py` is the only feedback before a push — which is why that
+script runs a dozen-plus passes (one `pass_*` function each; see the `__main__` block of the
+script) rather than one. Two bugs shipped in a single afternoon that a compiler
+catches in seconds: a member that did not exist on a type, and an overlay drawing
+against a rectangle the renderer had already applied.
 
+The machine this file was first written on had no Swift toolchain, and swift.org was
+blocked by its egress policy, so the verification loop started as **GitHub Actions'
+macOS runner**, and that is still where the macOS-only code is compiled. What CI runs
+today (`.github/workflows/`):
 
-There is no Swift toolchain on the machine this was written on, and swift.org is
-blocked by its egress policy. So the verification loop is **GitHub Actions' macOS
-runner**: it compiles all four targets and runs both suites there, and the CI log is
-filtered down to deduplicated diagnostics so a round is readable.
+- `build-macos` (`ci.yml`, macos-15) — `swift build` of the whole package: LumenCore,
+  LumenPipeline and LumenApp (plus the `CSQLite3` system-library shim, which only
+  matters on Linux).
+- `test-fast` (`ci.yml`, macos-15) — `swift test -c release` with no filter, so all
+  three test targets: LumenCoreTests, LumenPipelineTests and LumenAppTests.
+- `engine-linux` (`ci.yml`, ubuntu-24.04) — `swiftc -parse` over every file under
+  `Sources/` (macOS-only ones included), then the LumenCore command above, in debug.
+- `proof-linux` (`proof.yml`) — `ControlProofTests`.
+- `gpu-parity.yml` — `swift test --filter LumenPipelineTests`, on pushes that touch
+  `Sources/**` or `Tests/LumenPipelineTests/**`.
 
+The CI log is filtered down to deduplicated diagnostics so a round is readable.
+
+> **Resolved — kept as history.** The outage below ended; LumenPipeline and LumenApp
+> have been compiled on every push by `build-macos` and tested by `test-fast` since.
+>
 > **⚠️ A large batch of commits went uncompiled for a while.** Partway through
 > 2026-08-20 GitHub stopped allocating runners — every run failed in about three
 > seconds with no job starting, on both lanes, with empty logs, which is the signature
@@ -78,16 +109,24 @@ filtered down to deduplicated diagnostics so a round is readable.
 > those seventy commits: `CatalogStore` matched on `SQLITE_CORRUPT`/`NOTADB`/`FORMAT`
 > without importing the C module those come from. The predicate now lives on
 > `SQLiteError` in `SQLite.swift`, the one file that does import it. That error stopped
-> the build at LumenCore, so LumenPipeline and LumenApp are still waiting on a compiler
-> — treat them as unverified until a run gets past this point.
+> the build at LumenCore; later runs got past it, and `build-macos` now compiles the
+> whole package on every push.
 >
 > What stood in for it meanwhile, and still runs on every push: the Python mirror below,
-> and `scripts/check-swift-surface.py`, which makes eight mechanical passes over the
-> whole tree — every capitalized identifier resolves against the declarations in-tree,
-> every `Type(...)` call site matches one of that type's declared initializers, every
-> call to an actor-isolated member is awaited, every `TypeName.member` names something
-> that type has, every platform symbol is used in a file that imports its module, and
-> every member read off an explicitly typed value exists on that type.
+> and `scripts/check-swift-surface.py`, which makes a dozen-plus mechanical passes over
+> the whole tree (one `pass_*` function each, all called from the `__main__` block) — every
+> capitalized identifier resolves against the declarations in-tree, every `Type(...)`
+> call site matches one of that type's declared initializers, method-call labels match
+> some in-tree declaration, every call to an actor-isolated member is awaited, every
+> `TypeName.member` names something that type has, every platform symbol is used in a
+> file that imports its module, every in-tree type is used in a file whose module is
+> imported, every member read off an explicitly typed value exists on that type, every
+> receiver and bare argument name is bound in its scope, a member reached across a
+> module boundary is public, a `switch` over an in-tree enum without `default` handles
+> every case, and no Core Image kernel declares a reserved word of the kernel language.
+> `scripts/test-check-swift-surface.py` is the guard on the guard: it runs the checker
+> against known-good and known-bad fixture trees (`scripts/check-swift-surface-fixtures`)
+> on every push.
 > Each pass is verified able to fail by substituting wrong code; the third exists
 > because a missing `await` was found by hand in code the first two both accepted, and
 > the fifth because pass 1 waved `SQLITE_CORRUPT` through — its known-platform list is
@@ -99,8 +138,8 @@ filtered down to deduplicated diagnostics so a round is readable.
 > per-file version was written first, reported a clean tree, and was structurally blind,
 > because in a thousand-line view model a common name like `photo` is bound by inference
 > somewhere and the rule that refuses ambiguous names refused all of them. They catch renames, typos, reshaped initializers and
-> isolation slips. They do not check a single type, they cannot see leading-dot enum
-> cases, and they are not a compiler.
+> isolation slips. They do not check a single type, they see a leading-dot enum case
+> only inside a `switch` over an in-tree enum, and they are not a compiler.
 
 Three layers of checking, in order of strength:
 
@@ -118,13 +157,23 @@ Three layers of checking, in order of strength:
 3. **The Linux fixture lane** regenerates `Tests/LumenCoreTests/Fixtures` with
    `scripts/gen-fixtures.py` and fails if the committed fixtures drifted. That script
    began as a mirror of the canonical-JSON, curve, zone, mask-algebra, XMP and schema
-   logic; it now also executes an independent implementation of most of the engine —
+   logic; it now also executes a hand-transliterated mirror of most of the engine —
    the shaper, the display transform, the tone and grade solvers, the parametric curve,
-   the colour stage, the guided filter, the radial mask, and the whole film chain — and
-   asserts properties on it that no Swift test can reach from a machine with no
-   toolchain. `enginemath.json` then carries its sampled outputs back for
-   `EngineMathFixtureTests` to replay, which is what ties the two implementations
-   together rather than letting the mirror stay green while the Swift drifts.
+   the colour stage, the guided filter, the radial mask, and the whole film chain, with
+   constants and formulas copied from the Swift (the script's own docstring lists the
+   "mirrored contracts", file by function) — and asserts properties on it that no Swift
+   test can reach from a machine with no toolchain. `enginemath.json` then carries its
+   sampled outputs back for `EngineMathFixtureTests` to replay, which catches the Swift
+   and its mirror drifting apart. It cannot catch a constant or formula that is wrong
+   on both sides: agreement proves the two are consistent, not that they are correct.
+
+   Only a few of these checks have a reference outside the codebase: xxh64 against
+   python-xxhash (`fingerprint.json`), the catalog DDL executed in real SQLite, and the
+   XMP template parsed by ElementTree. Ground truth for the colour science lives in the
+   Swift tests instead — for example the published D65 (0.3127, 0.3290) and D50
+   (0.3457, 0.3585) chromaticities in
+   `AccuracyProbeTests.testTheKelvinSliderLandsOnThePublishedDIlluminants`. Everything
+   else in `enginemath.json` is checked only against the mirror.
 
    Two lessons are baked into how those checks are written, both learned the hard way:
    **a check must be able to fail** — several were rewritten after a wrong
@@ -238,11 +287,15 @@ S15 curve    ┘        one 3-D table, log domain in, display-linear out
 S16 geometry          crop ∘ rotate, one resample
 ```
 
-The custom-shader surface is therefore thirty-three small kernels
-(`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
-the guided filter, mask compositing, grain, vignette, dehaze, halation, and the nine
-that make up S3's variance-stabilizing transform and à-trous shrinkage. Everything else
-is a stock filter or a table.
+The custom-shader surface is therefore a few dozen small kernels
+(`Sources/LumenPipeline/Kernels.swift`; no count here, because each feature changes it
+and `KernelRosterTests` checks that every kernel declared there is in an availability
+roster) — the log
+shaper, image-by-image arithmetic for the guided filter, mask compositing, grain,
+vignette, dehaze, halation, the exact-colour primaries/point/finish kernels, the spot
+and stroke heal kernels, the cube lookup, the hot-pixel pass, and the ones that make
+up S3's variance-stabilizing transform and à-trous shrinkage. Everything else is a
+stock filter or a table.
 
 If a kernel fails to compile on a given machine, `KernelLibrary.isAvailable` goes false
 and the renderer says so in the viewer rather than rendering something wrong.
@@ -322,8 +375,15 @@ These are tracked, not hidden.
   `PipelineRenderer.renderReference` rather than inside the reference's own stage list;
   and Tier 2 remains a cached-artifact design with no model, so `.ai` still drives the
   decoder's own denoise from its Amount. Capture sharpening (S4) is unchanged: Apple's
-  at-demosaic sharpener scaled by the slider, with `richardsonLucy` uncalled AND
-  untested — it appears in no file under `Tests/`, so "written" is the whole claim.
+  at-demosaic sharpener scaled by the slider. `richardsonLucy` is reached only through
+  `DetailEngine.captureSharpen`, and no render stage calls that (`ReferenceRenderer`
+  starts at S6, and `RenderGraph` never calls it), so it does not ship. It is tested on
+  Linux, though: `FieldBaselineProbeTests.testPrintsTheSharpenBaseline` pushes a
+  σ-blurred edge through `captureSharpen` and asserts the edge rise recovers by more
+  than 1.1×, and `CaptureSharpenSwitchTests` (in `PSFEstimateTests.swift`) pins that
+  the toggle off is the identity and on changes pixels. Nothing calls `richardsonLucy`
+  directly, and nothing measures the per-frame auto radius against a known blur end to
+  end.
 
   **What the golden suite could not say is whether any of it is GOOD.** Every denoise
   assertion in the suite measured noise σ falling, which stays true while the picture is
@@ -370,8 +430,14 @@ These are tracked, not hidden.
   glow against the profile's own `2·Σwσ²/Σw`, where a support-radius conversion is a
   factor of nine; the other renders the same frame through `RenderGraph.build` at
   Halation 0 and 100 and requires the difference to appear beside the highlight and not
-  at the far corner. Both are macOS-lane tests. Grain is still in the state halation was
-  in: nothing renders it through the graph, so its call site can be deleted green.
+  at the far corner. Both are macOS-lane tests. Grain is mostly out of the state halation was
+  in: `testTheGamutFlagIsGrainedLikeTheReference` renders through `RenderGraph.build`
+  with a supplied grain plate and asserts the flagged region varies, and
+  `testGrainIsAppliedOnTheGridThatIsDelivered` asserts grain on a flat field after
+  `PipelineRenderer.exportedImage` (both in `KernelGoldenTests`). What is still unheld
+  is the creative-grain branch of `RenderGraph.build` (`else if grain.isCreative`, the
+  preview path for look grain): no test renders through it, so that call site can
+  still be deleted green.
 - **Local noise, moiré, defringe and grain are not wired.** They have wire formats and
   no stage reads them, so the mask panel does not show them: a slider that moves a
   stored value and changes no pixel costs the user the time to find out. The local
@@ -416,54 +482,53 @@ These are tracked, not hidden.
   damaged file aside rather than deleting it; `CatalogService` calls it and `AppState`
   shows the after-the-fact notice §15.8 asks for. `integrityCheck()` gates `backup()`,
   because a corrupt catalog that backs itself up rotates the last readable snapshot out
-  of existence. Still missing from §15.8: the 7-daily/4-weekly/6-monthly retention
-  policy — backups accumulate one per quit and one per menu command, forever.
-- **HDR export writes no gain map.** `renderHDRPair` and the whole `GainMap` relation
-  are implemented and tested, and nothing calls them — `export` renders once and emits a
-  single rendition. The missing piece is an auxiliary gain-map image attached through
-  `CGImageDestination`; `CIContext.write*Representation` takes no metadata argument, so
-  it cannot get there from here.
+  of existence. Backups are pruned now, by a policy deliberately narrower than §15.8's
+  7-daily/4-weekly/6-monthly: `BackupRetention.plan` (LumenCore, `CatalogStore.swift`,
+  a pure function over filenames) keeps the newest 3 snapshots plus the newest of each
+  of the last 4 distinct weeks, never deletes the newest, and never deletes a name it
+  cannot date; `CatalogService.pruneBackups` applies it after each backup, and
+  `BackupPolicyTests` covers it. There is no monthly tier — the doc comment on
+  `keepNewest` explains the seven-copy disk ceiling that rules one out.
+- **HDR export writes an ISO 21496-1 gain map** (HEIC and JPEG; macOS 15). When
+  `ExportRecipe.hdrIsWritable` (`hdr != nil && format.supportsGainMap`), `export`
+  renders a second rendition with `exportedHDRImage` at `gainMapWhiteTargetPercent`
+  and `write` hands it to Core Image as `CIImageRepresentationOption.hdrImage`; Core
+  Image computes and embeds the map against the SDR primary, which stays at display
+  white 100. That closed the route the earlier version of this bullet ruled out —
+  hand-authoring the auxiliary image through `CGImageDestinationAddAuxiliaryDataInfo`,
+  which no one could get right without a Mac to open the result on.
+  `ExportDeliveryReadbackTests.testAGainMapRecipeWritesAnISOGainMapOverTheUnchangedSDRPicture`
+  (macOS lane) reads both formats back: an ISO gain-map auxiliary image is present and
+  absent on the plain export, the decoded HDR peak exceeds 1.5× SDR white, and the
+  primary matches the plain SDR export within 2 codes. `ExportGainMapTests` covers the
+  gating and the HDR rendition's white on every lane. Still open: nobody has checked by
+  eye on an HDR display that a viewer applies the map as intended, and `renderHDRPair`
+  has no product caller — export goes through `exportedHDRImage`, and only
+  `EDRPreviewRenderTests` uses the pair.
+- **Export metadata: both halves are now read back from real files.** Strip GPS, EXIF,
+  Camera serial and Keywords remove what they name, and that is reliable whichever way
+  the encoder treats the property dictionary — either it honours it and the keys are
+  gone, or it ignores it and they were never going to be written. Before this the
+  entire section had no reader at all.
 
-  **Re-examined for Batch 6, and deliberately left off.** The route exists —
-  `CGImageDestinationAddAuxiliaryDataInfo` with `kCGImageAuxiliaryDataTypeISOGainMap`,
-  which wants the map's pixel data, a `kCGImageAuxiliaryDataInfoDataDescription`
-  describing its pixel format and stride, and ISO 21496-1 parameters as
-  `kCGImageAuxiliaryDataInfoMetadata`. It is not written here because none of those three
-  can be got right without a Mac to open the result on, and a file carrying a
-  *malformed* gain map is strictly worse than one carrying none: an HDR viewer will
-  apply it and render the picture wrong, where today it simply shows the SDR base. That
-  is the "a control that lies is worse than an absent one" rule applied to a file format.
-  The remaining Batch 6 items were finishable without a Mac; this one is not, and the
-  honest score stays where it is. Until then the toggle is inert and `hdrIsWritable`
-  says so in one place. It used to be worse than inert: the HDR ceiling reached the
-  render plan, put display white at 4.0, and the 8-bit encode then clipped everything
-  above diffuse white — so ticking the box threw away exactly the highlight roll-off it
-  was meant to preserve.
-- **Export metadata: the subtractive half is proven by construction, the additive half
-  is not.** Strip GPS, EXIF, Camera serial and Keywords remove what they name, and that
-  is reliable whichever way the encoder treats the property dictionary — either it
-  honours it and the keys are gone, or it ignores it and they were never going to be
-  written. Before this the entire section had no reader at all.
-
-  Copyright, Contact and the DPI pair *are* now written, into the TIFF and IPTC
-  dictionaries, correctly ordered after the drops so that switching EXIF off cannot
-  carry a copyright away with the dictionary it lives in. **What is not established is
-  whether they arrive.** All of it rides `image.settingProperties` into
-  `CIContext.write*Representation`, and nobody has verified on a Mac that the encoder
-  serialises properties that were ADDED rather than merely preserved. An earlier version
-  of this file said the additive half was impossible because that API "takes no metadata
-  argument"; that is the pessimistic reading of an API whose whole purpose is to carry a
-  dictionary to an encoder, and it is no better evidenced than the optimistic one. The
-  panel says the fields are written and unconfirmed, which is the only caption that is
-  true today.
-
-  **One afternoon at a Mac settles it**: export a JPEG and a TIFF with a copyright set,
-  read them back with `CGImageSourceCopyPropertiesAtIndex`, and check
-  `kCGImagePropertyTIFFCopyright` and `kCGImagePropertyIPTCCopyrightNotice`. If they are
-  absent, the file has to be authored through `CGImageDestination`, which takes an
-  explicit properties dictionary and removes the question — the same route the gain map
-  needs. Zero tests touch `applyMetadataPolicy` on either platform, so nothing would
-  notice either outcome today.
+  Copyright, Contact and the DPI pair are written into the TIFF and IPTC dictionaries,
+  correctly ordered after the drops so that switching EXIF off cannot carry a copyright
+  away with the dictionary it lives in. Whether they ARRIVE used to be the open
+  question — an earlier version of this bullet proposed settling it with "one afternoon
+  at a Mac" reading files back with `CGImageSourceCopyPropertiesAtIndex`, and said no
+  test touched `applyMetadataPolicy`. That readback now exists:
+  `Tests/LumenPipelineTests/AuditExportMetadataTests.swift` (macOS lanes) exports every
+  `ExportFormat` through the real `PipelineRenderer().export` path, reads the file back
+  with `CGImageSourceCopyPropertiesAtIndex`, and asserts the IPTC CreatorContactInfo
+  email/URL, the copyright string and 240 DPI, alongside GPS, keywords, EXIF
+  DateTimeOriginal and BodySerialNumber being absent; it also calls
+  `PipelineRenderer.applyMetadataPolicy` directly for the keyword merge.
+  `KernelGoldenTests` and `RawCorpusTests` cover the policy's geometry reconcile step.
+  One weakness remains: the copyright assertion accepts IPTC CopyrightNotice OR TIFF
+  Copyright (`??`), so an encoder that drops one of the two containers still passes —
+  "copyright arrives in both" is not proven. The Export sheet's captions
+  (`ExportSheet.swift`) still call DPI and Copyright "unconfirmed"; that copy predates
+  the readback.
 - **The crop tool is reachable now, and correct.** `showCrop` had no writer, so a
   complete interactive `CropOverlayView` was dead code. A first attempt at wiring it
   drew the wrong rectangle and was reverted the same hour: `renderPreview` applies
@@ -685,10 +750,13 @@ changed the picture.
   the reference width, both halves are the identity, so that render is byte-for-byte
   what it always was.
 
-  Also: a mask's COLOUR table still runs at 33³ even on export
-  (`RenderGraph.Options.lutSize` has one reader now — the local curve's table, which
-  does take the export size); and the waveform grows blank columns on crops narrower
-  than 256 proxy pixels.
+  Also: the waveform grows blank columns on crops narrower than 256 proxy pixels (not
+  re-verified since docs/audit-2026-09/w2/F2.md). The other half of this note is
+  closed: a mask's colour table used to run at 33³ even on export, and
+  `RenderGraph.applyLocalAdjust` now builds its `LocalPlan` at `options.lutSize` (65³ on
+  export), as the local curve's table always did. The comment there quotes the
+  measurement: worst-channel error 0.197 → 0.074 stops over 30 000 in-gamut colours,
+  samples past 0.02 EV 10.6% → 4.1%.
 - **Texture is still well under the strength it specifies**, and the fix above is not
   that fix. The units bug was real and is closed; what remains is the band SHAPE.
   Shipping Texture is one guided band scaled by a constant, where the reference sums the
@@ -746,12 +814,22 @@ nothing ran at quit so the last two seconds of culling never reached disk.
 
   Sharpening's Masking and Halo Suppression are also not unwired: both reach the GPU as
   arguments to `KernelLibrary.sharpenDelta`, and Detail reaches it as its own argument
-  rather than folded into a radius. Halo Suppression has no test on any path, which is a
-  different problem and an open one.
+  rather than folded into a radius. Halo Suppression is tested on the CPU reference
+  path: `FieldBaselineProbeTests.testHaloSuppressionCurrentlyMissesTheRimItExistsToDamp`
+  checks that it reaches pixels and leaves the undershoot alone, and pins a known
+  defect — the rim overshoot survives halo 100, because the damp is gated on the local
+  usm value, which has decayed below its 0.15 floor at the rim. `ProofRegistry` also
+  gives `sharpen.haloSuppression` an authority floor of 25 in the proof sweep. Open:
+  the defect itself, and no test drives this argument through the GPU
+  `KernelLibrary.sharpenDelta` path.
 - **Remove chromatic aberration and the whole Defringe group are not wired**, and the
   Effects panel no longer shows them. The CA toggle, the Defringe switch and its six
-  sliders: eight controls with a wire format and no reader — grep `removeCA` and
-  `Defringe` across `Sources/` and only `Recipe.swift` answers.
+  sliders: eight controls with a wire format and no reader —
+  `grep -rn 'removeCA\|[Dd]efringe' Sources/LumenPipeline Sources/LumenCore/Engine Sources/LumenCore/Image`
+  returns nothing. Across all of `Sources/` the only other matches are the wire format
+  (`Recipe.swift`, and the mask field in `RecipeMasks.swift`) and comments in
+  `EffectsPanel`, `MaskPanel` and `DevelopPanel` explaining why the controls were
+  removed.
   `lens.profile` is the one thing in that section that is genuinely consumed, at decode.
 
   A footnote conceding it was not enough. The CA toggle DEFAULTED TO ON, so every photo

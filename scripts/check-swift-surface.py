@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""Four mechanical passes over the Swift sources, for when there is no compiler.
+"""Mechanical passes over the Swift sources, for when there is no compiler.
 
-This is NOT a type checker and must never be described as one. It catches four classes
-of error, all of which a tree that has not been compiled in a while is likely to carry:
+This is NOT a type checker and must never be described as one. Each pass is one
+`pass_*` function, all called from `__main__` at the bottom; there are thirteen as of
+2026-10-20 (symbols, inits, method_labels, actor_await, members, module_imports,
+intree_imports, value_members, unbound_receivers, cross_module_access,
+argument_values, switch_exhaustive, kernel_reserved), and the comment block above (or
+docstring inside) each function says what it catches. The first four, the original set,
+catch error classes that a tree that has not been compiled in a while is likely to
+carry:
 
   1. a capitalized identifier that is declared nowhere in-tree and is not a known
      platform name — a typo, a rename that missed a site, a type from a module that is
@@ -18,10 +24,16 @@ of error, all of which a tree that has not been compiled in a while is likely to
   4. a `TypeName.member` reference naming nothing that type has — a rename that updated
      the declaration and missed the references.
 
-Every pass was verified able to fail before being trusted: nine mutations — wrong
-label, extra argument, reordered labels, missing required argument, a renamed type, a
-type from an unimported module, a stripped `await`, and two renamed statics — are
-caught nine times out of nine, and the unmutated tree stays silent. A check that has
+The later passes extend the same idea: method-call labels against in-tree declarations;
+platform and in-tree types used only where their module is imported; members read off
+an explicitly typed value; receivers and bare arguments bound in their scope; members
+reached across a module boundary being public; `switch` exhaustiveness over in-tree
+enums; and no Core Image kernel declaring a reserved word of the kernel language.
+
+Every pass was verified able to fail before being trusted. For the first four, nine
+mutations — wrong label, extra argument, reordered labels, missing required argument, a
+renamed type, a type from an unimported module, a stripped `await`, and two renamed
+statics — are caught nine times out of nine, and the unmutated tree stays silent. A check that has
 never failed proves nothing, which is the rule the rest of this project's verification
 is built on. That verification is now PERMANENT rather than anecdotal:
 `scripts/test-check-swift-surface.py` runs a fixture suite of known-good and known-bad
@@ -29,10 +41,11 @@ trees on every CI push, and the known-bad set includes the exact false negative 
 script shipped (the memberwise call with a multi-line ternary argument, out of order).
 
 WHAT IT STILL CANNOT SEE, so that a clean run is not read as more than it is: types.
-Every argument here is checked by label and never by type, so passing a Double where an
-Int is wanted is invisible. Leading-dot member syntax (`.jpeg`) carries no type name, so
-a renamed enum case is invisible. Generic constraints, protocol conformance, optionality
-and mutability are all invisible. Only a compiler sees those.
+Every argument here is checked by label (and, for a bare name, by being bound) and never
+by type, so passing a Double where an Int is wanted is invisible. Leading-dot member
+syntax (`.jpeg`) carries no type name, so a renamed enum case is invisible everywhere
+except a `switch` over an in-tree enum. Generic constraints, protocol conformance,
+optionality and mutability are all invisible. Only a compiler sees those.
 
 Deliberately conservative — anything it cannot parse cleanly is SKIPPED and counted
 rather than reported, because a false report costs a real investigation. The skip count
