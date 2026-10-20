@@ -36,6 +36,11 @@ enum ParityKeys {
         if state.pickTarget == .neutral {
             state.cancelPick()
         } else {
+            // No frame, nothing to click: arming would leave a prompt with no target.
+            guard state.primarySelection != nil else {
+                state.statusMessage = "Select a photo to pick its white balance"
+                return
+            }
             state.beginPick(.neutral)
         }
     }
