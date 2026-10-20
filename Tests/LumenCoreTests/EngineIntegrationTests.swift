@@ -978,6 +978,68 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
+    /// The solved-gain memo must hand back exactly what a cold solve produces, and only
+    /// for the inputs it was solved from. Portra takes the print-gain path, Velvia the
+    /// film-gain path; the whites interleave the way the EDR/SDR plans do, and push and
+    /// grain each change the key. Compared by bit pattern, not by tolerance. (1.0 and
+    /// 4.0 alone would solve to the same gains — `render` scales by white exactly — so
+    /// 2.7 is there to put a white that rounds into the key.) Nine keys per stock
+    /// overflow the four entries, so eviction is exercised too.
+    func testTheSolvedGainMemoServesTheColdSolveAndNothingElse() {
+        let ramp: [RGB] = (0...32).map { i in
+            let v = Double(i) / 2.0
+            return RGB(v, v * 0.6, v * 0.3)
+        }
+        func bits(_ chain: FilmChain) -> [UInt64] {
+            ramp.flatMap { c -> [UInt64] in
+                let o = chain.apply(c)
+                return [o.r.bitPattern, o.g.bitPattern, o.b.bitPattern]
+            }
+                + chain.bakeLUT(size: 9).data.map { UInt64($0.bitPattern) }
+        }
+        let whites = [1.0, 4.0, 2.7]
+        for stock in [FilmStock.portra400, FilmStock.velvia50] {
+            let base = FilmChain.defaultRecipe(for: stock)
+            var pushed = base
+            pushed.pushPull = 2
+            var grainy = base
+            grainy.grain.amount = base.grain.amount + 40
+            let variants = [base, pushed, grainy]
+
+            // Cold solves, one at a time, each from an empty memo.
+            var cold: [[UInt64]] = []
+            for recipe in variants {
+                for white in whites {
+                    FilmChain.solveMemo.removeAll()
+                    cold.append(bits(FilmChain(recipe, displayWhite: white)))
+                }
+            }
+            XCTAssertNotEqual(cold[0], cold[1], "\(stock.name): white must change the chain")
+            XCTAssertNotEqual(cold[0], cold[whites.count],
+                              "\(stock.name): push must change the chain")
+
+            // Interleaved, through the memo: every construction equals its cold twin.
+            FilmChain.solveMemo.removeAll()
+            for _ in 0..<3 {
+                for (v, recipe) in variants.enumerated() {
+                    for (w, white) in whites.enumerated() {
+                        XCTAssertEqual(bits(FilmChain(recipe, displayWhite: white)),
+                                       cold[v * whites.count + w],
+                                       "\(stock.name) variant \(v) white \(white) left its cold solve")
+                    }
+                }
+            }
+
+            // A repeat construction is a hit, not a re-solve.
+            FilmChain.solveMemo.removeAll()
+            let before = FilmChain.solveMemo.missCount
+            _ = FilmChain(base, displayWhite: 1.0)
+            _ = FilmChain(base, displayWhite: 1.0)
+            XCTAssertEqual(FilmChain.solveMemo.missCount - before, 1,
+                           "\(stock.name): the second identical chain re-solved")
+        }
+    }
+
     /// Brighter scene, brighter picture — in every channel, at every setting the Film
     /// Lab panel can reach.
     ///

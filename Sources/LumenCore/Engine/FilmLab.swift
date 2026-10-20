@@ -1595,10 +1595,14 @@ public struct FilmChain: Sendable {
         self.grain = profile
 
         if let s = found, blend > 0 {
-            self.solved = FilmChain.build(s,
-                                          push: push,
-                                          grainScale: profile.amount * FilmGrainProfile.densityScale,
-                                          white: white)
+            let grainScale: Double = profile.amount * FilmGrainProfile.densityScale
+            let key: SolveKey = SolveKey(stockID: s.id,
+                                         push: push.bitPattern,
+                                         grainScale: grainScale.bitPattern,
+                                         white: white.bitPattern)
+            self.solved = FilmChain.solveMemo.chain(for: key) {
+                FilmChain.build(s, push: push, grainScale: grainScale, white: white)
+            }
         } else {
             self.solved = nil
         }
@@ -1731,6 +1735,71 @@ public struct FilmChain: Sendable {
     }
 
     // MARK: - Build
+
+    /// Every input `build` reads, as bits. `stockID` stands for the whole stock because
+    /// `found` only ever comes from `FilmStock.named`, i.e. from the static `index` of
+    /// `let` constants: one id, one set of curves. The Doubles are the clamped values
+    /// handed to `build`, compared by bit pattern so not even ±0 can share an entry.
+    fileprivate struct SolveKey: Equatable {
+        let stockID: String
+        let push: UInt64
+        let grainScale: UInt64
+        let white: UInt64
+    }
+
+    /// The solved chain, remembered while its inputs do not move.
+    ///
+    /// `RenderPlan.init` builds a `FilmChain` on every plan with a stock loaded — the
+    /// finish-table hit path too, since the grain plan and `plan.filmChain` carry it —
+    /// and `solveGains` is 6 sweeps × 3 channels × a 52-step bisection: ~970 `render`
+    /// calls, measured 0.33 ms of a 0.61 ms warm film plan on a Texture tick, which
+    /// moves none of stock, push, grain or white. `build` is a pure function of the
+    /// key (no randomness, no global state), so a hit is the exact value a fresh solve
+    /// returns and no pixel can move. Four entries, not one: the EDR and SDR preview
+    /// plans, and export's HDR/SDR pair, alternate two whites.
+    static let solveMemo: SolvedChainMemo = SolvedChainMemo()
+
+    final class SolvedChainMemo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [(key: SolveKey, chain: SolvedChain)] = []
+        private static let capacity: Int = 4
+        private var misses: Int = 0
+
+        fileprivate func chain(for key: SolveKey, _ solve: () -> SolvedChain) -> SolvedChain {
+            lock.lock()
+            if let hit = entries.first(where: { $0.key == key }) {
+                lock.unlock()
+                return hit.chain
+            }
+            lock.unlock()
+            // Solved outside the lock: two threads missing on one key both solve, and
+            // both get the same bits.
+            let chain: SolvedChain = solve()
+            lock.lock()
+            misses += 1
+            if !entries.contains(where: { $0.key == key }) {
+                if entries.count >= SolvedChainMemo.capacity { entries.removeFirst() }
+                entries.append((key, chain))
+            }
+            lock.unlock()
+            return chain
+        }
+
+        /// Forget every entry, so the next construction is a cold solve. Test-only.
+        func removeAll() {
+            lock.lock()
+            entries.removeAll()
+            lock.unlock()
+        }
+
+        /// Solves actually run — `EngineIntegrationTests` reads it to prove a repeat
+        /// construction does not re-solve.
+        var missCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return misses
+        }
+    }
 
     private static func build(_ stock: FilmStock,
                               push: Double,
