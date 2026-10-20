@@ -476,6 +476,46 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// THE PIVOT CAN OUTRUN THE ANCHOR. The Pivot slider (and Auto) clamp it to ±4 EV,
+    /// but Whites +100 pulls the white anchor down to 3.5 EV, so from Whites +67 up the
+    /// pivot can sit PAST the end of the scale. Every tone between the anchor and the
+    /// pivot then took the below-pivot branch, whose reach runs 13 EV down to the black
+    /// anchor, so the shoulder never engaged and the full slope applied right through
+    /// the anchor: `Tone(contrast: -100, contrastPivot: 4, whites: 100)` sent 3.0 EV to
+    /// 3.6 and the anchor itself to 3.8 — three quarters of a stop of real highlight
+    /// lifted to flat white by a slider whose tooltip says it cannot clip one. The grid
+    /// in `testContrastCannotPushAPixelPastTheDisplayAnchors` only reached pivot ±2 at
+    /// Whites 0, which is why it never saw this.
+    func testAPivotPastTheWhiteAnchorStillCannotPushAPixelPastIt() {
+        for whites in [67.0, 80, 100] {
+            for pivot in [3.5, 3.8, 4.0] {
+                for contrast in [-100.0, -50, 50, 100] {
+                    let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot,
+                                                  whites: whites))
+                    let label = "contrast \(contrast) pivot \(pivot) whites \(whites)"
+                    XCTAssertEqual(e.contrastMapped(e.whiteAnchorEV), e.whiteAnchorEV,
+                                   accuracy: 1e-9,
+                                   "\(label) moved the white anchor \(e.whiteAnchorEV) to "
+                                       + "\(e.contrastMapped(e.whiteAnchorEV))")
+                    var t = e.blackAnchorEV
+                    while t <= e.whiteAnchorEV {
+                        let v = e.contrastMapped(t)
+                        XCTAssertLessThanOrEqual(v, e.whiteAnchorEV + 1e-9,
+                                                 "\(label) sent \(t) EV to \(v), past white")
+                        XCTAssertGreaterThanOrEqual(v, e.blackAnchorEV - 1e-9,
+                                                    "\(label) sent \(t) EV to \(v), past black")
+                        t += 0.05
+                    }
+                    // The documented half stays: past the anchor Contrast is the identity.
+                    for above in [e.whiteAnchorEV + 0.25, 4.5, 6.0] {
+                        XCTAssertEqual(e.contrastMapped(above), above, accuracy: 1e-9,
+                                       "\(label) moved \(above) EV, beyond the anchor")
+                    }
+                }
+            }
+        }
+    }
+
     /// The property the old wide window existed to protect, measured rather than argued.
     /// A brighter input must never render darker.
     /// The geometry `ToneEngine.endShelfStart` / `blackShelfStart` now state in prose,
