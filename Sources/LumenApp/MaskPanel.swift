@@ -2946,7 +2946,10 @@ struct MaskPanel: View {
                                      + "is spaced in mireds, so a move counts the same "
                                      + "everywhere on the scale. Reset is the "
                                      + "photograph's own white balance.")
+            // The global row's hard range too: Basic accepts a typed ±300 and the
+            // engine renders it, so the stand-in can sit outside ±150.
             optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,
+                                 hardRange: -300...300,
                                  step: 1, bipolar: true,
                                  trackStops: Lumen.tintStops,
                                  help: "The green–magenta axis the Kelvin scale cannot "
@@ -2972,17 +2975,22 @@ struct MaskPanel: View {
     private func optionalAdjustSlider(_ id: String, _ t: String,
                                       _ p: WritableKeyPath<LocalAdjust, Double?>,
                                       _ r: ClosedRange<Double>, _ standIn: Double,
+                                      hardRange: ClosedRange<Double>? = nil,
                                       step: Double = 1, decimals: Int = 0,
                                       bipolar: Bool = false,
                                       scale: SliderScale = .linear,
                                       trackStops: [LumenTrackStop]? = nil,
                                       help: String? = nil) -> some View {
-        LumenSlider(title: t,
+        // The setter clamps to what TYPING accepts, not to the drag range: a stand-in
+        // past the drag range (a global Tint typed to 220) has to survive a reset or an
+        // arrow-key nudge instead of being pulled back to the drag range's end.
+        let limit = hardRange ?? r
+        return LumenSlider(title: t,
                     value: maskValue(id, "abs." + t,
                                      get: { $0.adjust[keyPath: p] ?? standIn },
                                      set: { $0.adjust[keyPath: p] =
-                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, scale: scale, defaultValue: standIn,
+                                         Num.clamp($1, limit.lowerBound, limit.upperBound) }),
+                    range: r, hardRange: hardRange, scale: scale, defaultValue: standIn,
                     step: step, decimals: decimals,
                     bipolar: bipolar,
                     trackStops: trackStops,
