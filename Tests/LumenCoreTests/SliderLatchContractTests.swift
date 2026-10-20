@@ -36,7 +36,9 @@ final class SliderLatchContractTests: XCTestCase {
     /// catalog write and an epoch-less undo step a pause could split.
     func testATrackPressOpensTheLatchBeforeItWritesTheJump() throws {
         let body = try Self.trackChanged()
-        let latch = try XCTUnwrap(body.range(of: "sliderGestureChanged(true)")).lowerBound
+        // After the double-click branch, whose put-back has a latch of its own.
+        let press = try XCTUnwrap(body.range(of: "firstClickOrigin = value")).upperBound
+        let latch = try XCTUnwrap(body[press...].range(of: "sliderGestureChanged(true)")).lowerBound
         let jump = try XCTUnwrap(body.range(of: "value = dragStartValue")).lowerBound
         XCTAssertLessThan(latch, jump, "the press's jump is written before the latch opens")
     }
@@ -67,6 +69,8 @@ final class SliderLatchContractTests: XCTestCase {
         let putBack = try XCTUnwrap(branch.range(of: "value = origin")).lowerBound
         let reset = try XCTUnwrap(branch.range(of: "reset()")).lowerBound
         XCTAssertLessThan(putBack, reset)
+        XCTAssertTrue(branch.contains("NSEvent.doubleClickInterval"),
+                      "an origin from some earlier press must not be put back")
         let afterBranch = try XCTUnwrap(body.range(of: branch)).upperBound
         let remembered = try XCTUnwrap(body[afterBranch...].range(of: "firstClickOrigin = value"))
         let jump = try XCTUnwrap(body.range(of: "value = dragStartValue"))

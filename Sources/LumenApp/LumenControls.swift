@@ -573,6 +573,9 @@ struct LumenSlider: View {
     /// The value before the latest single press, so the second click of a double-click
     /// can put back the jump the first one made before it resets.
     @State private var firstClickOrigin: Double?
+    /// When that press happened. An origin older than the double-click interval belongs
+    /// to some earlier press, not to this double-click's first click.
+    @State private var firstClickAt = Date.distantPast
     @State private var isEditingText = false
     @State private var textValue = ""
     @FocusState private var textFocused: Bool
@@ -1179,7 +1182,9 @@ struct LumenSlider: View {
                                 // step and empties it, so a reset through `onReset` —
                                 // which writes under another key — is the only step,
                                 // and one ⌘Z does not land on the click-point value.
-                                if let origin = firstClickOrigin, origin != value {
+                                if let origin = firstClickOrigin, origin != value,
+                                   Date().timeIntervalSince(firstClickAt)
+                                       <= NSEvent.doubleClickInterval {
                                     onEditingChanged?(true)
                                     sliderGestureChanged(true)
                                     value = origin
@@ -1191,6 +1196,7 @@ struct LumenSlider: View {
                                 return
                             }
                             firstClickOrigin = value
+                            firstClickAt = Date()
                             // The latch opens BEFORE the press writes anything: a track
                             // press's jump written unlatched was an immediate catalog
                             // write and an undo step with no epoch, which a pause
@@ -1376,15 +1382,15 @@ struct LumenSlider: View {
                     .help("Drag to adjust, click to type — ⇧ for fine")
             }
         }
-        // Padding INSIDE the column's width, so the pill costs the track nothing: the
-        // row's arithmetic — label, two gaps, readout, the rest is groove — is what
-        // decided the panel's default width, and a readout that grew outward would
-        // have quietly taken twelve points off every track in the app.
         // A field left open without focus closes when the value moves under it, so a
         // stale snapshot can never be committed over a newer edit.
         .onChange(of: value) { _, _ in
             if isEditingText && !textFocused { isEditingText = false }
         }
+        // Padding INSIDE the column's width, so the pill costs the track nothing: the
+        // row's arithmetic — label, two gaps, readout, the rest is groove — is what
+        // decided the panel's default width, and a readout that grew outward would
+        // have quietly taken twelve points off every track in the app.
         .padding(.horizontal, 5)
         .frame(width: Lumen.valueWidth, alignment: .trailing)
         // A PILL, NOT A BARE NUMBER. The readout is the app's precision instrument and
