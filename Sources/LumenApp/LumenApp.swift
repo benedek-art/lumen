@@ -125,6 +125,8 @@ struct LumenApp: App {
         }
         .commands {
             LumenCommands(state: state, commands: state.commands)
+            // Culling selection and filter verbs (CullCommands.swift).
+            CullCommands(state: state, commands: state.commands)
         }
     }
 }

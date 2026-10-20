@@ -3500,26 +3500,28 @@ final class AppState: ObservableObject {
         activeComponentIndex = 0
     }
 
-    func setFlag(_ flag: PhotoFlag) {
+    /// `forceAdvance` is Shift (or Caps Lock) on the key: move on even with
+    /// auto-advance off (`CullAdvance`).
+    func setFlag(_ flag: PhotoFlag, forceAdvance: Bool = false) {
         let target: PhotoFlag = referenceItem?.flag == flag ? .unflagged : flag
         let from = cursorIndex
         mutateTargets("Flag") { $0.flag = target }
-        advanceIfNeeded(from: from)
+        advanceIfNeeded(from: from, forced: forceAdvance)
     }
 
-    func setRating(_ rating: Int) {
+    func setRating(_ rating: Int, forceAdvance: Bool = false) {
         let clamped = Swift.min(Swift.max(rating, 0), 5)
         let target = referenceItem?.rating == clamped ? 0 : clamped
         let from = cursorIndex
         mutateTargets("Rating") { $0.rating = target }
-        advanceIfNeeded(from: from)
+        advanceIfNeeded(from: from, forced: forceAdvance)
     }
 
-    func setLabel(_ label: ColorLabel) {
+    func setLabel(_ label: ColorLabel, forceAdvance: Bool = false) {
         let target: ColorLabel? = referenceItem?.label == label ? nil : label
         let from = cursorIndex
         mutateTargets("Label") { $0.label = target }
-        advanceIfNeeded(from: from)
+        advanceIfNeeded(from: from, forced: forceAdvance)
     }
 
     private func scopesBecameVisible(_ wasOn: Bool) {
@@ -3550,8 +3552,9 @@ final class AppState: ObservableObject {
     /// nothing, it silently undid whatever develop edit happened to be on top of the
     /// stack, on a possibly different photo. For an app whose highest-frequency job is
     /// the culling loop, its primary action had no undo.
-    private func mutateTargets(_ label: String, _ body: (inout PhotoItem) -> Void) {
-        let targets = Set(editTargets.map(\.id))
+    private func mutateTargets(_ label: String, targets explicit: Set<URL>? = nil,
+                               _ body: (inout PhotoItem) -> Void) {
+        let targets = explicit ?? Set(editTargets.map(\.id))
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
@@ -3592,6 +3595,15 @@ final class AppState: ObservableObject {
         // A rejected frame under a "Picked" chip has just left the grid, and only the
         // catalog knows it: the badge lives in `allPhotos`, the membership does not.
         refreshLibraryQueryIfCullingShowsInTheGrid()
+    }
+
+    /// The same culling step over photos named explicitly rather than the edit targets —
+    /// for batch verbs whose decision differs per photo ("Pick Sharpest in Each Burst").
+    /// One undo step under `label`, like a keystroke over a selection.
+    func mutateCulling(of targets: Set<URL>, label: String,
+                       _ body: (inout PhotoItem) -> Void) {
+        guard !targets.isEmpty else { return }
+        mutateTargets(label, targets: targets, body)
     }
 
     /// A culling change moves grid MEMBERSHIP or ORDER whenever a filter is lit or the
@@ -3644,8 +3656,9 @@ final class AppState: ObservableObject {
     /// does exactly that — and then it is no longer in `photos` to be found. Looking
     /// it up afterwards returned nil and sent the cursor to the top of the roll on
     /// every keystroke.
-    private func advanceIfNeeded(from index: Int?) {
-        guard autoAdvance, selection.count <= 1 else { return }
+    private func advanceIfNeeded(from index: Int?, forced: Bool = false) {
+        guard CullAdvance.shouldAdvance(autoAdvance: autoAdvance, forced: forced,
+                                        selectionCount: selection.count) else { return }
         let list = photos
         guard !list.isEmpty else { return }
         guard let current = primarySelection,
