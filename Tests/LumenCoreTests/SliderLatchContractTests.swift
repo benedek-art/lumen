@@ -58,6 +58,22 @@ final class SliderLatchContractTests: XCTestCase {
                       "the scrub latches only inside its first-event branch")
     }
 
+    /// Finding: the first click of a double-click jumped the value and the second reset
+    /// through `onReset` under another key, so one ⌘Z landed on the click-point value.
+    /// The second click puts the jump back (under the row's key) before resetting.
+    func testADoubleClickPutsBackTheFirstClicksJumpBeforeResetting() throws {
+        let body = try Self.trackChanged()
+        let branch = try XCTUnwrap(ShellSource.body(after: "clickCount ?? 1) >= 2", in: body))
+        let putBack = try XCTUnwrap(branch.range(of: "value = origin")).lowerBound
+        let reset = try XCTUnwrap(branch.range(of: "reset()")).lowerBound
+        XCTAssertLessThan(putBack, reset)
+        let afterBranch = try XCTUnwrap(body.range(of: branch)).upperBound
+        let remembered = try XCTUnwrap(body[afterBranch...].range(of: "firstClickOrigin = value"))
+        let jump = try XCTUnwrap(body.range(of: "value = dragStartValue"))
+        XCTAssertLessThan(remembered.lowerBound, jump.lowerBound,
+                          "the origin must be taken before the press jumps the value")
+    }
+
     /// Finding: the wheel's silence closer lived in the row, so it could unlatch another
     /// row's drag and share its epoch with it. The row now only reports the tick.
     func testTheWheelNudgeHandsItsLatchToTheState() throws {

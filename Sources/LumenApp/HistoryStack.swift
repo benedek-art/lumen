@@ -161,6 +161,18 @@ final class HistoryStack: ObservableObject {
                 if let culling = edit.culling { combined.culling = culling }
                 merged[url] = combined
             }
+            // A step folded back to where it began undoes nothing, so it goes. The
+            // double-click that resets a slider is the case: the first click's jump and
+            // the put-back before the reset would otherwise leave an empty step, and the
+            // first ⌘Z would appear to do nothing. Only at the head of the stack — with
+            // a redo tail behind it, removing a step would reorder history.
+            if position == steps.count, Self.isNoOp(before: open.before, after: merged) {
+                atomically {
+                    steps.removeLast()
+                    position = steps.count
+                }
+                return
+            }
             // The open step keeps its own key and epoch: it is still the same step,
             // and a wheel drag's second field must not rename it.
             steps[position - 1] = Step(before: open.before, after: merged,
@@ -188,6 +200,12 @@ final class HistoryStack: ObservableObject {
             }
             position = steps.count
         }
+    }
+
+    /// Whether restoring `before` over `after` would change nothing: every field the
+    /// step recorded for every photo is back where it started.
+    static func isNoOp(before: [URL: PhotoEdit], after: [URL: PhotoEdit]) -> Bool {
+        before == after
     }
 
     func undo() -> [URL: PhotoEdit]? {

@@ -570,6 +570,9 @@ struct LumenSlider: View {
     /// The press that began this gesture was the second click of a double-click, so
     /// `reset()` ran and everything else the gesture delivers is ignored.
     @State private var pressWasReset = false
+    /// The value before the latest single press, so the second click of a double-click
+    /// can put back the jump the first one made before it resets.
+    @State private var firstClickOrigin: Double?
     @State private var isEditingText = false
     @State private var textValue = ""
     @FocusState private var textFocused: Bool
@@ -1170,9 +1173,24 @@ struct LumenSlider: View {
                             // start of a drag.
                             if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
                                 pressWasReset = true
+                                // PUT BACK THE FIRST CLICK'S JUMP before resetting (the
+                                // B3-05 rule ColorPanel's hue handle follows). Written
+                                // under this row's key, it folds into that click's undo
+                                // step and empties it, so a reset through `onReset` —
+                                // which writes under another key — is the only step,
+                                // and one ⌘Z does not land on the click-point value.
+                                if let origin = firstClickOrigin, origin != value {
+                                    onEditingChanged?(true)
+                                    sliderGestureChanged(true)
+                                    value = origin
+                                    onEditingChanged?(false)
+                                    sliderGestureChanged(false)
+                                }
+                                firstClickOrigin = nil
                                 reset()
                                 return
                             }
+                            firstClickOrigin = value
                             // The latch opens BEFORE the press writes anything: a track
                             // press's jump written unlatched was an immediate catalog
                             // write and an undo step with no epoch, which a pause

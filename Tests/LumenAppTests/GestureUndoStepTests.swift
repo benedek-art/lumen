@@ -113,6 +113,56 @@ final class GestureUndoStepTests: XCTestCase {
         }
     }
 
+    // MARK: A double-click on the track
+
+    /// The first click jumps the value; the second puts it back under the row's key and
+    /// resets through `onReset`, which writes under another key. The jump and the
+    /// put-back fold into one step that undoes nothing, and it is dropped — so the
+    /// reset is the only step, and one ⌘Z returns to where the double-click began.
+    @MainActor
+    func testADoubleClickResetIsOneStepAndOneUndoReturnsToTheStart() throws {
+        try withState { state, photo in
+            let original = state.recipe(for: photo)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = 60
+            }
+            state.sliderGesture(active: false)
+
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = original.develop.tone.highlights
+            }
+            state.sliderGesture(active: false)
+            XCTAssertTrue(state.history.steps.isEmpty,
+                          "a step folded back to its start must not stay on the stack")
+
+            state.updateRecipe(coalescingKey: "tone.highlights.reset", targets: [photo]) { _, r in
+                r.develop.tone.whites = 7
+            }
+            XCTAssertEqual(state.history.steps.count, 1)
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo), original)
+        }
+    }
+
+    /// The same rule on the bare stack: a step folded back to its start is gone.
+    @MainActor
+    func testAStepFoldedBackToItsStartIsDropped() {
+        let url = URL(fileURLWithPath: "/roll/frame.arw")
+        func edit(_ highlights: Double) -> [URL: HistoryStack.PhotoEdit] {
+            var r = Recipe()
+            r.develop.tone.highlights = highlights
+            return [url: HistoryStack.PhotoEdit(recipe: r)]
+        }
+        let history = HistoryStack()
+        history.record(before: edit(0), after: edit(10), coalescingKey: "tone.highlights")
+        history.record(before: edit(10), after: edit(0), coalescingKey: "tone.highlights")
+        XCTAssertTrue(history.steps.isEmpty)
+        XCTAssertEqual(history.position, 0)
+        XCTAssertFalse(history.canUndo)
+    }
+
     // MARK: The ⌥-scroll latch
 
     @MainActor
