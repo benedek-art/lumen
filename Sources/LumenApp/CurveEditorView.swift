@@ -875,13 +875,16 @@ struct CurveEditorView: View {
         }
         // A click on empty graph adds a point and keeps dragging it, which is the same
         // gesture as placing one and adjusting it in one motion — so the placement and
-        // the adjustment share a key and stay ONE undo step.
+        // the adjustment share a gesture epoch and stay ONE undo step. The placement
+        // itself carries no key: its index can be the previous placement's (see
+        // `CurveEditing.placementCoalescingKey`).
         let x: Double = storedX(CurveEditing.clamp01(Double(location.x / size.width)))
         let y: Double = CurveEditing.clamp01(1 - Double(location.y / size.height))
         let updated: [[Double]] = CurveEditing.sanitized(
             CurveStack.settingPoint(points, x: x, y: y))
         let placed: Int? = CurveEditing.nearestIndexByX(updated, x: x)
-        commitPoints(updated, key: pointKey(placed ?? 0))
+        commitPoints(updated, key: CurveEditing.placementCoalescingKey,
+                     label: CurveEditing.placementLabel)
         dragPointIndex = placed
     }
 

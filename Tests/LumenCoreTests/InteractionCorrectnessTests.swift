@@ -56,4 +56,51 @@ final class InteractionCorrectnessTests: XCTestCase {
         XCTAssertEqual(track.value(from: -4, travelled: -1000), -5)
         XCTAssertEqual(track.value(from: 12, travelled: .nan), 5)
     }
+
+    // MARK: - A curve placement is its own undo step
+
+    /// Place a point at x = 0.6 (index 1), then within the window a point at x = 0.3:
+    /// that one is index 1 too, and A shifts to index 2. Keyed by index, the two
+    /// placements folded into one step and one ⌘Z removed both. Replayed as the editor
+    /// does it, each click its own gesture, through the rule `HistoryStack` calls.
+    func testPlacingAPointLeftOfTheLastPlacedOneIsItsOwnUndoStep() {
+        let url = Set([URL(fileURLWithPath: "/photo.dng")])
+        var curve = CurveEditing.identity
+        var steps: [(key: String?, epoch: Int, after: [[Double]])] = []
+        for (epoch, x) in [(1, 0.6), (2, 0.3)] {
+            let next = CurveEditing.sanitized(CurveStack.settingPoint(curve, x: x, y: x))
+            XCTAssertEqual(CurveEditing.nearestIndexByX(next, x: x), 1,
+                           "precondition: both placements land on index 1")
+            let key = CurveEditing.placementCoalescingKey
+            if let open = steps.last,
+               HistoryCoalescing.shouldCoalesce(openKey: open.key, openURLs: url,
+                                                key: key, urls: url,
+                                                sinceLastEdit: 0.5, window: 1.2,
+                                                openEpoch: open.epoch, epoch: epoch) {
+                steps[steps.count - 1].after = next
+            } else {
+                steps.append((key, epoch, next))
+            }
+            curve = next
+        }
+        XCTAssertEqual(steps.count, 2, "two separate point placements folded into one undo step")
+        XCTAssertEqual(steps.first?.after.count, 3, "undoing the second placement must leave the first")
+    }
+
+    /// A placement and the adjustment that follows it in the same motion share the
+    /// gesture's epoch, so they are still one step even though the placement has no key.
+    func testPlaceAndAdjustInOneMotionIsStillOneStep() {
+        let url = Set([URL(fileURLWithPath: "/photo.dng")])
+        let drag = CurveEditing.pointCoalescingKey(prefix: "curve.", channel: "point", index: 1)
+        XCTAssertTrue(HistoryCoalescing.shouldCoalesce(
+            openKey: CurveEditing.placementCoalescingKey, openURLs: url,
+            key: drag, urls: url, sinceLastEdit: 0.05, window: 1.2,
+            openEpoch: 4, epoch: 4))
+        // ...and a different point dragged in a later gesture is not folded into it.
+        XCTAssertFalse(HistoryCoalescing.shouldCoalesce(
+            openKey: CurveEditing.placementCoalescingKey, openURLs: url,
+            key: drag, urls: url, sinceLastEdit: 0.05, window: 1.2,
+            openEpoch: 4, epoch: 5))
+        XCTAssertFalse(CurveEditing.placementLabel.isEmpty)
+    }
 }
