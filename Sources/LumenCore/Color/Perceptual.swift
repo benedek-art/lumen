@@ -350,6 +350,14 @@ public enum Gamut {
         let excess = lch.C - t
         let room = maxC - t
         let compressed = t + room * (excess / (excess + room))
-        return context.toRGB(OKLCh(L: lch.L, C: compressed, h: lch.h))
+        let out = context.toRGB(OKLCh(L: lch.L, C: compressed, h: lch.h))
+        // The table is bilinear over a 10° × 1/16-L grid, and near the yellow-green
+        // cusp that OVERestimates the true limit by up to 0.014 chroma, so the
+        // "never crossed" above was false there (green 1.008 at L 0.963, h 125.6°).
+        // Rare, so the exact bisection is cheap where it is needed; `min` keeps the
+        // mapping monotone in chroma.
+        guard !inside(out) else { return out }
+        let exact = Gamut.maxChroma(L: lch.L, hue: lch.h, context: context)
+        return context.toRGB(OKLCh(L: lch.L, C: Swift.min(compressed, exact), h: lch.h))
     }
 }

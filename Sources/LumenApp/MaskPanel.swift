@@ -2940,7 +2940,12 @@ struct MaskPanel: View {
                                      + "is spaced in mireds, so a move counts the same "
                                      + "everywhere on the scale. Reset is the "
                                      + "photograph's own white balance.")
+            // Drags pin at ±150 like the global row; typing reaches ±300, which the
+            // global row and the engine (ReferenceRenderer's mask clamp) both honour.
+            // The stand-in can be the photograph's own tint beyond 150, and clamping
+            // writes to the drag range snapped the region off the rest of the frame.
             optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,
+                                 hardRange: -300...300,
                                  step: 1, bipolar: true,
                                  trackStops: Lumen.tintStops,
                                  help: "The green–magenta axis the Kelvin scale cannot "
@@ -2966,6 +2971,7 @@ struct MaskPanel: View {
     private func optionalAdjustSlider(_ id: String, _ t: String,
                                       _ p: WritableKeyPath<LocalAdjust, Double?>,
                                       _ r: ClosedRange<Double>, _ standIn: Double,
+                                      hardRange: ClosedRange<Double>? = nil,
                                       step: Double = 1, decimals: Int = 0,
                                       bipolar: Bool = false,
                                       scale: SliderScale = .linear,
@@ -2975,8 +2981,9 @@ struct MaskPanel: View {
                     value: maskValue(id, "abs." + t,
                                      get: { $0.adjust[keyPath: p] ?? standIn },
                                      set: { $0.adjust[keyPath: p] =
-                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, scale: scale, defaultValue: standIn,
+                                         Num.clamp($1, (hardRange ?? r).lowerBound,
+                                                   (hardRange ?? r).upperBound) }),
+                    range: r, hardRange: hardRange, scale: scale, defaultValue: standIn,
                     step: step, decimals: decimals,
                     bipolar: bipolar,
                     trackStops: trackStops,

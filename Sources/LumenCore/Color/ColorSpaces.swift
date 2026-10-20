@@ -318,8 +318,14 @@ public enum ColorTemperature {
         let y: Double
         if t <= 2222 {
             y = -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683
-        } else {
+        } else if t <= 4000 {
             y = -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867
+        } else {
+            // Kim's third segment. `locus` still reads this curve up to 4500 K inside
+            // the crossfade, and `planckX` already switches to its own >4000 K fit
+            // here; pairing that x with the 2222–4000 K y-cubic put y up to 2.2e-4 off
+            // the locus (a faint green bias) across 4000–4500 K.
+            y = 3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483
         }
         return Chromaticity(x, y)
     }
