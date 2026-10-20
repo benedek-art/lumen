@@ -71,6 +71,9 @@ struct GridView: View {
                                 .onTapGesture {
                                     lastClickedID = photo.id
                                     handleCellClick(photo, state: state)
+                                    // A ⌘-click that deselects the cursor moves it to
+                                    // another selected frame: still a click, so no scroll.
+                                    lastClickedID = state.primarySelection?.id
                                 }
                         }
                     }

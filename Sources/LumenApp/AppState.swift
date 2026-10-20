@@ -3458,6 +3458,12 @@ final class AppState: ObservableObject {
         guard primarySelection?.id == photo.id else { return }
         guard !selection.isEmpty else {
             primarySelection = nil
+            // Nothing else leaves the cursor nil for long, so the per-photo panels
+            // must stand down here: each refresh takes its no-selection branch, which
+            // also invalidates a measurement still in flight for the removed photo.
+            scheduleRawTruthRefresh()
+            refreshMaskThumbnails()
+            scheduleScopeRefresh()
             return
         }
         let list = photos
