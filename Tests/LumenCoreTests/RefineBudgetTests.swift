@@ -70,22 +70,49 @@ final class RefineBudgetTests: XCTestCase {
     }
 
     func testADiscreteEditWaitsPastTheGapBetweenTwoQuickPresses() {
-        // Six to eight arrow taps a second are 125–167 ms apart; the draft takes ~35 ms
-        // before the debounce starts, so 130 ms keeps a burst inside the cancellable
-        // sleep. A drag's pause keeps the short debounce.
+        // Six to eight arrow taps a second are 125–167 ms apart. The window runs from
+        // the request, so the next tap lands in the sleep whatever the draft cost —
+        // a fast draft does not shorten it. A drag's pause keeps the short debounce.
         let loupe = RefineBudget.loupe
         XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: false), loupe.settleNanoseconds)
-        XCTAssertGreaterThanOrEqual(loupe.debounceNanoseconds(discreteEdit: true), 125_000_000)
-        XCTAssertLessThan(loupe.debounceNanoseconds(discreteEdit: true), loupe.totalNanoseconds)
+        XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: false, elapsed: 35_000_000),
+                       loupe.settleNanoseconds)
+        for draft: UInt64 in [0, 15_000_000, 35_000_000, 100_000_000] {
+            let settleStartsAt = draft + loupe.debounceNanoseconds(discreteEdit: true,
+                                                                    elapsed: draft)
+            XCTAssertGreaterThan(settleStartsAt, 167_000_000, "draft \(draft)")
+        }
+        XCTAssertLessThan(RefineBudget.discreteEditWindowNanoseconds, loupe.totalNanoseconds)
+        // A draft slower than the window still gets the plain debounce, never zero.
+        XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: true, elapsed: 400_000_000),
+                       loupe.settleNanoseconds)
     }
 
-    func testTheLoupePicksTheDiscreteDebounceOnlyForASettleAskThatMovedTheRecipe() throws {
-        // The sleep sits inside `if needsDraft`, so `isSettleAsk` there means the tick
-        // moved WITH the recipe — a bracketed one-shot, not a drag's release.
+    func testOnlyAPressOnThePhotoShowingIsADiscreteEdit() {
+        XCTAssertTrue(RefineBudget.isDiscreteEdit(isSettleAsk: true, needsDraft: true,
+                                                  samePhotograph: true,
+                                                  previousRequestWasMidGesture: false))
+        // A photo switch inside a latched gesture (the ⌥-scroll window included).
+        XCTAssertFalse(RefineBudget.isDiscreteEdit(isSettleAsk: true, needsDraft: true,
+                                                   samePhotograph: false,
+                                                   previousRequestWasMidGesture: false))
+        // A drag's release whose last sample moved the recipe.
+        XCTAssertFalse(RefineBudget.isDiscreteEdit(isSettleAsk: true, needsDraft: true,
+                                                   samePhotograph: true,
+                                                   previousRequestWasMidGesture: true))
+        XCTAssertFalse(RefineBudget.isDiscreteEdit(isSettleAsk: false, needsDraft: true,
+                                                   samePhotograph: true,
+                                                   previousRequestWasMidGesture: false))
+    }
+
+    func testTheLoupeTimesTheDiscreteDebounceFromTheRequest() throws {
         let code = try ShellSource.code("Sources/LumenApp/LoupeView.swift")
+        let squashed = ShellSource.squashed(code)
+        XCTAssertTrue(squashed.contains(
+            "let samePhotograph = imageURL == url let previousRequestWasMidGesture = lastRequestWasMidGesture lastRequestWasMidGesture = gestureInFlight()"))
         let draft = try XCTUnwrap(ShellSource.body(after: "if needsDraft", in: code))
         XCTAssertTrue(ShellSource.squashed(draft).contains(
-            "Task.sleep(nanoseconds: isSettleAsk ? PhotoRenderModel.discreteEditSettleNanoseconds : PhotoRenderModel.settleNanoseconds)"))
+            "Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds( discreteEdit: discreteEdit, elapsed: elapsed))"))
     }
 
     func testAZeroDeadlineIsReportedAsFullySpentRatherThanDividingByZero() {

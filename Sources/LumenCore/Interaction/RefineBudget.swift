@@ -74,19 +74,37 @@ public struct RefineBudget: Sendable, Equatable {
                                            settleNanoseconds: 40_000_000)
 
     /// The debounce for a DISCRETE edit: one arrow press, one VoiceOver step, a typed
-    /// value — a request whose recipe and settle tick moved together, because the edit
-    /// opened and closed its gesture in one go.
+    /// value — the edit opened and closed its gesture in one go, so the request moved
+    /// the recipe and the settle tick together, on the photo already showing, with no
+    /// drag sample before it.
     ///
     /// Such an edit has no release to wait for, so 40 ms after it the full-resolution
-    /// pass starts, and the render actor cannot give that pass back. Tapping → six or
+    /// pass starts, and the render actor cannot give that pass back. Tapping six or
     /// eight times a second then paid a settle per press that the next press threw
-    /// away, and each press's draft queued behind the last one's settle. Past the gap
-    /// between two quick presses, a burst coalesces in this cancellable sleep instead.
-    public static let discreteEditSettleNanoseconds: UInt64 = 130_000_000
+    /// away, and each press's draft queued behind the last one's settle.
+    ///
+    /// Measured FROM THE REQUEST, not from the draft's landing: taps 125–167 ms apart
+    /// must all arrive inside the cancellable sleep whatever the draft cost, so the
+    /// window is the widest gap plus a little, and still under the 200 ms deadline.
+    public static let discreteEditWindowNanoseconds: UInt64 = 175_000_000
 
-    /// How long to wait before the quality pass, for a drag's pause or a discrete edit.
-    public func debounceNanoseconds(discreteEdit: Bool) -> UInt64 {
-        discreteEdit ? Swift.max(settleNanoseconds, Self.discreteEditSettleNanoseconds)
-                     : settleNanoseconds
+    /// How long to sleep before the quality pass, `elapsed` after the request began.
+    /// A drag's pause keeps the plain debounce; a discrete edit sleeps out the rest of
+    /// its window, and never less than the plain debounce.
+    public func debounceNanoseconds(discreteEdit: Bool, elapsed: UInt64 = 0) -> UInt64 {
+        guard discreteEdit else { return settleNanoseconds }
+        let rest = Self.discreteEditWindowNanoseconds > elapsed
+            ? Self.discreteEditWindowNanoseconds - elapsed : 0
+        return Swift.max(settleNanoseconds, rest)
+    }
+
+    /// Whether a request is a discrete edit. A photo switch made while a gesture is
+    /// latched also moves the tick (the switch flushes it), and so does a drag's
+    /// release whose last sample moved the recipe; neither is a burst of presses, so
+    /// both keep the short debounce.
+    public static func isDiscreteEdit(isSettleAsk: Bool, needsDraft: Bool,
+                                      samePhotograph: Bool,
+                                      previousRequestWasMidGesture: Bool) -> Bool {
+        isSettleAsk && needsDraft && samePhotograph && !previousRequestWasMidGesture
     }
 }

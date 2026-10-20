@@ -518,9 +518,6 @@ final class PhotoRenderModel: ObservableObject {
     /// first is a small fraction of the second. What is still unmeasured is whether a
     /// real pass fits in the remainder; that is audit UX-01, and it needs a Mac.
     static let settleNanoseconds: UInt64 = RefineBudget.loupe.settleNanoseconds
-    /// The same debounce for a discrete edit; see `RefineBudget.debounceNanoseconds`.
-    static let discreteEditSettleNanoseconds: UInt64 =
-        RefineBudget.loupe.debounceNanoseconds(discreteEdit: true)
 
     /// How many times the quality pass will re-ask when it comes back empty. See the
     /// comment at the retry loop: nil from the coordinator can mean "superseded by a
@@ -556,6 +553,10 @@ final class PhotoRenderModel: ObservableObject {
     /// the ONLY thing that moved was the tick — which happens exactly once, when a hand
     /// comes off a slider. See `load`.
     private var lastSettleTick: Int?
+
+    /// Whether the previous request arrived with a gesture latched — a drag sample.
+    /// A tick that follows one is that drag's release, not a discrete edit.
+    private var lastRequestWasMidGesture = false
 
     /// When the previous draft landed, so the ladder can be costed by the interval
     /// between delivered frames rather than by the render's own wall time — see
@@ -619,6 +620,11 @@ final class PhotoRenderModel: ObservableObject {
         // is the ask for the quality pass the drag deferred, and nothing else.
         let isSettleAsk = lastSettleTick != nil && lastSettleTick != settleTick
         lastSettleTick = settleTick
+        // What `RefineBudget.isDiscreteEdit` needs, read before anything below resets it.
+        let requestStarted = DispatchTime.now().uptimeNanoseconds
+        let samePhotograph = imageURL == url
+        let previousRequestWasMidGesture = lastRequestWasMidGesture
+        lastRequestWasMidGesture = gestureInFlight()
         // The hand came up: let the ladder spend any headroom the gesture banked. It
         // is held during the drag because a rung earned back under a moving hand is a
         // visible change of sharpness; here it is one change, at rest, invisible.
@@ -904,12 +910,16 @@ final class PhotoRenderModel: ObservableObject {
             // still has to happen inside the deadline, so the wait is the part of the
             // budget that buys the least and is kept the smallest.
             //
-            // Longer for a DISCRETE edit — the tick moved WITH the recipe, which only a
-            // bracketed one-shot (an arrow press, a VoiceOver step) does — so a burst of
-            // presses coalesces here rather than in a settle the actor cannot cancel.
-            try? await Task.sleep(nanoseconds: isSettleAsk
-                ? PhotoRenderModel.discreteEditSettleNanoseconds
-                : PhotoRenderModel.settleNanoseconds)
+            // Longer for a DISCRETE edit (an arrow press, a VoiceOver step), counted
+            // from the request, so a burst of presses coalesces here rather than in a
+            // settle the actor cannot cancel.
+            let discreteEdit = RefineBudget.isDiscreteEdit(
+                isSettleAsk: isSettleAsk, needsDraft: needsDraft,
+                samePhotograph: samePhotograph,
+                previousRequestWasMidGesture: previousRequestWasMidGesture)
+            let elapsed = DispatchTime.now().uptimeNanoseconds &- requestStarted
+            try? await Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds(
+                discreteEdit: discreteEdit, elapsed: elapsed))
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
