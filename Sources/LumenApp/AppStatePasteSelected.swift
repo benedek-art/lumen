@@ -84,6 +84,26 @@ extension AppState {
         }
     }
 
+    /// Paste the remembered groups (the sheet's last answer) from the frame just before
+    /// the selection in the roll's order, ignoring the clipboard: edit one frame, move
+    /// to the next, ⌥⇧⌘V. Crops stay put unless the photographer ticked Crop.
+    func pasteFromPrevious() {
+        let list = photos
+        var indexByURL: [URL: Int] = [:]
+        for (i, photo) in list.enumerated() { indexByURL[photo.id] = i }
+        let selected = editTargets.compactMap { indexByURL[$0.id] }
+        guard let index = PreviousFrame.sourceIndex(selected: selected) else {
+            statusMessage = "No previous photograph to paste from"
+            return
+        }
+        let groups = SettingsPresetStore.shared.lastGroups
+        guard !groups.isEmpty else { return }
+        let source = recipe(for: list[index])
+        updateRecipe(label: "Paste from Previous") { recipe in
+            recipe = recipe.adopting(groups, from: source)
+        }
+    }
+
     /// Apply a saved preset to every edit target, as one undo step.
     func applySettingsPreset(_ preset: SettingsPreset) {
         updateRecipe(label: "Apply Preset \u{201C}\(preset.name)\u{201D}") { recipe in

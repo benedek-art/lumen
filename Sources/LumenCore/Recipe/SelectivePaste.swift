@@ -152,6 +152,19 @@ extension Recipe {
     }
 }
 
+/// Lightroom's "Previous": where the settings come from when there is no clipboard,
+/// only the frame you just finished.
+public enum PreviousFrame {
+    /// The index of the frame just BEFORE the earliest selected one, in the order the
+    /// roll is drawn. Nil when the selection is empty or starts at the first frame —
+    /// there is nothing before it, and wrapping to the last frame of the shoot would
+    /// paste a different scene's settings.
+    public static func sourceIndex(selected: [Int]) -> Int? {
+        guard let first = selected.min(), first > 0 else { return nil }
+        return first - 1
+    }
+}
+
 /// A named, saved selection of groups with the values they had when it was saved:
 /// "Indoor soccer 6400" = white balance + tone + detail + noise reduction, applied to a
 /// whole game in one gesture. Unlike a saved look it can carry develop groups.

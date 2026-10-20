@@ -410,6 +410,8 @@ private struct LumenCommands: Commands {
                         state.openPasteSelected()
                     }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
+                    Button("Paste from Previous") { state.pasteFromPrevious() }
+                        .keyboardShortcut("v", modifiers: [.command, .option, .shift])
                     // Spot removal is local work on one photograph's blemishes, so the
                     // two whole-recipe pastes leave it behind unless this is ticked —
                     // LR's sync default, as a checkable item rather than a dialog for the

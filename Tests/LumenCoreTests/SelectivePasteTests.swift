@@ -173,4 +173,11 @@ final class SelectivePasteTests: XCTestCase {
         XCTAssertEqual(decoded.presets[1].groups, [.tone])
         XCTAssertTrue(SettingsPresetLibrary.decode(Data("nope".utf8)).presets.isEmpty)
     }
+
+    func testPreviousFrameIsTheOneBeforeTheEarliestSelected() {
+        XCTAssertEqual(PreviousFrame.sourceIndex(selected: [5]), 4)
+        XCTAssertEqual(PreviousFrame.sourceIndex(selected: [9, 3, 7]), 2)
+        XCTAssertNil(PreviousFrame.sourceIndex(selected: [0, 4]))
+        XCTAssertNil(PreviousFrame.sourceIndex(selected: []))
+    }
 }
