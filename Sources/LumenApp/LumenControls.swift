@@ -534,6 +534,8 @@ struct LumenSlider: View {
     /// Same shape and the same reason as the gesture hook above: this control does not
     /// observe `AppState`, and it must not start.
     @Environment(\.sliderFocusChanged) private var sliderFocusChanged
+    /// ⌥-scroll ticks, named by `wheelOwner` — see `wheelNudge`.
+    @Environment(\.sliderWheelTick) private var sliderWheelTick
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -886,33 +888,26 @@ struct LumenSlider: View {
     /// change to make first if the owner finds eight seconds long", and his fourth
     /// round found it exactly: a wheel-scrubbed Shadows left a 1277 px draft standing
     /// on a zoomed loupe for the whole watchdog window, which reads as "the blur
-    /// never goes away". So the row closes its own gesture after half a second of
-    /// wheel silence: one task per row that is actually being scrolled (allocated on
-    /// use, not ninety timers idling), cancelled and re-armed per tick, closing
-    /// through the same `sliderGestureChanged(false)` a drag's release uses — which
-    /// lands the deferred catalog write, the scope re-bin and the settle at once.
-    /// The 8-second watchdog stays as the crash-safety net behind it, and the
-    /// known cost is narrow: begin a DRAG somewhere within the half second and the
-    /// stale closer flushes once mid-gesture; the drag's next event re-latches, and
-    /// one early settle is the whole price.
+    /// never goes away". So the gesture closes after half a second of wheel silence,
+    /// landing the deferred catalog write, the scope re-bin and the settle at once.
+    ///
+    /// THE CLOSER LIVES IN `AppState` (`sliderWheelTick(owner:)`), not in this row. A
+    /// per-row timer could not see anyone else's gesture: a drag begun on another row
+    /// inside the half second shared this burst's epoch (its first edits folded into
+    /// this row's undo step), and the stale closer then unlatched that drag half-way
+    /// through. The state ends a burst when any other gesture starts, and only the
+    /// burst's own row can be closed by its timer.
     private func wheelNudge(_ clicks: Int) {
         let next = scrubTrack.nudged(value, steps: clicks * (Self.shiftIsDown ? 10 : 1))
         guard next != value, next.isFinite else { return }
         onEditingChanged?(true)
-        sliderGestureChanged(true)
+        sliderWheelTick(wheelOwner)
         commit(next)
         onEditingChanged?(false)
-        wheelSettleCloser?.cancel()
-        wheelSettleCloser = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            sliderGestureChanged(false)
-        }
     }
 
-    /// The half-second wheel-silence closer above. `@State` so a re-body cannot leak
-    /// an armed task, and per-row so only rows actually being scrolled ever hold one.
-    @State private var wheelSettleCloser: Task<Void, Never>?
+    /// This row's identity to the wheel latch in `AppState`.
+    @State private var wheelOwner = UUID()
 
     // How close to the thumb counts as grabbing it rather than pressing the track is
     // `SliderDrag.thumbGrabRadius`, in LumenCore. It is not restated here as a second

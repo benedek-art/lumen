@@ -39,7 +39,19 @@ private struct SliderFocusKey: EnvironmentKey {
     static let defaultValue: (Bool) -> Void = { _ in }
 }
 
+/// One ⌥-scroll tick on a slider row, named by the row's own identity, so
+/// `AppState.sliderWheelTick(owner:)` can hold the latch for the burst and close it after
+/// the wheel goes quiet. Same no-op default as the two hooks above.
+private struct SliderWheelKey: EnvironmentKey {
+    static let defaultValue: (UUID) -> Void = { _ in }
+}
+
 extension EnvironmentValues {
+    var sliderWheelTick: (UUID) -> Void {
+        get { self[SliderWheelKey.self] }
+        set { self[SliderWheelKey.self] = newValue }
+    }
+
     var sliderGestureChanged: (Bool) -> Void {
         get { self[SliderGestureKey.self] }
         set { self[SliderGestureKey.self] = newValue }

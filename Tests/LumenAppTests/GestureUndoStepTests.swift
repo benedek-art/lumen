@@ -112,6 +112,96 @@ final class GestureUndoStepTests: XCTestCase {
             state.sliderGesture(active: false)
         }
     }
+
+    // MARK: The ⌥-scroll latch
+
+    @MainActor
+    private func withAsyncState(_ run: (AppState, PhotoItem) async throws -> Void) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-gesture-wheel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let state = AppState(catalogDirectory: { root.appendingPathComponent("catalog") },
+                             previewDirectory: { root.appendingPathComponent("previews") })
+        defer {
+            state.prepareToQuit()
+            try? FileManager.default.removeItem(at: root)
+        }
+        try await run(state, PhotoItem(id: root.appendingPathComponent("frame.arw"), iso: 400))
+    }
+
+    @MainActor private static var pastTheWheelCloser: UInt64 {
+        UInt64((AppState.wheelSettleDelay + 0.3) * 1e9)
+    }
+
+    /// ⌥-scroll Shadows, then grab Highlights inside the half second: the drag is its
+    /// own gesture, and the wheel's closer firing mid-drag does not unlatch it.
+    @MainActor
+    func testADragBegunInsideAWheelBurstIsItsOwnStepAndOutlivesTheWheelCloser() async throws {
+        try await withAsyncState { state, photo in
+            let original = state.recipe(for: photo)
+            state.sliderWheelTick(owner: UUID())
+            let wheelEpoch = state.recordingEpoch
+            state.updateRecipe(coalescingKey: "tone.shadows", targets: [photo]) { _, r in
+                r.develop.tone.shadows = 10
+            }
+            state.sliderGesture(active: true)
+            XCTAssertNotEqual(state.recordingEpoch, wheelEpoch,
+                              "the drag inherited the wheel burst's epoch")
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = -20
+            }
+            try await Task.sleep(nanoseconds: Self.pastTheWheelCloser)
+            XCTAssertTrue(state.sliderGestureActive, "the wheel's closer unlatched the drag")
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = -40
+            }
+            state.sliderGesture(active: false)
+
+            XCTAssertEqual(state.history.steps.count, 2)
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo).develop.tone.highlights,
+                           original.develop.tone.highlights)
+            XCTAssertEqual(state.recipe(for: photo).develop.tone.shadows, 10)
+        }
+    }
+
+    /// Two rows scrolled inside one half second are two undo steps, not one step that
+    /// carries the second row's edit under the first row's name.
+    @MainActor
+    func testTwoRowsScrolledInsideOneHalfSecondAreTwoSteps() throws {
+        try withState { state, photo in
+            state.sliderWheelTick(owner: UUID())
+            let first = state.recordingEpoch
+            state.updateRecipe(coalescingKey: "tone.shadows", targets: [photo]) { _, r in
+                r.develop.tone.shadows = 5
+            }
+            state.sliderWheelTick(owner: UUID())
+            XCTAssertNotEqual(state.recordingEpoch, first)
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = 5
+            }
+            state.sliderGesture(active: false)
+            XCTAssertEqual(state.history.steps.count, 2)
+        }
+    }
+
+    /// One row's ticks stay one gesture, and half a second of silence closes it.
+    @MainActor
+    func testAWheelBurstIsOneGestureClosedBySilence() async throws {
+        try await withAsyncState { state, photo in
+            let owner = UUID()
+            for i in 1...5 {
+                state.sliderWheelTick(owner: owner)
+                state.updateRecipe(coalescingKey: "tone.shadows", targets: [photo]) { _, r in
+                    r.develop.tone.shadows = Double(i)
+                }
+            }
+            XCTAssertTrue(state.sliderGestureActive)
+            XCTAssertEqual(state.history.steps.count, 1)
+            try await Task.sleep(nanoseconds: Self.pastTheWheelCloser)
+            XCTAssertFalse(state.sliderGestureActive, "the burst never closed")
+        }
+    }
 }
 
 #endif

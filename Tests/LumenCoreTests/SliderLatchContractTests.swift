@@ -57,4 +57,22 @@ final class SliderLatchContractTests: XCTestCase {
         XCTAssertTrue(body[firstEnd...].contains("sliderGestureChanged(true)"),
                       "the scrub latches only inside its first-event branch")
     }
+
+    /// Finding: the wheel's silence closer lived in the row, so it could unlatch another
+    /// row's drag and share its epoch with it. The row now only reports the tick.
+    func testTheWheelNudgeHandsItsLatchToTheState() throws {
+        let s = try Self.slider()
+        let body = try XCTUnwrap(ShellSource.body(after: "private func wheelNudge(", in: s))
+        XCTAssertTrue(body.contains("sliderWheelTick(wheelOwner)"))
+        XCTAssertFalse(body.contains("sliderGestureChanged"),
+                       "the row must not open or close the shared latch for a wheel tick")
+        XCTAssertFalse(body.contains("Task"), "the silence closer belongs to AppState")
+
+        let state = try ShellSource.code("Sources/LumenApp/AppState.swift")
+        let open = try XCTUnwrap(ShellSource.body(after: "func sliderGesture(active: Bool)",
+                                                  in: state))
+        XCTAssertTrue(ShellSource.squashed(open).contains(
+            "if wheelGestureOwner != nil { closeSliderGesture() }"),
+            "a gesture starting must end a wheel burst")
+    }
 }

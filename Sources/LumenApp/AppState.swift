@@ -4150,19 +4150,67 @@ final class AppState: ObservableObject {
 
     func sliderGesture(active: Bool) {
         if active {
-            lastGestureEventAt = Date()
-            if !sliderGestureActive {
-                sliderGestureActive = true
-                gestureEpoch &+= 1
-                armGestureWatchdog()
-            }
+            // A wheel burst holds the latch with no hand on anything; a real gesture
+            // starting is that burst's end. Without this the drag inherited the wheel
+            // row's epoch (its first edits folded into the wheel's undo step) and the
+            // row's closer then unlatched the drag half-way through.
+            if wheelGestureOwner != nil { closeSliderGesture() }
+            openSliderGesture()
             return
         }
+        closeSliderGesture()
+    }
+
+    private func openSliderGesture() {
+        lastGestureEventAt = Date()
+        if !sliderGestureActive {
+            sliderGestureActive = true
+            gestureEpoch &+= 1
+            armGestureWatchdog()
+        }
+    }
+
+    private func closeSliderGesture() {
+        let endsWheelBurst = wheelGestureOwner != nil
+        wheelSettleCloser?.cancel()
+        wheelSettleCloser = nil
+        wheelGestureOwner = nil
+        // The mask Edge rows force the overlay on through their gesture sink, and a
+        // wheel burst never sends that sink its `false`.
+        if endsWheelBurst { setMaskEdgeGesture(false, mask: nil) }
         guard sliderGestureActive else { return }
         sliderGestureActive = false
         gestureWatchdog?.cancel()
         gestureWatchdog = nil
         flushSliderGesture()
+    }
+
+    /// The ⌥-scroll row that holds the latch, or nil when a hand-held gesture (or
+    /// nothing) does. A wheel has no release, so the latch is closed by half a second
+    /// of silence instead — here rather than in the row, so that any other gesture
+    /// starting can end the burst and a stale closer can never unlatch someone else.
+    private var wheelGestureOwner: UUID?
+    private var wheelSettleCloser: Task<Void, Never>?
+    static let wheelSettleDelay: TimeInterval = 0.5
+
+    /// One ⌥-scroll tick on the row `owner`, called before its edit is written.
+    func sliderWheelTick(owner: UUID) {
+        // Another row's burst, or a drag: that gesture ends here, so this row's ticks
+        // are their own undo step.
+        if sliderGestureActive && wheelGestureOwner != owner { closeSliderGesture() }
+        openSliderGesture()
+        wheelGestureOwner = owner
+        wheelSettleCloser?.cancel()
+        wheelSettleCloser = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.wheelSettleDelay * 1e9))
+            guard !Task.isCancelled, let self, self.wheelGestureOwner == owner else { return }
+            self.closeSliderGesture()
+        }
+    }
+
+    /// The wheel hook, allocated once like `sliderGestureSink`.
+    lazy var sliderWheelSink: (UUID) -> Void = { [weak self] owner in
+        self?.sliderWheelTick(owner: owner)
     }
 
     /// Note a mid-gesture edit, so the watchdog measures silence rather than duration:
@@ -4178,9 +4226,9 @@ final class AppState: ObservableObject {
                 let silence = Date().timeIntervalSince(self.lastGestureEventAt)
                 let remaining = Self.gestureSilenceTimeout - silence
                 if remaining <= 0 {
-                    self.sliderGestureActive = false
-                    self.gestureWatchdog = nil
-                    self.flushSliderGesture()
+                    // Through the one close path, so a wheel burst's owner and closer
+                    // are retired with it.
+                    self.closeSliderGesture()
                     return
                 }
                 try? await Task.sleep(nanoseconds: UInt64(remaining * 1e9))

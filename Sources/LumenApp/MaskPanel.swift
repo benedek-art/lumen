@@ -480,6 +480,12 @@ struct MaskPanel: View {
                     state.sliderGestureSink(active)
                     state.setMaskEdgeGesture(active, mask: mask.id)
                 }
+                // ⌥-scroll here forces the overlay on too; the state's wheel closer
+                // releases it when the burst ends.
+                .environment(\.sliderWheelTick) { owner in
+                    state.sliderWheelSink(owner)
+                    state.setMaskEdgeGesture(true, mask: mask.id)
+                }
         }
         .padding(.leading, MaskPanel.detailIndent)
         .padding(.trailing, 2)
