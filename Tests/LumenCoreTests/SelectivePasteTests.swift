@@ -181,3 +181,55 @@ final class SelectivePasteTests: XCTestCase {
         XCTAssertNil(PreviousFrame.sourceIndex(selected: []))
     }
 }
+
+final class ExposureMatchTests: XCTestCase {
+
+    private func meta(iso: Int?, t: Double?, f: Double?) -> PhotoMetadata {
+        var m = PhotoMetadata()
+        m.iso = iso
+        m.shutterSeconds = t
+        m.aperture = f
+        return m
+    }
+
+    func testOneStopLessLightGetsOneStopMoreExposure() {
+        let ref = meta(iso: 6400, t: 1.0 / 1000, f: 2.8)
+        let darker = meta(iso: 3200, t: 1.0 / 1000, f: 2.8)
+        XCTAssertEqual(ExposureMatch.matchedExposure(referenceExposure: 0.5,
+                                                     reference: ref, target: darker), 1.5)
+        let brighter = meta(iso: 6400, t: 1.0 / 500, f: 2.8)
+        XCTAssertEqual(ExposureMatch.matchedExposure(referenceExposure: 0.5,
+                                                     reference: ref, target: brighter), -0.5)
+    }
+
+    func testApertureCountsSquared() {
+        let ref = meta(iso: 100, t: 1, f: 2)
+        let stoppedDown = meta(iso: 100, t: 1, f: 4)   // two stops less light
+        XCTAssertEqual(ExposureMatch.matchedExposure(referenceExposure: 0,
+                                                     reference: ref, target: stoppedDown), 2)
+    }
+
+    func testSameCaptureKeepsTheReferenceValue() {
+        let m = meta(iso: 1600, t: 1.0 / 250, f: 4)
+        XCTAssertEqual(ExposureMatch.matchedExposure(referenceExposure: 0.73,
+                                                     reference: m, target: m), 0.73)
+    }
+
+    func testMissingMetadataIsLeftAlone() {
+        let ref = meta(iso: 100, t: 1, f: 2)
+        XCTAssertNil(ExposureMatch.matchedExposure(referenceExposure: 0, reference: ref,
+                                                   target: meta(iso: nil, t: 1, f: 2)))
+        XCTAssertNil(ExposureMatch.matchedExposure(referenceExposure: 0, reference: ref,
+                                                   target: meta(iso: 100, t: 0, f: 2)))
+        XCTAssertNil(ExposureMatch.matchedExposure(referenceExposure: 0,
+                                                   reference: meta(iso: 100, t: 1, f: nil),
+                                                   target: ref))
+    }
+
+    func testResultIsClampedToTheSlider() {
+        let ref = meta(iso: 100, t: 1, f: 2)
+        let tiny = meta(iso: 100, t: 1.0 / 8000, f: 2)
+        XCTAssertEqual(ExposureMatch.matchedExposure(referenceExposure: 0,
+                                                     reference: ref, target: tiny), 5)
+    }
+}
