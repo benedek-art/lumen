@@ -214,13 +214,23 @@ public enum ExportColorSpace: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Stored by raw value, so the declaration order is only the menu order. A case this
+/// build does not know decodes as the recipe default (`ExportRecipe.init(from:)`).
 public enum ResizeMode: String, Codable, Sendable, CaseIterable {
     case none
     case longEdge
     case shortEdge
     case width
     case height
+    /// Fit inside a `resizeValue` × `resizeHeight` box as drawn: 1920×1080 makes a
+    /// portrait 1080 high (Lightroom's "Width & Height").
+    case fitWithin
+    /// The same box turned to match the photo: its larger side bounds the long edge and
+    /// its smaller side the short edge (Lightroom's "Dimensions").
+    case dimensions
     case megapixels
+    /// `resizeValue` percent of the cropped frame's own size.
+    case percent
 
     public var displayName: String {
         switch self {
@@ -229,7 +239,35 @@ public enum ResizeMode: String, Codable, Sendable, CaseIterable {
         case .shortEdge: return "Short edge"
         case .width: return "Width"
         case .height: return "Height"
+        case .fitWithin: return "Width & height"
+        case .dimensions: return "Dimensions"
         case .megapixels: return "Megapixels"
+        case .percent: return "Percentage"
+        }
+    }
+
+    /// What `resizeValue` is measured in under this mode.
+    public enum Unit: Equatable, Sendable { case none, pixels, megapixels, percent }
+
+    public var unit: Unit {
+        switch self {
+        case .none: return .none
+        case .megapixels: return .megapixels
+        case .percent: return .percent
+        default: return .pixels
+        }
+    }
+
+    /// Whether the mode reads `resizeHeight` as well — the two box modes.
+    public var usesBox: Bool { self == .fitWithin || self == .dimensions }
+
+    /// The number a recipe takes when it arrives at this mode from one with another
+    /// unit: 2048 px, 24 MP, 50 %. Carrying 2048 into Megapixels asks for two gigapixels.
+    public var defaultValue: Double {
+        switch unit {
+        case .megapixels: return 24
+        case .percent: return 50
+        case .none, .pixels: return 2048
         }
     }
 }
@@ -494,6 +532,9 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
 
     public var resizeMode: ResizeMode
     public var resizeValue: Double
+    /// The box's second side, in pixels, for `.fitWithin` (its height) and `.dimensions`
+    /// (its other side); `resizeValue` is the first. Every other mode ignores it.
+    public var resizeHeight: Double
     /// Never upscale past the source's own pixels unless explicitly asked.
     public var allowUpscale: Bool
     public var resolutionPPI: Double
@@ -506,6 +547,9 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     /// header says which spellings it shares with the ingest renamer. An unknown token
     /// stays visible in the delivered name rather than being silently dropped.
     public var filenameTemplate: String
+    /// What `{custom}` renders — the job text ("U17-vs-Ajax") typed beside the template
+    /// so it changes per delivery without editing the template.
+    public var customText: String?
     public var subfolder: String?
     /// What `{seq}` counts from (docs/11 §Naming: 1…999999). The first photo of the
     /// batch is this number; a template with no sequence token never reads it.
@@ -524,11 +568,13 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
                 format: ExportFormat = .jpeg, quality: Double = 100, bitDepth: Int = 8,
                 colorSpace: ExportColorSpace = .srgb,
                 resizeMode: ResizeMode = .none, resizeValue: Double = 2048,
+                resizeHeight: Double = 2048,
                 allowUpscale: Bool = false, resolutionPPI: Double = 300,
                 sharpen: OutputSharpen = OutputSharpen(),
                 metadata: MetadataPolicy = MetadataPolicy(),
                 watermark: Watermark? = nil,
-                filenameTemplate: String = "{name}", subfolder: String? = nil,
+                filenameTemplate: String = "{name}", customText: String? = nil,
+                subfolder: String? = nil,
                 sequenceStart: Int = 1,
                 collision: ExportCollisionPolicy = .rename,
                 hdr: HDRSettings? = nil) {
@@ -541,12 +587,14 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         self.colorSpace = colorSpace
         self.resizeMode = resizeMode
         self.resizeValue = resizeValue
+        self.resizeHeight = resizeHeight
         self.allowUpscale = allowUpscale
         self.resolutionPPI = resolutionPPI
         self.sharpen = sharpen
         self.metadata = metadata
         self.watermark = watermark
         self.filenameTemplate = filenameTemplate
+        self.customText = customText
         self.subfolder = subfolder
         self.sequenceStart = sequenceStart
         self.collision = collision
@@ -595,6 +643,8 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
                                 default: fallback.resizeMode)
         resizeValue = c.tolerant(Double.self, forKey: .resizeValue,
                                  default: fallback.resizeValue)
+        resizeHeight = c.tolerant(Double.self, forKey: .resizeHeight,
+                                  default: fallback.resizeHeight)
         allowUpscale = c.tolerant(Bool.self, forKey: .allowUpscale,
                                   default: fallback.allowUpscale)
         resolutionPPI = c.tolerant(Double.self, forKey: .resolutionPPI,
@@ -605,6 +655,7 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         watermark = c.tolerant(Watermark.self, forKey: .watermark)
         filenameTemplate = c.tolerant(String.self, forKey: .filenameTemplate,
                                       default: fallback.filenameTemplate)
+        customText = c.tolerant(String.self, forKey: .customText)
         subfolder = c.tolerant(String.self, forKey: .subfolder)
         sequenceStart = c.tolerant(Int.self, forKey: .sequenceStart,
                                    default: fallback.sequenceStart)
@@ -676,6 +727,14 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         case .megapixels:
             let targetPixels = Swift.max(resizeValue, 0.01) * 1_000_000
             scale = (targetPixels / (w * h)).squareRoot()
+        case .fitWithin:
+            scale = Swift.min(resizeValue / w, resizeHeight / h)
+        case .dimensions:
+            let boxLong = Swift.max(resizeValue, resizeHeight)
+            let boxShort = Swift.min(resizeValue, resizeHeight)
+            scale = Swift.min(boxLong / Swift.max(w, h), boxShort / Swift.min(w, h))
+        case .percent:
+            scale = resizeValue / 100
         }
         if !allowUpscale { scale = Swift.min(scale, 1.0) }
         guard scale.isFinite, scale > 0 else {
@@ -807,19 +866,80 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     ///
     /// Under `.rename` this is exactly `disambiguated(wanted) { claimed || exists }`,
     /// the call the batch made before the policy existed.
+    ///
+    /// `isOriginal` names the files no policy may replace: the photographs being
+    /// exported and their RAW+JPEG siblings (`originalIdentities(of:)`). Overwrite is
+    /// the re-delivery of a corrected batch, and an original is never a delivery —
+    /// with the default `{name}` template, a JPEG exported as JPEG into its own folder
+    /// wants exactly its own path, and `replacing: true` renamed the render over the
+    /// file it was rendered from. An original under Overwrite is renamed instead, and
+    /// no disambiguated candidate may land on one either. Skip is left alone: it
+    /// writes nothing.
     public static func placement(for wanted: URL, policy: ExportCollisionPolicy,
                                  claimedThisRun: (URL) -> Bool,
-                                 existsOnDisk: (URL) -> Bool) -> ExportPlacement {
-        let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) }
+                                 existsOnDisk: (URL) -> Bool,
+                                 isOriginal: (URL) -> Bool = { _ in false }) -> ExportPlacement {
+        let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) || isOriginal($0) }
         if claimedThisRun(wanted) {
+            if policy == .overwrite {
+                // A re-delivery: the `-N` name a duplicate of this batch got last time is
+                // what Overwrite replaces. Counting files from before the run as taken
+                // left the stale render there and wrote a new `-N+1` on every run. Only
+                // this run's claims and originals are off limits.
+                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || isOriginal($0) })
+                return .write(next, replacing: existsOnDisk(next))
+            }
             return .write(disambiguated(wanted, isTaken: taken), replacing: false)
         }
         guard existsOnDisk(wanted) else { return .write(wanted, replacing: false) }
         switch policy {
         case .rename: return .write(disambiguated(wanted, isTaken: taken), replacing: false)
-        case .overwrite: return .write(wanted, replacing: true)
+        case .overwrite:
+            if isOriginal(wanted) {
+                // Stepped past the original, to the `-N` this re-delivery wrote last
+                // time, which Overwrite then replaces. Counting files already on disk as
+                // taken here wrote a new `-N+1` on every run: Lumen's own earlier `{name}`
+                // render beside the RAW shares its stem, so it reads as an original too.
+                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || isOriginal($0) })
+                return .write(next, replacing: existsOnDisk(next))
+            }
+            return .write(wanted, replacing: true)
         case .skip: return .skip(wanted)
         }
+    }
+
+    /// The file identities `placement`'s `isOriginal` protects for a batch exporting
+    /// `sources`: each source, and every photograph beside it sharing its name stem —
+    /// the camera's JPEG of a RAW+JPEG pair is not in a RAW-only batch, but
+    /// `DSC00001.ARW` exported as JPEG into the card folder wants `DSC00001.jpg`.
+    ///
+    /// Identities, not paths (`IngestLocation.fileIdentity`): device and inode for a
+    /// file that exists, so a case or Unicode-normalisation variant of the name on
+    /// APFS, a symbolic link or a hard link all compare as the original they are. The
+    /// stem match folds case and normalisation for the same reason — on Linux, or for
+    /// a camera that writes `DSC00001.JPG` beside `dsc00001.arw`, the spellings differ.
+    public static func originalIdentities(of sources: [URL]) -> Set<String> {
+        func key(_ url: URL) -> String {
+            url.deletingPathExtension().lastPathComponent
+                .precomposedStringWithCanonicalMapping.lowercased()
+        }
+        var identities: Set<String> = []
+        var stemsByFolder: [URL: Set<String>] = [:]
+        for source in sources {
+            identities.insert(IngestLocation.fileIdentity(of: source))
+            stemsByFolder[source.deletingLastPathComponent().standardizedFileURL, default: []]
+                .insert(key(source))
+        }
+        for (folder, stems) in stemsByFolder {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            for name in names {
+                let sibling = folder.appendingPathComponent(name)
+                guard PhotoFormats.browsable.contains(sibling.pathExtension.lowercased()),
+                      stems.contains(key(sibling)) else { continue }
+                identities.insert(IngestLocation.fileIdentity(of: sibling))
+            }
+        }
+        return identities
     }
 }
 

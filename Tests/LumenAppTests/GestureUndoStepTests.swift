@@ -93,6 +93,49 @@ final class GestureUndoStepTests: XCTestCase {
         }
     }
 
+    /// A double-click on bare disc is one undo step (B3-05 on the wheel). The first
+    /// click places the puck on release — `sat` then `hue`, the order `LumenColorWheel`
+    /// writes — and the second click's reset writes `sat` in a new gesture. The reset
+    /// folds in only because the placement's step carries the `sat` key; written hue
+    /// first, one ⌘Z landed on a tint nobody chose.
+    ///
+    /// The wheel starts with a luminance, because the reset also writes `lum`: under
+    /// another key, it folds only because the step adopts the reset's epoch.
+    @MainActor
+    func testAWheelDoubleClickIsOneUndoStep() throws {
+        try withState { state, photo in
+            state.updateRecipe(coalescingKey: "setup", targets: [photo]) { _, r in
+                r.look.wheels.shadows.lum = 0.3
+            }
+            let original = state.recipe(for: photo)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wheel.Shadows.sat", targets: [photo]) { _, r in
+                r.look.wheels.shadows.sat = 0.6
+            }
+            state.updateRecipe(coalescingKey: "wheel.Shadows.hue", targets: [photo]) { _, r in
+                r.look.wheels.shadows.hue = 200
+            }
+            state.sliderGesture(active: false)
+
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wheel.Shadows.sat", targets: [photo]) { _, r in
+                r.look.wheels.shadows.sat = 0
+            }
+            state.updateRecipe(coalescingKey: "wheel.Shadows.lum", targets: [photo]) { _, r in
+                r.look.wheels.shadows.lum = 0
+            }
+            state.sliderGesture(active: false)
+
+            // the setup edit, then the double-click
+            XCTAssertEqual(state.history.steps.count, 2,
+                           "a double-click on the wheel made \(state.history.steps.count - 1) "
+                               + "undo steps")
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo), original,
+                           "one ⌘Z did not return the grade from before the double-click")
+        }
+    }
+
     /// Two separate drags are two gestures, and the epoch is what says so: if a release
     /// and a re-press shared one, the second drag's edits would fold into the first's
     /// step through the epoch clause, past every key and every window.
@@ -110,6 +153,197 @@ final class GestureUndoStepTests: XCTestCase {
             XCTAssertNotNil(first)
             XCTAssertNotEqual(first, second, "two gestures shared one epoch")
             state.sliderGesture(active: false)
+        }
+    }
+
+    // MARK: A double-click on the track
+
+    /// The first click jumps the value; the second puts it back under the row's key and
+    /// resets through `onReset`, which writes under another key. The jump and the
+    /// put-back fold into one step that undoes nothing, and it is dropped — so the
+    /// reset is the only step, and one ⌘Z returns to where the double-click began.
+    @MainActor
+    func testADoubleClickResetIsOneStepAndOneUndoReturnsToTheStart() throws {
+        try withState { state, photo in
+            let original = state.recipe(for: photo)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = 60
+            }
+            state.sliderGesture(active: false)
+
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = original.develop.tone.highlights
+            }
+            state.sliderGesture(active: false)
+            XCTAssertTrue(state.history.steps.isEmpty,
+                          "a step folded back to its start must not stay on the stack")
+
+            state.updateRecipe(coalescingKey: "tone.highlights.reset", targets: [photo]) { _, r in
+                r.develop.tone.whites = 7
+            }
+            XCTAssertEqual(state.history.steps.count, 1)
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo), original)
+        }
+    }
+
+    /// An optional-backed row (Temp: nil means As Shot): the put-back writes the
+    /// getter's stand-in, not nil, so it does not empty the click's step on its own.
+    /// The put-back and `onReset` share one latch, so the reset folds in by epoch and
+    /// the whole double-click leaves nothing to undo back to a pinned override.
+    @MainActor
+    func testADoubleClickResetOnAnOptionalRowLeavesNoPinnedStep() throws {
+        try withState { state, photo in
+            let original = state.recipe(for: photo)
+            XCTAssertNil(original.develop.raw.temp)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wb.temp", targets: [photo]) { _, r in
+                r.develop.raw.temp = 7000
+            }
+            state.sliderGesture(active: false)
+
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wb.temp", targets: [photo]) { _, r in
+                r.develop.raw.temp = 5500
+            }
+            state.updateRecipe(coalescingKey: "wb.preset", targets: [photo]) { _, r in
+                r.develop.raw.temp = nil
+            }
+            state.sliderGesture(active: false)
+
+            XCTAssertTrue(state.history.steps.isEmpty,
+                          "a double-click on an As Shot row must not leave a pinned step")
+            XCTAssertEqual(state.recipe(for: photo), original)
+        }
+    }
+
+    /// The same rule on the bare stack: a step folded back to its start is gone.
+    @MainActor
+    func testAStepFoldedBackToItsStartIsDropped() {
+        let url = URL(fileURLWithPath: "/roll/frame.arw")
+        func edit(_ highlights: Double) -> [URL: HistoryStack.PhotoEdit] {
+            var r = Recipe()
+            r.develop.tone.highlights = highlights
+            return [url: HistoryStack.PhotoEdit(recipe: r)]
+        }
+        let history = HistoryStack()
+        history.record(before: edit(0), after: edit(10), coalescingKey: "tone.highlights")
+        history.record(before: edit(10), after: edit(0), coalescingKey: "tone.highlights")
+        XCTAssertTrue(history.steps.isEmpty)
+        XCTAssertEqual(history.position, 0)
+        XCTAssertFalse(history.canUndo)
+    }
+
+    /// Dropping a folded-back step must not make the step it exposes look recent: an
+    /// edit right after goes in its own step, not into the older one.
+    @MainActor
+    func testAnEditAfterADroppedStepDoesNotFoldIntoTheOlderStep() {
+        let url = URL(fileURLWithPath: "/roll/frame.arw")
+        func edit(_ highlights: Double) -> [URL: HistoryStack.PhotoEdit] {
+            var r = Recipe()
+            r.develop.tone.highlights = highlights
+            return [url: HistoryStack.PhotoEdit(recipe: r)]
+        }
+        let history = HistoryStack()
+        history.record(before: edit(0), after: edit(10), coalescingKey: "tone.highlights")
+        _ = history.undo()
+        _ = history.redo()
+        history.record(before: edit(10), after: edit(20), coalescingKey: "tone.highlights")
+        history.record(before: edit(20), after: edit(10), coalescingKey: "tone.highlights")
+        XCTAssertEqual(history.steps.count, 1)
+        history.record(before: edit(10), after: edit(30), coalescingKey: "tone.highlights")
+        XCTAssertEqual(history.steps.count, 2)
+    }
+
+    // MARK: The ⌥-scroll latch
+
+    @MainActor
+    private func withAsyncState(_ run: (AppState, PhotoItem) async throws -> Void) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-gesture-wheel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let state = AppState(catalogDirectory: { root.appendingPathComponent("catalog") },
+                             previewDirectory: { root.appendingPathComponent("previews") })
+        defer {
+            state.prepareToQuit()
+            try? FileManager.default.removeItem(at: root)
+        }
+        try await run(state, PhotoItem(id: root.appendingPathComponent("frame.arw"), iso: 400))
+    }
+
+    @MainActor private static var pastTheWheelCloser: UInt64 {
+        UInt64((AppState.wheelSettleDelay + 0.3) * 1e9)
+    }
+
+    /// ⌥-scroll Shadows, then grab Highlights inside the half second: the drag is its
+    /// own gesture, and the wheel's closer firing mid-drag does not unlatch it.
+    @MainActor
+    func testADragBegunInsideAWheelBurstIsItsOwnStepAndOutlivesTheWheelCloser() async throws {
+        try await withAsyncState { state, photo in
+            let original = state.recipe(for: photo)
+            state.sliderWheelTick(owner: UUID())
+            let wheelEpoch = state.recordingEpoch
+            state.updateRecipe(coalescingKey: "tone.shadows", targets: [photo]) { _, r in
+                r.develop.tone.shadows = 10
+            }
+            state.sliderGesture(active: true)
+            XCTAssertNotEqual(state.recordingEpoch, wheelEpoch,
+                              "the drag inherited the wheel burst's epoch")
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = -20
+            }
+            try await Task.sleep(nanoseconds: Self.pastTheWheelCloser)
+            XCTAssertTrue(state.sliderGestureActive, "the wheel's closer unlatched the drag")
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = -40
+            }
+            state.sliderGesture(active: false)
+
+            XCTAssertEqual(state.history.steps.count, 2)
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo).develop.tone.highlights,
+                           original.develop.tone.highlights)
+            XCTAssertEqual(state.recipe(for: photo).develop.tone.shadows, 10)
+        }
+    }
+
+    /// Two rows scrolled inside one half second are two undo steps, not one step that
+    /// carries the second row's edit under the first row's name.
+    @MainActor
+    func testTwoRowsScrolledInsideOneHalfSecondAreTwoSteps() throws {
+        try withState { state, photo in
+            state.sliderWheelTick(owner: UUID())
+            let first = state.recordingEpoch
+            state.updateRecipe(coalescingKey: "tone.shadows", targets: [photo]) { _, r in
+                r.develop.tone.shadows = 5
+            }
+            state.sliderWheelTick(owner: UUID())
+            XCTAssertNotEqual(state.recordingEpoch, first)
+            state.updateRecipe(coalescingKey: "tone.highlights", targets: [photo]) { _, r in
+                r.develop.tone.highlights = 5
+            }
+            state.sliderGesture(active: false)
+            XCTAssertEqual(state.history.steps.count, 2)
+        }
+    }
+
+    /// One row's ticks stay one gesture, and half a second of silence closes it.
+    @MainActor
+    func testAWheelBurstIsOneGestureClosedBySilence() async throws {
+        try await withAsyncState { state, photo in
+            let owner = UUID()
+            for i in 1...5 {
+                state.sliderWheelTick(owner: owner)
+                state.updateRecipe(coalescingKey: "tone.shadows", targets: [photo]) { _, r in
+                    r.develop.tone.shadows = Double(i)
+                }
+            }
+            XCTAssertTrue(state.sliderGestureActive)
+            XCTAssertEqual(state.history.steps.count, 1)
+            try await Task.sleep(nanoseconds: Self.pastTheWheelCloser)
+            XCTAssertFalse(state.sliderGestureActive, "the burst never closed")
         }
     }
 }

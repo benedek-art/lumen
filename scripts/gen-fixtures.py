@@ -1496,6 +1496,8 @@ def contrast_mapped(t, contrast, pivot=0.0,
     # defined further down this file than this function is.
     hi = DEFAULT_WHITE_ANCHOR_EV if white_anchor_ev is None else white_anchor_ev
     lo = DEFAULT_BLACK_ANCHOR_EV if black_anchor_ev is None else black_anchor_ev
+    # Mirrors ToneEngine.contrastMapped: the pivot stays inside the live anchors.
+    pivot = min(max(pivot, max(-4.0, lo)), min(4.0, hi))
     slope = 1 + 0.6 * (contrast / 100.0)
     d = t - pivot
     reach = (hi - pivot) if d >= 0 else (pivot - lo)
@@ -2465,8 +2467,10 @@ def planckian_locus(kelvin):
     x = planck_x(t)
     if t <= 2222:
         y = -1.1063814 * x ** 3 - 1.34811020 * x ** 2 + 2.18555832 * x - 0.20219683
-    else:
+    elif t <= 4000:
         y = -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x ** 3 - 5.87338670 * x ** 2 + 3.75112997 * x - 0.37001483
     return (x, y)
 
 
@@ -3517,7 +3521,7 @@ class ZoneWindows:
             c = (p0 + p1) / 2
             p0, p1 = c - MINIMUM_PIVOT_GAP / 2, c + MINIMUM_PIVOT_GAP / 2
         shift = (min(max(balance, -100.0), 100.0) / 100) * BALANCE_RANGE_EV / span
-        ps, ph = p0 + shift, p1 + shift
+        ps, ph = p0 - shift, p1 - shift  # +Balance favours Highlights (Lightroom)
         max_half = (ph - ps) / 2
         requested = NOMINAL_HALF_WIDTH_EV * (min(max(blending, 0.0), 100.0) / 50) / span
         floor_half = min(MINIMUM_HALF_WIDTH_EV / span, max_half)

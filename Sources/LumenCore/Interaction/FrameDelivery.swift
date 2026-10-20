@@ -98,4 +98,20 @@ public enum FrameDelivery {
         if requestIsOnlyTheSettleAsk && showingAnyFrameOfThisRecipe { return false }
         return true
     }
+
+    /// Whether a settle ask can be answered by the frame already on screen, so neither
+    /// pass runs.
+    ///
+    /// A click on a slider thumb and every crop-tool drag end a gesture that changed
+    /// nothing, and the tick still moves. With a settled frame of this exact request up
+    /// (`settledThisRequest`: every render input but the tick equal), the quality pass
+    /// would re-render the same picture at full resolution on a serial lane with no
+    /// cancellation points, and the next real request would wait behind it. All three
+    /// must hold: any other request is a real change, and a draft on screen still owes
+    /// its settle.
+    public static func settleIsRedundant(requestIsOnlyTheSettleAsk: Bool,
+                                         showingSettledOfThisRecipe: Bool,
+                                         settledThisRequest: Bool) -> Bool {
+        requestIsOnlyTheSettleAsk && showingSettledOfThisRecipe && settledThisRequest
+    }
 }

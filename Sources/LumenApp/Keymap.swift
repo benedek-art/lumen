@@ -127,6 +127,9 @@ final class KeyDispatcher {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // ⌘← / ⌘→ are the one ⌘ chord this monitor takes: Lightroom's "next photo"
+        // that still pages while the bare arrows pan or nudge (`ParityKeys`).
+        if let paged = ParityKeys.pageChord(event, state: state, flags: flags) { return paged }
         // Command-modified keys are menu territory; leave them alone.
         if flags.contains(.command) { return false }
         // CONTROL TOO, and it was never checked. ⌃N, ⌃P, ⌃A, ⌃E and ⌃H are the standard
@@ -136,13 +139,27 @@ final class KeyDispatcher {
         // histogram. Nothing in this app's grammar uses ⌃ at all.
         if flags.contains(.control) { return false }
 
+        // Tab / ⇧Tab hide the panels, Lightroom's way (`ParityKeys.panelChord`).
+        if let chrome = ParityKeys.panelChord(event, state: state, flags: flags) { return chrome }
+
         // Arrows and the like arrive as special key codes rather than characters.
         if let special = specialKey(event, state: state, flags: flags) {
             return special
         }
 
         guard let characters = event.charactersIgnoringModifiers?.lowercased(),
-              let key = characters.first else { return false }
+              let typed = characters.first else { return false }
+
+        // SHIFT FORCES AN ADVANCE ON A DECISION KEY (docs/10: "Shift+key always advances
+        // even when off"), and Caps Lock counts the same, as in Lightroom. ⇧1 arrives as
+        // "!" on a US layout, so the unshifted character says which key was meant; only
+        // decision keys are remapped (`CullAdvance`), so ⇧= stays the zoom key "+".
+        let shift = flags.contains(.shift)
+        let unshifted = shift
+            ? event.characters(byApplyingModifiers: [])?.lowercased().first : nil
+        let key = CullAdvance.dispatchKey(typed: typed, unshifted: unshifted, shift: shift)
+        let forced = CullAdvance.isForced(key: key, shift: shift,
+                                          capsLock: flags.contains(.capsLock))
 
         // Ignore auto-repeat for the toggles where repeat would be nonsense, but keep
         // it for navigation, which is exactly where key repeat earns its keep.
@@ -154,8 +171,10 @@ final class KeyDispatcher {
         // of however long you held it. With auto-advance on the same repeat is the thing
         // it was allowed for: flag, move to the next frame, flag again. The comment above
         // was describing the second case and the code was permitting both.
+        // A forced press advances too, so its repeat is navigation for the same reason.
         if event.isARepeat && !"[]".contains(key) {
-            guard "pxu0123456789".contains(key), state.autoAdvance else { return false }
+            guard CullAdvance.allowsRepeat(key: key, autoAdvance: state.autoAdvance,
+                                           forced: forced) else { return false }
         }
 
         switch key {
@@ -171,11 +190,11 @@ final class KeyDispatcher {
 
         // ---- Flags -------------------------------------------------------------
         case "p":
-            state.setFlag(.pick)
+            state.setFlag(.pick, forceAdvance: forced)
         case "x":
-            state.setFlag(.reject)
+            state.setFlag(.reject, forceAdvance: forced)
         case "u":
-            state.setFlag(.unflagged)
+            state.setFlag(.unflagged, forceAdvance: forced)
 
         // ---- Ratings and labels ------------------------------------------------
         case "0", "1", "2", "3", "4", "5":
@@ -188,26 +207,26 @@ final class KeyDispatcher {
             // which is how a keymap acquires a hole.
             if let value = Int(String(key)) {
                 if Self.brushFlow(value, state: state) { return true }
-                state.setRating(value)
+                state.setRating(value, forceAdvance: forced)
             }
         case "6":
             if Self.brushFlow(6, state: state) { return true }
-            state.setLabel(.red)
+            state.setLabel(.red, forceAdvance: forced)
         case "7":
             if Self.brushFlow(7, state: state) { return true }
-            state.setLabel(.yellow)
+            state.setLabel(.yellow, forceAdvance: forced)
         case "8":
             if Self.brushFlow(8, state: state) { return true }
-            state.setLabel(.green)
+            state.setLabel(.green, forceAdvance: forced)
         case "9":
             if Self.brushFlow(9, state: state) { return true }
-            state.setLabel(.blue)
+            state.setLabel(.blue, forceAdvance: forced)
         // Purple is offered by the label picker and the filter bar, so it needs a key
         // like the other five; `-` sits next to 9 and is otherwise only a zoom key in
         // the loupe, where labels are rarer than zooming — so purple takes it only
         // outside the loupe.
         case "-" where state.viewMode != .loupe:
-            state.setLabel(.purple)
+            state.setLabel(.purple, forceAdvance: forced)
 
         // ---- Editing -----------------------------------------------------------
         case "\\":
@@ -260,6 +279,19 @@ final class KeyDispatcher {
             // tool is armed — outside it the key is nobody's, and falls through.
             guard HealTool.shared.armed else { return false }
             state.repickSelectedSpotSource()
+        // ---- Lightroom habits (`ParityKeys`, rules in LumenCore) ----------------
+        case "j":
+            // Both ends at once, red and blue; any overlay on (a locked histogram
+            // triangle included) and J turns it off.
+            ParityKeys.toggleClippingOverlay(state: state)
+        case "w":
+            // The Basic panel's eyedropper, armed or put away.
+            ParityKeys.toggleNeutralPick(state: state)
+        case "i":
+            ParityKeys.cycleCaptureInfo(state: state)
+        case "?":
+            // ⇧/ — bare `/` above stays the Heal re-pick.
+            state.showKeyReference = true
         case "m":
             // M IS A ROUND TRIP, and it has to be, because it is the only key that both
             // enters and leaves. The column becomes the mask editor and the workspace
@@ -606,6 +638,12 @@ final class KeyDispatcher {
             // Press it again with nothing focused and it means the grid, as before —
             // the ordinary nested-Escape idiom.
             if state.sliderHoldsFocus { return nil }
+            // Then a pending eyedropper pick (W, or any panel's picker): the innermost
+            // thing armed, and it used to outlive Escape with its prompt still showing.
+            if state.pickTarget != nil {
+                state.cancelPick()
+                return true
+            }
             // Then masking, which is the next layer out: the column is showing the mask
             // editor instead of the workspace, so Escape leaves it the way Escape leaves
             // every other thing you are inside. Above the grid rather than below it, or

@@ -1074,12 +1074,41 @@ public final class CatalogStore {
     /// honest claim rather than a stronger one.
     private var ftsEnabled: Bool
 
+    /// True once `reindexText` has turned the index off this session: every write from
+    /// then on leaves the index behind, and `markTextIndexStale` records that in `main`
+    /// so the next open rebuilds it. Same serialisation as `ftsEnabled`.
+    private var textIndexWentStale = false
+
+    /// The `meta` key that says the text index missed writes and must be rebuilt.
+    static let textIndexStaleKey = "text_index_stale"
+
     public let path: String
     public let cachePath: String
 
     /// True when SQLite was built with FTS5 and the text index exists (gap G16).
     /// When false the text chip degrades to parameterized LIKE — correct, just slower.
     public var isTextIndexAvailable: Bool { ftsEnabled }
+
+    /// Width ÷ height as the photograph is SHOWN. `width` and `height` are the stored
+    /// sensor extent; EXIF orientations 5–8 turn it a quarter, so a vertical A7 IV
+    /// frame stored 6000 × 4000 with orientation 6 is 0.667, not 1.5.
+    static func displayedAspect(width: Int?, height: Int?, orientation: Int?) -> Double? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        if let orientation, (5...8).contains(orientation) {
+            return Double(height) / Double(width)
+        }
+        return Double(width) / Double(height)
+    }
+
+    /// Rows written before `aspect` honoured orientation carry the sensor ratio. Turning
+    /// them is idempotent (a turned row no longer equals width ÷ height, a square one
+    /// is the same either way) and needs no schema version: a version bump would make
+    /// an older build refuse this catalog outright.
+    private static let quarterTurnedAspectRepair = """
+    UPDATE photo SET aspect = CAST(height AS REAL) / width
+     WHERE orientation BETWEEN 5 AND 8 AND width > 0 AND height > 0
+       AND aspect = CAST(width AS REAL) / height;
+    """
 
     // MARK: Migration list
 
@@ -1480,6 +1509,13 @@ public final class CatalogStore {
         try migrate()
         try seedMetaIfNeeded()
         try rebuildTextIndexIfNeeded()
+        // photo.id has no AUTOINCREMENT, so after a restore from backup the next photo
+        // reuses the id of one only the lost catalog knew. Cache rows for that id would
+        // hand the new frame another frame's previews, scores and raw stats. The cache
+        // is derived; drop them before any id can be reused. Failing must not block
+        // opening.
+        try? sweepCacheRowsAboveLastPhoto()
+        try? database.execute(CatalogStore.quarterTurnedAspectRepair)
     }
 
     deinit {
@@ -1948,6 +1984,25 @@ public final class CatalogStore {
         }
     }
 
+    /// The part of `sweepCacheOrphans` that cannot wait: rows for ids ABOVE the
+    /// catalog's highest photo id are exactly the ids the next inserts will be given.
+    /// A catalog with no photos yet is left alone — its cache rows may be the ones
+    /// the photos about to be scanned will match (a migrated cache, a first scan).
+    private func sweepCacheRowsAboveLastPhoto() throws {
+        guard let last = try db.scalarInt("SELECT MAX(id) FROM main.photo;") else { return }
+        try db.transaction {
+            for table in ["raw_stats", "frame_score", "face", "feature_print",
+                          "preview", "artifact"] {
+                try self.db.run("DELETE FROM cache.\(table) WHERE photo_id > ?;",
+                                [.integer(last)])
+            }
+            if self.ftsEnabled {
+                try self.db.run("DELETE FROM cache.photo_fts WHERE rowid > ?;",
+                                [.integer(last)])
+            }
+        }
+    }
+
     // MARK: - Test hooks
 
     /// Raw SQL against the open connection, for tests that need to put the database
@@ -2060,8 +2115,9 @@ public final class CatalogStore {
     public func upsertPhoto(_ photo: PhotoRow) throws -> Int64 {
         var row = photo
         if row.addedAt == 0 { row.addedAt = CatalogStore.now() }
-        if row.aspect == nil, let w = row.width, let h = row.height, h > 0 {
-            row.aspect = Double(w) / Double(h)
+        if row.aspect == nil {
+            row.aspect = CatalogStore.displayedAspect(width: row.width, height: row.height,
+                                                      orientation: row.orientation)
         }
         if row.ext == nil {
             row.ext = CatalogStore.fileExtension(of: row.filename)
@@ -2269,7 +2325,7 @@ public final class CatalogStore {
                     debt[index].photoPath = candidate.url.path
                 }
             }
-            let folder = try self.registerFolder(path: candidate.url.deletingLastPathComponent().path)
+            let folder = try self.relinkFolder(for: candidate.url.deletingLastPathComponent())
             let previews = try self.previews(photoID: target.photoID)
             try self.db.run("""
                 UPDATE photo SET folder_id = ?, filename = ?, file_size = ?, file_mtime = ?,
@@ -2287,6 +2343,24 @@ public final class CatalogStore {
             return OriginalRelinkResult(photoID: target.photoID, original: target.original,
                 destination: candidate.url, invalidatedPreviews: previews)
         }
+    }
+
+    /// The folder row a relinked original lands in. `OriginalRelinkCandidate.inspect`
+    /// resolves symlinks, but folders are registered as the app opened them, so a
+    /// registered folder that is (or sits under) a symlink would otherwise gain a second
+    /// row under its resolved path — and the next scan of the registered one would add
+    /// the same file again as a fresh, unedited photo. Reuse a registered folder that
+    /// resolves to the same directory; register the resolved path only when none does.
+    private func relinkFolder(for directory: URL) throws -> Int64 {
+        let path = directory.path
+        if let exact = try folder(path: path) { return exact.id }
+        let resolved = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        for row in try folders() where
+            URL(fileURLWithPath: row.path).standardizedFileURL.resolvingSymlinksInPath().path
+                == resolved {
+            return row.id
+        }
+        return try registerFolder(path: path)
     }
 
     // MARK: - Scan reconciliation
@@ -2342,15 +2416,20 @@ public final class CatalogStore {
             var result = ScanResult()
 
             // Existing rows for this folder, keyed by filename.
-            var existing: [String: (id: Int64, size: Int64, mtime: Int64,
+            // Swift keys compare by canonical equivalence; SQL compares bytes. `name` is
+            // the stored spelling, so a listed name in the other normalization (NFC vs
+            // NFD) can be written back below rather than left unfindable by SQL.
+            var existing: [String: (id: Int64, name: String, size: Int64, mtime: Int64,
                                     sig: String?, missing: Bool)] = [:]
             let statement = try self.db.prepare(
                 "SELECT id, filename, file_size, file_mtime, quick_sig, missing "
                 + "FROM photo WHERE folder_id = ?;")
             try statement.bind(1, folderID)
             while try statement.step() {
-                existing[statement.string(1) ?? ""] = (
+                let name = statement.string(1) ?? ""
+                existing[name] = (
                     id: statement.int(0),
+                    name: name,
                     size: statement.int(2),
                     mtime: statement.int(3),
                     sig: statement.string(4),
@@ -2379,7 +2458,7 @@ public final class CatalogStore {
                         "SELECT file_size, file_mtime, quick_sig, missing FROM photo WHERE id = ?;")
                     try row.bind(1, id)
                     _ = try row.step()
-                    return (id: id, size: row.int(0), mtime: row.int(1),
+                    return (id: id, name: relocated, size: row.int(0), mtime: row.int(1),
                             sig: row.string(2), missing: row.bool(3))
                 }()
                 result.relocated.append(id)
@@ -2393,6 +2472,14 @@ public final class CatalogStore {
                 guard let row = existing[file.filename] else {
                     newFiles.append(file)
                     continue
+                }
+                if !row.name.utf8.elementsEqual(file.filename.utf8),
+                   try self.db.scalarInt(
+                       "SELECT id FROM photo WHERE folder_id = ? AND filename = ?;",
+                       [.integer(folderID), .text(file.filename)]) == nil {
+                    try self.db.run("UPDATE photo SET filename = ? WHERE id = ?;",
+                                    [.text(file.filename), .integer(row.id)])
+                    self.reindexText(photoID: row.id)
                 }
                 let identityKey = "source_identity_\(row.id)"
                 var changed = row.size != file.fileSize || row.mtime != file.fileMTime
@@ -2977,11 +3064,8 @@ public final class CatalogStore {
         // `aspect = NULL`, and the aspect-ratio sort ordered the whole roll by NULL,
         // i.e. by row id, i.e. it silently did nothing. Maintained here, next to the
         // two columns it is computed from, so the two cannot disagree.
-        let aspect: Double? = {
-            guard let width = metadata.width, let height = metadata.height,
-                  height > 0 else { return nil }
-            return Double(width) / Double(height)
-        }()
+        let aspect = CatalogStore.displayedAspect(width: metadata.width, height: metadata.height,
+                                                  orientation: metadata.orientation)
         let statement = try db.prepare("""
             UPDATE photo SET capture_at = ?, capture_subsec = ?, camera = ?,
                              camera_serial = ?, lens = ?, iso = ?, shutter_s = ?,
@@ -3533,8 +3617,10 @@ public final class CatalogStore {
     /// vocabulary is worth keeping even when the last photo using a term is untagged.
     ///
     /// `name` is a display path as `keywords(photoID:)` gives it, or a plain name. A
-    /// plain name detaches every keyword of that name from these photos — the one the
-    /// photographer sees is the one on the photo, whatever branch it sits on.
+    /// plain name is the ROOT keyword of that name when one exists — that is how
+    /// `keywords(photoID:)` spells a root, so "Iceland" beside "Places > Iceland" must
+    /// not take the nested one with it. Only when no root has that name does a plain
+    /// name detach every keyword of that name, whatever branch it sits on.
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         if photoIDs.isEmpty { return }
         let path = KeywordPath.parse(name)
@@ -3542,8 +3628,13 @@ public final class CatalogStore {
         try db.transaction {
             var ids: [Int64] = []
             if path.count == 1 {
-                ids = try self.allRows("SELECT id FROM keyword WHERE name = ?;",
-                                       [.text(path[0])]) { $0.int(0) }
+                ids = try self.allRows(
+                    "SELECT id FROM keyword WHERE parent_id IS NULL AND name = ?;",
+                    [.text(path[0])]) { $0.int(0) }
+                if ids.isEmpty {
+                    ids = try self.allRows("SELECT id FROM keyword WHERE name = ?;",
+                                           [.text(path[0])]) { $0.int(0) }
+                }
             } else if let id = try self.resolveKeyword(path, create: false) {
                 ids = [id]
             }
@@ -4685,9 +4776,14 @@ public final class CatalogStore {
 
         if let text = query.text, !text.trimmingCharacters(in: .whitespaces).isEmpty {
             if ftsEnabled, let match = CatalogStore.ftsMatchExpression(text) {
-                criteria.append("photo.id IN (SELECT rowid FROM cache.photo_fts "
-                                + "WHERE photo_fts MATCH ?)")
+                // unicode61 keeps letters and digits in one token, so "DSC0003.ARW"
+                // indexes as `dsc0003` and a prefix term "0003"* cannot reach it. The
+                // frame number is the most common filename search there is, and the
+                // LIKE fallback finds it; the filename substring keeps the two agreeing.
+                criteria.append("(photo.id IN (SELECT rowid FROM cache.photo_fts "
+                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ?)")
                 parameters.append(.text(match))
+                parameters.append(.text("%" + text.trimmingCharacters(in: .whitespaces) + "%"))
             } else {
                 // Fallback when FTS5 is not compiled in. Still fully parameterized:
                 // any % or _ the user typed simply widens their own match.
@@ -4836,13 +4932,26 @@ public final class CatalogStore {
     ///
     /// `EXISTS … LIMIT 1` on both sides: FTS5 keeps no row count, so `COUNT(*)` on the
     /// index is a scan, and this runs on every open.
+    ///
+    /// An index that is NOT empty but missed writes — a session in which `reindexText`
+    /// failed and switched it off — is invisible to that check, so it is the one case
+    /// that does use a flag: `textIndexStaleKey` in `main`, which stayed writable when
+    /// the cache did not. It is cleared only after a rebuild succeeds.
     private func rebuildTextIndexIfNeeded() throws {
         guard ftsEnabled else { return }
+        let stale = try metaValue(CatalogStore.textIndexStaleKey) != nil
         let indexHasRows = try db.scalarInt(
             "SELECT EXISTS(SELECT 1 FROM cache.photo_fts LIMIT 1);") == 1
         let catalogHasRows = try db.scalarInt(
             "SELECT EXISTS(SELECT 1 FROM main.photo LIMIT 1);") == 1
-        if catalogHasRows && !indexHasRows { try rebuildTextIndex() }
+        if catalogHasRows && (!indexHasRows || stale) { try rebuildTextIndex() }
+        if stale { try setMetaValue(CatalogStore.textIndexStaleKey, nil) }
+    }
+
+    /// Records in `main` that the text index has missed a write. Inside the caller's
+    /// transaction when there is one, so it commits (or rolls back) with the edit.
+    private func markTextIndexStale() {
+        try? setMetaValue(CatalogStore.textIndexStaleKey, "1")
     }
 
     /// Repopulate `cache.photo_fts` from `main`, wholesale. Internal so a test can
@@ -4904,7 +5013,12 @@ public final class CatalogStore {
     /// `isTextIndexAvailable` already exists to describe and which is correct, just
     /// slower — the degradation this store was designed for, finally reachable.
     private func reindexText(photoID: Int64) {
-        guard ftsEnabled else { return }
+        guard ftsEnabled else {
+            // Every write after the switch-off is one the index misses; re-mark, since
+            // the edit that first marked it may have rolled back.
+            if textIndexWentStale { markTextIndexStale() }
+            return
+        }
         do {
             guard let fields = try firstRow(
                 "SELECT filename, ext, camera, lens, job FROM photo WHERE id = ?;",
@@ -4930,6 +5044,8 @@ public final class CatalogStore {
             NSLog("Lumen catalog: text index unavailable (%@) — searches fall back to "
                   + "LIKE for the rest of this session", String(describing: error))
             ftsEnabled = false
+            textIndexWentStale = true
+            markTextIndexStale()
         }
     }
 

@@ -25,6 +25,7 @@
 
 #if os(macOS)
 
+import AppKit
 import Foundation
 import LumenCore
 import SwiftUI
@@ -131,6 +132,13 @@ struct ZonesPanel: View {
                            flattened: flattened.map { $0.lowX...$0.highX },
                            onPivotChanged: { index, position in
                                movePivot(index, to: position)
+                           },
+                           names: Self.register.map(\.name),
+                           onPivotReset: { index in
+                               // One pivot home, through the same neighbour clamp a
+                               // drag uses; the five zone EVs are left alone.
+                               guard let home = Self.defaultPivot(at: index) else { return }
+                               movePivot(index, to: home)
                            })
             if let flattened {
                 Text(flattened.caption)
@@ -239,6 +247,12 @@ struct ZonesPanel: View {
         }
     }
 
+    /// Where a double-click puts pivot `index` back to, or nil for an index the
+    /// register does not have.
+    nonisolated static func defaultPivot(at index: Int) -> Double? {
+        Zones.defaultPivots.indices.contains(index) ? Zones.defaultPivots[index] : nil
+    }
+
     // MARK: Section state
 
     private var isModified: Bool {
@@ -266,13 +280,36 @@ struct ZonePivotStrip: View {
     /// `AppliedReadout.zoneFlattening`. Nil draws nothing.
     var flattened: ClosedRange<Double>? = nil
     let onPivotChanged: (Int, Double) -> Void
+    /// The zone each pivot is the centre of, in order — what VoiceOver names a handle.
+    var names: [String] = []
+    /// A double-click on a handle: put that one pivot back. Nil leaves it drag-only.
+    var onPivotReset: ((Int) -> Void)? = nil
 
     private static let height: CGFloat = 46
+
+    /// One assistive step of a pivot: a hundredth of the axis, snapped so repeated
+    /// steps land on whole percents, and kept on the axis. `movePivot` then keeps it
+    /// inside its neighbours.
+    nonisolated static let assistiveStep: Double = 0.01
+
+    nonisolated static func steppedPivot(_ position: Double,
+                                         _ direction: SliderAccessibility.Direction) -> Double {
+        let base = position.isFinite ? position : 0
+        let moved = base + (direction == .increment ? assistiveStep : -assistiveStep)
+        return Num.saturate((moved / assistiveStep).rounded() * assistiveStep)
+    }
+
+    nonisolated static func pivotLabel(index: Int, names: [String]) -> String {
+        names.indices.contains(index) ? "\(names[index]) centre" : "Zone centre \(index + 1)"
+    }
 
     /// Where the handle was when the drag began. Dragging by TRANSLATION rather than by
     /// absolute location keeps the handle under the pointer without needing a shared
     /// coordinate space — the same reason `ZoneWeightStrip` does it this way.
     @State private var dragOrigin: Double? = nil
+    /// The press was the second click of a double-click and reset the pivot; the rest
+    /// of that gesture is inert, as on `LumenSlider`.
+    @State private var pressWasReset = false
     /// The gesture-in-flight signal every slider fires (docs/23 audit queue item 5).
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
@@ -353,23 +390,65 @@ struct ZonePivotStrip: View {
                 .shadow(radius: 1)
         }
         .contentShape(Rectangle())
+        // The curve's split handles are adjustable elements; these are the same kind
+        // of control and were invisible to VoiceOver.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Self.pivotLabel(index: index, names: names)))
+        .accessibilityValue(Text(CurveEditing.percent(position * 100) + "%"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: stepPivot(index, from: position, .increment)
+            case .decrement: stepPivot(index, from: position, .decrement)
+            @unknown default: break
+            }
+        }
         .position(x: x, y: height / 2)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { drag in
-                    guard width > 0 else { return }
+                    guard width > 0, !pressWasReset else { return }
+                    // The second press of a double-click resets this pivot, read off
+                    // the AppKit event for the reason `LumenSlider` gives: a tap
+                    // gesture behind a minimumDistance-0 drag never fires.
+                    if dragOrigin == nil, let onPivotReset,
+                       (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                        pressWasReset = true
+                        onPivotReset(index)
+                        return
+                    }
                     sliderGestureChanged(true)
                     let start = dragOrigin ?? position
                     if dragOrigin == nil { dragOrigin = start }
                     let moved = start + Double(drag.translation.width / width)
                     onPivotChanged(index, Num.saturate(moved))
                 }
-                .onEnded { _ in
+                .onEnded { drag in
+                    if pressWasReset {
+                        pressWasReset = false
+                        return
+                    }
+                    // The release is a sample, and the last one (`LumenSlider`'s rule):
+                    // under load the final motion event is coalesced away, so resolve
+                    // the release location before letting go.
+                    if width > 0, let start = dragOrigin {
+                        let moved = start + Double(drag.translation.width / width)
+                        onPivotChanged(index, Num.saturate(moved))
+                    }
                     dragOrigin = nil
                     sliderGestureChanged(false)
                 }
         )
-        .help("Zone centre — drag to move where this zone sits on the tonal axis")
+        .help("Zone centre — drag to move it along the tonal axis, double-click to put it back")
+    }
+
+    /// One assistive step, bracketed like a drag.
+    private func stepPivot(_ index: Int, from position: Double,
+                           _ direction: SliderAccessibility.Direction) {
+        let next = Self.steppedPivot(position, direction)
+        guard next != position else { return }
+        sliderGestureChanged(true)
+        onPivotChanged(index, next)
+        sliderGestureChanged(false)
     }
 }
 

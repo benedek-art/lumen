@@ -1021,11 +1021,12 @@ struct LookPanel: View {
         state.updateRecipe(coalescingKey: "wheels.pivot.\(index)") { recipe in
             var pivots = LookPanel.normalizedPivots(recipe.look.wheels.pivots)
             // The handle is dragged where the user sees it — that is the pivot AFTER
-            // Balance — so the stored pivot is the handle minus the balance shift.
+            // Balance — and ZoneWindows subtracts the balance shift, so the stored
+            // pivot is the handle plus it.
             let shift = (Num.clamp(recipe.look.wheels.balance, -100, 100) / 100)
                 * ZoneWindows.balanceRangeEV / LookPanel.axisSpanEV
             let gap = ZoneWindows.minimumPivotGap
-            var value = Num.saturate(position - shift)
+            var value = Num.saturate(position + shift)
             if index == 0 {
                 value = min(value, pivots[1] - gap)
                 pivots[0] = Num.saturate(value)

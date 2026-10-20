@@ -157,7 +157,7 @@ Shift-double-click); double-click = reset; draggable from the histogram's five z
   point that Whites defines, so Highlights can never push a pixel past display white — LrC's most
   load-bearing hidden rule, implemented as geometry rather than clamping. Whites shifts which scene
   EV maps to display white (feeding the Render transform's white anchor); Blacks mirrors it at the
-  floor. Calibration: ±100 on Highlights/Shadows ≈ ∓2.0 EV of peak zonal gain; ±100 on
+  floor. Calibration: ±100 on Highlights/Shadows ≈ ±2.0 EV of peak zonal gain; ±100 on
   Whites/Blacks ≈ ±1.5 EV of end-point shift — final constants tuned against LrC 15.5 renders of
   the golden corpus so a Lightroom refugee's habitual "−60 Highlights, +35 Shadows" lands within
   visual tolerance of what their hands expect.

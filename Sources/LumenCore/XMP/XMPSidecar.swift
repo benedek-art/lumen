@@ -176,12 +176,17 @@ public struct SidecarKeywordEdit: Codable, Equatable, Sendable {
     /// its own business — removed words go, and new words are appended in sorted
     /// order so the same edit always writes the same bytes. A word already present is
     /// not duplicated, and duplicates already in the bag are folded.
+    ///
+    /// A word written as a path ("A>B") goes with its leaf: that is the keyword a scan
+    /// imported it as, so removing the leaf has to remove the word or the next scan
+    /// re-imports it.
     public func apply(to existing: [String]) -> [String] {
         var seen: Set<String> = []
         var out: [String] = []
         for word in existing {
             let w = Self.normalized(word)
-            guard !w.isEmpty, !removed.contains(w), seen.insert(w).inserted else { continue }
+            guard !w.isEmpty, !removed.contains(w), !removed.contains(KeywordPath.leaf(w)),
+                  seen.insert(w).inserted else { continue }
             out.append(w)
         }
         for word in added.sorted() where seen.insert(word).inserted {
@@ -192,6 +197,27 @@ public struct SidecarKeywordEdit: Codable, Equatable, Sendable {
 
     static func normalized(_ word: String) -> String {
         word.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The sidecar half of removing catalog keywords from one photo: `before` and
+    /// `after` are its keywords as `CatalogStore.keywords(photoID:)` gives them (display
+    /// paths), `synonyms` is `CatalogStore.synonyms(ofKeyword:)`.
+    ///
+    /// Every spelling a sidecar word could have that imports as a removed keyword goes,
+    /// not only its leaf. A scan imports "A>B" as the hierarchy A > B and Lightroom's
+    /// exported synonym "NYC" as "New York"; a delta of leaves alone ("B", "New York")
+    /// matched neither, the word stayed in `dc:subject`, and the next scan put the
+    /// keyword back on the photograph. "A>B" is caught by `apply` comparing leaves;
+    /// synonyms have to be named here. A word still on the photo as a leaf of another
+    /// branch is kept, as it always was.
+    public static func removal(before: [String], after: [String],
+                               synonyms: (String) throws -> [String]) rethrows -> SidecarKeywordEdit {
+        let kept = Set(after.map(KeywordPath.leaf))
+        var removed = Set(before.map(KeywordPath.leaf)).subtracting(kept)
+        for path in Set(before).subtracting(after) {
+            removed.formUnion(try synonyms(path).map(normalized))
+        }
+        return SidecarKeywordEdit(removed: Array(removed.subtracting(kept)))
     }
 }
 
@@ -324,7 +350,9 @@ extension XMPSidecar {
 ///
 /// 1. Sidecar unchanged since we last touched it → catalog wins, filling in where it is
 ///    silent. The normal case, and the right way round: the catalog is what the running
-///    app just edited, while the sidecar may be seconds stale behind its debounce.
+///    app just edited, while the sidecar may be seconds stale behind its debounce. With
+///    a recorded stamp that still matches, only a missing recipe fills in — a silent
+///    rating, flag or label there is a clear the sidecar has not caught up with.
 /// 2. Sidecar newer than our last write AND its recipe fingerprint differs → the sidecar
 ///    wins. This is what makes restore-from-Time-Machine and edit-on-another-Mac work.
 /// 3. Both changed — the catalog has edits that have not reached the sidecar yet, and
@@ -441,10 +469,23 @@ public enum SidecarMerge {
             return now != last
         }()
 
+        // Rating, flag and label fill in unless the catalog's silence is a clear that
+        // has not reached the file: an UNCHANGED sidecar while edits are still queued
+        // for it. Filling in there undid the clear — the very thing rule 1 exists to
+        // prevent — and the folder-open merge then persisted the old value.
+        //
+        // Not on the stamp alone: a Lumen write that states no scalars (a recipe or
+        // keyword edit) carries forward a rating another tool added since the last
+        // scan, and stamps the file. That file is "unchanged" and still holds news the
+        // catalog never absorbed. The recipe is not gated: a nil recipe here means the
+        // stored one would not decode, and the sidecar is how that edit comes back.
+        let fillScalars = catalog.sidecarMTime == nil || moved || !catalog.hasUnflushedEdits
+
         if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {
             if catalog.hasUnflushedEdits {
                 return Resolution(state: fillingIn(catalog, from: sidecar,
-                                                   incoming: incoming),
+                                                   incoming: incoming,
+                                                   fillScalars: fillScalars),
                                   decision: .conflictCatalogWins,
                                   unpreservedSidecar: sidecar)
             }
@@ -452,7 +493,8 @@ public enum SidecarMerge {
                               decision: .sidecarWins)
         }
 
-        return Resolution(state: fillingIn(catalog, from: sidecar, incoming: incoming),
+        return Resolution(state: fillingIn(catalog, from: sidecar, incoming: incoming,
+                                           fillScalars: fillScalars),
                           decision: .catalogWins)
     }
 
@@ -460,14 +502,16 @@ public enum SidecarMerge {
 
     /// Rules 1 and 3: the catalog wins, and the sidecar fills in where it is silent.
     /// Filling in is not overwriting — it is the union, and it is what brings a photo
-    /// that arrived from another machine in with its work attached.
+    /// that arrived from another machine in with its work attached. `fillScalars` false
+    /// keeps rating, flag and label as the catalog holds them — see `resolve`.
     private static func fillingIn(_ catalog: State, from sidecar: SidecarContent,
-                                  incoming: Recipe?) -> State {
+                                  incoming: Recipe?, fillScalars: Bool) -> State {
         var out = catalog
         if out.recipe == nil, let incoming {
             out.recipe = incoming
             out.recipeFingerprint = sidecar.recipeFingerprint
         }
+        guard fillScalars else { return out }
         if out.rating == 0, sidecar.rating > 0 { out.rating = sidecar.rating }
         if out.flag == .none { out.flag = sidecar.flag }
         if out.label == nil || out.label?.isEmpty == true,
@@ -579,7 +623,16 @@ public enum XMPSidecar {
     ///
     /// `dc:subject` is owned by this write only when it carries a keyword edit. Every
     /// other write leaves the bag byte-for-byte as another tool wrote it.
+    ///
+    /// A DOCUMENT XMLParser CANNOT READ TO THE END IS REFUSED, whatever the caller
+    /// read from it. `parsedCleanly` guards a half-read that yielded fields, but damage
+    /// above the first field — a raw `<` or `&` in the root's attributes — yields none,
+    /// so `parse` says nil ("no Lumen fields") and that guard never runs. The splice
+    /// below works on the text and does not need a parse: it would strip the
+    /// `lumen:recipe` and `lumen:strokes` the read never reached and re-emit only what
+    /// the caller holds. Refusing here makes every caller fail safe.
     public static func update(_ original: String, with content: SidecarContent) -> String? {
+        guard parsesCompletely(original) else { return nil }
         let ownsKeywords = !content.keywordEdit.isEmpty
         return XMPMerge.merge(into: original,
                               fields: fieldLines(content, keywords: ownsKeywords),
@@ -675,8 +728,10 @@ public enum XMPSidecar {
             // sidecar no parser will read back — including this one, on the next
             // launch. A label is user-editable and a write stamp can come from
             // another tool, so this is reachable. Dropped rather than escaped,
-            // because there is no legal escape for them.
+            // because there is no legal escape for them. U+FFFE and U+FFFF are outside
+            // the Char production for the same reason, and libxml2 stops dead on them.
             case "\t", "\n", "\r": out.unicodeScalars.append(scalar)
+            case "\u{FFFE}", "\u{FFFF}": break
             default:
                 if scalar.value >= 0x20 { out.unicodeScalars.append(scalar) }
             }
@@ -707,6 +762,13 @@ public enum XMPSidecar {
     public static func parse(_ string: String) -> SidecarContent? {
         parse(Data(string.utf8))
     }
+
+    /// True only when XMLParser reads the whole document without an error — the same
+    /// test `parse` records as `parsedCleanly`, for a document with or without fields.
+    static func parsesCompletely(_ string: String) -> Bool {
+        let parser = XMLParser(data: Data(string.utf8))
+        return parser.parse() && parser.parserError == nil
+    }
 }
 
 private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
@@ -719,15 +781,38 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     private var inSubjectItem = false
     private var subjectItem = ""
 
-    private static let interesting: Set<String> = [
-        "xmp:Rating", "xmp:Label", "lumen:flag",
-        "lumen:pipelineVersion", "lumen:recipeFingerprint",
-        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp", "lumen:sourceExtension",
-    ]
+    /// The same `lumen:` names `XMPMerge` owns, so what the writer strips is exactly
+    /// what this reads.
+    private static let interesting: Set<String> =
+        XMPMerge.lumenFields.union(["xmp:Rating", "xmp:Label"])
+
+    /// Prefixes in scope that are bound to the XMP basic namespace, innermost scope
+    /// last. XMP names a property by URI, not by prefix: Photoshop 7–CS2 and Bridge 1.x
+    /// bound it to `xap:`, so `xap:Rating` IS `xmp:Rating`. Matching the literal name
+    /// read such a sidecar as "no fields" and the rating and label never arrived.
+    private var xmpPrefixScopes: [Set<String>] = []
+
+    /// `name` with an alias of the XMP basic prefix rewritten to `xmp:`, so everything
+    /// below matches one spelling. Only a prefix actually bound to the URI qualifies —
+    /// `xap:` bound to somebody else's namespace is somebody else's property.
+    private func canonical(_ name: String) -> String {
+        guard let colon = name.firstIndex(of: ":") else { return name }
+        let prefix = String(name[..<colon])
+        guard prefix != "xmp", xmpPrefixScopes.last?.contains(prefix) == true else { return name }
+        return "xmp" + name[colon...]
+    }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?,
                 attributes attributeDict: [String: String]) {
+        // Bindings first: `xmlns:xap` and `xap:Rating` routinely sit on the same tag.
+        var scope = xmpPrefixScopes.last ?? []
+        for (key, value) in attributeDict where key.hasPrefix("xmlns:") {
+            let prefix = String(key.dropFirst("xmlns:".count))
+            if value == XMPMerge.xmpNamespace { scope.insert(prefix) } else { scope.remove(prefix) }
+        }
+        xmpPrefixScopes.append(scope)
+        let elementName = canonical(elementName)
         // XMP carries a simple property EITHER as a child element or as an attribute
         // on rdf:Description, and the two forms are interchangeable. Lumen writes the
         // element form; Adobe writes the attribute form. Reading only elements meant
@@ -735,8 +820,9 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
         // found", so `parse` returned nil, the rating and label were invisible, and the
         // caller started from a blank document — which is what made overwriting one
         // silently destructive rather than merely lossy.
-        for (key, value) in attributeDict where Self.interesting.contains(key) {
-            absorb(key, value)
+        for (key, value) in attributeDict {
+            let key = canonical(key)
+            if Self.interesting.contains(key) { absorb(key, value) }
         }
         if elementName == "dc:subject" {
             inSubject = true
@@ -762,6 +848,9 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
+        // Canonicalised in the element's own scope, then the scope closes.
+        let elementName = canonical(elementName)
+        if !xmpPrefixScopes.isEmpty { xmpPrefixScopes.removeLast() }
         if inSubjectItem && elementName == "rdf:li" {
             inSubjectItem = false
             let word = subjectItem.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -799,7 +888,16 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
             // not overwrite a `lumen:flag` that has already been read: this build's own
             // word about its own photograph outranks another tool's convention, and
             // field order in the document is not something to depend on.
-            let parsed = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            //
+            // AND IT IS A REAL, not an integer: XMP types it as a Closed Choice of Real,
+            // so "4.0" and "-1.0" are legal spellings (exiftool writes them). `Int("4.0")`
+            // is nil, which read four stars as zero — and the next write of any field
+            // re-emitted that zero over the stripped original. Clamped before the
+            // conversion so a huge value cannot trap.
+            let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let parsed = Int(text) ?? Double(text).flatMap {
+                $0.isFinite ? Int(Swift.min(Swift.max($0.rounded(), -1), 5)) : nil
+            } ?? 0
             if parsed < 0 {
                 content.rating = 0
                 if content.flag == .none { content.flag = .reject }

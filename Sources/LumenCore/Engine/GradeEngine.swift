@@ -118,8 +118,12 @@ public struct ZoneWindows: Sendable {
 
         let balanceShift: Double =
             (Num.clamp(balance, -100, 100) / 100) * ZoneWindows.balanceRangeEV / span
-        let ps: Double = p0 + balanceShift
-        let ph: Double = p1 + balanceShift
+        // Subtracted, for Lightroom's direction: +Balance favours the Highlights wheel
+        // (both pivots move DOWN, so the highlight zone reaches into darker tones) and
+        // −Balance favours Shadows. Adding it ran the slider backwards: +100 grew the
+        // shadow zone to 0.47 of the axis and shrank the highlight zone to 0.19.
+        let ps: Double = p0 - balanceShift
+        let ph: Double = p1 - balanceShift
         self.shadowPivot = ps
         self.highlightPivot = ph
 

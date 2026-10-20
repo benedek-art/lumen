@@ -306,6 +306,17 @@ public enum CurveEditing {
     /// has no key to derive a name from, so it has to be named here.
     public static let deletionLabel = "Delete Point"
 
+    /// The coalescing key a point PLACEMENT records under: none, for S-05's reason
+    /// arriving through insertion. A placement at x = 0.6 lands on index 1; one at
+    /// x = 0.3 a moment later lands on index 1 too and shifts the first to 2, so under
+    /// `pointCoalescingKey` the two placements shared a key and one ⌘Z removed both.
+    /// The adjustment that follows a placement in the same motion shares its gesture
+    /// epoch, which is what keeps place-and-drag one step without a key.
+    public static let placementCoalescingKey: String? = nil
+
+    /// What the Edit menu and the history list call a point placement.
+    public static let placementLabel = "Add Point"
+
     // MARK: - Readout
 
     /// The in/out readout, in percent of the encoded axis (docs/04 §7.1's coordinate

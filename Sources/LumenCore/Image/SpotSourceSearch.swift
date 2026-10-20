@@ -79,10 +79,10 @@ public enum SpotSourceSearch {
                       HealSpot.radiusRange.upperBound) * Swift.max(w, h), 0.5)
         let extent = radius * reach
         let cx = spot.x * w, cy = spot.y * h
-        let x0 = Swift.max(Int(floor(cx - extent)), 0)
-        let y0 = Swift.max(Int(floor(cy - extent)), 0)
-        let x1 = Swift.min(Int(ceil(cx + extent)), sourceWidth)
-        let y1 = Swift.min(Int(ceil(cy + extent)), sourceHeight)
+        let x0 = StrokeHeal.boundedIndex(floor(cx - extent), lower: 0, upper: sourceWidth - 1)
+        let y0 = StrokeHeal.boundedIndex(floor(cy - extent), lower: 0, upper: sourceHeight - 1)
+        let x1 = StrokeHeal.boundedIndex(ceil(cx + extent), lower: 0, upper: sourceWidth)
+        let y1 = StrokeHeal.boundedIndex(ceil(cy + extent), lower: 0, upper: sourceHeight)
         let scale = Swift.min(1, workingRadius / radius)
         return Window(x: x0, y: y0, width: Swift.max(x1 - x0, 1),
                       height: Swift.max(y1 - y0, 1), scale: scale)

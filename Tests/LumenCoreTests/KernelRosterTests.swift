@@ -44,6 +44,14 @@ final class KernelRosterTests: XCTestCase {
         XCTAssertGreaterThan(declared.count, 30,
                              "the declaration pattern stopped matching; this test would "
                              + "otherwise pass by checking nothing")
+        // `> 30` only catches a pattern that matches nothing. A declaration the line
+        // parser skips (a `private static let`, a `fileprivate`, a wrapped line) would
+        // drop out of `declared` and out of the check with it. Count every factory call
+        // by plain substring, a second method, and require the two to agree.
+        let calls = source.components(separatedBy: "= make(").count - 1
+            + source.components(separatedBy: "= makeGeneral(").count - 1
+        XCTAssertEqual(declared.count, calls,
+                       "a kernel declaration exists that the roster check cannot see")
 
         let rostered = Self.rosterNames(in: source)
         let missing = declared.subtracting(rostered).subtracting(Self.exempt)

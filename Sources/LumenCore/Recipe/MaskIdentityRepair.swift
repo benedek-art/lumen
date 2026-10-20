@@ -60,7 +60,10 @@ public enum MaskIdentityRepair {
         var byID: [String: Mask] = [:]
         for mask in masks where byID[mask.id] == nil { byID[mask.id] = mask }
 
+        // A fresh id must not be one a dangling reference names either: renaming a row
+        // onto it would make that reference resolve, and the picture would change.
         var taken = Set(masks.map(\.id))
+        for mask in masks { taken.formUnion(refs(of: mask)) }
         var seen: Set<String> = []
         var out = masks
         var renamed: [Renamed] = []

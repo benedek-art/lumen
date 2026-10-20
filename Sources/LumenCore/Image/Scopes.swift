@@ -1580,12 +1580,19 @@ public enum ClippingOverlay {
         case whites
         case shadows
         case blacks
+        /// Lightroom's `J`: both ends at once, red where all three channels are at the
+        /// ceiling and blue where all three are at the floor. Not channel-diagnostic —
+        /// the histogram triangles' whites / blacks modes are — because with both ends
+        /// on one picture a red pixel could otherwise mean "R blown" or "R crushed".
+        /// The raw value is what the loupe badge prints.
+        case bothEnds = "both ends"
 
         /// Exposure / Highlights / Whites inspect the top of the scale; Shadows /
-        /// Blacks the bottom.
+        /// Blacks the bottom. `bothEnds` answers true so a flood would be black; `J`
+        /// never floods.
         public var inspectsHighEnd: Bool {
             switch self {
-            case .exposure, .highlights, .whites: return true
+            case .exposure, .highlights, .whites, .bothEnds: return true
             case .shadows, .blacks: return false
             }
         }
@@ -1593,8 +1600,12 @@ public enum ClippingOverlay {
         /// The flat ground clipped pixels are painted onto.
         public var background: RGB { inspectsHighEnd ? RGB.zero : RGB.one }
 
-        /// The all-three-channels colour: maximum contrast against the background.
-        public var saturatedColour: RGB { inspectsHighEnd ? RGB.one : RGB.zero }
+        /// The all-three-channels colour: maximum contrast against the background, or
+        /// Lightroom's red for the top end of `bothEnds`.
+        public var saturatedColour: RGB {
+            if self == .bothEnds { return ClippingOverlay.bothEndsHighColour }
+            return inspectsHighEnd ? RGB.one : RGB.zero
+        }
     }
 
     /// Same tolerance the histogram's triangles use — one definition of "clipped".
@@ -1602,6 +1613,7 @@ public enum ClippingOverlay {
 
     /// Bit mask of clipped channels: bit 0 = R, bit 1 = G, bit 2 = B.
     public static func mask(_ c: RGB, mode: Mode) -> Int {
+        if mode == .bothEnds { return bothEndsMask(c) }
         var m: Int = 0
         if mode.inspectsHighEnd {
             if c.r >= 1 - epsilon { m |= 1 }
@@ -1626,6 +1638,7 @@ public enum ClippingOverlay {
         case 3: return RGB(1, 1, 0)          // R+G → yellow
         case 5: return RGB(1, 0, 1)          // R+B → magenta
         case 6: return RGB(0, 1, 1)          // G+B → cyan
+        case bothEndsLowMask: return bothEndsLowColour   // `J`: crushed in all three
         default: return allChannels          // all three
         }
     }

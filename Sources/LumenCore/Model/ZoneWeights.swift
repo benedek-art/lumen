@@ -30,7 +30,10 @@ public enum ZoneWeights {
         -> (index: Int, weight: Double) {
         let n = pivots.count
         precondition(n >= 1)
-        if n == 1 || x <= pivots[0] { return (0, 1) }
+        // `!(x > p0)` rather than `x <= p0`: identical for any number, and it sends NaN
+        // to the lowest zone. NaN fails every comparison, so the bracket search below
+        // used to run off the end of `pivots` and trap.
+        if n == 1 || !(x > pivots[0]) { return (0, 1) }
         if x >= pivots[n - 1] { return (n - 1, 1) }
         var i = 0
         while i < n - 1 && !(x >= pivots[i] && x < pivots[i + 1]) { i += 1 }

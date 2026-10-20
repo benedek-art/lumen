@@ -265,6 +265,11 @@ private struct ComparePane: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
+            // Flag, stars and label, clickable; above the pan gesture, not inside it.
+            .overlay(alignment: .topLeading) {
+                CullBadgeStrip(photo: photo)
+                    .padding(8)
+            }
             .task(id: ViewerRenderKey.current(url: photo.id,
                                               recipe: state.recipe(for: photo),
                                               longEdge: longEdge, state: state)) {
@@ -314,6 +319,9 @@ private struct ComparePane: View {
                          // gives these panes' ladders their `gestureEnded()`, which they
                          // have never once received.
                          settleTick: state.settleTick,
+                         requestKey: ViewerRenderKey.current(url: photo.id, recipe: recipe,
+                                                             longEdge: longEdge,
+                                                             state: state),
                          gestureInFlight: { state.sliderGestureActive },
                          )
     }
@@ -476,6 +484,8 @@ private struct SurveyCell: View {
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
+                        // A rejected frame reads as rejected, as in the grid.
+                        .opacity(photo.flag == .reject ? 0.4 : 1)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if model.isUnreadable {
                     Text("Can't read \(photo.filename)")
@@ -515,6 +525,10 @@ private struct SurveyCell: View {
                                   lineWidth: isPrimary ? 2 : 1)
                     .allowsHitTesting(false)
             }
+            .overlay(alignment: .topLeading) {
+                CullBadgeStrip(photo: photo)
+                    .padding(6)
+            }
             .task(id: ViewerRenderKey.current(url: photo.id,
                                               recipe: state.recipe(for: photo),
                                               longEdge: longEdge, state: state)) {
@@ -548,6 +562,9 @@ private struct SurveyCell: View {
                          // above. A survey grid renders many panes, so the settle storm
                          // this removes is multiplied by however many are on screen.
                          settleTick: state.settleTick,
+                         requestKey: ViewerRenderKey.current(url: photo.id, recipe: recipe,
+                                                             longEdge: longEdge,
+                                                             state: state),
                          gestureInFlight: { state.sliderGestureActive },
                          )
     }

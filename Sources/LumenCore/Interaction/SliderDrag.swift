@@ -260,10 +260,31 @@ public struct SliderTrack: Sendable, Equatable {
     ///
     /// A pure function of the CURRENT pointer position. No accumulator, no dependence
     /// on how many samples came before — which is the property the whole file is about.
+    ///
+    /// A PRESS THAT HAS NOT MOVED IS WORTH THE START, unsnapped and unclamped. Grabbing
+    /// the thumb used to clamp-and-snap the value it picked up: the as-shot 5432 K became
+    /// 5450 (pinning Temp from As Shot to Custom), and a typed Exposure 8 fell to the
+    /// soft 5. And once it moves, the window is `nudged`'s one-sided one: a value already
+    /// past the soft range is not pulled home by the first point of travel.
     public func value(from start: Double, travelled: Double) -> Double {
         guard isUsable, travelled.isFinite else { return resolve(start) }
-        let startAxis = clampedAxis(scale.axis(clamped(start)))
-        return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        guard start.isFinite else { return resolve(start) }
+        if travelled == 0 { return start }
+        let rawAxis = scale.axis(start)
+        guard rawAxis.isFinite else {
+            let startAxis = clampedAxis(scale.axis(clamped(start)))
+            return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        }
+        // Every scale is monotone increasing, so the widened axis window maps onto the
+        // widened value window.
+        let low = Swift.min(lowerBound, start)
+        let high = Swift.max(upperBound, start)
+        let axisLow = Swift.min(axisLower, rawAxis)
+        let axisHigh = Swift.max(axisUpper, rawAxis)
+        let moved = Swift.min(Swift.max(rawAxis + (travelled / width) * axisSpan, axisLow), axisHigh)
+        let landed = scale.value(atAxis: moved)
+        guard landed.isFinite else { return resolve(start) }
+        return snapped(Swift.min(Swift.max(landed, low), high))
     }
 
     /// How far the pointer has to travel to move a control from `from` to `to`. The
@@ -474,6 +495,18 @@ public struct ScrollNudge: Equatable, Sendable {
         guard whole != 0 else { return 0 }
         residue -= whole * Self.pointsPerStep
         return Int(whole)
+    }
+
+    /// Which of an event's two deltas is the scroll, given AppKit's ⇧ conversion.
+    ///
+    /// Y is the axis this feature reads, but with ⇧ held macOS delivers a MOUSE wheel's
+    /// motion as horizontal scrolling: Y arrives as zero and the click is in X, so ⌥⇧ —
+    /// the documented ten-step nudge — did nothing on any external mouse. A trackpad is
+    /// not converted, so its X stays ignored. The converted X keeps the wheel's sign.
+    public static func axisDelta(dx: Double, dy: Double,
+                                 precise: Bool, shift: Bool) -> Double {
+        if !precise && shift && dy == 0 { return dx }
+        return dy
     }
 
     /// Drop the remainder because a new gesture has begun.

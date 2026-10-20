@@ -9,8 +9,8 @@
 # its own file is in the paths so the push that lands a lane change also exercises it.
 #
 # LumenCore's own heavy tests (RobustnessTests, EngineIntegrationTests,
-# ScaleHonestyTests) are NOT here: engine-linux already runs the whole of
-# LumenCoreTests on every push, on a free runner. This lane is the macOS-only remainder.
+# ScaleHonestyTests) are NOT here: engine-linux runs LumenCoreTests (minus
+# ControlProofTests, which proof.yml runs) on every non-docs push, on a free runner. This lane is the macOS-only remainder.
 name: GPU parity
 on:
   push:

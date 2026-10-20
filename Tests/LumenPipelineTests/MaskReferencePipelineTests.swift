@@ -299,6 +299,42 @@ final class MaskReferencePipelineTests: XCTestCase {
                        "adjusting a mask does not change its selection")
     }
 
+    /// The picture a luma band samples is read back only by a raster that bakes. A hit
+    /// reads nothing; a tone edit, which moves the band's input, bakes and reads the
+    /// NEW picture — the same pixels a renderer with no history produces.
+    func testAPictureMaskReadsThePictureBackOnlyWhenItsRasterBakes() throws {
+        let source = MaskReferenceFixtureSource(longEdge: 128)
+        var r = Recipe()
+        r.develop.denoise.mode = .off
+        var banded = Mask(id: "banded", components: [band()])
+        banded.adjust.exposure = 1
+        r.masks = [banded]
+        let held = PipelineRenderer()
+        let before = try pixels(held, source, r)
+        let bakes = MaskRasterCache.currentStats.bakes
+        let reads = LazyStageBuffer.renderCount
+
+        let repeated = try pixels(held, source, r)
+        XCTAssertEqual(worst(before, repeated), 0)
+        r.masks[0].adjust.exposure = 2
+        let adjusted = try pixels(held, source, r)
+        XCTAssertGreaterThan(worst(before, adjusted), 0.01)
+        XCTAssertEqual(MaskRasterCache.currentStats.bakes, bakes,
+                       "adjusting a mask does not change its selection")
+        XCTAssertEqual(LazyStageBuffer.renderCount, reads,
+                       "a frame whose raster is held must not read the picture back")
+
+        r.develop.tone.exposure = 1.5
+        let toned = try pixels(held, source, r)
+        XCTAssertGreaterThan(MaskRasterCache.currentStats.bakes, bakes,
+                             "a tone edit moves the band's input, so its raster bakes")
+        XCTAssertGreaterThan(LazyStageBuffer.renderCount, reads,
+                             "and that bake reads the picture")
+        let fresh = try pixels(PipelineRenderer(), source, r)
+        XCTAssertLessThan(worst(toned, fresh), 1e-6,
+                          "the deferred readback is the same picture an eager one was")
+    }
+
     func testForgettingAnotherSourceKeepsGeometryBrushPlanes() throws {
         // Browsing to a neighbour, or prefetching one, used to run forgetMattes for
         // THAT file, and forgetMattes cleared every photo's brush planes. A brush
@@ -399,6 +435,64 @@ final class MaskReferencePipelineTests: XCTestCase {
         XCTAssertEqual(now.strokesPainted - stats.strokesPainted, 1)
         let cold = try pixels(PipelineRenderer(), source, r, strokes: strokes(4))
         XCTAssertEqual(worst(appended, cold), 0, accuracy: 1e-6)
+    }
+
+    /// A gain-map export's HDR rendition takes the SDR rendition's mask images
+    /// (`SharedMaskImages`). Above the 1024 proxy `MaskRasterCache` retains nothing, so
+    /// before this the second rendition rasterized every CPU mask again at full size.
+    /// The shared HDR pixels must be exactly the HDR rendition built on its own, and
+    /// that comparison must be able to fail: a different band changes them.
+    func testGainMapRenditionsRasterizeEachMaskOnceAndMatchAColdHDR() throws {
+        let source = MaskReferenceFixtureSource(longEdge: 1152)
+        let gainMap = ExportRecipe(name: "Mask gain map", format: .heif, hdr: HDRSettings())
+        func recipe(hi: Double) -> Recipe {
+            var c = band()
+            c.hi = hi
+            var mask = Mask(id: "band", components: [c])
+            mask.adjust.exposure = 1
+            var r = Recipe()
+            r.develop.denoise.mode = .off
+            r.masks = [mask]
+            return r
+        }
+        func hdrPixels(_ image: CIImage?) throws -> ImageBuffer {
+            try XCTUnwrap(PipelineRenderer.buffer(from: try XCTUnwrap(image), context: context))
+        }
+        let r = recipe(hi: 0.75)
+
+        let renderer = PipelineRenderer()
+        let shared = PipelineRenderer.SharedMaskImages()
+        let bakes = MaskRasterCache.currentStats.bakes
+        let sdr = try renderer.exportedImage(source: source, recipe: r, using: gainMap,
+                                             sharedMasks: shared)
+        let hdr = try renderer.exportedHDRImage(source: source, recipe: r, using: gainMap,
+                                                sharedMasks: shared)
+        XCTAssertEqual(MaskRasterCache.currentStats.bakes - bakes, 1,
+                       "one CPU mask, two renditions: one full-size bake")
+        XCTAssertNotNil(shared.images?["band"], "the SDR rendition must fill the box")
+
+        let coldSDR = try PipelineRenderer().exportedImage(source: source, recipe: r,
+                                                           using: gainMap)
+        let coldHDR = try PipelineRenderer().exportedHDRImage(source: source, recipe: r,
+                                                              using: gainMap)
+        let sharedHDR = try hdrPixels(hdr)
+        XCTAssertGreaterThan(sharedHDR.pixels.max() ?? 0, 0.1)
+        XCTAssertEqual(worst(sharedHDR, try hdrPixels(coldHDR)), 0)
+        XCTAssertEqual(worst(try hdrPixels(sdr), try hdrPixels(coldSDR)), 0)
+
+        let other = try PipelineRenderer().exportedHDRImage(source: source,
+                                                            recipe: recipe(hi: 0.5),
+                                                            using: gainMap)
+        XCTAssertGreaterThan(worst(sharedHDR, try hdrPixels(other)), 0.01,
+                             "a different selection must change the HDR rendition")
+
+        // renderHDRPair builds its HDR graph from the SDR graph's masks too.
+        let pairBakes = MaskRasterCache.currentStats.bakes
+        let pair = try PipelineRenderer().renderHDRPair(source: source, recipe: r,
+                                                        settings: HDRSettings())
+        XCTAssertEqual(MaskRasterCache.currentStats.bakes - pairBakes, 1)
+        XCTAssertGreaterThan(worst(try hdrPixels(pair.sdr), try hdrPixels(pair.hdr)), 0,
+                             "the pair must still differ by its display white")
     }
 }
 #endif

@@ -64,11 +64,20 @@ extension AppState {
             statusMessage = "Auto could not read those files"
             return
         }
+        // Only photos still in the roll. A folder opened while Auto measured has
+        // replaced `recipes`, so a photo that left would be written as its bare
+        // starting recipe plus Auto's tone — to a sidecar that then wins on reopen.
+        let roll = Set(allPhotos.map(\.id))
+        let landing = suggestions.filter { roll.contains($0.key) }
+        guard !landing.isEmpty else {
+            statusMessage = nil
+            return
+        }
         sliderGesture(active: false)
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
         var applied: [URL: Recipe] = [:]
-        for (url, tone) in suggestions {
+        for (url, tone) in landing {
             // The photo's real baseline, not bare defaults: Auto measured
             // through recipe(for:) — starting from Recipe() here installed a
             // recipe it never measured, stripping a JPEG's Linear preset
@@ -309,6 +318,11 @@ extension AppState {
         // per channel at encode. The proof you approved was not the file you shipped.
         let proof = activeSoftProof
         let exportCatalog = catalog
+        // No policy may replace a photograph being exported or its RAW+JPEG sibling:
+        // with `{name}` into the source folder, Overwrite renamed the render over the
+        // original (`ExportRecipe.placement` says why). Taken before the batch writes
+        // anything, so a delivery of this run is never mistaken for an original.
+        let originals = ExportRecipe.originalIdentities(of: jobs.map { $0.url })
         // Anything an export of THIS run claims is newer than this; an empty claim
         // older than it, beside its partial, is one an interrupted run abandoned.
         let runStart = Date()
@@ -386,9 +400,8 @@ extension AppState {
                         failures.append(job.url.lastPathComponent + " → "
                                             + exportRecipe.name + ": " + keywordFailure)
                     } else {
-                        var recipeNaming = naming
-                        recipeNaming.recipeName = exportRecipe.name
-                        recipeNaming.sequence = exportRecipe.sequenceNumber(forPhotoAt: job.index)
+                        let recipeNaming = naming.forRecipe(exportRecipe, photoIndex: job.index,
+                                                            batchCount: jobs.count)
                         let wanted = Self.destination(directory: directory,
                                                       recipe: exportRecipe,
                                                       naming: recipeNaming)
@@ -403,7 +416,8 @@ extension AppState {
                         let placement = ExportRecipe.placement(
                             for: wanted, policy: exportRecipe.collision,
                             claimedThisRun: { claimed.contains(IngestLocation.fileIdentity(of: $0)) },
-                            existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) })
+                            existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) },
+                            isOriginal: { originals.contains(IngestLocation.fileIdentity(of: $0)) })
                         if case .skip = placement {
                             // Not written and not a failure: the file the policy keeps is
                             // already there. Not claimed either, so a second frame wanting
@@ -470,6 +484,7 @@ extension AppState {
             }
             report.finish(stopped && completed < total ? .cancelled : .completed)
             await checkpointOperationReport(report)
+            let finishedReport = report
             await MainActor.run {
                 self.isExporting = false
                 self.exportProgress = 0
@@ -526,6 +541,9 @@ extension AppState {
                         + (failures.first.map { " — " + $0 } ?? "")
                         + renamedNote + reducedNote
                 }
+                // Export with Previous and the reveal (`AppStateQuickExport.swift`).
+                self.noteExportFinished(directory: directory, recipes: active,
+                                        report: finishedReport)
             }
         }
     }
@@ -584,6 +602,7 @@ extension AppState {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.prompt = "Export Here"
+        panel.directoryURL = lastExportDirectoryURL
         if panel.runModal() == .OK, let url = panel.url {
             // The sheet STAYS UP for the run. It used to close here, one line before
             // the batch started, which put the progress readout and the Stop button

@@ -64,6 +64,23 @@ final class MaskIdentityRepairTests: XCTestCase {
                        "a repaired recipe keeps its cache key")
     }
 
+    /// A reference left behind by a deleted mask names an id no row carries. The fresh
+    /// id must step over it, or the rename would make that reference resolve.
+    func testAFreshIdNeverLandsOnADanglingReference() throws {
+        var recipe = Recipe()
+        recipe.masks = [
+            adjusted(Mask(id: "dup", components: [radial(0.3)]), exposure: 1),
+            adjusted(Mask(id: "dup", components: [radial(0.7)]), exposure: -1),
+            adjusted(Mask(id: "user", components: [reference("dup-2")]), exposure: 0.5),
+        ]
+        let repaired = try loaded(recipe)
+        XCTAssertEqual(repaired.masks.map(\.id), ["dup", "dup-3", "user"])
+        XCTAssertEqual(repaired.masks[2].components[0].maskRef, "dup-2")
+        XCTAssertTrue(pixels(repaired) == pixels(recipe), "the repair must move no pixel")
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(repaired),
+                       try RecipeFingerprint.fingerprint(recipe))
+    }
+
     func testARenameThatWouldChangeTheSelectionIsLeftAndReported() throws {
         // Rasterizing the second "x" puts "x" in the cycle guard, so its chain back to
         // "x" through "y" is refused. Renamed, the same chain would reach the FIRST "x"
