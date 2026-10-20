@@ -1042,6 +1042,15 @@ final class CatalogService: @unchecked Sendable {
                 "\(url.lastPathComponent) has more brush strokes than a sidecar can "
                 + "hold, so its .xmp keeps an earlier copy. The catalog and its "
                 + "backups have the current painting.")
+        case .unresolved(let missing, _):
+            // The recipe points at blobs this machine cannot read. `.some(nil)` here
+            // would delete the sidecar's copy — in this state possibly the only one —
+            // and writing the resolvable part would overwrite the missing sets. Say
+            // nothing about the strokes, so the file keeps what it has.
+            NSLog("Lumen catalog: %@ references %d stroke blob(s) the catalog cannot "
+                  + "read (%@) — the sidecar keeps its previous brush painting",
+                  url.lastPathComponent, missing.count,
+                  missing.joined(separator: ", "))
         }
         return nil
     }

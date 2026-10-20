@@ -299,12 +299,21 @@ public enum BrushStrokeSidecar {
         /// Too large to embed. The caller must leave whatever is already in the file
         /// alone, and say so. Carries the size it would have been, for the message.
         case tooLarge(characters: Int)
+        /// The recipe references stroke blobs `blob` could not read — a restore that
+        /// failed to write them, a torn blob file, a catalog moved without its blobs.
+        /// That is NOT "no brush masking": the sidecar may hold the only intact copy,
+        /// and `.none` would tell the writer to delete it. The caller must leave the
+        /// file's payload alone, like `.tooLarge`. `partial` is what did resolve, for
+        /// callers that only read; writing it would overwrite the missing sets.
+        case unresolved(missing: [String], partial: String?)
     }
 
     /// The same resolution as `payload(for:blob:)`, with the three answers kept apart.
     public static func decision(for recipe: Recipe,
                                 blob: (String) -> BrushStrokeSet?) -> PayloadDecision {
-        guard let encoded = encodedSets(for: recipe, blob: blob) else { return .none }
+        let (encoded, missing) = encodedSets(for: recipe, blob: blob)
+        guard missing.isEmpty else { return .unresolved(missing: missing, partial: encoded) }
+        guard let encoded else { return .none }
         guard encoded.count <= payloadLimit else {
             return .tooLarge(characters: encoded.count)
         }
@@ -314,32 +323,40 @@ public enum BrushStrokeSidecar {
     /// Nil for "nothing to write", for the callers that cannot act on the difference.
     public static func payload(for recipe: Recipe,
                                blob: (String) -> BrushStrokeSet?) -> String? {
-        if case .payload(let p) = decision(for: recipe, blob: blob) { return p }
-        return nil
+        switch decision(for: recipe, blob: blob) {
+        case .payload(let p), .unresolved(_, let p?): return p
+        case .none, .tooLarge, .unresolved: return nil
+        }
     }
 
     private static func encodedSets(for recipe: Recipe,
-                                    blob: (String) -> BrushStrokeSet?) -> String? {
+                                    blob: (String) -> BrushStrokeSet?)
+        -> (encoded: String?, missing: [String]) {
         var sets: [String: BrushStrokeSet] = [:]
+        var seen: Set<String> = []
+        var missing: [String] = []
+        // Asked once per reference; a reference that does not resolve is recorded, not
+        // forgotten, so the caller can tell it from a recipe with nothing painted.
+        func resolve(_ ref: String) {
+            guard seen.insert(ref).inserted else { return }
+            guard let set = blob(ref) else { missing.append(ref); return }
+            guard !set.strokes.isEmpty else { return }
+            sets[ref] = set
+        }
         for mask in recipe.masks {
             for component in mask.components where component.kind == .brush {
-                guard let ref = component.strokesRef, !ref.isEmpty,
-                      sets[ref] == nil, let set = blob(ref) else { continue }
-                guard !set.strokes.isEmpty else { continue }
-                sets[ref] = set
+                guard let ref = component.strokesRef, !ref.isEmpty else { continue }
+                resolve(ref)
             }
         }
         // The painted heal strokes ride the same payload: they are the same kind of
         // blob, lost the same way with the catalog, and restored by the same reader.
-        if let ref = BrushStrokes.healReference(in: recipe), sets[ref] == nil,
-           let set = blob(ref), !set.strokes.isEmpty {
-            sets[ref] = set
-        }
-        guard !sets.isEmpty else { return nil }
+        if let ref = BrushStrokes.healReference(in: recipe) { resolve(ref) }
+        guard !sets.isEmpty else { return (nil, missing) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(sets) else { return nil }
-        return data.base64EncodedString()
+        guard let data = try? encoder.encode(sets) else { return (nil, missing) }
+        return (data.base64EncodedString(), missing)
     }
 
     /// The stroke sets in a sidecar payload, keyed by the reference each one belongs to.
