@@ -3592,8 +3592,11 @@ final class AppState: ObservableObject {
     /// nothing, it silently undid whatever develop edit happened to be on top of the
     /// stack, on a possibly different photo. For an app whose highest-frequency job is
     /// the culling loop, its primary action had no undo.
+    ///
+    /// The targets are `cullTargetIDs`, not `editTargets`: in Loupe, Compare and Survey a
+    /// cull key decides about the active frame only (`CullTargeting`).
     private func mutateTargets(_ label: String, _ body: (inout PhotoItem) -> Void) {
-        let targets = Set(editTargets.map(\.id))
+        let targets = Set(cullTargetIDs)
         guard !targets.isEmpty else { return }
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
@@ -3687,6 +3690,10 @@ final class AppState: ObservableObject {
     /// it up afterwards returned nil and sent the cursor to the top of the roll on
     /// every keystroke.
     private func advanceIfNeeded(from index: Int?) {
+        // Inside a Compare or Survey of a multi-selection the cursor steps through the
+        // comparison instead; `CullTargeting.advance` also owns the off switch and the
+        // multi-selection "stay".
+        if advanceHandledByCullRule() { return }
         guard autoAdvance, selection.count <= 1 else { return }
         let list = photos
         guard !list.isEmpty else { return }
