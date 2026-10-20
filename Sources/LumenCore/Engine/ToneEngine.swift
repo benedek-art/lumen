@@ -135,6 +135,27 @@ public struct ToneEngine: Sendable {
     public let effectiveWhites: Double
     public let effectiveBlacks: Double
 
+    /// Where Whites and Blacks put the live anchors, without building the engine.
+    ///
+    /// The initialiser below reads its anchors from here, so this is not a second copy
+    /// of the arithmetic but the only one. It exists because the anchors are also the
+    /// grading wheels' zone axis (`RenderPlan` hands them to `GradeEngine`), and the
+    /// Colour Grading strip has to draw on that axis on every redraw: a whole engine
+    /// solves the zonal limits, which is a sweep the strip has no use for. The strip
+    /// used to dodge the cost by assuming the factory −9 … +5 EV — a fixed 14 EV span —
+    /// so with Whites at +100 it drew the crossfades 10.7 % narrower than the ones being
+    /// rendered and dropped a Balance-shifted handle 0.21 EV from where it was released
+    /// (B2-05). `GradeStripAxisTests` pins the agreement.
+    public static func anchors(for tone: Tone,
+                               baseWhiteAnchorEV: Double = ToneEngine.defaultWhiteAnchorEV,
+                               baseBlackAnchorEV: Double = ToneEngine.defaultBlackAnchorEV)
+        -> (white: Double, black: Double) {
+        let whites = Num.clamp(tone.whites, -100, 100) / 100
+        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
+        return (white: baseWhiteAnchorEV - Self.whiteBlackRangeEV * whites,
+                black: baseBlackAnchorEV - Self.whiteBlackRangeEV * blacks)
+    }
+
     /// `baseWhiteAnchorEV` / `baseBlackAnchorEV` are where Whites and Blacks at zero put
     /// the anchors. The global engine leaves them at the factory 5 / −9 EV. A MASK's
     /// engine passes the global plan's live anchors, because its sub-recipe is a delta
@@ -154,8 +175,10 @@ public struct ToneEngine: Sendable {
         let shadows = Num.clamp(tone.shadows, -100, 100) / 100
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        let hi = baseWhiteAnchorEV - Self.whiteBlackRangeEV * whites
-        let lo = baseBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        let anchors = Self.anchors(for: tone, baseWhiteAnchorEV: baseWhiteAnchorEV,
+                                   baseBlackAnchorEV: baseBlackAnchorEV)
+        let hi = anchors.white
+        let lo = anchors.black
         self.whiteAnchorEV = hi
         self.blackAnchorEV = lo
         // A scale over the zonal contribution, found in closed form, rather than a cap

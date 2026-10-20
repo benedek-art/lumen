@@ -194,6 +194,26 @@ public struct ZoneWindows: Sendable {
                   blackAnchorEV: blackAnchorEV)
     }
 
+    /// The windows `RenderPlan` grades `recipe` through: the wheels' pivots, Blending
+    /// and Balance on the TONE stage's live anchors, which Whites and Blacks move by up
+    /// to 1.5 EV each. This is what the Colour Grading strip draws and what its handle
+    /// drag inverts, so the picture of the zones is the zones being rendered.
+    ///
+    /// The strip used to build `ZoneWindows(pivots:blending:balance:)` — the factory
+    /// −9 … +5 EV — and convert Balance with a hard-coded 14 EV span. Both halves of
+    /// the window are denominated in EV and divided by the span (the Balance shift and
+    /// the crossfade half-width), so at Whites +100, span 12.5, it drew every crossfade
+    /// 10.7 % narrower than the one rendering and stored a pivot 0.21 EV off the handle
+    /// at Balance ±100 (B2-05). Whichever way the zone axis is eventually denominated
+    /// (A1-03 / D-5), the strip follows it by asking here rather than holding its own
+    /// copy. `GradeStripAxisTests`.
+    public init(gradeOf recipe: Recipe) {
+        let anchors = ToneEngine.anchors(for: recipe.develop.tone)
+        self.init(wheels: recipe.look.wheels,
+                  whiteAnchorEV: anchors.white,
+                  blackAnchorEV: anchors.black)
+    }
+
     /// `t = log2(lum/0.18)` → the normalized axis the pivots live on.
     public func normalizedAxis(_ t: Double) -> Double {
         guard t.isFinite else { return 0 }

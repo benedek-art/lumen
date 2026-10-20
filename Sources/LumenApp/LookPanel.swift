@@ -114,11 +114,6 @@ struct LookPanel: View {
     /// values, and exactly the sort of thing that is wrong for a year.
     private var innerRhythm: CGFloat { only == nil ? 20 : 10 }
 
-    /// The normalized tonal axis the pivots live on spans black anchor → white anchor,
-    /// i.e. −9 EV … +5 EV (ZoneWindows' defaults). Balance is denominated in EV, so the
-    /// handle geometry needs the span to convert.
-    static let axisSpanEV: Double = 14.0
-
     /// The four grades, in the order the tonal axis puts them.
     ///
     /// Global sits last rather than first even though it applies everywhere, because
@@ -736,11 +731,8 @@ struct LookPanel: View {
     @ViewBuilder
     private var wheelsRows: some View {
         let wheels = state.currentRecipe.look.wheels
-        let pivots = LookPanel.normalizedPivots(wheels.pivots)
 
-        ZoneWeightStrip(pivots: pivots,
-                        blending: wheels.blending,
-                        balance: wheels.balance,
+        ZoneWeightStrip(windows: LookPanel.stripWindows(state.currentRecipe),
                         onPivotChanged: { index, position in
                             movePivot(index, to: position)
                         })
@@ -1020,23 +1012,43 @@ struct LookPanel: View {
 
     private func movePivot(_ index: Int, to position: Double) {
         state.updateRecipe(coalescingKey: "wheels.pivot.\(index)") { recipe in
-            var pivots = LookPanel.normalizedPivots(recipe.look.wheels.pivots)
-            // The handle is dragged where the user sees it — that is the pivot AFTER
-            // Balance — and ZoneWindows adds `pivotShift` to the stored pivot, so the
-            // stored pivot is the handle minus that same shift.
-            let shift = ZoneWindows.pivotShift(balance: recipe.look.wheels.balance,
-                                               spanEV: LookPanel.axisSpanEV)
-            let gap = ZoneWindows.minimumPivotGap
-            var value = Num.saturate(position - shift)
-            if index == 0 {
-                value = min(value, pivots[1] - gap)
-                pivots[0] = Num.saturate(value)
-            } else {
-                value = max(value, pivots[0] + gap)
-                pivots[1] = Num.saturate(value)
-            }
-            recipe.look.wheels.pivots = pivots
+            recipe.look.wheels.pivots = LookPanel.pivotsAfterDrag(index, to: position,
+                                                                  in: recipe)
         }
+    }
+
+    /// The windows the zone strip draws: the ones the engine grades through, on the
+    /// tone stage's LIVE anchors. Whites and Blacks move those anchors, and Balance and
+    /// Blending are both EV quantities divided by the span, so a strip on the factory
+    /// 14 EV axis drew crossfades 10.7 % narrower than the rendered ones at Whites +100
+    /// (B2-05). Normalized pivots first, so a decoded file's junk draws where it renders.
+    static func stripWindows(_ recipe: Recipe) -> ZoneWindows {
+        var normalized = recipe
+        normalized.look.wheels.pivots = normalizedPivots(recipe.look.wheels.pivots)
+        return ZoneWindows(gradeOf: normalized)
+    }
+
+    /// The stored pivots after handle `index` is dropped at `position`.
+    ///
+    /// The handle is dragged where the user sees it — that is the pivot AFTER Balance —
+    /// so the stored pivot is the handle minus the balance shift, and the shift has to
+    /// be converted on the span the engine grades on. It used a hard-coded 14 EV, so at
+    /// Whites +100 and Balance ±100 the rendered pivot landed 0.21 EV from the release.
+    static func pivotsAfterDrag(_ index: Int, to position: Double,
+                                in recipe: Recipe) -> [Double] {
+        var pivots = normalizedPivots(recipe.look.wheels.pivots)
+        let shift = ZoneWindows.pivotShift(balance: recipe.look.wheels.balance,
+                                           spanEV: ZoneWindows(gradeOf: recipe).spanEV)
+        let gap = ZoneWindows.minimumPivotGap
+        var value = Num.saturate(position - shift)
+        if index == 0 {
+            value = min(value, pivots[1] - gap)
+            pivots[0] = Num.saturate(value)
+        } else {
+            value = max(value, pivots[0] + gap)
+            pivots[1] = Num.saturate(value)
+        }
+        return pivots
     }
 
     // MARK: - Printer lights
@@ -1744,9 +1756,9 @@ struct LookPanel: View {
 /// as handles. Lightroom has these zones too — it just never shows them, which is why
 /// its shadow tint keeps landing somewhere the user did not ask for.
 struct ZoneWeightStrip: View {
-    let pivots: [Double]
-    let blending: Double
-    let balance: Double
+    /// Solved by the caller from the whole recipe (`LookPanel.stripWindows`), because
+    /// the axis they sit on belongs to the tone stage, which this view cannot see.
+    let windows: ZoneWindows
     let onPivotChanged: (Int, Double) -> Void
 
     private static let height: CGFloat = 40
@@ -1758,14 +1770,11 @@ struct ZoneWeightStrip: View {
     @Environment(\.sliderGestureChanged) private var sliderGestureChanged
 
     var body: some View {
-        let pivotPair = pivots
-        let softness = blending
-        let shift = balance
-        let windows = ZoneWindows(pivots: pivotPair, blending: softness, balance: shift)
+        let windows = self.windows
 
         return ZStack(alignment: .topLeading) {
             Canvas { context, size in
-                let solved = ZoneWindows(pivots: pivotPair, blending: softness, balance: shift)
+                let solved = windows
                 guard size.width > 0, size.height > 2 else { return }
                 let usable = size.height - 2
                 let steps = 72
