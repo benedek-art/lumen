@@ -865,14 +865,15 @@ public final class PipelineRenderer {
                        allowOverwrite: Bool = false,
                        catalogKeywords: [String]? = nil) throws -> [String] {
         try exportRecipe.metadata.validateContact()
+        let masks = SharedMaskImages()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
-                                      softProof: softProof)
+                                      softProof: softProof, sharedMasks: masks)
         // nil unless the recipe writes a gain map, so every other export reaches
         // `write` with exactly the arguments it always had.
         let hdr = try exportedHDRImage(source: source, recipe: recipe,
                                        using: exportRecipe, strokeSets: strokeSets,
-                                       softProof: softProof)
+                                       softProof: softProof, sharedMasks: masks)
         try write(image, to: destination, using: exportRecipe,
                   sourceProperties: Self.sourceImageProperties(source.url),
                   allowOverwrite: allowOverwrite, hdrImage: hdr,
@@ -901,9 +902,11 @@ public final class PipelineRenderer {
     func exportedImage(source: any ImageSource, recipe: Recipe,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
-                       softProof: SoftProof? = nil) throws -> CIImage {
+                       softProof: SoftProof? = nil,
+                       sharedMasks: SharedMaskImages? = nil) throws -> CIImage {
         try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
                                strokeSets: strokeSets, softProof: softProof,
+                               sharedMasks: sharedMasks,
                                displayWhiteTarget: nil, dither: true)
     }
 
@@ -921,11 +924,31 @@ public final class PipelineRenderer {
     func exportedHDRImage(source: any ImageSource, recipe: Recipe,
                           using exportRecipe: ExportRecipe,
                           strokeSets: [String: BrushStrokeSet] = [:],
-                          softProof: SoftProof? = nil) throws -> CIImage? {
+                          softProof: SoftProof? = nil,
+                          sharedMasks: SharedMaskImages? = nil) throws -> CIImage? {
         guard let white = exportRecipe.gainMapWhiteTargetPercent else { return nil }
         return try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
                                       strokeSets: strokeSets, softProof: softProof,
+                                      sharedMasks: sharedMasks,
                                       displayWhiteTarget: white, dither: false)
+    }
+
+    /// The mask images one `export` call's two renditions share.
+    ///
+    /// A gain-map export used to rasterize every CPU mask twice at full resolution
+    /// (the mask source readback and `MaskRaster.combine`, seconds for a refined mask
+    /// on a 33 MP file) because `MaskRasterCache` refuses to retain anything above its
+    /// 1024 proxy, so the HDR rendition missed exactly where the SDR one had just
+    /// baked. The bake was redundant: the renditions differ only by display white,
+    /// which reaches S14/S15 and nothing `localStageInput` reads, and every raster key
+    /// term is a function of the url, recipe, strokes and mattes, all the same within
+    /// one call. So the second graph takes the first graph's images verbatim.
+    ///
+    /// Scoped to ONE call on purpose: it holds no key, so it is only correct while the
+    /// decode, recipe, strokes and proof are the ones it was filled under. No lock:
+    /// both renditions run one after the other on the caller's thread. Never stored.
+    final class SharedMaskImages {
+        var images: [String: CIImage]?
     }
 
     /// One delivered rendition: `exportedImage`'s body, parameterized by the display
@@ -936,6 +959,7 @@ public final class PipelineRenderer {
                                     using exportRecipe: ExportRecipe,
                                     strokeSets: [String: BrushStrokeSet],
                                     softProof: SoftProof?,
+                                    sharedMasks: SharedMaskImages?,
                                     displayWhiteTarget: Double?,
                                     dither: Bool) throws -> CIImage {
         // An export is a promise in a way a preview is not, so it refuses rather than
@@ -967,7 +991,12 @@ public final class PipelineRenderer {
                               allowStaleRasters: false,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:],
-                              deferGrain: true)
+                              deferGrain: true,
+                              reusingMaskImages: sharedMasks?.images)
+        // The first rendition fills the box; the second only reads it.
+        if let sharedMasks, sharedMasks.images == nil {
+            sharedMasks.images = graph.maskImages
+        }
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              lutSize: LUT3D.exportSize))
@@ -1207,10 +1236,13 @@ public final class PipelineRenderer {
                                  sourceURL: source.url,
                                  allowStaleRasters: false,
                                  strokeSets: strokeSets, aiMattes: cached)
+        // Same decode, recipe, strokes and mattes, so the same masks: only the
+        // display white differs, and no mask input reads it (`SharedMaskImages`).
         let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded,
                                  sourceURL: source.url,
                                  allowStaleRasters: false,
-                                 strokeSets: strokeSets, aiMattes: cached)
+                                 strokeSets: strokeSets, aiMattes: cached,
+                                 reusingMaskImages: sdrGraph.maskImages)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
         let hdr = Self.applyGeometry(hdrGraph.build(decoded, plan: hdrPlan, options: options),
@@ -1613,7 +1645,8 @@ public final class PipelineRenderer {
                            strokeSets: [String: BrushStrokeSet],
                            aiMattes: [String: Plane],
                            deferGrain: Bool = false,
-                           maskRasterCeiling: CGFloat? = nil) -> RenderGraph {
+                           maskRasterCeiling: CGFloat? = nil,
+                           reusingMaskImages: [String: CIImage]? = nil) -> RenderGraph {
         var graph = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
         let extent = decoded.extent
 
@@ -1622,7 +1655,12 @@ public final class PipelineRenderer {
         // grain plate. Drafts now build the full graph; what makes that affordable is
         // `MaskRasterCache` below, which lets a draft frame reuse a raster instead of
         // paying probe (b)'s 12–190 ms per mask per event.
-        if !plan.masks.isEmpty {
+        //
+        // `reusingMaskImages` is a sibling graph's finished masks for the same decode
+        // and recipe (`SharedMaskImages`): taken whole, nothing is rasterized again.
+        if let reusingMaskImages {
+            graph.maskImages = reusingMaskImages
+        } else if !plan.masks.isEmpty {
             // The raster resolution SCALES WITH THE RENDER (docs/31 round two §3).
             // Only a draft frame rasterizes at the 1024 proxy — that is the price a
             // moving hand pays, bounded by MaskRasterCache so it is paid once per
