@@ -3,6 +3,6 @@ import PackageDescription
 
 let package = Package(
     name: "LumenDenoise",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     targets: [.executableTarget(name: "LumenDenoise", path: "Sources/LumenDenoise")]
 )

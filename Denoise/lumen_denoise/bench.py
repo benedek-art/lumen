@@ -2,6 +2,9 @@
 
 python -m lumen_denoise.bench --val data/gt_val --methods noisy,bm3d,net:runs/x/best.pt
 Each method: f(noisy (4,h,w) np.float32, K, r) -> (4,h,w).
+Quick centre-crop check only (default --ps 512 = train.validate, so numbers line up with training logs).
+The full per-camera / per-ISO / per-region (dark, flat, detail, mid, centre) benchmark with fixed numpy
+seeds is lumen_denoise.eval.synth_bench; the release gate is lumen_denoise.eval.gate.
 """
 import argparse, json, math, time
 from pathlib import Path
@@ -50,9 +53,11 @@ def main():
     ap.add_argument("--val", default="data/gt_val"); ap.add_argument("--meta", default="data/gt_meta.json")
     ap.add_argument("--calib", default="data/calib.json")
     ap.add_argument("--methods", default="noisy,bm3d"); ap.add_argument("--isos", default="1600,6400,25600")
-    ap.add_argument("--ps", type=int, default=384); ap.add_argument("--n", type=int, default=0)
+    ap.add_argument("--ps", type=int, default=512); ap.add_argument("--n", type=int, default=0)
     ap.add_argument("--out", default="reports/bench.json")
     a = ap.parse_args()
+    if not Path(a.calib).exists() and (Path(__file__).parents[1] / "weights/calib.json").exists():
+        a.calib = str(Path(__file__).parents[1] / "weights/calib.json")  # repo copy of the calibration
     meta, table = json.load(open(a.meta)), NoiseTable(a.calib)
     files = sorted(Path(a.val).glob("*.npy"))[: a.n or None]
     res = {}
@@ -64,10 +69,11 @@ def main():
             for i, fp in enumerate(files):
                 g = np.load(fp, mmap_mode="r")
                 _, h, w = g.shape
-                c = np.array(g[:, (h - a.ps) // 2:(h + a.ps) // 2, (w - a.ps) // 2:(w + a.ps) // 2], np.float32)
+                ps = min(a.ps, h, w)  # small frames: whole frame
+                c = np.array(g[:, (h - ps) // 2:(h - ps) // 2 + ps, (w - ps) // 2:(w - ps) // 2 + ps], np.float32)
                 cam = meta[fp.stem]
                 K, r = table.params(cam, min(iso, table.iso_range(cam)[1]))
-                torch.manual_seed(i * 7919 + iso)
+                torch.manual_seed(i + iso)  # same seed + crop as train.validate: identical noise, so net PSNR tracks training logs
                 x = add_noise(torch.from_numpy(c), K, r).numpy()
                 t = time.time(); y = f(x, K, r); t_ += time.time() - t
                 ty, tc = tone(torch.from_numpy(y)).numpy(), tone(torch.from_numpy(c)).numpy()

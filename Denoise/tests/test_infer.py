@@ -123,7 +123,7 @@ def fake_raw(h, w, seed=0):
 
 
 def test_strength_blend(monkeypatch):
-    eng = infer.Engine(net=Const(), dev="cpu", tile=TILE, ov=OV, calib=None)
+    eng = infer.Engine(net=Const(), dev="cpu", tile=TILE, ov=OV, calib=None, mp_sigma=0)
     r = fake_raw(66, 90)
     dn0, info, _ = eng._denoise("a.ARW", "a.dng", r, 0.0, 0.0)
     np.testing.assert_array_equal(dn0, r.raw)  # strength 0 = bit-exact source
@@ -139,7 +139,7 @@ def test_strength_blend(monkeypatch):
 
 def test_odd_dims_fully_processed(monkeypatch):
     monkeypatch.setattr(infer.rawio, "denormalize", lambda r, c: c)
-    eng = infer.Engine(net=Const(), dev="cpu", tile=TILE, ov=OV, calib=None)
+    eng = infer.Engine(net=Const(), dev="cpu", tile=TILE, ov=OV, calib=None, mp_sigma=0)
     r = fake_raw(33, 47)
     d = eng._denoise("a", "b", r, 0.0, 1.0)[0]
     assert d.shape == (33, 47)
@@ -295,3 +295,16 @@ def test_run_timing_excludes_queue(batch, monkeypatch, tmp_path):
     lines = []
     eng.run(["a.ARW", "b.ARW", "c.ARW"], tmp_path, emit=lines.append)
     assert all(0.3 <= l["denoise_s"] < 0.5 and l["total_s"] < 0.6 for l in lines), lines
+
+
+def test_mean_preserve_removes_bias_keeps_detail():
+    from lumen_denoise.infer import mean_preserve
+    import cv2
+    rng = np.random.default_rng(0)
+    clean = np.full((4, 256, 256), 0.02, np.float32); clean[:, 100:140, 100:140] = 0.2  # detail
+    d = clean - 0.001  # a "denoiser" that is perfect except for a constant bias
+    out = mean_preserve(clean, d, 24.0)
+    assert abs(float((out - clean)[:, 20:60, 20:60].mean())) < 2e-5  # bias gone in flat area
+    blur = lambda a: np.stack([cv2.GaussianBlur(c, (0, 0), 24.0, borderType=cv2.BORDER_REFLECT) for c in a])
+    np.testing.assert_allclose(blur(out), blur(clean), atol=1e-6)  # large-scale level matches input
+    assert np.array_equal(mean_preserve(clean, d, 0), d)  # sigma 0 disables
