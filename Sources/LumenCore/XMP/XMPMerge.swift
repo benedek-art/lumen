@@ -10,8 +10,8 @@
 // keyword in `dc:subject`, the star rating, the colour label and the capture date were
 // gone from disk, with no backup and no undo — on a file Lumen had not even rendered.
 //
-// The rule this file implements: Lumen owns `xmp:Rating`, `xmp:Label` and the whole
-// `lumen:` namespace. Every other byte of an existing sidecar is somebody else's work
+// The rule this file implements: Lumen owns `xmp:Rating`, `xmp:Label` and the `lumen:`
+// properties this build writes (`lumenFields`). Every other byte of an existing sidecar is somebody else's work
 // and survives untouched. XMP carries simple properties in two interchangeable forms —
 // as attributes on `rdf:Description` (what Adobe writes) and as child elements (what
 // Lumen writes) — so both have to be found and replaced, or the document ends up
@@ -55,8 +55,23 @@ public enum XMPMerge {
             if local == "Rating" || local == "Label" { return true }
         }
         if subject && name == "dc:subject" { return true }
-        return name.hasPrefix("lumen:")
+        return lumenFields.contains(name)
     }
+
+    /// The `lumen:` properties THIS BUILD writes — not the whole namespace.
+    ///
+    /// Owning every `lumen:` name meant a field a newer build added (docs/15 plans
+    /// `lumen:snapshots`) was stripped by the first rating keystroke on an older one,
+    /// and `fieldLines` had nothing to put back: `SidecarContent` has nowhere to carry
+    /// a field this build does not know. That is the loss `writableFields` exists to
+    /// prevent for the recipe. A name this build does not know is somebody's work and
+    /// is left alone, like any other namespace's. The parser reads exactly this set,
+    /// so a field cannot be written without also being read and replaced.
+    static let lumenFields: Set<String> = [
+        "lumen:flag", "lumen:pipelineVersion", "lumen:recipeFingerprint",
+        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp",
+        "lumen:sourceExtension",
+    ]
 
     /// Splice `fields` (serialized child elements, one per line, already escaped) into
     /// `original`, replacing whatever Lumen previously wrote there.

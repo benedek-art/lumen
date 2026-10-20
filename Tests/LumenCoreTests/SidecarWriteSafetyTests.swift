@@ -113,4 +113,37 @@ final class SidecarWriteSafetyTests: XCTestCase {
             doc.replacingOccurrences(of: "\"4.0\"", with: "\"nan\""))?.rating, 0)
     }
 
+    // MARK: - A newer build's lumen: fields
+
+    func testANewerBuildsUnknownLumenFieldsSurviveARating() throws {
+        let c = SidecarContent(rating: 3, pipelineVersion: 99, recipeJSON: "{}")
+        var doc = XMPSidecar.serialize(c)
+        doc = doc.replacingOccurrences(of: "   <lumen:recipe>",
+            with: "   <lumen:snapshots>keep-me</lumen:snapshots>\n   <lumen:recipe>")
+        doc = doc.replacingOccurrences(of: "<rdf:Description rdf:about=\"\"",
+            with: "<rdf:Description rdf:about=\"\" lumen:newThing=\"x\"")
+        let fresh = try XCTUnwrap(XMPSidecar.parse(doc))
+        XCTAssertTrue(fresh.parsedCleanly)
+        let fields = XMPSidecar.writableFields([.rating], documentVersion: fresh.pipelineVersion)
+        let out = XMPSidecar.reseed(SidecarContent(rating: 5), fields: fields, onto: fresh)
+        let merged = try XCTUnwrap(XMPSidecar.update(doc, with: out))
+        XCTAssertEqual(XMPSidecar.parse(merged)?.rating, 5)
+        XCTAssertEqual(XMPSidecar.parse(merged)?.recipeJSON, "{}")
+        XCTAssertTrue(merged.contains("<lumen:snapshots>keep-me</lumen:snapshots>"),
+                      "an older build deleted a newer build's element")
+        XCTAssertTrue(merged.contains("lumen:newThing=\"x\""),
+                      "an older build deleted a newer build's attribute")
+        XCTAssertEqual(XMPSidecar.update(merged, with: out), merged)
+    }
+
+    /// Narrowing ownership must not stop a KNOWN field from being cleared.
+    func testAKnownLumenFieldIsStillClearedWhenNotRestated() throws {
+        let doc = XMPSidecar.serialize(SidecarContent(rating: 3, flag: .pick, recipeJSON: "{}",
+                                                      strokesPayload: "AAAA"))
+        let merged = try XCTUnwrap(XMPSidecar.update(doc, with: SidecarContent(rating: 3)))
+        XCTAssertFalse(merged.contains("lumen:flag"))
+        XCTAssertFalse(merged.contains("lumen:recipe>"))
+        XCTAssertFalse(merged.contains("lumen:strokes"))
+        XCTAssertEqual(merged.components(separatedBy: "<lumen:pipelineVersion>").count - 1, 1)
+    }
 }

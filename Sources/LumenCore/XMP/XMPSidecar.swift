@@ -753,11 +753,10 @@ private final class SidecarParserDelegate: NSObject, XMLParserDelegate {
     private var inSubjectItem = false
     private var subjectItem = ""
 
-    private static let interesting: Set<String> = [
-        "xmp:Rating", "xmp:Label", "lumen:flag",
-        "lumen:pipelineVersion", "lumen:recipeFingerprint",
-        "lumen:recipe", "lumen:strokes", "lumen:catalogUUID", "lumen:writeStamp", "lumen:sourceExtension",
-    ]
+    /// The same `lumen:` names `XMPMerge` owns, so what the writer strips is exactly
+    /// what this reads.
+    private static let interesting: Set<String> =
+        XMPMerge.lumenFields.union(["xmp:Rating", "xmp:Label"])
 
     /// Prefixes in scope that are bound to the XMP basic namespace, innermost scope
     /// last. XMP names a property by URI, not by prefix: Photoshop 7–CS2 and Bridge 1.x
