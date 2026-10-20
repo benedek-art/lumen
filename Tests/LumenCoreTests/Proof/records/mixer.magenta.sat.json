@@ -1,15 +1,15 @@
 {
-  "authority" : 62.42764711643206,
+  "authority" : 69.51498212931028,
   "deadSteps" : 0,
   "frame" : "colourChart",
-  "frontLoading" : 0.6049048190201047,
+  "frontLoading" : 0.5336275134359799,
   "givenBack" : 0,
-  "hueRotation" : 0.579168487932975,
+  "hueRotation" : 0.4482084701853637,
   "id" : "mixer.magenta.sat",
   "isMonotone" : true,
-  "meanSeparation" : 3.292162447722947,
+  "meanSeparation" : 3.407552914780981,
   "panel" : "Colour Mixer",
-  "smallestLiveStep" : 2.9678542543254025,
+  "smallestLiveStep" : 2.920350379506317,
   "travelHigh" : 100,
   "travelLow" : -100
 }
