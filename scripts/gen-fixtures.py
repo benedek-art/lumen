@@ -1895,6 +1895,7 @@ def srgb_decode(x):
 
 
 SKEW_SHAPE = 2.0
+MINIMUM_POWER = 1.5
 
 
 class DisplayTransform:
@@ -1925,8 +1926,14 @@ class DisplayTransform:
         a_toe = m * self.pivot_x / py
         a_shoulder = m * (1 - self.pivot_x) / (1 - py)
         sk = min(max(skew, -1), 1)
-        self.toe_lambda = min(max(sk * 0.5, -1), a_toe / SKEW_SHAPE * 0.9)
-        self.shoulder_lambda = min(max(-sk * 0.5, -1), a_shoulder / SKEW_SHAPE * 0.9)
+        # Capped where the exponent would fall below MINIMUM_POWER: below 1 the
+        # shoulder's slope rises into the white anchor (HDR peaks, low Contrast,
+        # strong Skew) and the picture clips instead of rolling off. The pivot slope
+        # (power + lambda * shape) is unchanged.
+        self.toe_lambda = min(max(sk * 0.5, -1), a_toe / SKEW_SHAPE * 0.9,
+                              (a_toe - MINIMUM_POWER) / SKEW_SHAPE)
+        self.shoulder_lambda = min(max(-sk * 0.5, -1), a_shoulder / SKEW_SHAPE * 0.9,
+                                   (a_shoulder - MINIMUM_POWER) / SKEW_SHAPE)
         self.toe_power = a_toe - self.toe_lambda * SKEW_SHAPE
         self.shoulder_power = a_shoulder - self.shoulder_lambda * SKEW_SHAPE
 
@@ -2338,7 +2345,7 @@ K_BR = 0.2717 * (6.469 + 6.362 * 160.0 ** 0.4495) / (6.469 + 160.0 ** 0.4495)
 def hk_q(hue_deg):
     t = math.radians(hue_deg % 360.0)
     return (-0.01585 - 0.03017 * math.cos(t) - 0.04556 * math.cos(2 * t)
-            - 0.04256 * math.cos(3 * t) - 0.00295 * math.cos(4 * t)
+            - 0.02667 * math.cos(3 * t) - 0.00295 * math.cos(4 * t)
             + 0.14592 * math.sin(t) + 0.05084 * math.sin(2 * t)
             - 0.01900 * math.sin(3 * t) - 0.00764 * math.sin(4 * t))
 

@@ -35,9 +35,12 @@ import SwiftUI
 /// The named illuminants (docs/04 §2.1). Values are the conventional daylight/tungsten
 /// anchors; picking one writes ordinary Temp/Tint numbers the user can then argue with.
 private struct WBIlluminant: Identifiable {
-    let name: String
-    let kelvin: Double
-    let tint: Double
+    /// The name and numbers, from LumenCore — the same table `presetName` matches
+    /// against, so the menu cannot offer a preset its own title would not recognise.
+    let preset: WhiteBalanceEngine.Preset
+    var name: String { preset.name }
+    var kelvin: Double { preset.kelvin }
+    var tint: Double { preset.tint }
     /// The glyph the preset menu draws beside the name.
     ///
     /// Light sources were the first list in this app to earn one, and they earn it
@@ -52,14 +55,11 @@ private struct WBIlluminant: Identifiable {
     var id: String { name }
 }
 
-private let wbIlluminants: [WBIlluminant] = [
-    WBIlluminant(name: "Daylight", kelvin: 5500, tint: 10, symbol: "sun.max"),
-    WBIlluminant(name: "Cloudy", kelvin: 6500, tint: 10, symbol: "cloud"),
-    WBIlluminant(name: "Shade", kelvin: 7500, tint: 10, symbol: "cloud.sun"),
-    WBIlluminant(name: "Tungsten", kelvin: 2850, tint: 0, symbol: "lightbulb"),
-    WBIlluminant(name: "Fluorescent", kelvin: 3800, tint: 21, symbol: "light.panel"),
-    WBIlluminant(name: "Flash", kelvin: 5500, tint: 0, symbol: "bolt"),
-]
+private let wbIlluminants: [WBIlluminant] = WhiteBalanceEngine.presets.map { preset in
+    let symbols = ["Daylight": "sun.max", "Cloudy": "cloud", "Shade": "cloud.sun",
+                   "Tungsten": "lightbulb", "Fluorescent": "light.panel", "Flash": "bolt"]
+    return WBIlluminant(preset: preset, symbol: symbols[preset.name] ?? "lightbulb")
+}
 
 // What the Temp and Tint rows show while the recipe says "as shot" is
 // `WhiteBalanceEngine.displayed`, in LumenCore, where a test can reach it. There is no
@@ -417,15 +417,14 @@ struct BasicPanel: View {
     }
 
     /// "Custom" is what any manual move means — matching Lightroom's grammar, where the
-    /// preset row reports what the numbers are rather than what you last clicked.
+    /// preset row reports what the numbers are rather than what you last clicked. The
+    /// rule is `WhiteBalanceEngine.presetName`, in LumenCore beside `displayed`, so a nil
+    /// field means the same neutral here as in the Temp/Tint rows: this used to answer
+    /// "As Shot" for a Tint-only move and read a nil Tint as 0 rather than as-shot.
     private var presetName: String {
-        guard let temp = recipe.develop.raw.temp else { return "As Shot" }
-        let tint = recipe.develop.raw.tint ?? 0
-        for illuminant in wbIlluminants
-        where abs(illuminant.kelvin - temp) < 1 && abs(illuminant.tint - tint) < 1 {
-            return illuminant.name
-        }
-        return "Custom"
+        WhiteBalanceEngine.presetName(temp: recipe.develop.raw.temp,
+                                      tint: recipe.develop.raw.tint,
+                                      asShot: asShotNeutral ?? .reference)
     }
 
     private var isWhiteBalanceModified: Bool {

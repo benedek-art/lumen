@@ -6,9 +6,15 @@
 // What the spec actually specifies, and what this file therefore implements, is neither
 // ASC-CDL (slope/offset/power) nor lift/gamma/gain:
 //
-//   · a wheel tint is a CONSTANT-LUMINANCE hue/chroma offset — a translation of the
-//     OKLab (a, b) pair, weighted by the zone windows. L is not touched, so tinting a
-//     zone carries no luminance contamination and a wheel at sat = 0 is an exact no-op.
+//   · a wheel tint is a CONSTANT-LIGHTNESS hue/chroma offset — a translation of the
+//     OKLab (a, b) pair, weighted by the zone windows. OKLab L is not touched, so the
+//     tint holds perceptual lightness and a wheel at sat = 0 is an exact no-op. It does
+//     NOT hold scene luminance Y: L is a cube root of an LMS mix that the a, b move
+//     changes, so a full-deflection tint moves a mid-grey's Y by about ±10 % and a −3 EV
+//     shadow's by about ±20 % (teal up, red down), enough to push a channel negative
+//     there (S14 handles that). This used to say "no luminance contamination"; whether
+//     to restore Y or H-K brightness instead is open (B2-03, P13 DECISION 2). Pinned by
+//     WheelTintLightnessContractTests.
 //   · a wheel's Luminance is a PER-ZONE PERCEPTUAL LIGHTNESS GAIN through Lumen UCS
 //     (LumenUCS.scaleBrightness), not a linear multiply — so the move holds the colour's
 //     chroma ratio and its H-K corrected brightness reads evenly across hues.
@@ -55,7 +61,7 @@ import Foundation
 /// keeps `w_mid ≥ 0` when the two pivots are dragged together.
 public struct ZoneWindows: Sendable {
 
-    /// Balance translates BOTH pivots; ±100 = ±this many stops.
+    /// Balance translates BOTH pivots; ±100 = ∓this many stops (+ moves them DOWN).
     public static let balanceRangeEV: Double = 2.0
     /// Crossfade half-width at Blending = 50 (falloff 0.5 × 3.0 EV) — docs/05 §D15.
     public static let nominalHalfWidthEV: Double = 1.5
@@ -116,14 +122,14 @@ public struct ZoneWindows: Sendable {
             p1 = centre + ZoneWindows.minimumPivotGap / 2
         }
 
-        let balanceShift: Double =
-            (Num.clamp(balance, -100, 100) / 100) * ZoneWindows.balanceRangeEV / span
-        // Subtracted, for Lightroom's direction: +Balance favours the Highlights wheel
-        // (both pivots move DOWN, so the highlight zone reaches into darker tones) and
-        // −Balance favours Shadows. Adding it ran the slider backwards: +100 grew the
-        // shadow zone to 0.47 of the axis and shrank the highlight zone to 0.19.
-        let ps: Double = p0 - balanceShift
-        let ph: Double = p1 - balanceShift
+        // `pivotShift` is negative for +Balance, for Lightroom's direction: +Balance
+        // favours the Highlights wheel (both pivots move DOWN, so the highlight zone
+        // reaches into darker tones) and −Balance favours Shadows. A positive shift
+        // ran the slider backwards: +100 grew the shadow zone to 0.47 of the axis and
+        // shrank the highlight zone to 0.19.
+        let balanceShift: Double = ZoneWindows.pivotShift(balance: balance, spanEV: span)
+        let ps: Double = p0 + balanceShift
+        let ph: Double = p1 + balanceShift
         self.shadowPivot = ps
         self.highlightPivot = ph
 
@@ -156,6 +162,26 @@ public struct ZoneWindows: Sendable {
         self.highlightCrossfade = [ph - half, ph + half]
     }
 
+    /// How far Balance moves BOTH pivots, on the normalized axis — signed so that it can
+    /// be added to a pivot. Positive Balance gives a NEGATIVE shift.
+    ///
+    /// That sign is Lightroom's, which docs/05 §D15 asks for: positive Balance hands
+    /// more of the frame to the Highlights wheel. Pivots moving DOWN the axis are what
+    /// do that — the Highlights zone is everything above the highlight pivot. This was
+    /// `+balance` once, which slid the pivots up and made +100 SHRINK the Highlights
+    /// zone (its weight at +1 EV fell from 0.80 to 0.004) while mid-grey became a pure
+    /// highlight at −100: the slider ran backwards against every LrC tutorial a user
+    /// learned it from. `GradeBalanceDirectionTests` pins the direction.
+    ///
+    /// One function because two places need it: these windows, and the panel's pivot
+    /// strip, which has to subtract exactly this shift to turn a dragged handle back
+    /// into a stored pivot. If they disagreed, the handle would jump under the pointer.
+    public static func pivotShift(balance: Double, spanEV: Double) -> Double {
+        let span: Double = spanEV.isFinite && spanEV > 1e-3 ? spanEV : 1.0
+        let b: Double = balance.isFinite ? Num.clamp(balance, -100, 100) : 0
+        return -(b / 100) * ZoneWindows.balanceRangeEV / span
+    }
+
     /// The windows a `GradingWheels` describes. Per-mask grading passes the GLOBAL
     /// wheels' windows (docs/08 §8.4): a mask gets no tonal-zone definition of its own.
     public init(wheels: GradingWheels,
@@ -166,6 +192,26 @@ public struct ZoneWindows: Sendable {
                   balance: wheels.balance,
                   whiteAnchorEV: whiteAnchorEV,
                   blackAnchorEV: blackAnchorEV)
+    }
+
+    /// The windows `RenderPlan` grades `recipe` through: the wheels' pivots, Blending
+    /// and Balance on the TONE stage's live anchors, which Whites and Blacks move by up
+    /// to 1.5 EV each. This is what the Colour Grading strip draws and what its handle
+    /// drag inverts, so the picture of the zones is the zones being rendered.
+    ///
+    /// The strip used to build `ZoneWindows(pivots:blending:balance:)` — the factory
+    /// −9 … +5 EV — and convert Balance with a hard-coded 14 EV span. Both halves of
+    /// the window are denominated in EV and divided by the span (the Balance shift and
+    /// the crossfade half-width), so at Whites +100, span 12.5, it drew every crossfade
+    /// 10.7 % narrower than the one rendering and stored a pivot 0.21 EV off the handle
+    /// at Balance ±100 (B2-05). Whichever way the zone axis is eventually denominated
+    /// (A1-03 / D-5), the strip follows it by asking here rather than holding its own
+    /// copy. `GradeStripAxisTests`.
+    public init(gradeOf recipe: Recipe) {
+        let anchors = ToneEngine.anchors(for: recipe.develop.tone)
+        self.init(wheels: recipe.look.wheels,
+                  whiteAnchorEV: anchors.white,
+                  blackAnchorEV: anchors.black)
     }
 
     /// `t = log2(lum/0.18)` → the normalized axis the pivots live on.
@@ -696,8 +742,8 @@ public struct GradeEngine: Sendable {
     // MARK: Apply
 
     /// The wheels and the advanced grid, at one pixel. Zone weights come from the INPUT
-    /// pixel's tonal position (invariant 4), the tint is a constant-luminance
-    /// translation in OKLab, the lightness move is a perceptual gain in UCS, and the
+    /// pixel's tonal position (invariant 4), the tint is a constant-lightness
+    /// translation in OKLab (L held, scene Y not — see the file header), the lightness move is a perceptual gain in UCS, and the
     /// stage closes on the no gamut clip — see below.
     ///
     /// Order: wheels first, grid second, exactly as the panel stacks them — the grid is
@@ -730,8 +776,11 @@ public struct GradeEngine: Sendable {
 
         var out: RGB = c
 
-        // Tint: (a, b) translation at constant L. No chroma-to-luminance leakage, and
-        // an all-zero offset never enters the round trip at all.
+        // Tint: (a, b) translation at constant OKLab L — NOT constant scene Y: the
+        // a, b move changes the LMS mix under L's cube root, so Y moves (about ±10 % at
+        // mid-grey at full deflection; see the file header and
+        // WheelTintLightnessContractTests). An all-zero offset never enters the round
+        // trip at all.
         if da != 0 || db != 0 {
             var lab: OKLab = context.toLab(c)
             lab.a += da

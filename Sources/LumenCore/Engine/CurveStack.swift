@@ -330,53 +330,86 @@ public struct CurveStack: Sendable {
             && parametricIsIdentity
     }
 
-    /// Apply the whole stack to a display-linear colour, normalized so that
-    /// `white` maps to 1.0 on the encoded axis.
+    /// Apply the whole stack to a display-linear colour. SDR white is encoded 1 at
+    /// EVERY display peak; `white` is the peak, and only sets how far above SDR white
+    /// the picture may reach.
+    ///
+    /// This used to divide by `white` before encoding, so the curve's 0…1 axis spanned
+    /// black to the display PEAK. That is "the same curve on an HDR rendition" only if
+    /// HDR were SDR × peak, and the display transform deliberately is not: it keeps
+    /// mid-grey at 0.18 absolute at every peak and spends the headroom on highlights
+    /// (`DisplayTransform.tone`, docs/14 §7). At a 400 % peak mid-grey therefore met the
+    /// curve at encoded 0.235 instead of 0.461 — Shadows +60 lifted it half a stop in
+    /// HDR and not at all in SDR, an S-curve darkened it 0.65 EV instead of 0.08 — and
+    /// the two renditions of a gain-map export carried two different grades, which is
+    /// the lie docs/14 §2.2 item 3 forbids. Every tone at or below SDR white now meets
+    /// the curve where it does in SDR, and the headroom above it rides a unit-slope
+    /// extension from the curve's value at 1 (`extended`), so a curve that pins white
+    /// lets HDR highlights through untouched and one that lowers white lowers them by
+    /// the same encoded amount, with no step at 1. At `white` 1 the extension is
+    /// unreachable and this is, bit for bit, the curve it always was
+    /// (`CurveHDRAxisTests`).
     public func apply(_ c: RGB, white: Double = 1, space: RGBColorSpace = .rec2020) -> RGB {
         guard !isIdentity else { return c }
         let w = Swift.max(white, 1e-6)
-        let normalized = c / w
-        var e = encoding.encode(normalized.clamped(0, 1))
+        // The top of the encoded axis: SDR white (1) or the display peak, whichever is
+        // higher. Spelled as a branch so that SDR never depends on whether `encode(1)`
+        // rounds to exactly 1.
+        let top = w <= 1 ? 1 : Swift.max(1, encoding.encode(w))
+        var e = encoding.encode(c.clamped(0, w))
 
         // Master curve, luminance-preserving by default: curve the luminance and
         // carry the chroma ratios, which is what stops a contrast curve from also
         // being a saturation boost.
         if !(point == nil && parametricIsIdentity) {
             if set.preserveLuminance {
-                let lum = Num.saturate(space.luminance(e))
+                let lum = Num.clamp(space.luminance(e), 0, top)
                 if masterBlack > 0 {
                     // The same zero-luminance limit as the luma stage below: a master
                     // curve that lifts black lifts it with grey (AI-04).
-                    e = CurveStack.liftedLuma(e, luminance: lum, black: masterBlack,
-                                              curve: master)
+                    e = CurveStack.liftedLuma(e, luminance: lum, black: masterBlack) {
+                        CurveStack.extended($0, top: top, master)
+                    }
                 } else if lum > 1e-6 {
-                    let scaled = master(lum) / lum
+                    let scaled = CurveStack.extended(lum, top: top, master) / lum
                     e = e * scaled
                 } else {
-                    e = e.map(master)
+                    e = e.map { CurveStack.extended($0, top: top, master) }
                 }
             } else {
-                e = e.map(master)
+                e = e.map { CurveStack.extended($0, top: top, master) }
             }
         }
 
         if luma != nil {
-            let lum = Num.saturate(space.luminance(e))
+            let lum = Num.clamp(space.luminance(e), 0, top)
             if lumaBlack > 0 {
-                e = CurveStack.liftedLuma(e, luminance: lum, black: lumaBlack,
-                                          curve: lumaCurve)
+                e = CurveStack.liftedLuma(e, luminance: lum, black: lumaBlack) {
+                    CurveStack.extended($0, top: top, lumaCurve)
+                }
             } else if lum > 1e-6 {
-                e = e * (lumaCurve(lum) / lum)
+                e = e * (CurveStack.extended(lum, top: top, lumaCurve) / lum)
             }
         }
 
         if rCurve != nil || gCurve != nil || bCurve != nil {
-            e = RGB(channelCurve(e.r, channel: 0),
-                    channelCurve(e.g, channel: 1),
-                    channelCurve(e.b, channel: 2))
+            e = RGB(CurveStack.extended(e.r, top: top) { self.channelCurve($0, channel: 0) },
+                    CurveStack.extended(e.g, top: top) { self.channelCurve($0, channel: 1) },
+                    CurveStack.extended(e.b, top: top) { self.channelCurve($0, channel: 2) })
         }
 
-        return encoding.decode(e.clamped(0, 1)) * w
+        return encoding.decode(e.clamped(0, top))
+    }
+
+    /// A curve on the encoded axis, continued above SDR white (1) at unit slope from its
+    /// value there, up to `top`. Below 1 it is `f` exactly — `f` clamps its own input
+    /// to [0, 1] — and with `top` 1 (every SDR render) the continuation collapses to
+    /// `f(1)`, which is what the clamp always gave. Unit slope, not `f′(1)`: HDR
+    /// headroom is the display transform's to shape, and a curve's job above white is
+    /// only not to step or invert there.
+    static func extended(_ x: Double, top: Double, _ f: (Double) -> Double) -> Double {
+        guard x > 1 else { return f(x) }
+        return f(1) + (Swift.min(x, top) - 1)
     }
 
     /// A luminance curve that LIFTS BLACK (AI-04), on the encoded axis: the luma curve,
@@ -482,8 +515,8 @@ public struct LocalCurve: Sendable {
     /// above 1 it extrapolates, exactly as Amount > 100 does for every other local
     /// control.
     private let scale: Double
-    /// Display white, so the curve's axis means the same thing on an HDR rendition as
-    /// it does globally — `CurveStack.apply` normalizes by it.
+    /// Display white: the peak `CurveStack.apply` lets the picture reach above SDR
+    /// white. Not a normalizer — the axis is absolute, as it is globally.
     private let white: Double
     private let space: RGBColorSpace
 

@@ -282,6 +282,70 @@ final class MaskingTests: XCTestCase {
                                  + "anything")
     }
 
+    /// A masked Contrast pins the end of the scale where the DISPLAY clips, which is
+    /// the global white and black anchors, not the factory 5 / −9 EV.
+    ///
+    /// The mask's tone engine was built from the mask's sliders alone, so its anchors
+    /// were always `5 − 1.5·localWhites` and `−9 − 1.5·localBlacks`, while the display
+    /// transform downstream normalises over the GLOBAL anchors. `contrastMapped` keeps
+    /// its fixed point at the engine's own anchor — its comment says so, and says why:
+    /// the fixed point has to sit where the display clips. With global Whites +100
+    /// (white at 3.5 EV) and a mask's Contrast +100 measured against a white at 5 EV,
+    /// 3.5 EV went to 4.164 and every tone from 2.47 EV up was pushed past display
+    /// white — a full stop clipped inside the mask by a control that does not clip the
+    /// same picture globally. The local grade already adopted the global anchors
+    /// (COLOR-16); the local tone is the same docs/08 §8.4 contract.
+    func testAMaskedContrastPinsTheGlobalDisplayAnchorsNotTheFactoryOnes() {
+        var adjust = LocalAdjust()
+        adjust.contrast = 100
+        let mask = Mask(name: "whole frame", components: [hardRadial()], adjust: adjust)
+
+        for (whites, blacks) in [(100.0, 0.0), (0.0, -100.0), (-60.0, 70.0)] {
+            var recipe = Recipe()
+            recipe.develop.tone.whites = whites
+            recipe.develop.tone.blacks = blacks
+            let plan = RenderPlan(recipe: recipe)
+            let hi = plan.tone.whiteAnchorEV
+            let lo = plan.tone.blackAnchorEV
+
+            // Both anchors themselves, and a ramp strictly inside them.
+            let width = 121
+            let evs = (0..<width).map { lo + (hi - lo) * Double($0) / Double(width - 1) }
+            // Written pixel by pixel: the generator samples pixel CENTRES, which would
+            // leave both ends half a step inside the anchors they are meant to sit on.
+            var ramp = ImageBuffer(width: width, height: 1)
+            for x in 0..<width { ramp[x, 0] = RGB(gray: 0.18 * pow(2, evs[x])) }
+            let out = ReferenceRenderer.applyLocalAdjust(ramp, mask: mask, plan: plan,
+                                                         space: .rec2020)
+            let outEV = (0..<width).map { log2(Swift.max(out[$0, 0].g, 1e-12) / 0.18) }
+
+            XCTAssertEqual(outEV[width - 1], hi, accuracy: 1e-4,
+                           "Whites \(whites), Blacks \(blacks): masked Contrast +100 "
+                               + "moved the global white anchor \(hi) EV to "
+                               + "\(outEV[width - 1]) — its fixed point is not where "
+                               + "the display clips")
+            XCTAssertEqual(outEV[0], lo, accuracy: 1e-4,
+                           "Whites \(whites), Blacks \(blacks): masked Contrast +100 "
+                               + "moved the global black anchor \(lo) EV to \(outEV[0])")
+            for x in 1..<(width - 1) {
+                XCTAssertLessThan(outEV[x], hi,
+                                  "Whites \(whites): \(evs[x]) EV, inside the display "
+                                      + "range, was pushed to \(outEV[x]) EV — past "
+                                      + "display white at \(hi)")
+                XCTAssertGreaterThan(outEV[x], lo,
+                                     "Blacks \(blacks): \(evs[x]) EV, inside the display "
+                                         + "range, was pushed to \(outEV[x]) EV — past "
+                                         + "display black at \(lo)")
+            }
+        }
+
+        // At the factory anchors nothing changes: the default recipe's masks render
+        // exactly as they did.
+        let plan = RenderPlan(recipe: Recipe())
+        XCTAssertEqual(plan.tone.whiteAnchorEV, ToneEngine.defaultWhiteAnchorEV)
+        XCTAssertEqual(plan.tone.blackAnchorEV, ToneEngine.defaultBlackAnchorEV)
+    }
+
     // MARK: - Where a mask's samples are taken from
 
     /// A colour mask has to select the pixel that was clicked.
@@ -509,14 +573,21 @@ final class MaskingTests: XCTestCase {
                        "Amount 200 does not amplify past the curve")
     }
 
-    /// The axis is normalized by display white, so the same curve means the same thing
-    /// on an HDR rendition as it does on an SDR one.
-    func testLocalCurveIsDenominatedAgainstDisplayWhite() {
+    /// The same curve means the same thing on an HDR rendition as on an SDR one — and
+    /// because the display transform keeps every tone up to SDR white where it is at
+    /// any peak, that means the SAME ABSOLUTE AXIS, not one divided by the peak. This
+    /// test used to pin `hdr.apply(c × 4) == sdr.apply(c) × 4`: the old normalization,
+    /// which is that sentence only if HDR were SDR × peak (`CurveHDRAxisTests`).
+    func testLocalCurveReadsTheSameAbsoluteAxisAtEveryDisplayWhite() {
         let sdr = LocalCurve(curve: lift(), white: 1)
         let hdr = LocalCurve(curve: lift(), white: 4)
-        let c = RGB(gray: 0.2)
-        XCTAssertEqual(hdr.apply(c * 4).g, sdr.apply(c).g * 4, accuracy: 1e-9,
-                       "the local curve reads absolute code values, not picture values")
+        for v in [0.05, 0.2, 0.5, 1.0] {
+            let c = RGB(gray: v)
+            XCTAssertEqual(hdr.apply(c).g, sdr.apply(c).g, accuracy: 1e-9,
+                           "a mask's curve grades \(v) differently on the HDR rendition")
+        }
+        XCTAssertEqual(hdr.apply(RGB(gray: 2.5)).g, 2.5, accuracy: 1e-9,
+                       "a mask's white-pinned curve moved an HDR highlight")
     }
 
     /// The whole trace, on the reference path: a curve stored on a mask reaches pixels,

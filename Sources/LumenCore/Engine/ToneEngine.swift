@@ -135,15 +135,50 @@ public struct ToneEngine: Sendable {
     public let effectiveWhites: Double
     public let effectiveBlacks: Double
 
-    public init(tone: Tone = Tone(), zones: Zones = Zones()) {
+    /// Where Whites and Blacks put the live anchors, without building the engine.
+    ///
+    /// The initialiser below reads its anchors from here, so this is not a second copy
+    /// of the arithmetic but the only one. It exists because the anchors are also the
+    /// grading wheels' zone axis (`RenderPlan` hands them to `GradeEngine`), and the
+    /// Colour Grading strip has to draw on that axis on every redraw: a whole engine
+    /// solves the zonal limits, which is a sweep the strip has no use for. The strip
+    /// used to dodge the cost by assuming the factory −9 … +5 EV — a fixed 14 EV span —
+    /// so with Whites at +100 it drew the crossfades 10.7 % narrower than the ones being
+    /// rendered and dropped a Balance-shifted handle 0.21 EV from where it was released
+    /// (B2-05). `GradeStripAxisTests` pins the agreement.
+    public static func anchors(for tone: Tone,
+                               baseWhiteAnchorEV: Double = ToneEngine.defaultWhiteAnchorEV,
+                               baseBlackAnchorEV: Double = ToneEngine.defaultBlackAnchorEV)
+        -> (white: Double, black: Double) {
+        let whites = Num.clamp(tone.whites, -100, 100) / 100
+        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
+        return (white: baseWhiteAnchorEV - Self.whiteBlackRangeEV * whites,
+                black: baseBlackAnchorEV - Self.whiteBlackRangeEV * blacks)
+    }
+
+    /// `baseWhiteAnchorEV` / `baseBlackAnchorEV` are where Whites and Blacks at zero put
+    /// the anchors. The global engine leaves them at the factory 5 / −9 EV. A MASK's
+    /// engine passes the global plan's live anchors, because its sub-recipe is a delta
+    /// evaluated against the picture the global stage already formed (docs/08 §8.4),
+    /// and the display transform downstream clips at the GLOBAL anchors. Built from the
+    /// factory ones, a masked Contrast +100 under global Whites +100 held its fixed
+    /// point at 5 EV while display white sat at 3.5, carried 3.5 EV to 4.16 and clipped
+    /// every tone from 2.47 EV up inside the mask — the local grade had already adopted
+    /// the global anchors for the same reason (COLOR-16).
+    /// `MaskingTests.testAMaskedContrastPinsTheGlobalDisplayAnchorsNotTheFactoryOnes`.
+    public init(tone: Tone = Tone(), zones: Zones = Zones(),
+                baseWhiteAnchorEV: Double = ToneEngine.defaultWhiteAnchorEV,
+                baseBlackAnchorEV: Double = ToneEngine.defaultBlackAnchorEV) {
         self.tone = tone
         self.zones = zones
         let highlights = Num.clamp(tone.highlights, -100, 100) / 100
         let shadows = Num.clamp(tone.shadows, -100, 100) / 100
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        let hi = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
-        let lo = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        let anchors = Self.anchors(for: tone, baseWhiteAnchorEV: baseWhiteAnchorEV,
+                                   baseBlackAnchorEV: baseBlackAnchorEV)
+        let hi = anchors.white
+        let lo = anchors.black
         self.whiteAnchorEV = hi
         self.blackAnchorEV = lo
         // A scale over the zonal contribution, found in closed form, rather than a cap
@@ -315,6 +350,7 @@ public struct ToneEngine: Sendable {
         // same code the renderer runs, rather than a second copy of the same arithmetic
         // that can drift away from it.
         let unit = ToneEngine(tone: tone, zones: Zones(),
+                              whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV,
                               effectiveHighlights: highlights, effectiveShadows: shadows,
                               effectiveWhites: whites, effectiveBlacks: blacks,
                               zonalScale: 1)
@@ -390,6 +426,8 @@ public struct ToneEngine: Sendable {
         let whites = Num.clamp(tone.whites, -100, 100) / 100
         let blacks = Num.clamp(tone.blacks, -100, 100) / 100
         self.init(tone: tone, zones: Zones(),
+                  whiteAnchorEV: Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites,
+                  blackAnchorEV: Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks,
                   effectiveHighlights: highlights * (highlights < 0 ? upper : 1),
                   effectiveShadows: shadows * (shadows > 0 ? lower : 1),
                   effectiveWhites: whites * (whites < 0 ? upper : 1),
@@ -400,16 +438,19 @@ public struct ToneEngine: Sendable {
     /// The probe the solver measures on. Private because a `ToneEngine` whose scales
     /// were not solved for its own settings is a half-built object — it exists to be
     /// measured, never to render.
+    ///
+    /// It takes the anchors already resolved rather than re-deriving them from the
+    /// factory ones: a mask's engine sits on the global anchors, and a probe measured
+    /// on different windows than the engine it solves for would solve the wrong curve.
     private init(tone: Tone, zones: Zones,
+                 whiteAnchorEV: Double, blackAnchorEV: Double,
                  effectiveHighlights: Double, effectiveShadows: Double,
                  effectiveWhites: Double, effectiveBlacks: Double,
                  zonalScale: Double) {
         self.tone = tone
         self.zones = zones
-        let whites = Num.clamp(tone.whites, -100, 100) / 100
-        let blacks = Num.clamp(tone.blacks, -100, 100) / 100
-        self.whiteAnchorEV = Self.defaultWhiteAnchorEV - Self.whiteBlackRangeEV * whites
-        self.blackAnchorEV = Self.defaultBlackAnchorEV - Self.whiteBlackRangeEV * blacks
+        self.whiteAnchorEV = whiteAnchorEV
+        self.blackAnchorEV = blackAnchorEV
         self.effectiveHighlights = effectiveHighlights
         self.effectiveShadows = effectiveShadows
         self.effectiveWhites = effectiveWhites
@@ -675,12 +716,45 @@ public struct ToneEngine: Sendable {
         // posterized is not a gentler failure than an inversion, it is a different one.
         // With the scale solved first the clamp fires on 0 of 1024 samples for every one
         // of the 242 combinations of the five sliders at ±100.
+        bakeGainLUTAndFloor(size: size).lut
+    }
+
+    /// The bake and, from the same sweep, the floor the forward clamp imposed on it —
+    /// `nil` when the clamp moved nothing, which is every recipe the six sliders alone
+    /// can produce. `RenderPlan` keeps the floor so its per-pixel twins
+    /// (`referenceColor`, `exactColor`) apply the tone the renderers apply instead of
+    /// the tone the panel asked for; see `renderedStops(at:floor:)`.
+    public func bakeGainLUTAndFloor(size: Int = 1024) -> (lut: LUT1D, floor: [Double]?) {
         let curve = clampedResponse(size: size)
         var samples = [Double](repeating: 1, count: curve.domain.count)
         for i in 0..<curve.domain.count {
             samples[i] = pow(2, curve.mapped[i] - curve.domain[i])
         }
-        return LUT1D(samples: samples)
+        let clamped = curve.mapped != curve.requested
+        return (LUT1D(samples: samples), clamped ? curve.mapped : nil)
+    }
+
+    /// Stops S7 RENDERS at `t`: `stops(at:)` with the bake's forward clamp applied
+    /// analytically, for a caller that evaluates tone per pixel without the table.
+    ///
+    /// `floor` is the clamped response from `bakeGainLUTAndFloor`, on the shaper's
+    /// encoded domain. The rendered output tone at `t` is never below the clamped
+    /// value at the last shaper sample at or below `t` — exactly the running max the
+    /// bake takes, evaluated at `t` instead of only at the samples. Without it the
+    /// per-pixel twins applied the REQUESTED gain where the renderers apply the
+    /// clamped one, so on a Zones recipe that reaches the clamp (Darks +4 EV: up to
+    /// 2.2 EV apart) every golden comparing them measured the clamp and called it
+    /// table error. Below the shaper's domain, and with no floor, this is `stops(at:)`.
+    public func renderedStops(at t: Double, floor: [Double]?) -> Double {
+        let requested = stops(at: t)
+        guard let floor, floor.count >= 2 else { return requested }
+        let y = LumenLog.encode(0.18 * pow(2, t))
+        guard y >= 0 else { return requested }
+        // `y` is +infinity for a large enough `t` (finite scene values reach it through
+        // `exactColor`), and `Int(.infinity)` traps. Anything at or past the shaper's top
+        // reads the last floor sample, which is what the running max holds there anyway.
+        let i = Int((Swift.min(y, 1) * Double(floor.count - 1)).rounded(.down))
+        return Swift.max(t + requested, floor[i]) - t
     }
 
     /// The baked response before and after the forward clamp, on the shaper's domain.

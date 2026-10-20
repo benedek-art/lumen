@@ -305,6 +305,11 @@ enum ExactColorTwin {
 
     @inline(__always) static func gate(_ C: Float) -> Float { smoothstep(0.02, 0.06, C) }
 
+    /// Protect Skin's log-chroma ramp: `ColorEngine.protectLoChroma…protectHiChroma`.
+    @inline(__always) static func protectGate(_ C: Float) -> Float {
+        smoothstep(log(Float(0.006)), log(Float(0.06)), log(max(C, 1e-9)))
+    }
+
     @inline(__always) static func lumShape(_ L: Float) -> Float {
         let t = min(max(L, 0), 0.5)
         return t * (1 - t)
@@ -366,7 +371,9 @@ enum ExactColorTwin {
         for i in 0..<8 {
             let weight = w[i] / total * g
             hueSum += weight * e(u, 76 + 3 * i)
-            satSum += weight * e(u, 77 + 3 * i)
+            // A pull runs ungated, a push gated — `ColorEngine.applyMixer` says why.
+            let sat = e(u, 77 + 3 * i)
+            satSum += (sat < 0 ? w[i] / total : weight) * sat
             lumSum += weight * e(u, 78 + 3 * i)
             let r = e(u, 100 + i) * 0.0174532925
             tx += weight * cos(r)
@@ -398,7 +405,15 @@ enum ExactColorTwin {
         let d = (a * a + b * b + cc * cc).squareRoot()
         guard d.isFinite else { return c }
         let weight = 1 - smoothstep(0.5, 1, d)
-        guard weight > 0 else { return c }
+        // The rotation's own reach, hue term only, leading side only —
+        // `ColorEngine.applySwatch` says why.
+        var hueWeight = weight
+        if dh * s.z > 0 {
+            let kk = min(max(1, abs(s.z) / (0.98 * 60 * s.y)), max(1, 1 / s.y))
+            let ck = cc / kk
+            hueWeight = 1 - smoothstep(0.5, 1, (a * a + b * b + ck * ck).squareRoot())
+        }
+        guard hueWeight > 0 else { return c }
         var L = l.x, C = l.y, h = l.z
         let g = gate(l.y)
         let q = k.y
@@ -409,7 +424,7 @@ enum ExactColorTwin {
             C = C + q * weight * (mu.y - t.y)
             L = L + q * 0.5 * weight * (mu.x - t.x)
         }
-        h += weight * g * s.z
+        h += hueWeight * g * s.z
         C = max(0, C * (1 + weight * s.w / 100))
         L += weight * (k.x / 100) * lumShape(L)
         return toRGB(lab(F3(L, C, wrapHue(h))), u)
@@ -421,7 +436,7 @@ enum ExactColorTwin {
         let t = wrapHue(h) * 0.0174532925
         let q: Float = -0.01585
             - 0.03017 * cos(t) - 0.04556 * cos(2 * t)
-            - 0.04256 * cos(3 * t) - 0.00295 * cos(4 * t)
+            - 0.02667 * cos(3 * t) - 0.00295 * cos(4 * t)
             + 0.14592 * sin(t) + 0.05084 * sin(2 * t)
             - 0.01900 * sin(3 * t) - 0.00764 * sin(4 * t)
         return 1 + (-0.1340 * q + 0.0872 * kBr) * (max(0, C) * 4) * 0.1
@@ -458,9 +473,11 @@ enum ExactColorTwin {
         guard norm > 1e-9, norm < 3.0e38 else { return c }
         let gamma = 1 + amount
         let r = c / norm
-        let p = F3(sgn(r.x) * pow(max(abs(r.x), 1e-30), gamma),
-                   sgn(r.y) * pow(max(abs(r.y), 1e-30), gamma),
-                   sgn(r.z) * pow(max(abs(r.z), 1e-30), gamma))
+        // Positive ratios only: a negative (out-of-gamut) channel is not a dye layer
+        // and is held, as in `ColorEngine.subtractivePush`.
+        let p = F3(r.x > 0 ? pow(max(r.x, 1e-30), gamma) : r.x,
+                   r.y > 0 ? pow(max(r.y, 1e-30), gamma) : r.y,
+                   r.z > 0 ? pow(max(r.z, 1e-30), gamma) : r.z)
         let out = p * norm
         return finite(out) ? out : c
     }
@@ -479,7 +496,7 @@ enum ExactColorTwin {
             if inBand > 0 {
                 let plaus = min(max(smoothstep(0.05, 0.20, l.x) * (1 - smoothstep(0.85, 0.98, l.x))
                                     * (1 - smoothstep(0.16, 0.26, l.y)), 0), 1)
-                skin = min(max(inBand * gate(l.y) * plaus, 0), 1)
+                skin = min(max(inBand * protectGate(l.y) * plaus, 0), 1)
             }
         }
         let protection = 1 - p.z * skin
@@ -602,6 +619,7 @@ public enum ExactColorKernelSource {
         return t * t * (3.0 - 2.0 * t);
     }
     float lumenGate(float C) { return lumenSmooth(0.02, 0.06, C); }
+    float lumenProtectGate(float C) { return lumenSmooth(log(0.006), log(0.06), log(max(C, 1e-9))); }
     float lumenLumShape(float L) { float t = min(max(L, 0.0), 0.5); return t * (1.0 - t); }
     float lumenMembership(float h, float centre, vec4 arc) {
         float d = lumenHueDelta(centre, h);
@@ -614,7 +632,7 @@ public enum ExactColorKernelSource {
         float t = lumenWrap(h) * 0.0174532925;
         float q = -0.01585
             - 0.03017 * cos(t) - 0.04556 * cos(2.0 * t)
-            - 0.04256 * cos(3.0 * t) - 0.00295 * cos(4.0 * t)
+            - 0.02667 * cos(3.0 * t) - 0.00295 * cos(4.0 * t)
             + 0.14592 * sin(t) + 0.05084 * sin(2.0 * t)
             - 0.01900 * sin(3.0 * t) - 0.00764 * sin(4.0 * t);
         return 1.0 + (-0.1340 * q + 0.0872 * kBr) * (max(0.0, C) * 4.0) * 0.1;
@@ -625,9 +643,9 @@ public enum ExactColorKernelSource {
         if (!(norm > 1e-9 && norm < 3.0e38)) { return c; }
         float gamma = 1.0 + amount;
         vec3 r = c / norm;
-        vec3 p = vec3(lumenSgn(r.x) * pow(max(abs(r.x), 1e-30), gamma),
-                      lumenSgn(r.y) * pow(max(abs(r.y), 1e-30), gamma),
-                      lumenSgn(r.z) * pow(max(abs(r.z), 1e-30), gamma));
+        vec3 p = vec3(r.x > 0.0 ? pow(max(r.x, 1e-30), gamma) : r.x,
+                      r.y > 0.0 ? pow(max(r.y, 1e-30), gamma) : r.y,
+                      r.z > 0.0 ? pow(max(r.z, 1e-30), gamma) : r.z);
         vec3 o = p * norm;
         return lumenFinite(o) ? o : c;
     }
@@ -705,7 +723,8 @@ public enum ExactColorKernelSource {
         for i in 0..<8 {
             sums += """
                     { float k = w\(i) / total * g;
-                      hueSum += k * \(u(76 + 3 * i)); satSum += k * \(u(77 + 3 * i)); lumSum += k * \(u(78 + 3 * i));
+                      float sv = \(u(77 + 3 * i));
+                      hueSum += k * \(u(76 + 3 * i)); satSum += (sv < 0.0 ? w\(i) / total : k) * sv; lumSum += k * \(u(78 + 3 * i));
                       float r = \(u(100 + i)) * 0.0174532925; tx += k * cos(r); ty += k * sin(r); }
 
             """
@@ -756,7 +775,13 @@ public enum ExactColorKernelSource {
         float d = sqrt(ea * ea + eb * eb + ec * ec);
         if (!(abs(d) < 3.0e38)) { return s; }
         float weight = 1.0 - lumenSmooth(0.5, 1.0, d);
-        if (!(weight > 0.0)) { return s; }
+        float hueWeight = weight;
+        if (dh * sg.z > 0.0) {
+            float kk = min(max(1.0, abs(sg.z) / (0.98 * 60.0 * sg.y)), max(1.0, 1.0 / sg.y));
+            float ek = ec / kk;
+            hueWeight = 1.0 - lumenSmooth(0.5, 1.0, sqrt(ea * ea + eb * eb + ek * ek));
+        }
+        if (!(hueWeight > 0.0)) { return s; }
         float L = l.x; float C = l.y; float h = l.z;
         float g = lumenGate(l.y);
         float qq = k.y;
@@ -768,7 +793,7 @@ public enum ExactColorKernelSource {
             C = C + qq * weight * (mu.y - t.y);
             L = L + qq * 0.5 * weight * (mu.x - t.x);
         }
-        h += weight * g * sg.z;
+        h += hueWeight * g * sg.z;
         C = max(0.0, C * (1.0 + weight * sg.w / 100.0));
         L += weight * (k.x / 100.0) * lumenLumShape(L);
         vec3 mapped = lumenLab(vec3(L, C, lumenWrap(h)));
@@ -838,7 +863,7 @@ public enum ExactColorKernelSource {
                         if (inBand > 0.0) {
                             float plaus = min(max(lumenSmooth(0.05, 0.20, l.x) * (1.0 - lumenSmooth(0.85, 0.98, l.x))
                                                   * (1.0 - lumenSmooth(0.16, 0.26, l.y)), 0.0), 1.0);
-                            skin = min(max(inBand * lumenGate(l.y) * plaus, 0.0), 1.0);
+                            skin = min(max(inBand * lumenProtectGate(l.y) * plaus, 0.0), 1.0);
                         }
                     }
                     float protection = 1.0 - p.z * skin;

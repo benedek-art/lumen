@@ -43,7 +43,22 @@ public struct DisplayTransformParams: Equatable, Sendable {
 
     /// Primaries inset: purity reduction before the curve (0…0.99 per channel).
     public var attenuation: RGB = RGB(0.14, 0.18, 0.12)
-    /// Primaries rotation before the curve, radians (±0.4).
+    /// Primaries rotation before the curve, radians (±0.4). Positive turns a primary
+    /// counter-clockwise about white in xy (`insetSpace`).
+    ///
+    /// KNOWN DEFECT, KEPT ON PURPOSE FOR NOW. Rec.2020 blue sits at about 238° around
+    /// D65, so +0.06 turns the inset blue toward the purple line and adds to the
+    /// blue-to-magenta skew the inset exists to remove (LED blue about +41° by +2 EV,
+    /// a sky blue about +6° at every exposure, in OKLCh). Turning it the other way
+    /// (−0.04 was the measured minimax) was tried and reverted: every value at or
+    /// below 0 sharpens the composed transform's curvature on a bright yellow near
+    /// white, where blue is the small channel, and the 65-cube finish table then
+    /// misses its exact evaluation by 0.022–0.033 against the 0.02 bar
+    /// (RobustnessTests.testEachTableTracksItsOwnExactEvaluationSeparately), and the
+    /// 33-cube preview disagrees with the export by 0.066–0.070 against 0.045
+    /// (EngineIntegrationTests.testTheInteractiveTableAgreesWithTheExportOne). The
+    /// sign fix needs a table that tracks that region first (a finer or reshaped
+    /// finish domain), not a looser bar.
     public var rotation: RGB = RGB(0.02, -0.03, 0.06)
     /// Post-curve purity recovery, 0…1.
     public var purityRestore: Double = 0.4
@@ -53,9 +68,9 @@ public struct DisplayTransformParams: Equatable, Sendable {
     /// Scene EV of the black anchor relative to mid-grey (set by Blacks).
     public var blackAnchorEV: Double = -9.0
 
-    /// The escape hatch (docs/04 §6.1 "Linear" preset): straight scene→display
-    /// scaling, clipped at display white. Always available, for inspection and
-    /// round-tripping — the "show me the data" honesty control.
+    /// The escape hatch (docs/04 §6.1 "Linear" preset): display-linear equals
+    /// scene-linear (1.0 = SDR white), clipped at the display peak. Always available,
+    /// for inspection and round-tripping — the "show me the data" honesty control.
     public var linear: Bool = false
 
     public init() {}
@@ -154,6 +169,9 @@ public struct DisplayTransform: Sendable {
     /// Shape parameter of the skew term. 2 keeps the extra curvature gentle and
     /// keeps the monotonicity bound (`lambda < power/skewShape`) generous.
     private static let skewShape: Double = 2.0
+    /// The smallest toe/shoulder exponent the initializer admits. Above 1 the slope
+    /// reaches zero at the anchor; 1.5 makes the last stop visibly ease in.
+    private static let minimumPower: Double = 1.5
 
     public init(_ p: DisplayTransformParams,
                 space: RGBColorSpace = .rec2020) {
@@ -204,12 +222,32 @@ public struct DisplayTransform: Sendable {
         // leaving the pivot slope untouched: y = u^a·(1−λ+λu^d) with a = a₀ − λd.
         let skew = Num.clamp(p.skew, -1, 1)
         let shape = DisplayTransform.skewShape
-        let toeLambda = Num.clamp(skew * 0.5, -1, aToe / shape * 0.9)
-        let shoulderLambda = Num.clamp(-skew * 0.5, -1, aShoulder / shape * 0.9)
+        //
+        // The same term also guarantees there IS a shoulder (and a toe). Near the
+        // anchor the shoulder is u^power, whose normalized slope power·u^(power−1)
+        // falls to zero only for power > 1; below 1 it grows without bound and the
+        // picture accelerates into display white and then stops dead — a clip edge.
+        // a₀ falls as the display peak rises (mid-grey stays at 0.18 absolute, so
+        // pivotY drops on the encoded axis): 2.08 at 100 %, 0.82 at 400 %, 0.39 at
+        // 1600 %, which broke docs/04's promise that the shoulder does at 400 %
+        // white what it did at 100 %. Low Contrast or strong Skew did the same in
+        // SDR, and the old 0.05 power floor that caught the worst of it moved the
+        // pivot slope off `contrast`. So λ is capped where the power would fall
+        // below `minimumPower`: the power is then exactly 1.5, the pivot slope
+        // (power + λ·shape = a₀) is untouched, λ ≥ (0 − 1.5)/2 = −0.75 keeps it in
+        // the clamp, and a negative λ is monotone for every a₀ > 0 (the derivative's
+        // bracket is smallest at the pivot, where it equals a₀). Every shipped SDR
+        // preset already sits above the bound and renders unchanged.
+        let minimumPower = DisplayTransform.minimumPower
+        let toeLambda = Num.clamp(skew * 0.5, -1,
+                                  Swift.min(aToe / shape * 0.9, (aToe - minimumPower) / shape))
+        let shoulderLambda = Num.clamp(-skew * 0.5, -1,
+                                       Swift.min(aShoulder / shape * 0.9,
+                                                 (aShoulder - minimumPower) / shape))
         self.toeLambda = toeLambda
         self.shoulderLambda = shoulderLambda
-        self.toePower = Swift.max(aToe - toeLambda * shape, 0.05)
-        self.shoulderPower = Swift.max(aShoulder - shoulderLambda * shape, 0.05)
+        self.toePower = aToe - toeLambda * shape
+        self.shoulderPower = aShoulder - shoulderLambda * shape
 
         // Primaries inset/outset (the AgX mechanism) — orientation matters and it
         // shipped BACKWARDS for the project's whole life until the six-agent audit's
@@ -295,7 +333,12 @@ public struct DisplayTransform: Sendable {
     /// Scene-linear scalar → display-linear scalar.
     public func tone(_ x: Double) -> Double {
         if params.linear {
-            return Num.clamp(x * white, 0, white)
+            // Identity, clipped at the peak — never scaled by it. The same absolute
+            // rule as the anchored presets (mid-grey on 0.18 at every peak): every
+            // JPEG/HEIC imports on Linear, and multiplying by `white` showed the HDR
+            // preview of one 2 stops brighter at 400 % and wrote a uniform 4× gain
+            // map. In HDR the headroom goes to values above 1.0, nothing else.
+            return Num.clamp(x, 0, white)
         }
         guard x > 0 else { return black }
         let ev = log2(x / DisplayTransform.midGrey)
@@ -321,13 +364,27 @@ public struct DisplayTransform: Sendable {
         let perChannel = RGB(tone(inset.r), tone(inset.g), tone(inset.b))
 
         // Hue-stable: curve the norm, keep the ratios.
-        // The black fallback keys on the UNfloored max: `norm` is floored for the
+        //
+        // Below the black anchor the curve is flat at `black`, so the ratio scale
+        // tone(peak)/peak is black/peak and grows without bound as the peak falls
+        // toward zero. A shadow-noise pixel with a peak near zero and partners near
+        // −0.01 had those partners multiplied by ~1.5e5, and the outset's negative
+        // off-diagonals turned them into R ≈ 126. Below the anchor the hue-stable
+        // branch therefore fades into the per-channel one, in proportion to how far
+        // the peak sits under it. The per-channel branch is already exactly `black`
+        // there. The faded ratio term reduces to inset·black/anchor, which is bounded
+        // and keeps neutrals at `black`. At and above the anchor the weight is exactly
+        // 1, so nothing a visible pixel renders through changes.
+        //
+        // The black fallback keys on the UNfloored peak: `norm` is floored for the
         // log below, and testing it instead made the fallback unreachable, so scene
         // black rendered at 0 rather than the black target whenever hue preservation
         // was on (0.3·black at the Film Base preset's 70, black only at 0).
-        let maxComponent = inset.maxComponent
-        let norm = Swift.max(maxComponent, 1e-9)
-        let ratio = maxComponent > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
+        let peak = inset.maxComponent
+        let norm = Swift.max(peak, 1e-9)
+        let ratio = peak > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
+        let blackAnchorScene = DisplayTransform.midGrey * exp2(minEV)
+        let aboveBlack = Num.saturate(peak / blackAnchorScene)
 
         // Path to white. Ratios may hold through the midtones, but a display cannot
         // show "brighter than white": above the pivot the only honest rendering of
@@ -339,7 +396,7 @@ public struct DisplayTransform: Sendable {
         let t = Num.clamp(params.huePreservation, 0, 100) / 100
         let evX = (log2(norm / DisplayTransform.midGrey) - minEV) / range
         let shoulderU = Num.saturate((evX - pivotX) / Swift.max(1 - pivotX, 1e-6))
-        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU))
+        var out = perChannel.mix(ratio, t * (1 - shoulderU * shoulderU) * aboveBlack)
 
         out = outsetMatrix.apply(out)
         out = RGB(Swift.max(out.r, 0), Swift.max(out.g, 0), Swift.max(out.b, 0))

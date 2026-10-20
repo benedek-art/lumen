@@ -121,6 +121,31 @@ final class SliderEntryTests: XCTestCase {
         }
     }
 
+    // MARK: A decimal comma is a decimal point, where it cannot be a thousands comma
+
+    func testADecimalCommaIsReadAsTheDecimalPointItIsOnACommaLocalesKeyboard() {
+        // Hungarian, German and French write a half as "0,5", and the numeric keypad's
+        // decimal key types ',' under those layouts. Refusing it dropped the entry
+        // silently — the readout just went back to the old value — so a photographer on
+        // such a keyboard could not type a fractional Exposure at all.
+        XCTAssertEqual(SliderEntry.value(of: "0,5", current: 0), 0.5)
+        XCTAssertEqual(SliderEntry.value(of: "-1,25", current: 0), -1.25)
+        XCTAssertEqual(SliderEntry.value(of: "+= 0,25", current: 1), 1.25)
+        XCTAssertEqual(SliderEntry.value(of: "-=0,3", current: 1), 0.7)
+        XCTAssertEqual(SliderEntry.value(of: "* 1,5", current: 2), 3)
+        XCTAssertEqual(SliderEntry.value(of: "/ 0,5", current: 2), 4)
+    }
+
+    func testACommaThatCouldBeAThousandsSeparatorIsRefusedRatherThanGuessed() {
+        // Temperature runs to 50 000 K through this same parser. On an English keyboard
+        // "5,500" means 5500 K; read as 5.5 it would clamp to 2000 K with no warning,
+        // which is the quiet wrong edit this type exists to prevent. Exactly three digits
+        // after the comma is ambiguous, so it stays refused, as do two separators.
+        for text in ["5,500", "1,000", "+= 1,500", "1,2,3", "1,5.0", "1.5,0", ","] {
+            XCTAssertNil(SliderEntry.parse(text), "\(text.debugDescription) parsed")
+        }
+    }
+
     func testADecimalCommaIsADecimalPoint() throws {
         for separator in [",", "."] {
             XCTAssertEqual(try XCTUnwrap(SliderEntry.value(of: "0,7", current: 0,

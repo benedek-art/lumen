@@ -5,7 +5,7 @@
 // applies the chroma gate, so near-neutral pixels — whose hue is numerically noise —
 // are never rotated by one. `applyMixer` obeys it. Point Colour computed the gate
 // inside its Variance branch and left its three shift lines ungated, so a swatch could
-// rotate the hue of a pixel the Mixer refuses to touch at all.
+// rotate the hue of a pixel the Mixer refuses to rotate at all.
 //
 // Nothing tested this: `ColorScienceTests` has no Point Colour case, and
 // `RobustnessTests` only checks the control is alive.
@@ -15,7 +15,9 @@ import XCTest
 
 final class PointColourGateTests: XCTestCase {
 
-    /// A warm near-neutral at exactly `gateLoChroma`, where the Mixer's authority is 0.
+    /// A warm near-neutral at exactly `gateLoChroma`, where the Mixer's authority to rotate,
+    /// push or relight is 0 (only a band Saturation pull, which scales chroma towards
+    /// zero, still reaches it).
     private func warmGrey() -> RGB {
         OKLabTransform.working.toRGB(OKLCh(L: 0.62, C: ColorEngine.gateLoChroma, h: 60))
     }
@@ -42,7 +44,7 @@ final class PointColourGateTests: XCTestCase {
                        + "nothing about the gate")
         XCTAssertLessThan(rotated, 1.0,
                           "a +60° Point Colour shift rotated a C = 0.02 grey by \(rotated)°"
-                          + " — the Mixer's authority on that pixel is zero, and the "
+                          + " — the Mixer's hue authority on that pixel is zero, and the "
                           + "engine's header says every hue-selective tool shares the gate")
     }
 

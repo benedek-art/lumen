@@ -67,8 +67,12 @@ public struct SoftProofTransform: Sendable {
     public init(_ settings: SoftProof, working: RGBColorSpace = .rec2020) {
         self.settings = settings
         let proof = settings.space.space
-        self.workingToProof = working.matrix(to: proof)
-        self.proofToWorking = proof.matrix(to: working)
+        // Bradford, not the engine's CAT16: the file this previews is converted by
+        // ColorSync through the ICC D50 PCS, which adapts with Bradford. Only ProPhoto
+        // has a different white, so only the ProPhoto proof sees the difference — up to
+        // 0.022 per coefficient, enough that CAT16 flagged deep reds the file holds.
+        self.workingToProof = working.matrix(to: proof, cone: ChromaticAdaptation.bradford)
+        self.proofToWorking = proof.matrix(to: working, cone: ChromaticAdaptation.bradford)
         switch settings.intent {
         case .perceptual:
             self.context = ProofGamut.context(settings.space)
@@ -164,7 +168,9 @@ enum ProofGamut {
     static let displayP3Context = OKLabTransform.Context(space: .displayP3)
     static let adobeRGBContext = OKLabTransform.Context(space: .adobeRGB)
     static let rec2020Context = OKLabTransform.Context(space: .rec2020)
-    static let proPhotoContext = OKLabTransform.Context(space: .proPhoto)
+    // Bradford, to undo exactly the adaptation `SoftProofTransform` used to get here.
+    static let proPhotoContext = OKLabTransform.Context(space: .proPhoto,
+                                                        cone: ChromaticAdaptation.bradford)
 
     static let srgbBoundary = Gamut.Boundary(context: srgbContext)
     static let displayP3Boundary = Gamut.Boundary(context: displayP3Context)

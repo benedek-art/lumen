@@ -128,12 +128,65 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(t.tone(2.0), 1.0, accuracy: 1e-9)   // clipped at display white
     }
 
+    /// The Linear preset keeps display-linear equal to scene-linear (1.0 = SDR white)
+    /// at every display peak; HDR only moves the clip. Every JPEG/HEIC imports on this
+    /// preset, and it used to multiply the whole picture by the peak, so the HDR
+    /// preview of a JPEG was 2 stops brighter at 400 % and its gain map a uniform 4×.
+    func testTheLinearPresetSpendsHDRHeadroomOnHighlightsNotOnABrighterPicture() {
+        var p = DisplayTransformParams.linearPreset
+        p.whiteTarget = 400
+        let t = DisplayTransform(p)
+        XCTAssertEqual(t.tone(0.18), 0.18, accuracy: 1e-9, "mid-grey brightened in HDR")
+        XCTAssertEqual(t.tone(0.5), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(t.tone(1.0), 1.0, accuracy: 1e-9, "SDR white moved in HDR")
+        XCTAssertEqual(t.tone(3.0), 3.0, accuracy: 1e-9)   // headroom for speculars
+        XCTAssertEqual(t.tone(10.0), 4.0, accuracy: 1e-9)  // clipped at the display peak
+        let grey = t.apply(RGB(gray: 0.18), gamut: nil)
+        XCTAssertEqual(grey.g, 0.18, accuracy: 1e-9)
+        // The baked LUT the GPU applies comes from the same scalar curve.
+        let lut = t.bakeCurveLUT()
+        XCTAssertEqual(lut.evaluate(LumenLog.encode(0.18)), 0.18, accuracy: 2e-3)
+    }
+
     func testNeutralsStayNeutralThroughTheTransform() {
         let t = DisplayTransform(.neutral)
         for v in [0.02, 0.18, 0.6, 3.0] {
             let out = t.apply(RGB(gray: v), gamut: nil)
             XCTAssertEqual(out.r, out.g, accuracy: 1e-6, "grey \(v) picked up a cast")
             XCTAssertEqual(out.g, out.b, accuracy: 1e-6, "grey \(v) picked up a cast")
+        }
+    }
+
+    /// A shadow-noise pixel stays at the black floor. It must not come back as a red
+    /// many times brighter than display white.
+    ///
+    /// The hue-stable branch divides the inset pixel by its peak and multiplies by
+    /// tone(peak). Below the black anchor the curve is flat at `black`, so that scale
+    /// is black/peak, and it has no upper bound as the peak falls toward zero. The old
+    /// guard floored the peak at 1e-9 before checking `norm > 0`, which meant the
+    /// intended black fallback could never run. High-ISO noise has a peak at or just
+    /// above zero and partners near −0.01. Those partners were multiplied by about
+    /// 1.5e5, and the outset's negative off-diagonals turned them into R ≈ 126 in
+    /// exactColor and renderExact. The pixels below are the audit's examples, plus a
+    /// scan of tiny positive peaks: guarding only the sign moves the blow-up rather
+    /// than removing it.
+    func testShadowNoiseBelowTheBlackAnchorStaysAtTheBlackFloor() {
+        let p = DisplayTransformParams.neutral
+        let t = DisplayTransform(p)
+        let toInset = DisplayTransform.insetSpace(.rec2020, attenuation: p.attenuation,
+                                                  rotation: p.rotation).matrix(to: .rec2020)
+        let fromInset = toInset.inverse
+        var scene: [RGB] = [RGB(0.002082, -0.010601, -0.010395),
+                            RGB(0.00027, -0.003206, -0.000946)]
+        for peak in [0.0, 1e-10, 1e-9, 1e-7, 1e-5, 1e-4] {
+            scene.append(fromInset.apply(RGB(peak, -0.01, -0.01)))
+            scene.append(fromInset.apply(RGB(-0.01, peak, -0.002)))
+        }
+        for c in scene {
+            let out = t.apply(c, gamut: nil)
+            XCTAssertTrue(out.r.isFinite && out.g.isFinite && out.b.isFinite, "\(c) → \(out)")
+            XCTAssertLessThan(out.maxComponent, 0.01,
+                              "scene \(c) sits below the black anchor but rendered \(out)")
         }
     }
 
@@ -420,6 +473,46 @@ final class EngineTests: XCTestCase {
             XCTAssertEqual(e.contrastMapped(e.blackAnchorEV), e.blackAnchorEV,
                            accuracy: 1e-9,
                            "whites \(whites) blacks \(blacks): black anchor not pinned")
+        }
+    }
+
+    /// THE PIVOT CAN OUTRUN THE ANCHOR. The Pivot slider (and Auto) clamp it to ±4 EV,
+    /// but Whites +100 pulls the white anchor down to 3.5 EV, so from Whites +67 up the
+    /// pivot can sit PAST the end of the scale. Every tone between the anchor and the
+    /// pivot then took the below-pivot branch, whose reach runs 13 EV down to the black
+    /// anchor, so the shoulder never engaged and the full slope applied right through
+    /// the anchor: `Tone(contrast: -100, contrastPivot: 4, whites: 100)` sent 3.0 EV to
+    /// 3.6 and the anchor itself to 3.8 — three quarters of a stop of real highlight
+    /// lifted to flat white by a slider whose tooltip says it cannot clip one. The grid
+    /// in `testContrastCannotPushAPixelPastTheDisplayAnchors` only reached pivot ±2 at
+    /// Whites 0, which is why it never saw this.
+    func testAPivotPastTheWhiteAnchorStillCannotPushAPixelPastIt() {
+        for whites in [67.0, 80, 100] {
+            for pivot in [3.5, 3.8, 4.0] {
+                for contrast in [-100.0, -50, 50, 100] {
+                    let e = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: pivot,
+                                                  whites: whites))
+                    let label = "contrast \(contrast) pivot \(pivot) whites \(whites)"
+                    XCTAssertEqual(e.contrastMapped(e.whiteAnchorEV), e.whiteAnchorEV,
+                                   accuracy: 1e-9,
+                                   "\(label) moved the white anchor \(e.whiteAnchorEV) to "
+                                       + "\(e.contrastMapped(e.whiteAnchorEV))")
+                    var t = e.blackAnchorEV
+                    while t <= e.whiteAnchorEV {
+                        let v = e.contrastMapped(t)
+                        XCTAssertLessThanOrEqual(v, e.whiteAnchorEV + 1e-9,
+                                                 "\(label) sent \(t) EV to \(v), past white")
+                        XCTAssertGreaterThanOrEqual(v, e.blackAnchorEV - 1e-9,
+                                                    "\(label) sent \(t) EV to \(v), past black")
+                        t += 0.05
+                    }
+                    // The documented half stays: past the anchor Contrast is the identity.
+                    for above in [e.whiteAnchorEV + 0.25, 4.5, 6.0] {
+                        XCTAssertEqual(e.contrastMapped(above), above, accuracy: 1e-9,
+                                       "\(label) moved \(above) EV, beyond the anchor")
+                    }
+                }
+            }
         }
     }
 

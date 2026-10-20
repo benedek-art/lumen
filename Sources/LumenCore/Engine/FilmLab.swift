@@ -21,7 +21,10 @@
 // OCCUPIES the single S14 display-transform slot in place of the AgX-class sigmoid —
 // one transform stage, parameterized, never two tone mappers in series. `FilmChain`
 // therefore honours the same contract as `DisplayTransform.apply`: scene-linear in,
-// display-linear out, with 1.0 = SDR white scaled by `displayWhite`.
+// display-linear out, with 1.0 = SDR white and mid-grey on 0.18 ABSOLUTE at every
+// display peak (D8). The film picture itself tops out at print paper white, which is
+// SDR white (`FilmChain.paperWhite`), and is never scaled by `displayWhite`: any HDR
+// headroom comes from the base rendering only.
 //
 // What is NOT here, by design: anything spatial. Halation is an S13 pre-curve blur and
 // grain is a density-domain plate; both have global/neighbourhood support, so this file
@@ -1513,9 +1516,11 @@ private struct SolvedChain: Sendable {
 /// display-linear.
 ///
 /// Same contract as `DisplayTransform.apply` — scene-linear working-space RGB in,
-/// display-linear out with 1.0 = SDR white × `displayWhite` — because when a stock is
-/// active this chain *is* the S14 slot (docs/14 §5.7). `amount` blends the chain
-/// against the neutral rendering, which is the AgX-class transform at the same display
+/// display-linear out with 1.0 = SDR white and mid-grey on 0.18 ABSOLUTE at every
+/// display peak (docs/04 D8) — because when a stock is active this chain *is* the S14
+/// slot (docs/14 §5.7). The film picture itself tops out at print paper white, which
+/// is diffuse (SDR) white; HDR headroom above it comes from the base rendering only.
+/// `amount` blends the chain against the neutral rendering, which is the AgX-class transform at the same display
 /// white, so Strength 0 is bit-identical to having no film block at all.
 public struct FilmChain: Sendable {
 
@@ -1550,6 +1555,20 @@ public struct FilmChain: Sendable {
     public let grain: FilmGrainProfile
 
     private let solved: SolvedChain?
+
+    /// The display-linear level the print's paper white renders at: SDR white, at
+    /// EVERY display peak, never `displayWhite`.
+    ///
+    /// The chain used to be solved for grey at `0.18 × displayWhite` and to scale its
+    /// normalised transmittance by `displayWhite`, which made film(c, w) exactly
+    /// w × film(c, 1). On a 400-nit EDR preview or an HDR export the film picture sat
+    /// log₂(w) EV above the base rendering it blends with — +2 EV at w = 4 — so the
+    /// Strength slider became an exposure ramp, against docs/05 §Film Lab's "same HDR
+    /// parameterization (D8)". A print has no headroom above its own paper, so paper
+    /// white is diffuse white and grey lands on 0.18 absolute; at w = 1 nothing moves.
+    /// (Solving instead for 0.18/w on a [0, w] span would keep specular headroom but
+    /// would slide the whole midtone range into the print's toe — a different stock.)
+    static let paperWhite: Double = 1.0
 
     /// Divergence of the push gamma multiplier across R/G/B. Divergent gammas are what
     /// create push crossover; without the divergence a push is just more contrast.
@@ -1599,9 +1618,9 @@ public struct FilmChain: Sendable {
             let key: SolveKey = SolveKey(stockID: s.id,
                                          push: push.bitPattern,
                                          grainScale: grainScale.bitPattern,
-                                         white: white.bitPattern)
+                                         white: FilmChain.paperWhite.bitPattern)
             self.solved = FilmChain.solveMemo.chain(for: key) {
-                FilmChain.build(s, push: push, grainScale: grainScale, white: white)
+                FilmChain.build(s, push: push, grainScale: grainScale, white: FilmChain.paperWhite)
             }
         } else {
             self.solved = nil
@@ -1634,7 +1653,7 @@ public struct FilmChain: Sendable {
         let base: RGB = neutral.apply(c, gamut: Gamut.sharedBoundary)
         guard let s = solved else { return base }
         let scene: RGB = c * pow(2.0, filmExposure)
-        let film: RGB = FilmChain.render(scene, s, white: displayWhite, grain: RGB.zero)
+        let film: RGB = FilmChain.render(scene, s, white: FilmChain.paperWhite, grain: RGB.zero)
         return base.mix(film, strength)
     }
 
@@ -1971,7 +1990,7 @@ public struct FilmChain: Sendable {
         }
 
         // Normalize against the final stage's own paper white and maximum black, so the
-        // picture spans exactly [0, displayWhite] with no free scaling factor.
+        // picture spans exactly [0, white] with no free scaling factor (`paperWhite`).
         var out: RGB = RGB.zero
         for i in 0..<3 {
             let span: Double = last.whiteT[i] - last.blackT[i]

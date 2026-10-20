@@ -115,11 +115,17 @@ public enum OKLabTransform {
         public let rgbToLMS: Mat3
         public let lmsToRGB: Mat3
 
-        public init(space: RGBColorSpace) {
+        /// `cone` is the adaptation used to bring a non-D65 space to OKLab's D65. It
+        /// has to be the inverse of whatever adaptation put colours INTO that space, or
+        /// the two do not cancel and a colour's OKLab hue moves just for crossing the
+        /// boundary — so the soft proof's ProPhoto context passes Bradford, matching its
+        /// ICC-convention matrices, and everything else keeps CAT16.
+        public init(space: RGBColorSpace, cone: Mat3 = ChromaticAdaptation.cat16) {
             // OKLab is defined at D65; adapt if a caller ever hands us a D50 space.
             var toXYZ = space.toXYZ
             if space.white != WhitePoint.d65 {
-                toXYZ = ChromaticAdaptation.cat16(from: space.white, to: WhitePoint.d65) * toXYZ
+                toXYZ = ChromaticAdaptation.adapt(from: space.white.xyz(),
+                                                  to: WhitePoint.d65.xyz(), cone: cone) * toXYZ
             }
             var toLMS = xyzToLMS * toXYZ
 
@@ -165,11 +171,21 @@ public enum HelmholtzKohlrausch {
 
     /// Nayatani's hue-dependent q(θ), θ in degrees. Saturated yellows read brighter
     /// than equally-luminant blues; this term is the size of that effect by hue.
+    ///
+    /// The nine coefficients are Nayatani 1997 (Color Res. Appl. 22(6):385) exactly, as
+    /// colour-science's `coefficient_q_Nayatani1997` carries them; the cos 3θ term was
+    /// once transcribed as −0.04256 for −0.02667, and `ExactColorTwin.hkFactor` and the
+    /// kernel prelude's `lumenHK` repeat these numbers, so change all three together
+    /// (testNayataniQCarriesThePublishedCoefficients holds them to the paper). θ here is
+    /// the OKLab hue, not Nayatani's CIE 1976 u'v' hue angle about the white (sRGB red
+    /// sits near 29° in one and 12° in the other): a deliberate approximation, because
+    /// `LumenUCS.toRGB` must evaluate this from (C, h) before any colour exists to take a
+    /// u'v' angle of. Re-parameterising it belongs with the B1-06 strength decision.
     public static func q(hueDegrees: Double) -> Double {
         let t = Num.wrapHue(hueDegrees) * .pi / 180
         return -0.01585
             - 0.03017 * cos(t) - 0.04556 * cos(2 * t)
-            - 0.04256 * cos(3 * t) - 0.00295 * cos(4 * t)
+            - 0.02667 * cos(3 * t) - 0.00295 * cos(4 * t)
             + 0.14592 * sin(t) + 0.05084 * sin(2 * t)
             - 0.01900 * sin(3 * t) - 0.00764 * sin(4 * t)
     }

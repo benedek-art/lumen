@@ -128,11 +128,20 @@ public struct RGBColorSpace: Equatable, Sendable {
         white: WhitePoint.d50)
 
     /// Matrix converting linear values in `self` to linear values in `other`,
-    /// including a CAT16 adaptation when the white points differ.
-    public func matrix(to other: RGBColorSpace) -> Mat3 {
+    /// including a von Kries adaptation in `cone` space when the white points differ.
+    ///
+    /// CAT16 by default, because inside the engine adaptation is a model of the eye
+    /// (docs/04, D9). A caller standing in for an ICC conversion — the soft proof, which
+    /// promises what ColorSync will write into the file — passes
+    /// `ChromaticAdaptation.bradford`, because that is what the D50 profile connection
+    /// space uses, and the two disagree by up to 0.022 in a coefficient between
+    /// Rec.2020 and ProPhoto. Between two D65 spaces the cone never enters.
+    public func matrix(to other: RGBColorSpace,
+                       cone: Mat3 = ChromaticAdaptation.cat16) -> Mat3 {
         var m = toXYZ
         if white != other.white {
-            m = ChromaticAdaptation.cat16(from: white, to: other.white) * m
+            m = ChromaticAdaptation.adapt(from: white.xyz(), to: other.white.xyz(),
+                                          cone: cone) * m
         }
         return other.fromXYZ * m
     }
@@ -150,7 +159,9 @@ public enum ChromaticAdaptation {
         -0.002079, 0.048952, 0.953127)
 
     /// Bradford — kept for ICC-compatible profile conversions on export, where
-    /// matching the ICC convention matters more than matching our own.
+    /// matching the ICC convention matters more than matching our own. The soft proof
+    /// uses it (`SoftProofTransform`, `SoftProof.isOutOfGamut`), because the file it
+    /// previews is converted by ColorSync through the D50 PCS with exactly this.
     public static let bradford = Mat3(
         0.8951, 0.2664, -0.1614,
         -0.7502, 1.7135, 0.0367,

@@ -190,7 +190,8 @@ disclosure down.
 **How it works.** The zone weights are smooth windows over log2 luminance relative to mid-gray, defined by
 the visible pivots and falloffs; Balance translates both pivots, Blending scales both falloffs, so the
 simple controls and the advanced pivots are one parameter set viewed two ways. Wheel tints apply as
-constant-luminance hue/chroma offsets per zone; Luminance is a per-zone perceptual lightness gain. The
+constant-lightness hue/chroma offsets per zone (OKLab L is held; scene luminance Y is not, by up to about
+±10 % at mid-grey at full deflection, B2-03); Luminance is a per-zone perceptual lightness gain. The
 advanced grid is darktable color balance rgb's perceptual core, adopted as the settled best design in the
 field (r09): chroma operates scene-linear at constant hue, saturation and brilliance operate in a
 UCS-22-class space with Helmholtz–Kohlrausch handling, and soft gamut clipping at constant hue is

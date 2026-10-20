@@ -150,6 +150,61 @@ public struct WhiteBalanceEngine: Sendable {
                              isAsShot: temp == nil && tint == nil)
     }
 
+    // MARK: - Named presets (docs/04 §2.1)
+
+    /// A named illuminant the preset menu offers. Picking one writes ordinary Temp/Tint
+    /// numbers the photographer can then argue with; the glyph the menu draws beside the
+    /// name is the panel's business and stays there.
+    public struct Preset: Equatable, Sendable {
+        public let name: String
+        public let kelvin: Double
+        public let tint: Double
+
+        public init(name: String, kelvin: Double, tint: Double) {
+            self.name = name
+            self.kelvin = kelvin
+            self.tint = tint
+        }
+    }
+
+    /// The conventional daylight/tungsten anchors, in menu order. Daylight sits before
+    /// Flash on purpose: they share 5500 K and differ only in tint, and the first match
+    /// wins in `presetName`.
+    public static let presets: [Preset] = [
+        Preset(name: "Daylight", kelvin: 5500, tint: 10),
+        Preset(name: "Cloudy", kelvin: 6500, tint: 10),
+        Preset(name: "Shade", kelvin: 7500, tint: 10),
+        Preset(name: "Tungsten", kelvin: 2850, tint: 0),
+        Preset(name: "Fluorescent", kelvin: 3800, tint: 21),
+        Preset(name: "Flash", kelvin: 5500, tint: 0),
+    ]
+
+    /// What the preset menu's title reads: "As Shot", a preset's name, or "Custom".
+    ///
+    /// The row reports what the numbers ARE rather than what was last clicked — the
+    /// Lightroom grammar docs/04 writes as "any manual move flips to Custom". "What the
+    /// numbers are" means the pair the render adapts TO, which is `displayed`'s pair:
+    /// a nil field stands for the file's own (clamped) neutral, not for zero.
+    ///
+    /// This lived in the panel and got both halves of that wrong. It answered "As Shot"
+    /// whenever Temp was nil without looking at Tint, so a Tint-only drag to +40 turned
+    /// the picture magenta under a menu that still read — and ticked — As Shot. And it
+    /// read a nil Tint as 0, so Temp 5500 on a frame shot at tint +10 (which renders
+    /// 5500/+10, exactly Daylight) was labelled Flash, and on a frame shot at +3 (which
+    /// matches nothing) was labelled Flash too. Moving it here puts it beside
+    /// `displayed`, so the title and the two rows cannot disagree, and where a test can
+    /// reach it.
+    public static func presetName(temp: Double?, tint: Double?, asShot: Neutral,
+                                  presets: [Preset] = WhiteBalanceEngine.presets) -> String {
+        let display = displayed(temp: temp, tint: tint, asShot: asShot)
+        guard !display.isAsShot else { return "As Shot" }
+        for preset in presets
+        where abs(preset.kelvin - display.temperature) < 1 && abs(preset.tint - display.tint) < 1 {
+            return preset.name
+        }
+        return "Custom"
+    }
+
     // MARK: - Eyedropper (D9)
 
     /// Kelvin/Tint that render `sample` neutral, where `sample` is a working-space

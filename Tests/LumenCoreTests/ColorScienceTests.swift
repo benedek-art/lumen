@@ -247,6 +247,31 @@ final class ColorScienceTests: XCTestCase {
                        accuracy: 1e-12)
     }
 
+    /// Nayatani's q(θ) (Color Res. Appl. 22(6), 1997; colour-science's
+    /// `coefficient_q_Nayatani1997`) is nine published coefficients. The cos 3θ term had
+    /// been transcribed as −0.04256 instead of −0.02667, in the reference and in both
+    /// copies the exact colour stage carries (its Float twin and the kernel prelude).
+    /// At θ = 0 every sine vanishes and q is the sum of the cosine terms, −0.12120; at
+    /// θ = 60° cos 3θ = −1 and the sine series is live, so the published value there pins
+    /// the corrected term alongside the sines; θ = 90°, where cos 3θ vanishes, must not
+    /// move (0.19168). The twin and the kernel string must say the same.
+    func testNayataniQCarriesThePublishedCoefficients() {
+        XCTAssertEqual(HelmholtzKohlrausch.q(hueDegrees: 0), -0.12120, accuracy: 1e-9)
+        XCTAssertEqual(HelmholtzKohlrausch.q(hueDegrees: 90), 0.19168, accuracy: 1e-9)
+        XCTAssertEqual(HelmholtzKohlrausch.q(hueDegrees: 60),
+                       -0.01585 - 0.03017 * 0.5 + 0.04556 * 0.5 + 0.02667 - 0.00295 * -0.5
+                           + (0.14592 + 0.05084 - 0.00764 * -1) * 3.0.squareRoot() / 2,
+                       accuracy: 1e-9)
+        for hue in stride(from: 0.0, to: 360.0, by: 7.5) {
+            let reference = HelmholtzKohlrausch.brightnessFactor(chroma: 0.3, hue: hue)
+            let twin = ExactColorTwin.hkFactor(0.3, Float(hue),
+                                               Float(HelmholtzKohlrausch.kBr))
+            XCTAssertEqual(Double(twin), reference, accuracy: 1e-6, "hue \(hue)")
+        }
+        XCTAssertTrue(ExactColorKernelSource.prelude.contains("- 0.02667 * cos(3.0 * t)"),
+                      "the kernel's lumenHK must carry the published cos 3θ coefficient")
+    }
+
     /// The invariant docs/14 §5.4 makes every colour kernel promise: a chroma move
     /// holds perceived brightness. This is what naive HSL cannot do.
     func testChromaMovePreservesPerceivedBrightness() {
@@ -502,6 +527,48 @@ final class ColorScienceTests: XCTestCase {
                        "INVALID PROBE: the probe colour is not at full skin weight")
         XCTAssertLessThan(chroma(engine(full).apply(onLine)), 1e-9,
                           "Protect Skin at 100 held colour in a black-and-white frame")
+    }
+
+    /// What Saturation −100 holds is H-K perceived brightness, not luminance.
+    ///
+    /// The engine comment on the negative branch said "exactly luminance-preserving".
+    /// It never was: the walk runs in Lumen UCS and holds J = OKLab L · f_HK, so at
+    /// C = 0 (f_HK = 1) the grey's OKLab L equals the input's J. That is the D21 design
+    /// and it is pinned here as the contract, so the comment and the code cannot drift
+    /// apart again. The second half documents the consequence instead of hiding it:
+    /// on a saturated blue the −100 grey sits well above the Rec.2020 luminance that the
+    /// Black & White panel mixes by, so the two "monochromes" are different greys. The
+    /// bound is loose on purpose (0.25 EV against a measured ≈0.42): OKLab L³ alone
+    /// already exceeds Y for blue, so an H-K recalibration cannot flip it.
+    func testSaturationMinus100HoldsHKBrightnessNotLuminance() {
+        var adjust = ColorAdjust()
+        adjust.saturation = -100
+        let e = engine(adjust)
+        let lumaWeights = RGBColorSpace.rec2020.luminanceWeights
+
+        let probes: [(String, (Int, Int, Int))] = [
+            ("sRGB blue", (0, 0, 255)), ("sRGB red", (255, 0, 0)),
+            ("sRGB green", (0, 255, 0)), ("sky", (124, 160, 231)),
+        ]
+        for (name, rgb8) in probes {
+            let input = working(rgb8)
+            let out = e.apply(input)
+            XCTAssertLessThan(chroma(out), 1e-9, "\(name): −100 is not neutral")
+            let jIn = LumenUCS.fromRGB(input).J
+            let lOut = OKLabTransform.working.toLCh(out).L
+            XCTAssertEqual(lOut, jIn, accuracy: 1e-9,
+                           "\(name): the −100 grey's OKLab L \(lOut) is not the input's "
+                               + "H-K brightness J \(jIn) — Saturation stopped holding J")
+        }
+
+        let blue = working((0, 0, 255))
+        let yIn = lumaWeights.r * blue.r + lumaWeights.g * blue.g + lumaWeights.b * blue.b
+        let grey = e.apply(blue)
+        let yOut = lumaWeights.r * grey.r + lumaWeights.g * grey.g + lumaWeights.b * grey.b
+        XCTAssertGreaterThan(log2(yOut / yIn), 0.25,
+                             "Saturation −100 on blue now lands at its luminance "
+                                 + "(\(log2(yOut / yIn)) EV) — if that is a design change, "
+                                 + "the engine comment and docs/24 §3 must say so")
     }
 
     /// The other half, and the half that had no test at all: the attenuation itself.

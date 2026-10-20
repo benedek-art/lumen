@@ -1117,7 +1117,8 @@ public struct SoftProof: Codable, Equatable, Sendable {
     /// True when the colour falls outside the proof space.
     public static func isOutOfGamut(_ c: RGB, working: RGBColorSpace, proof: RGBColorSpace,
                                     epsilon: Double = 1e-4) -> Bool {
-        let converted = working.matrix(to: proof).apply(c)
+        // Bradford: the ICC convention ColorSync converts the exported file with.
+        let converted = working.matrix(to: proof, cone: ChromaticAdaptation.bradford).apply(c)
         return converted.minComponent < -epsilon || converted.maxComponent > 1 + epsilon
     }
 }

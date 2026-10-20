@@ -177,6 +177,101 @@ final class CubeParserTests: XCTestCase {
                           "a doubled domain and a unit domain produced the same table")
     }
 
+    /// The Adobe spec's DOMAIN is an affine map in FRONT of the lattice: knot i of N sits
+    /// at DOMAIN_MIN + i/(N−1)·(DOMAIN_MAX − DOMAIN_MIN). The parser used to honour it by
+    /// re-baking — building a second N³ table whose unit-lattice knots each held an
+    /// interpolated read of the file's table — so every pixel went through two
+    /// interpolations. On a smooth look (a 0.6 power with a cross-channel term, domain
+    /// −0.25…1.25, size 9) the second one measured 2.7e-3, the better part of an 8-bit
+    /// code, and it lands differently on the GPU's trilinear fetch than on the CPU's
+    /// tetrahedral one.
+    /// `CreativeLUT.swift` promises the user's cube is "never re-baked into a second
+    /// table". The lattice must be the file's own numbers, and a read at c must be ONE
+    /// interpolation of them at (c − min)/(max − min).
+    func testANonUnitDomainIsAppliedInFrontOfTheFilesOwnLatticeNotRebaked() {
+        let n = 9
+        var rows: [String] = []
+        for bi in 0..<n {
+            for gi in 0..<n {
+                for ri in 0..<n {
+                    let r = Double(ri) / Double(n - 1), g = Double(gi) / Double(n - 1)
+                    let b = Double(bi) / Double(n - 1)
+                    let lift = 0.15 * (r - g) * b
+                    rows.append(String(format: "%.6f %.6f %.6f", pow(r, 0.6) + lift,
+                                       pow(g, 0.6) - lift, pow(b, 0.6) + 0.1 * r * g))
+                }
+            }
+        }
+        let domain = ["DOMAIN_MIN -0.25 -0.25 -0.25", "DOMAIN_MAX 1.25 1.25 1.25"]
+        guard let ranged = LUT3D.fromCubeFile((["LUT_3D_SIZE 9"] + domain + rows)
+                                                .joined(separator: "\n")),
+              let lattice = LUT3D.fromCubeFile((["LUT_3D_SIZE 9"] + rows)
+                                                .joined(separator: "\n")) else {
+            return XCTFail("a size-9 cube with a −0.25…1.25 domain was rejected")
+        }
+        XCTAssertTrue(ranged.data == lattice.data,
+                      "the file's lattice was replaced by a re-baked second table")
+
+        var worst = 0.0
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> Double {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Double(state >> 11) / Double(1 << 53)
+        }
+        for _ in 0..<4000 {
+            let c = RGB(next(), next(), next())
+            let direct = lattice.sample(RGB((c.r + 0.25) / 1.5, (c.g + 0.25) / 1.5,
+                                            (c.b + 0.25) / 1.5))
+            let read = ranged.sample(c)
+            worst = max(worst, abs(read.r - direct.r), abs(read.g - direct.g),
+                        abs(read.b - direct.b))
+        }
+        XCTAssertLessThan(worst, 1e-6,
+                          "a non-unit-domain cube read \(worst) away from one interpolation "
+                              + "of its own lattice — it was interpolated twice")
+
+        // And the writer carries the domain out again, so a round trip is the same cube.
+        XCTAssertEqual(LUT3D.fromCubeFile(ranged.cubeFileContents(title: "ranged")), ranged,
+                       "the domain was dropped on the way back out to a .cube file")
+    }
+
+    /// Resolve's dialect spells the domain differently. `LUT_3D_INPUT_RANGE lo hi` is
+    /// Resolve's (and OpenColorIO's resolve_cube baker's) way of writing what the Adobe
+    /// 1.0 spec calls `DOMAIN_MIN lo lo lo` / `DOMAIN_MAX hi hi hi`. The parser used to
+    /// read the keyword as the first field of a value row, `Float("LUT_3D_INPUT_RANGE")`
+    /// was nil, and a file Resolve itself wrote was refused as "not a cube".
+    func testResolvesInputRangeKeywordIsReadAsTheDomain() {
+        let unit = ["TITLE \"resolve\"", "LUT_3D_SIZE 2", "LUT_3D_INPUT_RANGE 0.0 1.0"]
+            + Self.redInvertingBody
+        let unitCube = LUT3D.fromCubeFile(unit.joined(separator: "\r\n") + "\r\n")
+        assertRedInverting(unitCube, "a Resolve cube with LUT_3D_INPUT_RANGE 0 1")
+        XCTAssertEqual(unitCube, LUT3D.fromCubeFile(Self.lfCube),
+                       "a unit input range must parse to exactly the unit-domain table")
+
+        // Not merely skipped: a range that runs to 2 is the same rescale DOMAIN_MAX 2 is.
+        let doubled = ["LUT_3D_SIZE 2", "LUT_3D_INPUT_RANGE 0.0 2.0"] + Self.redInvertingBody
+        let viaDomain = ["LUT_3D_SIZE 2", "DOMAIN_MIN 0 0 0", "DOMAIN_MAX 2 2 2"]
+            + Self.redInvertingBody
+        guard let ranged = LUT3D.fromCubeFile(doubled.joined(separator: "\n")) else {
+            return XCTFail("a Resolve cube with LUT_3D_INPUT_RANGE 0 2 was rejected")
+        }
+        XCTAssertEqual(ranged.sample(RGB(1, 0, 0)).r, 0.5, accuracy: 1e-4,
+                       "LUT_3D_INPUT_RANGE 0 2 was parsed but its range was ignored")
+        XCTAssertEqual(ranged, LUT3D.fromCubeFile(viaDomain.joined(separator: "\n")),
+                       "the Resolve and Adobe spellings of the same domain disagreed")
+    }
+
+    /// The Adobe spec says a reader ignores keywords it does not know, and producers do
+    /// write vendor lines into the header. A keyword is a word, so it cannot be mistaken
+    /// for a value row, which starts with a number.
+    func testAnUnknownHeaderKeywordIsSkippedNotFatal() {
+        let lines = ["TITLE \"vendor\"", "LUT_3D_SIZE 2", "LUT_GENERATOR_VERSION 7 beta"]
+            + Self.redInvertingBody
+        XCTAssertEqual(LUT3D.fromCubeFile(lines.joined(separator: "\n")),
+                       LUT3D.fromCubeFile(Self.lfCube),
+                       "an unknown header keyword made the whole cube unreadable")
+    }
+
     // MARK: - The forms that must STILL be rejected
 
     /// The point of the section: the fix widens the separators the parser tolerates, not
@@ -189,6 +284,21 @@ final class CubeParserTests: XCTestCase {
                      "a 1-D cube became acceptable once it arrived with CRLF endings")
         XCTAssertNil(LUT3D.fromCubeFile("LUT_1D_SIZE\t4\n0\t0\t0\n1\t1\t1\n"),
                      "a 1-D cube became acceptable once it arrived tab-separated")
+    }
+
+    /// The Resolve keywords whose meaning a 3-D-only reader cannot honour are refused by
+    /// name rather than skipped: a 1-D shaper's input range belongs to a table this
+    /// parser does not read, and the video-range flags change what every sample means,
+    /// so ignoring either would render the file wrong instead of refusing it. A
+    /// degenerate input range would divide by zero in the domain rescale.
+    func testResolveKeywordsThatChangeTheMeaningAreRefused() {
+        let body = Self.redInvertingBody.joined(separator: "\n")
+        for header in ["LUT_1D_INPUT_RANGE 0.0 1.0", "LUT_IN_VIDEO_RANGE", "LUT_OUT_VIDEO_RANGE",
+                       "LUT_3D_INPUT_RANGE 1.0 1.0", "LUT_3D_INPUT_RANGE 1.0 0.0",
+                       "LUT_3D_INPUT_RANGE 0.0", "LUT_3D_INPUT_RANGE low high"] {
+            XCTAssertNil(LUT3D.fromCubeFile("LUT_3D_SIZE 2\n\(header)\n" + body),
+                         "\(header) was accepted")
+        }
     }
 
     /// A one-entry cube has no cell to interpolate across; `LUT3D` traps on `size < 2`,
@@ -245,6 +355,39 @@ final class CubeParserTests: XCTestCase {
         XCTAssertNil(LUT3D.fromCubeFile(""))
         XCTAssertNil(LUT3D.fromCubeFile("\r\n\r\n   \t \r\n"),
                      "a file of nothing but whitespace is not a cube")
+    }
+
+    /// Swift's `Float("nan")`, `Float("inf")` and `Float("infinity")` all SUCCEED, so a
+    /// parser whose only test of a field is "did it parse as a number" lets a corrupt or
+    /// badly exported file put NaN or ±∞ into the table. That is not one bad lattice
+    /// point: tetrahedral blending adds `(c100 − c000) · f` even at weight zero, and
+    /// NaN · 0 is NaN, so every pixel whose cell touches the entry comes out NaN —
+    /// through the amount blend, the grain and the encoder — on CPU and in the GPU's
+    /// baked cube alike. The domain headers are numbers read the same way, and a
+    /// non-finite or zero-width domain poisons every sample of the rescale instead.
+    /// Both are refused like any other malformed file.
+    func testANonFiniteSampleOrDomainIsRejectedNotInterpolated() {
+        let header = "LUT_3D_SIZE 2\n"
+        let valid = Self.redInvertingBody.dropLast()
+        for bad in ["0 nan 0", "0 0 inf", "0.5 -inf 0.5", "0 0 infinity", "0 NaN 0",
+                    "nan 0 0", "inf 0 0", "-nan 1 1"] {
+            XCTAssertNil(LUT3D.fromCubeFile(header + (valid + [bad]).joined(separator: "\n")),
+                         "the sample row \"\(bad)\" was accepted into the table")
+        }
+        // A ninth row that happens to START with nan is still a value row, not a vendor
+        // keyword to skip: the file has nine samples where it declares eight.
+        XCTAssertNil(LUT3D.fromCubeFile(header + (Self.redInvertingBody + ["nan nan nan"])
+                        .joined(separator: "\n")),
+                     "a trailing nan row was skipped as a keyword instead of refused")
+        let body = Self.redInvertingBody.joined(separator: "\n")
+        for domain in ["DOMAIN_MIN nan 0 0", "DOMAIN_MAX 1 inf 1", "DOMAIN_MIN -inf 0 0",
+                       "DOMAIN_MAX 0 1 1", "DOMAIN_MIN 1 0 0\nDOMAIN_MAX 0.5 1 1",
+                       "LUT_3D_INPUT_RANGE -inf inf", "LUT_3D_INPUT_RANGE 0 inf"] {
+            XCTAssertNil(LUT3D.fromCubeFile(header + domain + "\n" + body),
+                         "the domain \"\(domain)\" was accepted")
+        }
+        // The control: the same rows, all finite, still parse.
+        assertRedInverting(LUT3D.fromCubeFile(Self.lfCube), "the finite control cube")
     }
 
     // MARK: - Round trip

@@ -2986,12 +2986,19 @@ public final class PipelineRenderer {
         return cgImage
     }
 
-    /// Pull a CIImage into the CPU reference's buffer type, in the working space.
+    /// Quantise one encoded [0, 1] channel to an 8-bit code: round(v * 255), the
+    /// IEC 61966-2-1 quantiser and the one Core Image's RGBA8 render uses on the GPU
+    /// path. `UInt8(Double)` TRUNCATES, so the bare conversion this used to be landed
+    /// every pixel of the reference frame up to a whole code low (half a code on
+    /// average): 0.5 became 127, and sRGB mid-grey 0.4614 became 117 where the GPU
+    /// frame shows 118. Rounding the saturated value stays inside 0...255, so it
+    /// cannot trap; the isFinite guard stays because `Num.saturate` passes NaN on.
     static func byte(_ v: Double) -> UInt8 {
         guard v.isFinite else { return 0 }
-        return UInt8(Num.saturate(v) * 255)
+        return UInt8((Num.saturate(v) * 255).rounded())
     }
 
+    /// Pull a CIImage into the CPU reference's buffer type, in the working space.
     public static func buffer(from image: CIImage, context: CIContext) -> ImageBuffer? {
         let extent = image.extent.integral
         guard extent.width >= 1, extent.height >= 1,

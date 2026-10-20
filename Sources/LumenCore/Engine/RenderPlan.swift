@@ -50,6 +50,9 @@ public struct RenderPlan: Sendable {
     /// Gain (a linear multiplier) as a function of the log-encoded guided mask value.
     public let toneGainLUT: LUT1D
     public let toneIsIdentity: Bool
+    /// The forward clamp's floor from the same bake as `toneGainLUT`, `nil` when the
+    /// clamp moved nothing. Only the per-pixel twins read it (`toneStageGain`).
+    public let toneResponseFloor: [Double]?
 
     // MARK: Stage S9 — colour, exact
     ///
@@ -206,9 +209,14 @@ public struct RenderPlan: Sendable {
         // ---- S7 -------------------------------------------------------------
         self.tone = toneEngine
         self.toneIsIdentity = toneEngine.isIdentity
-        self.toneGainLUT = toneEngine.isIdentity
-            ? LUT1D(size: 2) { _ in 1 }
-            : toneEngine.bakeGainLUT()
+        if toneEngine.isIdentity {
+            self.toneGainLUT = LUT1D(size: 2) { _ in 1 }
+            self.toneResponseFloor = nil
+        } else {
+            let baked = toneEngine.bakeGainLUTAndFloor()
+            self.toneGainLUT = baked.lut
+            self.toneResponseFloor = baked.floor
+        }
 
         // ---- S9 ---------------------------------------------------------------
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
@@ -586,8 +594,7 @@ public struct RenderPlan: Sendable {
                                space: RGBColorSpace = .rec2020) -> RGB {
         var c = linear.apply(sceneLinear)
         if !toneIsIdentity {
-            let lum = Swift.max(space.luminance(c), 0)
-            c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+            c = c * toneStageGain(c, space: space)
         }
         c = colorGraded(c)
         // The finish table already ENDS in display-linear — encode going in, nothing
@@ -595,6 +602,19 @@ public struct RenderPlan: Sendable {
         // error, which is exactly what it did until a golden caught it.
         let encoded = LumenLog.encode(c)
         return finishedColor(encoded: encoded)
+    }
+
+    /// S7's gain for one pixel, as the twins below apply it: analytic, so it adds no
+    /// interpolation error of its own, but WITH the bake's forward clamp, so it is the
+    /// tone the renderers apply and not merely the tone the Zones panel asked for. The
+    /// two only differ where `zoneFlattening` reports a band; there they differed by up
+    /// to 2.2 EV, and both twins carried the requested gain, so a uniform grey rendered
+    /// through `ReferenceRenderer` disagreed with `referenceColor` by the whole clamp.
+    /// One function so `referenceColor` and `exactColor` cannot disagree about it.
+    public func toneStageGain(_ c: RGB, space: RGBColorSpace) -> Double {
+        let lum = Swift.max(space.luminance(c), 0)
+        return pow(2, tone.renderedStops(at: Num.safeLog2(lum / 0.18),
+                                         floor: toneResponseFloor))
     }
 
     /// S9 then S10 as both renderers evaluate them: the colour stage exactly, through
@@ -629,8 +649,7 @@ public struct RenderPlan: Sendable {
         let look = recipe.look
         var c = linear.apply(sceneLinear)
         if !toneIsIdentity {
-            let lum = Swift.max(space.luminance(c), 0)
-            c = c * tone.gain(at: Num.safeLog2(lum / 0.18))
+            c = c * toneStageGain(c, space: space)
         }
         let color = ColorEngine(mixer: develop.mixer, pointColors: develop.pointColors,
                                 color: develop.color, primaries: look.primaries,

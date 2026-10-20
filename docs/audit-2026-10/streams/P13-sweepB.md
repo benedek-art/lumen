@@ -56,9 +56,9 @@ those streams.
 | K-081 | S3 | colour-balance contracts are owed | FIXED 02c8098 |
 | B2-01 | S2 | the Brilliance limiter reports "nothing to limit" | FS: the fix wave landed it. `GradeEngine.swift:1040` notes the 64× ceiling, and `BrillianceMonotoneTests` pins it |
 | B2-02 | S2 | the wheel paints SwiftUI HSB while the engine applies OKLab | FS: `wheelColors` is built from `Lumen.hueColor`, which is OKLCh (`LumenControls.swift:2043`) |
-| B2-03 | S2 | a tint moves luminance by up to 0.15 EV and drives shadows negative | STILL-OPEN: `GradeEngine.swift:733` still translates a,b at constant L, and the header claim is still false. Pixel-moving → DECISION 2 |
+| B2-03 | S2 | a tint moves luminance by up to 0.15 EV and drives shadows negative | STILL-OPEN (pixels): `GradeEngine.swift` still translates a,b at constant L; the false header/docs/05 claim is corrected and pinned by WheelTintLightnessContractTests. Pixel-moving → DECISION 2 |
 | B2-04 | S2 | at Blending 0 the Luminance ring and Brilliance are inert | STILL-OPEN: no realised-strength readout exists. UI direction → DECISION 3 |
-| B2-05 | S3 | the zone strip is drawn on a fixed 14 EV axis | STILL-OPEN (`LookPanel.swift:120`). NOT-FIXED, because it has to land with A1-03's Zones-panel axis (tone stream) or the two panels disagree |
+| B2-05 | S3 | the zone strip is drawn on a fixed 14 EV axis | FIXED in this commit: the strip and pivot drag ask `ZoneWindows(gradeOf:)` for the engine's own axis, so they follow A1-03 / D-5 whichever way it lands. `GradeStripAxisTests` |
 | B2-06 | S3 | wheel modifier/keyboard grammar; printer lights have no coarse/fine step | STILL-OPEN → DECISION 4 |
 
 ### B3 — colour panel

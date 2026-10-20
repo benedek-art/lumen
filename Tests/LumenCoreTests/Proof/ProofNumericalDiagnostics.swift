@@ -42,8 +42,7 @@ enum ProofNumericalDiagnostics {
                 let source = frame[p.x, p.y]
                 var tone = plan.linear.apply(source)
                 if !plan.toneIsIdentity {
-                    let lum = max(RGBColorSpace.rec2020.luminance(tone), 0)
-                    tone = tone * plan.tone.gain(at: Num.safeLog2(lum / 0.18))
+                    tone = tone * plan.toneStageGain(tone, space: .rec2020)
                 }
                 let graded = plan.colorGraded(tone)
                 let finishEncoded = LumenLog.encode(graded)

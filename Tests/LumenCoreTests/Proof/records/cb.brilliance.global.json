@@ -4,12 +4,12 @@
   "frame" : "tonalColourWedge",
   "frontLoading" : 0.9999985298437478,
   "givenBack" : 0,
-  "hueRotation" : 51.34889291028317,
+  "hueRotation" : 51.35038571449941,
   "id" : "cb.brilliance.global",
   "isMonotone" : true,
-  "meanSeparation" : 140.58888607336436,
+  "meanSeparation" : 140.58879699090912,
   "panel" : "Colour Balance",
-  "smallestLiveStep" : 18.53479850562769,
+  "smallestLiveStep" : 18.533278004407805,
   "travelHigh" : 100,
   "travelLow" : -100
 }

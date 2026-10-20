@@ -349,7 +349,13 @@ public enum ReferenceRenderer {
                                          highlights: a.highlights * scale,
                                          shadows: a.shadows * scale,
                                          whites: a.whites * scale,
-                                         blacks: a.blacks * scale))
+                                         blacks: a.blacks * scale),
+                              // The GLOBAL anchors: the display transform clips there,
+                              // so a masked Contrast's fixed point has to sit there too,
+                              // and local Whites/Blacks offset them rather than 5 / −9.
+                              // Kept in lockstep with `LocalPlan` on the GPU side.
+                              baseWhiteAnchorEV: plan.tone.whiteAnchorEV,
+                              baseBlackAnchorEV: plan.tone.blackAnchorEV)
             color = ColorEngine(mixer: Mixer(),
                                 pointColors: a.pointColors.map { $0.scalingShift(by: scale) },
                                 // Density and protectSkin inherited from the global
@@ -407,7 +413,12 @@ public enum ReferenceRenderer {
         // mask's colour stage through the same kernels as the global one, and the CPU
         // path runs their twin, so the two paths execute one implementation (AI-03).
         let colorStage = front.color.exactStage
-        let hueShift = a.hue * scale
+        // Strength scales the rotation but never past the Hue slider's own ±180°: a
+        // rotation by 240° IS one by −120°, so an unclamped Hue +120 at Strength 200
+        // rendered as if Hue had been dragged the other way, and Hue +180 at 200 came
+        // back to no turn at all. "Individual limits remain" (MaskPanel), as they do for
+        // every other scaled slider. Kept in lockstep with `LocalPlan` (AI-03).
+        let hueShift = Num.clamp(a.hue * scale, -180, 180)
         let context = OKLabTransform.working
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale
@@ -500,8 +511,9 @@ public enum ReferenceRenderer {
                 return
             }
             self.isIdentity = false
-            // ±100 is ±50 mired, about 5500 K → 4400 K one way and 7300 K the other:
-            // a decisive nudge, not a relabelling of the whole scene.
+            // ±100 is ±50 mired about 5500 K (181.8 mired): about 7600 K at +100 and
+            // 4300 K at −100 (7586 K / 4314 K exactly; mired steps are not symmetric in
+            // Kelvin). A decisive nudge, not a relabelling of the whole scene.
             let anchorMired = 1e6 / 5500.0
             let target = 1e6 / Num.clamp(anchorMired - t * 0.5, 20, 500)
             self.matrix = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,

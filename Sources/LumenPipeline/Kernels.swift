@@ -997,16 +997,37 @@ public enum KernelLibrary {
     }
     """
 
-    /// Trilinear lookup into a baked table at full float precision — what `CIColorCube`
-    /// does, minus its 8-bit storage (`ColorCube.filter` carries the measurement).
+    /// Tetrahedral lookup into a baked table at full float precision — `LUT3D.sample`'s
+    /// interpolant, branch for branch, over the same stored floats.
+    ///
+    /// It was trilinear, what `CIColorCube` does, and that was a choice, not a cost of
+    /// bake-and-fetch: this is our own kernel, so the interpolant is ours to pick. On the
+    /// neutral axis trilinear also reads the six corners where one channel leads, and
+    /// the display transform tone-maps max(r, g, b), which has a kink exactly there, so
+    /// those corners sit systematically above the grey curve. Measured on the default
+    /// finish table over a neutral ramp, the GPU came out up to 6.6 sRGB codes darker
+    /// than the exact maths at 33 knots (3.5 at 65) in a 0.75 EV ripple, where the CPU
+    /// reference's tetrahedral sample of the SAME table stays within 3.5 (0.9). That
+    /// is a preview and an export that disagree with the reference renderer about every
+    /// grey in the picture. The six tetrahedra share the main diagonal, so a neutral
+    /// reads c000 and c111 alone and nothing off-axis can leak in.
+    ///
+    /// The six branches and their tie-breaks (`>=` against `>`) are `LUT3D.sample`'s
+    /// exactly — `CubeLookupTwinTests` diffs this text against that function, so the two
+    /// cannot drift apart. All eight corners are still fetched, as before, rather than
+    /// four inside each branch: that keeps the sampling exactly the shape that has been
+    /// compiling and measuring on every Mac, and a fetch is not where this kernel's time
+    /// goes.
     ///
     /// `cube` is an RGBAf atlas of the LUT3D bytes: texel (r + g·n, b) holds entry
     /// (r, g, b), with blue row 0 at the TOP of the atlas because that is where
     /// `CIImage(bitmapData:)` puts a buffer's first row, so blue index b sits at
     /// y = n − 1 − b. Texel centres are +0.5. The lower corner is clamped to n − 2 so
     /// the upper one is always a real knot, and the input is clamped to the unit cube
-    /// exactly as `CIColorCube` clamps it. The twin is `LUT3D`'s trilinear form
-    /// (`ColorCubePrecisionTests` restates it).
+    /// exactly as `CIColorCube` clamps it. At the top edge that leaves f = 1 on the
+    /// lower cell where `LUT3D.sample` takes f = 0 on a collapsed one — the same face,
+    /// split along the same diagonal, so the same value. The twin is `LUT3D.sample`
+    /// (`ColorCubePrecisionTests` holds the GPU to it).
     static let cubeLookupSource = """
     kernel vec4 lumenCubeLookup(sampler image, sampler cube, float n) {
         vec4 s = sample(image, samplerCoord(image));
@@ -1025,11 +1046,25 @@ public enum KernelLibrary {
         vec3 c101 = sample(cube, samplerTransform(cube, vec2(x0 + 1.0, y1))).rgb;
         vec3 c011 = sample(cube, samplerTransform(cube, vec2(x1, y1))).rgb;
         vec3 c111 = sample(cube, samplerTransform(cube, vec2(x1 + 1.0, y1))).rgb;
-        vec3 c00 = mix(c000, c100, f.r);
-        vec3 c10 = mix(c010, c110, f.r);
-        vec3 c01 = mix(c001, c101, f.r);
-        vec3 c11 = mix(c011, c111, f.r);
-        return vec4(mix(mix(c00, c10, f.g), mix(c01, c11, f.g), f.b), s.a);
+        vec3 o;
+        if (f.r >= f.g) {
+            if (f.g >= f.b) {
+                o = c000 + (c100 - c000) * f.r + (c110 - c100) * f.g + (c111 - c110) * f.b;
+            } else if (f.r >= f.b) {
+                o = c000 + (c100 - c000) * f.r + (c111 - c101) * f.g + (c101 - c100) * f.b;
+            } else {
+                o = c000 + (c101 - c001) * f.r + (c111 - c101) * f.g + (c001 - c000) * f.b;
+            }
+        } else {
+            if (f.b > f.g) {
+                o = c000 + (c111 - c011) * f.r + (c011 - c001) * f.g + (c001 - c000) * f.b;
+            } else if (f.b > f.r) {
+                o = c000 + (c111 - c011) * f.r + (c010 - c000) * f.g + (c011 - c010) * f.b;
+            } else {
+                o = c000 + (c110 - c010) * f.r + (c010 - c000) * f.g + (c111 - c110) * f.b;
+            }
+        }
+        return vec4(o, s.a);
     }
     """
 
@@ -1356,6 +1391,11 @@ public enum ColorCube {
     public struct Baked: @unchecked Sendable {
         public let size: Int
         public let data: Data
+        /// The table's input domain (`LUT3D.domainMin` / `domainMax`). Unit for every
+        /// table the plan bakes; only a user's `.cube` file carries another.
+        public let domainMin: RGB
+        public let domainMax: RGB
+
         /// The table as an RGBAf atlas for `KernelLibrary.cubeLookup`: x = r + g·n, one
         /// row per blue index. `CIImage(bitmapData:)` puts the first row at the TOP of
         /// its extent (see `RenderGraph`'s grain anchoring), which the kernel accounts
@@ -1370,7 +1410,31 @@ public enum ColorCube {
             self.atlas = CIImage(bitmapData: data, bytesPerRow: n * n * 16,
                                  size: CGSize(width: n * n, height: n), format: .RGBAf,
                                  colorSpace: nil).samplingNearest()
+            self.domainMin = lut.domainMin
+            self.domainMax = lut.domainMax
         }
+
+        var hasUnitDomain: Bool { domainMin == RGB(0, 0, 0) && domainMax == RGB(1, 1, 1) }
+    }
+
+    /// `LUT3D.latticeCoordinate` in the graph: `(c − min)/(max − min)` per channel, as a
+    /// diagonal scale plus a bias, ahead of the fetch. The fetch then clamps to the unit
+    /// cube exactly as `LUT3D.sample` saturates after the same map, so a non-unit-domain
+    /// cube reads its own lattice once on both paths. A unit-domain table — every one
+    /// the plan bakes — never comes here: its image goes to the fetch untouched, exactly
+    /// as before a domain could be carried.
+    static func intoLattice(_ image: CIImage, _ cube: Baked) -> CIImage? {
+        let lo = cube.domainMin, hi = cube.domainMax
+        let sr = 1 / (hi.r - lo.r), sg = 1 / (hi.g - lo.g), sb = 1 / (hi.b - lo.b)
+        let filter = CIFilter(name: "CIColorMatrix")
+        filter?.setValue(image, forKey: kCIInputImageKey)
+        filter?.setValue(CIVector(x: sr, y: 0, z: 0, w: 0), forKey: "inputRVector")
+        filter?.setValue(CIVector(x: 0, y: sg, z: 0, w: 0), forKey: "inputGVector")
+        filter?.setValue(CIVector(x: 0, y: 0, z: sb, w: 0), forKey: "inputBVector")
+        filter?.setValue(CIVector(x: 0, y: 0, z: 0, w: 1), forKey: "inputAVector")
+        filter?.setValue(CIVector(x: -lo.r * sr, y: -lo.g * sg, z: -lo.b * sb, w: 0),
+                         forKey: "inputBiasVector")
+        return filter?.outputImage
     }
 
     /// Wrap a baked table in the stock colour-cube filter. The data layout LUT3D
@@ -1398,12 +1462,20 @@ public enum ColorCube {
     /// and ~8.06/255 between two knots — the table stored or sampled to 1/255 inside the
     /// filter. On a log-encoded table that is 24/255 of a stop (0.094 EV) per step, and
     /// it sits under every table in the graph: grade, finish, tone gain, local and
-    /// dither. So the lookup is our own `KernelLibrary.cubeLookup`: the same trilinear
-    /// interpolation `CIColorCube` performs, over an RGBAf atlas image of the same bytes.
+    /// dither. So the lookup is our own `KernelLibrary.cubeLookup`, over an RGBAf atlas
+    /// image of the same bytes — and, being ours, tetrahedral like `LUT3D.sample` where
+    /// `CIColorCube` is trilinear (the kernel's comment has the measurement).
     /// If that kernel did not compile the core roster has already sent the render to the
     /// CPU path; the `CIColorCube` branch below is only reachable from a caller that
     /// does not check, and it is the old behaviour rather than a wrong picture.
-    public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
+    public static func filter(_ cube: Baked, image input: CIImage) -> CIImage? {
+        let image: CIImage
+        if cube.hasUnitDomain {
+            image = input
+        } else {
+            guard let mapped = intoLattice(input, cube) else { return nil }
+            image = mapped
+        }
         if let kernel = KernelLibrary.cubeLookup {
             let n = cube.size
             let atlas = cube.atlas

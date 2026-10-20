@@ -363,9 +363,9 @@ public struct RenderGraph {
     ///
     /// The user's cube is uploaded as the file defines it and fetched once per pixel; it
     /// is never re-baked into a second table, so the only gap to the reference is the
-    /// fetch itself (`ColorCube.filter` — `KernelLibrary.cubeLookup`, float — interpolates
-    /// trilinearly where `LUT3D.sample` is tetrahedral; the same gap every plan table
-    /// here carries, and `CreativeLUTParityTests` measures it). The display tap's encode and decode are
+    /// fetch itself (`ColorCube.filter` — `KernelLibrary.cubeLookup`, float, tetrahedral
+    /// like `LUT3D.sample` — so what is left is float arithmetic, and
+    /// `CreativeLUTParityTests` measures it). The display tap's encode and decode are
     /// the stock sRGB tone-curve filters: the IEC 61966-2-1 curve, the one
     /// `TransferFunction.srgb` is.
     ///
@@ -2319,7 +2319,12 @@ struct LocalPlan {
                                          highlights: adjust.highlights * scale,
                                          shadows: adjust.shadows * scale,
                                          whites: adjust.whites * scale,
-                                         blacks: adjust.blacks * scale))
+                                         blacks: adjust.blacks * scale),
+                              // The GLOBAL anchors, as `ReferenceRenderer.LocalColourFront`
+                              // passes them: the display transform clips there, so a
+                              // masked Contrast's fixed point has to sit there too.
+                              baseWhiteAnchorEV: whiteAnchorEV,
+                              baseBlackAnchorEV: blackAnchorEV)
         // Density and protectSkin inherited from the global colour panel — see
         // `ColorAdjust.local` (COLOR-27). Kept in lockstep with
         // `ReferenceRenderer.applyLocalAdjust`.
@@ -2330,7 +2335,9 @@ struct LocalPlan {
             mixer: Mixer(),
             pointColors: adjust.pointColors.map { $0.scalingShift(by: scale) },
             color: color, primaries: Primaries(), bw: nil)
-        let hueShift = adjust.hue * scale
+        // Clamped to the Hue slider's ±180° after Strength, so a strong mask never wraps
+        // the turn round the other way — `ReferenceRenderer.applyLocalAdjust` says why.
+        let hueShift = Num.clamp(adjust.hue * scale, -180, 180)
         let tintColor = adjust.colorTint
         let tintStrength = Num.clamp(adjust.colorTintStrength, 0, 100) / 100 * scale
         // Temp and Tint were in the identity test above and then never applied, so a

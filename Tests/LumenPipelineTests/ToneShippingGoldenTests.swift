@@ -19,7 +19,8 @@
 // order of headroom the colour-path golden carries for runner variance. The
 // per-slider worst still PRINTS (TONEGOLD lines) so drift is visible before it is
 // red. Two architectural error sources are known and inside the bounds:
-// trilinear-vs-tetrahedral table sampling out of fp16, and the interactive tone
+// table sampling out of fp16 (trilinear against tetrahedral when these bounds were
+// measured; the GPU fetch is tetrahedral now, so this one shrinks), and the interactive tone
 // cube's 32 knots against the reference's 1024-sample table. Run #18 also convicted
 // the first draft's aliveness metric — absolute display-linear difference
 // under-weighs the shadow controls — so aliveness is measured in stops.

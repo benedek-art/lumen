@@ -16,9 +16,9 @@ import XCTest
 /// Two cubes. The red-inverting 2³ cube is AFFINE, where trilinear and tetrahedral
 /// interpolation agree exactly, so it pins the plumbing — matrices, clamp, transfer
 /// curves, blend — to float precision. The 17³ cube is a contrasty cross-channel
-/// function, where the graph's trilinear fetch (`KernelLibrary.cubeLookup`, float) and
-/// `LUT3D.sample`'s tetrahedral one legitimately differ; its bound is in 8-bit sRGB code
-/// values. Restated on Linux, that gap on these inputs is at most 0.18 code (the darkest
+/// function, where the graph's fetch (`KernelLibrary.cubeLookup`, float) and
+/// `LUT3D.sample` differed while the kernel was trilinear (it is tetrahedral now, so
+/// they should not); its bound is in 8-bit sRGB code values. Restated on Linux, that gap on these inputs is at most 0.18 code (the darkest
 /// one) and under 0.012 code everywhere else, so 1.0 leaves room for the GPU's float
 /// arithmetic and nothing else.
 final class CreativeLUTParityTests: XCTestCase {
