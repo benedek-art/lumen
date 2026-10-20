@@ -1529,6 +1529,61 @@ final class RawCorpusTests: XCTestCase {
         }
     }
 
+    // MARK: - The as-shot white's units
+
+    /// `CIRAWFilter.neutralTemperature`/`neutralTint` are Adobe DNG-convention numbers
+    /// (`DNGTemperature`), not `ColorTemperature`'s. Measured on corpus 1087 in run
+    /// 39152441459: 5454.009 K / -12.993514 beside neutralChromaticity 0.3333341 /
+    /// 0.3333340, which the DNG SDK port reproduces to 5e-9 and Lumen's own model misses
+    /// by 0.006 in x. That was one file; this pins it on EVERY file that opens, across
+    /// Canon, Nikon, Sony, Panasonic and DNG, so an OS release that changes Apple's
+    /// convention fails here instead of silently moving every as-shot white.
+    ///
+    /// 1e-4 in x and y: the measured disagreement is 5e-9 and Apple's values are Float32
+    /// (3e-8 spacing near 1/3), while the two candidate models differ by ~6e-3. A file
+    /// whose neutral is not finite has no convention to pin; it is logged and left to
+    /// `WhiteBalanceEngine.Neutral.sanitizedAsShot` and the corpus-wb line.
+    func testApplesAsShotNeutralIsInTheDNGTemperatureConvention() throws {
+        let entries = try corpus()
+        var checked = 0
+        for entry in entries {
+            let p = probe(for: entry)
+            guard p.opened, let filter = CIRAWFilter(imageURL: entry.url) else { continue }
+            let kelvin = Double(filter.neutralTemperature)
+            let tint = Double(filter.neutralTint)
+            let apple = filter.neutralChromaticity
+            let appleX = Double(apple.x), appleY = Double(apple.y)
+            let dng = DNGTemperature.chromaticity(kelvin: kelvin, tint: tint)
+            RawCorpusTests.emit("corpus-dngtemp: \(entry.id) "
+                + "neutralTemperature=\(String(describing: kelvin)) "
+                + "neutralTint=\(String(describing: tint)) "
+                + "neutralChromaticity=\(String(describing: appleX))/"
+                + "\(String(describing: appleY)) "
+                + "dng-xy=\(String(describing: dng.x))/\(String(describing: dng.y)) "
+                + "source=\(String(describing: p.asShotTemperature ?? .nan))/"
+                + "\(String(describing: p.asShotTint ?? .nan)) · \(entry.label)")
+            guard kelvin.isFinite, tint.isFinite, kelvin > 0 else {
+                RawCorpusTests.emit("corpus-note: \(entry.id) · DNG-convention pin skipped "
+                    + "— the as-shot neutral is not a finite temperature")
+                continue
+            }
+            checked += 1
+            let message = "\(entry.id) · \(entry.label): Apple reports "
+                + "\(kelvin) K / \(tint) with neutralChromaticity \(appleX)/\(appleY), "
+                + "but the DNG SDK convention puts that pair at \(dng.x)/\(dng.y). "
+                + "AppleRawSource.asShotTemperature/asShotTint are documented as "
+                + "DNG-convention numbers; if Apple changed convention, every as-shot "
+                + "white Lumen adapts from has moved."
+            XCTAssertEqual(dng.x, appleX, accuracy: 1e-4, message)
+            XCTAssertEqual(dng.y, appleY, accuracy: 1e-4, message)
+        }
+        RawCorpusTests.emit("corpus-summary: DNG-convention pin checked \(checked) of "
+            + "\(entries.count) files")
+        XCTAssertGreaterThan(checked, 0,
+                             "No corpus file opened with a finite as-shot neutral, so "
+                                 + "the DNG-convention pin tested nothing.")
+    }
+
     // MARK: - Diagnostic: which flat-mode option blacks out the monochrome decode
 
     /// DIAGNOSTIC, NOT AN INVARIANT. Corpus 1087 (Leica M Monochrom Typ 246: LinearRaw,

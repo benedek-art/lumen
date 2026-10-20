@@ -42,7 +42,16 @@ public final class AppleRawSource: ImageSource {
     private let pinnedVersion: CIRAWDecoderVersion
 
     /// The as-shot neutral, which is what Lumen's own CAT16 white balance adapts FROM.
+    ///
+    /// These are Adobe/DNG-convention numbers (`DNGTemperature`: the DNG SDK's Robertson
+    /// isotemperature table, `kTintScale` -3000), NOT `ColorTemperature`'s. Measured:
+    /// Apple's 5454.009 K / -12.9935 for corpus 1087 comes with `neutralChromaticity`
+    /// (0.3333341, 0.3333340), which `DNGTemperature.chromaticity` reproduces to 5e-9;
+    /// `ColorTemperature.chromaticity` puts the same pair at (0.32745, 0.33752).
+    /// RawCorpusTests pins this on every corpus file. Stored unconverted, because
+    /// `decode` hands Apple its own pair back.
     public let asShotTemperature: Double
+    /// Tint in the same DNG convention as `asShotTemperature` (positive = greener light).
     public let asShotTint: Double
 
     private let defaultLuminanceNR: Float
