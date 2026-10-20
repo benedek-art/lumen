@@ -415,7 +415,7 @@ enum IngestDurability {
             return open(path, O_RDONLY)
         }
         guard fd >= 0 else { throw posixError("open") }
-        defer { close(fd) }
+        defer { closeDescriptor(fd) }
         #if canImport(Darwin)
         if fcntl(fd, F_FULLFSYNC) == 0 { return }
         #endif
@@ -423,6 +423,16 @@ enum IngestDurability {
         // EINVAL; there is nothing more to flush there, and refusing every copy to such
         // a volume would be the wrong answer.
         guard fsync(fd) == 0 || errno == EINVAL else { throw posixError("fsync") }
+    }
+
+    /// By module, as `ExclusivePublish` does, so the call names the C function and
+    /// not a same-named member.
+    private static func closeDescriptor(_ fd: Int32) {
+        #if canImport(Darwin)
+        _ = Darwin.close(fd)
+        #else
+        _ = Glibc.close(fd)
+        #endif
     }
 
     private static func posixError(_ call: String) -> Error {

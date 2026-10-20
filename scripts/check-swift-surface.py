@@ -204,6 +204,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # (`ExclusivePublish`) branches on them, on Darwin and Glibc alike.
     "ENOTSUP", "EOPNOTSUPP", "EINVAL", "EEXIST", "EPERM", "EXDEV", "EMLINK", "ENOSYS",
     "EIO", "ENOSPC", "O_CREAT", "O_EXCL", "O_WRONLY",
+    # Ingest durability (`IngestDurability`): flushing a landed copy and its directory.
+    # F_FULLFSYNC is Darwin-only and sits behind `#if canImport(Darwin)`.
+    "O_RDONLY", "F_FULLFSYNC", "NSLocalizedDescriptionKey",
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
