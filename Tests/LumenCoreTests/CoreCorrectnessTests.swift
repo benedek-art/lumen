@@ -72,4 +72,19 @@ final class CoreCorrectnessTests: XCTestCase {
         XCTAssertEqual(image.bilinear(-1e30, 1.5), image.bilinear(-3, 1.5))
         XCTAssertEqual(image.bilinear(1e30, 1e30), image[3, 2])
     }
+
+    /// An automask stroke samples the source at each stamp BEFORE the off-frame check,
+    /// so a huge finite point from a stroke blob used to trap in bilinear.
+    func testAutomaskStrokeWithAHugeFinitePointDoesNotTrap() {
+        let src = ImageBuffer(width: 64, height: 48) { _, _ in RGB(gray: 0.3) }
+        for v in [1e20, -1e20, 1e300] {
+            for (x, y) in [(v, 0.5), (0.5, v)] {
+                let stroke = BrushStroke(points: [BrushPoint(x: x, y: y)], size: 0.1, automask: true)
+                let plane = MaskRaster.accumulatedBrushPlane(
+                    strokes: BrushStrokeSet(strokes: [stroke]), size: (width: 64, height: 48),
+                    source: src, resuming: nil)
+                XCTAssertEqual(plane.values.max() ?? 0, 0, "x=\(x) y=\(y)")
+            }
+        }
+    }
 }
