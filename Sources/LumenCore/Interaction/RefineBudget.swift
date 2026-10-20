@@ -72,4 +72,21 @@ public struct RefineBudget: Sendable, Equatable {
     /// of the budget — to the passes that actually produce pixels.
     public static let loupe = RefineBudget(totalNanoseconds: 200_000_000,
                                            settleNanoseconds: 40_000_000)
+
+    /// The debounce for a DISCRETE edit: one arrow press, one VoiceOver step, a typed
+    /// value — a request whose recipe and settle tick moved together, because the edit
+    /// opened and closed its gesture in one go.
+    ///
+    /// Such an edit has no release to wait for, so 40 ms after it the full-resolution
+    /// pass starts, and the render actor cannot give that pass back. Tapping → six or
+    /// eight times a second then paid a settle per press that the next press threw
+    /// away, and each press's draft queued behind the last one's settle. Past the gap
+    /// between two quick presses, a burst coalesces in this cancellable sleep instead.
+    public static let discreteEditSettleNanoseconds: UInt64 = 130_000_000
+
+    /// How long to wait before the quality pass, for a drag's pause or a discrete edit.
+    public func debounceNanoseconds(discreteEdit: Bool) -> UInt64 {
+        discreteEdit ? Swift.max(settleNanoseconds, Self.discreteEditSettleNanoseconds)
+                     : settleNanoseconds
+    }
 }

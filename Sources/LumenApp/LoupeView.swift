@@ -518,6 +518,9 @@ final class PhotoRenderModel: ObservableObject {
     /// first is a small fraction of the second. What is still unmeasured is whether a
     /// real pass fits in the remainder; that is audit UX-01, and it needs a Mac.
     static let settleNanoseconds: UInt64 = RefineBudget.loupe.settleNanoseconds
+    /// The same debounce for a discrete edit; see `RefineBudget.debounceNanoseconds`.
+    static let discreteEditSettleNanoseconds: UInt64 =
+        RefineBudget.loupe.debounceNanoseconds(discreteEdit: true)
 
     /// How many times the quality pass will re-ask when it comes back empty. See the
     /// comment at the retry loop: nil from the coordinator can mean "superseded by a
@@ -900,7 +903,13 @@ final class PhotoRenderModel: ObservableObject {
             // The debounce, and nothing but the debounce: everything after this point
             // still has to happen inside the deadline, so the wait is the part of the
             // budget that buys the least and is kept the smallest.
-            try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
+            //
+            // Longer for a DISCRETE edit — the tick moved WITH the recipe, which only a
+            // bracketed one-shot (an arrow press, a VoiceOver step) does — so a burst of
+            // presses coalesces here rather than in a settle the actor cannot cancel.
+            try? await Task.sleep(nanoseconds: isSettleAsk
+                ? PhotoRenderModel.discreteEditSettleNanoseconds
+                : PhotoRenderModel.settleNanoseconds)
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 

@@ -69,6 +69,25 @@ final class RefineBudgetTests: XCTestCase {
         XCTAssertEqual(exact.renderAllowanceNanoseconds, 0)
     }
 
+    func testADiscreteEditWaitsPastTheGapBetweenTwoQuickPresses() {
+        // Six to eight arrow taps a second are 125–167 ms apart; the draft takes ~35 ms
+        // before the debounce starts, so 130 ms keeps a burst inside the cancellable
+        // sleep. A drag's pause keeps the short debounce.
+        let loupe = RefineBudget.loupe
+        XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: false), loupe.settleNanoseconds)
+        XCTAssertGreaterThanOrEqual(loupe.debounceNanoseconds(discreteEdit: true), 125_000_000)
+        XCTAssertLessThan(loupe.debounceNanoseconds(discreteEdit: true), loupe.totalNanoseconds)
+    }
+
+    func testTheLoupePicksTheDiscreteDebounceOnlyForASettleAskThatMovedTheRecipe() throws {
+        // The sleep sits inside `if needsDraft`, so `isSettleAsk` there means the tick
+        // moved WITH the recipe — a bracketed one-shot, not a drag's release.
+        let code = try ShellSource.code("Sources/LumenApp/LoupeView.swift")
+        let draft = try XCTUnwrap(ShellSource.body(after: "if needsDraft", in: code))
+        XCTAssertTrue(ShellSource.squashed(draft).contains(
+            "Task.sleep(nanoseconds: isSettleAsk ? PhotoRenderModel.discreteEditSettleNanoseconds : PhotoRenderModel.settleNanoseconds)"))
+    }
+
     func testAZeroDeadlineIsReportedAsFullySpentRatherThanDividingByZero() {
         let empty = RefineBudget(totalNanoseconds: 0, settleNanoseconds: 0)
         XCTAssertEqual(empty.settleShare, 1)
