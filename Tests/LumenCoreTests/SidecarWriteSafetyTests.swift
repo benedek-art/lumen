@@ -146,4 +146,85 @@ final class SidecarWriteSafetyTests: XCTestCase {
         XCTAssertFalse(merged.contains("lumen:strokes"))
         XCTAssertEqual(merged.components(separatedBy: "<lumen:pipelineVersion>").count - 1, 1)
     }
+
+    // MARK: - Removing a keyword whose sidecar spelling is not its leaf
+
+    /// "A>B" in a sidecar imports as the hierarchy A > B, leaf "B"; removing it sends
+    /// "B", which has to take "A>B" out of the bag or the next scan re-imports it.
+    func testRemovingAHierarchicalKeywordTakesItsSidecarSpellingWithIt() {
+        let edit = SidecarKeywordEdit.removal(before: ["A > B", "dawn"], after: ["dawn"],
+                                              synonyms: { _ in [] })
+        XCTAssertEqual(edit.apply(to: ["A>B", "dawn"]), ["dawn"])
+        XCTAssertEqual(edit.apply(to: ["A > B", "dawn"]), ["dawn"])
+    }
+
+    /// Lightroom exports synonyms into `dc:subject`; "NYC" imports as "New York".
+    func testRemovingAKeywordTakesItsSynonymsOutOfTheSidecar() {
+        let edit = SidecarKeywordEdit.removal(
+            before: ["New York", "dawn"], after: ["dawn"],
+            synonyms: { $0 == "New York" ? ["NYC"] : [] })
+        XCTAssertEqual(edit.apply(to: ["NYC", "dawn"]), ["dawn"])
+    }
+
+    /// A leaf still on the photo through another branch is not removed from the bag.
+    func testALeafStillPresentElsewhereIsKept() {
+        let edit = SidecarKeywordEdit.removal(before: ["A > B", "X > B"], after: ["X > B"],
+                                              synonyms: { _ in [] })
+        XCTAssertEqual(edit.apply(to: ["B"]), ["B"])
+    }
 }
+
+#if canImport(SQLite3)
+
+/// The same, end to end through the catalog: import, remove, re-scan.
+final class SidecarKeywordRemovalCatalogTests: XCTestCase {
+
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-kw-removal-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+    }
+
+    func testARemovedKeywordImportedFromASidecarSpellingStaysRemoved() throws {
+        let store = try CatalogStore(path: directory.appendingPathComponent("lumen.db").path,
+                                     cachePath: directory.appendingPathComponent("cache.db").path)
+        let folderID = try store.registerFolder(path: "/Volumes/Shoots/nyc")
+        let file = ScannedFile(filename: "DSCF0001.RAF", fileSize: 50_000_000,
+                               fileMTime: 1_700_000_000, ext: "raf")
+        _ = try store.scan(folderID: folderID, files: [file], at: CatalogStore.now())
+        let id = try XCTUnwrap(try store.photo(folderID: folderID, filename: file.filename)?.id)
+        _ = try store.addKeyword("New York", photoIDs: [])
+        XCTAssertTrue(try store.addSynonym("NYC", toKeyword: "New York"))
+
+        for (word, shown) in [("A>B", "A > B"), ("NYC", "New York")] {
+            var sidecar = [word]
+            func scan() throws {
+                for w in SidecarKeywordImport.missing(
+                    fromCatalog: try store.keywords(photoID: id).map(KeywordPath.leaf),
+                    sidecar: sidecar) {
+                    _ = try store.addKeyword(w, photoIDs: [id])
+                }
+            }
+            try scan()
+            XCTAssertEqual(try store.keywords(photoID: id), [shown])
+            // As CatalogService.removeKeyword builds the delta.
+            let before = try store.keywords(photoID: id)
+            try store.removeKeyword(shown, photoIDs: [id])
+            let after = try store.keywords(photoID: id)
+            sidecar = try SidecarKeywordEdit.removal(before: before, after: after,
+                                                     synonyms: store.synonyms(ofKeyword:))
+                .apply(to: sidecar)
+            XCTAssertEqual(sidecar, [], word)
+            try scan()
+            XCTAssertEqual(try store.keywords(photoID: id), [], "\(word) came back")
+        }
+    }
+}
+
+#endif

@@ -1365,18 +1365,20 @@ final class CatalogService: @unchecked Sendable {
         // On the catalog's queue, after the row write, like every other sidecar
         // enqueue in this file: a sidecar is never told something the catalog was not.
         await onQueue("keyword write", fallback: ()) { [self] store in
-            var before: [Int64: Set<String>] = [:]
+            var before: [Int64: [String]] = [:]
             for target in targets {
-                before[target.id] = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+                before[target.id] = try store.keywords(photoID: target.id)
             }
             try store.removeKeyword(name, photoIDs: ids)
             for target in targets {
-                let after = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
-                let removed = (before[target.id] ?? []).subtracting(after)
+                // Leaves AND synonyms: the sidecar may spell the keyword either way.
+                let edit = try SidecarKeywordEdit.removal(
+                    before: before[target.id] ?? [],
+                    after: try store.keywords(photoID: target.id),
+                    synonyms: store.synonyms(ofKeyword:))
                 self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
                                     label: nil, recipe: nil,
-                                    keywordEdit: SidecarKeywordEdit(
-                                        removed: Array(removed)))
+                                    keywordEdit: edit)
             }
         }
     }

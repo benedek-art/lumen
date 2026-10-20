@@ -176,12 +176,17 @@ public struct SidecarKeywordEdit: Codable, Equatable, Sendable {
     /// its own business — removed words go, and new words are appended in sorted
     /// order so the same edit always writes the same bytes. A word already present is
     /// not duplicated, and duplicates already in the bag are folded.
+    ///
+    /// A word written as a path ("A>B") goes with its leaf: that is the keyword a scan
+    /// imported it as, so removing the leaf has to remove the word or the next scan
+    /// re-imports it.
     public func apply(to existing: [String]) -> [String] {
         var seen: Set<String> = []
         var out: [String] = []
         for word in existing {
             let w = Self.normalized(word)
-            guard !w.isEmpty, !removed.contains(w), seen.insert(w).inserted else { continue }
+            guard !w.isEmpty, !removed.contains(w), !removed.contains(KeywordPath.leaf(w)),
+                  seen.insert(w).inserted else { continue }
             out.append(w)
         }
         for word in added.sorted() where seen.insert(word).inserted {
@@ -192,6 +197,27 @@ public struct SidecarKeywordEdit: Codable, Equatable, Sendable {
 
     static func normalized(_ word: String) -> String {
         word.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The sidecar half of removing catalog keywords from one photo: `before` and
+    /// `after` are its keywords as `CatalogStore.keywords(photoID:)` gives them (display
+    /// paths), `synonyms` is `CatalogStore.synonyms(ofKeyword:)`.
+    ///
+    /// Every spelling a sidecar word could have that imports as a removed keyword goes,
+    /// not only its leaf. A scan imports "A>B" as the hierarchy A > B and Lightroom's
+    /// exported synonym "NYC" as "New York"; a delta of leaves alone ("B", "New York")
+    /// matched neither, the word stayed in `dc:subject`, and the next scan put the
+    /// keyword back on the photograph. "A>B" is caught by `apply` comparing leaves;
+    /// synonyms have to be named here. A word still on the photo as a leaf of another
+    /// branch is kept, as it always was.
+    public static func removal(before: [String], after: [String],
+                               synonyms: (String) throws -> [String]) rethrows -> SidecarKeywordEdit {
+        let kept = Set(after.map(KeywordPath.leaf))
+        var removed = Set(before.map(KeywordPath.leaf)).subtracting(kept)
+        for path in Set(before).subtracting(after) {
+            removed.formUnion(try synonyms(path).map(normalized))
+        }
+        return SidecarKeywordEdit(removed: Array(removed.subtracting(kept)))
     }
 }
 
