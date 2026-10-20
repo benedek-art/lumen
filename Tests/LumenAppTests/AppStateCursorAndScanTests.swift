@@ -96,6 +96,19 @@ final class AppStateCursorAndScanTests: XCTestCase {
         }
     }
 
+    func testCommandClickingTheOnlySelectedPhotoOffLeavesNothingToEdit() async throws {
+        try await withState { state, root in
+            let items = try await openRoll(state, root: root, name: "roll", count: 3)
+            state.select(items[1])
+            state.select(items[1], toggling: true)
+            XCTAssertTrue(state.selection.isEmpty)
+            XCTAssertNil(state.primarySelection,
+                         "the photo just deselected stayed the cursor")
+            XCTAssertTrue(state.editTargets.isEmpty,
+                          "a cull key would act on the photo just removed")
+        }
+    }
+
     func testCommandClickingAnotherPhotoOffLeavesTheCursorAlone() async throws {
         try await withState { state, root in
             let items = try await openRoll(state, root: root, name: "roll", count: 4)

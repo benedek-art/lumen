@@ -3436,11 +3436,16 @@ final class AppState: ObservableObject {
 
     /// ⌘-click on a selected photo: take it OUT. It must not become the cursor, or
     /// cull keys and Develop act on the one photo the user just removed. When it was
-    /// the cursor, the cursor moves to the nearest frame still selected; an emptied
-    /// selection leaves the cursor where it is.
+    /// the cursor, the cursor moves to the nearest frame still selected. An emptied
+    /// selection clears the cursor too — `editTargets` falls back to it — the same
+    /// nothing-selected state a folder opens in.
     private func deselect(_ photo: PhotoItem) {
         selection.remove(photo.id)
-        guard primarySelection?.id == photo.id, !selection.isEmpty else { return }
+        guard primarySelection?.id == photo.id else { return }
+        guard !selection.isEmpty else {
+            primarySelection = nil
+            return
+        }
         let list = photos
         let chosen = rollIndex(of: photo)
             .flatMap { index in
