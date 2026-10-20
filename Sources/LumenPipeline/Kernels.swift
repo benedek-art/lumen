@@ -63,8 +63,6 @@ public enum KernelLibrary {
     /// Guided filter, coefficient step: from the local mean of I and of I², produce
     /// the per-pixel (a, b) that make the filter edge-aware.
     ///   a = var / (var + eps),  b = meanI · (1 − a),  var = meanII − meanI²
-    /// The render now runs `lumenGuidedCoefficientsPacked`; this unpacked form stays as
-    /// the three-blur chain `testPackedGuidedFiltersMatchTheUnpackedChains` holds it to.
     static let guidedCoefficientsSource = """
     kernel vec4 lumenGuidedCoefficients(__sample meanI, __sample meanII, float eps) {
         float mi = meanI.r;
@@ -89,52 +87,6 @@ public enum KernelLibrary {
         float cov = meanIP.r - mi * meanP.r;
         float a = cov / (v + eps);
         float b = meanP.r - a * mi;
-        return vec4(a, b, 0.0, 1.0);
-    }
-    """
-
-    /// Guided filter, PACKED input: I in r and I² in g, so one box blur yields both
-    /// means. Every coefficient kernel reads only `.r` of each mean and every guide in
-    /// the render is a grey plane, so blurring I and I² as separate RGBA images spent
-    /// three of every four blurred channels on duplicates nobody read. `I * I` is the
-    /// float product `lumenSquare` wrote into `.r`; alpha passes through as it did there.
-    static let guidedPackSource = """
-    kernel vec4 lumenGuidedPack(__sample g) {
-        return vec4(g.r, g.r * g.r, 0.0, g.a);
-    }
-    """
-
-    /// `lumenGuidedCoefficients` reading the packed mean: `m.r` is mean(I), `m.g` is
-    /// mean(I²). The expressions are copied, not rederived, so the result is the same
-    /// float arithmetic on the same blurred values.
-    static let guidedCoefficientsPackedSource = """
-    kernel vec4 lumenGuidedCoefficientsPacked(__sample m, float eps) {
-        float mi = m.r;
-        float v = max(m.g - mi * mi, 0.0);
-        float a = v / (v + eps);
-        float b = mi * (1.0 - a);
-        return vec4(a, b, 0.0, 1.0);
-    }
-    """
-
-    /// Cross-guided PACKED input: I, I² and p in r, g, b. I·p stays in its own image
-    /// rather than in alpha — Core Image treats alpha as coverage, and I·p is signed
-    /// wherever p is.
-    static let guidedCrossPackSource = """
-    kernel vec4 lumenGuidedCrossPack(__sample g, __sample p) {
-        return vec4(g.r, g.r * g.r, p.r, g.a);
-    }
-    """
-
-    /// `lumenGuidedCross` reading the packed mean (`m.r` = mean(I), `m.g` = mean(I²),
-    /// `m.b` = mean(p)) beside the separately blurred mean(I·p). Same expressions.
-    static let guidedCrossPackedSource = """
-    kernel vec4 lumenGuidedCrossPacked(__sample m, __sample meanIP, float eps) {
-        float mi = m.r;
-        float v = max(m.g - mi * mi, 0.0);
-        float cov = meanIP.r - mi * m.b;
-        float a = cov / (v + eps);
-        float b = m.b - a * mi;
         return vec4(a, b, 0.0, 1.0);
     }
     """
@@ -1155,10 +1107,6 @@ public enum KernelLibrary {
     public static let luminance = make(luminanceSource)
     public static let guidedCoefficients = make(guidedCoefficientsSource)
     public static let guidedCrossCoefficients = make(guidedCrossCoefficientsSource)
-    public static let guidedPack = make(guidedPackSource)
-    public static let guidedCoefficientsPacked = make(guidedCoefficientsPackedSource)
-    public static let guidedCrossPack = make(guidedCrossPackSource)
-    public static let guidedCrossPacked = make(guidedCrossPackedSource)
     public static let guidedApply = make(guidedApplySource)
     public static let blendMask = make(blendMaskSource)
     public static let blendMaskMode = make(blendMaskModeSource)
@@ -1241,9 +1189,6 @@ public enum KernelLibrary {
             ("guidedCoefficients", guidedCoefficients),
             ("guidedCrossCoefficients", guidedCrossCoefficients),
             ("guidedApply", guidedApply),
-            ("guidedPack", guidedPack),
-            ("guidedCoefficientsPacked", guidedCoefficientsPacked),
-            ("guidedCrossPack", guidedCrossPack), ("guidedCrossPacked", guidedCrossPacked),
             // `blendMaskMode` sits beside `blendMask` and not in `unavailableMaskKernels`
             // because it is the OTHER BRANCH of the same call, and neither branch has a
             // fallback: `RenderGraph`'s `guard let blended = composite else { continue }`

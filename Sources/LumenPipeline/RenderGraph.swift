@@ -1190,7 +1190,7 @@ public struct RenderGraph {
         let guideRadius = Swift.max(Swift.max(Int(Double(longEdge) * 0.02), 3), 8)
         let refined: CIImage
         if let guide = Self.logLuminance(image),
-           let filtered = Self.crossGuidedFilterPacked(
+           let filtered = Self.crossGuidedFilter(
             input: biased, guide: guide, radius: guideRadius,
             epsilon: 0.02 / (LumenLog.range * LumenLog.range)),
            let bounded = Self.clamped(filtered, low: 0.02, high: 1.0) {
@@ -2101,28 +2101,6 @@ public struct RenderGraph {
                                    [meanCoefficients, guide])
     }
 
-    /// `crossGuidedFilter` with I, I² and p packed into one image (`lumenGuidedCrossPack`)
-    /// so they share a box blur; I·p keeps its own, because alpha is coverage to Core
-    /// Image. Three blurs where the unpacked filter runs five, same arithmetic per
-    /// channel. Dehaze only: the denoise blotch pass stays on `crossGuidedFilter`, which
-    /// is out of this change's reach rather than wrong.
-    static func crossGuidedFilterPacked(input: CIImage, guide: CIImage, radius: Int,
-                                        epsilon: Double) -> CIImage? {
-        guard let packed = KernelLibrary.apply(KernelLibrary.guidedCrossPack,
-                                               extent: guide.extent, [guide, input]),
-              let product = KernelLibrary.apply(KernelLibrary.multiply,
-                                                extent: guide.extent, [guide, input]),
-              let means = boxBlur(packed, radius: radius),
-              let meanIP = boxBlur(product, radius: radius),
-              let coefficients = KernelLibrary.apply(
-                KernelLibrary.guidedCrossPacked, extent: guide.extent,
-                [means, meanIP, Float(epsilon)]),
-              let meanCoefficients = boxBlur(coefficients, radius: radius)
-        else { return nil }
-        return KernelLibrary.apply(KernelLibrary.guidedApply, extent: guide.extent,
-                                   [meanCoefficients, guide])
-    }
-
     /// Reduce an image to a small proxy before measuring a global statistic, so the
     /// measurement costs a thumbnail rather than a frame.
     static func scaledToProxy(_ image: CIImage, longEdge: Int = 256) -> CIImage {
@@ -2153,19 +2131,15 @@ public struct RenderGraph {
         return applyMatrix(mapped, Mat3.diagonal(RGB(gray: scale)))
     }
 
-    /// I and I² go through ONE box blur, packed into r and g (`lumenGuidedPack`), where
-    /// they used to be two full-frame RGBA blurs of which only `.r` was ever read. Box
-    /// blur is per channel with the same weights and edges, so `.r` and `.g` of the
-    /// packed mean are the two means the unpacked chain produced: two blurs, not three,
-    /// on the tone mask, Texture and Clarity every frame.
     static func guidedFilter(input: CIImage, guide: CIImage, radius: Int,
                              epsilon: Double) -> CIImage? {
-        guard let packed = KernelLibrary.apply(KernelLibrary.guidedPack,
-                                               extent: guide.extent, [guide]),
-              let means = boxBlur(packed, radius: radius),
+        guard let squared = KernelLibrary.apply(KernelLibrary.square,
+                                                extent: guide.extent, [guide]),
+              let meanI = boxBlur(guide, radius: radius),
+              let meanII = boxBlur(squared, radius: radius),
               let coefficients = KernelLibrary.apply(
-                KernelLibrary.guidedCoefficientsPacked, extent: guide.extent,
-                [means, Float(epsilon)]),
+                KernelLibrary.guidedCoefficients, extent: guide.extent,
+                [meanI, meanII, Float(epsilon)]),
               let meanCoefficients = boxBlur(coefficients, radius: radius)
         else { return nil }
         return KernelLibrary.apply(KernelLibrary.guidedApply, extent: input.extent,
