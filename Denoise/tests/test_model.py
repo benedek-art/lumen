@@ -178,7 +178,8 @@ def test_infer_engine_nafnet_nontrivial(tmp_path):
     p = (torch.rand(4, 150, 170, generator=torch.Generator().manual_seed(1)) * 0.2).numpy()
     try:
         o1 = e.denoise_packed(p, K, rv)                     # single padded tile
-        o2 = e.denoise_packed(p, K, rv, tile=96, ov=16)     # 2x2+ feathered tiles
+        e2 = infer.Engine(tmp_path / "w.pt", tmp_path / "none.json", tile=96, ov=16)
+        o2 = e2.denoise_packed(p, K, rv)                    # 2x2+ feathered tiles
     except RuntimeError as err:
         pytest.skip(f"fp16 unsupported on this CPU build: {err}")
     t = torch.from_numpy(np.pad(p, ((0, 0), (0, 10), (0, 6)), mode="reflect"))[None]
