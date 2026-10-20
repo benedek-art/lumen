@@ -134,6 +134,51 @@ final class SliderDragTests: XCTestCase {
         XCTAssertLessThanOrEqual(value, 5)
     }
 
+    /// The thumb stays under the cursor even when the value it was grabbed at sits
+    /// beyond the soft limit. Type −8 into Exposure (soft ±5): the thumb is drawn at the
+    /// left end, and every point of inward travel must move the DRAWN thumb by that
+    /// point (to within one step of snapping) — not hold it pinned at the end while the
+    /// value catches up from −8, then trail the cursor by ~42 points. Checked at both
+    /// ends, through the gearbox the view drives (with a ⇧ change mid-gesture), and on
+    /// the reciprocal Temp axis.
+    func testAThumbBeyondTheSoftLimitMovesWithTheCursor() {
+        let exposure = SliderTrack(width: 142, lowerBound: -5, upperBound: 5, step: 0.01)
+        let tint = SliderTrack(width: 142, lowerBound: -150, upperBound: 150, step: 1)
+        func drawnX(_ track: SliderTrack, _ value: Double) -> Double {
+            track.fraction(of: value) * track.width
+        }
+        func stepInPoints(_ track: SliderTrack) -> Double { track.width * track.step / track.span }
+        for (track, start, sign) in [(exposure, -8.0, 1.0), (exposure, 8.0, -1.0),
+                                     (tint, -250.0, 1.0), (tint, 250.0, -1.0)] {
+            let x0 = drawnX(track, start)
+            for travel in stride(from: 1.0, through: 120.0, by: 1.0) {
+                let value = track.value(from: start, travelled: sign * travel)
+                XCTAssertEqual(drawnX(track, value), x0 + sign * travel,
+                               accuracy: stepInPoints(track) / 2 + 1e-9,
+                               "From \(start), \(sign * travel) pt left the thumb behind the cursor")
+            }
+        }
+        // Through FineDrag, as LumenSlider resolves samples: coarse in 10 pt, ⇧ down
+        // there, then 10 pt more at the fine gear — less than 10 pt of thumb.
+        var gear = FineDrag(startValue: -8)
+        let coarse = gear.value(track: exposure, travelled: 10, fine: false)
+        XCTAssertEqual(drawnX(exposure, coarse), 10, accuracy: stepInPoints(exposure) / 2 + 1e-9)
+        XCTAssertEqual(gear.value(track: exposure, travelled: 10, fine: true), coarse)
+        let fine = gear.value(track: exposure, travelled: 20, fine: true)
+        XCTAssertGreaterThan(fine, coarse)
+        XCTAssertLessThan(drawnX(exposure, fine), 20)
+        // Temp, on the mired axis, from below its soft range.
+        let temp = SliderTrack(width: 142, lowerBound: 2500, upperBound: 10000, step: 50,
+                               scale: .reciprocal)
+        // A step there is ~16 pt of track, so compare against a drag grabbed at the
+        // soft limit itself, where the thumb is drawn, rather than against the cursor.
+        XCTAssertEqual(temp.value(from: 2000, travelled: -5), 2000)
+        for travel in [3.0, 30.0, 90.0] {
+            XCTAssertEqual(temp.value(from: 2000, travelled: travel),
+                           temp.value(from: 2500, travelled: travel))
+        }
+    }
+
     func testAPressOnTheTrackLandsWhereItWasPressed() {
         // The one absolute step in the gesture: pressing the bare track jumps once, and
         // everything after that is relative to the press. Without the jump a click on

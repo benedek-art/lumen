@@ -271,28 +271,28 @@ public struct SliderTrack: Sendable, Equatable {
     /// range (Exposure −8 EV became −5 EV). A gesture that has not moved has not said
     /// anything, so it hands back what it found.
     ///
-    /// And the first real travel moves the value from WHERE IT IS. The clamp is to the
-    /// soft range, as before, but widened just far enough to include `start` — the rule
-    /// `nudged` already applies to arrows and the wheel. A value inside the soft range
-    /// still cannot be dragged out of it; one already out there is moved by the travel
-    /// rather than evicted three stops to the soft limit by the first point of it. The
-    /// widening is done in AXIS space, so the reciprocal and log scales keep working.
+    /// Real travel moves the value from WHERE THE THUMB IS DRAWN. A value typed beyond
+    /// the soft limit is drawn at that end of the track (`fraction(of:)` clamps), so
+    /// travel back INTO the track moves it from the soft limit and the thumb stays under
+    /// the cursor — the "grab the thumb and it moves with the cursor" contract the view
+    /// states. Moving it from the raw value instead held the
+    /// thumb pinned at the end for ~42 pt of an Exposure −8 drag and then trailed the
+    /// cursor by that much for the rest of the gesture. Travel OUTWARD, past the end the
+    /// thumb already sits at, cannot move the thumb, so it does not move the value
+    /// either: the value is held where it is, the rule `nudged` applies to arrows and
+    /// the wheel, rather than evicted to the soft limit by a stray point of wobble.
+    /// (SliderDragTests.testAThumbBeyondTheSoftLimitMovesWithTheCursor)
     public func value(from start: Double, travelled: Double) -> Double {
         guard isUsable, travelled.isFinite else { return resolve(start) }
         if travelled == 0, start.isFinite { return start }
-        let rawAxis = scale.axis(start)
-        guard start.isFinite, rawAxis.isFinite else {
-            let startAxis = clampedAxis(scale.axis(clamped(start)))
-            return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        let startAxis = clampedAxis(scale.axis(clamped(start)))
+        let movedAxis = clampedAxis(startAxis + (travelled / width) * axisSpan)
+        // Beyond the soft range and pushed further out: the thumb has not left the end
+        // of the track, so the gesture has not said anything yet.
+        if start.isFinite, start < lowerBound || start > upperBound, movedAxis == startAxis {
+            return start
         }
-        let lowAxis = Swift.min(axisLower, rawAxis)
-        let highAxis = Swift.max(axisUpper, rawAxis)
-        let movedAxis = Swift.min(Swift.max(rawAxis + (travelled / width) * axisSpan, lowAxis), highAxis)
-        // Clamp then snap, in that order, against the same widened window in value
-        // space — identical to `resolve` whenever `start` is inside the soft range.
-        let low = Swift.min(lowerBound, start)
-        let high = Swift.max(upperBound, start)
-        return snapped(Swift.min(Swift.max(scale.value(atAxis: movedAxis), low), high))
+        return resolve(scale.value(atAxis: movedAxis))
     }
 
     /// How far the pointer has to travel to move a control from `from` to `to`. The

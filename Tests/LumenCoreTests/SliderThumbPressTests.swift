@@ -18,9 +18,10 @@
 //     for arrows and the wheel (SliderNudgeTests); the drag never got the same rule.
 //
 // The contract pinned here is the one SliderDrag.swift's header states: a relative
-// drag is a pure function of pointer travel, so zero travel is zero change. And the
-// first REAL travel from a value outside the soft range moves it from where it is, by
-// that travel, rather than first evicting it to the soft limit.
+// drag is a pure function of pointer travel, so zero travel is zero change. Real travel
+// from a value outside the soft range moves it from where its thumb is DRAWN — the soft
+// limit — when it heads back into the track, so the thumb stays under the cursor; travel
+// further out, which cannot move the thumb, holds the value rather than evicting it.
 
 import XCTest
 @testable import LumenCore
@@ -74,15 +75,17 @@ final class SliderThumbPressTests: XCTestCase {
         XCTAssertEqual(shifted.value(track: tint, travelled: 0, fine: true), 7.3)
     }
 
-    // MARK: A drag from beyond the soft limit starts from where the value is
+    // MARK: A drag from beyond the soft limit starts from where the thumb is drawn
 
-    func testADragDoesNotDragAHardRangeValueBackToTheSoftLimit() {
-        // One point of track is about 0.07 EV. From −8 that is −7.93 to the right and
-        // −8.07 to the left would be PAST the value — held where it is, as `nudged`
-        // holds it — not −4.93 after a three-stop eviction.
+    func testADragFromBeyondTheSoftLimitStartsWhereTheThumbIsDrawn() {
+        // −8 is drawn at the left end. One point of inward travel moves the thumb one
+        // point, so the value is one point's worth in from the soft limit (−4.93) — not
+        // −7.93 with the thumb left pinned at the end for another 42 points.
         let pt = exposure.span / exposure.width
-        XCTAssertEqual(exposure.value(from: -8, travelled: 1), (-8 + pt * 1).rounded(toPlaces: 2),
+        XCTAssertEqual(exposure.value(from: -8, travelled: 1), (-5 + pt * 1).rounded(toPlaces: 2),
                        accuracy: 1e-9)
+        // Outward travel cannot move the thumb, so it does not move the value: held
+        // where it is, as `nudged` holds it, not evicted to the soft limit.
         XCTAssertEqual(exposure.value(from: -8, travelled: -1), -8)
         XCTAssertEqual(tint.value(from: -250, travelled: -5), -250)
         XCTAssertEqual(tint.value(from: 250, travelled: 5), 250)
