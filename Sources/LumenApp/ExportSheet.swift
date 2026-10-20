@@ -505,6 +505,9 @@ private struct ExportRecipeRow: View {
             // that was still drawing one.
             LumenCheckbox(isOn: $enabled)
                 .help("Include this recipe in the next export")
+                // Drawn shapes carry no name of their own; VoiceOver read "checked".
+                .accessibilityLabel(Text(name.isEmpty ? "Include untitled recipe"
+                                                      : "Include \(name)"))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(name.isEmpty ? "Untitled" : name)

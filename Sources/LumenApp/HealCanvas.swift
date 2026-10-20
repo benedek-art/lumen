@@ -578,6 +578,7 @@ struct HealToolBar: View {
                       + "wire, healed along its length.")
             HStack(spacing: 6) {
                 LumenCheckbox(isOn: $tool.visualize)
+                    .accessibilityLabel(Text("Visualize Spots"))
                 Text("Visualize Spots").font(.lumenCaption)
             }
             .help("Show an inverted edge view so sensor dust stands out. A view only: "

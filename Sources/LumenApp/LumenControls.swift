@@ -2341,6 +2341,15 @@ struct LumenToggleRow: View {
         // 0.24 and a jump for a row at 0.20.
         .lumenInteractive(on: Lumen.panelValue, enabled: isEnabled)
         .help(help ?? "")
+        // ONE NAMED BUTTON PER ROW, as the slider row is one adjustable element
+        // (UX-03). The title was a sibling `Text`, so VoiceOver read it as static
+        // words and then an unnamed "on, button" for the switch.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(isOn ? "on" : "off"))
+        .accessibilityHint(Text(help ?? ""))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { if isEnabled { isOn.toggle() } }
     }
 }
 
