@@ -75,14 +75,15 @@ final class SliderThumbPressTests: XCTestCase {
         XCTAssertEqual(shifted.value(track: tint, travelled: 0, fine: true), 7.3)
     }
 
-    // MARK: A drag from beyond the soft limit starts from where the thumb is drawn
+    // MARK: A drag from beyond the soft limit moves the value by the travel
 
-    func testADragFromBeyondTheSoftLimitStartsWhereTheThumbIsDrawn() {
-        // −8 is drawn at the left end. One point of inward travel moves the thumb one
-        // point, so the value is one point's worth in from the soft limit (−4.93) — not
-        // −7.93 with the thumb left pinned at the end for another 42 points.
+    func testADragFromBeyondTheSoftLimitMovesTheValueByTheTravel() {
+        // −8 sits beyond the −5 soft limit. One point of inward travel moves the value
+        // one point's worth from where it IS (−7.93), never a jump to the soft limit
+        // (−4.93). This is main's SliderDrag rule, kept over the thumb-under-cursor
+        // variant when main was merged into this branch (see 7214dcf).
         let pt = exposure.span / exposure.width
-        XCTAssertEqual(exposure.value(from: -8, travelled: 1), rounded(-5 + pt * 1, toPlaces: 2),
+        XCTAssertEqual(exposure.value(from: -8, travelled: 1), rounded(-8 + pt * 1, toPlaces: 2),
                        accuracy: 1e-9)
         // Outward travel cannot move the thumb, so it does not move the value: held
         // where it is, as `nudged` holds it, not evicted to the soft limit.
