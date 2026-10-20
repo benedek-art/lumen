@@ -324,7 +324,9 @@ extension XMPSidecar {
 ///
 /// 1. Sidecar unchanged since we last touched it → catalog wins, filling in where it is
 ///    silent. The normal case, and the right way round: the catalog is what the running
-///    app just edited, while the sidecar may be seconds stale behind its debounce.
+///    app just edited, while the sidecar may be seconds stale behind its debounce. With
+///    a recorded stamp that still matches, only a missing recipe fills in — a silent
+///    rating, flag or label there is a clear the sidecar has not caught up with.
 /// 2. Sidecar newer than our last write AND its recipe fingerprint differs → the sidecar
 ///    wins. This is what makes restore-from-Time-Machine and edit-on-another-Mac work.
 /// 3. Both changed — the catalog has edits that have not reached the sidecar yet, and
@@ -441,10 +443,21 @@ public enum SidecarMerge {
             return now != last
         }()
 
+        // Rating, flag and label fill in only when the sidecar can be telling us
+        // something new: a row we never stamped, or a file that moved since our stamp.
+        // An UNCHANGED sidecar was absorbed by the read that stamped it, or written by
+        // us — so where it speaks and the catalog is silent, the silence is newer: a
+        // cleared rating, flag or label whose flush has not landed yet. Filling it back
+        // in would undo the last edit, the very thing rule 1 exists to prevent. The
+        // recipe is not gated: a nil recipe here means the stored one would not decode,
+        // and the sidecar is how that edit comes back.
+        let fillScalars = catalog.sidecarMTime == nil || moved
+
         if moved, recipeDiffers(catalog: catalog, incoming: incoming, sidecar: sidecar) {
             if catalog.hasUnflushedEdits {
                 return Resolution(state: fillingIn(catalog, from: sidecar,
-                                                   incoming: incoming),
+                                                   incoming: incoming,
+                                                   fillScalars: fillScalars),
                                   decision: .conflictCatalogWins,
                                   unpreservedSidecar: sidecar)
             }
@@ -452,7 +465,8 @@ public enum SidecarMerge {
                               decision: .sidecarWins)
         }
 
-        return Resolution(state: fillingIn(catalog, from: sidecar, incoming: incoming),
+        return Resolution(state: fillingIn(catalog, from: sidecar, incoming: incoming,
+                                           fillScalars: fillScalars),
                           decision: .catalogWins)
     }
 
@@ -460,14 +474,16 @@ public enum SidecarMerge {
 
     /// Rules 1 and 3: the catalog wins, and the sidecar fills in where it is silent.
     /// Filling in is not overwriting — it is the union, and it is what brings a photo
-    /// that arrived from another machine in with its work attached.
+    /// that arrived from another machine in with its work attached. `fillScalars` false
+    /// keeps rating, flag and label as the catalog holds them — see `resolve`.
     private static func fillingIn(_ catalog: State, from sidecar: SidecarContent,
-                                  incoming: Recipe?) -> State {
+                                  incoming: Recipe?, fillScalars: Bool) -> State {
         var out = catalog
         if out.recipe == nil, let incoming {
             out.recipe = incoming
             out.recipeFingerprint = sidecar.recipeFingerprint
         }
+        guard fillScalars else { return out }
         if out.rating == 0, sidecar.rating > 0 { out.rating = sidecar.rating }
         if out.flag == .none { out.flag = sidecar.flag }
         if out.label == nil || out.label?.isEmpty == true,
