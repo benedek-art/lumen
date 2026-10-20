@@ -218,6 +218,12 @@ struct MaskCanvas: View {
     @State private var stabilizer: BrushStabilizer?
     @State private var tracing: [[Double]]?
     @State private var outlineGrab: Int?
+    /// True while a drag is live. SwiftUI resets a `@GestureState` when a drag is
+    /// CANCELLED, the one end `.onEnded` does not report; without it `mode` stayed
+    /// `.brush` (the next press continued the dead stroke from its last point), a
+    /// gradient grab stayed latched, and the gesture latch stayed open until the
+    /// watchdog, folding the next edit into this undo step.
+    @GestureState private var dragLive = false
 
     private enum DragMode: Equatable {
         case idle
@@ -267,6 +273,12 @@ struct MaskCanvas: View {
         }
         .contentShape(Rectangle())
         .gesture(dragGesture)
+        .onChange(of: dragLive) { _, live in
+            if !live { closeCancelledDrag() }
+        }
+        // Torn down mid-drag (another mask selected, the tool put away): nothing else
+        // will close the latch. A close with none open is a no-op.
+        .onDisappear { if mode != .idle { sliderGestureChanged(false) } }
         .onContinuousHover(coordinateSpace: .local) { phase in
             if case .active(let point) = phase {
                 hover = point
@@ -488,6 +500,7 @@ struct MaskCanvas: View {
 
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
+            .updating($dragLive) { _, live, _ in live = true }
             .onChanged { value in
                 // A press on another mask's pin selects, and does nothing else. Checked
                 // once per gesture, and now BEHIND the question of whether the press
@@ -587,6 +600,27 @@ struct MaskCanvas: View {
                 tracing = nil
                 outlineGrab = nil
             }
+    }
+
+    /// The cancelled-drag cleanup — see `dragLive`. Deferred one turn so a normal
+    /// release's `onEnded` (which commits and then idles everything) always runs
+    /// first; after it there is nothing left for this to close. A cancelled stroke or
+    /// trace is dropped rather than committed: the hand never finished it.
+    private func closeCancelledDrag() {
+        Task { @MainActor in
+            guard !dragLive else { return }
+            guard mode != .idle || pointGrab != nil || tracing != nil
+                    || outlineGrab != nil || !livePoints.isEmpty else { return }
+            mode = .idle
+            pointGrab = nil
+            tracing = nil
+            outlineGrab = nil
+            strokeSeed = nil
+            livePoints = []
+            strokeStarted = nil
+            stabilizer = nil
+            sliderGestureChanged(false)
+        }
     }
 
     // MARK: Outline

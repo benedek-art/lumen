@@ -660,11 +660,11 @@ enum SliderInventory {
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.
-        SliderSpec("Size", "HealCanvas.swift:595", .healBar, 2...400, step: 1),
-        SliderSpec("Feather", "HealCanvas.swift:599", .healBar, 0...100, step: 1),
-        SliderSpec("Opacity", "HealCanvas.swift:603", .healBar, 0...100, step: 1),
+        SliderSpec("Size", "HealCanvas.swift:622", .healBar, 2...400, step: 1),
+        SliderSpec("Feather", "HealCanvas.swift:626", .healBar, 0...100, step: 1),
+        SliderSpec("Opacity", "HealCanvas.swift:630", .healBar, 0...100, step: 1),
         // Visualize Spots' threshold (F8): shown only while the dust view is on.
-        SliderSpec("Threshold", "HealCanvas.swift:586", .healBar, 0...100, step: 1),
+        SliderSpec("Threshold", "HealCanvas.swift:613", .healBar, 0...100, step: 1),
 
         // Zones — five named stops plus the global trim, inside a `DevelopDisclosure`.
         // "Midtones" is the widest of the six names.

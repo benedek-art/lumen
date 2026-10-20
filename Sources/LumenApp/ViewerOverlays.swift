@@ -1432,6 +1432,13 @@ struct CropOverlayView: View {
 
     @State private var dragOrigin: Crop?
     @State private var rotation: RotationDrag?
+    /// True while any of this overlay's three drags is live. A `@GestureState`, because
+    /// it is the one piece of gesture state SwiftUI resets when a drag is CANCELLED
+    /// rather than released — `.onEnded` is not delivered then, and `dragOrigin` /
+    /// `rotation` used to stay set: the next drag started from the stale origin (the
+    /// crop jumped back), hover stayed frozen, and the app-wide gesture latch stayed
+    /// shut until the 8 s watchdog, folding the next slider drag into this undo step.
+    @GestureState private var dragLive = false
     /// Which region the pointer is in, or nil when it is not over the overlay at all.
     ///
     /// VIEW-LOCAL AND COARSE. It drives the cursor, the handle under the pointer, and
@@ -1599,7 +1606,27 @@ struct CropOverlayView: View {
         // The tool can be put away with `R` — or by leaving the workspace — while the
         // pointer is still inside the rectangle, and a cursor pushed by a view that has
         // gone is a cursor nothing will ever pop.
-        .onDisappear { leave() }
+        .onDisappear {
+            leave()
+            // Put away mid-drag: no release and no `dragLive` reset will reach a view
+            // that has gone, so close the gesture here rather than at the watchdog.
+            if dragOrigin != nil || rotation != nil { sliderGestureChanged(false) }
+        }
+        .onChange(of: dragLive) { _, live in
+            if !live { closeCancelledDrag() }
+        }
+    }
+
+    /// The cancelled-drag cleanup — see `dragLive`. Deferred one turn so a normal
+    /// release's `onEnded` always runs first (SwiftUI does not document the order of
+    /// the two), after which there is nothing left for this to close.
+    private func closeCancelledDrag() {
+        Task { @MainActor in
+            guard !dragLive, dragOrigin != nil || rotation != nil else { return }
+            dragOrigin = nil
+            rotation = nil
+            sliderGestureChanged(false)
+        }
     }
 
     // MARK: Geometry
@@ -2006,14 +2033,18 @@ struct CropOverlayView: View {
     private func moveGesture(in frame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 1,
                     coordinateSpace: .named(CropOverlayView.dragSpace))
+            .updating($dragLive) { _, live, _ in live = true }
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 sliderGestureChanged(true)
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
-                crop = CropGeometry.move(origin,
-                                         dx: Double(value.translation.width / frame.width),
-                                         dy: Double(value.translation.height / frame.height))
+                let next = CropGeometry.move(origin,
+                                             dx: Double(value.translation.width / frame.width),
+                                             dy: Double(value.translation.height / frame.height))
+                // A move held against the frame's edge produces the same rect per event;
+                // writing it would still fetch, copy and compare the recipe each time.
+                if next != crop { crop = next }
             }
             .onEnded { _ in
                 dragOrigin = nil
@@ -2036,17 +2067,19 @@ struct CropOverlayView: View {
                                in frame: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 1,
                     coordinateSpace: .named(CropOverlayView.dragSpace))
+            .updating($dragLive) { _, live, _ in live = true }
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 sliderGestureChanged(true)
                 let origin = dragOrigin ?? crop
                 if dragOrigin == nil { dragOrigin = origin }
-                crop = CropGeometry.resize(
+                let next = CropGeometry.resize(
                     origin, handle: handle,
                     dx: Double(value.translation.width / frame.width),
                     dy: Double(value.translation.height / frame.height),
                     lockedAspect: tool.effectiveLockedAspect(for: photoID, crop: origin,
                         frameAspect: frameAspect), frameAspect: frameAspect)
+                if next != crop { crop = next }
             }
             .onEnded { _ in
                 dragOrigin = nil
@@ -2065,6 +2098,7 @@ struct CropOverlayView: View {
     /// reason.
     private func rotateGesture(in size: CGSize, windowOrigin: CGPoint) -> some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .updating($dragLive) { _, live, _ in live = true }
             .onChanged { value in
                 let frame = frameRect(in: size)
                 guard frame.width > 0, frame.height > 0 else { return }
@@ -2103,7 +2137,10 @@ struct CropOverlayView: View {
                 rotation?.location = CGPoint(x: value.location.x - windowOrigin.x,
                                              y: value.location.y - windowOrigin.y)
                 sliderGestureChanged(true)
-                onAngle(next)
+                // `drag.degrees` is the angle the previous event applied (the press's
+                // on the first): an event that did not turn the picture — a still hand,
+                // an angle pinned at the limit — re-runs no framing.
+                if next != drag.degrees { onAngle(next) }
             }
             .onEnded { _ in
                 rotation = nil
@@ -2163,6 +2200,12 @@ struct StraightenOverlayView: View {
 
     @State private var start: CGPoint?
     @State private var end: CGPoint?
+    /// Reset by SwiftUI when the drag is CANCELLED, the one end `.onEnded` does not
+    /// report. `start` is taken only when nil, so a cancelled ruler used to leave it set
+    /// and the next drag drew its line — and its readout — from the dead one's start,
+    /// while the release measured from its own: the number shown was not the one
+    /// written.
+    @GestureState private var rulerLive = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -2174,6 +2217,15 @@ struct StraightenOverlayView: View {
                     .fill(Lumen.accent.opacity(0.001))
                     .contentShape(Rectangle())
                     .gesture(drag(in: size))
+                    .onChange(of: rulerLive) { _, live in
+                        guard !live, start != nil || end != nil else { return }
+                        // Deferred so a normal release's `onEnded` runs first.
+                        Task { @MainActor in
+                            guard !rulerLive else { return }
+                            start = nil
+                            end = nil
+                        }
+                    }
 
                 if let start, let end {
                     Path { path in
@@ -2198,6 +2250,7 @@ struct StraightenOverlayView: View {
 
     private func drag(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
+            .updating($rulerLive) { _, live, _ in live = true }
             .onChanged { value in
                 if start == nil { start = value.startLocation }
                 end = value.location

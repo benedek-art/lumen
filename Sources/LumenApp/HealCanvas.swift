@@ -306,6 +306,12 @@ struct HealCanvas: View {
     /// The stroke being painted, source-normalized, and when it started.
     @State private var painting: [BrushPoint] = []
     @State private var paintStarted: Date?
+    /// True while the press is live; SwiftUI resets it when the drag is CANCELLED, which
+    /// is the one end `.onEnded` does not report. Without it `pressed` stayed true after
+    /// a cancelled drag, so every later press skipped its hit test and drove the stale
+    /// grab (or appended to the stale brush stroke), and a spot drag's gesture latch
+    /// stayed open until the watchdog.
+    @GestureState private var pressLive = false
 
     /// The grab tolerance in view points — `MaskHandles`' size, so every handle on the
     /// photograph is the same target.
@@ -327,6 +333,11 @@ struct HealCanvas: View {
         }
         .contentShape(Rectangle())
         .gesture(press)
+        .onChange(of: pressLive) { _, live in
+            if !live { closeCancelledPress() }
+        }
+        // Torn down mid-drag (the tool put away): nothing else will close the latch.
+        .onDisappear { if grab != nil { sliderGestureChanged(false) } }
         .lumenPickCursor(true)
         .help("Click a blemish to heal it. Drag the solid circle to move the spot, the "
               + "dashed one to choose where it borrows from; / re-picks it. ⌫ deletes "
@@ -335,6 +346,7 @@ struct HealCanvas: View {
 
     private var press: some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .updating($pressLive) { _, live, _ in live = true }
             .onChanged { value in
                 if !pressed {
                     pressed = true
@@ -421,6 +433,21 @@ struct HealCanvas: View {
                 guard n.x >= 0, n.x <= 1, n.y >= 0, n.y <= 1 else { return }
                 add(Double(n.x), Double(n.y))
             }
+    }
+
+    /// The cancelled-press cleanup — see `pressLive`. Deferred one turn so a normal
+    /// release's `onEnded` (which commits, then clears `pressed`) always runs first;
+    /// after it there is nothing for this to do. A cancelled stroke is dropped, not
+    /// painted: the hand never finished it.
+    private func closeCancelledPress() {
+        Task { @MainActor in
+            guard !pressLive, pressed else { return }
+            if grab != nil { sliderGestureChanged(false) }
+            grab = nil
+            pressed = false
+            painting = []
+            paintStarted = nil
+        }
     }
 
     // MARK: Drawing

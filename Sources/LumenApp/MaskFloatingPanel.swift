@@ -55,6 +55,10 @@ struct MaskFloatingPanel: View {
     /// The live drag, as a delta from the RESTING top-right corner. Nil between drags,
     /// which is almost always — see `offset`.
     @State private var dragging: CGSize?
+    /// SwiftUI resets this when the title-bar drag is CANCELLED, the one end `.onEnded`
+    /// does not report. Without it the card stayed where the hand left it but the
+    /// offset was never stored, so the next drag snapped it back to the old place.
+    @GestureState private var titleDragLive = false
     @State private var titleHovered = false
 
     /// Wide enough that a mask's own name fits beside its picture, and — at 290 rather
@@ -206,20 +210,33 @@ struct MaskFloatingPanel: View {
             // comment: measuring a drag in the local space of the view the drag is
             // moving is a feedback loop.
             DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .updating($titleDragLive) { _, live, _ in live = true }
                 .onChanged { value in
                     // CLAMPED ON WRITE. Storing the raw translation and clamping it on
                     // the way out is what made the drag sticky: travel past the edge
                     // accumulated invisibly and had to be un-travelled before the card
                     // would move again.
-                    dragging = clamp(CGSize(
+                    let next = clamp(CGSize(
                         width: state.maskPanelOffset.width + value.translation.width,
                         height: state.maskPanelOffset.height + value.translation.height))
+                    // Held against the window's edge, every event clamps to the same
+                    // place, and re-writing an equal value is work for nothing.
+                    if next != dragging { dragging = next }
                 }
                 .onEnded { _ in
                     if let dragging { state.maskPanelOffset = dragging }
                     dragging = nil
                 }
         )
+        .onChange(of: titleDragLive) { _, live in
+            guard !live else { return }
+            // Deferred so a normal release's `onEnded` runs first and leaves nothing.
+            Task { @MainActor in
+                guard !titleDragLive, let landed = dragging else { return }
+                state.maskPanelOffset = landed
+                dragging = nil
+            }
+        }
     }
 
     /// CREATE NEW MASK, as a round `+`.

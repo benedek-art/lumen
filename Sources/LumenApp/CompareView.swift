@@ -224,6 +224,12 @@ private struct ComparePane: View {
     /// The press turned out to be the cursor verb's double-click; swallow the rest
     /// of the gesture so it neither pans nor toggles zoom on release.
     @State private var pressWasCursorMove = false
+    /// True while the press is live; SwiftUI resets it when the drag is CANCELLED, the
+    /// one end `.onEnded` does not report. Without it a stale `dragStartCenter` made
+    /// the next pan jump back to where the dead one began, and a stale
+    /// `pressWasCursorMove` swallowed the next whole drag and moved the cursor on its
+    /// release.
+    @GestureState private var pressLive = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -259,6 +265,9 @@ private struct ComparePane: View {
             .clipped()
             .contentShape(Rectangle())
             .gesture(dragGesture(container: container))
+            .onChange(of: pressLive) { _, live in
+                if !live { closeCancelledPress() }
+            }
             .overlay {
                 Rectangle()
                     .strokeBorder(isPrimary ? Lumen.fillColor : Lumen.separator,
@@ -376,6 +385,7 @@ private struct ComparePane: View {
 
     private func dragGesture(container: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
+            .updating($pressLive) { _, live, _ in live = true }
             .onChanged { value in
                 // The cursor verb's double-click, read the way every control behind a
                 // minimumDistance-0 drag has to read it (LumenControls): the outer
@@ -402,8 +412,11 @@ private struct ComparePane: View {
                 let moved = CGSize(width: -(base.x - 0.5) * drawn.width + value.translation.width,
                                    height: -(base.y - 0.5) * drawn.height + value.translation.height)
                 let clamped = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
-                sync.center = CGPoint(x: 0.5 - clamped.width / drawn.width,
-                                      y: 0.5 - clamped.height / drawn.height)
+                let next = CGPoint(x: 0.5 - clamped.width / drawn.width,
+                                   y: 0.5 - clamped.height / drawn.height)
+                // `center` is @Published and shared by every pane: an equal write (a
+                // pan held against the clamp, a still mouse) re-bodied all of them.
+                if next != sync.center { sync.center = next }
             }
             .onEnded { value in
                 if pressWasCursorMove {
@@ -427,6 +440,16 @@ private struct ComparePane: View {
                                                         drawn: drawn, pan: pan)
                 sync.toggleZoom(at: unit)
             }
+    }
+
+    /// The cancelled-press cleanup — see `pressLive`. Deferred one turn so a normal
+    /// release's `onEnded` always runs first and leaves nothing for this to clear.
+    private func closeCancelledPress() {
+        Task { @MainActor in
+            guard !pressLive else { return }
+            dragStartCenter = nil
+            pressWasCursorMove = false
+        }
     }
 
     private func requestedLongEdge(container: CGSize) -> Int {
