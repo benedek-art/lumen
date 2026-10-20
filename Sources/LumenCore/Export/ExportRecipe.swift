@@ -837,7 +837,12 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
         case .rename: return .write(disambiguated(wanted, isTaken: taken), replacing: false)
         case .overwrite:
             if isOriginal(wanted) {
-                return .write(disambiguated(wanted, isTaken: taken), replacing: false)
+                // Stepped past the original, to the `-N` this re-delivery wrote last
+                // time, which Overwrite then replaces. Counting files already on disk as
+                // taken here wrote a new `-N+1` on every run: Lumen's own earlier `{name}`
+                // render beside the RAW shares its stem, so it reads as an original too.
+                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || isOriginal($0) })
+                return .write(next, replacing: existsOnDisk(next))
             }
             return .write(wanted, replacing: true)
         case .skip: return .skip(wanted)

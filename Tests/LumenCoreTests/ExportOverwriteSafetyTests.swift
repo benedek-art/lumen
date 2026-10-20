@@ -76,6 +76,22 @@ final class ExportOverwriteSafetyTests: XCTestCase {
         XCTAssertEqual(try read(file("IMG_0001-1.jpg")), "RENDER")
     }
 
+    /// A RAW exported as JPEG with `{name}` into its card folder: the first render sits
+    /// beside the RAW with its stem, so it reads as an original from then on. Overwrite
+    /// must settle on `-1` and keep replacing it, not write `-2`, `-3`, ... per run.
+    func testRepeatedOverwriteIntoTheSourceFolderSettlesOnOneDelivery() throws {
+        let raw = try write("RAW", "DSC00001.ARW")
+        let wanted = file("DSC00001.jpg")
+        for run in 1...4 {
+            try deliver(place(wanted, .overwrite, sources: [raw]), rendered: "RENDER \(run)")
+        }
+        XCTAssertEqual(try read(wanted), "RENDER 1", "the first delivery is now protected")
+        XCTAssertEqual(try read(file("DSC00001-1.jpg")), "RENDER 4", "later runs replace -1")
+        XCTAssertFalse(fm.fileExists(atPath: file("DSC00001-2.jpg").path),
+                       "a new copy per run is the pile-up Overwrite exists to avoid")
+        XCTAssertEqual(try read(raw), "RAW")
+    }
+
     // MARK: - Its RAW+JPEG sibling
 
     func testOverwriteNeverReplacesTheCamerasJPEGOfARawPlusJPEGPair() throws {
