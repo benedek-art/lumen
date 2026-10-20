@@ -131,6 +131,16 @@ struct PasteSelectedSheet: View {
 
     private var targetCount: Int { state.editTargets.count }
 
+    /// Groups in which the clipboard differs from the active photograph. A group outside
+    /// it is labelled "same" so a tick that would change nothing reads as such. Nil
+    /// when there is nothing to compare.
+    private var differing: Set<PasteGroup>? {
+        guard let source = state.copiedRecipe, let photo = state.primarySelection else {
+            return nil
+        }
+        return state.recipe(for: photo).differingGroups(from: source)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -153,8 +163,10 @@ struct PasteSelectedSheet: View {
             LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading),
                                 GridItem(.flexible(), alignment: .leading)],
                       alignment: .leading, spacing: 6) {
+                let changes = differing
                 ForEach(PasteGroup.allCases, id: \.self) { group in
-                    Toggle(group.label, isOn: Binding(
+                    let same = changes.map { !$0.contains(group) } ?? false
+                    Toggle(same ? "\(group.label) (same)" : group.label, isOn: Binding(
                         get: { groups.contains(group) },
                         set: { on in
                             if on { groups.insert(group) } else { groups.remove(group) }
