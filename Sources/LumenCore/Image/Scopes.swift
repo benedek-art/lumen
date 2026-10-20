@@ -98,7 +98,9 @@ public struct ReadoutTransform: Sendable {
             self.primaries = working.matrix(to: .srgb)
             self.transfer = .srgb
         case .outputProfile:
-            self.primaries = working.matrix(to: output)
+            // Bradford, like the soft proof: this readout answers "what will the file
+            // hold?", and ColorSync adapts into a D50 profile (ProPhoto) with Bradford.
+            self.primaries = working.matrix(to: output, cone: ChromaticAdaptation.bradford)
             self.transfer = outputTransfer
         }
     }

@@ -115,11 +115,17 @@ public enum OKLabTransform {
         public let rgbToLMS: Mat3
         public let lmsToRGB: Mat3
 
-        public init(space: RGBColorSpace) {
+        /// `cone` is the adaptation used to bring a non-D65 space to OKLab's D65. It
+        /// has to be the inverse of whatever adaptation put colours INTO that space, or
+        /// the two do not cancel and a colour's OKLab hue moves just for crossing the
+        /// boundary — so the soft proof's ProPhoto context passes Bradford, matching its
+        /// ICC-convention matrices, and everything else keeps CAT16.
+        public init(space: RGBColorSpace, cone: Mat3 = ChromaticAdaptation.cat16) {
             // OKLab is defined at D65; adapt if a caller ever hands us a D50 space.
             var toXYZ = space.toXYZ
             if space.white != WhitePoint.d65 {
-                toXYZ = ChromaticAdaptation.cat16(from: space.white, to: WhitePoint.d65) * toXYZ
+                toXYZ = ChromaticAdaptation.adapt(from: space.white.xyz(),
+                                                  to: WhitePoint.d65.xyz(), cone: cone) * toXYZ
             }
             var toLMS = xyzToLMS * toXYZ
 
