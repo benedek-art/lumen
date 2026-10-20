@@ -233,8 +233,11 @@ public struct ColorEngine: Sendable {
     /// at the shipped Protect 70). Keeping chroma order at full gain needs the ramp no
     /// steeper than 1 − g/2 per ln C; no ramp that opens and closes inside 0.02…0.06
     /// can manage that, and a smoothstep needs a decade. So it starts at 0.006 and is
-    /// full by the same 0.06 as before — real skin keeps exactly the protection it had,
-    /// and only skin-hued near-greys between 0.006 and 0.06 gain some partial guard.
+    /// full by the same 0.06 as before. At C ≥ 0.06 protection is unchanged; between
+    /// 0.006 and 0.06 it is STRONGER than before — and that span holds pale skin as
+    /// well as skin-hued near-greys: at C 0.04 the guard rises from 0.5 to about 0.92.
+    /// That is what moved the color.protectSkin / saturation / vibrance / density proof
+    /// records when this ramp landed.
     /// `skinWeight`, the shared meaning of "skin", is not touched.
     /// Mirrored in `ExactColorTwin.vibranceSaturation` and the GLSL colour finish.
     /// (ProtectSkinChromaOrderTests)
@@ -976,9 +979,11 @@ public struct ColorEngine: Sendable {
     // MARK: - Skin membership
 
     /// Vectorscope skin-band membership in 0…1: how much this colour reads as skin.
-    /// One constant, two consumers — the Skin tools' selection and Vibrance/Saturation's
-    /// `protectSkin` attenuation both read this, so "protected" means the same thing in
-    /// the guardrail and on the scope.
+    /// The Skin tools' selection and the scope read this. Vibrance/Saturation's
+    /// `protectSkin` attenuation reads `skinProtectionWeight` instead: the same hue band
+    /// and plausibility, but a gentler log-chroma gate (see `protectLoChroma`), so for
+    /// skin hues between C 0.006 and 0.06 the guardrail protects more than this weight
+    /// selects. At C ≥ 0.06 the two agree.
     public static func skinWeight(_ c: RGB,
                                   context: OKLabTransform.Context = OKLabTransform.working) -> Double {
         guard c.isFinite else { return 0 }
