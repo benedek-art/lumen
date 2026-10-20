@@ -46,6 +46,17 @@ final class CatalogTests: XCTestCase {
         return (folderID, ids)
     }
 
+    /// The FTS tests skip without FTS5, but only off CI: Apple's SQLite and Ubuntu's
+    /// libsqlite3 both ship FTS5, so on a CI lane a missing index means `ftsDDL` failed
+    /// and `prepareCacheDatabase` swallowed it. A skip there would hide that.
+    private func requireTextIndex(_ store: CatalogStore) throws {
+        if store.isTextIndexAvailable { return }
+        struct TextIndexMissingOnCI: Error {}
+        // A thrown non-skip error fails the test.
+        if ProcessInfo.processInfo.environment["CI"] != nil { throw TextIndexMissingOnCI() }
+        throw XCTSkip("no FTS5 in this SQLite")
+    }
+
     // MARK: - Opening
 
     func testOpeningTwiceIsIdempotent() throws {
@@ -92,6 +103,40 @@ final class CatalogTests: XCTestCase {
         XCTAssertEqual(row.label, "green")
         _ = folderID
         reopened.close()
+    }
+
+    /// The scalar test above leaves masks, groups, heal spots, the LUT and snapshots
+    /// unstored. This sends the fully populated codec sample through the store.
+    func testAPopulatedRecipeAndSnapshotSurviveAReopenExactly() throws {
+        let store = try makeStore()
+        let (_, ids) = try seed(store, count: 1)
+        let photo = try XCTUnwrap(ids.first)
+        let p = RecipeSamples.populated()
+        // The store clamps the version to this build's; the sample must already be at
+        // or below it, or equality would fail for that reason alone.
+        XCTAssertLessThanOrEqual(p.pipelineVersion, supportedPipelineVersion)
+        XCTAssertFalse(p.masks.isEmpty)
+        XCTAssertFalse(p.maskGroups.isEmpty)
+        XCTAssertFalse(p.develop.heal.spots.isEmpty)
+        XCTAssertNotNil(p.look.lut)
+
+        try store.saveRecipe(p, photoID: photo, isCurrent: true)
+        let snap = try store.createNamedSnapshot(p, photoID: photo, name: "Full")
+        store.close()
+
+        let reopened = try makeStore()
+        defer { reopened.close() }
+        XCTAssertEqual(try reopened.currentRecipe(photoID: photo), p,
+                       "a populated recipe changed across a reopen")
+        XCTAssertEqual(try reopened.currentEdit(photoID: photo)?.recipeJSON,
+                       try CanonicalJSON.canonicalRecipeJSON(p),
+                       "the stored text is not the canonical form of the saved recipe")
+        XCTAssertEqual(try reopened.currentRecipeFingerprint(photoID: photo),
+                       try RecipeFingerprint.fingerprint(p))
+        let row = try reopened.namedSnapshot(id: snap, photoID: photo)
+        XCTAssertEqual(row.name, "Full")
+        XCTAssertEqual(try CanonicalJSON.decodeRecipe(from: Data(row.recipeJSON.utf8)), p,
+                       "the named snapshot changed across a reopen")
     }
 
     func testOnlyOneEditIsCurrentPerPhoto() throws {
@@ -586,6 +631,20 @@ final class CatalogTests: XCTestCase {
         store.close()
     }
 
+    /// Does not skip. Every FTS test below skips when the index is unavailable, and
+    /// `prepareCacheDatabase` turns any `ftsDDL` failure into "unavailable", so a broken
+    /// DDL would otherwise leave the suite green with four skips. Set
+    /// LUMEN_ALLOW_NO_FTS5=1 on a platform whose SQLite really lacks FTS5.
+    func testTextIndexIsAvailableOnSupportedPlatforms() throws {
+        let store = try makeStore()
+        defer { store.close() }
+        _ = try seed(store, count: 1)
+        if ProcessInfo.processInfo.environment["LUMEN_ALLOW_NO_FTS5"] == "1" { return }
+        XCTAssertTrue(store.isTextIndexAvailable,
+                      "FTS5 ships with Apple SQLite and Ubuntu libsqlite3; false here "
+                          + "means ftsDDL failed and prepareCacheDatabase swallowed it")
+    }
+
     /// K-052: the text index survives the cache database being recreated.
     ///
     /// `photo_fts` lives in `cache.db`, which is disposable by design and recreated
@@ -601,7 +660,7 @@ final class CatalogTests: XCTestCase {
     func testTextIndexIsRebuiltAfterTheCacheDatabaseIsRecreated() throws {
         let store = try makeStore()
         let (folderID, ids) = try seed(store, count: 3)
-        try XCTSkipUnless(store.isTextIndexAvailable, "no FTS5 in this SQLite")
+        try requireTextIndex(store)
         try store.setMetadata(PhotoMetadata(camera: "Sony A7 IV"), photoID: ids[0])
         var q = PhotoQuery()
         q.text = "sony"
@@ -627,7 +686,7 @@ final class CatalogTests: XCTestCase {
     func testAnEmptyTextIndexBesideAPopulatedCatalogIsRepairedOnOpen() throws {
         let store = try makeStore()
         let (folderID, ids) = try seed(store, count: 2)
-        try XCTSkipUnless(store.isTextIndexAvailable, "no FTS5 in this SQLite")
+        try requireTextIndex(store)
         try store.setMetadata(PhotoMetadata(camera: "Leica M11"), photoID: ids[1])
         // Empty the index behind the store's back, as a broken build would have left it.
         try store.debugExecute("DELETE FROM cache.photo_fts;")
@@ -670,7 +729,7 @@ final class CatalogTests: XCTestCase {
     func testAnUnwritableTextIndexDegradesInsteadOfFailingTheWrite() throws {
         let store = try makeStore()
         let (folderID, ids) = try seed(store, count: 2)
-        try XCTSkipUnless(store.isTextIndexAvailable, "no FTS5 in this SQLite")
+        try requireTextIndex(store)
         defer { store.close() }
 
         try store.debugExecute("DROP TABLE cache.photo_fts;")
@@ -704,9 +763,7 @@ final class CatalogTests: XCTestCase {
     func testTextSearchFindsACameraTheBackfillFilledInAfterTheScan() throws {
         let store = try makeStore()
         let (folderID, ids) = try seed(store, count: 3)
-        try XCTSkipUnless(store.isTextIndexAvailable,
-                          "this SQLite has no FTS5, so the query under test is the "
-                              + "LIKE fallback and proves nothing about the index")
+        try requireTextIndex(store)
 
         for (offset, id) in ids.enumerated() {
             try store.setMetadata(
