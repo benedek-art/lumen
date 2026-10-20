@@ -313,6 +313,29 @@ private struct LumenCommands: Commands {
                         Button("HDR Preview") { LoupeViewport.shared.toggleHDRPreview() }
                     }
                 }
+                // LIGHTROOM'S HABITS (`ParityKeys`). The two zoom chords are real menu
+                // shortcuts — ⌘ is menu territory — and the rest are dispatcher keys,
+                // shown in the label for the reason given above this menu.
+                Group {
+                    Divider()
+                    Button("Zoom In") { ParityKeys.zoomChord(zoomIn: true, state: state) }
+                        .keyboardShortcut("=", modifiers: [.command])
+                    Button("Zoom Out") { ParityKeys.zoomChord(zoomIn: false, state: state) }
+                        .keyboardShortcut("-", modifiers: [.command])
+                    Button("Info Overlay — I") { ParityKeys.cycleCaptureInfo(state: state) }
+                    Button("Clipping Overlay — J") {
+                        ParityKeys.toggleClippingOverlay(state: state)
+                    }
+                    Button("White Balance Picker — W") {
+                        ParityKeys.toggleNeutralPick(state: state)
+                    }
+                    Divider()
+                    Button("Hide / Show Panels — Tab") {
+                        ParityKeys.applyPanels(.sidePanels, state: state)
+                    }
+                    Button("Previous Photo — ⌘←") { state.selectPrevious() }
+                    Button("Next Photo — ⌘→") { state.selectNext() }
+                }
             }
 
             // Instruments for a test session, not features: everything here exists

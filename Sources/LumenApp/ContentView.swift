@@ -276,6 +276,7 @@ struct ContentView: View {
     /// is that list being empty, asked as a question.
     static func showsDevelopColumn(layout: WorkspaceLayout, state: AppState) -> Bool {
         layout.showsDevelopColumn
+            && !state.developColumnHidden      // Tab (`ParityKeys.panelChord`)
             && state.primarySelection != nil
             && (state.viewMode == .loupe || state.viewMode == .compare)
     }

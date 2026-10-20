@@ -127,6 +127,9 @@ final class KeyDispatcher {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // ⌘← / ⌘→ are the one ⌘ chord this monitor takes: Lightroom's "next photo"
+        // that still pages while the bare arrows pan or nudge (`ParityKeys`).
+        if let paged = ParityKeys.pageChord(event, state: state, flags: flags) { return paged }
         // Command-modified keys are menu territory; leave them alone.
         if flags.contains(.command) { return false }
         // CONTROL TOO, and it was never checked. ⌃N, ⌃P, ⌃A, ⌃E and ⌃H are the standard
@@ -135,6 +138,9 @@ final class KeyDispatcher {
         // the photograph, flipped auto-advance, opened the loupe and toggled the
         // histogram. Nothing in this app's grammar uses ⌃ at all.
         if flags.contains(.control) { return false }
+
+        // Tab / ⇧Tab hide the panels, Lightroom's way (`ParityKeys.panelChord`).
+        if let chrome = ParityKeys.panelChord(event, state: state, flags: flags) { return chrome }
 
         // Arrows and the like arrive as special key codes rather than characters.
         if let special = specialKey(event, state: state, flags: flags) {
@@ -273,6 +279,19 @@ final class KeyDispatcher {
             // tool is armed — outside it the key is nobody's, and falls through.
             guard HealTool.shared.armed else { return false }
             state.repickSelectedSpotSource()
+        // ---- Lightroom habits (`ParityKeys`, rules in LumenCore) ----------------
+        case "j":
+            // Both ends at once, red and blue; any overlay on (a locked histogram
+            // triangle included) and J turns it off.
+            ParityKeys.toggleClippingOverlay(state: state)
+        case "w":
+            // The Basic panel's eyedropper, armed or put away.
+            ParityKeys.toggleNeutralPick(state: state)
+        case "i":
+            ParityKeys.cycleCaptureInfo(state: state)
+        case "?":
+            // ⇧/ — bare `/` above stays the Heal re-pick.
+            state.showKeyReference = true
         case "m":
             // M IS A ROUND TRIP, and it has to be, because it is the only key that both
             // enters and leaves. The column becomes the mask editor and the workspace
@@ -619,6 +638,12 @@ final class KeyDispatcher {
             // Press it again with nothing focused and it means the grid, as before —
             // the ordinary nested-Escape idiom.
             if state.sliderHoldsFocus { return nil }
+            // Then a pending eyedropper pick (W, or any panel's picker): the innermost
+            // thing armed, and it used to outlive Escape with its prompt still showing.
+            if state.pickTarget != nil {
+                state.cancelPick()
+                return true
+            }
             // Then masking, which is the next layer out: the column is showing the mask
             // editor instead of the workspace, so Escape leaves it the way Escape leaves
             // every other thing you are inside. Above the grid rather than below it, or
