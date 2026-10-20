@@ -822,6 +822,14 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
                                  isOriginal: (URL) -> Bool = { _ in false }) -> ExportPlacement {
         let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) || isOriginal($0) }
         if claimedThisRun(wanted) {
+            if policy == .overwrite {
+                // A re-delivery: the `-N` name a duplicate of this batch got last time is
+                // what Overwrite replaces. Counting files from before the run as taken
+                // left the stale render there and wrote a new `-N+1` on every run. Only
+                // this run's claims and originals are off limits.
+                let next = disambiguated(wanted, isTaken: { claimedThisRun($0) || isOriginal($0) })
+                return .write(next, replacing: existsOnDisk(next))
+            }
             return .write(disambiguated(wanted, isTaken: taken), replacing: false)
         }
         guard existsOnDisk(wanted) else { return .write(wanted, replacing: false) }
