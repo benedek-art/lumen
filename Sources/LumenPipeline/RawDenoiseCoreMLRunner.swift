@@ -94,7 +94,7 @@ public final class RawDenoiseCoreMLRunner: RawDenoiseRunning, @unchecked Sendabl
     public let compiledModelURL: URL
     /// What the export script stamped into the model (Denoise/scripts/export_coreml.py,
     /// `user_defined_metadata`, read back as `MLModelMetadataKey.creatorDefinedKey`):
-    /// `com.lumen.denoise.model_id`, the 16-hex sha256 prefix of the .pt weights, and
+    /// `com.lumen.denoise.model_id`, the 16-hex digest of the .pt weights plus the export config, and
     /// `com.lumen.denoise.calib_digest`, the full sha256 hex of the calib.json the export
     /// saw. `nil` when the model carries no such key (or an empty value) — a model
     /// exported some other way, which then cannot name a cache entry by itself.

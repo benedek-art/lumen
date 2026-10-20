@@ -18,7 +18,7 @@
 //
 // What fills the string fields (one scheme everywhere; export_coreml.py is the source):
 //  · modelID = "<model_id>/t<tile>o<overlap>", e.g. "0123456789abcdef/t1024o64".
-//    `model_id` is the 16-hex sha256 prefix of the .pt weights, written by
+//    `model_id` is the 16-hex digest of the .pt weights plus the export config, written by
 //    export_coreml.py into lumen_denoise.coreml.json and into the mlpackage's
 //    creatorDefinedKey metadata as `com.lumen.denoise.model_id`; the runner reads it
 //    from the loaded model, never from the file name. Tile and overlap are part of it
@@ -36,7 +36,7 @@ public struct RawDenoiseCacheKey: Hashable, Sendable, Codable {
     /// Identity of the source RAW's pixels: the catalog's confirmed content fingerprint /
     /// quick signature (not a SourceFileIdentity, which only triggers re-verification).
     public var sourceIdentity: String
-    /// `"<model_id>/t<tile>o<overlap>"`: the 16-hex weights digest from the model's
+    /// `"<model_id>/t<tile>o<overlap>"`: the 16-hex model digest from the model's
     /// `com.lumen.denoise.model_id` metadata plus the tiling it was run with.
     public var modelID: String
     /// Full sha256 hex of calib.json (`com.lumen.denoise.calib_digest`).

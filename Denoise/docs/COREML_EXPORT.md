@@ -56,7 +56,7 @@ from that metadata, not from the sidecar json:
 
 | key | meaning |
 |---|---|
-| `model_id` | first 16 hex of sha256(weights `.pt`). `RawDenoiseCacheKey.modelID` is `"<model_id>/t<tile>o<overlap>"`, e.g. `0123456789abcdef/t1024o64` |
+| `model_id` | first 16 hex of sha256 over the weights sha256 plus the export config (`model.py` sha256, `--fp16-mean`, `--enumerated`, coremltools version), so re-exporting the same weights differently is a new identity. `RawDenoiseCacheKey.modelID` is `"<model_id>/t<tile>o<overlap>"`, e.g. `0123456789abcdef/t1024o64` |
 | `calib_digest` | full sha256 hex of `calib.json`. This is `RawDenoiseCacheKey.calibDigest`. The host must hash the `calib.json` it loads and refuse it if the sha256 differs |
 | `weights_sha256`, `nf`, `residual` | provenance |
 | `dim_range` / `enumerated_shapes`, `dim_multiple`, `tile`, `overlap` | shape contract for the runner |

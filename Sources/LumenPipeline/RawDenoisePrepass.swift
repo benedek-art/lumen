@@ -429,9 +429,15 @@ enum RawDenoiseCacheFile {
             guard Array(raw[28..<92]) == Array(expectedDigest.utf8.prefix(64)) else {
                 throw DecodeError.digestMismatch
             }
-            let count = channels * height * width
+            // A corrupt or foreign header can carry any UInt32 here; plain `*` would trap
+            // on overflow before `read` gets to delete the file.
             let valueSize = encoding == .float32 ? 4 : 2
-            guard data.count == headerSize + count * valueSize else { throw DecodeError.truncated }
+            let plane = height.multipliedReportingOverflow(by: width)
+            let values4 = plane.partialValue.multipliedReportingOverflow(by: channels)
+            let bytes = values4.partialValue.multipliedReportingOverflow(by: valueSize)
+            guard !plane.overflow, !values4.overflow, !bytes.overflow,
+                  data.count - headerSize == bytes.partialValue else { throw DecodeError.truncated }
+            let count = values4.partialValue
             var values = [Float](repeating: 0, count: count)
             switch encoding {
             case .float32:

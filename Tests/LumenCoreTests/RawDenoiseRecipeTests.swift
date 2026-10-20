@@ -3,8 +3,8 @@
 // is a new recipe field on a format with years of sidecars behind it. These tests pin
 // both halves of adding it safely: what did NOT change (every recipe written before
 // the field, the default tree, every existing fingerprint, byte for byte) and what
-// did (a recipe that turns it on is a different picture; one that only moves strength
-// is the same cached pre-pass).
+// did (a recipe that turns it on is a different picture, and so is one that only
+// moves strength, though it reuses the same cached full-strength pre-pass).
 
 import XCTest
 @testable import LumenCore
@@ -176,15 +176,17 @@ final class RawDenoiseRecipeTests: XCTestCase {
                           RecipeFingerprint.denoiseInputFingerprint(b))
     }
 
-    /// Strength is a post-blend over a full-strength cached pre-pass: it is a different
-    /// picture (`recipe_fp` moves) but the same denoise input (the cache survives).
-    func testChangingOnlyStrengthMovesTheRecipeButNotTheDenoiseInput() throws {
+    /// Strength blends the cached full-strength pre-pass with the original mosaic, so
+    /// it changes the pixels any downstream denoise stage receives: both the recipe and
+    /// the denoise input move. The pre-pass cache itself (`RawDenoiseCacheKey`) does not
+    /// carry strength; `RawDenoiseCacheTests` pins that half.
+    func testChangingOnlyStrengthMovesTheRecipeAndTheDenoiseInput() throws {
         let a = Self.withRaw(RawDenoiseSettings(enabled: true, strength: 100))
         let b = Self.withRaw(RawDenoiseSettings(enabled: true, strength: 35))
         XCTAssertNotEqual(try RecipeFingerprint.fingerprint(a),
                           try RecipeFingerprint.fingerprint(b))
-        XCTAssertEqual(RecipeFingerprint.denoiseInputFingerprint(a),
-                       RecipeFingerprint.denoiseInputFingerprint(b))
+        XCTAssertNotEqual(RecipeFingerprint.denoiseInputFingerprint(a),
+                          RecipeFingerprint.denoiseInputFingerprint(b))
     }
 
     /// A switched-off block does not change what the decoder is fed, so the denoise

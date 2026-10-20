@@ -14,7 +14,9 @@ Identity metadata. Every key in the sidecar is also stored in the package's user
 com.lumen.denoise.<key> (string values; non-strings JSON-encoded). After compilation Core ML exposes it
 as MLModelDescription.metadata[.creatorDefinedKey]. Lumen's Swift runner reads two keys from there, not
 from the sidecar:
-  com.lumen.denoise.model_id      first 16 hex of sha256(weights .pt). The cache key's modelID is
+  com.lumen.denoise.model_id      first 16 hex of sha256(weights sha256 + export config: model.py
+                                  sha256, --fp16-mean, --enumerated, coremltools version), so a
+                                  re-export with other options is a new identity. The cache key's modelID is
                                   "<model_id>/t<tile>o<overlap>", e.g. "0123456789abcdef/t1024o64".
   com.lumen.denoise.calib_digest  full sha256 hex of calib.json. The cache key's calibDigest; the host
                                   must refuse a calib.json whose sha256 differs from it.
@@ -146,7 +148,13 @@ def main():
     calib_sha = sha256(a.calib) if Path(a.calib).exists() else ""
     if not calib_sha:
         print(f"warning: {a.calib} not found; calib_digest left empty", file=sys.stderr)
-    model_id = weights_sha[:16]
+    # model_id names the exported GRAPH, not just the checkpoint: the same weights
+    # re-exported after a model.py change or with other conversion options are a
+    # different network, and RawDenoiseCacheKey must not serve the old one's output.
+    export_config = {"fp16_mean": bool(a.fp16_mean), "enumerated": a.enumerated or "",
+                     "coremltools": ct.__version__,
+                     "model_py": sha256(Path(__file__).resolve().parent.parent / "lumen_denoise" / "model.py")}
+    model_id = hashlib.sha256((weights_sha + json.dumps(export_config, sort_keys=True)).encode()).hexdigest()[:16]
     nf = int(sd["net.conv1_1.weight"].shape[0])
 
     enumerated = parse_shapes(a.enumerated) if a.enumerated else None
