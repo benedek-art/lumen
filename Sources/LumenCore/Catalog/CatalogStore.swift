@@ -3591,8 +3591,10 @@ public final class CatalogStore {
     /// vocabulary is worth keeping even when the last photo using a term is untagged.
     ///
     /// `name` is a display path as `keywords(photoID:)` gives it, or a plain name. A
-    /// plain name detaches every keyword of that name from these photos — the one the
-    /// photographer sees is the one on the photo, whatever branch it sits on.
+    /// plain name is the ROOT keyword of that name when one exists — that is how
+    /// `keywords(photoID:)` spells a root, so "Iceland" beside "Places > Iceland" must
+    /// not take the nested one with it. Only when no root has that name does a plain
+    /// name detach every keyword of that name, whatever branch it sits on.
     public func removeKeyword(_ name: String, photoIDs: [Int64]) throws {
         if photoIDs.isEmpty { return }
         let path = KeywordPath.parse(name)
@@ -3600,8 +3602,13 @@ public final class CatalogStore {
         try db.transaction {
             var ids: [Int64] = []
             if path.count == 1 {
-                ids = try self.allRows("SELECT id FROM keyword WHERE name = ?;",
-                                       [.text(path[0])]) { $0.int(0) }
+                ids = try self.allRows(
+                    "SELECT id FROM keyword WHERE parent_id IS NULL AND name = ?;",
+                    [.text(path[0])]) { $0.int(0) }
+                if ids.isEmpty {
+                    ids = try self.allRows("SELECT id FROM keyword WHERE name = ?;",
+                                           [.text(path[0])]) { $0.int(0) }
+                }
             } else if let id = try self.resolveKeyword(path, create: false) {
                 ids = [id]
             }
