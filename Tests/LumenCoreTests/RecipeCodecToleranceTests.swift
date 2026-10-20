@@ -493,7 +493,9 @@ final class RecipeCodecToleranceTests: XCTestCase {
                              classic: ClassicNR(luma: 10, chroma: 20, hotPixels: 30,
                                                 lumaDetail: 40, lumaContrast: 50,
                                                 colorDetail: 60, colorSmoothness: 70,
-                                                lumaUserSet: true, chromaUserSet: true)),
+                                                lumaUserSet: true, chromaUserSet: true),
+                             raw: RawDenoiseSettings(enabled: true, strength: 40,
+                                                     model: "lumen-denoise/b64")),
             geometry: Geometry(
                 crop: Crop(x: 0.1, y: 0.2, w: 0.7, h: 0.6),
                 angle: 2.5, flipH: true,
