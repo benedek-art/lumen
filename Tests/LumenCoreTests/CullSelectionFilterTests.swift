@@ -208,6 +208,17 @@ final class BurstPickTests: XCTestCase {
         XCTAssertEqual(plan.alreadyDecided, 2)
     }
 
+    func testAPickTheScopeDoesNotShowStillDecidesTheBurst() {
+        // Under an "Unflagged" filter burst 1's pick is hidden; it must not get a second.
+        let plan = BurstPick.plan([
+            frame("a2", burst: 1, rank: 2), frame("a3", burst: 1, rank: 3),
+            frame("b1", burst: 2, rank: 1), frame("b2", burst: 2, rank: 2),
+        ], pickedBursts: [1])
+        XCTAssertEqual(plan.picks, ["b1"])
+        XCTAssertEqual(plan.rest, ["b2"])
+        XCTAssertEqual(plan.alreadyDecided, 1)
+    }
+
     func testConfirmationStatesTheCount() {
         let plan = BurstPick.plan([
             frame("a1", burst: 1, rank: 1), frame("a2", burst: 1, rank: 2),

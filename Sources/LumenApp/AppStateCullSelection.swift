@@ -75,7 +75,12 @@ extension AppState {
                        burstRank: item.attention?.burstRank,
                        sharpness: item.attention?.sharpness, flag: item.flag)
         }
-        let plan = BurstPick.plan(frames)
+        // A burst whose pick the filter hides is still decided ("Unflagged" view).
+        var pickedBursts = Set<Int64>()
+        for item in allPhotos where item.flag == .pick {
+            if let burst = item.attention?.burstID { pickedBursts.insert(burst) }
+        }
+        let plan = BurstPick.plan(frames, pickedBursts: pickedBursts)
         guard !plan.picks.isEmpty else {
             if plan.bursts == 0 {
                 statusMessage = "No measured bursts here — the culling pass groups frames "

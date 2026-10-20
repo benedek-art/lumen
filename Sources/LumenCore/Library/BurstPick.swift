@@ -15,7 +15,9 @@
 //   · the best frame is the lowest rank in scope (a partial selection still has a best),
 //     then the higher sharpness, then the earlier frame;
 //   · a burst the photographer has already decided — any frame picked, or the best
-//     frame rejected — is left alone and counted;
+//     frame rejected — is left alone and counted. A pick OUTSIDE the scope counts too
+//     (`pickedBursts`): under an "Unflagged" filter the burst's pick is hidden, and a
+//     second pick in a burst already decided is the wrong answer;
 //   · "reject the rest" only touches UNFLAGGED frames of bursts that get a pick here.
 
 import Foundation
@@ -62,7 +64,10 @@ public struct BurstPickPlan<ID: Hashable>: Equatable {
 
 public enum BurstPick {
 
-    public static func plan<ID: Hashable>(_ frames: [BurstPickFrame<ID>]) -> BurstPickPlan<ID> {
+    /// `pickedBursts` names the bursts that hold a pick anywhere in the roll, including
+    /// frames the scope does not show; those bursts are counted as decided.
+    public static func plan<ID: Hashable>(_ frames: [BurstPickFrame<ID>],
+                                          pickedBursts: Set<Int64> = []) -> BurstPickPlan<ID> {
         var order: [Int64] = []
         var groups: [Int64: [(index: Int, frame: BurstPickFrame<ID>)]] = [:]
         for (index, frame) in frames.enumerated() {
@@ -76,7 +81,8 @@ public enum BurstPick {
             guard let members = groups[burst], members.count >= 2 else { continue }
             plan.bursts += 1
             guard let best = members.min(by: { isBetter($0, than: $1) }) else { continue }
-            if members.contains(where: { $0.frame.flag == .pick })
+            if pickedBursts.contains(burst)
+                || members.contains(where: { $0.frame.flag == .pick })
                 || best.frame.flag == .reject {
                 plan.alreadyDecided += 1
                 continue
