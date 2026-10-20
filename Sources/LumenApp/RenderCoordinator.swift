@@ -105,6 +105,8 @@ actor RenderCoordinator {
     /// How many times `source(for:)` judged a file replaced and forgot what the
     /// renderer held for it. Read by tests; a neighbour prefetch must not move it.
     private(set) var sourceReplacementsForgotten = 0
+    /// How many clipping measurements got past the cancellation check. Read by tests.
+    private(set) var clippingMeasurementsRun = 0
     private var latestGeneration: UInt64 = 0
 
     /// Bounded so a fast scroll through a folder cannot pin a hundred decoded RAWs in
@@ -756,6 +758,11 @@ actor RenderCoordinator {
     /// caching against the file rather than against the edit.
     func clippingStatistics(url: URL,
                             recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        // The caller's task is cancelled when the selection moves on. Checked here, on
+        // arrival, because a measurement queued behind a render would otherwise still
+        // run its full decode for a photo nobody is looking at any more.
+        guard !Task.isCancelled else { return nil }
+        clippingMeasurementsRun += 1
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.clippingStatistics(source: source, recipe: recipe)
     }

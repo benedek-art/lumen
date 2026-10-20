@@ -1605,6 +1605,10 @@ final class AppState: ObservableObject {
     /// than showing the last photo's numbers under this photo's name.
     @Published var rawTruthMeasuring = false
     var rawTruthGeneration: UInt64 = 0
+    /// The measurement in flight, held so the next selection can cancel it. The
+    /// generation check only stops a stale result LANDING; without the handle every
+    /// photo paged past still queued its own decode on the coordinator.
+    var rawTruthTask: Task<Void, Never>?
     /// The inspection currently held down (`[` / `]`), or nil. Never written to a
     /// recipe: it is a display gain over the frame already on screen.
     @Published var inspectionHold: InspectionHold?

@@ -77,6 +77,26 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertEqual(forgotten, 1, "a same-path replacement must still forget")
     }
 
+    func testACancelledRawTruthMeasurementNeverReachesItsDecode() async throws {
+        // Paging with the Raw Truth panel open queued one full decode per photo passed:
+        // the feed's task was never cancelled and the actor method never looked.
+        let url = try scratch().appendingPathComponent("measure.png")
+        try write(pixels(width: 32, height: 24), to: url)
+        let coordinator = RenderCoordinator()
+        let task = Task { () -> Bool in
+            while !Task.isCancelled { await Task.yield() }
+            return await coordinator.clippingStatistics(url: url, recipe: Recipe()) != nil
+        }
+        task.cancel()
+        let measured = await task.value
+        XCTAssertFalse(measured, "a superseded measurement must drop on arrival")
+        var run = await coordinator.clippingMeasurementsRun
+        XCTAssertEqual(run, 0, "and must not start a decode")
+        _ = await coordinator.clippingStatistics(url: url, recipe: Recipe())
+        run = await coordinator.clippingMeasurementsRun
+        XCTAssertEqual(run, 1, "an uncancelled measurement still runs")
+    }
+
     func testAMattePassThatCannotReadTheOriginalSaysSoInsteadOfWorking() async throws {
         // F5-09: "not attempted, not pending" was always WORKING, and a pass that cannot
         // build its source attempts nothing — so the panel said "Computing" forever.
