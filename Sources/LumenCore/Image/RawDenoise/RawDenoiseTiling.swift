@@ -184,7 +184,7 @@ public enum RawDenoiseTiler {
     /// few ulps.
     public static func run(packed: [Float], width: Int, height: Int,
                            tile: Int = 1024, overlap: Int = 64,
-                           body: (_ paddedTile: [Float], _ paddedHeight: Int, _ paddedWidth: Int) throws -> [Float]) rethrows -> [Float] {
+                           body: ([Float], Int, Int) throws -> [Float]) rethrows -> [Float] {
         let plane = width * height
         guard plane > 0 else { return [] }
         precondition(packed.count % plane == 0 && packed.count > 0,

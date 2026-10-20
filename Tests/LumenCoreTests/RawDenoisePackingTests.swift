@@ -12,7 +12,8 @@ final class RawDenoisePackingTests: XCTestCase {
 
     /// arange(35).reshape(5, 7): odd in BOTH dimensions, so the dropped trailing
     /// row and column are exercised along with the plane order.
-    private let width = 7, height = 5
+    private let width = 7
+    private let height = 5
     private var cfa: [Float] { (0..<35).map(Float.init) }
 
     private let expectedPacked: [CFAPattern: [Float]] = [

@@ -139,7 +139,7 @@ def emit():
          "// Produced by Denoise/scripts/gen_swift_fixtures_tiling.py from the real",
          "// infer.Engine.denoise_packed. Do not edit by hand; rerun with --write.",
          "enum RawDenoiseTilingFixtures {",
-         "    struct PlanCase { let width, height, tile, overlap: Int; let tiles: [[Int]] }",
+         "    struct PlanCase { let width: Int; let height: Int; let tile: Int; let overlap: Int; let tiles: [[Int]] }",
          "    static let plans: [PlanCase] = ["]
     plans = {}
     for (w, h, tile, ov) in PLAN_CASES:
@@ -147,7 +147,7 @@ def emit():
         L.append(f"        PlanCase(width: {w}, height: {h}, tile: {tile}, overlap: {ov}, tiles: "
                  + "[" + ", ".join("[" + ", ".join(map(str, t)) + "]" for t in tl) + "]),")
     L.append("    ]")
-    L.append("    struct FeatherCase { let width, height, tile, overlap: Int; let tile0: [Int]; let wy, wx: [Float] }")
+    L.append("    struct FeatherCase { let width: Int; let height: Int; let tile: Int; let overlap: Int; let tile0: [Int]; let wy: [Float]; let wx: [Float] }")
     L.append("    static let feathers: [FeatherCase] = [")
     for key in [(70, 45, 32, 8), (37, 26, 24, 4), (30, 13, 24, 4), (100, 60, 1024, 64)]:
         w, h, tile, ov = key
@@ -156,7 +156,7 @@ def emit():
             L.append(f"        FeatherCase(width: {w}, height: {h}, tile: {tile}, overlap: {ov}, "
                      f"tile0: {list(t)}, wy: {swift_floats(wy)}, wx: {swift_floats(wx)}),")
     L.append("    ]")
-    L.append("    struct ReflectCase { let channels, height, width, padBottom, padRight: Int; let output: [Float] }")
+    L.append("    struct ReflectCase { let channels: Int; let height: Int; let width: Int; let padBottom: Int; let padRight: Int; let output: [Float] }")
     L.append("    /// np.pad(a, ((0,0),(0,pb),(0,pr)), mode='reflect') with a = arange(c*h*w).reshape(c,h,w).")
     L.append("    static let reflect: [ReflectCase] = [")
     for (c, h, w, pb, pr) in REFLECT_CASES:
@@ -165,7 +165,7 @@ def emit():
         L.append(f"        ReflectCase(channels: {c}, height: {h}, width: {w}, padBottom: {pb}, padRight: {pr}, "
                  f"output: {swift_floats(o.ravel())}),")
     L.append("    ]")
-    L.append("    struct ParityCase { let channels, height, width, tile, overlap, calls: Int; let output: String }")
+    L.append("    struct ParityCase { let channels: Int; let height: Int; let width: Int; let tile: Int; let overlap: Int; let calls: Int; let output: String }")
     L.append("    /// Little-endian Float32 output of denoise_packed with BlurNet, base64.")
     L.append("    static let parity: [ParityCase] = [")
     for (c, h, w, tile, ov) in PARITY_CASES:
