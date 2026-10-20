@@ -2135,7 +2135,13 @@ public final class PipelineRenderer {
     /// channel. A non-finite plane value survived the old `Num.saturate` too — Swift's
     /// `min`/`max` propagate NaN — so nothing that used to be clamped stops being.
     static func image(from plane: Plane, targetExtent: CGRect) -> CIImage? {
-        let image = MaskPlaneImages.image(for: plane)
+        let image = MaskPlaneImages.image(for: plane) {
+            let data = plane.values.withUnsafeBufferPointer { Data(buffer: $0) }
+            return CIImage(bitmapData: data,
+                           bytesPerRow: plane.width * MemoryLayout<Float>.size,
+                           size: CGSize(width: plane.width, height: plane.height),
+                           format: .Rf, colorSpace: nil)
+        }
         guard plane.width > 0, plane.height > 0,
               targetExtent.width > 0, targetExtent.height > 0 else { return image }
         let sx = targetExtent.width / CGFloat(plane.width)
@@ -2158,7 +2164,7 @@ public final class PipelineRenderer {
         private static var entries: [(plane: Plane, image: CIImage)] = []
         private static let byteBudget = 64 * 1024 * 1024
 
-        static func image(for plane: Plane) -> CIImage {
+        static func image(for plane: Plane, make: () -> CIImage) -> CIImage {
             lock.lock()
             defer { lock.unlock() }
             if let index = entries.firstIndex(where: {
@@ -2169,11 +2175,7 @@ public final class PipelineRenderer {
                 entries.insert(hit, at: 0)
                 return hit.image
             }
-            let data = plane.values.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data,
-                                bytesPerRow: plane.width * MemoryLayout<Float>.size,
-                                size: CGSize(width: plane.width, height: plane.height),
-                                format: .Rf, colorSpace: nil)
+            let image = make()
             entries.insert((plane, image), at: 0)
             // Each entry holds the plane and its copy: two of `values.count` floats.
             var bytes = 0
