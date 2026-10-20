@@ -120,7 +120,13 @@ final class HuePreservationTests: XCTestCase {
         var at: Sample?
         for s in samples {
             let out = engine.apply(s.rgb)
-            guard out.isFinite, let d = hueMove(s.rgb, out).map(abs) else { continue }
+            // A NaN used to be skipped here, so an engine returning NaN everywhere
+            // reported a worst hue move of 0° and passed every hue test in this file.
+            guard out.isFinite else {
+                XCTFail("non-finite output \(out) for \(s.rgb)")
+                return (.infinity, s)
+            }
+            guard let d = hueMove(s.rgb, out).map(abs) else { continue }
             if d > worst { worst = d; at = s }
         }
         return (worst, at)
