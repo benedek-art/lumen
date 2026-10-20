@@ -172,6 +172,9 @@ final class HistoryPanelTests: XCTestCase {
             // The identity components go — a mask's id is not vocabulary.
             "mask.c.amount.9F3B-11": "Mask Amount",
             "point.2.hue": "Point Colour Hue",
+            // A wheel drag opens its step under the saturation key, which must not
+            // arrive as the abbreviation.
+            "wheel.Shadows.sat": "Saturation",
             // And the qualifier never doubles the word it qualifies.
             "histogram.zone.5": "Zone",
         ]

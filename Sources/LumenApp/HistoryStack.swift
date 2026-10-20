@@ -450,6 +450,8 @@ extension HistoryStack {
         "temp": "Temperature",
         "bw": "Black & White",
         "hsl": "HSL",
+        // A colour wheel's drag opens its step under `….sat`, the first value it writes.
+        "sat": "Saturation",
     ]
 
     // MARK: What the step was worth
