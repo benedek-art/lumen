@@ -307,7 +307,13 @@ public struct RenderPlan: Sendable {
             self.grain = nil
         }
 
-        let curve = CurveStack(develop.curve)
+        // The curve SETTINGS, not a built `CurveStack`: the stack is read only inside
+        // the finish bake, and building it eagerly ran the parametric bake (probe
+        // sweeps, slope limiting, 1024 zone blends) on every plan only to discard it
+        // whenever the finish table hit, which is every drag that is not a curve,
+        // Whites or Blacks. Built inside `bakePlain` it is the same pure function of
+        // the same value, so the table is bit-identical; it is just paid for on a miss.
+        let curveSet = develop.curve
         let boundary = RenderPlan.sharedGamutBoundary
         let white = transform.white
         let scale = Swift.max(white, 1e-6)
@@ -318,8 +324,10 @@ public struct RenderPlan: Sendable {
         let proof = softProof?.transform(working: space)
         self.softProof = proof
         // One closure, used for both tables, so the proofed and unproofed versions
-        // cannot drift into being different pictures with one difference.
-        let display: @Sendable (RGB) -> RGB = { encoded in
+        // cannot drift into being different pictures with one difference. It takes the
+        // built stack as an argument so the stack is built once per BAKE, never once
+        // per sample, which would be the parametric bake 35 937 times over.
+        let display: @Sendable (CurveStack) -> @Sendable (RGB) -> RGB = { curve in { encoded in
             let scene = LumenLog.decode(encoded)
             let formed: RGB
             if let chain {
@@ -334,7 +342,7 @@ public struct RenderPlan: Sendable {
             // question is "does this fit in the file", and every highlight would answer
             // no for the wrong reason.
             return curve.apply(formed, white: white, space: space) / scale
-        }
+        } }
 
         // The single most expensive thing a plan does, and the one least likely to have
         // changed since the last frame. `transform` comes from the render preset, the
@@ -368,7 +376,7 @@ public struct RenderPlan: Sendable {
                 [look.render, develop.curve]
             }
         }
-        let bakePlain = { LUT3D(size: lutSize, transform: display) }
+        let bakePlain = { LUT3D(size: lutSize, transform: display(CurveStack(curveSet))) }
         // The proofed variant below is a map over whichever `plain` is served, cached
         // under THAT table's key, so a stale `plain` and its proof stay consistent.
         //

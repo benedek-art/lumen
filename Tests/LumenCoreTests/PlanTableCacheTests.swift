@@ -588,6 +588,55 @@ final class PlanTableCacheTests: XCTestCase {
                        "the drain drained and the settle loop is still being told to "
                            + "retry — an in-flight stamp outlived its bake")
     }
+
+    /// The finish bake builds its `CurveStack` lazily, inside the bake, so a plan whose
+    /// finish table hits never pays for the parametric curve. The table must still be
+    /// the one an eagerly built stack produces, bit for bit, cold AND warm, and two
+    /// different curves must still produce two different tables — the case a closure
+    /// that captured the wrong curve, or a stack built from a stale value, would fail.
+    func testTheLazilyBuiltCurveBakesTheSameFinishTableAsAnEagerOne() {
+        var recipe = liveRecipe()
+        recipe.develop.curve.parametric.lights = 15
+        recipe.develop.curve.parametric.darks = -10
+        recipe.develop.curve.point = [[0, 0], [0.4, 0.45], [1, 1]]
+        recipe.develop.curve.luma = [[0, 0.02], [0.6, 0.62], [1, 1]]
+        recipe.develop.curve.r = [[0, 0], [0.5, 0.55], [1, 1]]
+        recipe.develop.curve.b = [[0, 0.03], [1, 0.97]]
+
+        PlanTableCache.clear()
+        let cold = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                              lutSize: 17)
+        let warm = RenderPlan(recipe: recipe, asShotKelvin: 5500, asShotTint: 0,
+                              lutSize: 17)
+
+        // The reference: the display transform with the stack built up front, exactly
+        // as the plan did before the build moved into the bake. No film is loaded, so
+        // the formation is the plan's own display transform.
+        let curve = CurveStack(recipe.develop.curve)
+        let transform = cold.displayTransform
+        let white = transform.white
+        let scale = Swift.max(white, 1e-6)
+        let eager = LUT3D(size: 17) { encoded in
+            let formed = transform.apply(LumenLog.decode(encoded),
+                                         gamut: RenderPlan.sharedGamutBoundary)
+            return curve.apply(formed, white: white, space: .rec2020) / scale
+        }
+
+        XCTAssertEqual(cold.finishLUT.data, eager.data,
+                       "the lazily built curve baked a different finish table")
+        XCTAssertEqual(warm.finishLUT.data, eager.data,
+                       "the cached finish table differs from an eager bake")
+        XCTAssertEqual(cold.finishScale, scale)
+
+        // A different curve must reach the bake: had the closure kept a stale stack,
+        // this would come back equal to the first.
+        var other = recipe
+        other.develop.curve.parametric.lights = -30
+        let moved = RenderPlan(recipe: other, asShotKelvin: 5500, asShotTint: 0,
+                               lutSize: 17)
+        XCTAssertNotEqual(moved.finishLUT.data, cold.finishLUT.data,
+                          "a different parametric curve baked the same finish table")
+    }
 }
 
 // MARK: - Joining a bake instead of repeating it (I1-01, I1-03)
