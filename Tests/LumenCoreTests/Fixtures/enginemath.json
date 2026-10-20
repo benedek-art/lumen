@@ -393,7 +393,7 @@
       "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 2.0,
-      "out": 0.844161151767263,
+      "out": 1.125584969821873,
       "skew": 0.0,
       "whiteAnchorEV": 5.0,
       "whiteTarget": 400.0
@@ -503,7 +503,7 @@
       "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 0.0,
-      "out": 0.18,
+      "out": 0.1800000000000001,
       "skew": 0.0,
       "whiteAnchorEV": 3.5,
       "whiteTarget": 100.0
@@ -513,7 +513,7 @@
       "blackTarget": 0.0152,
       "contrast": 1.5,
       "ev": 2.0,
-      "out": 0.6789384904312197,
+      "out": 0.6847668366276751,
       "skew": 0.0,
       "whiteAnchorEV": 3.5,
       "whiteTarget": 100.0

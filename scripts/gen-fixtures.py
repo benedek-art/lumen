@@ -1895,6 +1895,7 @@ def srgb_decode(x):
 
 
 SKEW_SHAPE = 2.0
+MINIMUM_POWER = 1.5
 
 
 class DisplayTransform:
@@ -1925,8 +1926,14 @@ class DisplayTransform:
         a_toe = m * self.pivot_x / py
         a_shoulder = m * (1 - self.pivot_x) / (1 - py)
         sk = min(max(skew, -1), 1)
-        self.toe_lambda = min(max(sk * 0.5, -1), a_toe / SKEW_SHAPE * 0.9)
-        self.shoulder_lambda = min(max(-sk * 0.5, -1), a_shoulder / SKEW_SHAPE * 0.9)
+        # Capped where the exponent would fall below MINIMUM_POWER: below 1 the
+        # shoulder's slope rises into the white anchor (HDR peaks, low Contrast,
+        # strong Skew) and the picture clips instead of rolling off. The pivot slope
+        # (power + lambda * shape) is unchanged.
+        self.toe_lambda = min(max(sk * 0.5, -1), a_toe / SKEW_SHAPE * 0.9,
+                              (a_toe - MINIMUM_POWER) / SKEW_SHAPE)
+        self.shoulder_lambda = min(max(-sk * 0.5, -1), a_shoulder / SKEW_SHAPE * 0.9,
+                                   (a_shoulder - MINIMUM_POWER) / SKEW_SHAPE)
         self.toe_power = a_toe - self.toe_lambda * SKEW_SHAPE
         self.shoulder_power = a_shoulder - self.shoulder_lambda * SKEW_SHAPE
 

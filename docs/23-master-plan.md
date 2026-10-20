@@ -432,9 +432,10 @@ and against Lightroom via owner-exported references.
          member; the working surface stays internal) and the settle loop's
          keep-the-draft early-out now refuses to stop while any table bake is
          outstanding.
-      8. HDR shoulder-power floor breaks the slope-at-pivot contract with a C¹
-         kink at mid-grey at EDR peaks (DisplayTransform.swift:211-212; needs a
-         design decision, engine agent finding 3 has the numbers).
+      8. ~~HDR shoulder-power floor breaks the slope-at-pivot contract with a C¹
+         kink at mid-grey at EDR peaks~~ FIXED: the skew term now keeps toe and
+         shoulder exponents at or above 1.5, so the shoulder rolls off into the anchor at
+         every peak and the 0.05 floor is gone (DisplayTransformShoulderRolloffTests).
       9. ~~FilmLab's dormant grain hook; referenceColor's hardcoded rec2020
          luminance~~ FIXED: `applyWithGrain`/`negativeDensity` (zero callers,
          contrary contract) removed and docs/14 §5.7 now describes the shipped

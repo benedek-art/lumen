@@ -168,6 +168,9 @@ public struct DisplayTransform: Sendable {
     /// Shape parameter of the skew term. 2 keeps the extra curvature gentle and
     /// keeps the monotonicity bound (`lambda < power/skewShape`) generous.
     private static let skewShape: Double = 2.0
+    /// The smallest toe/shoulder exponent the initializer admits. Above 1 the slope
+    /// reaches zero at the anchor; 1.5 makes the last stop visibly ease in.
+    private static let minimumPower: Double = 1.5
 
     public init(_ p: DisplayTransformParams,
                 space: RGBColorSpace = .rec2020) {
@@ -218,12 +221,32 @@ public struct DisplayTransform: Sendable {
         // leaving the pivot slope untouched: y = u^a·(1−λ+λu^d) with a = a₀ − λd.
         let skew = Num.clamp(p.skew, -1, 1)
         let shape = DisplayTransform.skewShape
-        let toeLambda = Num.clamp(skew * 0.5, -1, aToe / shape * 0.9)
-        let shoulderLambda = Num.clamp(-skew * 0.5, -1, aShoulder / shape * 0.9)
+        //
+        // The same term also guarantees there IS a shoulder (and a toe). Near the
+        // anchor the shoulder is u^power, whose normalized slope power·u^(power−1)
+        // falls to zero only for power > 1; below 1 it grows without bound and the
+        // picture accelerates into display white and then stops dead — a clip edge.
+        // a₀ falls as the display peak rises (mid-grey stays at 0.18 absolute, so
+        // pivotY drops on the encoded axis): 2.08 at 100 %, 0.82 at 400 %, 0.39 at
+        // 1600 %, which broke docs/04's promise that the shoulder does at 400 %
+        // white what it did at 100 %. Low Contrast or strong Skew did the same in
+        // SDR, and the old 0.05 power floor that caught the worst of it moved the
+        // pivot slope off `contrast`. So λ is capped where the power would fall
+        // below `minimumPower`: the power is then exactly 1.5, the pivot slope
+        // (power + λ·shape = a₀) is untouched, λ ≥ (0 − 1.5)/2 = −0.75 keeps it in
+        // the clamp, and a negative λ is monotone for every a₀ > 0 (the derivative's
+        // bracket is smallest at the pivot, where it equals a₀). Every shipped SDR
+        // preset already sits above the bound and renders unchanged.
+        let minimumPower = DisplayTransform.minimumPower
+        let toeLambda = Num.clamp(skew * 0.5, -1,
+                                  Swift.min(aToe / shape * 0.9, (aToe - minimumPower) / shape))
+        let shoulderLambda = Num.clamp(-skew * 0.5, -1,
+                                       Swift.min(aShoulder / shape * 0.9,
+                                                 (aShoulder - minimumPower) / shape))
         self.toeLambda = toeLambda
         self.shoulderLambda = shoulderLambda
-        self.toePower = Swift.max(aToe - toeLambda * shape, 0.05)
-        self.shoulderPower = Swift.max(aShoulder - shoulderLambda * shape, 0.05)
+        self.toePower = aToe - toeLambda * shape
+        self.shoulderPower = aShoulder - shoulderLambda * shape
 
         // Primaries inset/outset (the AgX mechanism) — orientation matters and it
         // shipped BACKWARDS for the project's whole life until the six-agent audit's
