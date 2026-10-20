@@ -416,8 +416,9 @@ enum SliderInventory {
     /// 97 → 102 when the October run added five and none of them came with a row, and
     /// 102 → 103 for Visualize Spots' threshold, which landed after that census: the
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
-    /// Amount, and the export sheet's sequence Start at.
-    static let callSiteCount = 103
+    /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
+    /// sheet's Percent, Width and Height (the percentage and box resize modes).
+    static let callSiteCount = 106
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -431,7 +432,7 @@ enum SliderInventory {
         // Basic — white balance and tone.
         // 50 K rather than 10: at 10 the row advertised 4,800 values and the best of the
         // four gestures could land on 0.355 pt of one. See the step's own note at the
-        // call site. `MaskPanel.swift:2421` is the same control and still carries 10.
+        // call site. `MaskPanel.swift:2411` is the same control and still carries 10.
         SliderSpec("Temp", "BasicPanel.swift:222", .developTop, 2000...50000,
                    hard: 2000...50000, step: 50),
         SliderSpec("Tint", "BasicPanel.swift:275", .developTop, -150...150,
@@ -513,6 +514,13 @@ enum SliderInventory {
         SliderSpec("Quality", "ExportSheet.swift:594", .exportSheet, 0...100, step: 1),
         SliderSpec("Megapixels", "ExportSheet.swift:733", .exportSheet, 0.5...100,
                    hard: 0.1...500, step: 0.5, decimals: 1),
+        SliderSpec("Percent", "ExportSheet.swift:737", .exportSheet, 5...200,
+                   hard: 1...1000, step: 1),
+        // The two sides of the box modes, ranged exactly like Pixels.
+        SliderSpec("Width", "ExportSheet.swift:743", .exportSheet, 320...8000,
+                   hard: 16...30000, step: 8),
+        SliderSpec("Height", "ExportSheet.swift:746", .exportSheet, 320...8000,
+                   hard: 16...30000, step: 8),
         SliderSpec("Pixels", "ExportSheet.swift:755", .exportSheet, 320...8000,
                    hard: 16...30000, step: 8),
         SliderSpec("Resolution", "ExportSheet.swift:763", .exportSheet, 72...600,
@@ -578,8 +586,8 @@ enum SliderInventory {
 
         // Masks — the develop column half: what the mask DOES.
         SliderSpec("Strength", "MaskPanel.swift:342", .developTop, 0...200, step: 1),
-        SliderSpec("Exposure", "MaskPanel.swift:2161", .developTop, -5...5,
-                   hard: -10...10, step: 0.01, decimals: 2),
+        SliderSpec("Exposure", "MaskPanel.swift:2161", .developTop, -4...4,
+                   step: 0.05, decimals: 2),
         SliderSpec("Contrast", "MaskPanel.swift:2166", .developTop, -100...100, step: 1),
         SliderSpec("Highlights", "MaskPanel.swift:2170", .developTop, -100...100, step: 1),
         SliderSpec("Shadows", "MaskPanel.swift:2174", .developTop, -100...100, step: 1),
@@ -599,10 +607,9 @@ enum SliderInventory {
         SliderSpec("Dehaze", "MaskPanel.swift:2424", .developTop, -100...100, step: 1),
         SliderSpec("Sharpness", "MaskPanel.swift:2429", .developTop, -100...100, step: 1),
         SliderSpec("Temp", "MaskPanel.swift:2944", .developTop, 2000...50000, step: 50),
-        SliderSpec("Tint", "MaskPanel.swift:2956", .developTop, -150...150,
-                   hard: -300...300, step: 1),
-        SliderSpec("Temp", "MaskPanel.swift:2965", .developTop, -100...100, step: 1),
-        SliderSpec("Tint", "MaskPanel.swift:2969", .developTop, -100...100, step: 1),
+        SliderSpec("Tint", "MaskPanel.swift:2956", .developTop, -150...150, step: 1),
+        SliderSpec("Temp", "MaskPanel.swift:2944", .developTop, -100...100, step: 1),
+        SliderSpec("Tint", "MaskPanel.swift:2956", .developTop, -100...100, step: 1),
 
         // Masks — the floating pop-out: what the mask IS. A 272 pt host that never resizes.
         SliderSpec("Contribution", "MaskPanel.swift:1476", .maskComponent, 0...100, step: 1),
@@ -655,9 +662,9 @@ enum SliderInventory {
         // suite already filters empty titles out. An unmeasured control is the one that
         // ships broken, and this one is the app's narrowest track by a wide margin —
         // `MaskPanel`'s four-up gets 50 points for 200 steps, a quarter of a point each.
-        SliderSpec("", "LumenControls.swift:2221 (LookPanel.swift:993)", .gradeWheelBar,
+        SliderSpec("", "LumenControls.swift:2222 (LookPanel.swift:993)", .gradeWheelBar,
                    -1...1, step: 0.01, decimals: 2),
-        SliderSpec("", "LumenControls.swift:2221 (MaskPanel.swift:3030)", .maskWheelBar,
+        SliderSpec("", "LumenControls.swift:2222 (MaskPanel.swift:3011)", .maskWheelBar,
                    -1...1, step: 0.01, decimals: 2),
 
         // The Heal tool's bar on the loupe. Size is in pixels of the original file.
@@ -676,7 +683,7 @@ enum SliderInventory {
         // control that offers 120 and priced its precision at a fifth of the truth. The
         // call site says why it is coarse in as many words — "coarser than Exposure's
         // 0.01 EV on purpose … a twentieth of a stop is already finer than the
-        // difference two adjacent zones make" (`ZonesPanel.swift:86-90`) — so the
+        // difference two adjacent zones make" (`ZonesPanel.swift:85-89`) — so the
         // divergence was this file's, not the panel's.
         //
         // It survived because nothing checks a `site` string. `:106` had become a
@@ -684,7 +691,7 @@ enum SliderInventory {
         // citation — is the register row itself, so the two sites named a sentence and
         // each other. A row whose citation has drifted still measures a real geometry,
         // so the suite stayed green while naming the wrong line to whoever went looking.
-        SliderSpec("Midtones", "ZonesPanel.swift:95", .developDisclosure, -3...3,
+        SliderSpec("Midtones", "ZonesPanel.swift:158", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
         SliderSpec("Global", "ZonesPanel.swift:187", .developDisclosure, -3...3,
                    hard: -5...5, step: 0.05, decimals: 2),
