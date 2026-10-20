@@ -95,14 +95,33 @@ public enum SliderEntry: Equatable, Sendable {
     /// so the characters are checked before the conversion rather than the value being
     /// checked after it — "nan" would otherwise parse and then have to be caught by an
     /// `isFinite` test that is easy to forget at the next call site.
-    private static func decimal(_ s: String) -> Double? {
-        guard !s.isEmpty else { return nil }
+    ///
+    /// A decimal COMMA is read as the point it is on a Hungarian, German or French
+    /// keyboard — those layouts' keypad decimal key types ',' — but only where it cannot
+    /// be a thousands separator: one comma, no '.', and not exactly three digits after
+    /// it. Temperature runs to 50 000 K through this parser, and an English "5,500" read
+    /// as 5.5 would clamp to 2000 K without a word; refusing the ambiguous case keeps it
+    /// the visible non-edit it always was, rather than a quiet wrong one.
+    private static func decimal(_ typed: String) -> Double? {
+        guard let s = pointed(typed), !s.isEmpty else { return nil }
         for c in s where !(c.isNumber || c == "." || c == "-" || c == "+"
                            || c == "e" || c == "E") {
             return nil
         }
         guard let v = Double(s), v.isFinite else { return nil }
         return v
+    }
+
+    /// `s` with an unambiguous decimal comma turned into a point, `s` unchanged when it
+    /// has no comma, or nil when its comma could be read two ways.
+    private static func pointed(_ s: String) -> String? {
+        let commas = s.filter { $0 == "," }.count
+        guard commas > 0 else { return s }
+        guard commas == 1, !s.contains("."),
+              let comma = s.firstIndex(of: ",") else { return nil }
+        let digitsAfter = s[s.index(after: comma)...].prefix { $0.isASCII && $0.isNumber }
+        guard digitsAfter.count != 3 else { return nil }
+        return s.replacingOccurrences(of: ",", with: ".")
     }
 
     /// What this entry makes of a value that currently reads `current`.
