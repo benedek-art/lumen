@@ -3382,13 +3382,13 @@ final class AppState: ObservableObject {
     }
 
     func select(_ photo: PhotoItem, extending: Bool = false, toggling: Bool = false) {
+        if toggling, selection.contains(photo.id) {
+            deselect(photo)
+            return
+        }
         let changedPhoto = primarySelection?.id != photo.id
         if toggling {
-            if selection.contains(photo.id) {
-                selection.remove(photo.id)
-            } else {
-                selection.insert(photo.id)
-            }
+            selection.insert(photo.id)
         } else if extending, let anchor = primarySelection,
                   let from = rollIndex(of: anchor),
                   let to = rollIndex(of: photo) {
@@ -3400,6 +3400,40 @@ final class AppState: ObservableObject {
         primarySelection = photo
         guard changedPhoto else { return }
         cursorDidChange(to: photo)
+    }
+
+    /// ⌘-click on a selected photo: take it OUT. It must not become the cursor, or
+    /// cull keys and Develop act on the one photo the user just removed. When it was
+    /// the cursor, the cursor moves to the nearest frame still selected; an emptied
+    /// selection leaves the cursor where it is.
+    private func deselect(_ photo: PhotoItem) {
+        selection.remove(photo.id)
+        guard primarySelection?.id == photo.id, !selection.isEmpty else { return }
+        let list = photos
+        let chosen = rollIndex(of: photo)
+            .flatMap { index in
+                Self.nearestSelectedIndex(to: index, count: list.count) {
+                    selection.contains(list[$0].id)
+                }
+            }
+            .map { list[$0] }
+        guard let next = chosen ?? selectedPhotos.first else { return }
+        primarySelection = next
+        cursorDidChange(to: next)
+    }
+
+    /// The index nearest `index` (the following frame first on a tie) for which
+    /// `isSelected` holds, or nil when none does. `index` itself is not considered.
+    nonisolated static func nearestSelectedIndex(to index: Int, count: Int,
+                                                 isSelected: (Int) -> Bool) -> Int? {
+        var distance = 1
+        while index + distance < count || index - distance >= 0 {
+            if index + distance < count, isSelected(index + distance) { return index + distance }
+            if index - distance >= 0, index - distance < count,
+               isSelected(index - distance) { return index - distance }
+            distance += 1
+        }
+        return nil
     }
 
     /// Move the cursor to a photo WITHOUT rebuilding the selection.
