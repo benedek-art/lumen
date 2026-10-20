@@ -147,6 +147,15 @@ def to_markdown(summary):
 
 
 # ------------------------------------------------------------------ gate ----
+def region_losses(rows, iso, model="model", ref="baseline"):
+    """{(camera, region): mean tone-PSNR(model) - mean tone-PSNR(ref)} at one ISO."""
+    acc = {}
+    for r in rows:
+        if r["iso"] == iso and r["method"] in (model, ref):
+            acc.setdefault((r["camera"], r["region"]), {}).setdefault(r["method"], []).append(r["psnr"])
+    return {k: float(np.mean(v[model]) - np.mean(v[ref])) for k, v in acc.items() if model in v and ref in v}
+
+
 def gate_checks(model, baseline, ctx):
     C, S = common.Check, "synthetic"
     frames = ctx.frames[:2] if ctx.quick else ctx.frames
@@ -155,7 +164,7 @@ def gate_checks(model, baseline, ctx):
     rows = run({"model": model, "baseline": baseline, "noisy": common.m_identity}, frames, ctx.table,
                isos=tuple(ctx.isos), extra=False)
     s = summarize(rows)
-    o, br = s["overall"], s["by_region"]
+    o = s["overall"]
     bc = s["by_iso"]
     def cam_gain(ref, iso):  # worst camera: a gain on the A7 IV must not hide a GX85 regression
         g = {c: bc["model"][c][iso]["psnr"] - bc[ref][c][iso]["psnr"] for c in bc["model"] if iso in bc["model"][c]}
@@ -171,12 +180,12 @@ def gate_checks(model, baseline, ctx):
         out.append(C(S, f"psnr_gain_vs_noisy@{iso}", round(gn, 3),
                      f">= {need:+.1f} dB every camera" if need is not None else "info",
                      common.status(gn >= need) if need is not None else "INFO", f"model vs untouched input: {per}"))
-        loss = {k: br["model"][iso][k]["psnr"] - br["baseline"][iso][k]["psnr"] for k in br["model"][iso]}
-        lim = {k: MAX_CRITICAL_LOSS_DB if k in CRITICAL else MAX_REGION_LOSS_DB for k in loss}
+        loss = region_losses(rows, iso)  # per (camera, region): pooling cameras lets one body hide the other's loss
+        lim = {k: MAX_CRITICAL_LOSS_DB if k[1] in CRITICAL else MAX_REGION_LOSS_DB for k in loss}
         worst = min(loss, key=lambda k: loss[k] + lim[k])  # closest to (or furthest past) its own limit
         out.append(C(S, f"worst_region_vs_baseline@{iso}", round(loss[worst], 3),
-                     f">= -{MAX_CRITICAL_LOSS_DB} dB dark/detail, -{MAX_REGION_LOSS_DB} other",
-                     common.status(loss[worst] >= -lim[worst]), f"worst={worst} (limit -{lim[worst]})"))
+                     f">= -{MAX_CRITICAL_LOSS_DB} dB dark/detail, -{MAX_REGION_LOSS_DB} other, every camera",
+                     common.status(loss[worst] >= -lim[worst]), f"worst={worst[0]}/{worst[1]} (limit -{lim[worst]})"))
         ds = o["model"][iso]["ssim"] - o["baseline"][iso]["ssim"]
         out.append(C(S, f"ssim_vs_baseline@{iso}", round(ds, 4), f">= -{MAX_SSIM_DROP}",
                      common.status(ds >= -MAX_SSIM_DROP)))

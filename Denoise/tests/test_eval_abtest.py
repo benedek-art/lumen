@@ -70,11 +70,11 @@ def test_focus_and_noembed(tiles, tmp_path):
     assert "ours" not in out.read_text()
 
 
-def _rec(pairs, page=None, created="2026-01-01T00:00:00Z"):
+def _rec(pairs, page=None, created="2026-01-01T00:00:00Z", session="s1"):
     """pairs: list of (left, right, choice). Each call is its own page unless `page` is given."""
     global _NPAGE
     _NPAGE += 1
-    return {"page": page or f"p{_NPAGE}", "created": created, "results": [{"trial_id": f"t{i}", "crop_id": f"c{i % 3}", "left": l, "right": r,
+    return {"page": page or f"p{_NPAGE}", "session": session, "created": created, "results": [{"trial_id": f"t{i}", "crop_id": f"c{i % 3}", "left": l, "right": r,
                                       "choice": c, "ms": 500} for i, (l, r, c) in enumerate(pairs)]}
 
 
@@ -115,6 +115,22 @@ def test_tally_dedupes_redownloads(tmp_path):
     json.dump({"page": "z", "results": [{"choice": "left", "left": "ours", "right": "ours"}, {"choice": "x"}, 5]},
               open(tmp_path / "ab_results_d.json", "w"))
     assert abtest.tally(sorted(tmp_path.glob("ab_results_*.json")))["ours_vs_lightroom"]["n"] == 13
+
+
+def test_tally_keeps_other_judges_same_page(tmp_path):
+    # two judges open the same page (same page id + trial ids): both sets of votes count; each one's re-download dedupes
+    j1a = _rec([("ours", "lightroom", "left")] * 4, page="pg", session="judge1", created="2026-01-01T10:00:00Z")
+    j1b = _rec([("ours", "lightroom", "left")] * 6, page="pg", session="judge1", created="2026-01-01T11:00:00Z")
+    j2 = _rec([("ours", "lightroom", "right")] * 6, page="pg", session="judge2")
+    for n, d in (("a", j1a), ("b", j1b), ("c", j2)):
+        json.dump(d, open(tmp_path / f"ab_results_{n}.json", "w"))
+    s = abtest.tally(sorted(tmp_path.glob("ab_results_*.json")))["ours_vs_lightroom"]
+    assert (s["wins"], s["losses"], s["n"]) == (6, 6, 12)
+
+
+def test_page_exports_session_id():
+    # the download carries a per-browser session id, which load_results uses to keep different judges apart
+    assert "session:st.sid" in abtest.PAGE and "st.sid=sid()" in abtest.PAGE
 
 
 def test_sign_test_large_n():

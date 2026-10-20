@@ -159,3 +159,12 @@ def test_gate_per_camera_regression(frames, table):
     out = sb.gate_checks(model, common.m_identity, common.Ctx(table=table, frames=frames, isos=(6400,), quick=True))
     g = next(c for c in out if c.name == "psnr_gain_vs_noisy@6400")
     assert g.status == "FAIL" and "DMC-GX85" in g.note
+
+
+def test_region_loss_is_per_camera():
+    # A7 IV detail +1 dB, GX85 detail -1 dB: pooled over cameras that is 0, per camera the GX85 loss must show
+    rows = [dict(method=m, camera=c, iso=6400, region="detail", psnr=p) for m, c, p in
+            [("baseline", "ILCE-7M4", 40.0), ("model", "ILCE-7M4", 41.0),
+             ("baseline", "DMC-GX85", 40.0), ("model", "DMC-GX85", 39.0)]]
+    loss = sb.region_losses(rows, 6400)
+    assert loss[("DMC-GX85", "detail")] == -1.0 and loss[("ILCE-7M4", "detail")] == 1.0

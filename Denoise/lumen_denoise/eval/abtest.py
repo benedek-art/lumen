@@ -6,7 +6,7 @@ Crops: <dir>/<crop_id>/<method>.png (made by `crops.py --ab DIR`), optional <dir
 Every pair of methods per crop is one trial; trial order and left/right are shuffled with the seed. Method
 names never appear in the page's plain text (images get opaque ids; the id->method map is XOR+base64
 obfuscated: a self-blind test, not security) until all trials are done. The page saves progress in
-localStorage and downloads ab_results_<page>_<time>.json = {"page", "seed", "results": [{trial_id,
+localStorage and downloads ab_results_<page>_<time>.json = {"page", "session", "seed", "results": [{trial_id,
 crop_id, left, right, choice: left|right|tie, ms}]}; copy it to reports/ so the release gate picks it up.
 """
 import argparse, base64, glob, hashlib, itertools, json, math, random, shutil
@@ -105,16 +105,19 @@ def _info(m):
 # --------------------------------------------------------------- tally ----
 def load_results(paths):
     """Valid judgements from result files. The page lets you download mid-way and again at the end, so the same
-    (page, trial_id) can appear in several files: keep only the newest ("created") answer, else it is double-counted."""
+    (page, session, trial_id) can appear in several files: keep only the newest ("created") answer, else it is
+    double-counted. "session" is a per-browser id, so different judges of the same page are all kept."""
     best = {}
     for n, p in enumerate(paths):
         d = json.load(open(p))
-        page, created = (d.get("page"), str(d.get("created", ""))) if isinstance(d, dict) else (None, "")
+        page, sess, created = ((d.get("page"), d.get("session"), str(d.get("created", ""))) if isinstance(d, dict)
+                               else (None, None, ""))
         for j, r in enumerate(d.get("results", []) if isinstance(d, dict) else d):
             if not (isinstance(r, dict) and r.get("choice") in ("left", "right", "tie")
                     and isinstance(r.get("left"), str) and isinstance(r.get("right"), str) and r["left"] != r["right"]):
                 continue
-            k = (page, r["trial_id"]) if page and r.get("trial_id") else (n, j)  # page-less files: no dedupe
+            # page/session-less files (older or hand-made): no dedupe
+            k = (page, sess, r["trial_id"]) if page and sess and r.get("trial_id") else (n, j)
             if k not in best or (created, n) >= best[k][0]:
                 best[k] = ((created, n), r)
     return [r for _, r in best.values()]
@@ -304,8 +307,10 @@ either image to pan both together. Sides and order are random; labels are reveal
 <script>
 const D=/*DATA*/null;
 const KEY="lumen_ab_"+D.page;
-let st={i:0,ans:{}};
+function sid(){try{return crypto.randomUUID();}catch(e){return Date.now().toString(36)+Math.random().toString(36).slice(2);}}
+let st={i:0,ans:{},sid:sid()};
 try{const s=localStorage.getItem(KEY);if(s){const o=JSON.parse(s);if(o&&o.ans)st=o;}}catch(e){}
+if(!st.sid)st.sid=sid();
 function save(){try{localStorage.setItem(KEY,JSON.stringify(st));}catch(e){}}
 function hex(h){const a=[];for(let i=0;i<h.length;i+=2)a.push(parseInt(h.substr(i,2),16));return a;}
 function unmask(){const k=hex(D.K),b=atob(D.M);let s="";for(let i=0;i<b.length;i++)s+=String.fromCharCode(b.charCodeAt(i)^k[i%k.length]);return JSON.parse(s);}
@@ -361,7 +366,7 @@ function finish(){
   $("sum").innerHTML=h+"</table>";
 }
 function download(){
-  const blob=new Blob([JSON.stringify({page:D.page,seed:D.seed,created:new Date().toISOString(),results:results()},null,1)],{type:"application/json"});
+  const blob=new Blob([JSON.stringify({page:D.page,session:st.sid,seed:D.seed,created:new Date().toISOString(),results:results()},null,1)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
   a.download="ab_results_"+D.page+"_"+new Date().toISOString().replace(/[:.]/g,"-").slice(0,19)+".json";
   document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
@@ -369,7 +374,7 @@ function download(){
 $("bL").onclick=()=>pick("left");$("bR").onclick=()=>pick("right");$("bT").onclick=()=>pick("tie");
 $("undo").onclick=undo;$("dl").onclick=download;
 $("zoom").onclick=()=>{zoom=zoom===1?2:1;fit();};
-$("reset").onclick=()=>{if(confirm("Discard all answers on this page?")){st={i:0,ans:{}};busy=false;save();show();}};
+$("reset").onclick=()=>{if(confirm("Discard all answers on this page?")){st={i:0,ans:{},sid:sid()};busy=false;save();show();}};
 document.addEventListener("keydown",e=>{
   if(e.metaKey||e.ctrlKey||e.altKey)return;const k=e.key.toLowerCase();
   if(e.repeat&&k!=="z"){e.preventDefault();return;}  // a held key must not answer trials you have not seen

@@ -76,7 +76,7 @@ same noise. Tone (gamma 1/2.2) space, per camera and ISO; ISO clamped to each ca
 |---|---|---|
 | `psnr_gain_vs_baseline@iso` | >= 0.0 dB, worst camera (`MIN_MEAN_GAIN_DB`) | a release must not regress; per camera, so an A7 IV gain can't hide a GX85 loss |
 | `psnr_gain_vs_noisy@iso` | >= +1.0 / +3.0 / +5.0 dB at ISO 1600 / 6400 / 25600, worst camera (`MIN_GAIN_OVER_NOISY_DB`) | must clearly beat doing nothing; a 5x5 Wiener already gains 5.5 / 6.2 / 6.8 dB |
-| `worst_region_vs_baseline@iso` | >= -0.15 dB dark/detail (`MAX_CRITICAL_LOSS_DB`), -0.3 dB other (`MAX_REGION_LOSS_DB`) | shadow blotches and smeared texture are what users notice first |
+| `worst_region_vs_baseline@iso` | >= -0.15 dB dark/detail (`MAX_CRITICAL_LOSS_DB`), -0.3 dB other (`MAX_REGION_LOSS_DB`), worst camera x region | shadow blotches and smeared texture are what users notice first |
 | `ssim_vs_baseline@iso` | >= -0.002 (`MAX_SSIM_DROP`) | SSIM differences below this are invisible |
 
 ### `detail`: texture retention and perceptual distance (`eval/detail.py`, `eval/perceptual.py`)
@@ -181,7 +181,7 @@ python -m lumen_denoise.eval.gate ... --only synthetic,detail                   
    `python -m lumen_denoise.crops --files data/lists/local_real_noisy.txt --n 12 --methods net:runs/A/best.pt --ab reports/ab_crops --ours last`
 3. Build the page: `python -m lumen_denoise.eval.abtest build --crops reports/ab_crops --out reports/ab.html --focus ours`
 4. Open `reports/ab.html`, judge every pair (A / L / S keys, Z zooms), press "Download results" and copy
-   `ab_results_*.json` into `reports/`. More judges or sessions: just add more files (duplicates are merged).
+   `ab_results_*.json` into `reports/`. More judges: just add more files. Each browser exports its own session id, so different judges of the same page all count while a judge's repeated downloads are merged.
 5. `python -m lumen_denoise.eval.abtest tally reports/ab_results*.json`, then rerun the gate.
 
 ## Synthetic smoke run (cloud / CPU, no photos)
