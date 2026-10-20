@@ -211,7 +211,8 @@ extension PhotoMetadata {
         guard numbers.count == 6,
               (1900...9999).contains(numbers[0]), (1...12).contains(numbers[1]),
               (1...31).contains(numbers[2]), (0...23).contains(numbers[3]),
-              (0...59).contains(numbers[4]), (0...61).contains(numbers[5])
+              (0...59).contains(numbers[4]), (0...61).contains(numbers[5]),
+              exifDay(numbers[2], fitsMonth: numbers[1], of: numbers[0])
         else { return nil }
         var components = DateComponents()
         components.year = numbers[0]

@@ -126,3 +126,29 @@ final class CatalogCorrectnessRound3Tests: XCTestCase {
     }
 }
 #endif
+
+#if canImport(XCTest)
+import XCTest
+@testable import LumenCore
+
+/// #3 — an EXIF stamp naming a day past the end of its month is not a date.
+final class EXIFDateCalendarTests: XCTestCase {
+    func testParseEXIFDateRejectsDayPastEndOfMonth() {
+        XCTAssertNil(PhotoMetadata.parseEXIFDate("2025:02:29 10:00:00"))   // not a leap year
+        XCTAssertNil(PhotoMetadata.parseEXIFDate("2026:04:31 12:00:00"))   // April has 30
+        XCTAssertNil(PhotoMetadata.parseEXIFDate("1900:02:29 00:00:00"))   // century, not leap
+        XCTAssertNil(PhotoMetadata.parseEXIFDateComponents("2025:02:29 10:00:00"))
+        // Real month ends and leap days still parse.
+        XCTAssertNotNil(PhotoMetadata.parseEXIFDate("2024:02:29 10:00:00"))
+        XCTAssertNotNil(PhotoMetadata.parseEXIFDate("2000:02:29 10:00:00"))
+        XCTAssertNotNil(PhotoMetadata.parseEXIFDate("2026:01:31 10:00:00"))
+        XCTAssertNotNil(PhotoMetadata.parseEXIFDate("2026:12:31 23:59:60"))  // leap second kept
+        XCTAssertEqual(PhotoMetadata.parseEXIFDateComponents("2024:02:29 10:00:00")?.day, 29)
+        for text in ["2025:02:29 10:00:00", "2024:02:29 10:00:00", "2026:04:31 00:00:00",
+                     "2026:06:30 00:00:00"] {
+            XCTAssertEqual(PhotoMetadata.parseEXIFDate(text) == nil,
+                           PhotoMetadata.parseEXIFDateComponents(text) == nil, text)
+        }
+    }
+}
+#endif

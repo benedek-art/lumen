@@ -94,7 +94,8 @@ public struct PhotoMetadata: Equatable, Sendable {
         components.second = numbers[5]
         guard (1900...9999).contains(numbers[0]), (1...12).contains(numbers[1]),
               (1...31).contains(numbers[2]), (0...23).contains(numbers[3]),
-              (0...59).contains(numbers[4]), (0...61).contains(numbers[5])
+              (0...59).contains(numbers[4]), (0...61).contains(numbers[5]),
+              exifDay(numbers[2], fitsMonth: numbers[1], of: numbers[0])
         else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         // UTC plus the camera's stated offset, rather than the machine's zone: the
@@ -103,6 +104,21 @@ public struct PhotoMetadata: Equatable, Sendable {
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
         guard let date = calendar.date(from: components) else { return nil }
         return Int64(date.timeIntervalSince1970) - Int64(offsetSeconds)
+    }
+
+    /// Whether `day` exists in that month. `Calendar.date(from:)` does not check: it
+    /// rolls Feb 30 forward into March, so a bad stamp would land on a day the frame was
+    /// not shot. Shared with `parseEXIFDateComponents` so the two reject the same text.
+    /// Seconds 60 and 61 stay accepted on purpose (leap seconds); this is days only.
+    static func exifDay(_ day: Int, fitsMonth month: Int, of year: Int) -> Bool {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+        let length: Int
+        switch month {
+        case 2: length = leap ? 29 : 28
+        case 4, 6, 9, 11: length = 30
+        default: length = 31
+        }
+        return day <= length
     }
 
     /// EXIF SubsecTimeOriginal, as microseconds into the second.
