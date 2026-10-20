@@ -69,6 +69,52 @@ final class RefineBudgetTests: XCTestCase {
         XCTAssertEqual(exact.renderAllowanceNanoseconds, 0)
     }
 
+    func testADiscreteEditWaitsPastTheGapBetweenTwoQuickPresses() {
+        // Six to eight arrow taps a second are 125–167 ms apart. The window runs from
+        // the request, so the next tap lands in the sleep whatever the draft cost —
+        // a fast draft does not shorten it. A drag's pause keeps the short debounce.
+        let loupe = RefineBudget.loupe
+        XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: false), loupe.settleNanoseconds)
+        XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: false, elapsed: 35_000_000),
+                       loupe.settleNanoseconds)
+        for draft: UInt64 in [0, 15_000_000, 35_000_000, 100_000_000] {
+            let settleStartsAt = draft + loupe.debounceNanoseconds(discreteEdit: true,
+                                                                    elapsed: draft)
+            XCTAssertGreaterThan(settleStartsAt, 167_000_000, "draft \(draft)")
+        }
+        XCTAssertLessThan(RefineBudget.discreteEditWindowNanoseconds, loupe.totalNanoseconds)
+        // A draft slower than the window still gets the plain debounce, never zero.
+        XCTAssertEqual(loupe.debounceNanoseconds(discreteEdit: true, elapsed: 400_000_000),
+                       loupe.settleNanoseconds)
+    }
+
+    func testOnlyAPressOnThePhotoShowingIsADiscreteEdit() {
+        XCTAssertTrue(RefineBudget.isDiscreteEdit(isSettleAsk: true, needsDraft: true,
+                                                  samePhotograph: true,
+                                                  previousRequestWasMidGesture: false))
+        // A photo switch inside a latched gesture (the ⌥-scroll window included).
+        XCTAssertFalse(RefineBudget.isDiscreteEdit(isSettleAsk: true, needsDraft: true,
+                                                   samePhotograph: false,
+                                                   previousRequestWasMidGesture: false))
+        // A drag's release whose last sample moved the recipe.
+        XCTAssertFalse(RefineBudget.isDiscreteEdit(isSettleAsk: true, needsDraft: true,
+                                                   samePhotograph: true,
+                                                   previousRequestWasMidGesture: true))
+        XCTAssertFalse(RefineBudget.isDiscreteEdit(isSettleAsk: false, needsDraft: true,
+                                                   samePhotograph: true,
+                                                   previousRequestWasMidGesture: false))
+    }
+
+    func testTheLoupeTimesTheDiscreteDebounceFromTheRequest() throws {
+        let code = try ShellSource.code("Sources/LumenApp/LoupeView.swift")
+        let squashed = ShellSource.squashed(code)
+        XCTAssertTrue(squashed.contains(
+            "let samePhotograph = imageURL == url let previousRequestWasMidGesture = lastRequestWasMidGesture lastRequestWasMidGesture = gestureInFlight()"))
+        let draft = try XCTUnwrap(ShellSource.body(after: "if needsDraft", in: code))
+        XCTAssertTrue(ShellSource.squashed(draft).contains(
+            "Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds( discreteEdit: discreteEdit, elapsed: elapsed))"))
+    }
+
     func testAZeroDeadlineIsReportedAsFullySpentRatherThanDividingByZero() {
         let empty = RefineBudget(totalNanoseconds: 0, settleNanoseconds: 0)
         XCTAssertEqual(empty.settleShare, 1)

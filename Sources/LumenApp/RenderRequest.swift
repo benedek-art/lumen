@@ -39,7 +39,30 @@ private struct SliderFocusKey: EnvironmentKey {
     static let defaultValue: (Bool) -> Void = { _ in }
 }
 
+/// One ⌥-scroll tick on a slider row, named by the row's own identity, so
+/// `AppState.sliderWheelTick(owner:)` can hold the latch for the burst and close it after
+/// the wheel goes quiet. Same no-op default as the two hooks above.
+private struct SliderWheelKey: EnvironmentKey {
+    static let defaultValue: (UUID) -> Void = { _ in }
+}
+
+/// The photograph the sliders are editing, so a row can let go of keyboard focus and an
+/// open readout field when it changes. Nil in previews and tests.
+private struct SliderSubjectKey: EnvironmentKey {
+    static let defaultValue: URL? = nil
+}
+
 extension EnvironmentValues {
+    var sliderWheelTick: (UUID) -> Void {
+        get { self[SliderWheelKey.self] }
+        set { self[SliderWheelKey.self] = newValue }
+    }
+
+    var sliderSubject: URL? {
+        get { self[SliderSubjectKey.self] }
+        set { self[SliderSubjectKey.self] = newValue }
+    }
+
     var sliderGestureChanged: (Bool) -> Void {
         get { self[SliderGestureKey.self] }
         set { self[SliderGestureKey.self] = newValue }
@@ -95,6 +118,16 @@ struct ViewerRenderKey: Equatable {
     /// restart the task. Nil for SDR, which is every compare pane and every loupe with
     /// the preview off — a key equal to the one it was before this field existed.
     var edrWhiteTarget: Double? = nil
+
+    /// This key with the tick taken out: every render INPUT, so two requests that
+    /// differ only by a release compare equal.
+    var ignoringSettleTick: ViewerRenderKey {
+        ViewerRenderKey(url: url, recipe: recipe, longEdge: longEdge,
+                        strokeRefs: strokeRefs, softProof: softProof,
+                        matteKinds: matteKinds, showingUncropped: showingUncropped,
+                        settleTick: 0, regionUnit: regionUnit,
+                        sourceRevision: sourceRevision, edrWhiteTarget: edrWhiteTarget)
+    }
 
     /// The current key for a surface showing `url` with `recipe` at `longEdge`.
     /// Reads the beside-the-recipe inputs from the one place they live.

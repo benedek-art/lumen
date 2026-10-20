@@ -105,6 +105,10 @@ final class CanonicalJSONTests: XCTestCase {
                            "case \(c.name) serialization drifted")
             XCTAssertEqual(try RecipeFingerprint.fingerprint(recipe), c.fingerprint,
                            "case \(c.name) fingerprint drifted")
+            // The READ direction too. Only encoding was checked, so a decoder that
+            // ignored a key the fixture carries passed as long as the encoder wrote it.
+            XCTAssertEqual(try CanonicalJSON.decodeRecipe(from: Data(c.canonical.utf8)), recipe,
+                           "case \(c.name) does not decode back to the recipe it encodes")
         }
         XCTAssertEqual(Set(fixture.cases.map(\.name)), Set(recipes.keys),
                        "the fixture and the replay table describe different case sets")

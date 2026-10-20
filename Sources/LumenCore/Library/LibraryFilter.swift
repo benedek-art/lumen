@@ -196,8 +196,11 @@ public struct LibraryFilter: Equatable, Sendable {
             }
         }
         if rawOnly && !photo.isRaw { return false }
-        if !text.isEmpty
-            && !photo.filename.localizedCaseInsensitiveContains(text) { return false }
+        // Trimmed exactly as `query` trims it, so the memory and catalog paths agree:
+        // a stray space in the search box hid every space-free filename here.
+        let needle = text.trimmingCharacters(in: .whitespaces)
+        if !needle.isEmpty
+            && !photo.filename.localizedCaseInsensitiveContains(needle) { return false }
         return true
     }
 
@@ -223,8 +226,9 @@ public struct LibraryFilter: Equatable, Sendable {
             if photo.isRaw { return true }
             lit = true
         }
-        if !text.isEmpty {
-            if photo.filename.localizedCaseInsensitiveContains(text) { return true }
+        let needle = text.trimmingCharacters(in: .whitespaces)
+        if !needle.isEmpty {
+            if photo.filename.localizedCaseInsensitiveContains(needle) { return true }
             lit = true
         }
         return !lit

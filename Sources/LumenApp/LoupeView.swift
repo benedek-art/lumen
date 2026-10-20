@@ -554,6 +554,15 @@ final class PhotoRenderModel: ObservableObject {
     /// comes off a slider. See `load`.
     private var lastSettleTick: Int?
 
+    /// Whether the previous request arrived with a gesture latched — a drag sample.
+    /// A tick that follows one is that drag's release, not a discrete edit.
+    private var lastRequestWasMidGesture = false
+
+    /// Every render input of the settle on screen (`ViewerRenderKey.ignoringSettleTick`),
+    /// or nil when what is showing is not a settle of a keyed request. Lets a release
+    /// that changed nothing skip re-rendering the same picture — see `load`.
+    private var settledRequest: ViewerRenderKey?
+
     /// When the previous draft landed, so the ladder can be costed by the interval
     /// between delivered frames rather than by the render's own wall time — see
     /// `DraftLadder.costSample`. Cleared on a photo change: a new photograph's first
@@ -608,6 +617,9 @@ final class PhotoRenderModel: ObservableObject {
               /// The HDR preview's display white (`EDRPreview.whiteTarget`), or nil —
               /// the default, and every caller but the loupe's edit — for SDR only.
               edrWhiteTarget: Double? = nil,
+              /// The surface's render key, when it has one. Nil (the default) never
+              /// skips a settle.
+              requestKey: ViewerRenderKey? = nil,
               gestureInFlight: () -> Bool = { false }) async {
 
         currentRequestURL = url
@@ -616,6 +628,11 @@ final class PhotoRenderModel: ObservableObject {
         // is the ask for the quality pass the drag deferred, and nothing else.
         let isSettleAsk = lastSettleTick != nil && lastSettleTick != settleTick
         lastSettleTick = settleTick
+        // What `RefineBudget.isDiscreteEdit` needs, read before anything below resets it.
+        let requestStarted = DispatchTime.now().uptimeNanoseconds
+        let samePhotograph = imageURL == url
+        let previousRequestWasMidGesture = lastRequestWasMidGesture
+        lastRequestWasMidGesture = gestureInFlight()
         // The hand came up: let the ladder spend any headroom the gesture banked. It
         // is held during the drag because a rung earned back under a moving hand is a
         // visible change of sharpness; here it is one change, at rest, invisible.
@@ -636,6 +653,7 @@ final class PhotoRenderModel: ObservableObject {
             note = nil
             settledActualLongEdge = nil
             settledRecipe = nil
+            settledRequest = nil
             shownRecipe = nil
             lastDraftAt = nil
             lastDraftWasSaturated = false
@@ -690,6 +708,18 @@ final class PhotoRenderModel: ObservableObject {
         // at most twice per gesture.
         let keepShowingSettled = image != nil && !isDraft && !usedEmbeddedPreview
             && imageURL == url && settledRecipe == recipe
+
+        // A RELEASE THAT CHANGED NOTHING — a thumb click, any crop-tool drag (the
+        // framing is stripped from the render while the tool is armed). The settle on
+        // screen already answers every input of this request, and re-rendering it
+        // would hold the serial lane 100–300 ms in front of whatever comes next.
+        let requestInputs = requestKey?.ignoringSettleTick
+        if FrameDelivery.settleIsRedundant(
+            requestIsOnlyTheSettleAsk: isSettleAsk,
+            showingSettledOfThisRecipe: keepShowingSettled,
+            settledThisRequest: requestInputs != nil && requestInputs == settledRequest) {
+            return
+        }
 
         // THE HAND JUST CAME OFF, AND THE PICTURE IS ALREADY THIS EDIT.
         //
@@ -900,7 +930,17 @@ final class PhotoRenderModel: ObservableObject {
             // The debounce, and nothing but the debounce: everything after this point
             // still has to happen inside the deadline, so the wait is the part of the
             // budget that buys the least and is kept the smallest.
-            try? await Task.sleep(nanoseconds: PhotoRenderModel.settleNanoseconds)
+            //
+            // Longer for a DISCRETE edit (an arrow press, a VoiceOver step), counted
+            // from the request, so a burst of presses coalesces here rather than in a
+            // settle the actor cannot cancel.
+            let discreteEdit = RefineBudget.isDiscreteEdit(
+                isSettleAsk: isSettleAsk, needsDraft: needsDraft,
+                samePhotograph: samePhotograph,
+                previousRequestWasMidGesture: previousRequestWasMidGesture)
+            let elapsed = DispatchTime.now().uptimeNanoseconds &- requestStarted
+            try? await Task.sleep(nanoseconds: RefineBudget.loupe.debounceNanoseconds(
+                discreteEdit: discreteEdit, elapsed: elapsed))
         }
         guard !Task.isCancelled, latestGeneration == draftGeneration else { return }
 
@@ -944,6 +984,7 @@ final class PhotoRenderModel: ObservableObject {
             guard !Task.isCancelled else { return }
             if let result, result.generation == generation, latestGeneration == generation {
                 apply(result, url: url, recipe: recipe)
+                settledRequest = result.isDraft ? nil : requestInputs
                 let settleMs =
                     Double(DispatchTime.now().uptimeNanoseconds - settleStarted) / 1e6
                 // THE MEASUREMENT THE LADDER WAS THROWING AWAY. A settle is a render at
@@ -1041,11 +1082,17 @@ final class PhotoRenderModel: ObservableObject {
     @MainActor
     private func apply(_ result: RenderResult, url: URL, recipe: Recipe) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
+        // Only the settle loop knows which request it answered; it sets this after.
+        settledRequest = nil
+        // A result that could not stat its file keeps the identity this photo already
+        // has: `load` reads a nil here as a replaced file and clears the frame.
+        let sourceIdentity = result.sourceIdentity
+            ?? (imageURL == url ? imageSourceIdentity : nil)
         image = result.image
         edrImage = result.edrImage
         imageURL = url
         previewIdentity = result.previewIdentity
-        imageSourceIdentity = result.sourceIdentity
+        imageSourceIdentity = sourceIdentity
         isDraft = result.isDraft
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note
@@ -1072,6 +1119,30 @@ final class PhotoRenderModel: ObservableObject {
             settledRecipe = recipe
         }
         revision &+= 1
+    }
+}
+
+enum LoupeAsk {
+    /// The frame the render ask may be sized from: the one on screen only when it is
+    /// of the photo being asked for, so a switch never asks at the last photo's aspect.
+    static func sizingFrame<Frame>(_ frame: Frame?, shownFor shown: URL?, photo: URL) -> Frame? {
+        shown == photo ? frame : nil
+    }
+}
+
+/// Whether a before frame may be drawn into the after frame's box. The split and the
+/// `\` flip draw the before at the AFTER frame's extent, so a before still carrying an
+/// older crop or straighten would be stretched until its re-render lands. A small
+/// tolerance absorbs the pixel rounding of two renders at different sizes.
+enum BeforePlate {
+    static let aspectTolerance = 0.01
+
+    static func isPresentable(before: CGSize, afterFrame: CGSize) -> Bool {
+        guard before.width > 0, before.height > 0,
+              afterFrame.width > 0, afterFrame.height > 0 else { return false }
+        let b = Double(before.width) / Double(before.height)
+        let a = Double(afterFrame.width) / Double(afterFrame.height)
+        return abs(b / a - 1) < aspectTolerance
     }
 }
 
@@ -1278,8 +1349,13 @@ struct LoupeView: View {
             // One value, both passes, one decode. Stable under a resize because a fit
             // ratio is derived from the ASPECT: the drawn extent does not move when the
             // pixel count does, so this cannot chase its own tail through the render.
+            //
+            // Only from a frame of THIS photo: just after a switch `model.image` is still
+            // the previous photo's, and its aspect was one more key the first ask went
+            // through, restarting the task, before the frame was cleared.
             let drawnDevice: Double? = region == nil
-                ? model.image.map { cg in
+                ? LoupeAsk.sizingFrame(model.image, shownFor: model.imageURL,
+                                 photo: photo.id).map { cg in
                     let d = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
                     return Double(Swift.max(d.width, d.height))
@@ -1363,6 +1439,12 @@ struct LoupeView: View {
                         .padding(10)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
+
+                // `I`'s capture info, top-leading: the one corner no other HUD uses.
+                CaptureInfoOverlay(photo: photo)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
@@ -1664,6 +1746,12 @@ struct LoupeView: View {
                          // key carries, read in the same body pass. Nil with the
                          // preview off, which leaves this request exactly as it was.
                          edrWhiteTarget: edrWhiteTarget,
+                         // The task's own key, rebuilt from the same inputs, so a
+                         // release that moved nothing but the tick is not re-settled.
+                         requestKey: ViewerRenderKey.current(
+                             url: photo.id, recipe: wanted, longEdge: longEdge,
+                             state: state, showingUncropped: cropArmed,
+                             regionUnit: region, edrWhiteTarget: edrWhiteTarget),
                          // Asked at the moment the settle would start rather than at
                          // load time, so a release landing mid-draft settles at once
                          // instead of waiting for the tick's fresh task.
@@ -1751,6 +1839,20 @@ struct LoupeView: View {
         return beforeModel.image
     }
 
+    /// The before frame for the plates drawn at the after's extent (split, `\` flip),
+    /// or nil while its framing does not match yet, so the after plate stands in
+    /// rather than a stretched before. Two-pane compare fits each side on its own
+    /// and keeps `beforeImage`.
+    private var beforePlateImage: CGImage? {
+        guard let before = beforeImage else { return nil }
+        guard let after = model.image, model.imageURL == photo.id else { return before }
+        let afterFrame: CGSize = model.regionFullPixel
+            ?? CGSize(width: after.width, height: after.height)
+        return BeforePlate.isPresentable(
+            before: CGSize(width: before.width, height: before.height),
+            afterFrame: afterFrame) ? before : nil
+    }
+
     // MARK: HDR preview
 
     /// The display white the loupe's EDR pass renders at, or nil for the SDR loupe.
@@ -1785,8 +1887,8 @@ struct LoupeView: View {
     /// one would be a comparison of renditions rather than of edits.
     private func edrPlateImage(for cg: CGImage) -> CGImage? {
         guard viewport.hdrPreview, edrWhiteTarget != nil else { return nil }
-        if viewport.beforeMode == .split, beforeImage != nil { return nil }
-        if state.showBefore, beforeImage != nil { return nil }
+        if viewport.beforeMode == .split, beforePlateImage != nil { return nil }
+        if state.showBefore, beforePlateImage != nil { return nil }
         return model.edrFrame(for: cg)
     }
 
@@ -2183,14 +2285,14 @@ struct LoupeView: View {
         // region, and it can be one here transiently: a before mode entered while a
         // region is still on screen must flip at once rather than wait out the
         // whole-frame re-render its key change just started.
-        if viewport.beforeMode == .split, let before = beforeImage {
+        if viewport.beforeMode == .split, let before = beforePlateImage {
             BeforeAfterSplit(split: $viewport.splitPosition) {
                 plate(before, ratio: ratio, drawn: drawn)
             } after: {
                 afterPlate(cg, ratio: ratio, drawn: drawn, region: region)
             }
             .frame(width: drawn.width, height: drawn.height)
-        } else if state.showBefore, let before = beforeImage {
+        } else if state.showBefore, let before = beforePlateImage {
             plate(before, ratio: ratio, drawn: drawn)
         } else if edrStandIn {
             edrStandInPlate(drawn: drawn, region: region)
@@ -2323,7 +2425,7 @@ struct LoupeView: View {
             if let note = model.note {
                 LumenBadge(text: note, emphasized: true)
             }
-            if state.showBefore, beforeImage != nil, !viewport.beforeMode.showsPair {
+            if state.showBefore, beforePlateImage != nil, !viewport.beforeMode.showsPair {
                 LumenBadge(text: "BEFORE")
             }
             if let maskName = soloMaskName {
@@ -2603,9 +2705,12 @@ struct LoupeView: View {
                 }
                 if panStart == nil { panStart = viewport.pan }
                 let base: CGSize = panStart ?? .zero
-                let moved = CGSize(width: base.width + value.translation.width,
-                                   height: base.height + value.translation.height)
-                viewport.pan = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
+                // Through `panTo`, like the wheel and the arrows: pressed against the
+                // bound, a direct write re-published the same pan on every event, and
+                // the HUD never saw drag pans as input.
+                viewport.panTo(x: base.width + value.translation.width,
+                               y: base.height + value.translation.height,
+                               container: container, drawn: drawn)
             }
             .onEnded { _ in
                 panStart = nil

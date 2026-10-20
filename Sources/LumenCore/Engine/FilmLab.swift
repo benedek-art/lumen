@@ -1107,6 +1107,16 @@ public struct FilmGrainProfile: Sendable {
         let n: Int = Swift.max(size, 2)
         let count: Int = n * n
         guard sigma.isFinite, sigma > 0 else { return [Float](repeating: 0, count: count) }
+        // Every preview graph build bakes this plate again — three channels, up to four
+        // octaves of 128² lattice hashes — for arguments that do not move during a drag:
+        // the seed and persistence are the profile's, sigma is 1 and the cell size only
+        // changes with the ladder rung. The bake is a pure function of exactly these
+        // arguments, so a remembered one is the same Floats. Keyed on the RAW arguments,
+        // before the clamps below, which is at least as fine as the output.
+        let memoKey = GrainPlateMemo.Key(size: size, seed: seed, sigma: sigma.bitPattern,
+                                         persistence: persistence.bitPattern,
+                                         perCell: renderPixelsPerCell?.bitPattern)
+        if let remembered = FilmGrainProfile.plateMemo.lookup(memoKey) { return remembered }
         var acc: [Double] = [Double](repeating: 0, count: count)
 
         let octaves: Int = 4
@@ -1178,8 +1188,13 @@ public struct FilmGrainProfile: Sendable {
 
         var out: [Float] = [Float](repeating: 0, count: count)
         for i in 0..<count { out[i] = Float((acc[i] - mean) * gain) }
+        FilmGrainProfile.plateMemo.store(out, for: memoKey)
         return out
     }
+
+    /// The baked plates `plate(size:seed:sigma:persistence:renderPixelsPerCell:)` has
+    /// handed out recently. See `GrainPlateMemo`.
+    static let plateMemo = GrainPlateMemo()
 
     /// Bilinear, wrapping sample of a plate produced by `plate(size:seed:sigma:)`.
     /// Coordinates are in plate cells and may be any finite value.
@@ -1219,6 +1234,55 @@ public struct FilmGrainProfile: Sendable {
         z = z ^ (z >> 31)
         let unit: Double = Double(z >> 11) * (1.0 / 9007199254740992.0)
         return unit * 2.0 - 1.0
+    }
+}
+
+/// A small, locked memo of baked grain plates, keyed on the exact bits of every argument
+/// the bake reads. Both renderers and every thread share it: `PipelineRenderer` builds
+/// graphs from the preview, EDR and export paths at once, which is why it is locked the
+/// way `PlanKeyMemo` is. The bake runs OUTSIDE the lock, so two threads missing on the
+/// same key both bake and the second store is a no-op — the same bytes either way.
+///
+/// Sixteen entries, first in first out: three channels times a few ladder rungs is what
+/// a session revisits, and a 128² plate is 64 KB, so the whole memo is about 1 MB. A
+/// returned `[Float]` is copy-on-write, so no caller can change what is remembered.
+final class GrainPlateMemo: @unchecked Sendable {
+    struct Key: Hashable {
+        let size: Int
+        let seed: UInt64
+        let sigma: UInt64
+        let persistence: UInt64
+        let perCell: UInt64?
+    }
+
+    static let capacity: Int = 16
+
+    private let lock = NSLock()
+    private var entries: [Key: [Float]] = [:]
+    private var order: [Key] = []
+
+    func lookup(_ key: Key) -> [Float]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[key]
+    }
+
+    func store(_ values: [Float], for key: Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard entries[key] == nil else { return }
+        entries[key] = values
+        order.append(key)
+        while order.count > GrainPlateMemo.capacity {
+            entries[order.removeFirst()] = nil
+        }
+    }
+
+    /// How many plates are held — for the tests that hold the bound.
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.count
     }
 }
 
@@ -1550,10 +1614,14 @@ public struct FilmChain: Sendable {
         self.grain = profile
 
         if let s = found, blend > 0 {
-            self.solved = FilmChain.build(s,
-                                          push: push,
-                                          grainScale: profile.amount * FilmGrainProfile.densityScale,
-                                          white: FilmChain.paperWhite)
+            let grainScale: Double = profile.amount * FilmGrainProfile.densityScale
+            let key: SolveKey = SolveKey(stockID: s.id,
+                                         push: push.bitPattern,
+                                         grainScale: grainScale.bitPattern,
+                                         white: FilmChain.paperWhite.bitPattern)
+            self.solved = FilmChain.solveMemo.chain(for: key) {
+                FilmChain.build(s, push: push, grainScale: grainScale, white: FilmChain.paperWhite)
+            }
         } else {
             self.solved = nil
         }
@@ -1686,6 +1754,71 @@ public struct FilmChain: Sendable {
     }
 
     // MARK: - Build
+
+    /// Every input `build` reads, as bits. `stockID` stands for the whole stock because
+    /// `found` only ever comes from `FilmStock.named`, i.e. from the static `index` of
+    /// `let` constants: one id, one set of curves. The Doubles are the clamped values
+    /// handed to `build`, compared by bit pattern so not even ±0 can share an entry.
+    fileprivate struct SolveKey: Equatable {
+        let stockID: String
+        let push: UInt64
+        let grainScale: UInt64
+        let white: UInt64
+    }
+
+    /// The solved chain, remembered while its inputs do not move.
+    ///
+    /// `RenderPlan.init` builds a `FilmChain` on every plan with a stock loaded — the
+    /// finish-table hit path too, since the grain plan and `plan.filmChain` carry it —
+    /// and `solveGains` is 6 sweeps × 3 channels × a 52-step bisection: ~970 `render`
+    /// calls, measured 0.33 ms of a 0.61 ms warm film plan on a Texture tick, which
+    /// moves none of stock, push, grain or white. `build` is a pure function of the
+    /// key (no randomness, no global state), so a hit is the exact value a fresh solve
+    /// returns and no pixel can move. Four entries, not one: the EDR and SDR preview
+    /// plans, and export's HDR/SDR pair, alternate two whites.
+    static let solveMemo: SolvedChainMemo = SolvedChainMemo()
+
+    final class SolvedChainMemo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [(key: SolveKey, chain: SolvedChain)] = []
+        private static let capacity: Int = 4
+        private var misses: Int = 0
+
+        fileprivate func chain(for key: SolveKey, _ solve: () -> SolvedChain) -> SolvedChain {
+            lock.lock()
+            if let hit = entries.first(where: { $0.key == key }) {
+                lock.unlock()
+                return hit.chain
+            }
+            lock.unlock()
+            // Solved outside the lock: two threads missing on one key both solve, and
+            // both get the same bits.
+            let chain: SolvedChain = solve()
+            lock.lock()
+            misses += 1
+            if !entries.contains(where: { $0.key == key }) {
+                if entries.count >= SolvedChainMemo.capacity { entries.removeFirst() }
+                entries.append((key, chain))
+            }
+            lock.unlock()
+            return chain
+        }
+
+        /// Forget every entry, so the next construction is a cold solve. Test-only.
+        func removeAll() {
+            lock.lock()
+            entries.removeAll()
+            lock.unlock()
+        }
+
+        /// Solves actually run — `EngineIntegrationTests` reads it to prove a repeat
+        /// construction does not re-solve.
+        var missCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return misses
+        }
+    }
 
     private static func build(_ stock: FilmStock,
                               push: Double,

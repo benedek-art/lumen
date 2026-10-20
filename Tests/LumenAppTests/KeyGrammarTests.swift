@@ -128,9 +128,15 @@ final class KeyGrammarAttachmentTests: XCTestCase {
     /// are one sheet's Return and Escape and legitimately appear in every sheet in the
     /// app; and a key computed at the call site, which `LookPanel` does in a loop and
     /// which no scanner can read.
+    ///
+    /// `.delete` is the one named key read, as "⌫" — the same table LumenCoreTests keeps.
     private static func chord(in argument: String) -> KeyBinding? {
         let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("\""), let key = firstStringLiteral(in: trimmed) else {
+        let head = trimmed.split(separator: ",", maxSplits: 1).first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        let named: [String: String] = [".delete": "⌫"]
+        let literal = trimmed.hasPrefix("\"") ? firstStringLiteral(in: trimmed) : nil
+        guard let key = named[head] ?? literal else {
             return nil
         }
         let modifiers = trimmed.contains("modifiers:")

@@ -19,6 +19,7 @@
 //     re-ingest), which is reported as already present and not copied again; or it is
 //     a different file, and the new frame goes beside it under a disambiguated name
 //     via `ExportRecipe.disambiguated`, the same policy the export path already uses.
+//     Both halves of a RAW+JPEG pair step round together, so they keep one stem.
 //   · A FAILURE IS PER DESTINATION, NOT PER RUN. A backup volume that fills up does
 //     not stop the primary, and one unreadable frame does not abandon the other 339.
 //     Each destination gets its own verdict, which is exactly what docs/10 means by
@@ -388,11 +389,69 @@ public struct FileReadback: IngestReadback {
     }
 }
 
+/// Getting landed bytes onto the medium, not just into the page cache.
+///
+/// A read-back straight after a write is served from memory, so without a flush the
+/// verdict proves RAM: a power cut or a yanked USB drive inside the writeback window
+/// can leave a frame reported "every copy verified" truncated or empty, on a volume
+/// whose card has just been formatted. So every copy is flushed before its `.part` is
+/// renamed, and the directory entry is flushed after the rename, before any verdict.
+enum IngestDurability {
+    /// Flush a file's data and metadata to the medium. On Darwin `fsync` only reaches
+    /// the drive's cache; `F_FULLFSYNC` is the real barrier, with `fsync` as the
+    /// fallback for filesystems that do not support it (some network volumes).
+    static func syncFile(_ handle: FileHandle) throws {
+        let fd = handle.fileDescriptor
+        #if canImport(Darwin)
+        if fcntl(fd, F_FULLFSYNC) == 0 { return }
+        #endif
+        guard fsync(fd) == 0 else { throw posixError("fsync") }
+    }
+
+    /// Flush a directory, so the rename that put a file into it survives a crash.
+    static func syncDirectory(_ url: URL) throws {
+        let fd = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY)
+        }
+        guard fd >= 0 else { throw posixError("open") }
+        defer { closeDescriptor(fd) }
+        #if canImport(Darwin)
+        if fcntl(fd, F_FULLFSYNC) == 0 { return }
+        #endif
+        // Some filesystems cannot sync a directory handle at all and say so with
+        // EINVAL; there is nothing more to flush there, and refusing every copy to such
+        // a volume would be the wrong answer.
+        guard fsync(fd) == 0 || errno == EINVAL else { throw posixError("fsync") }
+    }
+
+    /// By module, as `ExclusivePublish` does, so the call names the C function and
+    /// not a same-named member.
+    private static func closeDescriptor(_ fd: Int32) {
+        #if canImport(Darwin)
+        _ = Darwin.close(fd)
+        #else
+        _ = Glibc.close(fd)
+        #endif
+    }
+
+    private static func posixError(_ call: String) -> Error {
+        let code = errno
+        return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [
+            NSLocalizedDescriptionKey: call + " failed: " + String(cString: strerror(code))])
+    }
+}
+
 public struct VerifiedCopyDriver: Sendable {
 
     public var verify: Bool
     public var chunkSize: Int
     public var readback: any IngestReadback
+    /// Flushes a finished `.part` before it is renamed into place. A seam so a test can
+    /// prove the flush happens before the verdict, and that a failed flush is a failure.
+    var syncFile: @Sendable (FileHandle) throws -> Void = IngestDurability.syncFile
+    /// Flushes the destination directory after the rename, before the verdict.
+    var syncDirectory: @Sendable (URL) throws -> Void = IngestDurability.syncDirectory
 
     public init(verify: Bool = true,
                 chunkSize: Int = IngestFileDigest.defaultChunkSize,
@@ -436,6 +495,7 @@ public struct VerifiedCopyDriver: Sendable {
             switch failure {
             case .verificationMismatch: reason = "Verification mismatch"
             case .unreadableCopy(let why): reason = "Read-back failed: " + why
+            case .unwritableDestination(let why): reason = "Flush to the medium failed: " + why
             default: reason = "Verification failed"
             }
             return .unverifiedCopyRemains(verificationFailure: reason,
@@ -468,9 +528,22 @@ public struct VerifiedCopyDriver: Sendable {
         // a second frame with identical bytes rendered to the same name is a second
         // frame, and must get its own file rather than be absorbed into the first.
         var claims: [String: URL] = [:]
+        // The files of one frame bound for one folder under one stem — a RAW+JPEG pair —
+        // and the collision suffix each such pair settled on, decided once when its
+        // first file comes up (see `pairSuffix`). Lone files are not in here.
+        let pairs = Self.pairs(in: plan)
+        var pairSuffixes: [String: Int] = [:]
 
         for copy in plan.copies {
             if cancellation.isCancelled { cancelled = true; break }
+            var pairSlots: [URL: URL] = [:]
+            for destination in copy.destinations {
+                let key = Self.pairKey(copy.source, destination.url)
+                guard let members = pairs[key] else { continue }
+                let suffix = pairSuffixes[key] ?? pairSuffix(members, claims: claims)
+                pairSuffixes[key] = suffix
+                pairSlots[destination.url] = Self.suffixed(destination.url, suffix)
+            }
             let name = copy.source.lastPathComponent
             func report(copied: Int64, processed: Int64) {
                 progress?(IngestProgress(filesCompleted: attempted,
@@ -481,7 +554,8 @@ public struct VerifiedCopyDriver: Sendable {
             }
             report(copied: bytesCopied, processed: bytesProcessed)
             var readSoFar: Int64 = 0
-            let outcome = perform(copy, cancellation: cancellation, claims: &claims) { chunk in
+            let outcome = perform(copy, cancellation: cancellation, claims: &claims,
+                                  pairSlots: pairSlots) { chunk in
                 readSoFar += chunk
                 report(copied: bytesCopied + readSoFar, processed: bytesProcessed + readSoFar)
             }
@@ -514,6 +588,67 @@ public struct VerifiedCopyDriver: Sendable {
                             framesVerified: framesVerified, framesLanded: framesLanded)
     }
 
+    // MARK: - Pairs
+
+    /// One file of a pair: where it comes from, where the plan sends it, and its size.
+    private typealias PairMember = (source: URL, planned: URL, byteCount: Int64)
+
+    /// One frame's files (card folder + stem) going to one destination stem.
+    private static func pairKey(_ source: URL, _ planned: URL) -> String {
+        source.deletingPathExtension().standardizedFileURL.path + "\n"
+            + planned.deletingPathExtension().standardizedFileURL.path
+    }
+
+    private static func pairs(in plan: IngestPlan) -> [String: [PairMember]] {
+        var groups: [String: [PairMember]] = [:]
+        for copy in plan.copies {
+            for destination in copy.destinations {
+                groups[pairKey(copy.source, destination.url), default: []]
+                    .append((copy.source, destination.url, copy.byteCount))
+            }
+        }
+        return groups.filter { $0.value.count > 1 }
+    }
+
+    /// `name-n.ext`, the slot `ExportRecipe.disambiguated` would try `n`th; 0 is `url`.
+    private static func suffixed(_ url: URL, _ n: Int) -> URL {
+        guard n > 0 else { return url }
+        let named = url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-\(n)")
+        return url.pathExtension.isEmpty ? named : named.appendingPathExtension(url.pathExtension)
+    }
+
+    /// The one collision suffix a pair lands under, so a stranger's DSCF0001.JPG
+    /// already in the folder moves the card's JPEG AND its RAW to DSCF0001-1, rather
+    /// than leaving the RAW at DSCF0001.RAF beside the stranger — the name every
+    /// pairing tool reads as "these two are one photo". The lowest `n` at which every
+    /// file's slot is free or already holds that file's bytes (the re-ingest case), by
+    /// the same size-then-digest test the single-file walk uses. This only picks where
+    /// a NEW copy lands; finding an earlier copy is still the per-file walk's job.
+    private func pairSuffix(_ members: [PairMember], claims: [String: URL]) -> Int {
+        let fm = FileManager.default
+        var digests: [URL: IngestDigest] = [:]
+        func fits(_ slot: URL, _ member: PairMember) -> Bool {
+            guard fm.fileExists(atPath: slot.path) else { return true }
+            let identity = IngestLocation.fileIdentity(of: slot)
+            guard identity != IngestLocation.fileIdentity(of: member.source),
+                  (claims[identity] ?? member.source) == member.source,
+                  let size = try? slot.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  Int64(size) == member.byteCount else { return false }
+            if digests[member.source] == nil {
+                digests[member.source] = try? IngestFileDigest.digest(of: member.source,
+                                                                     chunkSize: chunkSize)
+            }
+            guard let mine = digests[member.source] else { return false }
+            return (try? IngestFileDigest.digest(of: slot, chunkSize: chunkSize)) == mine
+        }
+        for n in 0...9_999 where members.allSatisfy({ fits(Self.suffixed($0.planned, n), $0) }) {
+            return n
+        }
+        // No common slot: each file falls back to its own walk.
+        return 0
+    }
+
     // MARK: - One frame
 
     /// A destination that is being written: where it is going, and the hidden file the
@@ -535,6 +670,7 @@ public struct VerifiedCopyDriver: Sendable {
 
     private func perform(_ copy: IngestPlannedCopy, cancellation: IngestCancellation,
                          claims: inout [String: URL],
+                         pairSlots: [URL: URL],
                          onChunk: (Int64) -> Void) -> FrameOutcome {
         let fm = FileManager.default
         var results: [IngestFileResult] = []
@@ -608,7 +744,8 @@ public struct VerifiedCopyDriver: Sendable {
             directoriesWritten[directory] = destination.role
 
             var landing = destination.url
-            if fm.fileExists(atPath: destination.url.path) {
+            let pairSlot = pairSlots[destination.url] ?? destination.url
+            if fm.fileExists(atPath: destination.url.path) || pairSlot != destination.url {
                 // Already there. Either it is this frame — a card that was half
                 // drained, re-inserted — or it is a different frame that rendered to
                 // the same name. The bytes decide, never the name — and never for a
@@ -645,8 +782,18 @@ public struct VerifiedCopyDriver: Sendable {
                     earlierDigest = existing
                     return true
                 }
-                let free = ExportRecipe.disambiguated(destination.url) { candidate in
+                var free = ExportRecipe.disambiguated(destination.url) { candidate in
                     fm.fileExists(atPath: candidate.path) && !holdsThisFrame(candidate)
+                }
+                // Half of a pair that had to move: it goes where its other half goes,
+                // or is already there from an earlier run. Only if that slot was taken
+                // since the pair chose it does this file fall back to its own walk.
+                if earlierCopy == nil, pairSlot != destination.url {
+                    if !fm.fileExists(atPath: pairSlot.path) {
+                        free = pairSlot
+                    } else {
+                        _ = holdsThisFrame(pairSlot)
+                    }
                 }
                 if let earlierCopy, let earlierDigest {
                     guard earlierDigest.byteCount == copy.byteCount else {
@@ -724,6 +871,26 @@ public struct VerifiedCopyDriver: Sendable {
             onChunk(Int64(chunk.count))
         }
 
+        // A complete copy is flushed to the medium before it gets its final name, so a
+        // name never points at bytes that exist only in the page cache. A flush that
+        // fails is that destination's failure: its `.part` is removed, never renamed.
+        if !stopped && readFailure == nil && bytes == copy.byteCount {
+            var flushed: [Writer] = []
+            for writer in live {
+                do {
+                    try syncFile(writer.handle)
+                    flushed.append(writer)
+                } catch let error {
+                    try? writer.handle.close()
+                    try? fm.removeItem(at: writer.temp)
+                    results.append(verdict(writer.planned, writer.final, writer.role,
+                                           .failed(.unwritableDestination(
+                                               error.localizedDescription))))
+                }
+            }
+            live = flushed
+        }
+
         for writer in live { try? writer.handle.close() }
 
         if stopped || readFailure != nil {
@@ -783,6 +950,17 @@ public struct VerifiedCopyDriver: Sendable {
                 try? fm.removeItem(at: writer.temp)
                 results.append(verdict(writer.planned, writer.final, writer.role,
                                        .failed(.unwritableDestination(error.localizedDescription))))
+                continue
+            }
+
+            // The rename lives in the directory, and is lost with it unless the directory
+            // is flushed too. Until it is, the copy is not durable, so it is not kept.
+            do {
+                try syncDirectory(landed.deletingLastPathComponent())
+            } catch let error {
+                let failure = cleanupUnverifiedCopy(at: landed, owner: installedOwner,
+                    failure: .unwritableDestination(error.localizedDescription))
+                results.append(verdict(writer.planned, landed, writer.role, .failed(failure)))
                 continue
             }
 

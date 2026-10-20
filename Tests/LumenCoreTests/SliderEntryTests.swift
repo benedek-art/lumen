@@ -146,6 +146,27 @@ final class SliderEntryTests: XCTestCase {
         }
     }
 
+    func testADecimalCommaIsADecimalPoint() throws {
+        for separator in [",", "."] {
+            XCTAssertEqual(try XCTUnwrap(SliderEntry.value(of: "0,7", current: 0,
+                                                           decimalSeparator: separator)),
+                           0.7, accuracy: 1e-12)
+            XCTAssertEqual(try XCTUnwrap(SliderEntry.value(of: "+= 0,3", current: 1,
+                                                           decimalSeparator: separator)),
+                           1.3, accuracy: 1e-12)
+        }
+        // A comma locale reads "5,500" as five and a half; a point locale refuses it as
+        // an ambiguous thousands group rather than guessing.
+        XCTAssertEqual(SliderEntry.value(of: "5,500", current: 0, decimalSeparator: ","), 5.5)
+        XCTAssertNil(SliderEntry.value(of: "5,500", current: 0, decimalSeparator: "."))
+        XCTAssertNil(SliderEntry.value(of: "1,2,3", current: 0, decimalSeparator: ","))
+    }
+
+    func testTheTypographicMinusIsAMinus() {
+        XCTAssertEqual(SliderEntry.value(of: "\u{2212}0.5", current: 0), -0.5)
+        XCTAssertEqual(SliderEntry.value(of: "\u{2212}= 2", current: 5), 3)
+    }
+
     func testANonFiniteCURRENTValueCannotBeBuiltOn() {
         // Defence in depth: nothing should ever hand this a NaN, and if something does,
         // the answer is "no" rather than another NaN travelling one hop further.

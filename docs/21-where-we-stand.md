@@ -94,8 +94,8 @@ the export is less sharpened than any frame the user can see — and, because pr
 at 4096 px, **there is no surface in the app where export sharpening can be judged
 truthfully** (DETAIL-11).
 
-**6 — The app layer has no test target.** `Package.swift` declares tests for LumenCore
-and LumenPipeline only. Every UI-to-recipe binding, the keymap, culling, the prefetch
+**6 — The app layer had no test target.** (Since added: `Package.swift` now declares
+`LumenAppTests`, about 400 tests; the bindings below are the list it was built against.) Every UI-to-recipe binding, the keymap, culling, the prefetch
 ring, the quit flush, `startingRecipe`, and Auto Tone's measurement function are
 unfalsifiable by construction. Several findings are only findings because the logic sits
 in LumenApp; moving pure functions down into LumenCore is the cheap half of the fix, and

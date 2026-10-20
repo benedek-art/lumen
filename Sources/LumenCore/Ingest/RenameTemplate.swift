@@ -88,8 +88,10 @@ public enum RenameTemplate {
         guard !trimmed.isEmpty, trimmed != ".", trimmed != ".." else { return nil }
         // Belt and braces: `sanitize` maps these already, but this function is the one
         // a caller reaches for when it is about to build a path, and a separator here
-        // is the difference between a filename and a traversal.
-        guard !trimmed.contains("/"), !trimmed.contains("\\") else { return nil }
+        // is the difference between a filename and a traversal. Scalars, not
+        // Characters: "/" plus a combining mark is one grapheme that is not "/".
+        guard !trimmed.unicodeScalars.contains(where: { $0 == "/" || $0 == "\\" })
+        else { return nil }
         return trimmed
     }
 

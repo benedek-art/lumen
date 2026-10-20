@@ -418,6 +418,47 @@ final class RecipeCodecToleranceTests: XCTestCase {
         }
     }
 
+    // MARK: - The whole recipe, through both wires
+
+    // Every test above drops ONE key from encoder output and compares encoder output
+    // with encoder output, so a field that a custom `encode(to:)` never writes is
+    // absent on both sides and never checked. These send the populated sample, every
+    // field off its default, through the canonical sparse codec and through XMP, and
+    // compare RECIPES. Proven able to fail: a `Denoise` decoder that ignores
+    // `colorSmoothness` (always 50), or an encoder that omits it, turns both red while
+    // every other test in this file stays green.
+
+    func testThePopulatedRecipeSurvivesTheCanonicalWireWhole() throws {
+        let recipe = Self.populated()
+        XCTAssertNotEqual(recipe, Recipe(), "the sample must not be the default")
+        let wire = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let back = try CanonicalJSON.decodeRecipe(from: Data(wire.utf8))
+        XCTAssertEqual(back.develop, recipe.develop)
+        XCTAssertEqual(back.look, recipe.look)
+        XCTAssertEqual(back.masks, recipe.masks)
+        XCTAssertEqual(back.maskGroups, recipe.maskGroups)
+        XCTAssertEqual(back, recipe)
+        // Canonical means a fixed point: re-encoding what was read is byte-identical.
+        XCTAssertEqual(try CanonicalJSON.canonicalRecipeJSON(back), wire)
+    }
+
+    func testThePopulatedRecipeSurvivesTheXMPSidecarWhole() throws {
+        let recipe = Self.populated()
+        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let content = SidecarContent(rating: 3, label: "Red",
+                                     pipelineVersion: recipe.pipelineVersion,
+                                     recipeFingerprint: try RecipeFingerprint.fingerprint(recipe),
+                                     recipeJSON: json)
+        let xmp = XMPSidecar.serialize(content)
+        let parsed = try XCTUnwrap(XMPSidecar.parse(xmp), "the sidecar must parse")
+        XCTAssertEqual(parsed.recipeJSON, json, "XML escaping must return the JSON byte for byte")
+        XCTAssertEqual(parsed.pipelineVersion, recipe.pipelineVersion)
+        XCTAssertEqual(parsed.recipeFingerprint, content.recipeFingerprint)
+        let back = try CanonicalJSON.decodeRecipe(from: Data(try XCTUnwrap(parsed.recipeJSON).utf8))
+        XCTAssertEqual(back, recipe)
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(back), content.recipeFingerprint)
+    }
+
     // MARK: - The sample
 
     /// A recipe with every field set to something that is NOT its default, every
@@ -493,7 +534,9 @@ final class RecipeCodecToleranceTests: XCTestCase {
                              classic: ClassicNR(luma: 10, chroma: 20, hotPixels: 30,
                                                 lumaDetail: 40, lumaContrast: 50,
                                                 colorDetail: 60, colorSmoothness: 70,
-                                                lumaUserSet: true, chromaUserSet: true)),
+                                                lumaUserSet: true, chromaUserSet: true),
+                             raw: RawDenoiseSettings(enabled: true, strength: 40,
+                                                     model: "lumen-denoise/b64")),
             geometry: Geometry(
                 crop: Crop(x: 0.1, y: 0.2, w: 0.7, h: 0.6),
                 angle: 2.5, flipH: true,
@@ -529,7 +572,7 @@ final class RecipeCodecToleranceTests: XCTestCase {
             grain: CreativeGrain(amount: 42, size: 66, roughness: 24),
             render: RenderParams(preset: "Punchy", contrast: 1.4, skew: 0.2,
                                  huePreservation: 60, blackTarget: 2, whiteTarget: 105),
-            lut: LUTReference(ref: "blob:xxh64:000000000000000a", name: "Kodachrome",
+            lut: LUTReference(ref: "blob:xxh64:000000000000000a", name: "Koda & <chrome> \"ü\u{301}\"\t",
                               tap: .log, amount: 70))
 
         var component = MaskComponent(op: .subtract, kind: .similarityLine,
@@ -571,7 +614,7 @@ final class RecipeCodecToleranceTests: XCTestCase {
         populatedAdjust.kelvin = 4300
         populatedAdjust.kelvinTint = -14
 
-        let mask = Mask(id: "5C0F6B8A-0000-4000-8000-000000000001", name: "Sky",
+        let mask = Mask(id: "5C0F6B8A-0000-4000-8000-000000000001", name: "Sky & <Sea> \"]]>",
                         enabled: false, invert: true, amount: 150,
                         components: [component],
                         refine: MaskRefine(feather: 12, edge: -5, blur: 7,
@@ -584,5 +627,29 @@ final class RecipeCodecToleranceTests: XCTestCase {
                       maskGroups: [MaskGroup(id: "8A1B0000-0000-4000-8000-0000000000f0",
                                              name: "Retouch", enabled: false,
                                              amount: 65, collapsed: true)])
+    }
+}
+
+/// Version stamping across the wire, for the vocabulary that raises it.
+final class RecipeVersionStampTests: XCTestCase {
+
+    /// A recipe given a heal stroke AFTER construction (how the app edits: mutate a
+    /// copy) must still state the heal version once it is written and read back.
+    /// An older build that reads "2" would open the document and drop the strokes.
+    func testAStrokeAddedByMutationStillStatesTheHealVersionOnTheWire() throws {
+        var recipe = Recipe()
+        recipe.develop.heal.strokesRef = "blob:xxh64:0000000000000001"
+        let wire = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let back = try CanonicalJSON.decodeRecipe(from: Data(wire.utf8))
+        XCTAssertEqual(back.develop.heal.strokesRef, recipe.develop.heal.strokesRef)
+        XCTAssertGreaterThanOrEqual(back.pipelineVersion, healSpotsPipelineVersion,
+                                    "wire: \(wire)")
+    }
+
+    /// Raise-only: a document from a NEWER build keeps its own number.
+    func testANewerDocumentKeepsItsVersion() throws {
+        let back = try CanonicalJSON.decodeRecipe(
+            from: Data(#"{"pipelineVersion":99}"#.utf8))
+        XCTAssertEqual(back.pipelineVersion, 99)
     }
 }

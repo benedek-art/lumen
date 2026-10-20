@@ -1,0 +1,26 @@
+{
+ "noisy": {
+  "100": {
+   "psnr": 50.723,
+   "ssim": 0.9944,
+   "sec_per_crop": 0.0
+  },
+  "400": {
+   "psnr": 45.414,
+   "ssim": 0.9817,
+   "sec_per_crop": 0.0
+  }
+ },
+ "net:runs/A_nf32_sony/best.pt": {
+  "100": {
+   "psnr": 45.04,
+   "ssim": 0.99,
+   "sec_per_crop": 0.033
+  },
+  "400": {
+   "psnr": 44.616,
+   "ssim": 0.9887,
+   "sec_per_crop": 0.027
+  }
+ }
+}

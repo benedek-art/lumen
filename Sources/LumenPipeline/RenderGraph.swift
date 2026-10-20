@@ -1126,9 +1126,11 @@ public struct RenderGraph {
         // fog. Measured against the reference on a hazy scene, a sky pixel lost 0.16
         // scene-linear in blue, about a fifth of it, and desaturated instead of hazing.
         //
-        // The masked mean comes out of two area averages: the kernel zeroes everything
+        // The masked mean comes out of one area average: the kernel zeroes everything
         // below the threshold and carries the selection in alpha, so sum(rgb)/N divided
-        // by sum(alpha)/N is the mean over the selected pixels alone.
+        // by sum(alpha)/N is the mean over the selected pixels alone. Both come from the
+        // same readback; reading rgb and alpha separately rendered the identical pixel
+        // twice, and each render re-pulls the whole upstream frame.
         let proxy = Self.scaledToProxy(dark)
         let imageProxy = Self.scaledToProxy(image)
         let brightest = Self.maximumColor(proxy)?.maxComponent ?? 0.8
@@ -1136,9 +1138,9 @@ public struct RenderGraph {
         if let masked = KernelLibrary.apply(
             KernelLibrary.thresholdMask, extent: imageProxy.extent,
             [imageProxy, proxy, Float(brightest * 0.99)]),
-           let sums = Self.averageColor(masked),
-           let weight = Self.averageAlpha(masked), weight > 1e-6 {
-            airlight = RGB(sums.r / weight, sums.g / weight, sums.b / weight)
+           let stats = Self.averageColorAndAlpha(masked), stats.alpha > 1e-6 {
+            airlight = RGB(stats.rgb.r / stats.alpha, stats.rgb.g / stats.alpha,
+                           stats.rgb.b / stats.alpha)
         }
         // t = 1 − ω·darkChannel(I / A), refined. Three things here were not the
         // reference's, and together they were putting scene-linear pixels below zero.
@@ -1281,24 +1283,28 @@ public struct RenderGraph {
         // against 0.074 and 4.1% at 65, so every masked colour edit in an export
         // carried preview-grade error that the preview it was judged on also carried
         // and the file did not have to.
-        let localPlan = LocalPlan(adjust: a, scale: scale,
-                                  whiteAnchorEV: plan.tone.whiteAnchorEV,
-                                  blackAnchorEV: plan.tone.blackAnchorEV,
-                                  size: lutSize,
-                                  globalColor: plan.recipe.develop.color,
-                                  globalWheels: plan.recipe.look.wheels,
-                                  balanced: plan.balancedNeutral)
+        //
+        // Through `LocalTableCache`, keyed on every argument below: a drag of any other
+        // control leaves this mask's tables bit-identical, and they were re-baked and
+        // re-copied into upload bytes on every frame regardless.
+        let localPlan = LocalTableCache.plan(adjust: a, scale: scale,
+                                             whiteAnchorEV: plan.tone.whiteAnchorEV,
+                                             blackAnchorEV: plan.tone.blackAnchorEV,
+                                             size: lutSize,
+                                             globalColor: plan.recipe.develop.color,
+                                             globalWheels: plan.recipe.look.wheels,
+                                             balanced: plan.balancedNeutral)
         // Three pieces, in the order the reference evaluates them: the tone/white
         // balance table, the mask's colour stage EXACTLY (AI-03 — its swatches and
         // Saturation are the same hue- and chroma-selective tools the global table
         // could not hold), then the hue/tint/grade table. Each is skipped only when it
         // is the identity, so a control crossing zero adds or removes one exact piece
         // and never changes how the others are evaluated.
-        if let pre = localPlan.preLUT {
+        if let pre = localPlan.pre {
             out = throughShaper(out) { encoded in ColorCube.filter(pre, image: encoded) } ?? out
         }
         out = applyColorStage(out, localPlan.colorStage)
-        if let post = localPlan.postLUT {
+        if let post = localPlan.post {
             out = throughShaper(out) { encoded in ColorCube.filter(post, image: encoded) } ?? out
         }
 
@@ -1379,10 +1385,13 @@ public struct RenderGraph {
             // recipe's white; `finishScale` is the white of the picture in hand. Taking
             // the former here would denominate a local curve in a white the pixels do
             // not have — the same defect that pairing exists to end, one stage over.
-            let curve = LocalCurve(curve: mask.adjust.curve, amount: mask.amount,
-                                   white: plan.finishScale)
-            guard !curve.isIdentity, let alpha = maskImages[mask.id] else { continue }
-            let table = LocalCurvePlan(curve: curve, size: options.lutSize).lut
+            //
+            // `LocalTableCache` builds the `LocalCurve` and its table only on a miss; a
+            // nil table is the identity curve, skipped exactly as before.
+            let curve = LocalTableCache.curve(mask.adjust.curve, amount: mask.amount,
+                                              white: plan.finishScale,
+                                              size: options.lutSize)
+            guard let table = curve.table, let alpha = maskImages[mask.id] else { continue }
             guard let curved = Self.throughShaper(out, { encoded in
                 ColorCube.filter(table, image: encoded)
             }) else { continue }
@@ -2191,10 +2200,18 @@ public struct RenderGraph {
     }
 
     /// The mean of a masked image's alpha — the fraction of pixels the mask kept.
-    ///
-    /// Its own read rather than `readOnePixel`, which returns an `RGB` and therefore
-    /// throws away the only channel this cares about.
     static func averageAlpha(_ image: CIImage) -> Double? {
+        averageColorAndAlpha(image)?.alpha
+    }
+
+    /// Mean colour AND mean alpha of `image` from one area-average readback.
+    ///
+    /// The masked airlight needs both, and they are the same pixel: `averageColor`
+    /// then `averageAlpha` rendered it twice through `statisticsContext`, re-evaluating
+    /// the full-frame upstream each time, to keep three channels of one read and the
+    /// fourth of the other. Nil when alpha is not finite, which is the check
+    /// `averageAlpha` always made; rgb is left unchecked, as `averageColor` leaves it.
+    static func averageColorAndAlpha(_ image: CIImage) -> (rgb: RGB, alpha: Double)? {
         let filter = CIFilter.areaAverage()
         filter.inputImage = image
         filter.extent = image.extent
@@ -2203,8 +2220,9 @@ public struct RenderGraph {
         statisticsContext.render(output, toBitmap: &pixel, rowBytes: 16,
                                  bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
                                  format: .RGBAf, colorSpace: nil)
-        let value = Double(pixel[3])
-        return value.isFinite ? value : nil
+        let alpha = Double(pixel[3])
+        guard alpha.isFinite else { return nil }
+        return (RGB(Double(pixel[0]), Double(pixel[1]), Double(pixel[2])), alpha)
     }
 
     /// The brightest value in `image`. Used on an already-downsampled proxy, which is
@@ -2262,10 +2280,10 @@ struct LocalPlan {
     /// `size` is the render's table size, not a default: an export bakes at
     /// `LUT3D.exportSize` and a preview at `LUT3D.interactiveSize`, and there is
     /// deliberately no default value here so that a new call site has to say which
-    /// render it is baking for. Nothing caches this table — `PlanTableCache` refuses
-    /// anything above the interactive size on purpose — so the size is not part of any
-    /// cache key; it is baked once per mask per render, which at export is 274 625
-    /// samples per mask instead of 35 937.
+    /// render it is baking for. `LocalTableCache` holds the interactive-size bake under
+    /// a key of every argument here and, like `PlanTableCache`, refuses anything larger,
+    /// so an export still bakes once per mask per render — 274 625 samples per mask
+    /// instead of 35 937 — and keeps nothing.
     /// `globalColor` and `globalWheels` are the GLOBAL panels' values, and they have
     /// no defaults for the same reason `size` has none: a call site that forgets them
     /// silently reverts COLOR-16/COLOR-27 — the masked grade re-zoned by factory
@@ -2397,6 +2415,147 @@ enum CreativeLUTCubes {
         let made = ColorCube.Baked(lut.cube)
         baked[lut.ref] = made
         return made
+    }
+}
+
+/// Each mask's local tables, already in upload bytes, keyed by value.
+///
+/// `LocalPlan` and the local point curve were baked on every frame of every drag, for
+/// every mask, though dragging Exposure, a crop or ANOTHER mask's slider leaves their
+/// inputs where they were. This is `PlanTableCache`'s argument, not the one
+/// `ColorCube.filter(_ lut:)` warns against: the key holds every argument the bake
+/// reads, so any number that moves misses and no edit can freeze on screen. Both inits
+/// are pure functions of those arguments and `LUT3D`'s parallel bake is bit-identical
+/// to the serial loop, so a hit hands the kernel exactly the bytes a cold bake would.
+///
+/// AN ARGUMENT ADDED TO `LocalPlan.init` OR `LocalCurve.init` GOES IN THE KEY.
+///
+/// The top-level Doubles compare by bit pattern, so those are exact even across ±0.
+/// Nested types use their synthesized `==` — the ±0 tolerance `PlanKeyMemo` already
+/// accepts, and harmless here because every zero test in these inits reads −0 and +0
+/// alike. Only interactive sizes are held (an export's 65-cube is 4.4 MB a table, for a
+/// render that happens once), and each list keeps its eight most recent entries: at 33,
+/// about 9 MB of plan tables and 4.6 MB of curves. The value is only what the graph
+/// consumes — upload bytes, not the `LUT3D`s they were copied from.
+enum LocalTableCache {
+    struct LocalTables: Sendable {
+        let pre: ColorCube.Baked?
+        let colorStage: ExactColorStage
+        let post: ColorCube.Baked?
+    }
+
+    struct LocalCurveTable: Sendable {
+        /// Nil when `LocalCurve` reports identity; the tap is skipped, as before.
+        let table: ColorCube.Baked?
+    }
+
+    private struct PlanKey: Equatable {
+        let adjust: LocalAdjust
+        let scale: UInt64
+        let whiteAnchorEV: UInt64
+        let blackAnchorEV: UInt64
+        let size: Int
+        let globalColor: ColorAdjust
+        let globalWheels: GradingWheels
+        let balanced: WhiteBalanceEngine.Neutral
+    }
+
+    private struct CurveKey: Equatable {
+        let curve: CurveSet?
+        let amount: UInt64
+        let white: UInt64
+        let size: Int
+    }
+
+    private static let lock = NSLock()
+    private static var plans: [(key: PlanKey, value: LocalTables)] = []
+    private static var curves: [(key: CurveKey, value: LocalCurveTable)] = []
+    private static let limit = 8
+    /// Lookups answered from the cache, counted for tests.
+    private static var hitCount = 0
+
+    static var hits: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return hitCount
+    }
+
+    static func plan(adjust: LocalAdjust, scale: Double, whiteAnchorEV: Double,
+                     blackAnchorEV: Double, size: Int,
+                     globalColor: ColorAdjust, globalWheels: GradingWheels,
+                     balanced: WhiteBalanceEngine.Neutral) -> LocalTables {
+        let build: () -> LocalTables = {
+            let made = LocalPlan(adjust: adjust, scale: scale,
+                                 whiteAnchorEV: whiteAnchorEV, blackAnchorEV: blackAnchorEV,
+                                 size: size, globalColor: globalColor,
+                                 globalWheels: globalWheels, balanced: balanced)
+            return LocalTables(pre: made.preLUT.map { ColorCube.Baked($0) },
+                               colorStage: made.colorStage,
+                               post: made.postLUT.map { ColorCube.Baked($0) })
+        }
+        guard size <= LUT3D.interactiveSize else { return build() }
+        let key = PlanKey(adjust: adjust, scale: scale.bitPattern,
+                          whiteAnchorEV: whiteAnchorEV.bitPattern,
+                          blackAnchorEV: blackAnchorEV.bitPattern, size: size,
+                          globalColor: globalColor, globalWheels: globalWheels,
+                          balanced: balanced)
+        lock.lock()
+        if let hit = promote(key, in: &plans) {
+            hitCount += 1
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+        // OUTSIDE the lock, as `PlanTableCache` bakes: two threads racing on one cold
+        // key both bake, the bytes are identical, and whichever lands is right.
+        let made = build()
+        lock.lock()
+        store(key, made, in: &plans)
+        lock.unlock()
+        return made
+    }
+
+    static func curve(_ curve: CurveSet?, amount: Double, white: Double,
+                      size: Int) -> LocalCurveTable {
+        let build: () -> LocalCurveTable = {
+            // Built only on a miss, so a cached identity mask skips the spline solve too.
+            let local = LocalCurve(curve: curve, amount: amount, white: white)
+            guard !local.isIdentity else { return LocalCurveTable(table: nil) }
+            let lut = LocalCurvePlan(curve: local, size: size).lut
+            return LocalCurveTable(table: ColorCube.Baked(lut))
+        }
+        guard size <= LUT3D.interactiveSize else { return build() }
+        let key = CurveKey(curve: curve, amount: amount.bitPattern,
+                           white: white.bitPattern, size: size)
+        lock.lock()
+        if let hit = promote(key, in: &curves) {
+            hitCount += 1
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+        let made = build()
+        lock.lock()
+        store(key, made, in: &curves)
+        lock.unlock()
+        return made
+    }
+
+    /// Caller holds the lock. Most recent first, so eviction drops the oldest.
+    private static func promote<Key: Equatable, Value>(
+        _ key: Key, in list: inout [(key: Key, value: Value)]) -> Value? {
+        guard let i = list.firstIndex(where: { $0.key == key }) else { return nil }
+        let entry = list.remove(at: i)
+        list.insert(entry, at: 0)
+        return entry.value
+    }
+
+    /// Caller holds the lock.
+    private static func store<Key: Equatable, Value>(
+        _ key: Key, _ value: Value, in list: inout [(key: Key, value: Value)]) {
+        guard !list.contains(where: { $0.key == key }) else { return }
+        list.insert((key: key, value: value), at: 0)
+        if list.count > limit { list.removeLast() }
     }
 }
 

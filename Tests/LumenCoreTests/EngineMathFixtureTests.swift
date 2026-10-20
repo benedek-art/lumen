@@ -175,6 +175,7 @@ final class EngineMathFixtureTests: XCTestCase {
     // MARK: - Chroma scaling
 
     func testShapedChromaScaleMatchesTheReference() throws {
+        var compared = 0, reducing = 0
         for row in try rows(fixture(), "shapedChromaScale") {
             guard let rgb = row["rgb"] as? [NSNumber], rgb.count == 3,
                   let want = row["out"] as? [NSNumber], want.count == 3 else {
@@ -198,7 +199,14 @@ final class EngineMathFixtureTests: XCTestCase {
             guard gain <= 1 else { continue }
             XCTAssertLessThan(engine.apply(input).maxAbsDifference(expected), 1e-9,
                               "chroma scale diverged for \(input) at gain \(gain)")
+            compared += 1
+            if gain < 1 { reducing += 1 }
         }
+        // The skip above is deliberate, but a skip with no count is how this test once
+        // reported success over zero rows. Gain 1.0 rows are the identity and prove
+        // nothing on their own, so at least one row must actually reduce chroma.
+        XCTAssertGreaterThan(compared, 0, "every shapedChromaScale row was skipped")
+        XCTAssertGreaterThan(reducing, 0, "only identity rows were compared")
     }
 
     /// Saturation as the panel exposes it, at both signs.

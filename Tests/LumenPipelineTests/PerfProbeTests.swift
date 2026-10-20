@@ -15,6 +15,10 @@
 //     amortized by MaskRasterCache; the GPU-side apply is one kernel pass per mask
 //   · the film chain — no stock is loaded, so halation and grain are off; their cost
 //     is two gaussians and a tiled plate when a stock is on
+//
+// The second probe (EXPORTPROBE) times what the first leaves out at the other end:
+// export at sensor size, render and encoder apart, and a fresh renderer's first
+// preview. Same rule — a ceiling, and the numbers judged from the log.
 #if os(macOS)
 import XCTest
 import CoreImage
@@ -89,6 +93,178 @@ final class PerfProbeTests: XCTestCase {
                 "a full-pipeline frame at \(longEdge) px took over ten seconds — "
                     + "something is broken, not merely slow")
         }
+    }
+
+    // MARK: - Export at sensor size, and a fresh renderer's first frame
+
+    /// Hands back one of two frames materialized before any clock starts: the full
+    /// frame at `scaleFactor` 1 (the export's decode), the preview-sized one below it.
+    /// The app decodes at target scale, so a 2560 px preview that pushed all 33 MP
+    /// through the graph would time a workload nothing ever runs.
+    private final class StubSource: ImageSource {
+        let url = URL(fileURLWithPath: "/dev/null/perf-probe-export")
+        let asShotTemperature: Double = 5500
+        let asShotTint: Double = 0
+        let statisticsProvenance: RawStatistics.Provenance = .unspecified
+        private let full: CIImage
+        private let preview: CIImage
+        init(full: CIImage, preview: CIImage) {
+            self.full = full
+            self.preview = preview
+        }
+        var nativePixelSize: (width: Int, height: Int) {
+            (Int(full.extent.width), Int(full.extent.height))
+        }
+        var nativeLongEdge: Double { Double(max(full.extent.width, full.extent.height)) }
+        func decode(recipe: Recipe, draft: Bool, scaleFactor: Double) -> CIImage? {
+            scaleFactor < 1 ? preview : full
+        }
+        var captureMetadata: CaptureMetadata {
+            CaptureMetadata(asShotTemperature: asShotTemperature, asShotTint: asShotTint,
+                            decoderVersion: nil, pixelSize: nativePixelSize)
+        }
+    }
+
+    /// The generator rendered once into a half-float bitmap, so no timed render
+    /// re-runs it: the probe should time the pipeline, not the checkerboard.
+    private func materialized(_ image: CIImage, context: CIContext) -> CIImage {
+        let w = Int(image.extent.width), h = Int(image.extent.height)
+        let rowBytes = w * 8
+        var data = Data(count: rowBytes * h)
+        data.withUnsafeMutableBytes { bytes in
+            context.render(image, toBitmap: bytes.baseAddress!, rowBytes: rowBytes,
+                           bounds: image.extent, format: .RGBAh, colorSpace: nil)
+        }
+        return CIImage(bitmapData: data, bytesPerRow: rowBytes,
+                       size: CGSize(width: w, height: h), format: .RGBAh, colorSpace: nil)
+    }
+
+    /// One warm-up, then the best of two. Two rather than PERFPROBE's three because
+    /// each rep here is a 33 MP render with classic denoise on, in the debug build
+    /// gpu-parity runs.
+    private func bestOfTwo(_ label: String, _ body: () throws -> Void) rethrows -> Double {
+        var best = Double.greatestFiniteMagnitude
+        for rep in 0..<3 {
+            let t0 = DispatchTime.now().uptimeNanoseconds
+            try body()
+            let ms = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+            if rep > 0 { best = Swift.min(best, ms) } // rep 0 is warm-up
+        }
+        XCTAssertLessThan(best, 120_000,
+            "\(label) at 33 MP took over two minutes — something is broken, "
+                + "not merely slow")
+        return best
+    }
+
+    /// The full-resolution workload nothing else times: `export` at an A7 IV's
+    /// 7008×4672, with the render separated from the encoder, plus what a FRESH
+    /// `PipelineRenderer` costs to its first 2560 px preview.
+    ///
+    /// "Fresh" is not "cold". Kernels compile once per process and Metal keeps its
+    /// shader cache, so whichever test ran first already paid for them; what
+    /// renderer-init and fresh-context-first-frame price is a new CIContext and its
+    /// empty intermediate cache, and the number moves with test order. It is an upper
+    /// bound on a warm process, not the app's launch-to-first-preview.
+    ///
+    /// Encode cost is read off the log as tiff-total (or jpeg-total) minus render.
+    /// Every assertion is a sanity ceiling; the numbers are the point.
+    func testTimeExportAndFreshRendererFirstFrame() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable,
+                          "kernels unavailable, and export refuses without them")
+        // The renderer's own working options, so the readback below converts from the
+        // space the delivered image is actually in.
+        var options: [CIContextOption: Any] = [.workingFormat: CIFormat.RGBAh,
+                                               .cacheIntermediates: false]
+        if let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020) {
+            options[.workingColorSpace] = working
+        }
+        let context = CIContext(options: options)
+        let recipe = fullRecipe()
+        let full = materialized(syntheticFrame(longEdge: 7008), context: context)
+        let preview = materialized(syntheticFrame(longEdge: 2560), context: context)
+        let source = StubSource(full: full, preview: preview)
+
+        // (a) A fresh renderer to its first preview, and the same call again.
+        var t0 = DispatchTime.now().uptimeNanoseconds
+        let renderer = PipelineRenderer()
+        let initMs = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6
+        var frameMs: [Double] = []
+        for _ in 0..<2 {
+            t0 = DispatchTime.now().uptimeNanoseconds
+            // The delivery's `createCGImage` renders eagerly, so this is the whole
+            // frame and not a promise of one.
+            let delivery = try renderer.renderPreviewDelivery(
+                source: source, recipe: recipe, maxLongEdge: 2560,
+                draft: false, coarseDecode: false)
+            frameMs.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e6)
+            let longEdge = Swift.max(delivery.image.width, delivery.image.height)
+            XCTAssertEqual(Double(longEdge), 2560, accuracy: 1)
+        }
+        print(String(format: "EXPORTPROBE renderer-init %9.1f ms", initMs))
+        print(String(format: "EXPORTPROBE fresh-context-first-frame %9.1f ms",
+                     frameMs[0]))
+        print(String(format: "EXPORTPROBE second-frame %9.1f ms", frameMs[1]))
+        for ms in [initMs] + frameMs {
+            XCTAssertLessThan(ms, 120_000, "a 2560 px preview took over two minutes")
+        }
+
+        // The sensor-sized half is opt-in, like `SpeedBenchTests`: on the gpu-parity
+        // runner's paravirtual GPU a 33 MP RGBAh export with denoise on ran out of GPU
+        // memory (kIOGPUCommandBufferCallbackErrorOutOfMemory, ~90 times) and took
+        // 287 s, so that lane can only report the runner, not the pipeline. Run it on
+        // a real Mac with LUMEN_BENCH=1.
+        guard let bench = ProcessInfo.processInfo.environment["LUMEN_BENCH"],
+              bench != "0", !bench.isEmpty else {
+            print("EXPORTPROBE 33MP skipped: set LUMEN_BENCH=1 on a real GPU")
+            return
+        }
+
+        // (b) The delivered pixels into ONE reused 16-bit buffer, 262 MB allocated
+        // once: a fresh one per rep would time a second sensor-sized allocation the
+        // export never makes.
+        let w = Int(full.extent.width), h = Int(full.extent.height)
+        let frame = CGRect(x: 0, y: 0, width: w, height: h)
+        let rowBytes = w * 8
+        let readback = UnsafeMutableRawPointer.allocate(byteCount: rowBytes * h,
+                                                        alignment: 64)
+        defer { readback.deallocate() }
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)
+        let renderMs = try bestOfTwo("render") {
+            let image = try renderer.exportedImage(source: source, recipe: recipe,
+                                                   using: ExportRecipe(name: "probe"))
+            XCTAssertEqual(image.extent.integral, frame,
+                           "the readback buffer is sized for an uncropped, unresized frame")
+            context.render(image, toBitmap: readback, rowBytes: rowBytes,
+                           bounds: frame, format: .RGBA16, colorSpace: srgb)
+        }
+
+        // The whole `export`, encoder and atomic rename included. A fresh name per
+        // rep, because `export` refuses to overwrite.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lumen-exportprobe-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func total(_ label: String, _ exportRecipe: ExportRecipe) throws -> Double {
+            try bestOfTwo(label) {
+                let destination = directory.appendingPathComponent(
+                    UUID().uuidString + "." + exportRecipe.format.fileExtension)
+                defer { try? FileManager.default.removeItem(at: destination) }
+                _ = try renderer.export(source: source, recipe: recipe,
+                                        to: destination, using: exportRecipe)
+            }
+        }
+        let tiffMs = try total("tiff-total",
+                               ExportRecipe(name: "probe-tiff16", format: .tiff,
+                                            bitDepth: 16, colorSpace: .srgb,
+                                            resizeMode: .none))
+        let jpegMs = try total("jpeg-total",
+                               ExportRecipe(name: "probe-jpeg", format: .jpeg,
+                                            colorSpace: .srgb, resizeMode: .none))
+
+        print(String(format: "EXPORTPROBE 33MP render %9.1f ms", renderMs))
+        print(String(format: "EXPORTPROBE 33MP tiff-total %9.1f ms", tiffMs))
+        print(String(format: "EXPORTPROBE 33MP jpeg-total %9.1f ms", jpegMs))
     }
 }
 #endif

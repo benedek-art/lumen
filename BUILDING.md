@@ -16,7 +16,7 @@ swift run LumenApp       # launch directly
 scripts/build-app.sh     # or build dist/Lumen.app and `open dist/Lumen.app`
 ```
 
-**Or download it, already built.** Every push builds the bundle on CI and attaches it:
+**Or download it, already built.** Every push that touches anything outside `docs/` builds the bundle on CI and attaches it (kept 30 days):
 open the branch's latest run under the repository's **Actions** tab, and take the
 `Lumen-app` artifact from the summary page. Unzip and `open Lumen.app`.
 
@@ -45,28 +45,28 @@ export it (⌘E).
 | Target | Contents | Platforms |
 |---|---|---|
 | `LumenCore` | The whole engine as pure Swift: colour science, the display transform, tone, curves, colour and grade, the film chain, spatial filters, denoise, mask rasterization, scopes, the SQLite catalog, the recipe format. No UI, no Apple-only frameworks. | macOS + Linux |
-| `LumenPipeline` | The Core Image render path: thirty-three small kernels, the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
+| `LumenPipeline` | The Core Image render path: a few dozen small kernels (`Kernels.swift` is the count), the graph, the RAW stage, export. No AppKit, no SwiftUI — deliberately, so it stays testable headless. | macOS |
 | `LumenApp` | The SwiftUI application. | macOS |
 
 ## How this code was verified
 
 **LumenCore compiles and tests locally now.** `scripts/install-linux-toolchain.sh`
 fetches a Linux Swift toolchain; `swift build --target LumenCore` takes about ten
-seconds and `swift test --filter LumenCoreTests` runs the ~200 tests that do not need
-Core Image. That covers eighteen thousand lines — all the colour science, tone, grade,
+seconds and `swift test --filter LumenCoreTests` runs the roughly 2,600 tests that do not need
+Core Image (CI skips `ControlProofTests` there and runs it in `proof.yml`). That covers eighteen thousand lines — all the colour science, tone, grade,
 film, detail, denoise, mask algebra, catalog and XMP.
 
 It does NOT cover LumenPipeline or LumenApp, which are `#if os(macOS)` and need Core
 Image, AppKit and SwiftUI. Those still go through the macOS runner, and
 `scripts/check-swift-surface.py` remains their only local feedback — which is why that
-script has eight passes rather than one. Two bugs shipped in a single afternoon that a
+script has thirteen passes rather than one. Two bugs shipped in a single afternoon that a
 compiler catches in seconds: a member that did not exist on a type, and an overlay
 drawing against a rectangle the renderer had already applied.
 
 
 There is no Swift toolchain on the machine this was written on, and swift.org is
 blocked by its egress policy. So the verification loop is **GitHub Actions' macOS
-runner**: it compiles all four targets and runs both suites there, and the CI log is
+runner**: it compiles all four targets and runs all three test suites there (LumenCore, LumenPipeline, LumenApp), and the CI log is
 filtered down to deduplicated diagnostics so a round is readable.
 
 > **⚠️ A large batch of commits went uncompiled for a while.** Partway through
@@ -80,9 +80,11 @@ filtered down to deduplicated diagnostics so a round is readable.
 > `SQLiteError` in `SQLite.swift`, the one file that does import it. That error stopped
 > the build at LumenCore, so LumenPipeline and LumenApp are still waiting on a compiler
 > — treat them as unverified until a run gets past this point.
+> **Since resolved:** the full optimized macOS suite now compiles and passes on hosted
+> runners; see [current state](docs/audits/2026-10-07-deep/CURRENT-STATE.md).
 >
-> What stood in for it meanwhile, and still runs on every push: the Python mirror below,
-> and `scripts/check-swift-surface.py`, which makes eight mechanical passes over the
+> What stood in for it meanwhile, and still runs on every non-docs push: the Python mirror below,
+> and `scripts/check-swift-surface.py`, which makes thirteen mechanical passes over the
 > whole tree — every capitalized identifier resolves against the declarations in-tree,
 > every `Type(...)` call site matches one of that type's declared initializers, every
 > call to an actor-isolated member is awaited, every `TypeName.member` names something
@@ -238,7 +240,7 @@ S15 curve    ┘        one 3-D table, log domain in, display-linear out
 S16 geometry          crop ∘ rotate, one resample
 ```
 
-The custom-shader surface is therefore thirty-three small kernels
+The custom-shader surface is therefore a few dozen small kernels
 (`Sources/LumenPipeline/Kernels.swift`) — the log shaper, image-by-image arithmetic for
 the guided filter, mask compositing, grain, vignette, dehaze, halation, and the nine
 that make up S3's variance-stabilizing transform and à-trous shrinkage. Everything else

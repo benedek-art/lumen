@@ -1257,13 +1257,24 @@ public struct Denoise: Codable, Equatable, Sendable {
     public var amount: Double       // AI blend 0…100; instant post-compute
     public var model: String?       // e.g. "nafnet/2.1"; nil = current default
     public var classic: ClassicNR
+    /// The raw-domain (Bayer, pre-demosaic) AI denoiser — `Denoise/` — run as a cached
+    /// pre-pass. Optional and nil by default ON PURPOSE: a nil optional is omitted by
+    /// the synthesized encoder, so every recipe that has never touched it — every
+    /// stored sidecar, the full default tree in `default-recipe.json`, every `recipe_fp`
+    /// — stays byte-identical. A defaulted non-optional would have been pruned by the
+    /// sparse canonical form too, but would still have changed the full default tree
+    /// and its fixture. It is a separate field rather than a fourth `Mode` because an
+    /// unknown enum case fails to decode in older builds (RecipeDecoding.swift), and
+    /// because it composes with Tier 1 rather than replacing it.
+    public var raw: RawDenoiseSettings?
 
     public init(mode: Mode = .classic, amount: Double = 50, model: String? = nil,
-                classic: ClassicNR = ClassicNR()) {
+                classic: ClassicNR = ClassicNR(), raw: RawDenoiseSettings? = nil) {
         self.mode = mode
         self.amount = amount
         self.model = model
         self.classic = classic
+        self.raw = raw
     }
 
     /// Luminance and colour fractions, 0…1, for the RAW decoder's own denoise stage.
@@ -1297,7 +1308,7 @@ public struct Denoise: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case mode, amount, model, classic
+        case mode, amount, model, classic, raw
     }
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
@@ -1309,6 +1320,62 @@ public struct Denoise: Codable, Equatable, Sendable {
         self.model = try c.decodeIfPresent(String.self, forKey: .model)
         self.classic = try c.decodeIfPresent(ClassicNR.self, forKey: .classic)
             ?? ClassicNR()
+        self.raw = try c.decodeIfPresent(RawDenoiseSettings.self, forKey: .raw)
+    }
+}
+
+/// Per-photo settings for the raw-domain AI denoiser (Denoise/LUMEN_INTEGRATION.md).
+///
+/// The network runs once per photo, at full strength, as a background pre-pass whose
+/// result is cached under `RawDenoiseCacheKey`; `strength` is applied afterwards as
+/// the linear blend `s·denoised + (1−s)·original` that `Denoise/lumen_denoise/infer.py`
+/// uses. That split is why strength is a recipe value but NOT part of any denoise
+/// input or cache key: dragging it must be a cheap mix of two cached planes, never a
+/// re-run of the network.
+///
+/// Nothing here is consulted unless `RawDenoiseFeature.isEnabled`; a recipe carrying
+/// this block opens unchanged in a build without the feature.
+public struct RawDenoiseSettings: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    /// 0…100, the Mac app's slider scale; read it through `strengthFraction`.
+    public var strength: Double
+    /// Model identity, e.g. "lumen-denoise/b64"; nil = the bundled default.
+    public var model: String?
+
+    public static let defaultStrength: Double = 100
+
+    public init(enabled: Bool = false, strength: Double = RawDenoiseSettings.defaultStrength,
+                model: String? = nil) {
+        self.enabled = enabled
+        self.strength = strength
+        self.model = model
+    }
+
+    /// The blend weight, 0…1. The stored value is kept exactly as written (a sidecar
+    /// round-trips byte for byte); the clamp lives here so a hand-edited 250 or a
+    /// negative does not extrapolate past the denoised result or past the original,
+    /// and a non-finite value — which only an in-memory writer can produce — means
+    /// the default rather than NaN pixels.
+    public var strengthFraction: Double {
+        guard strength.isFinite else { return Self.defaultStrength / 100 }
+        return Num.clamp(strength, 0, 100) / 100
+    }
+
+    /// Whether the pre-pass result is visible at all: enabled and not blended to zero.
+    public var isActive: Bool { enabled && strengthFraction > 0 }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, strength, model
+    }
+
+    /// Tolerant like every recipe type: `{"enabled":true}` is full strength, `{}` is
+    /// the off default. See RecipeDecoding.swift.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.strength = try c.decodeIfPresent(Double.self, forKey: .strength)
+            ?? Self.defaultStrength
+        self.model = try c.decodeIfPresent(String.self, forKey: .model)
     }
 }
 
@@ -1622,7 +1689,31 @@ public struct Heal: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.strokesRef = try c.decodeIfPresent(String.self, forKey: .strokesRef)
         self.count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
-        self.spots = try c.decodeIfPresent([HealSpot].self, forKey: .spots) ?? []
+        self.spots = Heal.distinctIDs(
+            try c.decodeIfPresent([HealSpot].self, forKey: .spots) ?? [])
+    }
+
+    /// Spots are addressed by id (select, drag, delete), and a spot decoded without one
+    /// used to get "" — so every id-less spot in a hand-edited or foreign document
+    /// shared it, and deleting the selected spot deleted all of them. Empty and repeated
+    /// ids get `spot-<index>`, deterministically, so decoding the same document twice
+    /// gives the same recipe. Ids never reach the render.
+    static func distinctIDs(_ spots: [HealSpot]) -> [HealSpot] {
+        var seen: Set<String> = []
+        var out = spots
+        for i in out.indices {
+            if out[i].id.isEmpty || seen.contains(out[i].id) {
+                var candidate = "spot-\(i)"
+                var n = 2
+                while seen.contains(candidate) || spots.contains(where: { $0.id == candidate }) {
+                    candidate = "spot-\(i)-\(n)"
+                    n += 1
+                }
+                out[i].id = candidate
+            }
+            seen.insert(out[i].id)
+        }
+        return out
     }
 
     /// Written out rather than synthesized for ONE reason: an empty spot list is

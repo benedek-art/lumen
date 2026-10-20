@@ -47,8 +47,11 @@ public enum SliderEntry: Equatable, Sendable {
     /// not a bad render, it is data loss: `JSONEncoder` refuses non-conforming floats, so
     /// the canonical JSON collapses to "{}" and that is what reaches the sidecar, erasing
     /// the photograph's edit from the copy that exists to survive losing the catalog.
-    public static func parse(_ text: String) -> SliderEntry? {
-        let s = text.trimmingCharacters(in: .whitespaces)
+    public static func parse(_ text: String,
+                             decimalSeparator: String = Locale.current.decimalSeparator ?? ".")
+        -> SliderEntry? {
+        let s = normalised(text.trimmingCharacters(in: .whitespaces),
+                           decimalSeparator: decimalSeparator)
         guard !s.isEmpty else { return nil }
 
         // Longest first, so `+=` is never read as a bare `+` with a stray `=` after it.
@@ -83,6 +86,26 @@ public enum SliderEntry: Equatable, Sendable {
 
         guard let n = decimal(s) else { return nil }
         return .absolute(n)
+    }
+
+    /// The two spellings a photographer types that the grammar would otherwise refuse
+    /// silently: the typographic minus (U+2212, which the app prints in its own prose)
+    /// and a decimal COMMA, which is what the keypad types on a German or Hungarian Mac.
+    ///
+    /// A single comma with no point is a decimal comma — except where the locale writes
+    /// a point and exactly three digits follow it, because "5,500" there is a thousands
+    /// group, and reading it as 5.5 would be a silent wrong edit. That one stays refused.
+    static func normalised(_ s: String, decimalSeparator: String) -> String {
+        var out = s.replacingOccurrences(of: "\u{2212}", with: "-")
+        let commas = out.filter { $0 == "," }.count
+        guard commas == 1, !out.contains(".") else { return out }
+        if decimalSeparator != "," {
+            let tail = out.split(separator: ",", omittingEmptySubsequences: false).last ?? ""
+            let digits = tail.prefix { $0.isNumber }
+            if digits.count == 3 { return out }
+        }
+        out = out.replacingOccurrences(of: ",", with: ".")
+        return out
     }
 
     private static func decimal(after token: String, in s: String) -> Double? {
@@ -141,7 +164,9 @@ public enum SliderEntry: Equatable, Sendable {
     }
 
     /// Parse and apply in one step — what a readout's commit actually wants.
-    public static func value(of text: String, current: Double) -> Double? {
-        parse(text)?.applied(to: current)
+    public static func value(of text: String, current: Double,
+                             decimalSeparator: String = Locale.current.decimalSeparator ?? ".")
+        -> Double? {
+        parse(text, decimalSeparator: decimalSeparator)?.applied(to: current)
     }
 }

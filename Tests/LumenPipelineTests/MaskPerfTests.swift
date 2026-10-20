@@ -35,6 +35,7 @@
 // These do not run on the Linux lane — `LumenPipeline` is `#if os(macOS)`.
 
 #if os(macOS)
+import CoreImage
 import XCTest
 @testable import LumenCore
 @testable import LumenPipeline
@@ -305,6 +306,83 @@ final class MaskPerfTests: XCTestCase {
         }
         XCTAssertFalse(cache.hasPendingBake("m"),
                        "the drag's queued raster outlived the settle that superseded it")
+    }
+
+    // MARK: - The mask image over a held raster
+
+    private func pixels(_ image: CIImage, width: Int, height: Int) -> [Float] {
+        var out = [Float](repeating: -1, count: width * height)
+        let context = CIContext(options: [.workingColorSpace: NSNull(),
+                                          .outputColorSpace: NSNull()])
+        out.withUnsafeMutableBytes { raw in
+            context.render(image, toBitmap: raw.baseAddress!,
+                           rowBytes: width * MemoryLayout<Float>.size,
+                           bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                           format: .Rf, colorSpace: nil)
+        }
+        return out
+    }
+
+    /// A draft frame handed the SAME held plane reuses the image built over it, and
+    /// anything else — equal bytes in other storage, another extent, a settle, a
+    /// cleared photograph — builds a fresh one. The equality half: the reused image
+    /// renders exactly what `image(from:)` builds from the same plane.
+    func testTheMaskImageIsReusedOnlyForTheSameHeldPlane() {
+        let renderer = PipelineRenderer()
+        let extent = CGRect(x: 0, y: 0, width: 8, height: 8)
+        let values = (0..<16).map { Float($0) / 15 }
+        let held = Plane(width: 4, height: 4, values: values)
+
+        let first = renderer.maskImage(maskID: "m", plane: held, extent: extent,
+                                       memoize: true)
+        let second = renderer.maskImage(maskID: "m", plane: held, extent: extent,
+                                        memoize: true)
+        XCTAssertNotNil(first)
+        XCTAssertTrue(first === second, "the same held plane rebuilt its image")
+        let fresh = PipelineRenderer.image(from: held, targetExtent: extent)!
+        XCTAssertEqual(pixels(second!, width: 8, height: 8),
+                       pixels(fresh, width: 8, height: 8),
+                       "the reused mask image does not render what a fresh one does")
+
+        // Equal bytes, separate storage: identity is the contract, not equality.
+        let copy = Plane(width: 4, height: 4, values: values.map { $0 })
+        let rebuilt = renderer.maskImage(maskID: "m", plane: copy, extent: extent,
+                                         memoize: true)
+        XCTAssertFalse(rebuilt === second)
+
+        // Different values must never be served the old image.
+        let other = Plane(width: 4, height: 4, fill: 0.25)
+        let changed = renderer.maskImage(maskID: "m", plane: other, extent: extent,
+                                         memoize: true)!
+        XCTAssertFalse(changed === rebuilt)
+        XCTAssertNotEqual(pixels(changed, width: 8, height: 8),
+                          pixels(second!, width: 8, height: 8))
+
+        // Another extent (zoom, resolution) is another transform.
+        let wider = renderer.maskImage(maskID: "m", plane: other,
+                                       extent: CGRect(x: 0, y: 0, width: 16, height: 16),
+                                       memoize: true)
+        XCTAssertFalse(wider === changed)
+
+        // A settle-size raster is never pinned, and does not disturb the memo.
+        let settle = renderer.maskImage(maskID: "m", plane: other,
+                                        extent: CGRect(x: 0, y: 0, width: 16, height: 16),
+                                        memoize: false)
+        XCTAssertFalse(settle === wider)
+        XCTAssertTrue(renderer.maskImage(maskID: "m", plane: other,
+                                         extent: CGRect(x: 0, y: 0, width: 16, height: 16),
+                                         memoize: true) === wider)
+
+        // Pruned with the plan, and cleared with the photograph.
+        renderer.pruneMaskImages(keeping: ["n"])
+        let afterPrune = renderer.maskImage(maskID: "m", plane: other,
+                                            extent: CGRect(x: 0, y: 0, width: 16, height: 16),
+                                            memoize: true)
+        XCTAssertFalse(afterPrune === wider)
+        renderer.forgetMattes(for: URL(fileURLWithPath: "/tmp/x.dng"))
+        XCTAssertFalse(renderer.maskImage(maskID: "m", plane: other,
+                                          extent: CGRect(x: 0, y: 0, width: 16, height: 16),
+                                          memoize: true) === afterPrune)
     }
 }
 #endif
