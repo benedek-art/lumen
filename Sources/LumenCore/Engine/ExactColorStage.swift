@@ -398,7 +398,10 @@ enum ExactColorTwin {
         let d = (a * a + b * b + cc * cc).squareRoot()
         guard d.isFinite else { return c }
         let weight = 1 - smoothstep(0.5, 1, d)
-        guard weight > 0 else { return c }
+        // The rotation's own outer edge — `ColorEngine.applySwatch` says why.
+        let hueEdge = max(1, 0.5 + abs(s.z) / (0.98 * 120 * s.y))
+        let hueWeight = 1 - smoothstep(0.5, hueEdge, d)
+        guard hueWeight > 0 else { return c }
         var L = l.x, C = l.y, h = l.z
         let g = gate(l.y)
         let q = k.y
@@ -409,7 +412,7 @@ enum ExactColorTwin {
             C = C + q * weight * (mu.y - t.y)
             L = L + q * 0.5 * weight * (mu.x - t.x)
         }
-        h += weight * g * s.z
+        h += hueWeight * g * s.z
         C = max(0, C * (1 + weight * s.w / 100))
         L += weight * (k.x / 100) * lumShape(L)
         return toRGB(lab(F3(L, C, wrapHue(h))), u)
@@ -756,7 +759,9 @@ public enum ExactColorKernelSource {
         float d = sqrt(ea * ea + eb * eb + ec * ec);
         if (!(abs(d) < 3.0e38)) { return s; }
         float weight = 1.0 - lumenSmooth(0.5, 1.0, d);
-        if (!(weight > 0.0)) { return s; }
+        float hueEdge = max(1.0, 0.5 + abs(sg.z) / (0.98 * 120.0 * sg.y));
+        float hueWeight = 1.0 - lumenSmooth(0.5, hueEdge, d);
+        if (!(hueWeight > 0.0)) { return s; }
         float L = l.x; float C = l.y; float h = l.z;
         float g = lumenGate(l.y);
         float qq = k.y;
@@ -768,7 +773,7 @@ public enum ExactColorKernelSource {
             C = C + qq * weight * (mu.y - t.y);
             L = L + qq * 0.5 * weight * (mu.x - t.x);
         }
-        h += weight * g * sg.z;
+        h += hueWeight * g * sg.z;
         C = max(0.0, C * (1.0 + weight * sg.w / 100.0));
         L += weight * (k.x / 100.0) * lumenLumShape(L);
         vec3 mapped = lumenLab(vec3(L, C, lumenWrap(h)));

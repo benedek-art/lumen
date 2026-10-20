@@ -1257,7 +1257,27 @@ public struct ColorEngine: Sendable {
         guard d.isFinite else { return c }
         // Flat plateau out to half the radius, C¹ rolloff to nothing at the edge.
         let weight = 1 - Num.smoothstep(0.5, 1.0, d)
-        guard weight > 0 else { return c }
+        // THE HUE ROTATION GETS ITS OWN, WIDER EDGE when the shift needs one.
+        //
+        // Rotating by `weight · shift` with the selection's own falloff folded the
+        // wheel: the smoothstep's steepest slope is 3 per unit of `d`, and `d` grows at
+        // most 1/(180·σH) per degree of hue, so along the hue line the map's slope is
+        // `1 − 3·shift/(180·σH)` — negative once |shift| > 60·σH, which is 21° at the
+        // default Range against a slider that runs to 60°. Measured at +60° there: a
+        // pixel 40–60° from the swatch overtook ones nearer it by 31°, a band running
+        // backwards through any smooth sky or skin gradient. Clamping the shift instead
+        // would leave two thirds of the slider dead.
+        //
+        // So the rotation keeps the same plateau and the same falloff while the shift is
+        // small enough not to fold (`hueEdge` is exactly 1 up to 0.98·60·σH, and saved
+        // looks there render as before), and past that stretches only its OUTER edge,
+        // just enough that the steepest slope `1.5/(hueEdge − 0.5)` per unit of `d`
+        // never turns the order round. Saturation, Luminance and Variance keep
+        // `weight`: what the swatch SELECTS is unchanged, only how far a big hue turn
+        // tapers. `hueWeight ≥ weight` everywhere, so it is the one the early-out reads.
+        let hueEdge = Swift.max(1, 0.5 + abs(s.shiftH) / (0.98 * 120 * s.sigmaH))
+        let hueWeight = 1 - Num.smoothstep(0.5, hueEdge, d)
+        guard hueWeight > 0 else { return c }
 
         var L = lch.L
         var C = lch.C
@@ -1297,7 +1317,7 @@ public struct ColorEngine: Sendable {
                                       q: s.q, beta: 0.5, weight: weight, axis: .lightness)
         }
 
-        h += weight * gate * s.shiftH
+        h += hueWeight * gate * s.shiftH
         C = Swift.max(0, C * (1 + weight * s.shiftS / 100))
         // Same chroma-preserving lightness kernel as the Mixer: C is untouched here.
         L += weight * (s.shiftL / 100) * Self.lumKappa * Self.lumShape(L)
