@@ -504,6 +504,48 @@ final class ColorScienceTests: XCTestCase {
                           "Protect Skin at 100 held colour in a black-and-white frame")
     }
 
+    /// What Saturation −100 holds is H-K perceived brightness, not luminance.
+    ///
+    /// The engine comment on the negative branch said "exactly luminance-preserving".
+    /// It never was: the walk runs in Lumen UCS and holds J = OKLab L · f_HK, so at
+    /// C = 0 (f_HK = 1) the grey's OKLab L equals the input's J. That is the D21 design
+    /// and it is pinned here as the contract, so the comment and the code cannot drift
+    /// apart again. The second half documents the consequence instead of hiding it:
+    /// on a saturated blue the −100 grey sits well above the Rec.2020 luminance that the
+    /// Black & White panel mixes by, so the two "monochromes" are different greys. The
+    /// bound is loose on purpose (0.25 EV against a measured ≈0.42): OKLab L³ alone
+    /// already exceeds Y for blue, so an H-K recalibration cannot flip it.
+    func testSaturationMinus100HoldsHKBrightnessNotLuminance() {
+        var adjust = ColorAdjust()
+        adjust.saturation = -100
+        let e = engine(adjust)
+        let lumaWeights = RGBColorSpace.rec2020.luminanceWeights
+
+        let probes: [(String, (Int, Int, Int))] = [
+            ("sRGB blue", (0, 0, 255)), ("sRGB red", (255, 0, 0)),
+            ("sRGB green", (0, 255, 0)), ("sky", (124, 160, 231)),
+        ]
+        for (name, rgb8) in probes {
+            let input = working(rgb8)
+            let out = e.apply(input)
+            XCTAssertLessThan(chroma(out), 1e-9, "\(name): −100 is not neutral")
+            let jIn = LumenUCS.fromRGB(input).J
+            let lOut = OKLabTransform.working.toLCh(out).L
+            XCTAssertEqual(lOut, jIn, accuracy: 1e-9,
+                           "\(name): the −100 grey's OKLab L \(lOut) is not the input's "
+                               + "H-K brightness J \(jIn) — Saturation stopped holding J")
+        }
+
+        let blue = working((0, 0, 255))
+        let yIn = lumaWeights.r * blue.r + lumaWeights.g * blue.g + lumaWeights.b * blue.b
+        let grey = e.apply(blue)
+        let yOut = lumaWeights.r * grey.r + lumaWeights.g * grey.g + lumaWeights.b * grey.b
+        XCTAssertGreaterThan(log2(yOut / yIn), 0.25,
+                             "Saturation −100 on blue now lands at its luminance "
+                                 + "(\(log2(yOut / yIn)) EV) — if that is a design change, "
+                                 + "the engine comment and docs/24 §3 must say so")
+    }
+
     /// The other half, and the half that had no test at all: the attenuation itself.
     ///
     /// Both fixture tests zero `protectSkin`, so deleting `* protection` from the engine

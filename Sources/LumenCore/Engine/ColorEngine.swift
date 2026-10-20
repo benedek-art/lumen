@@ -21,7 +21,9 @@
 // The one deliberate exception is the subtractive branch of Saturation, which darkens
 // as it saturates *on purpose*: that is the whole point of the density model, and it is
 // reached only through the user's `density` dial. The additive path it blends against
-// still holds J exactly, so `density = 0` is a strictly luminance-preserving chroma move.
+// still holds J exactly, so `density = 0` is a chroma move at strictly constant H-K
+// brightness J. J is not working-space luminance Y: see the negative-Saturation note in
+// `applyVibranceSaturation`.
 //
 // The stage does NOT clip to gamut. Display-gamut mapping is the last colour
 // operation inside S14 (docs/14 §2) and belongs there, where "the display" finally
@@ -1478,8 +1480,16 @@ public struct ColorEngine: Sendable {
         guard satAmount != 0 else { return mid }
 
         let additive = shapedChromaScale(mid, gain: 1 + satAmount)
-        // Only the positive side is subtractive; a negative move is a plain, exactly
-        // luminance-preserving walk toward the neutral axis.
+        // Only the positive side is subtractive; a negative move is a plain walk toward
+        // the neutral axis at constant Lumen UCS J (H-K brightness, D21) — NOT at
+        // constant luminance. This used to say "exactly luminance-preserving", which is
+        // what Black & White does (it mixes by Rec.2020 Y) and not what this does. At
+        // C = 0 the H-K factor is 1, so the −100 grey's OKLab L is the input's J, and
+        // OKLab L over-predicts the lightness of saturated blues and reds relative to Y:
+        // the sRGB blue primary lands ≈0.42 EV above its luminance, sRGB red ≈0.26 EV,
+        // green ≈0.09 EV below. Holding perceived brightness is the deliberate design
+        // (docs/24 §3); it just means Saturation −100 and the B&W panel are two
+        // different greys. Pinned by testSaturationMinus100HoldsHKBrightnessNotLuminance.
         guard satAmount > 0 else { return additive }
         let density = Num.clamp(color.density, 0, 100) / 100
         guard density > 0 else { return additive }
