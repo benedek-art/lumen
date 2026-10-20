@@ -97,6 +97,29 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertEqual(run, 1, "an uncancelled measurement still runs")
     }
 
+    func testMattesFromAReplacedFileAreNotStoredAsItsOwn() throws {
+        // ensureMattes suspends on Vision; a replacement or invalidate during that await
+        // used to be overwritten by the old pixels' mattes, reported done, never redone.
+        let root = try scratch()
+        let first = root.appendingPathComponent("first.png")
+        let second = root.appendingPathComponent("second.png")
+        try write(pixels(width: 32, height: 24), to: first)
+        try write(pixels(width: 32, height: 24, green: true), to: second)
+        let old = try XCTUnwrap(SourceFileIdentity.read(first))
+        let new = try XCTUnwrap(SourceFileIdentity.read(second))
+        XCTAssertNotEqual(old, new)
+        XCTAssertTrue(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: old, onDisk: old), "an undisturbed pass stores")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: new, onDisk: new), "a render saw the replacement")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: nil, onDisk: old), "invalidate ran during the pass")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: old, onDisk: new), "the bytes changed and nobody looked yet")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: nil, current: nil, onDisk: old))
+    }
+
     func testAMattePassThatCannotReadTheOriginalSaysSoInsteadOfWorking() async throws {
         // F5-09: "not attempted, not pending" was always WORKING, and a pass that cannot
         // build its source attempts nothing — so the panel said "Computing" forever.

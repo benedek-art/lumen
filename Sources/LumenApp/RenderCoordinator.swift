@@ -646,23 +646,47 @@ actor RenderCoordinator {
     func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
         let missing = missingMatteKinds(url: url, recipe: recipe)
         var unavailable = false
+        var superseded = false
         if !missing.isEmpty {
             if let source = try? self.source(for: url),
                let picture = renderer.matteSourceImage(source: source) {
+                let identity = sourceIdentities[url]
                 let produced = await VisionMatteWorker.shared.mattes(image: picture,
                                                                     kinds: missing)
-                record(evicted: renderer.storeMattes(
-                    produced, requested: Set(missing.map { $0.rawValue }), for: url))
+                // The actor is re-entrant across that await: a render may have found the
+                // file replaced, or `invalidate` run. Mattes of the old pixels stored
+                // under the new file would be reported as done and never redone.
+                if Self.mattesStillDescribeFile(
+                    captured: identity,
+                    current: sourceIdentities[url] ?? knownIdentities[url],
+                    onDisk: SourceFileIdentity.read(url)) {
+                    record(evicted: renderer.storeMattes(
+                        produced, requested: Set(missing.map { $0.rawValue }), for: url))
+                } else {
+                    superseded = true
+                }
             } else {
                 unavailable = true
             }
         }
         let dropped = evictedMattes.subtracting([url])
-        evictedMattes.removeAll()
+        // A superseded pass leaves its file in the eviction set, so the next pass
+        // reports it and whoever holds a ledger entry for it drops that entry.
+        evictedMattes = superseded ? [url] : []
         return MattePass(available: renderer.matteKinds(for: url),
                          attempted: renderer.attemptedMatteKinds(for: url),
                          evicted: Array(dropped),
                          sourceUnavailable: unavailable)
+    }
+
+    /// Whether mattes segmented from the picture built under `captured` still belong to
+    /// the file: nothing replaced or invalidated it during the pass, and the bytes on
+    /// disk are still the ones that were read.
+    static func mattesStillDescribeFile(captured: SourceFileIdentity?,
+                                        current: SourceFileIdentity?,
+                                        onDisk: SourceFileIdentity?) -> Bool {
+        guard let captured else { return false }
+        return current == captured && onDisk == captured
     }
 
     /// Decode a photograph nobody has asked for yet, so that when they do, the file is
