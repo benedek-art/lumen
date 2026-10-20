@@ -80,4 +80,17 @@ final class ToneTwinClampTests: XCTestCase {
         // And where the clamp never fires, there is no floor and nothing changed.
         XCTAssertNil(RenderPlan(recipe: Recipe()).toneResponseFloor)
     }
+
+    /// A tone coordinate so large that its encoded value is infinite must read the last
+    /// floor sample, not trap converting infinity to an index.
+    func testAnInfiniteToneCoordinateReadsTheTopOfTheFloor() throws {
+        let plan = darksPlan(4)
+        let floor = try XCTUnwrap(plan.tone.bakeGainLUTAndFloor().floor,
+                                  "precondition: Darks +4 EV must produce a floor")
+        for t in [64.0, 1024.0, 1e6] {
+            let stops = plan.tone.renderedStops(at: t, floor: floor)
+            XCTAssertEqual(stops, Swift.max(t + plan.tone.stops(at: t), floor[floor.count - 1]) - t,
+                           "t = \(t)")
+        }
+    }
 }

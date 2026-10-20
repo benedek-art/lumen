@@ -750,8 +750,10 @@ public struct ToneEngine: Sendable {
         guard let floor, floor.count >= 2 else { return requested }
         let y = LumenLog.encode(0.18 * pow(2, t))
         guard y >= 0 else { return requested }
-        let i = Swift.min(Int((y * Double(floor.count - 1)).rounded(.down)),
-                          floor.count - 1)
+        // `y` is +infinity for a large enough `t` (finite scene values reach it through
+        // `exactColor`), and `Int(.infinity)` traps. Anything at or past the shaper's top
+        // reads the last floor sample, which is what the running max holds there anyway.
+        let i = Int((Swift.min(y, 1) * Double(floor.count - 1)).rounded(.down))
         return Swift.max(t + requested, floor[i]) - t
     }
 
