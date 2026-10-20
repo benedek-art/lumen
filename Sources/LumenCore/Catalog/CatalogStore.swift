@@ -2348,15 +2348,20 @@ public final class CatalogStore {
             var result = ScanResult()
 
             // Existing rows for this folder, keyed by filename.
-            var existing: [String: (id: Int64, size: Int64, mtime: Int64,
+            // Swift keys compare by canonical equivalence; SQL compares bytes. `name` is
+            // the stored spelling, so a listed name in the other normalization (NFC vs
+            // NFD) can be written back below rather than left unfindable by SQL.
+            var existing: [String: (id: Int64, name: String, size: Int64, mtime: Int64,
                                     sig: String?, missing: Bool)] = [:]
             let statement = try self.db.prepare(
                 "SELECT id, filename, file_size, file_mtime, quick_sig, missing "
                 + "FROM photo WHERE folder_id = ?;")
             try statement.bind(1, folderID)
             while try statement.step() {
-                existing[statement.string(1) ?? ""] = (
+                let name = statement.string(1) ?? ""
+                existing[name] = (
                     id: statement.int(0),
+                    name: name,
                     size: statement.int(2),
                     mtime: statement.int(3),
                     sig: statement.string(4),
@@ -2385,7 +2390,7 @@ public final class CatalogStore {
                         "SELECT file_size, file_mtime, quick_sig, missing FROM photo WHERE id = ?;")
                     try row.bind(1, id)
                     _ = try row.step()
-                    return (id: id, size: row.int(0), mtime: row.int(1),
+                    return (id: id, name: relocated, size: row.int(0), mtime: row.int(1),
                             sig: row.string(2), missing: row.bool(3))
                 }()
                 result.relocated.append(id)
@@ -2399,6 +2404,14 @@ public final class CatalogStore {
                 guard let row = existing[file.filename] else {
                     newFiles.append(file)
                     continue
+                }
+                if !row.name.utf8.elementsEqual(file.filename.utf8),
+                   try self.db.scalarInt(
+                       "SELECT id FROM photo WHERE folder_id = ? AND filename = ?;",
+                       [.integer(folderID), .text(file.filename)]) == nil {
+                    try self.db.run("UPDATE photo SET filename = ? WHERE id = ?;",
+                                    [.text(file.filename), .integer(row.id)])
+                    self.reindexText(photoID: row.id)
                 }
                 let identityKey = "source_identity_\(row.id)"
                 var changed = row.size != file.fileSize || row.mtime != file.fileMTime
