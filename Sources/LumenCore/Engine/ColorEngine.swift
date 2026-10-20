@@ -214,7 +214,9 @@ public struct ColorEngine: Sendable {
     /// Chroma gate thresholds. Below `gateLo` a pixel's hue is noise; the gate scales
     /// the *magnitude* of every hue-selective adjustment and is deliberately never
     /// folded into band membership — doing that would break the partition of unity for
-    /// neutrals and let hue rotation leak into greys.
+    /// neutrals and let hue rotation leak into greys. The one exception is a Mixer
+    /// band Saturation PULL, which only scales chroma towards zero and runs ungated
+    /// so it stays monotone in chroma (see `applyMixer`).
     public static let gateLoChroma: Double = 0.02
     public static let gateHiChroma: Double = 0.06
 
@@ -1127,11 +1129,22 @@ public struct ColorEngine: Sendable {
         var targetX: Double = 0
         var targetY: Double = 0
         for i in 0..<Self.bandCount {
+            let band = bands[i]
+            // A Saturation PULL is the one band move the chroma gate must not scale.
+            // The gate exists to keep noise hue from being rotated or amplified; a
+            // pull does neither — it only scales chroma towards zero. Gated, a −100
+            // pull rendered C·(1 − gate(C)), which rises to 0.025 at C = 0.03 and
+            // falls back to zero at 0.06: the palest members of a band kept their
+            // tint while stronger ones went grey, non-monotone in chroma.
+            // Ungated, C' = C·(1 + Σw·s) is monotone and −100 removes the colour at
+            // every chroma. Pushes, Hue, Luminance and Uniformity stay gated.
+            // `HuePreservationTests.testBandSaturationPullIsMonotoneInChromaAndRemovesTheColour`.
+            let sat = Num.clamp(band.sat, -100, 100) / 100
+            if sat < 0 { satSum += w[i] * sat }
             let weight = w[i] * gate
             if weight == 0 { continue }
-            let band = bands[i]
             hueSum += weight * (Num.clamp(band.hue, -100, 100) / 100) * Self.hueRangeDegrees
-            satSum += weight * (Num.clamp(band.sat, -100, 100) / 100)
+            if sat > 0 { satSum += weight * sat }
             lumSum += weight * (Num.clamp(band.lum, -100, 100) / 100)
             if q != 0 {
                 let radians = bandTargetHue(i) * .pi / 180

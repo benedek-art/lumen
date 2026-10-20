@@ -891,6 +891,51 @@ final class HuePreservationTests: XCTestCase {
         }
     }
 
+    /// Monotone in the INPUT, not only in the parameter: a band Saturation pull must
+    /// never leave a paler member of the band more coloured than a stronger one.
+    ///
+    /// The chroma gate used to scale a pull exactly as it scales a push, so at the band
+    /// centre a −100 pull rendered C' = C·(1 − smoothstep(0.02, 0.06, C)): zero at 0.06
+    /// and above, but 0.0253 at C = 0.030 — a blue sky fading into haze went grey while
+    /// its palest band stayed visibly blue, the reverse of Lightroom's "−100 removes the
+    /// colour" and of the dossier's linear 0…2 gain. A pull only scales chroma towards
+    /// zero; it cannot rotate a hue or amplify noise, which is the whole of what the
+    /// gate exists to prevent, so pulls run ungated and pushes keep the gate.
+    func testBandSaturationPullIsMonotoneInChromaAndRemovesTheColour() {
+        let blue = ColorEngine.bandHueCentres[5]
+        var pull = Mixer(); pull.bands[5].sat = -100
+        let pullEngine = colorEngine(ColorAdjust(), mixer: pull)
+        var previous = -Double.infinity
+        var worstResidual = 0.0
+        var detail = "—"
+        for step in 0...150 {
+            let C = Double(step) * 0.001
+            let out = lch(pullEngine.apply(Self.context.toRGB(OKLCh(L: 0.6, C: C, h: blue))))
+            XCTAssertGreaterThan(out.C, previous - 1e-9,
+                                 String(format: "Blue −100 reversed chroma at input C %.3f: %.5f after %.5f",
+                                        C, out.C, previous))
+            previous = out.C
+            if out.C > worstResidual {
+                worstResidual = out.C
+                detail = String(format: "input C %.3f kept %.5f", C, out.C)
+            }
+        }
+        XCTAssertLessThan(worstResidual, 1e-6,
+                          "Blue −100 at the band centre left colour behind — \(detail)")
+
+        // A neutral is exactly a neutral, under the pull and under the push.
+        var push = Mixer(); push.bands[5].sat = 100
+        let pushEngine = colorEngine(ColorAdjust(), mixer: push)
+        let grey = Self.context.toRGB(OKLCh(L: 0.6, C: 0, h: blue))
+        XCTAssertLessThan(lch(pullEngine.apply(grey)).C, 1e-9)
+        XCTAssertLessThan(lch(pushEngine.apply(grey)).C, 1e-9)
+        // A push stays gated: below `gateLo` the hue is noise and a push must not
+        // amplify it.
+        let noise = Self.context.toRGB(OKLCh(L: 0.6, C: 0.01, h: blue))
+        XCTAssertEqual(lch(pushEngine.apply(noise)).C, 0.01, accuracy: 1e-9,
+                       "A band Saturation push reached below the chroma gate")
+    }
+
     // MARK: - 6. Gamut
 
     /// The colour stage runs on unbounded scene-referred data and must never clip a

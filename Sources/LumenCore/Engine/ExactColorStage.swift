@@ -366,7 +366,9 @@ enum ExactColorTwin {
         for i in 0..<8 {
             let weight = w[i] / total * g
             hueSum += weight * e(u, 76 + 3 * i)
-            satSum += weight * e(u, 77 + 3 * i)
+            // A pull runs ungated, a push gated — `ColorEngine.applyMixer` says why.
+            let sat = e(u, 77 + 3 * i)
+            satSum += (sat < 0 ? w[i] / total : weight) * sat
             lumSum += weight * e(u, 78 + 3 * i)
             let r = e(u, 100 + i) * 0.0174532925
             tx += weight * cos(r)
@@ -708,7 +710,8 @@ public enum ExactColorKernelSource {
         for i in 0..<8 {
             sums += """
                     { float k = w\(i) / total * g;
-                      hueSum += k * \(u(76 + 3 * i)); satSum += k * \(u(77 + 3 * i)); lumSum += k * \(u(78 + 3 * i));
+                      float sv = \(u(77 + 3 * i));
+                      hueSum += k * \(u(76 + 3 * i)); satSum += (sv < 0.0 ? w\(i) / total : k) * sv; lumSum += k * \(u(78 + 3 * i));
                       float r = \(u(100 + i)) * 0.0174532925; tx += k * cos(r); ty += k * sin(r); }
 
             """
