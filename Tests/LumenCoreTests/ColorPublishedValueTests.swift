@@ -104,4 +104,24 @@ final class ColorPublishedValueTests: XCTestCase {
         XCTAssertEqual(tf.decode(0.045), 0.01, accuracy: 1e-12)
         XCTAssertEqual(tf.encode(0.5), 1.099 * pow(0.5, 0.45) - 0.099, accuracy: 1e-12)
     }
+
+    // MARK: - OKLab
+
+    func testOKLabOfTheSRGBPrimariesMatchesOttosson() {
+        // Ottosson's published OKLab coordinates of the sRGB primaries, to six
+        // decimals. EngineMathFixtureTests replays a Python mirror that copies the SAME
+        // matrices, so it proves the two copies agree, never that they are right.
+        let ctx = OKLabTransform.Context(space: .srgb)
+        let expected: [(RGB, Double, Double, Double)] = [
+            (RGB(1, 0, 0), 0.627955, 0.224863, 0.125846),
+            (RGB(0, 1, 0), 0.866440, -0.233888, 0.179498),
+            (RGB(0, 0, 1), 0.452014, -0.032457, -0.311528),
+        ]
+        for (rgb, L, a, b) in expected {
+            let lab = ctx.toLab(rgb)
+            XCTAssertEqual(lab.L, L, accuracy: 2e-6, "L of \(rgb)")
+            XCTAssertEqual(lab.a, a, accuracy: 2e-6, "a of \(rgb)")
+            XCTAssertEqual(lab.b, b, accuracy: 2e-6, "b of \(rgb)")
+        }
+    }
 }
