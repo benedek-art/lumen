@@ -188,7 +188,7 @@ final class CullTargetingTests: XCTestCase {
         XCTAssertFalse(mutate.contains("editTargets"),
                        "the cull keys write to editTargets again — X in a survey rejects "
                            + "every frame on screen")
-        XCTAssertTrue(advance.contains("advanceHandledByCullRule()"),
+        XCTAssertTrue(advance.contains("advanceHandledByCullRule("),
                       "auto-advance no longer steps inside the comparison")
     }
 
