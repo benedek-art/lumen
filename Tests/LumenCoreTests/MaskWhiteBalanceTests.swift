@@ -134,6 +134,29 @@ final class MaskWhiteBalanceTests: XCTestCase {
         assertSameMap(full, expected)
     }
 
+    func testTheRelativeSliderEndsAreFiftyMiredEitherSideOf5500K() {
+        // The relative slider is a mired shift, so its Kelvin endpoints are not
+        // symmetric: 1e6/5500 = 181.82 mired, and ±50 mired is 7586 K at +100 and
+        // 4314 K at −100. The source comment once said "4400 K … 7300 K", 290 K short at
+        // the blue end; this pins the numbers the comment now states.
+        for (slider, kelvin) in [(100.0, 7586.0), (-100.0, 4314.0)] {
+            let target = 1e6 / (1e6 / 5500 - slider * 0.5)
+            XCTAssertEqual(target, kelvin, accuracy: 0.5)
+            let relative = ReferenceRenderer.LocalWhiteBalance(temp: slider, tint: 0,
+                                                               space: space).matrix
+            let expected = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                              targetKelvin: target, targetTint: 0,
+                                              space: space).matrix
+            assertSameMap(relative, expected, "slider \(slider) lands at \(kelvin) K")
+            let commented = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
+                                               targetKelvin: slider > 0 ? 7300 : 4400,
+                                               targetTint: 0, space: space).matrix
+            let a = relative.apply(RGB(0.5, 0.5, 0.5)), b = commented.apply(RGB(0.5, 0.5, 0.5))
+            XCTAssertGreaterThan(abs(a.r - b.r) + abs(a.b - b.b), 1e-3,
+                                 "the old comment's endpoint is a different colour")
+        }
+    }
+
     func testAnAbsentAbsoluteTintHoldsTheBalancedTintRatherThanZeroingIt() {
         // nil tint means "I am setting the temperature, leave the green/magenta alone".
         // Defaulting it to 0 would drag every mask onto the daylight locus the first

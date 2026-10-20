@@ -500,8 +500,9 @@ public enum ReferenceRenderer {
                 return
             }
             self.isIdentity = false
-            // ±100 is ±50 mired, about 5500 K → 4400 K one way and 7300 K the other:
-            // a decisive nudge, not a relabelling of the whole scene.
+            // ±100 is ±50 mired about 5500 K (181.8 mired): about 7600 K at +100 and
+            // 4300 K at −100 (7586 K / 4314 K exactly; mired steps are not symmetric in
+            // Kelvin). A decisive nudge, not a relabelling of the whole scene.
             let anchorMired = 1e6 / 5500.0
             let target = 1e6 / Num.clamp(anchorMired - t * 0.5, 20, 500)
             self.matrix = WhiteBalanceEngine(asShotKelvin: 5500, asShotTint: 0,
