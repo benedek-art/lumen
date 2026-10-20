@@ -600,16 +600,39 @@ private struct Sidebar: View {
         }
     }
 
+    /// A click SWITCHES FOLDER. It used to reveal the folder in Finder, which is not what
+    /// anyone clicking a folder name in a photo app's sidebar is asking for ("if I'm
+    /// trying to get a new folder open, it's not exactly easy"). Reveal stays in the menu
+    /// and on the right-click menu.
     private var folderHeader: some View {
-        folderHeaderRow
-            .padding(.horizontal, 6)
-            .frame(height: Lumen.rowHeight)
-            .contentShape(Rectangle())
-            .help(folderHeaderHelp)
-            .onTapGesture { if state.activeSmartCollection == nil { revealFolderInFinder() } }
-            .lumenClickCursor(folderHeaderCanReveal)
-            .contextMenu { folderHeaderMenu }
-            .accessibilityLabel(Text(folderHeaderAccessibilityLabel))
+        Menu {
+            let recents = state.recentFolders.filter { $0.standardizedFileURL != state.folderURL?.standardizedFileURL }
+            if !recents.isEmpty {
+                Section("Recent folders") {
+                    ForEach(recents, id: \.self) { url in
+                        Button(url.lastPathComponent) { state.openFolder(url) }
+                            .help(url.path)
+                    }
+                }
+            }
+            Button("Open Folder… (⌘O)") { state.chooseFolder() }
+            if folderHeaderCanReveal {
+                Divider()
+                Button("Show in Finder") { revealFolderInFinder() }
+            }
+        } label: {
+            folderHeaderRow
+                .padding(.horizontal, 6)
+                .frame(height: Lumen.rowHeight)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help(folderHeaderHelp)
+        .lumenClickCursor(true)
+        .contextMenu { folderHeaderMenu }
+        .accessibilityLabel(Text(folderHeaderAccessibilityLabel))
     }
 
     private func revealFolderInFinder() {

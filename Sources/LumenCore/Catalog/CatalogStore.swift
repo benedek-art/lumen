@@ -48,6 +48,13 @@ public enum CatalogError: Error, CustomStringConvertible {
     }
 }
 
+/// So `localizedDescription` says what happened. Without it every UI that shows a
+/// catalog failure printed "The operation couldn't be completed. (LumenCore.CatalogError
+/// error 3.)" — the case's index, not its sentence.
+extension CatalogError: LocalizedError {
+    public var errorDescription: String? { description }
+}
+
 // MARK: - Small vocabulary types
 
 /// Pick / reject / unflagged (docs/10 §10.4). Stored as the raw Int in `photo.flag`.
