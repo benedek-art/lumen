@@ -2350,6 +2350,10 @@ final class AppState: ObservableObject {
     @Published private(set) var primaryKeywords: [String] = []
     /// The stack the photo under the cursor belongs to, if any.
     @Published private(set) var primaryStack: StackSummary?
+    /// Which photo `primaryKeywords` and `primaryStack` describe, and the newest
+    /// refresh allowed to publish them.
+    private var primaryDetailPhotoID: Int64?
+    private var primaryDetailGeneration = 0
 
     var targetCollection: CollectionItem? { collections.first(where: \.isTarget) }
 
@@ -2413,10 +2417,22 @@ final class AppState: ObservableObject {
 
     /// The keywords and stack of the photo under the cursor.
     func refreshPrimaryLibraryDetail() {
+        primaryDetailGeneration &+= 1
+        let generation = primaryDetailGeneration
         guard let catalog, let photoID = primarySelection?.catalogID else {
             primaryKeywords = []
             primaryStack = nil
+            primaryDetailPhotoID = nil
             return
+        }
+        // Another photo's keywords and stack must not stand in for this one's while
+        // the reads are in flight: Unstack and Collapse act on `primaryStack.id`.
+        // A refresh for the SAME photo (after a keyword or stack edit) keeps them, so
+        // the sidebar does not flicker.
+        if primaryDetailPhotoID != photoID {
+            primaryKeywords = []
+            primaryStack = nil
+            primaryDetailPhotoID = photoID
         }
         Task { [weak self] in
             let words = await catalog.keywords(photoID: photoID)
@@ -2428,7 +2444,8 @@ final class AppState: ObservableObject {
                                        collapsed: stack.collapsed,
                                        isPick: stack.pickPhotoID == photoID)
             }
-            guard let self, self.primarySelection?.catalogID == photoID else { return }
+            guard let self, self.primaryDetailGeneration == generation,
+                  self.primarySelection?.catalogID == photoID else { return }
             self.primaryKeywords = words
             self.primaryStack = summary
         }
