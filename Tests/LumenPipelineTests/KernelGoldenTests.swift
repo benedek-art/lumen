@@ -976,6 +976,41 @@ final class KernelGoldenTests: XCTestCase {
         }
     }
 
+    /// The dehaze airlight's single readback has to be the two reads it replaced.
+    ///
+    /// `applyDehaze` takes sum(rgb)/N and sum(alpha)/N of one masked area average from
+    /// ONE render. The rgb half is checked against `averageColor`, an independent read
+    /// of the same node, bit for bit; the alpha half against the fraction the mask
+    /// provably keeps. Two thresholds, so a read that ignored its input — or returned
+    /// a stale pixel — cannot pass both.
+    func testDehazeMaskedAverageIsOneReadOfRGBAndAlpha() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let width = 16, height = 4
+        let image = ciImage(from: ImageBuffer(width: width, height: height) { u, v in
+            RGB(0.1 + 0.6 * u, 0.3 + 0.2 * v, 0.9 - 0.5 * u)
+        })
+        let plane = ciImage(from: ImageBuffer(width: width, height: height) { u, _ in
+            RGB(gray: u)
+        })
+        // Columns sit at (x + 0.5) / 16, so 0.5 keeps x ≥ 8 and 0.75 keeps x ≥ 12.
+        var reads: [(rgb: RGB, alpha: Double)] = []
+        for (threshold, kept) in [(0.5, 0.5), (0.75, 0.25)] {
+            guard let masked = KernelLibrary.apply(
+                KernelLibrary.thresholdMask, extent: image.extent,
+                [image, plane, Float(threshold)]),
+                  let stats = RenderGraph.averageColorAndAlpha(masked),
+                  let colour = RenderGraph.averageColor(masked)
+            else { return XCTFail("masked average failed at \(threshold)") }
+            XCTAssertEqual(stats.rgb, colour,
+                           "the single read's rgb is not the rgb averageColor reads")
+            XCTAssertEqual(stats.alpha, kept, accuracy: 1e-4,
+                           "the single read's alpha is not the fraction the mask kept")
+            reads.append(stats)
+        }
+        XCTAssertGreaterThan(reads[0].rgb.maxAbsDifference(reads[1].rgb), 0.01,
+                             "two different masks read back the same average")
+    }
+
     // MARK: - Sharpening: Masking, Detail, and the structure the gate reads
 
     /// A frame with three regions a sharpening mask has to tell apart: a hard vertical

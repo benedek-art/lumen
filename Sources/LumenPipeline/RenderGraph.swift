@@ -1126,9 +1126,11 @@ public struct RenderGraph {
         // fog. Measured against the reference on a hazy scene, a sky pixel lost 0.16
         // scene-linear in blue, about a fifth of it, and desaturated instead of hazing.
         //
-        // The masked mean comes out of two area averages: the kernel zeroes everything
+        // The masked mean comes out of one area average: the kernel zeroes everything
         // below the threshold and carries the selection in alpha, so sum(rgb)/N divided
-        // by sum(alpha)/N is the mean over the selected pixels alone.
+        // by sum(alpha)/N is the mean over the selected pixels alone. Both come from the
+        // same readback; reading rgb and alpha separately rendered the identical pixel
+        // twice, and each render re-pulls the whole upstream frame.
         let proxy = Self.scaledToProxy(dark)
         let imageProxy = Self.scaledToProxy(image)
         let brightest = Self.maximumColor(proxy)?.maxComponent ?? 0.8
@@ -1136,9 +1138,9 @@ public struct RenderGraph {
         if let masked = KernelLibrary.apply(
             KernelLibrary.thresholdMask, extent: imageProxy.extent,
             [imageProxy, proxy, Float(brightest * 0.99)]),
-           let sums = Self.averageColor(masked),
-           let weight = Self.averageAlpha(masked), weight > 1e-6 {
-            airlight = RGB(sums.r / weight, sums.g / weight, sums.b / weight)
+           let stats = Self.averageColorAndAlpha(masked), stats.alpha > 1e-6 {
+            airlight = RGB(stats.rgb.r / stats.alpha, stats.rgb.g / stats.alpha,
+                           stats.rgb.b / stats.alpha)
         }
         // t = 1 − ω·darkChannel(I / A), refined. Three things here were not the
         // reference's, and together they were putting scene-linear pixels below zero.
@@ -2191,10 +2193,18 @@ public struct RenderGraph {
     }
 
     /// The mean of a masked image's alpha — the fraction of pixels the mask kept.
-    ///
-    /// Its own read rather than `readOnePixel`, which returns an `RGB` and therefore
-    /// throws away the only channel this cares about.
     static func averageAlpha(_ image: CIImage) -> Double? {
+        averageColorAndAlpha(image)?.alpha
+    }
+
+    /// Mean colour AND mean alpha of `image` from one area-average readback.
+    ///
+    /// The masked airlight needs both, and they are the same pixel: `averageColor`
+    /// then `averageAlpha` rendered it twice through `statisticsContext`, re-evaluating
+    /// the full-frame upstream each time, to keep three channels of one read and the
+    /// fourth of the other. Nil when alpha is not finite, which is the check
+    /// `averageAlpha` always made; rgb is left unchecked, as `averageColor` leaves it.
+    static func averageColorAndAlpha(_ image: CIImage) -> (rgb: RGB, alpha: Double)? {
         let filter = CIFilter.areaAverage()
         filter.inputImage = image
         filter.extent = image.extent
@@ -2203,8 +2213,9 @@ public struct RenderGraph {
         statisticsContext.render(output, toBitmap: &pixel, rowBytes: 16,
                                  bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
                                  format: .RGBAf, colorSpace: nil)
-        let value = Double(pixel[3])
-        return value.isFinite ? value : nil
+        let alpha = Double(pixel[3])
+        guard alpha.isFinite else { return nil }
+        return (RGB(Double(pixel[0]), Double(pixel[1]), Double(pixel[2])), alpha)
     }
 
     /// The brightest value in `image`. Used on an already-downsampled proxy, which is
