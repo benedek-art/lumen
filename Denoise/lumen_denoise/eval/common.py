@@ -168,3 +168,33 @@ def clean_frames(val_dir="data/gt_val", meta="data/gt_meta.json", n=0, synthetic
 def crop_seed(frame_idx, region_idx, iso):
     """One seed per (frame, region, ISO): every method sees the identical noise realisation."""
     return (SEED * 1_000_003 + frame_idx * 7919 + region_idx * 104_729 + int(iso)) % (2 ** 32)
+
+
+# ------------------------------------------------------------ gate API ----
+@dataclass
+class Check:
+    """One row of the release table. status: PASS | FAIL | SKIP (data missing) | INFO (reported, not gating)."""
+    section: str        # e.g. "synthetic", "detail", "real-noise", "low-iso", "stars", "a/b"
+    name: str           # short id, e.g. "psnr_gain_vs_baseline@6400"
+    value: float | None
+    threshold: str      # human-readable rule, e.g. ">= +0.3 dB"
+    status: str
+    note: str = ""
+
+
+@dataclass
+class Ctx:
+    """Everything a module's gate_checks(model, baseline, ctx) may use. model/baseline are method fns."""
+    table: NoiseTable
+    frames: list            # list[Frame] (real held-out or synthetic)
+    isos: tuple = (1600, 6400, 25600)
+    real_files: list = None     # high-ISO RAW paths (may be empty -> SKIP real checks)
+    lowiso_files: list = None   # base-ISO RAW paths (may be empty)
+    quick: bool = False         # fewer frames/crops; used by tests and the cloud smoke run
+    out_dir: Path = Path("reports/gate")
+    model_name: str = "model"
+    baseline_name: str = "baseline"
+
+
+def status(ok, skip=False):
+    return "SKIP" if skip else ("PASS" if ok else "FAIL")
