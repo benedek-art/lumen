@@ -45,4 +45,32 @@ final class ColourAccuracyTests: XCTestCase {
             XCTAssertEqual(out.b, expected.b, accuracy: 1e-9, "hue preservation \(hp)")
         }
     }
+
+    // MARK: - Tone
+
+    /// Both ends of the scale are fixed points of Contrast (docs/04), including when
+    /// Whites has pulled the white anchor below the ±4 pivot limit. Before the fix
+    /// `Tone(contrast: -100, contrastPivot: 4, whites: 100)` mapped the anchor 3.5 to
+    /// 3.8 and 3.0 to 3.6, past white.
+    func testContrastKeepsTheWhiteAnchorFixedWhenWhitesPullsItBelowThePivot() {
+        for whites in [67.0, 80.0, 100.0] {
+            for contrast in [-100.0, 100.0] {
+                let engine = ToneEngine(tone: Tone(contrast: contrast, contrastPivot: 4, whites: whites))
+                let anchor = engine.whiteAnchorEV
+                XCTAssertLessThan(anchor, 4)
+                XCTAssertEqual(engine.contrastMapped(anchor), anchor, accuracy: 1e-12,
+                               "whites \(whites), contrast \(contrast)")
+                XCTAssertEqual(engine.contrastMapped(engine.blackAnchorEV), engine.blackAnchorEV,
+                               accuracy: 1e-12)
+                var previous = -Double.infinity
+                for i in 0...400 {
+                    let t = engine.blackAnchorEV + Double(i) / 400 * (anchor - engine.blackAnchorEV)
+                    let m = engine.contrastMapped(t)
+                    XCTAssertLessThanOrEqual(m, anchor + 1e-12, "t \(t) mapped past white")
+                    XCTAssertGreaterThanOrEqual(m, previous)
+                    previous = m
+                }
+            }
+        }
+    }
 }
