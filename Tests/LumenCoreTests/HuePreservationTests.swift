@@ -87,7 +87,9 @@ final class HuePreservationTests: XCTestCase {
     /// Below this chroma a colour HAS no hue — the angle is the arctangent of two
     /// numbers that are both noise, and the engine says so itself: `chromaGate` is
     /// exactly zero at and below `gateLoChroma`, and no hue-selective tool is allowed
-    /// to act on a pixel there.
+    /// to rotate, push or relight a pixel there. (A Mixer band Saturation PULL, which
+    /// only scales chroma towards zero, is the one documented exception — see
+    /// `testABandPullOnIsotropicLowChromaNoiseLeavesOnlyAFaintCast`.)
     ///
     /// It has to be said out loud in the test too, because a sweep that reads hue off
     /// the OUTPUT finds it the hard way. Saturation −100 and Vibrance −100 both drive
@@ -934,6 +936,57 @@ final class HuePreservationTests: XCTestCase {
         let noise = Self.context.toRGB(OKLCh(L: 0.6, C: 0.01, h: blue))
         XCTAssertEqual(lch(pushEngine.apply(noise)).C, 0.01, accuracy: 1e-9,
                        "A band Saturation push reached below the chroma gate")
+    }
+
+    /// What the ungated pull costs below the gate, measured rather than waved away.
+    ///
+    /// Below `gateLoChroma` a pixel's hue is noise, and a band pull still acts on the
+    /// noise samples that happen to fall in its band — so on a grey wall it takes the
+    /// band-hued part of the chroma noise to zero and leaves the rest, and the patch's
+    /// mean drifts away from the band, towards its complement. The reviewer's
+    /// alternative — scale the pull by a gate that opens from 0 — cannot be had: at the
+    /// band centre a −100 pull must give C' = 0 at every C ≥ gateLo, and a C'(C) that is
+    /// non-decreasing and zero at gateLo is zero all the way down. Any gate that left
+    /// sub-gate chroma standing would make paler members MORE coloured than stronger
+    /// ones, the defect the test above exists for. So the pull stays ungated and the
+    /// price is bounded here. Removing one band's slice of an isotropic noise ring
+    /// moves its mean by about C·sin(22.5°)/π ≈ 0.12·C (measured: 0.0024 at the gate,
+    /// band 6), so the cast for every band at −100, at noise up to the gate, must stay
+    /// under 0.15 × the noise chroma — at most 0.003 in OKLab a/b, a sixth of an OKLab
+    /// JND (~0.02). Anything larger means the pull reaches beyond its own band. A push
+    /// leaves the same patch exactly where it was.
+    func testABandPullOnIsotropicLowChromaNoiseLeavesOnlyAFaintCast() {
+        let hues = stride(from: 0.0, to: 360.0, by: 1.0).map { $0 }
+        var worst = 0.0
+        var detail = "—"
+        for band in 0..<ColorEngine.bandCount {
+            var pull = Mixer(); pull.bands[band].sat = -100
+            var push = Mixer(); push.bands[band].sat = 100
+            let pullEngine = colorEngine(ColorAdjust(), mixer: pull)
+            let pushEngine = colorEngine(ColorAdjust(), mixer: push)
+            for noise in [0.005, 0.01, 0.015, ColorEngine.gateLoChroma] {
+                var a = 0.0, b = 0.0, pa = 0.0, pb = 0.0, ia = 0.0, ib = 0.0
+                for h in hues {
+                    let px = Self.context.toRGB(OKLCh(L: 0.6, C: noise, h: h))
+                    let input = Self.context.toLab(px)
+                    let out = Self.context.toLab(pullEngine.apply(px))
+                    let pushed = Self.context.toLab(pushEngine.apply(px))
+                    ia += input.a; ib += input.b
+                    a += out.a; b += out.b
+                    pa += pushed.a; pb += pushed.b
+                }
+                let n = Double(hues.count)
+                let cast = ((a - ia) / n * (a - ia) / n + (b - ib) / n * (b - ib) / n).squareRoot()
+                if cast / noise > worst {
+                    worst = cast / noise
+                    detail = String(format: "band %d, noise C %.3f: cast %.5f", band, noise, cast)
+                }
+                // A push is gated: below the gate it must not touch the noise at all.
+                XCTAssertEqual((pa - ia) / n, 0, accuracy: 1e-9, "band \(band) push moved noise")
+                XCTAssertEqual((pb - ib) / n, 0, accuracy: 1e-9, "band \(band) push moved noise")
+            }
+        }
+        XCTAssertLessThan(worst, 0.15, "A band pull cast a near-neutral patch — \(detail)")
     }
 
     // MARK: - 6. Gamut

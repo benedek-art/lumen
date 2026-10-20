@@ -1182,7 +1182,16 @@ public struct ColorEngine: Sendable {
             // tint while stronger ones went grey, non-monotone in chroma.
             // Ungated, C' = C·(1 + Σw·s) is monotone and −100 removes the colour at
             // every chroma. Pushes, Hue, Luminance and Uniformity stay gated.
-            // `HuePreservationTests.testBandSaturationPullIsMonotoneInChromaAndRemovesTheColour`.
+            // No softer gate fits between the two: at the band centre −100 must give
+            // C' = 0 for every C ≥ gateLo, and a C'(C) that is non-decreasing and zero
+            // at gateLo is zero below it too, so any gate opening from 0 (e.g.
+            // smoothstep(0, gateLo, C)) brings the fold back. The price, paid below the
+            // gate: the band-hued part of near-neutral chroma noise goes to zero and the
+            // rest stays, a cast of ~0.12 × the noise chroma (≤ 0.0024 at the gate,
+            // about a tenth of a JND), and a slightly cool neutral is neutralised by a
+            // Blue pull.
+            // `HuePreservationTests.testBandSaturationPullIsMonotoneInChromaAndRemovesTheColour`,
+            // `…testABandPullOnIsotropicLowChromaNoiseLeavesOnlyAFaintCast`.
             let sat = Num.clamp(band.sat, -100, 100) / 100
             if sat < 0 { satSum += w[i] * sat }
             let weight = w[i] * gate
