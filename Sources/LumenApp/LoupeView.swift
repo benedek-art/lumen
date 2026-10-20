@@ -1098,6 +1098,22 @@ final class PhotoRenderModel: ObservableObject {
     }
 }
 
+/// Whether a before frame may be drawn into the after frame's box. The split and the
+/// `\` flip draw the before at the AFTER frame's extent, so a before still carrying an
+/// older crop or straighten would be stretched until its re-render lands. A small
+/// tolerance absorbs the pixel rounding of two renders at different sizes.
+enum BeforePlate {
+    static let aspectTolerance = 0.01
+
+    static func isPresentable(before: CGSize, afterFrame: CGSize) -> Bool {
+        guard before.width > 0, before.height > 0,
+              afterFrame.width > 0, afterFrame.height > 0 else { return false }
+        let b = Double(before.width) / Double(before.height)
+        let a = Double(afterFrame.width) / Double(afterFrame.height)
+        return abs(b / a - 1) < aspectTolerance
+    }
+}
+
 // MARK: - Loupe
 
 extension ProxyResampling {
@@ -1774,6 +1790,20 @@ struct LoupeView: View {
         return beforeModel.image
     }
 
+    /// The before frame for the plates drawn at the after's extent (split, `\` flip),
+    /// or nil while its framing does not match yet, so the after plate stands in
+    /// rather than a stretched before. Two-pane compare fits each side on its own
+    /// and keeps `beforeImage`.
+    private var beforePlateImage: CGImage? {
+        guard let before = beforeImage else { return nil }
+        guard let after = model.image, model.imageURL == photo.id else { return before }
+        let afterFrame: CGSize = model.regionFullPixel
+            ?? CGSize(width: after.width, height: after.height)
+        return BeforePlate.isPresentable(
+            before: CGSize(width: before.width, height: before.height),
+            afterFrame: afterFrame) ? before : nil
+    }
+
     // MARK: HDR preview
 
     /// The display white the loupe's EDR pass renders at, or nil for the SDR loupe.
@@ -1808,8 +1838,8 @@ struct LoupeView: View {
     /// one would be a comparison of renditions rather than of edits.
     private func edrPlateImage(for cg: CGImage) -> CGImage? {
         guard viewport.hdrPreview, edrWhiteTarget != nil else { return nil }
-        if viewport.beforeMode == .split, beforeImage != nil { return nil }
-        if state.showBefore, beforeImage != nil { return nil }
+        if viewport.beforeMode == .split, beforePlateImage != nil { return nil }
+        if state.showBefore, beforePlateImage != nil { return nil }
         return model.edrFrame(for: cg)
     }
 
@@ -2206,14 +2236,14 @@ struct LoupeView: View {
         // region, and it can be one here transiently: a before mode entered while a
         // region is still on screen must flip at once rather than wait out the
         // whole-frame re-render its key change just started.
-        if viewport.beforeMode == .split, let before = beforeImage {
+        if viewport.beforeMode == .split, let before = beforePlateImage {
             BeforeAfterSplit(split: $viewport.splitPosition) {
                 plate(before, ratio: ratio, drawn: drawn)
             } after: {
                 afterPlate(cg, ratio: ratio, drawn: drawn, region: region)
             }
             .frame(width: drawn.width, height: drawn.height)
-        } else if state.showBefore, let before = beforeImage {
+        } else if state.showBefore, let before = beforePlateImage {
             plate(before, ratio: ratio, drawn: drawn)
         } else if edrStandIn {
             edrStandInPlate(drawn: drawn, region: region)
@@ -2346,7 +2376,7 @@ struct LoupeView: View {
             if let note = model.note {
                 LumenBadge(text: note, emphasized: true)
             }
-            if state.showBefore, beforeImage != nil, !viewport.beforeMode.showsPair {
+            if state.showBefore, beforePlateImage != nil, !viewport.beforeMode.showsPair {
                 LumenBadge(text: "BEFORE")
             }
             if let maskName = soloMaskName {
