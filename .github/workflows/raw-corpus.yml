@@ -351,6 +351,18 @@ jobs:
           grep -E ": error: -\[" corpus.log | sed 's#/Users/runner/work/lumen/lumen/##' \
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          # Per-file wall time (RawCorpusTests.timingLine). Printed, never asserted: a
+          # runner VM's GPU is noisy and is not the owner's Mac. A before/after for a
+          # Sources/LumenPipeline change needs a workflow_dispatch on base and on head,
+          # because this lane's push paths do not cover that directory.
+          echo "=== timing ==="
+          grep -E '^corpus-timing: ' corpus.log || true
+          {
+            echo "### Timing (ms, CI VM, not asserted)"
+            echo '```'
+            grep -E '^corpus-timing: ' corpus.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
           exit $status
 
       # Decoder selection, RAW9 colour and native dimensions (AuditRawAccuracyTests),

@@ -177,6 +177,19 @@ final class RawCorpusTests: XCTestCase {
         var exportOrientation: Int?
         var exportRan = false
 
+        // Wall time per step, in ms, on the success path only: a hung or failed step
+        // records nothing rather than a number that times a refusal. Printed, never
+        // asserted — a shared runner's GPU says nothing about the owner's Mac, but a
+        // base-versus-head dispatch on the same runner class does say whether a change
+        // to the decode or the export moved anything.
+        var openMs: Double?
+        var decodeMs: Double?
+        var previewMs: Double?
+        var exportMs: Double?
+        /// The first file measured pays the shared renderer's CIContext and every
+        /// kernel compile, so its row is not comparable with the rest.
+        var timedCold = false
+
         // R-10
         var metadataRead = false
         var camera: String?
@@ -221,6 +234,8 @@ final class RawCorpusTests: XCTestCase {
     private static var probes: [String: Probe] = [:]
     private static var loadFailure: String?
     private static var corpusRoot: URL?
+    /// How many files have reached `measure`'s open, so the first can be labelled cold.
+    private static var timedFiles = 0
 
     private static let renderer = PipelineRenderer()
 
@@ -284,6 +299,34 @@ final class RawCorpusTests: XCTestCase {
     private static func fmt(_ value: Int?) -> String {
         guard let value else { return "-" }
         return String(value)
+    }
+
+    private static func ms(since t0: DispatchTime) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
+    }
+
+    /// One `corpus-timing:` line per file. The numbers go through `fmt` into locals
+    /// first, so no literal lands inside an interpolation (see `dash`).
+    ///
+    /// first-preview is open + decode + preview: the NON-draft path at 1024 px, which
+    /// is not exactly the app's first frame (that may take the coarse decode), and the
+    /// export is a full-scale decode resized to 1600.
+    private static func timingLine(_ entry: CorpusEntry, _ p: Probe) -> String {
+        let native = p.native?.text ?? dash
+        let opened = fmt(p.openMs, 0)
+        let decoded = fmt(p.decodeMs, 0)
+        let rendered = fmt(p.previewMs, 0)
+        var firstPreview: Double?
+        if let o = p.openMs, let d = p.decodeMs, let r = p.previewMs {
+            firstPreview = o + d + r
+        }
+        let first = fmt(firstPreview, 0)
+        let exported = fmt(p.exportMs, 0)
+        let warmth = p.timedCold ? "cold" : "warm"
+        return "corpus-timing: \(entry.id) native=\(native) open=\(opened) "
+            + "decode@1024=\(decoded) preview=\(rendered) "
+            + "first-preview(non-draft)=\(first) "
+            + "export-fullDecode@1600=\(exported) ms \(warmth)"
     }
 
     // MARK: - Class setup: the inventory, before anything else
@@ -648,6 +691,9 @@ final class RawCorpusTests: XCTestCase {
             p.iso = metadata.iso
         }
 
+        p.timedCold = RawCorpusTests.timedFiles == 0
+        RawCorpusTests.timedFiles += 1
+        let openStarted = DispatchTime.now()
         guard let openAttempt = RawCorpusTests.watched(
             "open \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             () -> Result<AppleRawSource, Error> in
@@ -665,6 +711,7 @@ final class RawCorpusTests: XCTestCase {
         switch openAttempt {
         case .success(let opened):
             source = opened
+            p.openMs = RawCorpusTests.ms(since: openStarted)
         case .failure(let error):
             p.openFailure = String(describing: error)
             return
@@ -684,6 +731,7 @@ final class RawCorpusTests: XCTestCase {
 
         // R-2. The decode itself, at the same scale `renderPreview` will ask for, so
         // this costs the demosaic once and the render below hits the source's cache.
+        let decodeStarted = DispatchTime.now()
         guard let decoded = RawCorpusTests.watched(
             "decode \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             source.decode(recipe: recipe, draft: false, scaleFactor: scale)
@@ -696,6 +744,7 @@ final class RawCorpusTests: XCTestCase {
             _ = source.releaseDecodes()
             return
         }
+        p.decodeMs = RawCorpusTests.ms(since: decodeStarted)
         let extent = decodedImage.extent
         p.decodedExtent = extent
         // `CGRect.infinite` is legitimate for a Core Image generator, and an infinite
@@ -718,6 +767,7 @@ final class RawCorpusTests: XCTestCase {
         RawCorpusTests.emit(RawCorpusTests.whiteBalanceLine(entry, p))
 
         // R-3/R-4/R-5/R-6/R-7 all read the same delivered frame, rendered once.
+        let renderStarted = DispatchTime.now()
         guard let renderAttempt = RawCorpusTests.watched(
             "render \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             () -> Result<CGImage, Error> in
@@ -738,6 +788,7 @@ final class RawCorpusTests: XCTestCase {
         switch renderAttempt {
         case .success(let image):
             delivered = image
+            p.previewMs = RawCorpusTests.ms(since: renderStarted)
         case .failure(let error):
             p.renderFailure = String(describing: error)
             _ = source.releaseDecodes()
@@ -758,6 +809,7 @@ final class RawCorpusTests: XCTestCase {
         // R-8. A full-decode export, which is the path a delivered file actually takes.
         RawCorpusTests.exportAndReopen(entry: entry, source: source, recipe: recipe,
                                        into: p)
+        RawCorpusTests.emit(RawCorpusTests.timingLine(entry, p))
         // The export decodes at scaleFactor 1.0, so the source is now holding a
         // full-sensor half-float plane — 330 MB on the 40 MP X-H2. Sixteen of those
         // outliving each other on a 7 GB runner is how this lane starts swapping
@@ -1122,6 +1174,7 @@ final class RawCorpusTests: XCTestCase {
                                         colorSpace: .srgb, resizeMode: .longEdge,
                                         resizeValue: Double(exportLongEdge))
         let destination = exportDir.appendingPathComponent("\(entry.id).tif")
+        let exportStarted = DispatchTime.now()
         guard let outcome = watched(
             "export \(entry.id)", seconds: exportWatchdogSeconds, { () -> String? in
             do {
@@ -1140,6 +1193,7 @@ final class RawCorpusTests: XCTestCase {
             p.exportError = failure
             return
         }
+        p.exportMs = ms(since: exportStarted)
         if let attributes = try? FileManager.default
             .attributesOfItem(atPath: destination.path),
            let size = attributes[.size] as? NSNumber {
