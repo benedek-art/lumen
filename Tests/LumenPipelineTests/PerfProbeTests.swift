@@ -208,6 +208,17 @@ final class PerfProbeTests: XCTestCase {
             XCTAssertLessThan(ms, 120_000, "a 2560 px preview took over two minutes")
         }
 
+        // The sensor-sized half is opt-in, like `SpeedBenchTests`: on the gpu-parity
+        // runner's paravirtual GPU a 33 MP RGBAh export with denoise on ran out of GPU
+        // memory (kIOGPUCommandBufferCallbackErrorOutOfMemory, ~90 times) and took
+        // 287 s, so that lane can only report the runner, not the pipeline. Run it on
+        // a real Mac with LUMEN_BENCH=1.
+        guard let bench = ProcessInfo.processInfo.environment["LUMEN_BENCH"],
+              bench != "0", !bench.isEmpty else {
+            print("EXPORTPROBE 33MP skipped: set LUMEN_BENCH=1 on a real GPU")
+            return
+        }
+
         // (b) The delivered pixels into ONE reused 16-bit buffer, 262 MB allocated
         // once: a fresh one per rep would time a second sensor-sized allocation the
         // export never makes.
