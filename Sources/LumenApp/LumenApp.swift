@@ -323,14 +323,25 @@ private struct LumenCommands: Commands {
                 .keyboardShortcut("l", modifiers: [.command, .option])
             }
 
+            // ⌘Z AND ⇧⌘Z GET THE PASTEBOARD GROUP'S CARVE-OUT, for the same reason.
+            // Replacing `.undoRedo` deletes AppKit's own Undo/Redo items, and a menu key
+            // equivalent is offered before the responder chain — so ⌘Z pressed while
+            // typing a value into a slider's field, a keyword or the filter box reverted
+            // the last PHOTO edit instead of the typing. While a text field holds the
+            // keyboard the chord goes to it first (`undo:` / `redo:` down the chain),
+            // and only falls through to the photo history when nothing answered.
             CommandGroup(replacing: .undoRedo) {
                 Button(commands.undoLabel.map { "Undo \($0)" } ?? "Undo") {
+                    if TextEditingFocus.isActive,
+                       NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) { return }
                     state.undo()
                 }
                 .keyboardShortcut("z", modifiers: [.command])
                 .disabled(!commands.canUndo)
 
                 Button(commands.redoLabel.map { "Redo \($0)" } ?? "Redo") {
+                    if TextEditingFocus.isActive,
+                       NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) { return }
                     state.redo()
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
