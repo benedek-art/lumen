@@ -112,8 +112,11 @@ final class AuditPreviewReliabilityTests: XCTestCase {
             captured: old, current: old, onDisk: old), "an undisturbed pass stores")
         XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
             captured: old, current: new, onDisk: new), "a render saw the replacement")
+        XCTAssertTrue(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: nil, onDisk: old),
+            "invalidate (a relink) ran during the pass, but the bytes are the ones read")
         XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
-            captured: old, current: nil, onDisk: old), "invalidate ran during the pass")
+            captured: old, current: nil, onDisk: new), "invalidated and the bytes changed")
         XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
             captured: old, current: old, onDisk: new), "the bytes changed and nobody looked yet")
         XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(

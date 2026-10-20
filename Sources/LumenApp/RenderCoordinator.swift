@@ -680,13 +680,18 @@ actor RenderCoordinator {
     }
 
     /// Whether mattes segmented from the picture built under `captured` still belong to
-    /// the file: nothing replaced or invalidated it during the pass, and the bytes on
-    /// disk are still the ones that were read.
+    /// the file: the bytes on disk are still the ones that were read, and no render saw
+    /// a different file in the meantime.
+    ///
+    /// `current` nil is `invalidate` having run, which clears what the coordinator
+    /// remembers but does not change the bytes. Relinking an original does exactly that
+    /// while its first pass is in Vision, and refusing then threw away mattes of the
+    /// very pixels on disk.
     static func mattesStillDescribeFile(captured: SourceFileIdentity?,
                                         current: SourceFileIdentity?,
                                         onDisk: SourceFileIdentity?) -> Bool {
-        guard let captured else { return false }
-        return current == captured && onDisk == captured
+        guard let captured, onDisk == captured else { return false }
+        return current == nil || current == captured
     }
 
     /// Decode a photograph nobody has asked for yet, so that when they do, the file is
