@@ -1914,6 +1914,10 @@ struct LumenSegmented<T: Hashable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // The chip and the label colour are the only marks of the chosen
+                // segment, and VoiceOver sees neither: without the trait every
+                // option read as the same "<label>, button".
+                .accessibilityAddTraits(selection == option.value ? .isSelected : [])
                 .onHover { inside in
                     if inside {
                         hovered = option.value
@@ -1924,6 +1928,8 @@ struct LumenSegmented<T: Hashable>: View {
                 .lumenClickCursor()
             }
         }
+        // One group, so the options read as a set rather than as loose buttons.
+        .accessibilityElement(children: .contain)
         // The interior is ONE carved well, and only the chosen segment stands up out of
         // it as a chip. The previous form filled every segment edge to edge — a rest
         // fill, a hover fill and a selection fill all running flush to the well's lip —
