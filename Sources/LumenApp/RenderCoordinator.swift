@@ -87,6 +87,20 @@ struct MattePass: Sendable {
     /// WORKING, and the panel said "Computing on this Mac" forever about a file on an
     /// ejected volume (audit F5-09).
     var sourceUnavailable: Bool = false
+    /// The file changed under the pass while Vision ran, so its mattes were discarded
+    /// and nothing new is attempted. Without it the caller saw no progress, never
+    /// re-entered, and the panel said "Computing" until some unrelated edit called back.
+    var superseded: Bool = false
+
+    /// Consecutive superseded passes a caller re-runs before giving up. A file being
+    /// rewritten continuously would otherwise segment it in a loop.
+    static let supersededRetryLimit = 2
+
+    /// Whether this pass should be run again now, given how many superseded passes in a
+    /// row have already been retried.
+    func warrantsRetry(supersededRetries: Int) -> Bool {
+        superseded && supersededRetries < Self.supersededRetryLimit
+    }
 }
 
 actor RenderCoordinator {
@@ -105,6 +119,8 @@ actor RenderCoordinator {
     /// How many times `source(for:)` judged a file replaced and forgot what the
     /// renderer held for it. Read by tests; a neighbour prefetch must not move it.
     private(set) var sourceReplacementsForgotten = 0
+    /// How many clipping measurements got past the cancellation check. Read by tests.
+    private(set) var clippingMeasurementsRun = 0
     private var latestGeneration: UInt64 = 0
 
     /// Bounded so a fast scroll through a folder cannot pin a hundred decoded RAWs in
@@ -474,7 +490,11 @@ actor RenderCoordinator {
                                             .map(\.nativeLongEdge) ?? 0),
                                     regionUnit: nil,
                                     fullPixelSize: nil,
-                                    decodeMilliseconds: 0)
+                                    decodeMilliseconds: 0,
+                                    // The viewer compares this with the file's stat on
+                                    // every request; nil reads as "the file was replaced"
+                                    // and blanked the picture on each slider event.
+                                    sourceIdentity: SourceFileIdentity.read(url))
             }
             return nil
         }
@@ -640,23 +660,53 @@ actor RenderCoordinator {
     func ensureMattes(url: URL, recipe: Recipe) async -> MattePass {
         let missing = missingMatteKinds(url: url, recipe: recipe)
         var unavailable = false
+        var superseded = false
         if !missing.isEmpty {
             if let source = try? self.source(for: url),
                let picture = renderer.matteSourceImage(source: source) {
+                let identity = sourceIdentities[url]
                 let produced = await VisionMatteWorker.shared.mattes(image: picture,
                                                                     kinds: missing)
-                record(evicted: renderer.storeMattes(
-                    produced, requested: Set(missing.map { $0.rawValue }), for: url))
+                // The actor is re-entrant across that await: a render may have found the
+                // file replaced, or `invalidate` run. Mattes of the old pixels stored
+                // under the new file would be reported as done and never redone.
+                if Self.mattesStillDescribeFile(
+                    captured: identity,
+                    current: sourceIdentities[url] ?? knownIdentities[url],
+                    onDisk: SourceFileIdentity.read(url)) {
+                    record(evicted: renderer.storeMattes(
+                        produced, requested: Set(missing.map { $0.rawValue }), for: url))
+                } else {
+                    superseded = true
+                }
             } else {
                 unavailable = true
             }
         }
         let dropped = evictedMattes.subtracting([url])
-        evictedMattes.removeAll()
+        // A superseded pass leaves its file in the eviction set, so a pass for another
+        // file reports it, and says so itself so its caller runs it again.
+        evictedMattes = superseded ? [url] : []
         return MattePass(available: renderer.matteKinds(for: url),
                          attempted: renderer.attemptedMatteKinds(for: url),
                          evicted: Array(dropped),
-                         sourceUnavailable: unavailable)
+                         sourceUnavailable: unavailable,
+                         superseded: superseded)
+    }
+
+    /// Whether mattes segmented from the picture built under `captured` still belong to
+    /// the file: the bytes on disk are still the ones that were read, and no render saw
+    /// a different file in the meantime.
+    ///
+    /// `current` nil is `invalidate` having run, which clears what the coordinator
+    /// remembers but does not change the bytes. Relinking an original does exactly that
+    /// while its first pass is in Vision, and refusing then threw away mattes of the
+    /// very pixels on disk.
+    static func mattesStillDescribeFile(captured: SourceFileIdentity?,
+                                        current: SourceFileIdentity?,
+                                        onDisk: SourceFileIdentity?) -> Bool {
+        guard let captured, onDisk == captured else { return false }
+        return current == nil || current == captured
     }
 
     /// Decode a photograph nobody has asked for yet, so that when they do, the file is
@@ -752,6 +802,11 @@ actor RenderCoordinator {
     /// caching against the file rather than against the edit.
     func clippingStatistics(url: URL,
                             recipe: Recipe) -> (RawStatistics, RawTruth.Plan)? {
+        // The caller's task is cancelled when the selection moves on. Checked here, on
+        // arrival, because a measurement queued behind a render would otherwise still
+        // run its full decode for a photo nobody is looking at any more.
+        guard !Task.isCancelled else { return nil }
+        clippingMeasurementsRun += 1
         guard let source = try? self.source(for: url) else { return nil }
         return renderer.clippingStatistics(source: source, recipe: recipe)
     }

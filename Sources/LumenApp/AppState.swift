@@ -722,7 +722,8 @@ final class AppState: ObservableObject {
     /// this photograph. Empty from the outside; carried forward by the one recursive
     /// call, which is what turns "try again" into "try again only if the last try got
     /// somewhere". See the note at the re-entry below for what it costs when it does not.
-    func ensureMaskMattes(attemptedSoFar: Set<String> = []) {
+    /// `supersededRetries` counts the superseded passes in a row already re-run.
+    func ensureMaskMattes(attemptedSoFar: Set<String> = [], supersededRetries: Int = 0) {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
@@ -753,6 +754,15 @@ final class AppState: ObservableObject {
             // thousands a second, while the loupe showed the embedded preview and looked
             // fine. Requiring the attempted set to have GROWN makes a pass that could
             // not run a pass that will not run again.
+            //
+            // A SUPERSEDED pass attempted nothing because the file changed under it, so it
+            // never shows progress; it is retried on its own, bounded, budget instead.
+            if pass.warrantsRetry(supersededRetries: supersededRetries),
+               self.primarySelection?.id == url {
+                self.ensureMaskMattes(attemptedSoFar: attemptedSoFar,
+                                      supersededRetries: supersededRetries + 1)
+                return
+            }
             let progressed = !pass.attempted.isSubset(of: attemptedSoFar)
             if progressed,
                self.primarySelection?.id == url,
@@ -915,23 +925,23 @@ final class AppState: ObservableObject {
     /// event on an actor whose queue can hold a cold decode.
     func refreshMaskThumbnails() {
         guard let photo = primarySelection else {
+            maskThumbnailTask?.cancel()
             if !maskThumbnails.isEmpty { maskThumbnails = [:] }
             maskThumbnailKey = nil
             return
         }
         let recipe = recipe(for: photo)
         guard !recipe.masks.isEmpty else {
+            maskThumbnailTask?.cancel()
             if !maskThumbnails.isEmpty { maskThumbnails = [:] }
             maskThumbnailKey = nil
             return
         }
-        let strokes = strokeSets(for: recipe)
-        let key = Self.maskThumbnailKey(url: photo.id, recipe: recipe,
-                                        sourceIdentity: SourceFileIdentity.read(photo.id),
-                                        strokeSets: strokes)
-        guard key != maskThumbnailKey else { return }
-        maskThumbnailKey = key
 
+        // The key is NOT computed here. It is a dozen JSON encode/decode round trips
+        // plus a stat, this is called on every mouse event of a drag, and the next
+        // event throws the key away — so it is built after the quiet period, off the
+        // main actor. `maskThumbnailKey` therefore names what has LANDED.
         let ids = recipe.masks.map(\.id)
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
@@ -952,16 +962,25 @@ final class AppState: ObservableObject {
             // above the gap between two mouse events.
             try? await Task.sleep(nanoseconds: 90 * 1_000_000)
             guard !Task.isCancelled else { return }
+            let strokes = self.strokeSets(for: recipe)
+            let url = photo.id
+            let key = await Task.detached(priority: .userInitiated) {
+                AppState.maskThumbnailKey(url: url, recipe: recipe,
+                                          sourceIdentity: SourceFileIdentity.read(url),
+                                          strokeSets: strokes)
+            }.value
+            guard !Task.isCancelled, key != self.maskThumbnailKey else { return }
             var built: [String: CGImage] = [:]
             for id in ids {
                 guard !Task.isCancelled else { return }
                 let plane = await self.renderCoordinator.maskThumbnail(
-                    url: photo.id, recipe: recipe, maskID: id, strokeSets: strokes)
+                    url: url, recipe: recipe, maskID: id, strokeSets: strokes)
                 if let plane, let image = AppState.greyImage(from: plane) {
                     built[id] = image
                 }
             }
-            guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
+            guard !Task.isCancelled else { return }
+            self.maskThumbnailKey = key
             self.maskThumbnails = built
         }
     }
@@ -1610,6 +1629,10 @@ final class AppState: ObservableObject {
     /// than showing the last photo's numbers under this photo's name.
     @Published var rawTruthMeasuring = false
     var rawTruthGeneration: UInt64 = 0
+    /// The measurement in flight, held so the next selection can cancel it. The
+    /// generation check only stops a stale result LANDING; without the handle every
+    /// photo paged past still queued its own decode on the coordinator.
+    var rawTruthTask: Task<Void, Never>?
     /// The inspection currently held down (`[` / `]`), or nil. Never written to a
     /// recipe: it is a display gain over the frame already on screen.
     @Published var inspectionHold: InspectionHold?
@@ -2355,6 +2378,10 @@ final class AppState: ObservableObject {
     @Published private(set) var primaryKeywords: [String] = []
     /// The stack the photo under the cursor belongs to, if any.
     @Published private(set) var primaryStack: StackSummary?
+    /// Which photo `primaryKeywords` and `primaryStack` describe, and the newest
+    /// refresh allowed to publish them.
+    private var primaryDetailPhotoID: Int64?
+    private var primaryDetailGeneration = 0
 
     var targetCollection: CollectionItem? { collections.first(where: \.isTarget) }
 
@@ -2418,10 +2445,22 @@ final class AppState: ObservableObject {
 
     /// The keywords and stack of the photo under the cursor.
     func refreshPrimaryLibraryDetail() {
+        primaryDetailGeneration &+= 1
+        let generation = primaryDetailGeneration
         guard let catalog, let photoID = primarySelection?.catalogID else {
             primaryKeywords = []
             primaryStack = nil
+            primaryDetailPhotoID = nil
             return
+        }
+        // Another photo's keywords and stack must not stand in for this one's while
+        // the reads are in flight: Unstack and Collapse act on `primaryStack.id`.
+        // A refresh for the SAME photo (after a keyword or stack edit) keeps them, so
+        // the sidebar does not flicker.
+        if primaryDetailPhotoID != photoID {
+            primaryKeywords = []
+            primaryStack = nil
+            primaryDetailPhotoID = photoID
         }
         Task { [weak self] in
             let words = await catalog.keywords(photoID: photoID)
@@ -2433,7 +2472,8 @@ final class AppState: ObservableObject {
                                        collapsed: stack.collapsed,
                                        isPick: stack.pickPhotoID == photoID)
             }
-            guard let self, self.primarySelection?.catalogID == photoID else { return }
+            guard let self, self.primaryDetailGeneration == generation,
+                  self.primarySelection?.catalogID == photoID else { return }
             self.primaryKeywords = words
             self.primaryStack = summary
         }
@@ -3164,6 +3204,9 @@ final class AppState: ObservableObject {
         let extensions = Self.browsableExtensions
         scanGeneration &+= 1
         let generation = scanGeneration
+        // Kept across a superseded scan: an edit made while folder A was scanning is
+        // still newer than what folder B's scan reads, if B shares the photo.
+        if scanWindowEdits == nil { scanWindowEdits = [] }
         let catalog = self.catalog
         // The previous folder's culling pass is measuring photographs that are leaving
         // the screen; it stops after the one it is on.
@@ -3318,12 +3361,41 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState], restoreSourceState: Bool = true) {
+    /// Photos edited while a folder scan was in flight; nil when none is. Filled by
+    /// `persist` and the culling writes, consumed by `applyScan`.
+    private var scanWindowEdits: Set<URL>?
+
+    /// `stored` with the roll's current flag, rating, label and recipe laid over every
+    /// photo in `edited` that both the scan and the roll on screen hold.
+    nonisolated static func carryingScanWindowEdits(
+        _ stored: [URL: CatalogService.StoredState], edited: Set<URL>,
+        roll: [PhotoItem], recipes: [URL: Recipe]
+    ) -> [URL: CatalogService.StoredState] {
+        guard !edited.isEmpty else { return stored }
+        var out = stored
+        for item in roll where edited.contains(item.id) {
+            guard var state = out[item.id] else { continue }
+            state.flag = item.flag
+            state.rating = item.rating
+            state.label = item.label
+            if let recipe = recipes[item.id] { state.recipe = recipe }
+            out[item.id] = state
+        }
+        return out
+    }
+
+    private func applyScan(_ urls: [URL], stored scanned: [URL: CatalogService.StoredState], restoreSourceState: Bool = true) {
         // The old roll's last deferred writes land BEFORE its state is wiped — a
         // gesture whose release never arrived must not lose its edit to a folder
         // switch (the same promise `prepareToQuit` makes at the other exit).
         // Through `sliderGesture(active: false)` so the watchdog is retired with it.
         sliderGesture(active: false)
+        // `registerAndLoad` read `stored` in one transaction, and an edit made on the
+        // still-visible old roll during the scan was saved AFTER it. Those photos keep
+        // their in-memory state, or the next edit would persist stale + delta.
+        let stored = Self.carryingScanWindowEdits(scanned, edited: scanWindowEdits ?? [],
+                                                  roll: allPhotos, recipes: recipes)
+        scanWindowEdits = nil
         // The undo stack and the in-memory recipes belong to the roll that produced
         // them; they die at the exact moment `allPhotos` is replaced, never earlier.
         // (⌘Z across a folder switch used to revert an .xmp in a folder that is not
@@ -3401,13 +3473,13 @@ final class AppState: ObservableObject {
     }
 
     func select(_ photo: PhotoItem, extending: Bool = false, toggling: Bool = false) {
+        if toggling, selection.contains(photo.id) {
+            deselect(photo)
+            return
+        }
         let changedPhoto = primarySelection?.id != photo.id
         if toggling {
-            if selection.contains(photo.id) {
-                selection.remove(photo.id)
-            } else {
-                selection.insert(photo.id)
-            }
+            selection.insert(photo.id)
         } else if extending, let anchor = primarySelection,
                   let from = rollIndex(of: anchor),
                   let to = rollIndex(of: photo) {
@@ -3419,6 +3491,51 @@ final class AppState: ObservableObject {
         primarySelection = photo
         guard changedPhoto else { return }
         cursorDidChange(to: photo)
+    }
+
+    /// ⌘-click on a selected photo: take it OUT. It must not become the cursor, or
+    /// cull keys and Develop act on the one photo the user just removed. When it was
+    /// the cursor, the cursor moves to the nearest frame still selected. An emptied
+    /// selection clears the cursor too — `editTargets` falls back to it — the same
+    /// nothing-selected state a folder opens in.
+    private func deselect(_ photo: PhotoItem) {
+        selection.remove(photo.id)
+        guard primarySelection?.id == photo.id else { return }
+        guard !selection.isEmpty else {
+            primarySelection = nil
+            // Nothing else leaves the cursor nil for long, so the per-photo panels
+            // must stand down here: each refresh takes its no-selection branch, which
+            // also invalidates a measurement still in flight for the removed photo.
+            scheduleRawTruthRefresh()
+            refreshMaskThumbnails()
+            scheduleScopeRefresh()
+            return
+        }
+        let list = photos
+        let chosen = rollIndex(of: photo)
+            .flatMap { index in
+                Self.nearestSelectedIndex(to: index, count: list.count) {
+                    selection.contains(list[$0].id)
+                }
+            }
+            .map { list[$0] }
+        guard let next = chosen ?? selectedPhotos.first else { return }
+        primarySelection = next
+        cursorDidChange(to: next)
+    }
+
+    /// The index nearest `index` (the following frame first on a tie) for which
+    /// `isSelected` holds, or nil when none does. `index` itself is not considered.
+    nonisolated static func nearestSelectedIndex(to index: Int, count: Int,
+                                                 isSelected: (Int) -> Bool) -> Int? {
+        var distance = 1
+        while index + distance < count || index - distance >= 0 {
+            if index + distance < count, isSelected(index + distance) { return index + distance }
+            if index - distance >= 0, index - distance < count,
+               isSelected(index - distance) { return index - distance }
+            distance += 1
+        }
+        return nil
     }
 
     /// Move the cursor to a photo WITHOUT rebuilding the selection.
@@ -3628,6 +3745,7 @@ final class AppState: ObservableObject {
             // label this build has no word for", so asserting it deleted other tools'
             // labels from the file.
             catalog?.saveCullingState(updated[i], labelChanged: was.label != now.label)
+            scanWindowEdits?.insert(updated[i].id)
             if updated[i].id == primarySelection?.id {
                 freshPrimary = updated[i]
             }
@@ -3695,6 +3813,7 @@ final class AppState: ObservableObject {
         allPhotos = updated
         for entry in restored {
             catalog?.saveCullingState(entry.item, labelChanged: entry.labelChanged)
+            scanWindowEdits?.insert(entry.item.id)
         }
         if let freshPrimary { primarySelection = freshPrimary }
         refreshLibraryQueryIfCullingShowsInTheGrid()
@@ -4216,19 +4335,67 @@ final class AppState: ObservableObject {
 
     func sliderGesture(active: Bool) {
         if active {
-            lastGestureEventAt = Date()
-            if !sliderGestureActive {
-                sliderGestureActive = true
-                gestureEpoch &+= 1
-                armGestureWatchdog()
-            }
+            // A wheel burst holds the latch with no hand on anything; a real gesture
+            // starting is that burst's end. Without this the drag inherited the wheel
+            // row's epoch (its first edits folded into the wheel's undo step) and the
+            // row's closer then unlatched the drag half-way through.
+            if wheelGestureOwner != nil { closeSliderGesture() }
+            openSliderGesture()
             return
         }
+        closeSliderGesture()
+    }
+
+    private func openSliderGesture() {
+        lastGestureEventAt = Date()
+        if !sliderGestureActive {
+            sliderGestureActive = true
+            gestureEpoch &+= 1
+            armGestureWatchdog()
+        }
+    }
+
+    private func closeSliderGesture() {
+        let endsWheelBurst = wheelGestureOwner != nil
+        wheelSettleCloser?.cancel()
+        wheelSettleCloser = nil
+        wheelGestureOwner = nil
+        // The mask Edge rows force the overlay on through their gesture sink, and a
+        // wheel burst never sends that sink its `false`.
+        if endsWheelBurst { setMaskEdgeGesture(false, mask: nil) }
         guard sliderGestureActive else { return }
         sliderGestureActive = false
         gestureWatchdog?.cancel()
         gestureWatchdog = nil
         flushSliderGesture()
+    }
+
+    /// The ⌥-scroll row that holds the latch, or nil when a hand-held gesture (or
+    /// nothing) does. A wheel has no release, so the latch is closed by half a second
+    /// of silence instead — here rather than in the row, so that any other gesture
+    /// starting can end the burst and a stale closer can never unlatch someone else.
+    private var wheelGestureOwner: UUID?
+    private var wheelSettleCloser: Task<Void, Never>?
+    static let wheelSettleDelay: TimeInterval = 0.5
+
+    /// One ⌥-scroll tick on the row `owner`, called before its edit is written.
+    func sliderWheelTick(owner: UUID) {
+        // Another row's burst, or a drag: that gesture ends here, so this row's ticks
+        // are their own undo step.
+        if sliderGestureActive && wheelGestureOwner != owner { closeSliderGesture() }
+        openSliderGesture()
+        wheelGestureOwner = owner
+        wheelSettleCloser?.cancel()
+        wheelSettleCloser = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.wheelSettleDelay * 1e9))
+            guard !Task.isCancelled, let self, self.wheelGestureOwner == owner else { return }
+            self.closeSliderGesture()
+        }
+    }
+
+    /// The wheel hook, allocated once like `sliderGestureSink`.
+    lazy var sliderWheelSink: (UUID) -> Void = { [weak self] owner in
+        self?.sliderWheelTick(owner: owner)
     }
 
     /// Note a mid-gesture edit, so the watchdog measures silence rather than duration:
@@ -4244,9 +4411,9 @@ final class AppState: ObservableObject {
                 let silence = Date().timeIntervalSince(self.lastGestureEventAt)
                 let remaining = Self.gestureSilenceTimeout - silence
                 if remaining <= 0 {
-                    self.sliderGestureActive = false
-                    self.gestureWatchdog = nil
-                    self.flushSliderGesture()
+                    // Through the one close path, so a wheel burst's owner and closer
+                    // are retired with it.
+                    self.closeSliderGesture()
                     return
                 }
                 try? await Task.sleep(nanoseconds: UInt64(remaining * 1e9))
@@ -4268,8 +4435,8 @@ final class AppState: ObservableObject {
             ensureMaskMattes()
         }
         // The hand has stopped: ask every viewer for the quality pass its drag
-        // deferred. Unconditional — a gesture that changed nothing costs one settle
-        // whose every table and decode is already cached, and a gesture that landed on
+        // deferred. Unconditional — a viewer whose settle already answers the request
+        // skips it (`FrameDelivery.settleIsRedundant`), and a gesture that landed on
         // its last drafted value would otherwise never settle at all.
         settleTick &+= 1
     }
@@ -4280,6 +4447,7 @@ final class AppState: ObservableObject {
     /// "Edited: no" filter honest.
     func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
+        scanWindowEdits?.formUnion(changes.keys)
         for (url, recipe) in changes {
             // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
             // of the whole source, per changed photo, per mouse event, on the main

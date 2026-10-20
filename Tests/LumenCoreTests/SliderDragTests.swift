@@ -228,4 +228,33 @@ final class SliderDragTests: XCTestCase {
         XCTAssertFalse(flat.isUsable)
         XCTAssertEqual(flat.value(from: 3, travelled: 40), 3)
     }
+
+    // MARK: A press that has not moved
+
+    func testGrabbingTheThumbWithoutMovingKeepsAnOffStepValue() {
+        // Temp's as-shot 5432 K on a 50 K step: snapping it at the press pinned the
+        // white balance from As Shot to Custom with no pointer motion at all.
+        let temp = SliderTrack(width: 142, lowerBound: 2000, upperBound: 50000, step: 50,
+                               scale: .reciprocal)
+        XCTAssertEqual(temp.value(from: 5432, travelled: 0), 5432)
+        var drag = FineDrag(startValue: 5432)
+        XCTAssertEqual(drag.value(track: temp, travelled: 0, fine: false), 5432)
+    }
+
+    func testGrabbingTheThumbWithoutMovingKeepsAValuePastTheSoftRange() {
+        // Exposure typed to 8 (hard ±10, soft ±5): the press used to drop it to 5.
+        let exposure = SliderTrack(width: 142, lowerBound: -5, upperBound: 5, step: 0.01)
+        XCTAssertEqual(exposure.value(from: 8, travelled: 0), 8)
+        var drag = FineDrag(startValue: 8)
+        XCTAssertEqual(drag.value(track: exposure, travelled: 0, fine: false), 8)
+    }
+
+    func testMovingFromPastTheSoftRangeIsNotPulledHome() {
+        let exposure = SliderTrack(width: 100, lowerBound: -5, upperBound: 5, step: 0.01)
+        // Outward is held where it is; inward moves by the travel, not by a jump to 5.
+        XCTAssertEqual(exposure.value(from: 8, travelled: 1), 8)
+        XCTAssertEqual(exposure.value(from: 8, travelled: -10), 7, accuracy: 1e-9)
+        // Far enough inward still stops at the soft range's other end.
+        XCTAssertEqual(exposure.value(from: 8, travelled: -10_000), -5)
+    }
 }

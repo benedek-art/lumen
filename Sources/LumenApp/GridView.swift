@@ -71,6 +71,9 @@ struct GridView: View {
                                 .onTapGesture {
                                     lastClickedID = photo.id
                                     handleCellClick(photo, state: state)
+                                    // A ⌘-click that deselects the cursor moves it to
+                                    // another selected frame: still a click, so no scroll.
+                                    lastClickedID = state.primarySelection?.id
                                 }
                         }
                     }
@@ -83,6 +86,11 @@ struct GridView: View {
                 .onAppear {
                     // ↑/↓ are the keymap's, but only the grid knows how wide a row is.
                     state.gridColumns = columnCount(width: geometry.size.width, side: side)
+                    // Every mode switch rebuilds this view at the top of the roll; land
+                    // on the frame the loupe left selected, as the filmstrip does.
+                    if let id = state.primarySelection?.id {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                     // The ROLL, not a fresh array of its URLs — see the `onChange`
                     // below for the keystroke this projection used to be paid on.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
@@ -316,7 +324,11 @@ struct PhotoCell: View {
         }
         .frame(width: side)
         .contentShape(Rectangle())
-        .task(id: CellRequest(url: photo.id, pixels: pixels, sourceIdentity: photo.sourceIdentity)) {
+        // Keyed on the cache level, not raw pixels: the size slider moves `pixels` on
+        // every drag event, and only a bucket edge changes what the loader returns.
+        .task(id: CellRequest(url: photo.id,
+                              pixels: ThumbnailLadder.bucket(for: pixels),
+                              sourceIdentity: photo.sourceIdentity)) {
             await loadThumbnail()
         }
     }
@@ -333,7 +345,8 @@ struct PhotoCell: View {
                     .opacity(photo.flag == .reject ? 0.4 : 1)
             }
         }
-        // 120 ms, first appearance only (docs/10 §10.2): never a white flash.
+        // 120 ms, first decode only (docs/10 §10.2): never a white flash. A cache hit
+        // is assigned with animations disabled, so it does not fade.
         .animation(Lumen.motionState, value: image == nil)
         .frame(width: side, height: wellHeight)
         .overlay(alignment: .bottom) {
@@ -419,7 +432,13 @@ struct PhotoCell: View {
 
     private func loadThumbnail() async {
         if let hit = await loader.thumbnail(for: photo.id, size: pixels) {
-            if image !== hit { image = hit }
+            // Pixels already in memory appear at once: a rebuilt sheet replaying the
+            // well's fade-in on every cell reads as the whole grid blinking.
+            if image !== hit {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { image = hit }
+            }
             return
         }
         if let loaded = await loader.image(for: photo.id, size: pixels) {
@@ -428,8 +447,8 @@ struct PhotoCell: View {
     }
 }
 
-/// `.task` identity for a cell's pixels: the same photo at a new thumbnail size is a
-/// new request, the same photo at the same size is not.
+/// `.task` identity for a cell's pixels: the same photo at a new cache level is a
+/// new request, the same photo at the same level is not.
 private struct CellRequest: Equatable {
     let url: URL
     let pixels: Int

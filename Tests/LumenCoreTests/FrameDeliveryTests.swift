@@ -291,4 +291,28 @@ final class FrameDeliveryTests: XCTestCase {
                                                showingAnyFrameOfThisRecipe: false,
                                                requestIsOnlyTheSettleAsk: true))
     }
+
+    // MARK: A settle ask the screen already answers
+
+    /// A thumb click or a crop-tool drag releases with nothing changed: the settle on
+    /// screen is already this request, so no full-resolution pass runs again.
+    func testAReleaseThatChangedNothingDoesNotReSettle() {
+        XCTAssertTrue(FrameDelivery.settleIsRedundant(requestIsOnlyTheSettleAsk: true,
+                                                      showingSettledOfThisRecipe: true,
+                                                      settledThisRequest: true))
+    }
+
+    /// Any one of the three missing is a picture that still owes its settle.
+    func testEveryOtherCaseStillSettles() {
+        for ask in [false, true] {
+            for settled in [false, true] {
+                for same in [false, true] where !(ask && settled && same) {
+                    XCTAssertFalse(FrameDelivery.settleIsRedundant(
+                        requestIsOnlyTheSettleAsk: ask,
+                        showingSettledOfThisRecipe: settled,
+                        settledThisRequest: same))
+                }
+            }
+        }
+    }
 }

@@ -534,6 +534,11 @@ struct LumenSlider: View {
     /// Same shape and the same reason as the gesture hook above: this control does not
     /// observe `AppState`, and it must not start.
     @Environment(\.sliderFocusChanged) private var sliderFocusChanged
+    /// ⌥-scroll ticks, named by `wheelOwner` — see `wheelNudge`.
+    @Environment(\.sliderWheelTick) private var sliderWheelTick
+    /// The photograph being edited. When it changes, focus and an open readout field
+    /// are let go rather than carried onto the next frame.
+    @Environment(\.sliderSubject) private var sliderSubject
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -565,6 +570,12 @@ struct LumenSlider: View {
     /// The press that began this gesture was the second click of a double-click, so
     /// `reset()` ran and everything else the gesture delivers is ignored.
     @State private var pressWasReset = false
+    /// The value before the latest single press, so the second click of a double-click
+    /// can put back the jump the first one made before it resets.
+    @State private var firstClickOrigin: Double?
+    /// When that press happened. An origin older than the double-click interval belongs
+    /// to some earlier press, not to this double-click's first click.
+    @State private var firstClickAt = Date.distantPast
     @State private var isEditingText = false
     @State private var textValue = ""
     @FocusState private var textFocused: Bool
@@ -762,6 +773,15 @@ struct LumenSlider: View {
         .onChange(of: rowFocused) { _, focused in
             sliderFocusChanged(focused)
         }
+        // A NEW PHOTOGRAPH LETS GO OF THE ROW. Focus taken by a drag on frame A used to
+        // follow the photographer: P auto-advanced to B, and the next → nudged B's
+        // value instead of paging. The filmstrip's cells are not focusable, so nothing
+        // else takes focus away. An open readout field closes with it, unsubmitted —
+        // its text was typed against the previous photograph.
+        .onChange(of: sliderSubject) { _, _ in
+            isEditingText = false
+            rowFocused = false
+        }
         .onDisappear {
             // A panel switch removes the row without the focus ever changing, so the
             // count would never come back down and the arrows would stop paging
@@ -886,33 +906,26 @@ struct LumenSlider: View {
     /// change to make first if the owner finds eight seconds long", and his fourth
     /// round found it exactly: a wheel-scrubbed Shadows left a 1277 px draft standing
     /// on a zoomed loupe for the whole watchdog window, which reads as "the blur
-    /// never goes away". So the row closes its own gesture after half a second of
-    /// wheel silence: one task per row that is actually being scrolled (allocated on
-    /// use, not ninety timers idling), cancelled and re-armed per tick, closing
-    /// through the same `sliderGestureChanged(false)` a drag's release uses — which
-    /// lands the deferred catalog write, the scope re-bin and the settle at once.
-    /// The 8-second watchdog stays as the crash-safety net behind it, and the
-    /// known cost is narrow: begin a DRAG somewhere within the half second and the
-    /// stale closer flushes once mid-gesture; the drag's next event re-latches, and
-    /// one early settle is the whole price.
+    /// never goes away". So the gesture closes after half a second of wheel silence,
+    /// landing the deferred catalog write, the scope re-bin and the settle at once.
+    ///
+    /// THE CLOSER LIVES IN `AppState` (`sliderWheelTick(owner:)`), not in this row. A
+    /// per-row timer could not see anyone else's gesture: a drag begun on another row
+    /// inside the half second shared this burst's epoch (its first edits folded into
+    /// this row's undo step), and the stale closer then unlatched that drag half-way
+    /// through. The state ends a burst when any other gesture starts, and only the
+    /// burst's own row can be closed by its timer.
     private func wheelNudge(_ clicks: Int) {
         let next = scrubTrack.nudged(value, steps: clicks * (Self.shiftIsDown ? 10 : 1))
         guard next != value, next.isFinite else { return }
         onEditingChanged?(true)
-        sliderGestureChanged(true)
+        sliderWheelTick(wheelOwner)
         commit(next)
         onEditingChanged?(false)
-        wheelSettleCloser?.cancel()
-        wheelSettleCloser = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            sliderGestureChanged(false)
-        }
     }
 
-    /// The half-second wheel-silence closer above. `@State` so a re-body cannot leak
-    /// an armed task, and per-row so only rows actually being scrolled ever hold one.
-    @State private var wheelSettleCloser: Task<Void, Never>?
+    /// This row's identity to the wheel latch in `AppState`.
+    @State private var wheelOwner = UUID()
 
     // How close to the thumb counts as grabbing it rather than pressing the track is
     // `SliderDrag.thumbGrabRadius`, in LumenCore. It is not restated here as a second
@@ -1163,9 +1176,35 @@ struct LumenSlider: View {
                             // start of a drag.
                             if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
                                 pressWasReset = true
-                                reset()
+                                // PUT BACK THE FIRST CLICK'S JUMP before resetting (the
+                                // B3-05 rule ColorPanel's hue handle follows), and do
+                                // both inside ONE latch: they share an epoch, so they
+                                // fold into that click's undo step and the reset is the
+                                // only step. On an optional-backed row the put-back
+                                // writes the getter's stand-in, not nil, so only the
+                                // shared epoch lets `onReset`'s write (another key)
+                                // fold in rather than make a second step.
+                                onEditingChanged?(true)
+                                sliderGestureChanged(true)
+                                if let origin = firstClickOrigin, origin != value,
+                                   Date().timeIntervalSince(firstClickAt)
+                                       <= NSEvent.doubleClickInterval {
+                                    value = origin
+                                }
+                                firstClickOrigin = nil
+                                reset(latched: true)
+                                onEditingChanged?(false)
+                                sliderGestureChanged(false)
                                 return
                             }
+                            firstClickOrigin = value
+                            firstClickAt = Date()
+                            // The latch opens BEFORE the press writes anything: a track
+                            // press's jump written unlatched was an immediate catalog
+                            // write and an undo step with no epoch, which a pause
+                            // mid-drag could split in two.
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -1181,10 +1220,14 @@ struct LumenSlider: View {
                             // the same one with an anchor that ⇧ can move.
                             gearbox = FineDrag(startValue: dragStartValue,
                                                fine: Self.shiftIsDown)
-                            onEditingChanged?(true)
-                            sliderGestureChanged(true)
                         }
                         if pressWasReset { return }
+                        // EVERY SAMPLE re-asserts the latch. Repeated `true` only
+                        // refreshes the watchdog's clock, but if something closed the
+                        // latch under a held button — the 8-second watchdog, ⌘Z, a stale
+                        // closer — the rest of the drag would otherwise persist and
+                        // re-bin the scopes on every mouse event.
+                        sliderGestureChanged(true)
                         let travelled = Double(drag.location.x - drag.startLocation.x)
                         // ⇧ read off the live AppKit modifier flags rather than from the
                         // gesture, because SwiftUI's `DragGesture.Value` carries no
@@ -1259,8 +1302,19 @@ struct LumenSlider: View {
                     .font(.lumenNumeric)
                     .multilineTextAlignment(.trailing)
                     .focused($textFocused)
+                    // Focus is asked for once the field EXISTS. Asked for in the tap that
+                    // inserts it, the request could be dropped, leaving a caret with no
+                    // focus behind it and digits reaching the key grammar as ratings.
+                    .onAppear { textFocused = true }
                     .onSubmit { commitText() }
                     .onExitCommand { isEditingText = false }
+                    // COMMIT ON BLUR, as Lightroom and Capture One do. The field used to
+                    // close only on Return or Escape, so clicking elsewhere left it open
+                    // with its snapshot, and a later Return wrote that stale text over
+                    // whatever had happened since — on another photo, possibly.
+                    .onChange(of: textFocused) { _, focused in
+                        if !focused && isEditingText { commitText() }
+                    }
             } else {
                 // TABULAR FIGURES ON SF PRO, not SF Mono. The app mixed two typefaces
                 // at 23 sites — a second family, a different x-height, inches from the
@@ -1277,7 +1331,6 @@ struct LumenSlider: View {
                     .onTapGesture {
                         textValue = formatted
                         isEditingText = true
-                        textFocused = true
                     }
                     // THE CURSOR IS THE ADVERTISEMENT. This readout is the app's
                     // PRECISION instrument — 2.13 points per unit against the track's
@@ -1301,8 +1354,10 @@ struct LumenSlider: View {
                                     scrubGearbox = FineDrag(startValue: value,
                                                             fine: Self.shiftIsDown)
                                     onEditingChanged?(true)
-                                    sliderGestureChanged(true)
                                 }
+                                // Every sample, as on the track: re-latch if something
+                                // closed the gesture under a held button.
+                                sliderGestureChanged(true)
                                 let travelled = Double(drag.location.x
                                                        - drag.startLocation.x)
                                 let out = scrubGearbox.resolving(
@@ -1328,6 +1383,11 @@ struct LumenSlider: View {
                     )
                     .help("Drag to adjust, click to type — ⇧ for fine")
             }
+        }
+        // A field left open without focus closes when the value moves under it, so a
+        // stale snapshot can never be committed over a newer edit.
+        .onChange(of: value) { _, _ in
+            if isEditingText && !textFocused { isEditingText = false }
         }
         // Padding INSIDE the column's width, so the pill costs the track nothing: the
         // row's arithmetic — label, two gaps, readout, the rest is groove — is what
@@ -1371,9 +1431,15 @@ struct LumenSlider: View {
     // copy of it sitting in this file is how the two would come to round differently
     // without anything being able to notice.
 
-    private func reset() {
+    /// `latched`: the caller already holds the gesture latch, so the write must not
+    /// open or close one of its own (closing it would end the caller's gesture early).
+    private func reset(latched: Bool = false) {
         if let onReset {
             onReset()
+            return
+        }
+        if latched {
+            value = defaultValue
             return
         }
         onEditingChanged?(true)
@@ -1856,6 +1922,10 @@ struct LumenSegmented<T: Hashable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // The chip and the label colour are the only marks of the chosen
+                // segment, and VoiceOver sees neither: without the trait every
+                // option read as the same "<label>, button".
+                .accessibilityAddTraits(selection == option.value ? .isSelected : [])
                 .onHover { inside in
                     if inside {
                         hovered = option.value
@@ -1866,6 +1936,8 @@ struct LumenSegmented<T: Hashable>: View {
                 .lumenClickCursor()
             }
         }
+        // One group, so the options read as a set rather than as loose buttons.
+        .accessibilityElement(children: .contain)
         // The interior is ONE carved well, and only the chosen segment stands up out of
         // it as a chip. The previous form filled every segment edge to edge — a rest
         // fill, a hover fill and a selection fill all running flush to the well's lip —
@@ -1940,6 +2012,15 @@ struct LumenColorWheel: View {
     /// count off the AppKit event at press time instead.
     @State private var dragActive = false
     @State private var pressWasReset = false
+    /// The gesture's anchor and gear (`WheelDrag` in LumenCore): a press on the puck
+    /// picks it up where it is, and ⇧ fines the drag without moving it.
+    @State private var gearbox: WheelDrag?
+    /// Whether the pointer has left the press. Until it has, nothing is written.
+    @State private var dragMoved = false
+
+    private static var shiftIsDown: Bool {
+        NSEvent.modifierFlags.contains(.shift)
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -1987,26 +2068,54 @@ struct LumenColorWheel: View {
                                 lum = 0
                                 onEditingChanged?(false)
                                 sliderGestureChanged(false)
+                            } else {
+                                gearbox = WheelDrag(
+                                    press: wheelOffset(drag.startLocation),
+                                    puck: WheelDrag.puckOffset(hue: hue, saturation: sat,
+                                                               radius: Double(diameter / 2)),
+                                    fine: Self.shiftIsDown)
                             }
                         }
                         if pressWasReset { return }
+                        // A PRESS IS NOT A MOVE (B3-05, as on the mixer ring). The first
+                        // click of a double-click has `clickCount` 1, so writing here
+                        // jumped the puck before the reset and left one ⌘Z landing on a
+                        // tint nobody chose. A click on bare disc still places the puck —
+                        // on release, below.
+                        if !dragMoved {
+                            guard drag.translation != .zero else { return }
+                            dragMoved = true
+                        }
                         onEditingChanged?(true)
                         sliderGestureChanged(true)
-                        let dx = drag.location.x - diameter / 2
-                        let dy = drag.location.y - diameter / 2
-                        let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
-                        hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
-                            .truncatingRemainder(dividingBy: 360)
-                        sat = Double(r)
+                        follow(drag)
                     }
-                    .onEnded { _ in
+                    .onEnded { drag in
                         dragActive = false
                         if pressWasReset {
                             pressWasReset = false
                             return
                         }
-                        onEditingChanged?(false)
-                        sliderGestureChanged(false)
+                        // THE RELEASE IS A SAMPLE, as on `LumenSlider`: AppKit coalesces
+                        // the trailing motion when the main actor is behind, so the puck
+                        // would otherwise stop short of where the hand let go.
+                        if dragMoved { follow(drag) }
+                        let moved = dragMoved
+                        let box = gearbox
+                        dragMoved = false
+                        gearbox = nil
+                        if moved {
+                            onEditingChanged?(false)
+                            sliderGestureChanged(false)
+                        } else if let box, !box.grabbedPuck {
+                            // Click to place: one bracketed write, so it is one undo
+                            // step that a double-click's reset folds into.
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
+                            write(box.resolving(travelled: .zero, fine: false).offset)
+                            onEditingChanged?(false)
+                            sliderGestureChanged(false)
+                        }
                     }
             )
             // THE PUCK AS AN ADJUSTABLE ELEMENT (UX-03). The disc is gradients and a
@@ -2072,6 +2181,31 @@ struct LumenColorWheel: View {
                     .frame(width: diameter + 40)
             }
         }
+    }
+
+    /// A point in the wheel's frame as an offset from its centre.
+    private func wheelOffset(_ location: CGPoint) -> WheelPoint {
+        WheelPoint(x: Double(location.x - diameter / 2),
+                   y: Double(location.y - diameter / 2))
+    }
+
+    /// One motion sample through the gesture's gearbox, storing it only when ⇧ moved.
+    private func follow(_ drag: DragGesture.Value) {
+        guard let box = gearbox else { return }
+        let out = box.resolving(travelled: WheelPoint(x: Double(drag.translation.width),
+                                                      y: Double(drag.translation.height)),
+                                fine: Self.shiftIsDown)
+        if let changed = out.changedGear { gearbox = changed }
+        write(out.offset)
+    }
+
+    /// SATURATION BEFORE HUE. The open undo step takes the key of its first write, and
+    /// a double-click's reset writes `sat` first — so a click-to-place and the reset
+    /// that follows it share a key and fold into one step.
+    private func write(_ offset: WheelPoint) {
+        guard let puck = WheelDrag.reading(offset, radius: Double(diameter / 2)) else { return }
+        sat = puck.saturation
+        hue = puck.hue
     }
 
     /// One assistive write, bracketed the way a click on the disc is.
@@ -2277,6 +2411,15 @@ struct LumenToggleRow: View {
         // 0.24 and a jump for a row at 0.20.
         .lumenInteractive(on: Lumen.panelValue, enabled: isEnabled)
         .help(help ?? "")
+        // ONE NAMED BUTTON PER ROW, as the slider row is one adjustable element
+        // (UX-03). The title was a sibling `Text`, so VoiceOver read it as static
+        // words and then an unnamed "on, button" for the switch.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(isOn ? "on" : "off"))
+        .accessibilityHint(Text(help ?? ""))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { if isEnabled { isOn.toggle() } }
     }
 }
 

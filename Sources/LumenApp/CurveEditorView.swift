@@ -52,6 +52,30 @@ private struct ParametricRegion {
     let reach: [Double]
 }
 
+// MARK: - Curve stack memo
+
+/// The editor's one baked `CurveStack`, rebuilt only when the curve set changes.
+///
+/// A body pass read `stack` three or four times (samples, handles, caption, hover
+/// readout), and the view re-bodies on every `EditRevision` bump — an Exposure tick in
+/// the same column included — so the same 1024-entry parametric bake ran several times
+/// per slider event for a curve nobody had touched. A reference box for the same reason
+/// as `CursorArrivals`: a write through it must not publish and re-body the view.
+final class CurveStackMemo {
+
+    private var cached: CurveStack?
+    /// How many times `stack(for:)` has had to bake. Read by tests.
+    private(set) var bakes: Int = 0
+
+    func stack(for set: CurveSet) -> CurveStack {
+        if let cached, cached.set == set { return cached }
+        let fresh = CurveStack(set)
+        cached = fresh
+        bakes += 1
+        return fresh
+    }
+}
+
 // MARK: - Curve editor
 
 struct CurveEditorView: View {
@@ -161,6 +185,8 @@ struct CurveEditorView: View {
     /// `nearestSplitIndex` had to stop making at full plot width, and eight points of it
     /// is no more wanted than three hundred.
     @State private var splitGrabOffset: CGFloat = 0
+    /// Scratch, never drawn from directly; see `CurveStackMemo`.
+    @State private var stackMemo = CurveStackMemo()
 
     private static let sampleCount: Int = 128
     /// The press radius, in the plot's own points. The drawn dot is radius 3, so the
@@ -691,7 +717,7 @@ struct CurveEditorView: View {
 
     // MARK: Curve evaluation
 
-    private var stack: CurveStack { CurveStack(curveSet) }
+    private var stack: CurveStack { stackMemo.stack(for: curveSet) }
 
     /// The one evaluation the graph draws, matched to the selected curve. Parametric
     /// and Point both show the master curve, because the master *is* the parametric

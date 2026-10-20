@@ -133,7 +133,8 @@ final class HistoryStack: ObservableObject {
                 coalescingKey: String?, label: String? = nil,
                 gestureEpoch: Int? = nil) {
         let now = Date()
-        defer { lastEditTime = now }
+        var editTime = now
+        defer { lastEditTime = editTime }
 
         // The rule lives in LumenCore (HistoryCoalescing) where it is tested. The
         // third input — the photo sets must MATCH — is what keeps a drag that spans a
@@ -161,12 +162,30 @@ final class HistoryStack: ObservableObject {
                 if let culling = edit.culling { combined.culling = culling }
                 merged[url] = combined
             }
-            // The open step keeps its own key and epoch: it is still the same step,
-            // and a wheel drag's second field must not rename it.
+            // A step folded back to where it began undoes nothing, so it goes. The
+            // double-click that resets a slider is the case: the first click's jump and
+            // the put-back before the reset would otherwise leave an empty step, and the
+            // first ⌘Z would appear to do nothing. Only at the head of the stack — with
+            // a redo tail behind it, removing a step would reorder history.
+            if position == steps.count, Self.isNoOp(before: open.before, after: merged) {
+                atomically {
+                    steps.removeLast()
+                    position = steps.count
+                }
+                // The step now exposed may be arbitrarily old: the next edit must not
+                // fold into it as if it were recent.
+                editTime = .distantPast
+                return
+            }
+            // The open step keeps its own key: it is still the same step, and a wheel
+            // drag's second field must not rename it. It takes the incoming epoch, so a
+            // gesture whose first write folded in by key brings the rest of its fields
+            // with it — a wheel's double-click reset writes `sat` (folds) then `lum`,
+            // which under the old epoch split off as a second step.
             steps[position - 1] = Step(before: open.before, after: merged,
                                        coalescingKey: open.coalescingKey,
                                        label: open.label,
-                                       gestureEpoch: open.gestureEpoch)
+                                       gestureEpoch: gestureEpoch ?? open.gestureEpoch)
             return
         }
 
@@ -188,6 +207,12 @@ final class HistoryStack: ObservableObject {
             }
             position = steps.count
         }
+    }
+
+    /// Whether restoring `before` over `after` would change nothing: every field the
+    /// step recorded for every photo is back where it started.
+    static func isNoOp(before: [URL: PhotoEdit], after: [URL: PhotoEdit]) -> Bool {
+        before == after
     }
 
     func undo() -> [URL: PhotoEdit]? {
@@ -304,6 +329,39 @@ extension HistoryStack {
                               detail: detail(step, url: url)))
         }
         return rows
+    }
+
+    /// How many steps a cursor walk from `from` to `to` crosses that `url` is not in.
+    ///
+    /// Those steps are not in `url`'s list, yet walking through them undoes or redoes
+    /// them on photographs that may be off screen, and the next edit then drops them
+    /// from the redo tail. A multi-photo step that includes `url` is listed, so it does
+    /// not count.
+    static func foreignSteps(steps: [Step], url: URL, from: Int, to: Int) -> Int {
+        foreignSteps(prefix: foreignPrefix(steps: steps, url: url), from: from, to: to)
+    }
+
+    /// `prefix[i]` is how many of the first `i` steps `url` is not in. Built once per
+    /// draw, so each row's count is a subtraction rather than a walk of the stack.
+    static func foreignPrefix(steps: [Step], url: URL) -> [Int] {
+        var prefix = [0]
+        prefix.reserveCapacity(steps.count + 1)
+        for step in steps {
+            prefix.append(prefix[prefix.count - 1] + (step.after[url] == nil ? 1 : 0))
+        }
+        return prefix
+    }
+
+    static func foreignSteps(prefix: [Int], from: Int, to: Int) -> Int {
+        guard !prefix.isEmpty else { return 0 }
+        let clamp = { (p: Int) in min(max(p, 0), prefix.count - 1) }
+        return abs(prefix[clamp(to)] - prefix[clamp(from)])
+    }
+
+    /// Whether the panel refuses a row: its walk crosses other photographs' steps and
+    /// it is not the row the photograph is already showing.
+    static func refusesRow(isCurrent: Bool, foreign: Int) -> Bool {
+        !isCurrent && foreign > 0
     }
 
     /// Which row the photograph is showing, as an index into `entries`.
@@ -429,6 +487,8 @@ extension HistoryStack {
         "temp": "Temperature",
         "bw": "Black & White",
         "hsl": "HSL",
+        // A colour wheel's drag opens its step under `….sat`, the first value it writes.
+        "sat": "Saturation",
     ]
 
     // MARK: What the step was worth

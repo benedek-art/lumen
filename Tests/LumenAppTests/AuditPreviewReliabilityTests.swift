@@ -77,6 +77,65 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertEqual(forgotten, 1, "a same-path replacement must still forget")
     }
 
+    func testACancelledRawTruthMeasurementNeverReachesItsDecode() async throws {
+        // Paging with the Raw Truth panel open queued one full decode per photo passed:
+        // the feed's task was never cancelled and the actor method never looked.
+        let url = try scratch().appendingPathComponent("measure.png")
+        try write(pixels(width: 32, height: 24), to: url)
+        let coordinator = RenderCoordinator()
+        let task = Task { () -> Bool in
+            while !Task.isCancelled { await Task.yield() }
+            return await coordinator.clippingStatistics(url: url, recipe: Recipe()) != nil
+        }
+        task.cancel()
+        let measured = await task.value
+        XCTAssertFalse(measured, "a superseded measurement must drop on arrival")
+        var run = await coordinator.clippingMeasurementsRun
+        XCTAssertEqual(run, 0, "and must not start a decode")
+        _ = await coordinator.clippingStatistics(url: url, recipe: Recipe())
+        run = await coordinator.clippingMeasurementsRun
+        XCTAssertEqual(run, 1, "an uncancelled measurement still runs")
+    }
+
+    func testMattesFromAReplacedFileAreNotStoredAsItsOwn() throws {
+        // ensureMattes suspends on Vision; a replacement or invalidate during that await
+        // used to be overwritten by the old pixels' mattes, reported done, never redone.
+        let root = try scratch()
+        let first = root.appendingPathComponent("first.png")
+        let second = root.appendingPathComponent("second.png")
+        try write(pixels(width: 32, height: 24), to: first)
+        try write(pixels(width: 32, height: 24, green: true), to: second)
+        let old = try XCTUnwrap(SourceFileIdentity.read(first))
+        let new = try XCTUnwrap(SourceFileIdentity.read(second))
+        XCTAssertNotEqual(old, new)
+        XCTAssertTrue(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: old, onDisk: old), "an undisturbed pass stores")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: new, onDisk: new), "a render saw the replacement")
+        XCTAssertTrue(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: nil, onDisk: old),
+            "invalidate (a relink) ran during the pass, but the bytes are the ones read")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: nil, onDisk: new), "invalidated and the bytes changed")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: old, current: old, onDisk: new), "the bytes changed and nobody looked yet")
+        XCTAssertFalse(RenderCoordinator.mattesStillDescribeFile(
+            captured: nil, current: nil, onDisk: old))
+    }
+
+    func testASupersededMattePassAsksToBeRunAgainWithinItsBudget() {
+        // A superseded pass stores and attempts nothing, so the progress rule never
+        // re-entered and the panel said "Computing" until an unrelated edit.
+        let superseded = MattePass(available: [], attempted: [], evicted: [],
+                                   superseded: true)
+        XCTAssertTrue(superseded.warrantsRetry(supersededRetries: 0))
+        XCTAssertFalse(superseded.warrantsRetry(
+            supersededRetries: MattePass.supersededRetryLimit),
+            "a file rewritten continuously is not segmented in a loop")
+        let settled = MattePass(available: [], attempted: [], evicted: [])
+        XCTAssertFalse(settled.warrantsRetry(supersededRetries: 0))
+    }
+
     func testAMattePassThatCannotReadTheOriginalSaysSoInsteadOfWorking() async throws {
         // F5-09: "not attempted, not pending" was always WORKING, and a pass that cannot
         // build its source attempts nothing — so the panel said "Computing" forever.
@@ -311,6 +370,21 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
         let rows = await service.previewState(photoID: id)?.rows ?? []
         XCTAssertTrue(rows.isEmpty)
+    }
+
+    /// The embedded-preview fallback must say which file it came from. Without an
+    /// identity the loupe took every later request for a replaced file and cleared the
+    /// picture to the surround on each slider event.
+    func testEmbeddedPreviewFallbackCarriesTheSourceIdentity() async throws {
+        // PNG bytes behind a RAW extension: the RAW stage refuses it, ImageIO reads it.
+        let url = try scratch().appendingPathComponent("refused.ARW")
+        try write(pixels(width: 96, height: 64), to: url)
+        let rendered = await RenderCoordinator().renderOneShot(
+            url: url, recipe: Recipe(), maxLongEdge: 96, draft: false)
+        let result = try XCTUnwrap(rendered)
+        try XCTSkipUnless(result.usedEmbeddedPreview, "this OS decoded the stand-in as a RAW")
+        XCTAssertNotNil(result.sourceIdentity)
+        XCTAssertEqual(result.sourceIdentity, SourceFileIdentity.read(url))
     }
 }
 #endif

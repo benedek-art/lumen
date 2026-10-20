@@ -64,11 +64,20 @@ extension AppState {
             statusMessage = "Auto could not read those files"
             return
         }
+        // Only photos still in the roll. A folder opened while Auto measured has
+        // replaced `recipes`, so a photo that left would be written as its bare
+        // starting recipe plus Auto's tone — to a sidecar that then wins on reopen.
+        let roll = Set(allPhotos.map(\.id))
+        let landing = suggestions.filter { roll.contains($0.key) }
+        guard !landing.isEmpty else {
+            statusMessage = nil
+            return
+        }
         sliderGesture(active: false)
         var before: [URL: HistoryStack.PhotoEdit] = [:]
         var after: [URL: HistoryStack.PhotoEdit] = [:]
         var applied: [URL: Recipe] = [:]
-        for (url, tone) in suggestions {
+        for (url, tone) in landing {
             // The photo's real baseline, not bare defaults: Auto measured
             // through recipe(for:) — starting from Recipe() here installed a
             // recipe it never measured, stripping a JPEG's Linear preset

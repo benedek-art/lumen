@@ -402,6 +402,9 @@ struct ClippingOverlayView: View {
     var fullFrame: Bool = false
 
     @State private var overlay: CGImage?
+    /// The detached build in flight. `.task(id:)` cancels only the wrapper, so this is
+    /// what reaches the work — see `MaskOverlayView.rebuild`.
+    @State private var buildTask: Task<CGImage?, Never>?
 
     private struct BuildKey: Equatable {
         let sampler: UUID
@@ -432,11 +435,15 @@ struct ClippingOverlayView: View {
         let source = sampler
         let wanted = mode
         let flood = fullFrame
-        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+        buildTask?.cancel()
+        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
             ClippingOverlayView.build(sampler: source, mode: wanted, fullFrame: flood)
-        }.value
+        }
+        buildTask = task
+        let built = await task.value
         guard !Task.isCancelled else { return }
-        overlay = built
+        // A cancelled build returns nil; keep the last good overlay rather than blank it.
+        if let built { overlay = built } else if !task.isCancelled { overlay = nil }
     }
 
     /// One pass over the sampled proxy. The bytes are sRGB-encoded, and the encoding is
@@ -458,6 +465,8 @@ struct ClippingOverlayView: View {
 
         var p: Int = 0
         while p < pixelCount {
+            // Once per row: a superseded build stops instead of finishing unseen.
+            if p % width == 0, Task.isCancelled { return nil }
             let i = p * 4
             let c = RGB(Double(source[i]) / 255,
                         Double(source[i + 1]) / 255,
@@ -511,6 +520,8 @@ struct SpotVisualizationView: View {
     let threshold: Double
 
     @State private var overlay: CGImage?
+    /// The detached build in flight, so a newer threshold can cancel it.
+    @State private var buildTask: Task<CGImage?, Never>?
 
     private struct BuildKey: Equatable {
         let sampler: UUID
@@ -537,19 +548,26 @@ struct SpotVisualizationView: View {
     private func rebuild() async {
         let source = sampler
         let wanted = threshold
-        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+        buildTask?.cancel()
+        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
             SpotVisualizationView.build(sampler: source, threshold: wanted)
-        }.value
+        }
+        buildTask = task
+        let built = await task.value
         guard !Task.isCancelled else { return }
-        overlay = built
+        if let built { overlay = built } else if !task.isCancelled { overlay = nil }
     }
 
     nonisolated static func build(sampler: PixelSampler, threshold: Double) -> CGImage? {
         let width = sampler.width, height = sampler.height
+        // Checked between the engine's passes, which do not look themselves.
+        if Task.isCancelled { return nil }
         guard let luma = SpotVisualization.luma(rgba: sampler.bytes, width: width,
                                                 height: height) else { return nil }
+        if Task.isCancelled { return nil }
         let grey = SpotVisualization.render(luma: luma, width: width, height: height,
                                             threshold: threshold)
+        if Task.isCancelled { return nil }
         guard grey.count == width * height,
               let space = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2),
               let provider = CGDataProvider(data: Data(grey) as CFData) else { return nil }
@@ -703,6 +721,8 @@ struct FocusPeakingOverlayView: View {
     var settings: FocusPeakingSettings
 
     @State private var overlay: CGImage?
+    /// The detached build in flight, so the next frame of a drag can cancel it.
+    @State private var buildTask: Task<CGImage?, Never>?
 
     private struct BuildKey: Equatable {
         let sampler: UUID
@@ -738,11 +758,14 @@ struct FocusPeakingOverlayView: View {
         let source = sampler
         let wanted = settings.sensitivity
         let colour = settings.tint
-        let built: CGImage? = await Task.detached(priority: .userInitiated) {
+        buildTask?.cancel()
+        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
             FocusPeakingOverlayView.build(sampler: source, sensitivity: wanted, tint: colour)
-        }.value
+        }
+        buildTask = task
+        let built = await task.value
         guard !Task.isCancelled else { return }
-        overlay = built
+        if let built { overlay = built } else if !task.isCancelled { overlay = nil }
     }
 
     /// The confidence plane the engine returns for the frame on screen, at the
@@ -782,6 +805,7 @@ struct FocusPeakingOverlayView: View {
         var luminance = [Float](repeating: 0, count: pixelCount)
         var p: Int = 0
         while p < pixelCount {
+            if p % width == 0, Task.isCancelled { return nil }
             let i = p * 4
             luminance[p] = Float(weights.r * linear[Int(sampler.bytes[i])]
                                  + weights.g * linear[Int(sampler.bytes[i + 1])]
@@ -789,6 +813,7 @@ struct FocusPeakingOverlayView: View {
             p += 1
         }
 
+        if Task.isCancelled { return nil }
         return FocusPeaking.compute(Plane(width: width, height: height, values: luminance),
                                     threshold: sensitivity.threshold)
     }
@@ -812,10 +837,12 @@ struct FocusPeakingOverlayView: View {
         let height = confidence.height
         let pixelCount = width * height
         let colour = tint.colour
+        if Task.isCancelled { return nil }
 
         var out = [UInt8](repeating: 0, count: pixelCount * 4)
         var p: Int = 0
         while p < pixelCount {
+            if p % width == 0, Task.isCancelled { return nil }
             let raw = Double(confidence.values[p])
             let alpha = raw.isFinite ? Swift.min(Swift.max(raw, 0), 1) : 0
             if alpha > 0 {

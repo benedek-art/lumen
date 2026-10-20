@@ -152,6 +152,18 @@ final class ScrollNudgeTests: XCTestCase {
     private let trackpad = true
     private let wheel = false
 
+    // MARK: ⇧ on a mouse wheel
+
+    func testAShiftedMouseWheelIsReadFromXWhereAppKitPutsIt() {
+        // ⌥⇧ over a slider with a mouse: AppKit delivers the click as horizontal.
+        XCTAssertEqual(ScrollNudge.axisDelta(dx: 1, dy: 0, precise: wheel, shift: true), 1)
+        XCTAssertEqual(ScrollNudge.axisDelta(dx: -1, dy: 0, precise: wheel, shift: true), -1)
+        // Without ⇧, or on a trackpad, X stays ignored.
+        XCTAssertEqual(ScrollNudge.axisDelta(dx: 1, dy: 0, precise: wheel, shift: false), 0)
+        XCTAssertEqual(ScrollNudge.axisDelta(dx: 3, dy: 0, precise: trackpad, shift: true), 0)
+        XCTAssertEqual(ScrollNudge.axisDelta(dx: 3, dy: 2, precise: wheel, shift: true), 2)
+    }
+
     // MARK: One click of a wheel is one press of an arrow
 
     func testOneWheelLineIsExactlyOneStep() {
