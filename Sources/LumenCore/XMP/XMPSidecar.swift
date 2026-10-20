@@ -691,8 +691,10 @@ public enum XMPSidecar {
             // sidecar no parser will read back — including this one, on the next
             // launch. A label is user-editable and a write stamp can come from
             // another tool, so this is reachable. Dropped rather than escaped,
-            // because there is no legal escape for them.
+            // because there is no legal escape for them. U+FFFE and U+FFFF are outside
+            // the Char production for the same reason, and libxml2 stops dead on them.
             case "\t", "\n", "\r": out.unicodeScalars.append(scalar)
+            case "\u{FFFE}", "\u{FFFF}": break
             default:
                 if scalar.value >= 0x20 { out.unicodeScalars.append(scalar) }
             }
