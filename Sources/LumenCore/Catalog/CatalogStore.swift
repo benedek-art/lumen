@@ -1081,6 +1081,27 @@ public final class CatalogStore {
     /// When false the text chip degrades to parameterized LIKE — correct, just slower.
     public var isTextIndexAvailable: Bool { ftsEnabled }
 
+    /// Width ÷ height as the photograph is SHOWN. `width` and `height` are the stored
+    /// sensor extent; EXIF orientations 5–8 turn it a quarter, so a vertical A7 IV
+    /// frame stored 6000 × 4000 with orientation 6 is 0.667, not 1.5.
+    static func displayedAspect(width: Int?, height: Int?, orientation: Int?) -> Double? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        if let orientation, (5...8).contains(orientation) {
+            return Double(height) / Double(width)
+        }
+        return Double(width) / Double(height)
+    }
+
+    /// Rows written before `aspect` honoured orientation carry the sensor ratio. Turning
+    /// them is idempotent (a turned row no longer equals width ÷ height, a square one
+    /// is the same either way) and needs no schema version: a version bump would make
+    /// an older build refuse this catalog outright.
+    private static let quarterTurnedAspectRepair = """
+    UPDATE photo SET aspect = CAST(height AS REAL) / width
+     WHERE orientation BETWEEN 5 AND 8 AND width > 0 AND height > 0
+       AND aspect = CAST(width AS REAL) / height;
+    """
+
     // MARK: Migration list
 
     /// Schema version this build understands. Base DDL (`CatalogSchema.lumenDDL`) is
@@ -1486,6 +1507,7 @@ public final class CatalogStore {
         // frame's previews, scores and raw stats. The cache is derived; drop them now,
         // before any id can be reused. Failing to sweep must not block opening.
         try? sweepCacheOrphans()
+        try? database.execute(CatalogStore.quarterTurnedAspectRepair)
     }
 
     deinit {
@@ -2066,8 +2088,9 @@ public final class CatalogStore {
     public func upsertPhoto(_ photo: PhotoRow) throws -> Int64 {
         var row = photo
         if row.addedAt == 0 { row.addedAt = CatalogStore.now() }
-        if row.aspect == nil, let w = row.width, let h = row.height, h > 0 {
-            row.aspect = Double(w) / Double(h)
+        if row.aspect == nil {
+            row.aspect = CatalogStore.displayedAspect(width: row.width, height: row.height,
+                                                      orientation: row.orientation)
         }
         if row.ext == nil {
             row.ext = CatalogStore.fileExtension(of: row.filename)
@@ -2996,11 +3019,8 @@ public final class CatalogStore {
         // `aspect = NULL`, and the aspect-ratio sort ordered the whole roll by NULL,
         // i.e. by row id, i.e. it silently did nothing. Maintained here, next to the
         // two columns it is computed from, so the two cannot disagree.
-        let aspect: Double? = {
-            guard let width = metadata.width, let height = metadata.height,
-                  height > 0 else { return nil }
-            return Double(width) / Double(height)
-        }()
+        let aspect = CatalogStore.displayedAspect(width: metadata.width, height: metadata.height,
+                                                  orientation: metadata.orientation)
         let statement = try db.prepare("""
             UPDATE photo SET capture_at = ?, capture_subsec = ?, camera = ?,
                              camera_serial = ?, lens = ?, iso = ?, shutter_s = ?,
