@@ -305,6 +305,11 @@ enum ExactColorTwin {
 
     @inline(__always) static func gate(_ C: Float) -> Float { smoothstep(0.02, 0.06, C) }
 
+    /// Protect Skin's log-chroma ramp: `ColorEngine.protectLoChroma…protectHiChroma`.
+    @inline(__always) static func protectGate(_ C: Float) -> Float {
+        smoothstep(log(Float(0.006)), log(Float(0.06)), log(max(C, 1e-9)))
+    }
+
     @inline(__always) static func lumShape(_ L: Float) -> Float {
         let t = min(max(L, 0), 0.5)
         return t * (1 - t)
@@ -486,7 +491,7 @@ enum ExactColorTwin {
             if inBand > 0 {
                 let plaus = min(max(smoothstep(0.05, 0.20, l.x) * (1 - smoothstep(0.85, 0.98, l.x))
                                     * (1 - smoothstep(0.16, 0.26, l.y)), 0), 1)
-                skin = min(max(inBand * gate(l.y) * plaus, 0), 1)
+                skin = min(max(inBand * protectGate(l.y) * plaus, 0), 1)
             }
         }
         let protection = 1 - p.z * skin
@@ -609,6 +614,7 @@ public enum ExactColorKernelSource {
         return t * t * (3.0 - 2.0 * t);
     }
     float lumenGate(float C) { return lumenSmooth(0.02, 0.06, C); }
+    float lumenProtectGate(float C) { return lumenSmooth(log(0.006), log(0.06), log(max(C, 1e-9))); }
     float lumenLumShape(float L) { float t = min(max(L, 0.0), 0.5); return t * (1.0 - t); }
     float lumenMembership(float h, float centre, vec4 arc) {
         float d = lumenHueDelta(centre, h);
@@ -848,7 +854,7 @@ public enum ExactColorKernelSource {
                         if (inBand > 0.0) {
                             float plaus = min(max(lumenSmooth(0.05, 0.20, l.x) * (1.0 - lumenSmooth(0.85, 0.98, l.x))
                                                   * (1.0 - lumenSmooth(0.16, 0.26, l.y)), 0.0), 1.0);
-                            skin = min(max(inBand * lumenGate(l.y) * plaus, 0.0), 1.0);
+                            skin = min(max(inBand * lumenProtectGate(l.y) * plaus, 0.0), 1.0);
                         }
                     }
                     float protection = 1.0 - p.z * skin;

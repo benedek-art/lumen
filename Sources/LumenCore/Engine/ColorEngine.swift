@@ -220,6 +220,25 @@ public struct ColorEngine: Sendable {
     public static let gateLoChroma: Double = 0.02
     public static let gateHiChroma: Double = 0.06
 
+    /// Where Protect Skin's attenuation fades in, in chroma, eased over LOG chroma.
+    ///
+    /// It used to be `chromaGate`, through `skinWeight`, and that ramp is too steep to
+    /// sit under a gain. The output chroma is C · G(1 − P · g(C)), so as the protection
+    /// rises the gain falls, and a linear-chroma smoothstep across 0.02…0.06 rises at
+    /// up to 1.5 per ln C — faster than the input grows. At Vibrance and Saturation
+    /// +100 and Protect 100 a skin-hued C 0.040 left at 0.088 and a C 0.054 at 0.061:
+    /// the MORE colourful pixel came out flatter, a chroma contour on a pale face (0.011
+    /// at the shipped Protect 70). Keeping chroma order at full gain needs the ramp no
+    /// steeper than 1 − g/2 per ln C; no ramp that opens and closes inside 0.02…0.06
+    /// can manage that, and a smoothstep needs a decade. So it starts at 0.006 and is
+    /// full by the same 0.06 as before — real skin keeps exactly the protection it had,
+    /// and only skin-hued near-greys between 0.006 and 0.06 gain some partial guard.
+    /// `skinWeight`, the shared meaning of "skin", is not touched.
+    /// Mirrored in `ExactColorTwin.vibranceSaturation` and the GLSL colour finish.
+    /// (ProtectSkinChromaOrderTests)
+    public static let protectLoChroma: Double = 0.006
+    public static let protectHiChroma: Double = 0.06
+
     // MARK: - Point Colour (docs/06 brief §2.2)
 
     // THE SELECTION AXES, AND THEY ARE PHOTOGRAPHIC TOLERANCES NOW.
@@ -969,6 +988,24 @@ public struct ColorEngine: Sendable {
         return Num.saturate(inBand * chromaGate(lch.C) * plausibility(L: lch.L, C: lch.C))
     }
 
+    /// How much Protect Skin spares this colour: `skinWeight` with its chroma gate
+    /// swapped for the log-chroma `protectLoChroma…protectHiChroma` ramp, so the
+    /// attenuation can never fold chroma order (see those constants). Selection is
+    /// still `skinWeight`'s; only the strength of the guard eases in more gently.
+    static func skinProtectionWeight(_ c: RGB,
+                                     context: OKLabTransform.Context = OKLabTransform.working)
+        -> Double {
+        guard c.isFinite else { return 0 }
+        let lch = context.toLCh(c)
+        guard lch.C.isFinite, lch.L.isFinite else { return 0 }
+        let offAxis = abs(Num.hueDelta(skinLineDegrees, lch.h))
+        let inBand = 1 - Num.smoothstep(skinBandDegrees, skinBandDegrees * 1.5, offAxis)
+        guard inBand > 0 else { return 0 }
+        let gate = Num.smoothstep(Foundation.log(protectLoChroma), Foundation.log(protectHiChroma),
+                                  Foundation.log(Swift.max(lch.C, 1e-9)))
+        return Num.saturate(inBand * gate * plausibility(L: lch.L, C: lch.C))
+    }
+
     /// Skin is a *plausible* colour, not just an angle: crushed blacks, blown highlights
     /// and fire-engine chroma sit on the I-bar too, and unifying them is the failure the
     /// band alone cannot prevent.
@@ -1410,7 +1447,7 @@ public struct ColorEngine: Sendable {
         guard input.J.isFinite, input.C.isFinite else { return c }
 
         // Selection and shaping weights are read off the stage input, never the output.
-        let skin = Self.skinWeight(c, context: context)
+        let skin = Self.skinProtectionWeight(c, context: context)
         let protection = 1 - Num.clamp(color.protectSkin, 0, 100) / 100 * skin
         let rolloff = Self.lumSatRolloff(input.J)
 
