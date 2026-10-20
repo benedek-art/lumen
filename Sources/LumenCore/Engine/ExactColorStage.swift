@@ -431,7 +431,7 @@ enum ExactColorTwin {
         let t = wrapHue(h) * 0.0174532925
         let q: Float = -0.01585
             - 0.03017 * cos(t) - 0.04556 * cos(2 * t)
-            - 0.04256 * cos(3 * t) - 0.00295 * cos(4 * t)
+            - 0.02667 * cos(3 * t) - 0.00295 * cos(4 * t)
             + 0.14592 * sin(t) + 0.05084 * sin(2 * t)
             - 0.01900 * sin(3 * t) - 0.00764 * sin(4 * t)
         return 1 + (-0.1340 * q + 0.0872 * kBr) * (max(0, C) * 4) * 0.1
@@ -627,7 +627,7 @@ public enum ExactColorKernelSource {
         float t = lumenWrap(h) * 0.0174532925;
         float q = -0.01585
             - 0.03017 * cos(t) - 0.04556 * cos(2.0 * t)
-            - 0.04256 * cos(3.0 * t) - 0.00295 * cos(4.0 * t)
+            - 0.02667 * cos(3.0 * t) - 0.00295 * cos(4.0 * t)
             + 0.14592 * sin(t) + 0.05084 * sin(2.0 * t)
             - 0.01900 * sin(3.0 * t) - 0.00764 * sin(4.0 * t);
         return 1.0 + (-0.1340 * q + 0.0872 * kBr) * (max(0.0, C) * 4.0) * 0.1;

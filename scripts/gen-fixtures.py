@@ -2345,7 +2345,7 @@ K_BR = 0.2717 * (6.469 + 6.362 * 160.0 ** 0.4495) / (6.469 + 160.0 ** 0.4495)
 def hk_q(hue_deg):
     t = math.radians(hue_deg % 360.0)
     return (-0.01585 - 0.03017 * math.cos(t) - 0.04556 * math.cos(2 * t)
-            - 0.04256 * math.cos(3 * t) - 0.00295 * math.cos(4 * t)
+            - 0.02667 * math.cos(3 * t) - 0.00295 * math.cos(4 * t)
             + 0.14592 * math.sin(t) + 0.05084 * math.sin(2 * t)
             - 0.01900 * math.sin(3 * t) - 0.00764 * math.sin(4 * t))
 

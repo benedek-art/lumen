@@ -247,6 +247,31 @@ final class ColorScienceTests: XCTestCase {
                        accuracy: 1e-12)
     }
 
+    /// Nayatani's q(θ) (Color Res. Appl. 22(6), 1997; colour-science's
+    /// `coefficient_q_Nayatani1997`) is nine published coefficients. The cos 3θ term had
+    /// been transcribed as −0.04256 instead of −0.02667, in the reference and in both
+    /// copies the exact colour stage carries (its Float twin and the kernel prelude).
+    /// At θ = 0 every sine vanishes and q is the sum of the cosine terms, −0.12120; at
+    /// θ = 60° cos 3θ = −1 and the sine series is live, so the published value there pins
+    /// the corrected term alongside the sines; θ = 90°, where cos 3θ vanishes, must not
+    /// move (0.19168). The twin and the kernel string must say the same.
+    func testNayataniQCarriesThePublishedCoefficients() {
+        XCTAssertEqual(HelmholtzKohlrausch.q(hueDegrees: 0), -0.12120, accuracy: 1e-9)
+        XCTAssertEqual(HelmholtzKohlrausch.q(hueDegrees: 90), 0.19168, accuracy: 1e-9)
+        XCTAssertEqual(HelmholtzKohlrausch.q(hueDegrees: 60),
+                       -0.01585 - 0.03017 * 0.5 + 0.04556 * 0.5 + 0.02667 - 0.00295 * -0.5
+                           + (0.14592 + 0.05084 - 0.00764 * -1) * 3.0.squareRoot() / 2,
+                       accuracy: 1e-9)
+        for hue in stride(from: 0.0, to: 360.0, by: 7.5) {
+            let reference = HelmholtzKohlrausch.brightnessFactor(chroma: 0.3, hue: hue)
+            let twin = ExactColorTwin.hkFactor(0.3, Float(hue),
+                                               Float(HelmholtzKohlrausch.kBr))
+            XCTAssertEqual(Double(twin), reference, accuracy: 1e-6, "hue \(hue)")
+        }
+        XCTAssertTrue(ExactColorKernelSource.prelude.contains("- 0.02667 * cos(3.0 * t)"),
+                      "the kernel's lumenHK must carry the published cos 3θ coefficient")
+    }
+
     /// The invariant docs/14 §5.4 makes every colour kernel promise: a chroma move
     /// holds perceived brightness. This is what naive HSL cannot do.
     func testChromaMovePreservesPerceivedBrightness() {
