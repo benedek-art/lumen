@@ -101,9 +101,12 @@ final class ExportRecipeDecodeTests: XCTestCase {
         recipe.hdr = HDRSettings(headroomEV: 1.5, mapScale: 0.5, deliberateSDRBase: false)
 
         // Every encoded leaf must differ from the default, or a decoder that ignores the
-        // key passes (the decoder falls back to exactly that default). Optionals are
-        // compared against their own type's default, so a nil left here fails too.
-        // `id` and `name` have generated fallbacks, not defaults.
+        // key passes (the decoder falls back to exactly that default). The optionals the
+        // reference fills by hand (watermark, subfolder, hdr, metadata's copyright and
+        // contact) are compared against their type's default, so a nil left in one of
+        // those fails too. A NEW optional left nil is encoded by neither tree, so it is
+        // not caught here: add it to the reference. `id` and `name` have generated
+        // fallbacks, not defaults.
         let reference = ExportRecipe(name: "", watermark: Watermark(),
                                      subfolder: "", hdr: HDRSettings())
         var referenceTree = try leaves(of: reference)

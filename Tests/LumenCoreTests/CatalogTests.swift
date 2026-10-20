@@ -49,11 +49,13 @@ final class CatalogTests: XCTestCase {
     /// The FTS tests skip without FTS5, but only off CI: Apple's SQLite and Ubuntu's
     /// libsqlite3 both ship FTS5, so on a CI lane a missing index means `ftsDDL` failed
     /// and `prepareCacheDatabase` swallowed it. A skip there would hide that.
+    /// LUMEN_ALLOW_NO_FTS5=1 is the opt-out for a lane whose SQLite really lacks FTS5.
     private func requireTextIndex(_ store: CatalogStore) throws {
         if store.isTextIndexAvailable { return }
         struct TextIndexMissingOnCI: Error {}
+        let env = ProcessInfo.processInfo.environment
         // A thrown non-skip error fails the test.
-        if ProcessInfo.processInfo.environment["CI"] != nil { throw TextIndexMissingOnCI() }
+        if env["CI"] != nil && env["LUMEN_ALLOW_NO_FTS5"] != "1" { throw TextIndexMissingOnCI() }
         throw XCTSkip("no FTS5 in this SQLite")
     }
 

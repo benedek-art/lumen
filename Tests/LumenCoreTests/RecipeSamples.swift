@@ -1,15 +1,18 @@
 // RecipeSamples.swift
-// Shared recipe fixtures. `populated()` is the full-fidelity sample: every field off its
-// default, every optional present, every collection non-empty.
-// `RecipeCodecToleranceTests.testNoRecipeFieldIsSampledOnlyAtItsDefault` enforces that,
-// so any test built on it covers a new field as soon as somebody populates it.
+// Shared recipe fixtures. `populated()` is the full-fidelity sample: every optional
+// present, every collection non-empty, and every key off its default somewhere.
+// `RecipeCodecToleranceTests` enforces both halves: `testTheSampleRecipeLeavesNoFieldUnpopulated`
+// the first two, `testNoRecipeFieldIsSampledOnlyAtItsDefault` the third, checked per
+// type and key rather than per instance. So any test built on it covers a new field as
+// soon as somebody populates it.
 
 @testable import LumenCore
 
 enum RecipeSamples {
 
-    /// A recipe with every field set to something that is NOT its default, every
-    /// optional present and every collection non-empty.
+    /// A recipe with every optional present, every collection non-empty, and every key
+    /// set off its default in at least one instance (`mixer.bands[0].lum` is 0, its
+    /// default, because the other bands' are not).
     ///
     /// Nothing here is a default on purpose: a sample that agreed with the defaults
     /// would make "the field came back at its default" true whether the decoder read

@@ -27,10 +27,11 @@
 // whole session, and these prove the cache actually reaches it).
 //
 // The mask RASTER cache deliberately still refuses the settle rung, and the last test
-// here is the guard on that refusal rather than an omission: see `MaskRasterCache`'s
-// header for the key defect that has to be fixed before the raster can be held, and
-// `MaskCostTests.testTheRasterCacheRefusesTheSettleRungWhileItsKeyIsIncomplete` for the
-// same rule stated where it runs.
+// here is the guard on that refusal rather than an omission. The refusal is a memory
+// rule, not a key defect: settle and export rasters come at the render's resolution, a
+// 45 MP one is ~180 MB of Float plane, and holding them would need its own byte budget.
+// See `MaskRasterCache`'s header, and `MaskCostTests.testTheRasterCacheHoldsOnlyTheDraftProxy`
+// for the same rule stated where it runs.
 //
 // These do not run on the Linux lane — `LumenPipeline` is `#if os(macOS)`.
 

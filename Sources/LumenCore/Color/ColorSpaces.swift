@@ -280,10 +280,10 @@ public enum TransferFunction: String, Codable, Sendable, CaseIterable {
 
 // MARK: - Correlated colour temperature
 
-/// Kelvin/tint ↔ chromaticity. Photographic convention: the Planckian locus below
-/// 4000 K (tungsten and candlelight really are blackbody radiators) and the CIE
-/// daylight locus at and above 4000 K (daylight and flash are not) — which is what
-/// makes 5500 K on a camera mean what photographers expect.
+/// Kelvin/tint ↔ chromaticity. Photographic convention: the Planckian locus at and
+/// below 3500 K (tungsten and candlelight really are blackbody radiators), the CIE
+/// daylight locus at and above 4500 K (daylight and flash are not), and a crossfade
+/// between — which is what makes 5500 K on a camera mean what photographers expect.
 public enum ColorTemperature {
 
     /// Slider range from docs/04 (D9).

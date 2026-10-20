@@ -65,8 +65,9 @@ final class ColorScienceTests: XCTestCase {
         romm.m[2][2] = proPhoto.m[2][2]
         XCTAssertLessThan(proPhoto.maxAbsDifference(romm), 1e-4)
 
-        // A published cross-space matrix (Rec.2020 → Display P3 linear, both D65),
-        // which also exercises fromXYZ.
+        // A cross-space matrix (Rec.2020 → Display P3 linear, both D65) derived outside
+        // this code from the published BT.2020 and EG 432-1 primaries; colour-science
+        // gives the same values. No standard quotes it. It also exercises fromXYZ.
         let rec2020ToP3 = Mat3(1.343578, -0.282180, -0.061399,
                                -0.065297, 1.075788, -0.010490,
                                0.002822, -0.019598, 1.016777)
@@ -198,8 +199,16 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertEqual(srgb.decode(0.04), 0.0030959752322, accuracy: 1e-9)
         XCTAssertEqual(srgb.decode(0.041), 0.0031743, accuracy: 1e-7)  // ((0.041+0.055)/1.055)^2.4
         XCTAssertEqual(srgb.decode(0.5), 0.2140411, accuracy: 1e-7)
-        // Continuity at the encode breakpoint: the toe and power segments meet.
-        XCTAssertEqual(srgb.encode(0.0031308), 0.04045, accuracy: 1e-4)
+        // Continuity at the encode breakpoint, from both sides. The two IEC formulas,
+        // written out here, meet at 0.0031308 to 3e-8; the code takes the toe AT the
+        // breakpoint and must take the power segment one ulp above it.
+        let join = 0.0031308
+        let toeAtJoin = 12.92 * join
+        let powerAtJoin = 1.055 * pow(join, 1.0 / 2.4) - 0.055
+        XCTAssertEqual(toeAtJoin, powerAtJoin, accuracy: 1e-7)
+        XCTAssertEqual(srgb.encode(join), toeAtJoin, accuracy: 1e-12)
+        XCTAssertEqual(srgb.encode(join.nextUp), 1.055 * pow(join.nextUp, 1.0 / 2.4) - 0.055,
+                       accuracy: 1e-12, "the power segment is wrong at the join")
 
         XCTAssertEqual(rec709.encode(0.01), 0.045, accuracy: 1e-12)
         XCTAssertEqual(rec709.decode(0.045), 0.01, accuracy: 1e-12)

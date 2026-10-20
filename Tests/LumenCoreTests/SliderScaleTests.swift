@@ -247,9 +247,10 @@ final class SliderScaleTests: XCTestCase {
     }
 
     func testTheMiredAxisSpendsTravelWhereTheChangeIs() {
-        // The fix, as the same number: the share of the TRACK given to a span should
-        // match the share of the CHANGE that span carries. That is the whole property
-        // a perceptually even axis has, and the linear one misses it by 16×.
+        // The fix, as the same number. The mired axis gives the 15000–50000 K span
+        // exactly its mired share of the track, and that share lands within a small
+        // factor (≈1.8×) of the share of the CHANGE the span carries. The linear axis
+        // misses the change share by more than 0.6 of the track.
         let low = change(from: 2000, to: 15000)
         let high = change(from: 15000, to: 50000)
         let shareOfChange = high / (low + high)
