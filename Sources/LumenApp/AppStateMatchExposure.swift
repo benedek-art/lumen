@@ -53,21 +53,31 @@ extension AppState {
     /// at `applyAutoToneSuggestions`.
     func applyExposureMatch(reference: PhotoItem, targets: [PhotoItem],
                             captures: [URL: ExposureMatch.Capture]) {
+        // The photos as they stand now: one that left the library during the read (a
+        // removal, a folder switch) gets no recipe written, and the rest carry their
+        // current fields (`recipe(for:)` reads `iso` for an unedited frame's baseline).
+        var current: [URL: PhotoItem] = [:]
+        for photo in allPhotos { current[photo.id] = photo }
+        guard let liveReference = current[reference.id] else {
+            statusMessage = "Match Total Exposures: the active photo is no longer in the library"
+            return
+        }
+        let liveTargets: [PhotoItem] = targets.compactMap { current[$0.id] }
         sliderGesture(active: false)
-        let frames: [ExposureMatch.Frame<URL>] = targets.map { photo in
+        let frames: [ExposureMatch.Frame<URL>] = liveTargets.map { photo in
             ExposureMatch.Frame(id: photo.id,
                                 capture: captures[photo.id] ?? ExposureMatch.Capture(),
                                 exposure: recipe(for: photo).develop.tone.exposure)
         }
-        let plan = ExposureMatch.plan(referenceID: reference.id, frames: frames)
+        let plan = ExposureMatch.plan(referenceID: liveReference.id, frames: frames)
         let exposures = plan.exposures
         if !exposures.isEmpty {
-            updateRecipe(label: "Match Total Exposures", targets: targets) { photo, recipe in
+            updateRecipe(label: "Match Total Exposures", targets: liveTargets) { photo, recipe in
                 guard let exposure = exposures[photo.id] else { return }
                 recipe.develop.tone.exposure = exposure
             }
         }
-        statusMessage = ExposureMatch.summary(plan, referenceName: reference.filename)
+        statusMessage = ExposureMatch.summary(plan, referenceName: liveReference.filename)
     }
 }
 

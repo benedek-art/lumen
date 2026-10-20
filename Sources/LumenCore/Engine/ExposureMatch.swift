@@ -16,7 +16,7 @@
 // scene really did change. What it evens out is the camera changing its mind.
 //
 // Pure arithmetic, so it lives here and is tested on Linux; the app reads the EXIF and
-// writes the sliders (`AppState+MatchExposure.swift`).
+// writes the sliders (`AppStateMatchExposure.swift`).
 
 import Foundation
 
@@ -109,6 +109,10 @@ public enum ExposureMatch {
         /// Nil when the reference itself lacks the metadata, in which case nothing can
         /// be matched and every frame is left alone.
         public var outcomes: [ID: Outcome]?
+
+        public init(outcomes: [ID: Outcome]?) {
+            self.outcomes = outcomes
+        }
 
         /// The slider values to write, frames that need no change included.
         public var exposures: [ID: Double] {
