@@ -2225,8 +2225,9 @@ final class KernelGoldenTests: XCTestCase {
         // Display-referred output in 0…1. 2% was the declared tolerance and the real
         // figure is 2.8% — the two paths sample the same tables by different methods,
         // `CIColorCube`'s trilinear against the reference's tetrahedral, out of fp16
-        // storage against doubles. Both are architectural costs of bake-and-fetch, not
-        // defects to be found.
+        // storage against doubles. The interpolant was NOT architectural — the fetch is
+        // our own kernel, and it is tetrahedral now (`CubeLookupTwinTests`), which is
+        // expected to move the figure below down; fp16 storage is what remains.
         //
         // It is pre-existing and it is stable: the same 0.028001785278320312, to every
         // digit, before and after the presence-epsilon rewrite and the plan-table cache.

@@ -9,7 +9,11 @@ import XCTest
 /// `CIColorCube` was handed Float32 RGBA and answered at 8 bits: gpu-parity measured a
 /// lifted black's finish value of 0.033596 as exactly 9/255 (0.0352941), and ~8.06/255
 /// between two knots. On a log-encoded table one 1/255 step is 0.094 EV. `ColorCube`
-/// now looks up through `KernelLibrary.cubeLookup`; this suite holds it to the table.
+/// now looks up through `KernelLibrary.cubeLookup`; this suite holds it to the table,
+/// and to the reference's interpolant: the expected value is `LUT3D.sample` itself, the
+/// tetrahedral fetch the kernel now restates branch for branch. (It was a trilinear
+/// restatement while the kernel was trilinear, which is how a GPU that sampled every
+/// table differently from the CPU passed a suite named for precision.)
 ///
 /// The values are chosen OFF the 1/255 grid, so an 8-bit store misses every one of them
 /// by up to half a step (2e-3), against a 2e-4 bound that leaves room for a half-float
@@ -24,24 +28,6 @@ final class ColorCubePrecisionTests: XCTestCase {
                            0.2 + 0.6 * (c.r + c.b) / 2)
             return base + RGB(gray: 0.37 / 255)
         }
-    }
-
-    /// `CIColorCube`'s and the kernel's interpolant: trilinear over the same layout.
-    private func trilinear(_ lut: LUT3D, _ c: RGB) -> RGB {
-        let n = lut.size
-        func at(_ r: Int, _ g: Int, _ b: Int) -> RGB {
-            let i = ((b * n + g) * n + r) * 4
-            return RGB(Double(lut.data[i]), Double(lut.data[i + 1]), Double(lut.data[i + 2]))
-        }
-        let p = RGB(Num.saturate(c.r), Num.saturate(c.g), Num.saturate(c.b)) * Double(n - 1)
-        let r0 = min(Int(p.r), n - 2), g0 = min(Int(p.g), n - 2), b0 = min(Int(p.b), n - 2)
-        let fr = p.r - Double(r0), fg = p.g - Double(g0), fb = p.b - Double(b0)
-        func lerp(_ a: RGB, _ b: RGB, _ t: Double) -> RGB { a + (b - a) * t }
-        let c00 = lerp(at(r0, g0, b0), at(r0 + 1, g0, b0), fr)
-        let c10 = lerp(at(r0, g0 + 1, b0), at(r0 + 1, g0 + 1, b0), fr)
-        let c01 = lerp(at(r0, g0, b0 + 1), at(r0 + 1, g0, b0 + 1), fr)
-        let c11 = lerp(at(r0, g0 + 1, b0 + 1), at(r0 + 1, g0 + 1, b0 + 1), fr)
-        return lerp(lerp(c00, c10, fg), lerp(c01, c11, fg), fb)
     }
 
     private func render(_ lut: LUT3D, _ inputs: [RGB]) throws -> [RGB] {
@@ -96,7 +82,7 @@ final class ColorCubePrecisionTests: XCTestCase {
             var worst = 0.0
             var at = ""
             for (c, out) in zip(inputs, gpu) {
-                let expected = trilinear(lut, c)
+                let expected = lut.sample(c)
                 let error = out.maxAbsDifference(expected)
                 if error > worst { worst = error; at = "\(c): GPU \(out) table \(expected)" }
             }

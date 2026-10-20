@@ -137,10 +137,12 @@ final class CurveBlackLiftTests: XCTestCase {
 
     // MARK: - the table both renderers read
 
-    /// Core Image's `CIColorCube` — what `RenderGraph` applies `finishLUT` with — is a
-    /// TRILINEAR filter. `LUT3D.sample` is tetrahedral, which keeps a neutral on the
-    /// cube's diagonal by construction and so cannot see the cast at all. This is the
-    /// GPU's interpolant, restated over the same stored floats.
+    /// Core Image's `CIColorCube` — what `RenderGraph` applied `finishLUT` with when this
+    /// was written — is a TRILINEAR filter. `LUT3D.sample` is tetrahedral, which keeps a
+    /// neutral on the cube's diagonal by construction and so cannot see the cast at all.
+    /// The GPU fetch is Lumen's own tetrahedral kernel now (`CubeLookupTwinTests`), but
+    /// the trilinear restatement stays: it is the interpolant that reads the off-axis
+    /// corners, so it is the one that would show a cast baked into them.
     private func trilinear(_ lut: LUT3D, _ c: RGB) -> RGB {
         let n = lut.size, m = n - 1
         func axis(_ v: Double) -> (Int, Int, Double) {

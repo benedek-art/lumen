@@ -102,5 +102,5 @@ fifth key needs a stated-version bump. A LUT raises no stated version (pinned), 
   fp are stale.
 - **LUT bytes do not ride in the XMP sidecar** the way brush strokes do (`BrushStrokeSidecar`).
   A sidecar moved alone to another catalog carries the ref but not the cube.
-- **`CIColorCube` interpolates trilinearly, while `LUT3D.sample` is tetrahedral.** This is the
-  same gap every plan table has (AI-03). A tetrahedral CI kernel would close it for all of them.
+- **`CIColorCube` interpolates trilinearly, while `LUT3D.sample` is tetrahedral.** Fixed on
+  claude/colour-accuracy: `lumenCubeLookup` is tetrahedral for every table (`CubeLookupTwinTests`).
