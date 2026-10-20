@@ -416,8 +416,9 @@ enum SliderInventory {
     /// 97 → 102 when the October run added five and none of them came with a row, and
     /// 102 → 103 for Visualize Spots' threshold, which landed after that census: the
     /// Heal tool's Size, Feather and Opacity (a new host, `healBar`), the Looks LUT's
-    /// Amount, and the export sheet's sequence Start at.
-    static let callSiteCount = 103
+    /// Amount, and the export sheet's sequence Start at. 103 → 106 for the export
+    /// sheet's Percent, Width and Height (the percentage and box resize modes).
+    static let callSiteCount = 106
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -511,23 +512,30 @@ enum SliderInventory {
 
         // Export sheet — a fixed-width host, so no resize can rescue it.
         SliderSpec("Quality", "ExportSheet.swift:591", .exportSheet, 0...100, step: 1),
-        SliderSpec("Megapixels", "ExportSheet.swift:736", .exportSheet, 0.5...100,
+        SliderSpec("Megapixels", "ExportSheet.swift:730", .exportSheet, 0.5...100,
                    hard: 0.1...500, step: 0.5, decimals: 1),
-        SliderSpec("Pixels", "ExportSheet.swift:740", .exportSheet, 320...8000,
+        SliderSpec("Percent", "ExportSheet.swift:734", .exportSheet, 5...200,
+                   hard: 1...1000, step: 1),
+        // The two sides of the box modes, ranged exactly like Pixels.
+        SliderSpec("Width", "ExportSheet.swift:740", .exportSheet, 320...8000,
                    hard: 16...30000, step: 8),
-        SliderSpec("Resolution", "ExportSheet.swift:748", .exportSheet, 72...600,
+        SliderSpec("Height", "ExportSheet.swift:743", .exportSheet, 320...8000,
+                   hard: 16...30000, step: 8),
+        SliderSpec("Pixels", "ExportSheet.swift:752", .exportSheet, 320...8000,
+                   hard: 16...30000, step: 8),
+        SliderSpec("Resolution", "ExportSheet.swift:760", .exportSheet, 72...600,
                    hard: 1...2400, step: 1),
-        SliderSpec("Opacity", "ExportSheet.swift:977", .exportSheet, 0...100, step: 1),
-        SliderSpec("Size", "ExportSheet.swift:980", .exportSheet, 0.5...20,
+        SliderSpec("Opacity", "ExportSheet.swift:996", .exportSheet, 0...100, step: 1),
+        SliderSpec("Size", "ExportSheet.swift:999", .exportSheet, 0.5...20,
                    step: 0.1, decimals: 1),
-        SliderSpec("Inset", "ExportSheet.swift:983", .exportSheet, 0...20,
+        SliderSpec("Inset", "ExportSheet.swift:1002", .exportSheet, 0...20,
                    step: 0.1, decimals: 1),
-        SliderSpec("Headroom", "ExportSheet.swift:1026", .exportSheet, 0.5...4,
+        SliderSpec("Headroom", "ExportSheet.swift:1045", .exportSheet, 0.5...4,
                    step: 0.1, decimals: 1),
         // The {seq} start. Drags over 1…999 and types to 99 999: a soft range of 9 999
         // was 9 998 steps, which even ⇧-scrub's 1 704 pt cannot land one by one, and a
         // six-digit readout is the width of the pill's whole room.
-        SliderSpec("Start at", "ExportSheet.swift:831", .exportSheet, 1...999,
+        SliderSpec("Start at", "ExportSheet.swift:846", .exportSheet, 1...999,
                    hard: 1...99_999, step: 1),
 
         // Look — grade, primaries, transform, film lab, grain.

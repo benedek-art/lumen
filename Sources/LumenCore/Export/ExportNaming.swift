@@ -141,9 +141,14 @@ public enum ExportNaming {
     /// a date, a camera, a recipe name — is shared by every frame shot that day on that
     /// body, and the batch is then told apart only by `-1`, `-2` … suffixes in no
     /// meaningful order. The sheet warns on this before the run (J3-08).
+    /// `{orig}` is `{name}` in the ingest spelling, and `{orignum}` (the camera's frame
+    /// counter) tells frames apart the way `{name}` does, so Lightroom's
+    /// `{custom}_{orignum}` is not warned on.
     public static func identifiesEachPhoto(_ template: String) -> Bool {
         let tokens = RenameTemplate.tokens(in: template.isEmpty ? "{name}" : template)
-        return tokens.contains { $0 == "name" || isSequence($0) }
+        return tokens.contains {
+            $0 == "name" || $0 == "orig" || $0 == "orignum" || isSequence($0)
+        }
     }
 
     /// Whether the template reads the sequence at all — when the sheet shows Start at.

@@ -15,11 +15,18 @@ extension ExportRecipe {
     /// percentage. Entering a box mode from a single-side pixel mode makes the box
     /// square on the old number, which delivers what the long-edge setting delivered
     /// until the photographer edits the second side.
+    ///
+    /// Don't resize has no unit and leaves the number where it was, so a trip through it
+    /// does not reset Long edge 1600 to 2048. Coming back from it to a pixel mode keeps
+    /// a number that can only be pixels (320…30000); a parked Megapixels 24 or 50 % is
+    /// reset as before.
     public mutating func setResizeMode(_ mode: ResizeMode) {
         let old = resizeMode
         resizeMode = mode
-        if old.unit != mode.unit {
-            resizeValue = mode.defaultValue
+        if old.unit != mode.unit && mode != .none {
+            let keepsPixels = old == .none && mode.unit == .pixels
+                && resizeValue >= 320 && resizeValue <= 30000
+            if !keepsPixels { resizeValue = mode.defaultValue }
         }
         if mode.usesBox && !old.usesBox {
             resizeHeight = resizeValue

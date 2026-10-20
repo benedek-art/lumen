@@ -92,6 +92,30 @@ final class ExportResizeBoxTests: XCTestCase {
         XCTAssertEqual(r.resizeValue, 1600, "same unit keeps the number")
     }
 
+    func testATripThroughDontResizeKeepsAPixelSize() {
+        var r = ExportRecipe.webJPEG
+        r.resizeValue = 1600
+        r.setResizeMode(.none)
+        r.setResizeMode(.longEdge)
+        XCTAssertEqual(r.resizeValue, 1600, "Long edge 1600 survives Don't resize")
+        // A Megapixels number parked under Don't resize is not read as pixels: that
+        // was the 24-pixel export.
+        r.setResizeMode(.megapixels)
+        r.setResizeMode(.none)
+        r.setResizeMode(.longEdge)
+        XCTAssertEqual(r.resizeValue, 2048)
+        r.setResizeMode(.percent)
+        r.setResizeMode(.none)
+        r.setResizeMode(.fitWithin)
+        XCTAssertEqual(r.resizeValue, 2048)
+        XCTAssertEqual(r.resizeHeight, 2048)
+        // Leaving Don't resize for a non-pixel unit always takes that unit's default.
+        r.resizeValue = 1600
+        r.setResizeMode(.none)
+        r.setResizeMode(.percent)
+        XCTAssertEqual(r.resizeValue, 50)
+    }
+
     func testEnteringABoxStartsSquareOnTheOldNumber() {
         var r = ExportRecipe.webJPEG
         r.resizeValue = 1600
@@ -225,6 +249,11 @@ final class ExportNamingTokenTests: XCTestCase {
         XCTAssertTrue(ExportNaming.usesSequence("{custom}-{seq:auto}"))
         XCTAssertTrue(ExportNaming.identifiesEachPhoto("{custom}-{seq:auto}"))
         XCTAssertFalse(ExportNaming.identifiesEachPhoto("{custom}-{total}"))
+        // Lightroom's "Custom Name - Original File Number" must not draw the
+        // shared-name warning, nor ingest's spelling of {name}.
+        XCTAssertTrue(ExportNaming.identifiesEachPhoto("{custom}_{orignum}"))
+        XCTAssertTrue(ExportNaming.identifiesEachPhoto("{orig}-web"))
+        XCTAssertFalse(ExportNaming.identifiesEachPhoto("{custom}_{folder}"))
         for token in ["{custom}", "{orignum}", "{folder}", "{seq:auto}", "{total}"] {
             XCTAssertTrue(ExportNaming.documentedTokens.contains(token), token)
         }
