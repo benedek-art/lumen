@@ -595,7 +595,16 @@ public enum XMPSidecar {
     ///
     /// `dc:subject` is owned by this write only when it carries a keyword edit. Every
     /// other write leaves the bag byte-for-byte as another tool wrote it.
+    ///
+    /// A DOCUMENT XMLParser CANNOT READ TO THE END IS REFUSED, whatever the caller
+    /// read from it. `parsedCleanly` guards a half-read that yielded fields, but damage
+    /// above the first field — a raw `<` or `&` in the root's attributes — yields none,
+    /// so `parse` says nil ("no Lumen fields") and that guard never runs. The splice
+    /// below works on the text and does not need a parse: it would strip the
+    /// `lumen:recipe` and `lumen:strokes` the read never reached and re-emit only what
+    /// the caller holds. Refusing here makes every caller fail safe.
     public static func update(_ original: String, with content: SidecarContent) -> String? {
+        guard parsesCompletely(original) else { return nil }
         let ownsKeywords = !content.keywordEdit.isEmpty
         return XMPMerge.merge(into: original,
                               fields: fieldLines(content, keywords: ownsKeywords),
@@ -724,6 +733,13 @@ public enum XMPSidecar {
 
     public static func parse(_ string: String) -> SidecarContent? {
         parse(Data(string.utf8))
+    }
+
+    /// True only when XMLParser reads the whole document without an error — the same
+    /// test `parse` records as `parsedCleanly`, for a document with or without fields.
+    static func parsesCompletely(_ string: String) -> Bool {
+        let parser = XMLParser(data: Data(string.utf8))
+        return parser.parse() && parser.parserError == nil
     }
 }
 
