@@ -14,7 +14,8 @@
 //
 // The selection sigmas are right for selection (`PointColourSelectionTests`); the defect
 // is that the HUE ROTATION shared their falloff. The fix gives the rotation alone a
-// falloff wide enough for the shift it carries.
+// longer reach for the shift it carries — on the hue term only, and only on the side the
+// shift turns toward, which is the only side that can fold (`ColorEngine.applySwatch`).
 
 import XCTest
 @testable import LumenCore
@@ -121,5 +122,86 @@ final class PointColourHueOrderTests: XCTestCase {
         let far = space.toRGB(OKLCh(L: 0.60, C: 0.10, h: 150))
         let drop = space.toLCh(far).L - space.toLCh(e.apply(far, localMean: far)).L
         XCTAssertEqual(drop, 0, accuracy: 1e-9)
+    }
+
+    // MARK: - The wider reach is along hue, ahead of the swatch, and nowhere else
+
+    /// A big Hue turn must not reach pixels the swatch never selected on LIGHTNESS or
+    /// CHROMA. The first version of this fix widened the edge on the whole L/C/H
+    /// distance, so turning mid-tone skin +60° also turned dark hair and saturated
+    /// clothing of the very same hue by about 30° — pixels Saturation and Luminance
+    /// still (rightly) treated as unselected. Same hue as the sample and 1.2 sigmas off
+    /// on L or on C is outside the selection, and must come back untouched — on the
+    /// engine and on the exact stage's twin.
+    func testABigHueShiftDoesNotReachColoursOutsideTheSelectionOnLightnessOrChroma() {
+        let scale = ColorEngine.pointRangeBase + (1 - ColorEngine.pointRangeBase) * 0.5
+        let sigmaL = ColorEngine.pointSigmaL * scale
+        let sigmaC = ColorEngine.pointSigmaC * scale
+        let pixels = [
+            ("darker", OKLCh(L: 0.60 - 1.2 * sigmaL, C: 0.10, h: 60)),
+            ("more chromatic", OKLCh(L: 0.60, C: 0.10 + 1.2 * sigmaC, h: 60)),
+            // Ahead of the swatch along hue too, where the rotation's reach IS longer:
+            // that reach must still stop at the selection's own L and C edges.
+            ("more chromatic, 10° ahead", OKLCh(L: 0.60, C: 0.10 + 1.2 * sigmaC, h: 70)),
+            ("more chromatic, 10° behind", OKLCh(L: 0.60, C: 0.10 + 1.2 * sigmaC, h: 50)),
+        ]
+        for shift in [-60.0, 60] {
+            let e = engine(range: 50, shift: shift)
+            let stage = e.exactStage
+            for (name, lch) in pixels {
+                let pixel = space.toRGB(lch)
+                let out = e.apply(pixel, localMean: pixel)
+                let turned = Num.hueDelta(lch.h, space.toLCh(out).h)
+                XCTAssertEqual(turned, 0, accuracy: 1e-9,
+                               "Hue \(shift)°: a \(name) colour the swatch does not "
+                               + "select turned \(turned)°")
+                let twin = Num.hueDelta(lch.h, space.toLCh(stage.apply(pixel)).h)
+                XCTAssertEqual(twin, 0, accuracy: 1e-3,
+                               "exact stage, Hue \(shift)°, \(name): turned \(twin)°")
+            }
+        }
+    }
+
+    /// Behind the swatch — on the side the shift turns AWAY from — the rotation cannot
+    /// fold (the weight rises toward the swatch, so the map's slope only grows), and so
+    /// it keeps the selection's own falloff at every shift. This is what leaves Range in
+    /// charge of how far a big turn reaches: stretching this side too made every +40°
+    /// turn claim the same width whatever the Range, and Range's authority on the
+    /// colour chart fell from 56 to 16 code values (`ControlProofTests`).
+    func testBehindTheSwatchABigShiftKeepsTheSelectionsOwnFalloff() {
+        for range in [0.0, 50, 100] {
+            let sigmaH = ColorEngine.pointSigmaH
+                * (ColorEngine.pointRangeBase + (1 - ColorEngine.pointRangeBase) * range / 100)
+            for shift in [-60.0, 60] {
+                let e = engine(range: range, shift: shift)
+                // 0.7 of the selection's hue radius, on the trailing side.
+                let behind = 60 - (shift > 0 ? 1 : -1) * 0.7 * 180 * sigmaH
+                let expected = shift * (1 - Num.smoothstep(0.5, 1.0, 0.7))
+                let pixel = space.toRGB(OKLCh(L: 0.60, C: 0.10, h: behind))
+                let turned = Num.hueDelta(behind, space.toLCh(e.apply(pixel, localMean: pixel)).h)
+                XCTAssertEqual(turned, expected, accuracy: 1e-6,
+                               "Range \(range), Hue \(shift)°")
+            }
+        }
+    }
+
+    /// The longer reach ahead of the swatch stops at the opposite hue. Holding the
+    /// steepest slope to 0.98 alone would carry a 60° turn 184° round, past the
+    /// antipode, where it would meet the trailing side's zero in a seam of about a
+    /// quarter of a degree. So the colour opposite the swatch is left where it is, on
+    /// both sides of it.
+    func testTheReachAheadStopsAtTheOppositeHue() {
+        for range in [0.0, 50, 100] {
+            for shift in [-60.0, 60] {
+                let e = engine(range: range, shift: shift)
+                for h in [239.75, 240.25] {
+                    let pixel = space.toRGB(OKLCh(L: 0.60, C: 0.10, h: h))
+                    let turned = Num.hueDelta(h, space.toLCh(e.apply(pixel, localMean: pixel)).h)
+                    XCTAssertLessThan(abs(turned), 0.01,
+                                      "Range \(range), Hue \(shift)°: the colour at \(h)°, "
+                                      + "opposite the swatch, turned \(turned)°")
+                }
+            }
+        }
     }
 }

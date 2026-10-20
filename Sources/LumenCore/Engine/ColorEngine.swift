@@ -1309,7 +1309,8 @@ public struct ColorEngine: Sendable {
         guard d.isFinite else { return c }
         // Flat plateau out to half the radius, C¹ rolloff to nothing at the edge.
         let weight = 1 - Num.smoothstep(0.5, 1.0, d)
-        // THE HUE ROTATION GETS ITS OWN, WIDER EDGE when the shift needs one.
+        // THE HUE ROTATION GETS ITS OWN, WIDER REACH — along hue, ahead of the swatch,
+        // and only when the shift needs it.
         //
         // Rotating by `weight · shift` with the selection's own falloff folded the
         // wheel: the smoothstep's steepest slope is 3 per unit of `d`, and `d` grows at
@@ -1320,15 +1321,43 @@ public struct ColorEngine: Sendable {
         // backwards through any smooth sky or skin gradient. Clamping the shift instead
         // would leave two thirds of the slider dead.
         //
-        // So the rotation keeps the same plateau and the same falloff while the shift is
-        // small enough not to fold (`hueEdge` is exactly 1 up to 0.98·60·σH, and saved
-        // looks there render as before), and past that stretches only its OUTER edge,
-        // just enough that the steepest slope `1.5/(hueEdge − 0.5)` per unit of `d`
-        // never turns the order round. Saturation, Luminance and Variance keep
-        // `weight`: what the swatch SELECTS is unchanged, only how far a big hue turn
-        // tapers. `hueWeight ≥ weight` everywhere, so it is the one the early-out reads.
-        let hueEdge = Swift.max(1, 0.5 + abs(s.shiftH) / (0.98 * 120 * s.sigmaH))
-        let hueWeight = 1 - Num.smoothstep(0.5, hueEdge, d)
+        // Three things bound the cure, and each was learned the hard way:
+        //
+        // - ONLY THE HUE TERM is stretched. The fold lives on the hue axis, so the
+        //   rotation measures distance with `tH / k` in place of `tH` and keeps `tL`
+        //   and `tC` as they are. Widening the edge on the whole of `d` instead (the
+        //   first version of this fix) let a +60° turn on mid-tone skin also turn dark
+        //   hair and saturated clothing of the same hue — pixels Saturation and
+        //   Luminance correctly left unselected.
+        // - ONLY THE LEADING SIDE is stretched — the side the shift turns toward. On the
+        //   trailing side the weight RISES as a pixel nears the swatch, so the map's
+        //   slope there is `1 + |w′|·|shift|`, never below one: nothing can be
+        //   overtaken. Stretching both sides made every big shift claim the same width
+        //   whatever the Range, and took Range from 56 to 16 code values of authority
+        //   on the colour chart (`ControlProofTests`, floor 46): Range stopped deciding
+        //   what a hue turn reaches. The two halves meet at `dh = 0`, where `tH = 0`
+        //   makes both distances equal with zero slope in `tH`, so the join is C¹.
+        // - `k` reaches the antipode and NO FURTHER. With `tH / k`, the steepest slope
+        //   along hue is `3·|shift| / (180·σH·k)`, which `k = |shift| / (0.98·60·σH)`
+        //   holds to 0.98. That would carry a 60° turn 184° round — past the opposite
+        //   hue, where the trailing side's zero weight would meet a nonzero one in a
+        //   seam. So `k ≤ 1/σH` (the stretched distance is at least 1 at 180°), which
+        //   binds only for |shift| above 58.8° and there still holds the slope to
+        //   |shift|/60 ≤ 1: flat at worst, never reversed.
+        //
+        // Below the fold `k` is exactly 1 and the rotation is the selection's own
+        // `weight`, so saved looks there render as before. Saturation, Luminance and
+        // Variance always keep `weight`. `hueWeight ≥ weight` everywhere, so it is the
+        // one the early-out reads.
+        let hueWeight: Double
+        if dh * s.shiftH > 0 {
+            let k = Swift.min(Swift.max(1, abs(s.shiftH) / (0.98 * 60 * s.sigmaH)),
+                              Swift.max(1, 1 / s.sigmaH))
+            let tHk = tH / k
+            hueWeight = 1 - Num.smoothstep(0.5, 1.0, (tL * tL + tC * tC + tHk * tHk).squareRoot())
+        } else {
+            hueWeight = weight
+        }
         guard hueWeight > 0 else { return c }
 
         var L = lch.L

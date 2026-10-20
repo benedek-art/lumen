@@ -4,12 +4,12 @@
   "frame" : "colourChart",
   "frontLoading" : 0.7155642242774054,
   "givenBack" : 0,
-  "hueRotation" : 61.794555997996156,
+  "hueRotation" : 62.58855780065153,
   "id" : "pointColor.hue",
   "isMonotone" : true,
-  "meanSeparation" : 5.998134570532712,
+  "meanSeparation" : 8.04603982554818,
   "panel" : "Point Colour",
-  "smallestLiveStep" : 5.772808990330731,
+  "smallestLiveStep" : 5.780955556685242,
   "travelHigh" : 60,
   "travelLow" : -60
 }

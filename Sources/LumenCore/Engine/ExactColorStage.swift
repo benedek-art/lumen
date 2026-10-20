@@ -405,9 +405,14 @@ enum ExactColorTwin {
         let d = (a * a + b * b + cc * cc).squareRoot()
         guard d.isFinite else { return c }
         let weight = 1 - smoothstep(0.5, 1, d)
-        // The rotation's own outer edge — `ColorEngine.applySwatch` says why.
-        let hueEdge = max(1, 0.5 + abs(s.z) / (0.98 * 120 * s.y))
-        let hueWeight = 1 - smoothstep(0.5, hueEdge, d)
+        // The rotation's own reach, hue term only, leading side only —
+        // `ColorEngine.applySwatch` says why.
+        var hueWeight = weight
+        if dh * s.z > 0 {
+            let kk = min(max(1, abs(s.z) / (0.98 * 60 * s.y)), max(1, 1 / s.y))
+            let ck = cc / kk
+            hueWeight = 1 - smoothstep(0.5, 1, (a * a + b * b + ck * ck).squareRoot())
+        }
         guard hueWeight > 0 else { return c }
         var L = l.x, C = l.y, h = l.z
         let g = gate(l.y)
@@ -770,8 +775,12 @@ public enum ExactColorKernelSource {
         float d = sqrt(ea * ea + eb * eb + ec * ec);
         if (!(abs(d) < 3.0e38)) { return s; }
         float weight = 1.0 - lumenSmooth(0.5, 1.0, d);
-        float hueEdge = max(1.0, 0.5 + abs(sg.z) / (0.98 * 120.0 * sg.y));
-        float hueWeight = 1.0 - lumenSmooth(0.5, hueEdge, d);
+        float hueWeight = weight;
+        if (dh * sg.z > 0.0) {
+            float kk = min(max(1.0, abs(sg.z) / (0.98 * 60.0 * sg.y)), max(1.0, 1.0 / sg.y));
+            float ek = ec / kk;
+            hueWeight = 1.0 - lumenSmooth(0.5, 1.0, sqrt(ea * ea + eb * eb + ek * ek));
+        }
         if (!(hueWeight > 0.0)) { return s; }
         float L = l.x; float C = l.y; float h = l.z;
         float g = lumenGate(l.y);

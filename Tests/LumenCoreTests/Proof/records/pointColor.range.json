@@ -7,9 +7,9 @@
   "hueRotation" : 27.069166587161078,
   "id" : "pointColor.range",
   "isMonotone" : true,
-  "meanSeparation" : 1.7024120296237206,
+  "meanSeparation" : 1.8493945344490852,
   "panel" : "Point Colour",
-  "smallestLiveStep" : 0.9251689144717545,
+  "smallestLiveStep" : 0.7178064833564974,
   "travelHigh" : 100,
   "travelLow" : 0
 }
