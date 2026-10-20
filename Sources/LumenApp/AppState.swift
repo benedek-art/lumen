@@ -304,6 +304,11 @@ final class AppState: ObservableObject {
 
     @Published var isRelinkingOriginal = false
     @Published var folderURL: URL?
+    /// Folders opened recently, newest first, for the sidebar header's menu. Plain paths:
+    /// the app is not sandboxed, so no bookmark is needed to reopen them.
+    @Published private(set) var recentFolders: [URL] =
+        (UserDefaults.standard.stringArray(forKey: AppState.recentFoldersKey) ?? [])
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
     @Published private(set) var allPhotos: [PhotoItem] = [] {
         didSet { selectionMembershipIndex = nil; invalidatePhotoCache() }
     }
@@ -3095,6 +3100,8 @@ final class AppState: ObservableObject {
     /// and a bookmark is genuinely per-machine state — it names a sandbox grant, not a
     /// fact about the photographs. (When folder rows grow an API, this migrates.)
     private static let lastFolderBookmarkKey = "lumen.lastFolder.bookmark"
+    static let recentFoldersKey = "lumen.recentFolders"
+    private static let recentFoldersLimit = 8
 
     /// Reopen the folder from the previous session, if its bookmark still resolves.
     /// Called once at launch by the scene; quietly does nothing on a fresh install, a
@@ -3159,6 +3166,11 @@ final class AppState: ObservableObject {
             // selection would reopen next launch as the old file selection inside the new
             // folder — which is nothing at all, since none of those paths are under it.
             defaults.removeObject(forKey: Self.lastFolderFilesKey)
+            let path = url.standardizedFileURL.path
+            let recents = [path] + recentFolders.map(\.path).filter { $0 != path }
+            let kept = Array(recents.prefix(Self.recentFoldersLimit))
+            defaults.set(kept, forKey: Self.recentFoldersKey)
+            recentFolders = kept.map { URL(fileURLWithPath: $0, isDirectory: true) }
         }
         rememberFolderBookmark(url)
     }
