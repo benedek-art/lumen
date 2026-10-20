@@ -10,8 +10,14 @@
 // Content addressing does the housekeeping. The name of a blob is the hash of its
 // contents, so writing the same strokes twice is one file, two photos sharing a
 // brushed mask is one file, and a write is idempotent — which means it is also safe
-// to repeat after a crash. Nothing here ever overwrites: if the file exists, its
-// contents already hash to this name.
+// to repeat after a crash. Nothing here ever overwrites an intact payload: if the
+// file exists AND its contents hash to its name, it is already the right bytes.
+//
+// "Exists" alone was not enough. A copy killed halfway leaves a prefix under the
+// final name, and a check that only asks whether the file is there then protects
+// that prefix for good — from the restore that could repair it and from a store of
+// the very same bytes. So every write here lands by rename, and every skip is a
+// skip because the bytes were verified, not because a name was found.
 
 import Foundation
 
@@ -46,8 +52,9 @@ public final class BlobStore: @unchecked Sendable {
     /// strokes only up to its size cap.
     ///
     /// Content addressing makes this cheap and safe to repeat. A payload's name IS its
-    /// digest, so a file that is already there is already correct — nothing is
-    /// overwritten, and a second backup into the same place copies only what is new.
+    /// digest, so a file that is already there and hashes to it is already correct —
+    /// nothing intact is overwritten, and a second backup into the same place copies
+    /// only what is new (or what an interrupted copy left torn).
     ///
     /// Returns the number of payloads copied, so the caller can say something true
     /// about what it just protected.
@@ -58,10 +65,9 @@ public final class BlobStore: @unchecked Sendable {
         let names = try fm.contentsOfDirectory(atPath: directory.path)
         var copied = 0
         for name in names where name.hasSuffix(".blob") {
-            let target = destination.appendingPathComponent(name)
-            guard !fm.fileExists(atPath: target.path) else { continue }
-            try fm.copyItem(at: directory.appendingPathComponent(name), to: target)
-            copied += 1
+            if try BlobStore.copyPayload(named: name, from: directory, to: destination) {
+                copied += 1
+            }
         }
         return copied
     }
@@ -69,9 +75,11 @@ public final class BlobStore: @unchecked Sendable {
     /// Put payloads back from a backup, next to a restored catalog.
     ///
     /// The other half, and it has to exist for the same reason: a catalog restored
-    /// without its blobs is a library of empty masks. Never overwrites — a payload
-    /// present in the live store is, by content addressing, the same bytes, and the
-    /// live one may be NEWER work that the restore has no business replacing.
+    /// without its blobs is a library of empty masks. Never overwrites an intact
+    /// payload — one present in the live store that hashes to its name is, by content
+    /// addressing, the same bytes, and the live one may be NEWER work that the restore
+    /// has no business replacing. A live file that does NOT hash to its name is a torn
+    /// copy, and the backup's intact bytes replace it.
     @discardableResult
     public func restore(from source: URL) throws -> Int {
         let fm = FileManager.default
@@ -79,10 +87,9 @@ public final class BlobStore: @unchecked Sendable {
         let names = try fm.contentsOfDirectory(atPath: source.path)
         var restored = 0
         for name in names where name.hasSuffix(".blob") {
-            let target = directory.appendingPathComponent(name)
-            guard !fm.fileExists(atPath: target.path) else { continue }
-            try fm.copyItem(at: source.appendingPathComponent(name), to: target)
-            restored += 1
+            if try BlobStore.copyPayload(named: name, from: source, to: directory) {
+                restored += 1
+            }
         }
         if restored > 0 {
             lock.lock()
@@ -90,6 +97,26 @@ public final class BlobStore: @unchecked Sendable {
             lock.unlock()
         }
         return restored
+    }
+
+    /// Copy one payload unless `destination` already holds it intact. The source is
+    /// verified too: a torn file on either side must not be published as the payload.
+    /// Lands by an atomic write (beside, then rename), so a crash leaves either the old
+    /// file or the whole new one under the name — never a prefix.
+    private static func copyPayload(named name: String, from source: URL,
+                                    to destination: URL) throws -> Bool {
+        let target = destination.appendingPathComponent(name)
+        if holdsPayload(at: target, named: name) { return false }
+        guard let bytes = try? Data(contentsOf: source.appendingPathComponent(name)),
+              filename(for: BrushStrokeSet.blobRef(for: bytes)) == name else { return false }
+        try bytes.write(to: target, options: .atomic)
+        return true
+    }
+
+    /// Whether the file at `url` exists and its contents hash to `name`.
+    static func holdsPayload(at url: URL, named name: String) -> Bool {
+        guard let bytes = try? Data(contentsOf: url) else { return false }
+        return filename(for: BrushStrokeSet.blobRef(for: bytes)) == name
     }
 
     /// Where a reference lives on disk. A ref is `blob:xxh64:<16 hex>`; anything else
@@ -137,7 +164,13 @@ public final class BlobStore: @unchecked Sendable {
     public func store(_ data: Data) throws -> String {
         let ref = BrushStrokeSet.blobRef(for: data)
         guard let url = url(for: ref) else { throw BlobStoreError.malformedReference(ref) }
-        if !FileManager.default.fileExists(atPath: url.path) {
+        if FileManager.default.fileExists(atPath: url.path) {
+            // Something is there; it only counts if it is these bytes. A torn file is
+            // replaced in one rename rather than protected.
+            if !BlobStore.holdsPayload(at: url, named: url.lastPathComponent) {
+                try data.write(to: url, options: .atomic)
+            }
+        } else {
             // Write beside and rename: a torn blob would be a stroke set that hashes
             // to a name whose contents are not it.
             let temporary = directory.appendingPathComponent(
