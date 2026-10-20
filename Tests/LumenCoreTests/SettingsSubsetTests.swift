@@ -80,6 +80,15 @@ final class SettingsSubsetTests: XCTestCase {
                        "Develop grew a field: give it a SettingsGroup")
         XCTAssertEqual(Mirror(reflecting: Look()).children.count, 10,
                        "Look grew a field: give it a SettingsGroup")
+        // The three structs the table splits field by field rather than whole.
+        XCTAssertEqual(Mirror(reflecting: RawParams()).children.count, 4,
+                       "RawParams grew a field: decide its SettingsGroup")
+        XCTAssertEqual(Mirror(reflecting: Detail()).children.count, 5,
+                       "Detail grew a field: decide its SettingsGroup")
+        XCTAssertEqual(Mirror(reflecting: Geometry()).children.count, 5,
+                       "Geometry grew a field: decide its SettingsGroup")
+        XCTAssertEqual(Mirror(reflecting: Recipe()).children.count, 5,
+                       "Recipe grew a field: decide whether a SettingsGroup carries it")
     }
 
     /// Each group alone changes something, and taking one group never moves a field
@@ -248,6 +257,17 @@ final class PreviousPhotoTests: XCTestCase {
         p.note(b)
         XCTAssertEqual(p.previous, a)
         XCTAssertEqual(p.current, b)
+    }
+
+    /// Esc (or ⌘D) and a click back on the SAME frame is not a move.
+    func testClearingAndReturningToTheSamePhotoKeepsTheAnswer() {
+        var p = PreviousPhoto()
+        p.note(a)
+        p.note(b)
+        p.note(nil)
+        p.note(b)
+        XCTAssertEqual(p.previous, a)
+        XCTAssertEqual(p.source(writingTo: [b]), a)
     }
 
     func testTheSourceNeedsATargetOtherThanItself() {

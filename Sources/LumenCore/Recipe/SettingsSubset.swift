@@ -94,7 +94,7 @@ public enum SettingsGroup: String, CaseIterable, Hashable, Codable, Sendable {
     /// The stored form: raw values in declaration order, comma-separated. An empty
     /// string is a real answer ("nothing ticked") and round-trips as the empty set.
     public static func storageString(_ groups: Set<SettingsGroup>) -> String {
-        allCases.filter { groups.contains($0) }.map(\.rawValue).joined(separator: ",")
+        SettingsGroup.allCases.filter { groups.contains($0) }.map(\.rawValue).joined(separator: ",")
     }
 
     /// The set a stored string names. Nil — never stored — is the default; unknown
@@ -107,7 +107,7 @@ public enum SettingsGroup: String, CaseIterable, Hashable, Codable, Sendable {
 
     /// A short phrase for the status bar: "White Balance, Exposure & Tone and 3 more".
     public static func summary(_ groups: Set<SettingsGroup>) -> String {
-        let titles = allCases.filter { groups.contains($0) }.map(\.title)
+        let titles = SettingsGroup.allCases.filter { groups.contains($0) }.map(\.title)
         switch titles.count {
         case 0: return "nothing"
         case 1...2: return titles.joined(separator: " and ")

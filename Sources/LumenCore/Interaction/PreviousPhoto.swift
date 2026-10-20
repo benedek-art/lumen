@@ -12,14 +12,17 @@ public struct PreviousPhoto: Equatable, Sendable {
 
     /// The photograph the cursor was on before the current one; nil until it has moved.
     public private(set) var previous: URL?
-    /// The photograph under the cursor as of the last `note`.
+    /// The last photograph the cursor was on. An empty selection does not replace it.
     public private(set) var current: URL?
 
     public init() {}
 
     /// Record that the primary selection is now `photo`.
+    /// An empty selection is ignored outright: recording it as "current" made Esc then a
+    /// click back on the same frame turn that frame into its own previous, losing the
+    /// real one.
     public mutating func note(_ photo: URL?) {
-        guard photo != current else { return }
+        guard let photo, photo != current else { return }
         if let current { previous = current }
         current = photo
     }
