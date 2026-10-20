@@ -693,12 +693,43 @@ public struct ToneEngine: Sendable {
         // posterized is not a gentler failure than an inversion, it is a different one.
         // With the scale solved first the clamp fires on 0 of 1024 samples for every one
         // of the 242 combinations of the five sliders at ±100.
+        bakeGainLUTAndFloor(size: size).lut
+    }
+
+    /// The bake and, from the same sweep, the floor the forward clamp imposed on it —
+    /// `nil` when the clamp moved nothing, which is every recipe the six sliders alone
+    /// can produce. `RenderPlan` keeps the floor so its per-pixel twins
+    /// (`referenceColor`, `exactColor`) apply the tone the renderers apply instead of
+    /// the tone the panel asked for; see `renderedStops(at:floor:)`.
+    public func bakeGainLUTAndFloor(size: Int = 1024) -> (lut: LUT1D, floor: [Double]?) {
         let curve = clampedResponse(size: size)
         var samples = [Double](repeating: 1, count: curve.domain.count)
         for i in 0..<curve.domain.count {
             samples[i] = pow(2, curve.mapped[i] - curve.domain[i])
         }
-        return LUT1D(samples: samples)
+        let clamped = curve.mapped != curve.requested
+        return (LUT1D(samples: samples), clamped ? curve.mapped : nil)
+    }
+
+    /// Stops S7 RENDERS at `t`: `stops(at:)` with the bake's forward clamp applied
+    /// analytically, for a caller that evaluates tone per pixel without the table.
+    ///
+    /// `floor` is the clamped response from `bakeGainLUTAndFloor`, on the shaper's
+    /// encoded domain. The rendered output tone at `t` is never below the clamped
+    /// value at the last shaper sample at or below `t` — exactly the running max the
+    /// bake takes, evaluated at `t` instead of only at the samples. Without it the
+    /// per-pixel twins applied the REQUESTED gain where the renderers apply the
+    /// clamped one, so on a Zones recipe that reaches the clamp (Darks +4 EV: up to
+    /// 2.2 EV apart) every golden comparing them measured the clamp and called it
+    /// table error. Below the shaper's domain, and with no floor, this is `stops(at:)`.
+    public func renderedStops(at t: Double, floor: [Double]?) -> Double {
+        let requested = stops(at: t)
+        guard let floor, floor.count >= 2 else { return requested }
+        let y = LumenLog.encode(0.18 * pow(2, t))
+        guard y >= 0 else { return requested }
+        let i = Swift.min(Int((y * Double(floor.count - 1)).rounded(.down)),
+                          floor.count - 1)
+        return Swift.max(t + requested, floor[i]) - t
     }
 
     /// The baked response before and after the forward clamp, on the shaper's domain.
