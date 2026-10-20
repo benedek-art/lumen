@@ -573,14 +573,21 @@ final class MaskingTests: XCTestCase {
                        "Amount 200 does not amplify past the curve")
     }
 
-    /// The axis is normalized by display white, so the same curve means the same thing
-    /// on an HDR rendition as it does on an SDR one.
-    func testLocalCurveIsDenominatedAgainstDisplayWhite() {
+    /// The same curve means the same thing on an HDR rendition as on an SDR one — and
+    /// because the display transform keeps every tone up to SDR white where it is at
+    /// any peak, that means the SAME ABSOLUTE AXIS, not one divided by the peak. This
+    /// test used to pin `hdr.apply(c × 4) == sdr.apply(c) × 4`: the old normalization,
+    /// which is that sentence only if HDR were SDR × peak (`CurveHDRAxisTests`).
+    func testLocalCurveReadsTheSameAbsoluteAxisAtEveryDisplayWhite() {
         let sdr = LocalCurve(curve: lift(), white: 1)
         let hdr = LocalCurve(curve: lift(), white: 4)
-        let c = RGB(gray: 0.2)
-        XCTAssertEqual(hdr.apply(c * 4).g, sdr.apply(c).g * 4, accuracy: 1e-9,
-                       "the local curve reads absolute code values, not picture values")
+        for v in [0.05, 0.2, 0.5, 1.0] {
+            let c = RGB(gray: v)
+            XCTAssertEqual(hdr.apply(c).g, sdr.apply(c).g, accuracy: 1e-9,
+                           "a mask's curve grades \(v) differently on the HDR rendition")
+        }
+        XCTAssertEqual(hdr.apply(RGB(gray: 2.5)).g, 2.5, accuracy: 1e-9,
+                       "a mask's white-pinned curve moved an HDR highlight")
     }
 
     /// The whole trace, on the reference path: a curve stored on a mask reaches pixels,
