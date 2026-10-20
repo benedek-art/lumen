@@ -65,9 +65,9 @@ public struct DisplayTransformParams: Equatable, Sendable {
     /// Scene EV of the black anchor relative to mid-grey (set by Blacks).
     public var blackAnchorEV: Double = -9.0
 
-    /// The escape hatch (docs/04 §6.1 "Linear" preset): straight scene→display
-    /// scaling, clipped at display white. Always available, for inspection and
-    /// round-tripping — the "show me the data" honesty control.
+    /// The escape hatch (docs/04 §6.1 "Linear" preset): display-linear equals
+    /// scene-linear (1.0 = SDR white), clipped at the display peak. Always available,
+    /// for inspection and round-tripping — the "show me the data" honesty control.
     public var linear: Bool = false
 
     public init() {}
@@ -332,7 +332,12 @@ public struct DisplayTransform: Sendable {
     /// Scene-linear scalar → display-linear scalar.
     public func tone(_ x: Double) -> Double {
         if params.linear {
-            return Num.clamp(x * white, 0, white)
+            // Identity, clipped at the peak — never scaled by it. The same absolute
+            // rule as the anchored presets (mid-grey on 0.18 at every peak): every
+            // JPEG/HEIC imports on Linear, and multiplying by `white` showed the HDR
+            // preview of one 2 stops brighter at 400 % and wrote a uniform 4× gain
+            // map. In HDR the headroom goes to values above 1.0, nothing else.
+            return Num.clamp(x, 0, white)
         }
         guard x > 0 else { return black }
         let ev = log2(x / DisplayTransform.midGrey)

@@ -128,6 +128,26 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(t.tone(2.0), 1.0, accuracy: 1e-9)   // clipped at display white
     }
 
+    /// The Linear preset keeps display-linear equal to scene-linear (1.0 = SDR white)
+    /// at every display peak; HDR only moves the clip. Every JPEG/HEIC imports on this
+    /// preset, and it used to multiply the whole picture by the peak, so the HDR
+    /// preview of a JPEG was 2 stops brighter at 400 % and its gain map a uniform 4×.
+    func testTheLinearPresetSpendsHDRHeadroomOnHighlightsNotOnABrighterPicture() {
+        var p = DisplayTransformParams.linearPreset
+        p.whiteTarget = 400
+        let t = DisplayTransform(p)
+        XCTAssertEqual(t.tone(0.18), 0.18, accuracy: 1e-9, "mid-grey brightened in HDR")
+        XCTAssertEqual(t.tone(0.5), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(t.tone(1.0), 1.0, accuracy: 1e-9, "SDR white moved in HDR")
+        XCTAssertEqual(t.tone(3.0), 3.0, accuracy: 1e-9)   // headroom for speculars
+        XCTAssertEqual(t.tone(10.0), 4.0, accuracy: 1e-9)  // clipped at the display peak
+        let grey = t.apply(RGB(gray: 0.18), gamut: nil)
+        XCTAssertEqual(grey.g, 0.18, accuracy: 1e-9)
+        // The baked LUT the GPU applies comes from the same scalar curve.
+        let lut = t.bakeCurveLUT()
+        XCTAssertEqual(lut.evaluate(LumenLog.encode(0.18)), 0.18, accuracy: 2e-3)
+    }
+
     func testNeutralsStayNeutralThroughTheTransform() {
         let t = DisplayTransform(.neutral)
         for v in [0.02, 0.18, 0.6, 3.0] {
