@@ -1098,6 +1098,14 @@ final class PhotoRenderModel: ObservableObject {
     }
 }
 
+enum LoupeAsk {
+    /// The frame the render ask may be sized from: the one on screen only when it is
+    /// of the photo being asked for, so a switch never asks at the last photo's aspect.
+    static func frame<Frame>(_ frame: Frame?, shownFor shown: URL?, photo: URL) -> Frame? {
+        shown == photo ? frame : nil
+    }
+}
+
 /// Whether a before frame may be drawn into the after frame's box. The split and the
 /// `\` flip draw the before at the AFTER frame's extent, so a before still carrying an
 /// older crop or straighten would be stretched until its re-render lands. A small
@@ -1317,8 +1325,13 @@ struct LoupeView: View {
             // One value, both passes, one decode. Stable under a resize because a fit
             // ratio is derived from the ASPECT: the drawn extent does not move when the
             // pixel count does, so this cannot chase its own tail through the render.
+            //
+            // Only from a frame of THIS photo: just after a switch `model.image` is still
+            // the previous photo's, and its aspect was one more key the first ask went
+            // through, restarting the task, before the frame was cleared.
             let drawnDevice: Double? = region == nil
-                ? model.image.map { cg in
+                ? LoupeAsk.frame(model.image, shownFor: model.imageURL,
+                                 photo: photo.id).map { cg in
                     let d = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
                     return Double(Swift.max(d.width, d.height))
