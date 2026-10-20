@@ -1,13 +1,13 @@
 # Lumen Denoise inside Lumen: integration design
 
-Status: design plus the first Swift slice (LumenCore maths, recipe field, macOS Core ML runner and pre-pass), all behind `LUMEN_RAW_DENOISE=1`. Nothing here changes Lumen's colour or tone maths.
+Status: design plus the first Swift slice (LumenCore maths, recipe field, macOS Core ML runner and pre-pass). The flag `RawDenoiseFeature.isEnabled` (`LUMEN_RAW_DENOISE=1`) is defined but not yet consulted anywhere, so no app code path reaches the new code yet. `RawCFAProvider` has no conformer, and `DenoisedRawSource`, the DNG patcher and the UI are follow-ups. Nothing here changes Lumen's colour or tone maths.
 
 Paths are repo-relative. Line numbers are from branch `claude/denoise-integration` at `04cc1d2` and will drift.
 
 ## 0. Summary
 
 - Lumen never sees the CFA. Every RAW decodes through `CIRAWFilter`, and the only pixels Lumen gets are already demosaiced (section 1).
-- The raw-domain model therefore runs as a **cached background pre-pass**. The pre-pass produces a denoised DNG, and a wrapper `ImageSource` hands that DNG to `CIRAWFilter` in place of the original file (option A). Everything downstream, including WB, colour, tone, masks and export, is unchanged.
+- The raw-domain model therefore runs as a **cached background pre-pass**. The pre-pass (`RawDenoisePrepass`, which exists) produces full-strength denoised CFA planes and caches them; a DNG patcher (follow-up) writes them into a denoised DNG, and a wrapper `ImageSource` hands that DNG to `CIRAWFilter` in place of the original file (option A). Everything downstream, including WB, colour, tone, masks and export, is unchanged.
 - **Strength is not in the cache key.** The pre-pass stores the full-strength result, and strength is a linear blend applied at decode time, so the slider stays instant.
 - Stage 1 depends on Adobe DNG Converter, which this photographer already has (`Denoise/lumen_denoise/dng.py`). Removing that dependency is stages 2 and 3, via a native DNG/LJ92 reader and then vendored LibRaw.
 
@@ -102,7 +102,7 @@ All names are binding. Implementers code against exactly this.
 
 | File | API | Python reference |
 |---|---|---|
-| `RawDenoiseNoiseTable.swift` | `RawDenoiseNoiseTable` (`Entry {iso, k, readVar}`, `cameras` sorted by ISO, `init(jsonData:)` for the `calib.json` format, `isoRange(model:)`, `params(model:iso:)`). `RawDenoiseNoiseParams {k, readVar}` | `train.py::NoiseTable`, `infer.py::Engine.noise_params`. The ISO is clamped to the table range, then `exp(np.interp(log iso, log ISOs, log v))` in Double. |
+| `RawDenoiseNoiseTable.swift` | `RawDenoiseNoiseTable` (`ISOSample {iso, k, readVar}`, `cameras` sorted by ISO, `init(jsonData:)` for the `calib.json` format, `isoRange(model:)`, `params(model:iso:)`). `RawDenoiseNoiseParams {k, readVar}` | `train.py::NoiseTable`, `infer.py::Engine.noise_params`. The ISO is clamped to the table range, then `exp(np.interp(log iso, log ISOs, log v))` in Double. |
 | `RawDenoiseStdMap.swift` | `RawDenoiseStdMap.compute(packed:width:height:params:) -> [Float]` | `train.py::std_map`: mean of 4 channels, clamped at 0 or above, 3x3 mean with zero padding always divided by 9, then `sqrt(K*sig + r)` |
 | `RawDenoiseTiling.swift` | `RawDenoiseTilePlan(width:height:tile:overlap:)` with `tiles` (`y0, x0, height, width, padBottom, padRight`). `RawDenoiseTiler.featherWeights`, `reflectPad`, `run(packed:width:height:tile:overlap:body:)`, `blend(denoised:original:strength:)` | `infer.py::Engine.denoise_packed`, `np.pad(mode="reflect")`, `d = s*d + (1-s)*p` |
 | `RawDenoisePacking.swift` | `CFAPattern {rggb, bggr, grbg, gbrg}`. `RawDenoisePacking.pack`, `unpack`, `normalize` | `raw.pack`, `raw.unpack`, `prepare.to_rggb` and `from_rggb`, `raw.load` normalization |
@@ -115,27 +115,28 @@ All names are binding. Implementers code against exactly this.
 
 ### LumenPipeline (macOS, `#if os(macOS) && canImport(CoreML)`)
 
-- `Sources/LumenPipeline/RawDenoiseCoreMLRunner.swift`: loads the compiled model and runs one padded tile. I/O is `noisy` (1,4,H,W) and `std` (1,1,H,W) in, `denoised` (1,4,H,W) out, Float16, with H and W multiples of 16 and flexible shape. The model includes `Denoiser.forward`'s residual scale, `s = mean(std)` over the padded tile, clamped at 1e-5 or above.
-- `Sources/LumenPipeline/RawDenoisePrepass.swift`: packed planes in, full-strength denoised planes out. It ties tiler, std map and runner together, reports progress per tile and checks for cancellation between tiles.
+- `Sources/LumenPipeline/RawDenoiseCoreMLRunner.swift`: loads the model from an explicit URL (`init(modelURL:computeUnits:compiledCacheDirectory:)`, compute units default `.all`; it does not search for the model) and runs one padded tile. It reads `com.lumen.denoise.model_id` and `com.lumen.denoise.calib_digest` from the model's `MLModelDescription.metadata[.creatorDefinedKey]` (written by `Denoise/scripts/export_coreml.py`) for the cache key (section 4.1). I/O is `noisy` (1,4,H,W) and `std` (1,1,H,W) in, `denoised` (1,4,H,W) out, Float16, with H and W multiples of 16 and flexible shape. The model includes `Denoiser.forward`'s residual scale, `s = mean(std)` over the padded tile, clamped at 1e-5 or above.
+- `Sources/LumenPipeline/RawDenoisePrepass.swift`: actor `RawDenoisePrepass`. Source URL plus `RawDenoiseCacheKey` in, full-strength denoised packed planes (`RawDenoisePlanes`) out. Input comes from a `RawCFAProvider`, a protocol with no conformer yet. It ties tiler, std map and runner together, reports progress per tile, joins a second request for a key already in flight, and cancels between tiles once nobody waits. Results are cached in two tiers keyed by `key.digest`: an in-memory LRU (default 512 MiB, about four A7 IV frames as Float32) and `.lrdn` files on disk (Float16 by default). See section 4.5.
 
 Tests are in `Tests/LumenCoreTests/RawDenoise*Tests.swift`, with golden fixtures generated from the real `Denoise/lumen_denoise` functions (or a faithful numpy port where torch is absent, as noted in the PR). There is also recipe round-trip and tolerance coverage (`RecipeCodecToleranceTests` picks up the new type through `populated()`).
 
 **Not in this PR**, to be done next on the Mac or in a follow-up:
-- the DNG reader and in-place patcher;
+- a `RawCFAProvider` conformer (the DNG raw-IFD reader of section 2, step 1);
+- the DNG patcher that writes cached planes back into a converted DNG (the swap DNG, section 4.5);
 - `DenoisedRawSource` and the swap at `RenderCoordinator.swift:932-934`;
-- cache storage and LRU;
+- consulting `RawDenoiseFeature.isEnabled` anywhere, and the `Denoise.appleStandIn` change for the pending state (section 4.2);
+- indexing the swap DNG in `cache.artifact`, and deleting payload files when rows are deleted (section 4.5);
 - panel UI;
-- the preview-fingerprint suffix;
-- `KNOWN` entries for CoreML types in `scripts/check-swift-surface.py`, if the runner trips pass 1.
+- the preview-fingerprint suffix.
 
 ## 4. Background pre-pass and cache
 
 ### 4.1 Key
 
 `RawDenoiseCacheKey` holds:
-- `sourceIdentity`: a `SourceFileIdentity`-derived string (`Sources/LumenCore/Catalog/SourceFileIdentity.swift:22`). It changes when the file is replaced or edited.
-- `modelID`: the model name plus a weights hash, plus the stitch and pre-pass format version, for example `lumen-denoise-nf32@<sha256[0:12]>/t1024o64/v1`. Tile, overlap and the output-format version have no fields of their own, so they belong in this string.
-- `calibDigest`: xxh64 of the `calib.json` bytes.
+- `sourceIdentity`: the catalog's confirmed content fingerprint, the photo's quick signature (`photo.quick_sig`, the value `CatalogStore.scan` and `validateOriginalRelink` confirm a file against). `SourceFileIdentity` (`Sources/LumenCore/Catalog/SourceFileIdentity.swift:22`) is a stat token, not a content digest. A changed token is only a trigger to re-verify the quick signature; the key changes only when the confirmed signature does. Never put the token itself in the key: a metadata touch or a re-plugged drive would orphan every entry. Do not switch to `photo.full_hash` once it is computed either, because that would orphan existing entries the same way.
+- `modelID`: `"<model_id>/t<tile>o<overlap>"`, for example `0123456789abcdef/t1024o64`. `model_id` is the first 16 hex of the sha256 of the `.pt` weights, written by `Denoise/scripts/export_coreml.py` into `lumen_denoise.coreml.json` and into the package metadata key `com.lumen.denoise.model_id`, which the runner reads. Tile and overlap change the stitch and have no fields of their own, so they belong in this string. Output-format versions are not in it: the `.lrdn` header carries its own version and is refused on mismatch, and the swap DNG's version is the `cache.artifact` row's `pipelineVersion`.
+- `calibDigest`: the full sha256 hex of the `calib.json` bytes, as exported in `com.lumen.denoise.calib_digest`. The host hashes the `calib.json` it loads into `RawDenoiseNoiseTable` and refuses it if the digest differs from the model's.
 - `k` and `readVar`: the resolved parameters after ISO clamping. Two ISOs that clamp to the same parameters share an entry.
 
 Deliberately **excluded**:
@@ -148,7 +149,7 @@ Deliberately **excluded**:
 
 - **There is no network draft.** The model is raw-domain, so a reduced-resolution pass would need a different noise parameterization, and its output could not be swapped in as a full-geometry DNG.
 - **Full pass:** one pass at native resolution, about 12 tiles of 1024x1024 for a 33 MP A7 IV. The target is 10 s or less per photo including the converter runs; Python is 6.2 s end to end today (`Denoise/docs/STATUS.md`).
-- **While pending:** when `raw.enabled` is true and the artifact is missing, rendering uses today's behaviour, the Apple NR stand-in driven by strength. The panel shows "AI denoise: computing NN%". This matches docs/07's "stale artifact falls back with a badge".
+- **While pending:** when `raw.enabled` is true and the artifact is missing, rendering uses the Apple NR stand-in, and the panel shows "AI denoise: computing NN%". This matches docs/07's "stale artifact falls back with a badge". The stand-in must follow the raw slider: when `raw.enabled` is true, `Denoise.appleStandIn` returns `(0.6 f, f)` with `f = raw.strengthFraction`, in place of `amount / 100`. Today it reads only `mode` and `amount` (`Sources/LumenCore/Recipe/Recipe.swift`, `appleStandIn`), so this is a follow-up change there. At strength 0 the stand-in is therefore (0, 0), Apple NR off.
 
 ### 4.3 Swap and instant strength
 
@@ -157,9 +158,11 @@ Deliberately **excluded**:
 - It holds `original: AppleRawSource` and `denoised: AppleRawSource?` (opened on the cached DNG once ready).
 
 How `decode(recipe:draft:scaleFactor:)` behaves:
-- **Raw denoise off, or artifact missing:** `original.decode(recipe, ...)` exactly as today.
+- **Raw denoise off:** `original.decode(recipe, ...)` exactly as today.
+- **Artifact missing (pending):** `original.decode(recipe, ...)`, with the stand-in following `raw.strengthFraction` (section 4.2).
+- **Ready, strength 0:** `original.decode(r0, ...)` (`r0` below), the original with Apple NR off. That is the same image the pending path gives at strength 0, so strength 0 does not change when the artifact lands.
 - **Ready, strength 100:** `denoised.decode(r0, ...)`, where `r0` is the recipe with `develop.denoise.mode = .off`. That makes `appleStandIn` return (0, 0), so Apple NR never stacks on the network. Tier 1 is unaffected, because `RenderPlan` reads the real recipe and not the decode recipe.
-- **Ready, strength s < 100:** decode both with `r0`, then `s*denoised + (1-s)*original` with a `CIColorMatrix` scale on each and a `CIAdditionCompositing`. Both images are in the same extended-linear working space and extent. Dragging strength never re-runs the network or re-decodes: each source's `DecodeKey` is unchanged, so both decodes hit their caches.
+- **Ready, strength 0 < s < 100:** decode both with `r0`, then `s*denoised + (1-s)*original` with a `CIColorMatrix` scale on each and a `CIAdditionCompositing`. Both images are in the same extended-linear working space and extent. Dragging strength never re-runs the network or re-decodes: each source's `DecodeKey` is unchanged, so both decodes hit their caches.
 - **Geometry guard:** if `denoised.nativePixelSize != original.nativePixelSize`, refuse the swap and keep showing the original with an error badge. Masks, spots and crops are stored in original-image coordinates.
 
 Residency:
@@ -180,15 +183,25 @@ Preview cache:
 
 - **`RawDenoisePrepass` runs on its own actor, never on `RenderCoordinator`.** That actor is serial and a decode cannot be cancelled (`RenderCoordinator.swift:677-682`).
 - **One job at a time.** Priority order: the photo in the viewer, then export, then filmstrip neighbours, then background batch. Toggling off cancels a queued job, and cancels a running one between tiles.
-- **Compute units:** `.cpuAndNeuralEngine` for interactive work, to leave the GPU to the Metal render graph; `.all` for export and batch. If the ANE fails parity (fp16 overflow, see section 6), fall back to `.cpuAndGPU`.
+- **Compute units:** `.all` (the runner's default) for the default RangeDim export, which Core ML commonly places on the GPU; `.cpuAndGPU` if `ALL` fails parity. `.cpuAndNeuralEngine` only with an `--enumerated` export (`Denoise/docs/COREML_EXPORT.md`, troubleshooting), and only after the Core ML performance report or `MLComputePlan` shows the convolutions placed on the ANE and parity passes with `CPU_AND_NE`.
 - **Progress:** fixed weights per phase: convert 10%, read and pack 5%, tiles 70% (per tile), write 5%, recompress 10%. The fraction is published to the panel and the export sheet.
 
 ### 4.5 Storage, invalidation, budget
 
-- **Storage:** `<catalog>/artifacts/<digest[0:2]>/<digest>.dng`, using the `AIDenoiseSplice.ArtifactKey.relativePath` sharding (`DenoiseEngine.swift:1515-1534`). The DNG is indexed in `cache.artifact` with kind `"denoise-cfa"`, `modelID`, `prefixHash = key.digest` and `pipelineVersion`, via `CatalogStore.recordArtifact` and `artifact(...)` (`Sources/LumenCore/Catalog/CatalogStore.swift:4055, 4096`).
-- **Invalidation is by key only.** A new file identity, model weights, `calib.json` or noise parameters gives a new key, and the old file ages out. Toggling off, changing strength and editing anything else keep the artifact.
-- **Deletion:** photo deletion already clears `cache.artifact` (`CatalogStore.swift:2168, 2282, 2435`).
-- **Budget:** 8 GiB by default, about 150 compressed 33 MP DNGs. `pruneArtifacts(kind: "denoise-cfa", maxBytes:)` (`:4130`) runs after each write, and `touchArtifact` (`:4112`) runs on each swap. Temporary converter output is written under the pre-pass's own temp directory and deleted on success and on failure.
+There are two cached artifacts. Only the first exists today.
+
+**Planes tier (exists, `RawDenoisePrepass`).**
+- Memory: an LRU of full-strength `RawDenoisePlanes` (Float32) under `Configuration.memoryBudgetBytes`, default 512 MiB. A frame larger than the whole budget is served from disk instead of evicting everything.
+- Disk: when `Configuration.cacheDirectory` is set, one file per key at `<cacheDirectory>/<digest[0:2]>/<digest>.lrdn`. It has a 96-byte header (magic `LRDNCFA1`, format version 1, encoding, shape, the key digest) and then the planes, Float16 by default (`.float32` for parity runs), about 66 MB for a 33 MP frame. A file that does not parse exactly, or names another digest, is deleted and recomputed. Writes are atomic.
+- Budget: `Configuration.diskBudgetBytes`; after each write the least recently read `.lrdn` files are deleted down to it. `nil` (the default) is unbounded, so the host must set it. `purge(includingDisk:)` drops the memory tier and optionally the whole directory.
+- The `.lrdn` files are not in the catalog. Deleting a photo leaves its file until the disk budget evicts it, which is harmless because the key names content, not a photo.
+
+**Swap-DNG tier (follow-up, needs the DNG patcher).**
+- The patcher writes the cached planes into the converted DNG (section 2, step 5). The result is stored at `<catalog>/artifacts/<digest[0:2]>/<digest>.dng`, using the `AIDenoiseSplice.ArtifactKey.relativePath` sharding (`DenoiseEngine.swift:1515-1534`). It is indexed in `cache.artifact` with kind `"denoise-cfa"`, `modelID`, `prefixHash = key.digest` and `pipelineVersion`, via `CatalogStore.recordArtifact` and `artifact(...)` (`Sources/LumenCore/Catalog/CatalogStore.swift:4055, 4096`).
+- Budget: 8 GiB by default, about 150 compressed 33 MP DNGs. `pruneArtifacts(kind: "denoise-cfa", maxBytes:)` (`:4130`) runs after each write, and `touchArtifact` (`:4112`) runs on each swap. Temporary converter output is written under the pre-pass's own temp directory and deleted on success and on failure.
+- **Deletion only removes rows today.** `deletePhoto` (`CatalogStore.swift:2168`), relink (`:2282`), the scan's replaced-file path (`:2435`), `pruneArtifacts` (`:4146`) and `discardArtifact` (`:4161`) all `DELETE FROM cache.artifact` and never touch the file. Every caller must delete the payload file for each row it removes: `pruneArtifacts` returns the victim rows for this, and photo deletion and relink must read the photo's artifact rows first. Without that the 8 GiB budget is enforced on rows while the DNGs stay on disk.
+
+**Invalidation is by key only** in both tiers. A new confirmed source signature, model weights, `calib.json`, tile/overlap or noise parameters gives a new key, and the old entry ages out. Toggling off, changing strength and editing anything else keep it.
 
 ### 4.6 Export
 
@@ -215,7 +228,7 @@ Panel (later, LumenApp):
 - In `.ai` mode, Tier 1's coupling already zeroes luma and chroma unless the user set them (`Sources/LumenCore/Image/DenoiseEngine.swift:1884-1908`), so the frame is not denoised twice.
 
 Flag:
-- `RawDenoiseFeature.isEnabled` is true when `LUMEN_RAW_DENOISE=1` is set in the environment, and tests can override it.
+- `RawDenoiseFeature.isEnabled` is true when `LUMEN_RAW_DENOISE=1` is set in the environment, and tests can override it. Nothing consults it yet; the source construction site and the panel must (section 7, step 4).
 - LumenApp may later also read a UserDefaults key (`rawDenoise.enabled`), following the `cullingAssistsEnabled` precedent (`Sources/LumenApp/AppState.swift:2186-2191`).
 - With the flag off, no source wrapper is created, no pre-pass runs, and every path is today's code.
 
@@ -230,57 +243,56 @@ The references are the real Python functions. Fixtures are float32 little-endian
 | P3 tiling | tile list vs `denoise_packed` loop for small sizes (below 16, below tile, exact, odd, and 3516x2344 giving 12 tiles); `run` with an identity body returns the input; `run` with a position-dependent synthetic body vs a numpy port | exact for plans, absolute 1e-6 | Linux |
 | P4 packing | pack/unpack round trip and all 4 patterns vs `to_rggb`/`from_rggb`; normalization vs `raw.load`; odd edge row and column untouched | exact | Linux |
 | P5 decode equivalence | `CIRAWFilter(ARW/RW2)` vs `CIRAWFilter(converted DNG, not denoised)` with the same recipe | identical `nativePixelSize`; mean dE2000 below 0.5 and p99 below 1.5 after Lumen's render. On failure use the A fallback in section 2. | Mac |
-| P6 model, per tile | Core ML vs PyTorch fp32 `Denoiser` on identical padded tiles (1024x1024, and one small flexible shape) at ISO 100, 1600, 6400 and 25600 | no NaN or Inf; max abs 4e-3, mean abs 2e-4 (normalized units, about 3 DN mean on 14 bits); PSNR between them 55 dB or more | Mac |
+| P6 model | `Denoise/scripts/coreml_parity.py`: Core ML vs PyTorch fp32 `Denoiser` on identical inputs, synthetic cases at ISO 100, 1600, 6400 and 25600 (model-level 256x256, 64x48, 512x768, 1024x1024; tiled 1300x1900), every RAW on its command line, and its fixture cases. Then the Swift runner on those fixtures. | every Core ML output finite and at least 50 dB PSNR in `train.tone()` space vs torch fp32 (the script's exit status); Swift runner output within max abs 2e-3 of the fixtures' `expected_coreml` | Mac |
 | P7 full image | Swift pre-pass CFA (uint16) vs `infer.py --strength 1.0` CFA, 3 files per camera | 99% of pixels within 4 DN, max 16 DN; PSNR gain against the noisy input within 0.05 dB of Python's | Mac |
 | P8 round trip | denoised DNG re-read; untouched pixels outside the packed region identical; BlackLevel, WhiteLevel and CFAPattern unchanged | exact | Mac |
 
 Precision note:
-- Python inference runs the whole net in fp16 on MPS. At low ISO its intermediate `K*sig + r` is subnormal in fp16 (`r` is about 1.26e-7 for the A7 IV).
-- Swift computes the std map in fp32 and feeds `std` (about 3.5e-4 or more, a normal fp16 value) to the model. Swift is therefore *closer* to training (fp32) than Python inference is. P6 is measured against fp32 PyTorch for that reason, not against MPS fp16.
+- The std map stays Float32, as in training (`train.py` runs fp32). Python inference (`infer.py`) computes it on the `.half()` tile, and at ISO 100 and below its intermediate `K*sig + r` is subnormal in fp16 (`r` is about 1.26e-7 for the A7 IV), so `infer.py`'s std map is about 5-8% off the fp32 one.
+- Lumen deliberately matches the fp32 training std map, not `infer.py`'s fp16 one: Swift computes it in Float32 and casts `std` (about 3.5e-4 or more, a normal fp16 value) to Float16 only at the model input. P6 is measured against fp32 PyTorch for that reason, and the parity fixtures use the fp32 `train.std_map`, including a low-ISO case (ILCE-7M4 ISO 100).
+- For P7 at ISO 100 and below, stock `infer.py` is therefore not the right reference: run the Python side with the std map computed in fp32 (`std_map(tt.float(), K, rv)`), or the 5-8% std-map difference shows up as a Swift error.
 - Output quantization: fp16 near 1.0 is about 8 DN. If P7 fails in highlights, export with the final `noisy + s*net(x)` multiply-add kept in fp32 (coremltools `op_selector`) and a Float32 `denoised` output. The runner should read the output `MLMultiArray`'s `dataType` and accept both. Any change to the I/O dtype is a contract change and must be recorded here.
 
 ## 7. Checklist for the main session on the Mac
 
-1. **Build and test the branch.**
+1. **Pick the weights.** Use the winning checkpoint from runs A and B as `Denoise/weights/lumen_denoise.pt`, and confirm `residual_flag` is in its state dict. Do not commit weights, packages or fixtures.
+2. **Export and run the parity gate** (details and expected output: [`COREML_EXPORT.md`](COREML_EXPORT.md)). From `Denoise/` in the venv, after `.venv/bin/pip install "coremltools==9.0"`:
+   ```sh
+   .venv/bin/python scripts/export_coreml.py \
+       --weights weights/lumen_denoise.pt --calib weights/calib.json \
+       --out weights/lumen_denoise.mlpackage
+   .venv/bin/python scripts/coreml_parity.py <A7 IV high-ISO .ARW> <GX85 high-ISO .RW2> \
+       --mlmodel weights/lumen_denoise.mlpackage \
+       --weights weights/lumen_denoise.pt --calib weights/calib.json \
+       --compute-units ALL,CPU_AND_GPU --json reports/coreml_parity.json
+   ```
+   - The export writes `weights/lumen_denoise.mlpackage` and `weights/lumen_denoise.coreml.json`, with `model_id` and `calib_digest` also in the package metadata (section 4.1).
+   - The parity run must end with `"result": "PASS"` (P6). It also writes the Swift fixtures to `weights/coreml_fixtures/` (`manifest.json` plus `.bin`/`.npy` per array), computed with the first `--compute-units` entry.
+   - The default export is RangeDim; keep the runner on `.all` or `.cpuAndGPU`. Only if the ANE is wanted, re-export with `--enumerated 1024x1024,...` and re-run parity with `--compute-units CPU_AND_NE,ALL` after checking ANE placement (section 4.4).
+3. **Build and test the branch with the model and fixtures.** From the repo root:
    - `git fetch && git checkout claude/denoise-integration` (or the PR branch).
    - `swift build`.
    - `swift test --filter LumenCoreTests.RawDenoise`.
-   - `swift test --filter LumenPipelineTests`. Model-dependent tests skip without a model.
-2. **Pick the weights.** Use the winning checkpoint from runs A and B as `Denoise/weights/lumen_denoise.pt`, and confirm `residual_flag` is in its state dict.
-3. **Export Core ML** from `Denoise/` in the venv with `pip install coremltools`:
-   ```python
-   import numpy as np, torch, coremltools as ct
-   from lumen_denoise.model import Denoiser
-   net = Denoiser.from_state_dict(torch.load("weights/lumen_denoise.pt", map_location="cpu")).eval().float()
-   ex = (torch.rand(1, 4, 1024, 1024) * 0.1, torch.full((1, 1, 1024, 1024), 1e-3))
-   ts = torch.jit.trace(net, ex)
-   H = ct.RangeDim(16, 2048, default=1024); W = ct.RangeDim(16, 2048, default=1024)
-   m = ct.convert(ts, convert_to="mlprogram", minimum_deployment_target=ct.target.macOS15,
-                  compute_precision=ct.precision.FLOAT16,
-                  inputs=[ct.TensorType(name="noisy", shape=(1, 4, H, W), dtype=np.float16),
-                          ct.TensorType(name="std", shape=(1, 1, H, W), dtype=np.float16)],
-                  outputs=[ct.TensorType(name="denoised", dtype=np.float16)])
-   m.save("weights/LumenDenoise.mlpackage")
-   ```
-   - The tiler guarantees H and W are multiples of 16.
-   - If the ANE rejects the flexible shape, re-export with `ct.EnumeratedShapes` holding 1024x1024 (every tile of a 24 MP or larger photo) plus a few small sizes.
-   - Then run `xcrun coremlcompiler compile weights/LumenDenoise.mlpackage weights/`.
-   - Record the sha256 of the `.pt` in `modelID`.
-4. **Install the model** where `RawDenoiseCoreMLRunner` looks for it (see its init; stage 1 expects a path to the `.mlmodelc` plus `Denoise/weights/calib.json`). Do not commit weights.
-5. **Run parity P5-P8** (section 6) on 3 A7 IV and 3 GX85 files covering ISO 100 to 25600, at least one at the table edge (A7 IV ISO 51200, GX85 ISO 25600). Confirm the GX85 CFAPattern from the converted DNG (open question in `Denoise/docs/model_research.md:178`).
-   - Run each with compute units `.cpuAndNeuralEngine`, then `.all`.
-   - Record timings per photo.
+   - `LUMEN_DENOISE_MLMODEL=$PWD/Denoise/weights/lumen_denoise.mlpackage LUMEN_DENOISE_FIXTURES=$PWD/Denoise/weights/coreml_fixtures swift test --filter LumenPipelineTests`. The runner's fixture test (second half of P6) skips without both variables, so a green run without them proves nothing about the model.
+4. **Implement the follow-ups**, in this order, each behind the flag:
+   - a `RawCFAProvider` conformer (DNG raw-IFD reader, section 2 step 1), checked against rawpy's `raw_image_visible` crop and 2x2 phase;
+   - the DNG patcher (section 2 step 5) and the swap-DNG tier with payload-file deletion (section 4.5);
+   - `DenoisedRawSource` and the swap at `RenderCoordinator.swift:932-934` (section 4.3), constructing `RawDenoiseCoreMLRunner(modelURL:)` with an explicit URL (`Denoise/weights/lumen_denoise.mlpackage` during development; the runner does not search for it) and loading `Denoise/weights/calib.json`;
+   - the `Denoise.appleStandIn` change for the pending state (section 4.2);
+   - consulting `RawDenoiseFeature.isEnabled` at the source construction site and in the panel (section 5).
+5. **Measure P5 first** (section 6). If the colour gate fails, switch the blend's original side to the converted DNG before any UI work.
+6. **Run P7 and P8** on 3 A7 IV and 3 GX85 files covering ISO 100 to 25600, at least one at the table edge (A7 IV ISO 51200, GX85 ISO 25600). Use the fp32 std-map reference at ISO 100 and below (section 6). Confirm the GX85 CFAPattern from the converted DNG (open question in `Denoise/docs/model_research.md:178`).
+   - Record timings per photo and the compute units used.
    - Write results to `Denoise/reports/coreml_parity.md`.
-6. **Measure P5 first.** If the colour gate fails, switch the blend's original side to the converted DNG before any UI work.
 7. **Enable the flag** with `LUMEN_RAW_DENOISE=1 swift run LumenApp`. A bundled `.app` needs `launchctl setenv LUMEN_RAW_DENOISE 1` before launch.
 8. **Smoke test** in the app:
    - Open a high-ISO ARW and an RW2, turn on AI denoise, and check the "computing" badge, then the swap without a flash of a wrong frame.
-   - Drag strength 0 to 100: it should be instant, with no re-run in Console.
+   - Drag strength 0 to 100: it should be instant, with no re-run in Console. Strength 0 should look the same while pending and once ready (section 4.3).
    - Toggle off and on: the cache is hit.
    - Edit WB and exposure: no re-run.
    - Check masks and spots still line up.
    - Export JPEG and TIFF at full size, and confirm the result matches the viewer.
    - Quit and relaunch: the artifact is reused.
-   - Delete the photo: the artifact is removed.
+   - Delete the photo: the swap DNG file is removed from disk, not just its row.
    - Uninstall or rename the converter: there is a clear error and the fallback rendering.
 9. **CI:** confirm `fixtures-linux`, `engine-linux`, `build-macos` and `test-fast` are green on the PR branch. CI runs on push; there is no `pull_request` trigger.

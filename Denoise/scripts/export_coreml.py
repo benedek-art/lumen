@@ -1,17 +1,30 @@
 """Export the trained denoiser to Core ML so Lumen can run it natively (no Python).
 
 python scripts/export_coreml.py [--weights weights/lumen_denoise.pt] [--calib weights/calib.json]
-                                [--out weights/lumen_denoise.mlpackage] [--no-verify]
+                                [--out weights/lumen_denoise.mlpackage] [--meta PATH]
+                                [--enumerated HxW,...] [--fp16-mean] [--no-verify]
 
 Produces:
   weights/lumen_denoise.mlpackage    inputs  noisy (1,4,H,W) + std (1,1,H,W), output denoised (1,4,H,W),
-                                     Float16 I/O, H/W flexible 16...2048 (default 1024)
-  weights/lumen_denoise.coreml.json  model id / calib digest / I/O contract, read by Lumen's runner + cache
+                                     Float16 I/O, H/W flexible 16...2048 (default 1024), or the fixed
+                                     shapes given with --enumerated
+  weights/lumen_denoise.coreml.json  the same metadata as a sidecar, for humans and coreml_parity.py
+
+Identity metadata. Every key in the sidecar is also stored in the package's user_defined_metadata as
+com.lumen.denoise.<key> (string values; non-strings JSON-encoded). After compilation Core ML exposes it
+as MLModelDescription.metadata[.creatorDefinedKey]. Lumen's Swift runner reads two keys from there, not
+from the sidecar:
+  com.lumen.denoise.model_id      first 16 hex of sha256(weights .pt). The cache key's modelID is
+                                  "<model_id>/t<tile>o<overlap>", e.g. "0123456789abcdef/t1024o64".
+  com.lumen.denoise.calib_digest  full sha256 hex of calib.json. The cache key's calibDigest; the host
+                                  must refuse a calib.json whose sha256 differs from it.
+Changing the weights or calib.json therefore changes every cache key.
 
 The model is Denoiser.forward verbatim, residual scale included: Lumen's Swift side only computes the
-std map (RawDenoiseStdMap, identical to train.std_map) and does the tiling (identical to
+std map (RawDenoiseStdMap: train.std_map in Float32, as in training) and does the tiling (identical to
 infer.Engine.denoise_packed). H and W must be multiples of 16 (four 2x max-pools); padding to that is
-the caller's job, exactly as in infer.py. See docs/COREML_EXPORT.md.
+the caller's job, exactly as in infer.py. The post-export prediction check runs on macOS only and is a
+smoke test; the gate is scripts/coreml_parity.py. See docs/COREML_EXPORT.md.
 """
 import argparse, datetime, hashlib, json, sys
 from pathlib import Path

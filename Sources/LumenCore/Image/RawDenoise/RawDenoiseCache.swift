@@ -1,6 +1,6 @@
 // RawDenoiseCache.swift
-// The identity of a cached AI raw-denoise result, and the feature flag that gates the
-// whole raw-denoise path.
+// The identity of a cached AI raw-denoise result, and the feature flag meant to gate the
+// raw-denoise path (defined here; nothing consults it yet — see RawDenoiseFeature).
 //
 // The pre-pass is seconds of Core ML work per frame, so its output — the denoised CFA
 // at FULL strength — is cached and the recipe's strength is applied afterwards as the
@@ -15,15 +15,31 @@
 // recipe cache but the cost of a 256-bit digest here is nil. LumenCore has no SHA-256
 // and CryptoKit is Apple-only, so a small FIPS 180-4 implementation lives below,
 // verified against Python's hashlib in RawDenoiseCacheTests.
+//
+// What fills the string fields (one scheme everywhere; export_coreml.py is the source):
+//  · modelID = "<model_id>/t<tile>o<overlap>", e.g. "0123456789abcdef/t1024o64".
+//    `model_id` is the 16-hex sha256 prefix of the .pt weights, written by
+//    export_coreml.py into lumen_denoise.coreml.json and into the mlpackage's
+//    creatorDefinedKey metadata as `com.lumen.denoise.model_id`; the runner reads it
+//    from the loaded model, never from the file name. Tile and overlap are part of it
+//    because they change the blended output (RawDenoiseTiling) for the same weights.
+//  · calibDigest = full lowercase sha256 hex of calib.json (metadata key
+//    `com.lumen.denoise.calib_digest`). k/readVar stay in the key as well, see above.
+//  · sourceIdentity = the catalog's CONFIRMED content fingerprint / quick signature of
+//    the RAW. A SourceFileIdentity (path, size, mtime…) is only a trigger to re-verify
+//    that fingerprint; it is never the key itself, so a touched-but-unchanged file (or a
+//    moved one) keeps its cache.
 
 import Foundation
 
 public struct RawDenoiseCacheKey: Hashable, Sendable, Codable {
-    /// Identity of the source RAW's pixels (e.g. the catalog's content fingerprint).
+    /// Identity of the source RAW's pixels: the catalog's confirmed content fingerprint /
+    /// quick signature (not a SourceFileIdentity, which only triggers re-verification).
     public var sourceIdentity: String
-    /// Identity of the Core ML model (name + version or weights digest).
+    /// `"<model_id>/t<tile>o<overlap>"`: the 16-hex weights digest from the model's
+    /// `com.lumen.denoise.model_id` metadata plus the tiling it was run with.
     public var modelID: String
-    /// Digest of the calibration table the noise parameters came from.
+    /// Full sha256 hex of calib.json (`com.lumen.denoise.calib_digest`).
     public var calibDigest: String
     public var k: Double
     public var readVar: Double
@@ -59,7 +75,8 @@ public struct RawDenoiseCacheKey: Hashable, Sendable, Codable {
 }
 
 /// The raw-denoise feature flag. Off unless the environment sets LUMEN_RAW_DENOISE=1;
-/// tests (and a future preference) force it with `override`.
+/// tests (and a future preference) force it with `override`. Defined but not yet
+/// consulted by any code path: wiring it in lands with DenoisedRawSource / the UI.
 public enum RawDenoiseFeature {
     public static let environmentKey = "LUMEN_RAW_DENOISE"
 

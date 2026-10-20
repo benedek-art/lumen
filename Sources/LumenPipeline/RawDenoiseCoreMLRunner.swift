@@ -24,9 +24,11 @@
 //
 // Precision. The model is Float16 inside. The std map is computed here in Float32 and
 // only rounded to half on the way in: at ISO 100 on the A7 IV, K·sig and r are ~1e-7,
-// fp16 SUBNORMALS, and Python's MPS path (which computes the map in fp16) quantises them
-// coarsely; the square root lifts std to ~5e-4, a normal half, so rounding after the
-// root loses nothing. Float16 is unavailable to Swift on x86_64 macOS, so half values are
+// fp16 SUBNORMALS, and infer.py (which computes the map in fp16 after `.half()`) quantises
+// them coarsely — its std map is ~5-8% off at ISO <= 100. Lumen deliberately matches the
+// fp32 map TRAINING used (train.py runs fp32), not infer.py's; coreml_parity.py's fixtures
+// are generated with that fp32 map too. The square root lifts std to ~5e-4, a normal
+// half, so rounding after the root loses nothing. Float16 is unavailable to Swift on x86_64 macOS, so half values are
 // converted in software (`RawDenoiseHalf`, exhaustively checked against Float16 on
 // arm64) instead of through `Float16` — the same file builds and behaves identically on
 // both architectures. Input arrays are created in whatever type the model declares, so
@@ -90,28 +92,65 @@ public final class RawDenoiseCoreMLRunner: RawDenoiseRunning, @unchecked Sendabl
     public let model: MLModel
     /// The compiled model actually loaded (an .mlmodelc directory).
     public let compiledModelURL: URL
+    /// What the export script stamped into the model (Denoise/scripts/export_coreml.py,
+    /// `user_defined_metadata`, read back as `MLModelMetadataKey.creatorDefinedKey`):
+    /// `com.lumen.denoise.model_id`, the 16-hex sha256 prefix of the .pt weights, and
+    /// `com.lumen.denoise.calib_digest`, the full sha256 hex of the calib.json the export
+    /// saw. `nil` when the model carries no such key (or an empty value) — a model
+    /// exported some other way, which then cannot name a cache entry by itself.
+    public let modelIdentity: (modelID: String?, calibDigest: String?)
     private let noisyType: MLMultiArrayDataType
     private let stdType: MLMultiArrayDataType
     private let lock = NSLock()
 
+    /// Metadata keys written by export_coreml.py (`META_PREFIX` + field name).
+    public enum MetadataKey {
+        public static let modelID = "com.lumen.denoise.model_id"
+        public static let calibDigest = "com.lumen.denoise.calib_digest"
+    }
+
+    /// `RawDenoiseCacheKey.modelID` for results produced by this model with this tiling:
+    /// "<model_id>/t<tile>o<overlap>". Tiling is part of the identity because tile and
+    /// overlap change the per-tile scale s = mean(std) the network sees, hence the
+    /// output. `nil` when the model has no model_id — such a result must not be cached
+    /// under a name another model could also produce.
+    public func cacheModelID(tile: Int, overlap: Int) -> String? {
+        modelIdentity.modelID.map { "\($0)/t\(tile)o\(overlap)" }
+    }
+
     /// Loads `modelURL`, compiling it first when it is an .mlpackage / .mlmodel source.
     ///
     /// Compiling takes seconds, so when `compiledCacheDirectory` is given the compiled
-    /// .mlmodelc is kept there under a name derived from the source's path, size and
-    /// modification date, and reused on the next launch. Without it the compiled model
-    /// lives in Core ML's temporary directory for this process only.
+    /// .mlmodelc is kept there under a name derived from the source's CONTENT identity
+    /// (`compiledCacheName(for:)`: the export sidecar's model_id plus a digest of every
+    /// file inside the package), and reused on the next launch. A cached .mlmodelc that
+    /// fails to load (torn by a crash, or compiled by an older OS) is deleted, recompiled
+    /// and loaded once more. Without a cache directory the compiled model lives in Core
+    /// ML's temporary directory for this process only.
     ///
-    /// `computeUnits`: `.all` lets Core ML use the Neural Engine. `.cpuAndGPU` is the
-    /// escape hatch if the ANE's fp16 path proves numerically unsafe for this network
-    /// (activation overflow is a known failure for similar UNets — docs/audit-2026-09/
-    /// w1/r6-denoise-decision.md) — the parity run on the Mac decides.
+    /// `computeUnits`: `.all` (the default) for the flexible-shape (RangeDim) export —
+    /// Core ML places what it can. `.cpuAndGPU` is the escape hatch if the ANE's fp16
+    /// path proves numerically unsafe for this network (activation overflow is a known
+    /// failure for similar UNets — docs/audit-2026-09/w1/r6-denoise-decision.md).
+    /// `.cpuAndNeuralEngine` only for an `--enumerated` export, and only after checking
+    /// that the ops actually land on the ANE; the parity run on the Mac decides.
     public convenience init(modelURL: URL, computeUnits: MLComputeUnits = .all,
                 compiledCacheDirectory: URL? = nil) async throws {
-        let compiled = try await Self.compiledURL(for: modelURL, cacheDirectory: compiledCacheDirectory)
         let configuration = MLModelConfiguration()
         configuration.computeUnits = computeUnits
-        let model = try MLModel(contentsOf: compiled, configuration: configuration)
-        try self.init(model: model, compiledModelURL: compiled)
+        var compiled = try await Self.compiledURL(for: modelURL, cacheDirectory: compiledCacheDirectory)
+        let model: MLModel
+        do {
+            model = try MLModel(contentsOf: compiled.url, configuration: configuration)
+        } catch {
+            // Only a cache entry can be stale; a fresh compile or a caller's .mlmodelc
+            // failing to load is the real error.
+            guard compiled.fromCache else { throw error }
+            try? FileManager.default.removeItem(at: compiled.url)
+            compiled = try await Self.compiledURL(for: modelURL, cacheDirectory: compiledCacheDirectory)
+            model = try MLModel(contentsOf: compiled.url, configuration: configuration)
+        }
+        try self.init(model: model, compiledModelURL: compiled.url)
     }
 
     /// Wraps an already-loaded model (tests, or a host that manages loading itself).
@@ -125,36 +164,122 @@ public final class RawDenoiseCoreMLRunner: RawDenoiseRunning, @unchecked Sendabl
         }
         self.model = model
         self.compiledModelURL = compiledModelURL
+        self.modelIdentity = Self.identity(fromMetadata: model.modelDescription.metadata)
         self.noisyType = noisy.dataType
         self.stdType = std.dataType
     }
 
-    private static func compiledURL(for source: URL, cacheDirectory: URL?) async throws -> URL {
-        if source.pathExtension == "mlmodelc" { return source }
+    /// model_id / calib_digest from a model's creator-defined metadata. coremltools
+    /// writes `user_defined_metadata` as string → string; read through `[String: Any]`
+    /// so a bridged dictionary of another value type does not hide the strings in it.
+    static func identity(fromMetadata metadata: [MLModelMetadataKey: Any]) -> (modelID: String?, calibDigest: String?) {
+        guard let user = metadata[MLModelMetadataKey.creatorDefinedKey] as? [String: Any] else {
+            return (nil, nil)
+        }
+        func value(_ key: String) -> String? {
+            guard let v = user[key] as? String, !v.isEmpty else { return nil }
+            return v
+        }
+        return (value(MetadataKey.modelID), value(MetadataKey.calibDigest))
+    }
+
+    // MARK: - Compiled-model cache
+
+    /// The compiled model for `source`: `source` itself when it already is an
+    /// .mlmodelc, a cache entry (`fromCache`) when `cacheDirectory` holds or can take
+    /// one, else Core ML's temporary compile.
+    private static func compiledURL(for source: URL, cacheDirectory: URL?) async throws -> (url: URL, fromCache: Bool) {
+        if source.pathExtension == "mlmodelc" { return (source, false) }
         let fm = FileManager.default
         var cached: URL?
         if let dir = cacheDirectory {
-            let attributes = try fm.attributesOfItem(atPath: source.path)
-            let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-            let identity = "\(source.standardizedFileURL.path)|\(size)|\(modified)"
-            let name = source.deletingPathExtension().lastPathComponent + "-"
-                + String(identity.hashValueStable, radix: 16) + ".mlmodelc"
-            let target = dir.appendingPathComponent(name, isDirectory: true)
-            if fm.fileExists(atPath: target.path) { return target }
+            let target = dir.appendingPathComponent(try compiledCacheName(for: source), isDirectory: true)
+            if fm.fileExists(atPath: target.path) { return (target, true) }
             cached = target
         }
         let temporary = try await MLModel.compileModel(at: source)
-        guard let target = cached else { return temporary }
+        guard let target = cached else { return (temporary, false) }
         try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         do {
             try fm.moveItem(at: temporary, to: target)
         } catch {
             // Another process won the race to the same name; theirs is the same model.
-            if fm.fileExists(atPath: target.path) { return target }
+            if fm.fileExists(atPath: target.path) {
+                try? fm.removeItem(at: temporary)
+                return (target, true)
+            }
             throw error
         }
-        return target
+        return (target, true)
+    }
+
+    /// The cache entry name for `source`: "<stem>-<model_id>-<fnv64 hex>.mlmodelc".
+    ///
+    /// An .mlpackage is a DIRECTORY, so the directory's own size and modification date
+    /// (what this used to hash) say nothing about the weights inside it — replacing
+    /// Data/com.apple.CoreML/weights/weight.bin leaves both untouched. The identity is
+    /// therefore built from content:
+    ///   · the export sidecar `<stem>.coreml.json` next to the package (export_coreml.py
+    ///     writes it), whose model_id names the .pt weights and whose bytes also carry
+    ///     the export options (shape range or enumerated shapes, fp32 mean, export
+    ///     time), so re-exporting the same weights differently is a different entry;
+    ///   · the relative path, size and modification time of every regular file in the
+    ///     package, so a package swapped in without its sidecar (or with a stale one)
+    ///     still misses instead of loading another model's compile.
+    /// The model_id is spelled out in the name only for a human looking at the
+    /// directory; the hash is what separates entries. FNV-1a, not `hashValue`, which is
+    /// seeded per process and useless for a name that must be found again next launch.
+    static func compiledCacheName(for source: URL) throws -> String {
+        let fm = FileManager.default
+        let stem = source.deletingPathExtension().lastPathComponent
+        var identity = "lumen.raw-denoise.mlmodelc/v2\n"
+
+        var modelID = "unidentified"
+        let sidecar = source.deletingLastPathComponent().appendingPathComponent(stem + ".coreml.json")
+        if let data = try? Data(contentsOf: sidecar) {
+            identity += "sidecar=\(data.count):" + String(decoding: data, as: UTF8.self) + "\n"
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let id = object["model_id"] as? String, !id.isEmpty,
+               id.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }) {
+                modelID = id   // hex only: it goes into a file name
+            }
+        }
+
+        // Resolved, so a symlinked package is enumerated rather than reported as a link.
+        let root = source.resolvingSymlinksInPath()
+        let isDirectory = try root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory ?? false
+        var entries: [(path: String, size: Int64, modified: Double)] = []
+        func entry(_ relative: String, atPath path: String) throws {
+            let attributes = try fm.attributesOfItem(atPath: path)
+            guard (attributes[.type] as? FileAttributeType) == .typeRegular else { return }
+            let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            entries.append((relative, size, modified))
+        }
+        if isDirectory {
+            // `subpaths` is recursive and yields paths relative to the package root,
+            // which keeps the identity independent of where the package lives.
+            for relative in try fm.subpathsOfDirectory(atPath: root.path) {
+                try entry(relative, atPath: root.appendingPathComponent(relative).path)
+            }
+        } else {
+            try entry("", atPath: root.path)
+        }
+        entries.sort { $0.path.utf8.lexicographicallyPrecedes($1.path.utf8) }
+        for e in entries {
+            identity += "file=\(e.path.utf8.count):\(e.path)|\(e.size)|\(String(e.modified.bitPattern, radix: 16))\n"
+        }
+
+        let hex = String(fnv1a64(Array(identity.utf8)), radix: 16)
+        return "\(stem)-\(modelID)-\(String(repeating: "0", count: 16 - hex.count))\(hex).mlmodelc"
+    }
+
+    /// FNV-1a 64 over bytes. A file-name discriminator, not a security boundary: the
+    /// cache directory is the app's own.
+    static func fnv1a64(_ bytes: [UInt8]) -> UInt64 {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in bytes { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
+        return h
     }
 
     // MARK: - Denoising
@@ -265,16 +390,6 @@ public final class RawDenoiseCoreMLRunner: RawDenoiseRunning, @unchecked Sendabl
             }
         }
         return out
-    }
-}
-
-private extension String {
-    /// FNV-1a over UTF-8 — `hashValue` is seeded per process, useless for a file name
-    /// that must be found again on the next launch.
-    var hashValueStable: UInt64 {
-        var h: UInt64 = 0xcbf2_9ce4_8422_2325
-        for b in utf8 { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
-        return h
     }
 }
 

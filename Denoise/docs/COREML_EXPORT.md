@@ -43,13 +43,21 @@ exception is the tile mean `s`: `reduce_mean` over up to 1024x1024 stds is kept 
 near the fp16 maximum (65504) and loses the low bits long before that. That single fp32 op is cheap but
 cannot run on the Neural Engine; see troubleshooting if that matters.
 
-`lumen_denoise.coreml.json` (written next to the package, also copied into the model's
-`user_defined_metadata` under `com.lumen.denoise.*`):
+The std map is not part of the model and stays Float32, as in training (`train.py` runs fp32). Swift's
+`RawDenoiseStdMap` computes it in Float32 on each padded tile and casts it to Float16 only at the model
+input. `infer.py` instead computes it on the `.half()` tile, and at ISO 100 and below `K * sig + r` is
+subnormal in fp16 (`r` is about 1.26e-7 for the A7 IV), so its std map is about 5-8% off the fp32 one.
+Lumen deliberately matches the fp32 training std map, not `infer.py`'s.
+
+`lumen_denoise.coreml.json` is written next to the package. Every key is also copied into the model's
+`user_defined_metadata` as `com.lumen.denoise.<key>`, which Core ML exposes after compilation as
+`MLModelDescription.metadata[.creatorDefinedKey]`. The Swift runner reads `model_id` and `calib_digest`
+from that metadata, not from the sidecar json:
 
 | key | meaning |
 |---|---|
-| `model_id` | first 16 hex of sha256(weights `.pt`). Goes into `RawDenoiseCacheKey.modelID` |
-| `calib_digest` | full sha256 hex of `calib.json`. Goes into `RawDenoiseCacheKey.calibDigest` |
+| `model_id` | first 16 hex of sha256(weights `.pt`). `RawDenoiseCacheKey.modelID` is `"<model_id>/t<tile>o<overlap>"`, e.g. `0123456789abcdef/t1024o64` |
+| `calib_digest` | full sha256 hex of `calib.json`. This is `RawDenoiseCacheKey.calibDigest`. The host must hash the `calib.json` it loads and refuse it if the sha256 differs |
 | `weights_sha256`, `nf`, `residual` | provenance |
 | `dim_range` / `enumerated_shapes`, `dim_multiple`, `tile`, `overlap` | shape contract for the runner |
 | `coremltools`, `torch`, `exported_at` | toolchain used |
@@ -67,8 +75,8 @@ cd ~/Projects/lumen-denoise          # or <lumen repo>/Denoise
 ```
 
 coremltools 9.0 is tested up to torch 2.7. A newer torch prints
-`Torch version X has not been tested with coremltools` — harmless as long as conversion finishes (it
-does with torch 2.14 on Linux). If conversion fails with an op error, export from a separate venv with
+`Torch version X has not been tested with coremltools`. That is harmless as long as conversion finishes
+(it does with torch 2.14 on Linux). If conversion fails with an op error, export from a separate venv with
 `torch==2.7.0` (the `.pt` state dict loads in either).
 
 ### 1. Export
@@ -98,21 +106,26 @@ output aborts the script. This is only a smoke test; step 2 is the gate.
 ```sh
 .venv/bin/python scripts/coreml_parity.py \
     data/samples/A7404922-2.ARW data/samples/P1100829.RW2 \
-    --compute-units ALL,CPU_AND_GPU,CPU_ONLY --json reports/coreml_parity.json
+    --compute-units ALL,CPU_AND_GPU --json reports/coreml_parity.json
 ```
 
 Pick at least one high-ISO RAW per camera (the A7 IV at 12800+, the GX85 at 3200+): shadows at high
 ISO are where fp16 and the tone curve are least forgiving.
 
+The first `--compute-units` entry is the one the fixtures (step 3) are computed with, so list the units
+Lumen will use first: `ALL` for the default flexible (RangeDim) export. Add `CPU_AND_NE` only for an
+`--enumerated` export (see troubleshooting).
+
 What it does, per backend (`torch32` reference, `torch16` = today's CLI, `coreml:<units>`):
 
 - random synthetic tiles (shadows, near-clip highlights, a hard line) at ISO 100/1600/6400/25600 from
-  the first camera in `calib.json`, model-level at 256², 64x48, 512x768, 1024², and a 1300x1900 image
-  through the tiler;
+  the first camera in `calib.json`, model-level at 256x256, 64x48, 512x768, 1024x1024, and a 1300x1900
+  image through the tiler;
 - every RAW on the command line, full image, production tile 1024 / overlap 64.
 
-All tiled runs call `infer.Engine.denoise_packed` itself with the backend swapped in as `self.net`, so
-the tiling, reflect padding, fp16 std map and feathering are the shipping code, not a copy. One JSON line
+All gate runs call `infer.Engine.denoise_packed` itself with the backend swapped in as `self.net`, so
+the tiling, reflect padding, fp16 std map and feathering are the shipping CLI code, not a copy. Every
+backend gets the same inputs, so the gate measures network precision only. One JSON line
 per case, then:
 
 ```
@@ -122,34 +135,84 @@ per case, then:
 (A Linux dry run that emulates fp16 output rounding gives ~87-90 dB; real fp16 convolutions will be
 lower. Anything comfortably above 50 is fine.)
 
-The gate: every Core ML output must be finite and at least `--min-psnr` (default 50 dB) vs torch32 in
-`train.tone()` space. For scale, `torch16_vs_torch32` shows what the current CLI already ships; Core ML
-should be in the same range. Exit status 1 on failure.
+The gate (P6 in `LUMEN_INTEGRATION.md` section 6): every Core ML output, fixture cases included, must be
+finite and at least `--min-psnr` (default 50 dB) vs torch32 in `train.tone()` space. Exit status 1 on
+failure. The second half of P6 is the Swift fixture test in step 3 (max abs 2e-3 vs `expected_coreml`).
+For scale, `torch16_vs_torch32` shows what the current CLI already ships; Core ML should be in the same
+range.
 
 ### 3. Fixtures for the Swift runner test
 
-The parity run also writes `weights/coreml_fixtures/` (override with `--fixtures`, skip with
-`--no-fixtures`): `manifest.json` plus, per array, a `.npy` and a headerless little-endian float32
-`.bin` (C order) that Swift can read with `Data` -> `[Float]`.
+The parity run also writes `weights/coreml_fixtures/` (next to `--mlmodel`; override with `--fixtures`,
+skip with `--no-fixtures`): `manifest.json` plus, per array, a `.npy` and a headerless little-endian
+float32 `.bin` (C order, planar channel-major) that Swift reads with `Data` -> `[Float]`.
+
+Unlike the gate runs, the fixtures use the fp32 `train.std_map`, which is what Swift's `RawDenoiseStdMap`
+computes: model cases store it as `std`, and tiled cases run the shipping tiler with a wrapper that
+recomputes the std map in fp32 on each padded tile. Each case is written at two settings: the first
+camera in `calib.json` at ISO 6400, and ILCE-7M4 at ISO 100 (names suffixed `_iso100`), the low-ISO case
+where `infer.py`'s fp16 std map would be subnormal. If `calib.json` has no ILCE-7M4 entry the `_iso100`
+cases are skipped with a warning.
 
 | case | kind | what it pins |
 |---|---|---|
-| `model_32x48` | model | one forward: `noisy`, `std` (fp32 `train.std_map`), expected output |
-| `tiled_200x232_t128_o16` | tiled | several tiles, clamped last row/column of tiles, feathering |
-| `tiled_40x56_t1024_o64` | tiled | image smaller than a tile: reflect pad 40x56 -> 48x64 and crop |
+| `model_32x48`, `model_32x48_iso100` | model | one `predictTile`: `noisy`, `std` (fp32 `train.std_map`), expected output |
+| `tiled_200x232_t128_o16`, `..._iso100` | tiled | several tiles, clamped last row and column of tiles, feathering |
+| `tiled_40x56_t1024_o64`, `..._iso100` | tiled | image smaller than a tile: reflect pad 40x56 -> 48x64 and crop |
 
-Each case has `expected_torch32` and `expected_coreml` (Core ML through the Python tiler, same
-compute units as the first `--compute-units` entry) plus `K`, `read_var`, `tile`, `overlap`.
-`suggested_tolerance` in the manifest: max abs 2e-3 vs `expected_coreml`, and the PSNR gate vs
-`expected_torch32`. The Swift side differs from the Python Core ML run only by the std map's rounding
-(Swift fp32 -> fp16, infer.py computes it in fp16) and compute-unit nondeterminism.
+`manifest.json`, exactly as `coreml_parity.py::write_fixtures` writes it (file paths are relative to the
+fixture directory):
 
-Run the macOS runner test against them:
+```
+{
+ "format": 1,
+ "model_id": "<16 hex>",            com.lumen.denoise.model_id of --mlmodel
+ "calib_digest": "<64 hex>",        com.lumen.denoise.calib_digest of --mlmodel
+ "weights_sha256": "<64 hex>",      sha256 of --weights, the torch32 reference
+ "compute_units": "ALL",            coremltools name used for expected_coreml
+ "min_psnr": 50.0,
+ "layout": "...", "std_map": "...", "note": "...",
+ "suggested_tolerance": {"max_abs_vs_expected_coreml": 0.002,
+                         "min_psnr_tone_vs_expected_torch32": 50.0},
+ "cases": [
+  {"name": "model_32x48", "kind": "model", "camera": "ILCE-7M4", "iso": 6400,
+   "K": <float>, "read_var": <float>,
+   "files": {"noisy": F, "std": F, "expected_torch32": F, "expected_coreml": F},
+   "metrics_coreml_vs_torch32": {"max_abs": <float>, "psnr_tone": <float, or null if identical>,
+                                 "finite": true}},
+  {"name": "tiled_200x232_t128_o16", "kind": "tiled", "camera": "...", "iso": 6400,
+   "K": <float>, "read_var": <float>, "tile": 128, "overlap": 16,
+   "files": {"packed": F, "expected_torch32": F, "expected_coreml": F},
+   "metrics_coreml_vs_torch32": {...}},
+  ...
+ ]
+}
+F = {"npy": "<name>.npy", "bin": "<name>.bin", "shape": [4, H, W] (std: [1, H, W]), "dtype": "float32-le"}
+```
+
+The manifest is strict JSON (no `Infinity` or `NaN`), so `JSONSerialization` reads it.
+
+The Swift fixture test (in `Tests/LumenPipelineTests/`, macOS only) skips unless
+both `LUMEN_DENOISE_MLMODEL` (the `.mlpackage` or a compiled `.mlmodelc`) and `LUMEN_DENOISE_FIXTURES`
+(the directory holding `manifest.json`) are set. For every case it runs `RawDenoiseCoreMLRunner`:
+`predictTile(padded: noisy, std: std, ...)` for `kind == "model"`, and
+`denoise(packed:width:height:params: (K, read_var), tile:overlap:)` for `kind == "tiled"`, then requires:
+
+- max abs <= `suggested_tolerance.max_abs_vs_expected_coreml` (2e-3) against `expected_coreml`;
+- PSNR in `train.tone()` space >= `suggested_tolerance.min_psnr_tone_vs_expected_torch32` (50 dB)
+  against `expected_torch32`.
+
+Check that the manifest's `model_id` matches the package under test: fixtures from another export fail
+the tolerance or, worse, pass by luck.
+
+Swift and the Python Core ML run use the same model and the same fp32 std map. They differ only in that
+Python's std map is computed on the fp16-rounded tile, plus compute-unit nondeterminism.
 
 ```sh
-LUMEN_DENOISE_MLMODEL=$PWD/weights/lumen_denoise.mlpackage \
-LUMEN_DENOISE_FIXTURES=$PWD/weights/coreml_fixtures \
-swift test --filter RawDenoise                   # from the Lumen repo root; the runner test skips without these
+cd <lumen repo>                                  # the repo root, not Denoise/
+LUMEN_DENOISE_MLMODEL=$PWD/Denoise/weights/lumen_denoise.mlpackage \
+LUMEN_DENOISE_FIXTURES=$PWD/Denoise/weights/coreml_fixtures \
+swift test --filter RawDenoise
 ```
 
 Neither the package nor the fixtures belong in git (weights stay on the Mac). The Lumen app loads the
@@ -172,8 +235,13 @@ This costs nothing for full frames: the tiler clamps every tile to the full 1024
 at least 1024 packed px in that dimension, and both cameras exceed that (A7 IV ~3516x2344, GX85
 ~2296x1724 packed), so only 1024x1024 tiles occur. Smaller images (heavy crops, tests) produce
 other shapes; the runner must then either use the flexible model or pad up to an enumerated shape.
-Only switch if parity still passes with `--compute-units CPU_AND_NE` and it is actually faster; GPU
-fp16 on the M4 is already the path `infer.py` measures at ~6 s per 33 MP frame.
+Only switch if parity still passes with `--compute-units CPU_AND_NE,ALL` and it is actually faster; GPU
+fp16 on the M4 is already the path `infer.py` measures at about 6 s per 33 MP frame.
+
+Compute units in Lumen follow the export: `RawDenoiseCoreMLRunner` defaults to `.all` (or `.cpuAndGPU`
+if `ALL` fails parity) for the default RangeDim export. Use `.cpuAndNeuralEngine` only with an
+`--enumerated` export, and only after the performance report or `MLComputePlan` shows the convolutions
+actually placed on the ANE and parity passes with `CPU_AND_NE`.
 
 **fp16 overflow (`non-finite` in verify or parity).** The network sees `noisy / s` and `std / s`. With
 real calibrations `s >= sqrt(read_var)` (~3.5e-4 on the A7 IV at base ISO), so `noisy / s` stays

@@ -29,7 +29,7 @@ public struct RawDenoiseNoiseParams: Sendable, Equatable {
 
 public struct RawDenoiseNoiseTable: Sendable, Equatable {
 
-    public struct Entry: Sendable, Equatable {
+    public struct ISOSample: Sendable, Equatable {
         public var iso: Double
         public var k: Double
         public var readVar: Double
@@ -52,9 +52,9 @@ public struct RawDenoiseNoiseTable: Sendable, Equatable {
     }
 
     /// Camera model (rawpy's `model` string, e.g. "ILCE-7M4") -> rows sorted by ISO.
-    public let cameras: [String: [Entry]]
+    public let cameras: [String: [ISOSample]]
 
-    public init(cameras: [String: [Entry]]) {
+    public init(cameras: [String: [ISOSample]]) {
         self.cameras = cameras.mapValues(Self.sorted)
     }
 
@@ -62,7 +62,7 @@ public struct RawDenoiseNoiseTable: Sendable, Equatable {
     /// shape surface as `DecodingError`; content problems as `ParseError`.
     public init(jsonData: Data) throws {
         let root = try JSONDecoder().decode([String: [[Double]]].self, from: jsonData)
-        var cams: [String: [Entry]] = [:]
+        var cams: [String: [ISOSample]] = [:]
         for (model, rows) in root {
             if rows.isEmpty { throw ParseError.empty(model: model) }
             cams[model] = try rows.enumerated().map { i, v in
@@ -70,14 +70,14 @@ public struct RawDenoiseNoiseTable: Sendable, Equatable {
                 guard v.allSatisfy({ $0.isFinite && $0 > 0 }) else {
                     throw ParseError.nonPositive(model: model, index: i)
                 }
-                return Entry(iso: v[0], k: v[1], readVar: v[2])
+                return ISOSample(iso: v[0], k: v[1], readVar: v[2])
             }
         }
         self.init(cameras: cams)
     }
 
     /// Python sorts the raw rows (`sorted(v)`), i.e. lexicographically by (iso, K, r).
-    private static func sorted(_ rows: [Entry]) -> [Entry] {
+    private static func sorted(_ rows: [ISOSample]) -> [ISOSample] {
         rows.sorted { a, b in
             if a.iso != b.iso { return a.iso < b.iso }
             if a.k != b.k { return a.k < b.k }

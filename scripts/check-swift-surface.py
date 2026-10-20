@@ -209,7 +209,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
     # Core ML: the raw-denoise runner (`RawDenoiseCoreMLRunner`) and its tests.
     "CoreML", "MLModel", "MLModelConfiguration", "MLComputeUnits", "MLMultiArray",
-    "MLMultiArrayDataType", "MLFeatureValue", "MLDictionaryFeatureProvider",
+    "MLMultiArrayDataType", "MLFeatureValue", "MLDictionaryFeatureProvider", "MLModelMetadataKey",
     "CancellationError",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",

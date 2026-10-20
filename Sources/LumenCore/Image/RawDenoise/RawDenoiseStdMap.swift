@@ -12,6 +12,12 @@
 //    divided by 9, so the map dips at the image (and tile) edges. infer.py computes the
 //    map on each reflect-padded tile, and the model saw exactly that dip in training.
 //
+// Precision: this matches train.py's std_map in Float32, the precision the model was
+// trained with — NOT infer.py, which builds the map under `.half()`. At ISO <= 100 the
+// fp16 map lands in fp16 subnormals and reads ~5-8% low (ILCE-7M4 ISO 50, flat 0.001
+// tile: 3.45e-4 fp16 vs 3.66e-4 fp32). Lumen deliberately follows the training
+// precision, so do not "match infer.py" by rounding through Float16.
+//
 // Accumulates in Double and rounds once to Float; torch sums in float32, and the
 // difference is far inside the 1e-6 test tolerance.
 

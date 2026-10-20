@@ -177,7 +177,9 @@ public enum RawDenoiseTiler {
     /// channel count is inferred from its size. `body` receives the reflect-padded tile
     /// (same layout, `paddedHeight × paddedWidth`) and must return as many values; only
     /// the top-left un-padded region of its output is used. The std map is the body's
-    /// business because `infer.py` computes it on the PADDED tile.
+    /// business because `infer.py` computes it on the PADDED tile. Only WHERE it is
+    /// computed follows infer.py: its values must come from `RawDenoiseStdMap` in Float32
+    /// (train.py's precision), not infer.py's fp16 map, which reads ~5-8% low at ISO <= 100.
     ///
     /// Accumulation is Float32 in numpy's order (weight = wy·wx, then o·weight, then
     /// ÷ max(Σweight, 1e-6)), so a deterministic body reproduces the Python output to a
