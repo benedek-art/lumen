@@ -1,18 +1,20 @@
-# The control-sweep drift check (docs/20), moved out of ci.yml's push path.
+# The control-sweep drift check (docs/20) on Linux: all 144 registered controls at 21
+# settings, compared against the committed records.
+#
+# ci.yml's test-fast already sweeps all 144 controls in release on macOS, as part of the
+# complete suite, on every PR and main push. This workflow adds the same sweep under the
+# Linux toolchain and glibc arithmetic: on main pushes and PRs that touch the engine,
+# the proof harness or the build settings; nightly on main (GitHub fires schedules only
+# on the default branch); and on dispatch, in debug or as a re-record. ProofSmokeTests
+# inside engine-linux remains the fast Linux tripwire: eight sentinel controls.
 #
 # The former debug sweep took 66–80 minutes and was often cancelled by the next push.
-# Release optimization now exercises the shipping arithmetic without shrinking the
-# 144-control registry or its 21-setting sweeps. Debug remains a manual diagnostic option.
-# Now it runs where it can finish: on pushes that touch the engine or the proof harness
-# (its own file included), nightly on the default branch, and on demand. The per-push
-# tripwire that replaced it in the fast lanes is ProofSmokeTests inside engine-linux —
-# eight sentinel controls in about three and a half minutes.
-#
-# The nightly schedule only fires on the repository's default branch; while the work
-# lives on a feature branch, the paths trigger is the one doing the guarding.
+# Release optimization exercises the shipping arithmetic without shrinking the registry
+# or its 21-setting sweeps. Debug remains a manual diagnostic option.
 name: Proof sweep
 on:
   push:
+    branches: [main]
     paths:
       - "Sources/LumenCore/**"
       # THE TWO THAT WERE MISSING, and the gap they left. The sweep renders through
@@ -27,11 +29,24 @@ on:
       - "Sources/LumenPipeline/**"
       - "Sources/LumenApp/**"
       - "Tests/LumenCoreTests/Proof/**"
+      # Build settings, target excludes and resources in Package.swift change what the
+      # release sweep compiles and reads; CSQLite3 is LumenCore's Linux dependency.
+      - "Package.swift"
+      - "Sources/CSQLite3/**"
       - "scripts/install-linux-toolchain.sh"
       - ".github/workflows/proof.yml"
-  # GitHub only fires a schedule on the repository's DEFAULT branch, so this is inert
-  # while the work lives on `claude/photo-editor-design-plan-8ahzmm` — the paths trigger
-  # above is the one doing the guarding, which is why the two lines added to it matter.
+  # A PR run tests the merge with main. Same paths as push.
+  pull_request:
+    branches: [main]
+    paths:
+      - "Sources/LumenCore/**"
+      - "Sources/LumenPipeline/**"
+      - "Sources/LumenApp/**"
+      - "Tests/LumenCoreTests/Proof/**"
+      - "Package.swift"
+      - "Sources/CSQLite3/**"
+      - "scripts/install-linux-toolchain.sh"
+      - ".github/workflows/proof.yml"
   schedule:
     - cron: "30 2 * * *"
   workflow_dispatch:
@@ -73,15 +88,25 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      # Keyed on the install script's VERSION, as in ci.yml's engine-linux, so a bump
+      # misses the cache instead of restoring the old toolchain.
+      - name: Toolchain version from the install script
+        id: swift-version
+        run: |
+          v=$(sed -n 's/^VERSION="\${SWIFT_VERSION:-\([0-9.]*\)}".*/\1/p' scripts/install-linux-toolchain.sh)
+          [ -n "$v" ] || { echo "::error::no VERSION in scripts/install-linux-toolchain.sh"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Cache the Swift toolchain
         id: swift-cache
         uses: actions/cache@v4
         with:
           path: /opt/swift
-          key: swift-6.1.2-ubuntu24.04
+          key: swift-${{ steps.swift-version.outputs.version }}-ubuntu24.04
       - name: Install the Swift toolchain
         if: steps.swift-cache.outputs.cache-hit != 'true'
         run: sh scripts/install-linux-toolchain.sh
+      - name: The installed toolchain is the one the script names
+        run: /opt/swift/usr/bin/swift --version 2>&1 | grep -F "Swift version ${{ steps.swift-version.outputs.version }} "
       - name: Every registered control still measures what the record says
         shell: bash
         env:

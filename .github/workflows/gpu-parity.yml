@@ -8,21 +8,36 @@
 # run, so this one triggers itself on exactly the pushes that can break parity — and
 # its own file is in the paths so the push that lands a lane change also exercises it.
 #
-# LumenCore's own heavy tests (RobustnessTests, EngineIntegrationTests,
-# ScaleHonestyTests) are NOT here: engine-linux already runs the whole of
-# LumenCoreTests on every push, on a free runner. This lane is the macOS-only remainder.
+# ci.yml's test-fast already runs these tests on every PR, in release. This lane runs
+# them in DEBUG, where `assert`/`precondition` are live and floating point is not
+# reordered by the optimizer. That is what it adds.
 name: GPU parity
 on:
+  # Pushes to main and pull requests against it, as in ci.yml: a PR run tests the merge
+  # with main, and a branch push no longer starts a second macOS run for the same PR.
+  #
+  # Pipeline, engine and their tests only. Compile errors elsewhere in Sources (runs #13
+  # and #14 died on LumenApp errors) are build-macos's to report; `swift test` still
+  # builds the whole package here, so such an error also fails this lane when it runs.
   push:
-    # All of Sources, not just the pipeline and engine: `swift test` BUILDS the whole
-    # package before it filters, so a compile error anywhere in Sources fails this lane
-    # — runs #13 and #14 both died on LumenApp errors the old filter said couldn't
-    # matter, and the push that fixed them couldn't re-run the lane. A green build-only
-    # run on an app push costs ~2 macOS minutes; an invisible red costs a debugging
-    # session.
+    branches: [main]
     paths:
-      - "Sources/**"
+      - "Sources/LumenPipeline/**"
+      - "Sources/LumenCore/**"
       - "Tests/LumenPipelineTests/**"
+      - "Package.swift"
+      - ".github/expected-skips.txt"
+      - "scripts/check-xctest-skips.py"
+      - ".github/workflows/gpu-parity.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Sources/LumenPipeline/**"
+      - "Sources/LumenCore/**"
+      - "Tests/LumenPipelineTests/**"
+      - "Package.swift"
+      - ".github/expected-skips.txt"
+      - "scripts/check-xctest-skips.py"
       - ".github/workflows/gpu-parity.yml"
   workflow_dispatch:
 
@@ -36,25 +51,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Every --skip in test-fast still names a test that exists
-        shell: bash
-        # A skip outlives the test it skips silently: test-fast carried
-        # `--skip testExportTableErrorStaysUnderOnePercent` for days after 1bca87f
-        # renamed that test away. An orphaned skip is harmless right up until a test is
-        # RENAMED INTO the orphaned name's family and quietly stops running, so the
-        # roster is checked where the parity lane runs — the lane whose absence is how
-        # skips go stale.
-        run: |
-          fail=0
-          for name in $(grep -oE '\-\-skip [A-Za-z]+' .github/workflows/ci.yml \
-                          | awk '{print $2}' | sort -u); do
-            if [ "$name" = "ControlProofTests" ]; then
-              grep -rq "class $name" Tests/ || { echo "orphaned skip: $name"; fail=1; }
-            else
-              grep -rq "func $name" Tests/ || { echo "orphaned skip: $name"; fail=1; }
-            fi
-          done
-          exit $fail
+      # The check that every `--skip` in the workflows still names a test moved to
+      # ci.yml's fixtures-linux: it is a grep and needs no macOS runner.
       - name: Every pipeline golden, the whole-graph parity pair included
         shell: bash
         run: |
@@ -73,4 +71,7 @@ jobs:
           grep -E ": error: -\[" parity.log | sed 's#/Users/runner/work/lumen/lumen/##' \
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          # Nearly every golden here starts with an XCTSkipUnless on kernel availability,
+          # and a few turn a nil render into a skip. Any skip outside the allowlist fails.
+          python3 scripts/check-xctest-skips.py parity.log || status=1
           exit $status

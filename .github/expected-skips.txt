@@ -1,0 +1,40 @@
+# Tests a macOS CI run may skip, as Class.method. scripts/check-xctest-skips.py
+# fails test-fast and gpu-parity when any other test is skipped, or when the
+# XCTest summary counts more skips than this file lists.
+#
+# Every entry is gated on an environment variable that ordinary CI runs do not set.
+# A test that skips because a kernel did not compile, a render returned nil or a
+# scanned function was renamed is NOT environment-gated and does not belong here.
+
+# LUMEN_RAW_CORPUS: set only by raw-corpus.yml (RawCorpusTests.corpus()).
+RawCorpusTests.testEveryFileEitherDecodesCleanlyOrRefusesCleanly
+RawCorpusTests.testDeliveredDimensionsArePlausibleAgainstTheFilesOwnEXIF
+RawCorpusTests.testAPortraitFrameComesOutPortrait
+RawCorpusTests.testTheRenderAgreesWithTheCamerasOwnPreview
+RawCorpusTests.testTheRenderIsNeitherBlankNorPoisoned
+RawCorpusTests.testTheMostNeutralPatchInEachFrameIsNeutral
+RawCorpusTests.testAMonochromeSensorProducesNoColour
+RawCorpusTests.testMonochromeDecodeOptionSweep
+RawCorpusTests.testAnExportReopensWithTheDimensionsItClaims
+RawCorpusTests.testATruncatedFileIsRefusedRatherThanHalfDecoded
+RawCorpusTests.testTheMetadataReaderGetsRealFilesRight
+RawCorpusTests.testTheDecoderVersionPinIsPresentAndStable
+
+# LUMEN_AUDIT_RAW_DIR: set only by raw-corpus.yml (AuditRawAccuracyTests.fixtures()).
+AuditRawAccuracyTests.testUnpinnedSourceUsesTheDecoderAppleSelectedForTheFile
+AuditRawAccuracyTests.testNativeDimensionsDoNotDependOnDecoderScaleDraftOrCache
+AuditRawAccuracyTests.testExplicitRaw9PreviewAndCachePixelsAgreeWithIndependentDecode
+AuditRawAccuracyTests.testFirstNativeRaw9DecodeAndCacheHitHaveCorrectPixels
+AuditRawAccuracyTests.testExplicitPinsSurviveSwitchesAndUnsupportedPinUsesDefault
+
+# LUMEN_BENCH=1: opt-in benchmarks.
+SpeedBenchTests.testInteractiveCPUPath
+InteractiveCostBenchTests.testDecomposeOneSliderTick
+InteractiveCostBenchTests.testCatalogQueriesOnATwentyThousandPhotoRoll
+
+# LUMEN_APP_BENCH=1: opt-in benchmark.
+GeneratedWorkflowCostTests.testGeneratedLargeRollBookkeepingLatencyAndMemory
+
+# LUMEN_PROBE_DUMP_REGISTRY / LUMEN_PROBE_CONTROL: proof-numerics.yml's probes.
+ControlProbeHarness.testDumpTheRegistry
+ControlProbeHarness.testProbeOneControl

@@ -48,9 +48,16 @@ SLUG="$(echo "$UBUNTU" | tr -d '.')"
 URL="https://download.swift.org/swift-${VERSION}-release/${SLUG}/swift-${VERSION}-RELEASE/swift-${VERSION}-RELEASE-${UBUNTU}.tar.gz"
 
 if [ -x "$PREFIX/usr/bin/swift" ]; then
-    echo "Already installed:"
-    "$PREFIX/usr/bin/swift" --version
-    exit 0
+    if "$PREFIX/usr/bin/swift" --version 2>&1 | grep -qF "Swift version ${VERSION} "; then
+        echo "Already installed:"
+        "$PREFIX/usr/bin/swift" --version
+        exit 0
+    fi
+    # A different version (a restored cache, an older install): replace it rather
+    # than report it as the requested one.
+    echo "Replacing the toolchain at $PREFIX, which is not Swift $VERSION:"
+    "$PREFIX/usr/bin/swift" --version 2>&1 || :
+    rm -rf "$PREFIX/usr"
 fi
 
 echo "Fetching Swift $VERSION for $UBUNTU…"

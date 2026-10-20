@@ -12,6 +12,8 @@ def violations(workflow)
   errors << 'publisher must depend on every required check' unless Array(publisher['needs']).sort == required.sort
   errors << 'only successful main runs may publish' unless publisher['if'] == "success() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_validated_release == true"
   errors << 'release opt-in must default to false' unless workflow.dig(true, 'workflow_dispatch', 'inputs', 'publish_validated_release', 'default') == false
+  # Branch pushes test a branch head; only a pull_request run tests the merge with main.
+  errors << 'ci must test pull request merge results' unless workflow[true].is_a?(Hash) && workflow[true].key?('pull_request')
   errors << 'publisher cannot continue after failure' if publisher['continue-on-error']
   # A re-run of an old main run passes every gate with an old commit. The publisher
   # must ask where main is now, refuse unless it is this run's commit, and do so
@@ -90,6 +92,7 @@ mutations = [
   ->(w) { w[true]['workflow_dispatch']['inputs']['publish_validated_release']['default'] = true },
   ->(w) { w['jobs']['publish-release']['if'] = "success() && github.ref == 'refs/heads/main'" },
   ->(w) { w['permissions']['contents'] = 'write' },
+  ->(w) { w[true].delete('pull_request') },
   ->(w) { w['jobs']['publish-release'].delete('needs') },
   ->(w) { w['jobs']['publish-release']['if'] = 'always()' },
   ->(w) { w['jobs']['publish-release']['if'] = "success() && github.ref == 'refs/heads/claude/photo-editor-design-plan-8ahzmm'" },

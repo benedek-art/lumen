@@ -4,17 +4,37 @@ permissions:
   contents: read
 
 on:
+  # Pushes to main, and pull requests against it. A pull_request run checks out the
+  # MERGE of the branch with main, so two PRs that are each green on their own branch
+  # but break main together are caught before the second one lands. Feature-branch
+  # pushes no longer start a run of their own: with both triggers every PR branch ran
+  # the whole macOS fleet twice per push. The cost is that a branch with no open PR
+  # gets no CI until a PR is opened or the workflow is dispatched on it.
+  # merge_group is inert until a merge queue is turned on; it is here so turning one
+  # on needs no workflow change.
   push:
-    branches: ["**"]
+    branches: [main]
     # A push that touches only prose must not cancel the run that is compiling the
-    # code. The concurrency group below is per branch and cancels in progress, which
+    # code. The concurrency group below is per ref and cancels in progress, which
     # is right for a burst of code pushes and wrong for a status note pushed while a
     # kernel fix is halfway through test-fast — that note cancelled the fix's run and,
     # with it, the app-bundle that would have replaced a build drawing masks upside
-    # down. Docs-only pushes now start no run at all; the dev release is unchanged by
-    # them anyway.
-    paths-ignore:
-      - "docs/**"
+    # down. Docs-only pushes start no run; the dev release is unchanged by them anyway.
+    #
+    # Except docs/28-ui-refresh.md: WorkspaceTests.testTheWorkspaceTableInDocs28-
+    # StillDescribesThisModel reads its §5.1 table at test time, so an edit to that
+    # file alone can turn the suite red. The later positive pattern re-includes it.
+    paths:
+      - "**"
+      - "!docs/**"
+      - "docs/28-ui-refresh.md"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**"
+      - "!docs/**"
+      - "docs/28-ui-refresh.md"
+  merge_group:
   # Re-recording proof records moved to proof.yml's dispatch, with the control sweep
   # itself; the GPU goldens moved to gpu-parity.yml, which triggers itself on the
   # paths that can break parity instead of waiting for a human who never came.
@@ -26,8 +46,8 @@ on:
         required: false
         default: false
 
-# One run per branch. macOS runners are scarce and the suite takes ten minutes, so a
-# burst of pushes queues rounds whose answers nobody will read by the time they land —
+# One run per ref (a pull request's runs share refs/pull/N/merge). macOS runners are
+# scarce and the suite takes ten minutes, so a burst of pushes queues rounds whose answers nobody will read by the time they land —
 # and the newest push, the only one that matters, waits behind all of them.
 concurrency:
   # Qualification dispatches serialize separately: a new push must not cancel a
@@ -36,16 +56,12 @@ concurrency:
   cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish_validated_release) }}
 
 jobs:
-  # Compile every target on macOS. This is the ONLY compiler that ever sees
-  # LumenPipeline and LumenApp — they are `#if os(macOS)` and need Core Image, AppKit
-  # and SwiftUI — so it runs on every push and nothing replaces it.
-  #
-  # It used to also run the whole suite here, which cost six and a half minutes of macOS
-  # runner time per push to re-verify LumenCore, eighteen thousand lines that have no
-  # Apple framework in them and now run on Linux for free in `engine-linux` below. macOS
-  # minutes are the scarce resource on this project — a private repo ran out of them once
-  # and seventy commits went uncompiled behind the outage — so the split is: Linux proves
-  # the engine, macOS proves it compiles and that the GPU agrees with it.
+  # Compile every target on macOS. LumenPipeline and LumenApp are `#if os(macOS)` and
+  # need Core Image, AppKit and SwiftUI, so only macOS runners type-check them. This is
+  # the fast compile gate, reporting build errors and warnings on their own; test-fast
+  # below runs the complete optimized suite on macOS, and engine-linux runs LumenCore's
+  # tests on Linux. macOS minutes are the scarce resource on this project — a private
+  # repo ran out of them once and seventy commits went uncompiled behind the outage.
   build-macos:
     runs-on: macos-15
     timeout-minutes: 20
@@ -72,6 +88,11 @@ jobs:
   # and all pipeline tests without filters. Independent GPU and Linux debug lanes
   # remain complementary checks. Keep the existing 35-minute ceiling; hosted runs
   # determine whether the full suite completes within it.
+  #
+  # A skipped test reads as green, so the step also fails on any skip that
+  # .github/expected-skips.txt does not list (the environment-gated corpus, bench and
+  # probe tests), via scripts/check-xctest-skips.py. A kernel that fails to compile, a
+  # render that returns nil or a renamed function a scan looks for all surface as skips.
   test-fast:
     runs-on: macos-15
     timeout-minutes: 35
@@ -95,6 +116,7 @@ jobs:
           grep -E ": error: -\[" fast.log | sed 's#/Users/runner/work/lumen/lumen/##' \
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          python3 scripts/check-xctest-skips.py fast.log || status=1
           exit $status
 
   # The thing a photographer can actually open. Runs on every push regardless of the
@@ -120,16 +142,19 @@ jobs:
           path: Lumen.app.zip
           retention-days: 30
 
-  # An update is not a test artifact. The complete optimized suite gates the
-  # updater, including GPU tests omitted from the fast lane. Failed, skipped or
-  # cancelled prerequisites leave the existing release alone.
+  # An update is not a test artifact. This is a second run of the same unfiltered
+  # optimized suite as test-fast, on main only, kept as the separately named release
+  # gate that scripts/check-release-policy.rb requires of publish-release. test-fast
+  # has had no exclusions since 8ee85b8, so this adds no coverage and costs one more
+  # macOS runner per main push; dropping it means changing the release policy first.
+  # Failed, skipped or cancelled prerequisites leave the existing release alone.
   release-validation:
     if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Complete optimized suite, without the fast lane's exclusions
+      - name: Complete optimized suite (release gate)
         run: swift test -c release
 
   publish-release:
@@ -223,6 +248,34 @@ jobs:
       - name: Slider atlas generator — canonical verdict file wins
         run: python3 scripts/test-gen-slider-atlas.py
 
+      # The skip guard test-fast and gpu-parity run: both log formats, the exit status,
+      # and that every allowlisted name is still a test.
+      - name: XCTest skip guard and its allowlist
+        run: python3 scripts/test-check-xctest-skips.py
+
+      # A skip outlives the test it skips silently: test-fast carried
+      # `--skip testExportTableErrorStaysUnderOnePercent` for days after 1bca87f renamed
+      # that test away, and an orphaned skip quietly stops a test that is later renamed
+      # INTO its name. Today the only one is engine-linux's `--skip ControlProofTests`.
+      # Capitalised names must be a class, others a func.
+      - name: Every --skip in the workflows still names a test that exists
+        shell: bash
+        run: |
+          fail=0
+          # Comment and step-name lines mention --skip in prose; only commands count.
+          for name in $(grep -hvE '^[[:space:]]*(#|- name:)' .github/workflows/*.yml \
+                          | grep -oE -- '--skip[ =][A-Za-z][A-Za-z0-9_./]*' \
+                          | sed -E 's/^--skip[ =]//' | sort -u); do
+            last=${name##*[./]}
+            case "$last" in
+              [A-Z]*) pattern="class $last\b" ;;
+              *) pattern="func $last\(" ;;
+            esac
+            echo "--skip $name"
+            grep -rqE "$pattern" Tests/ || { echo "orphaned skip: $name"; fail=1; }
+          done
+          exit $fail
+
 
   # The engine suite, on the lane that costs nothing. LumenCore is pure Swift — colour
   # science, tone, grade, film, detail, denoise, mask algebra, catalog and XMP — with no
@@ -237,22 +290,32 @@ jobs:
   #
   # What this lane does NOT cover, stated so nobody reads it as more than it is:
   # LumenPipeline and LumenApp never compile here, and the macOS-side behaviour of
-  # LumenCore (the SDK's own SQLite3 module rather than the shim) is only re-checked in
-  # the `proof-macos` lane below.
+  # LumenCore (the SDK's own SQLite3 module rather than the shim) is covered by
+  # test-fast, which runs the complete suite on macos-15.
   engine-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # The cache key is the install script's VERSION, so bumping it misses the cache
+      # and installs the new toolchain instead of restoring the old one.
+      - name: Toolchain version from the install script
+        id: swift-version
+        run: |
+          v=$(sed -n 's/^VERSION="\${SWIFT_VERSION:-\([0-9.]*\)}".*/\1/p' scripts/install-linux-toolchain.sh)
+          [ -n "$v" ] || { echo "::error::no VERSION in scripts/install-linux-toolchain.sh"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Cache the Swift toolchain
         id: swift-cache
         uses: actions/cache@v4
         with:
           path: /opt/swift
-          key: swift-6.1.2-ubuntu24.04
+          key: swift-${{ steps.swift-version.outputs.version }}-ubuntu24.04
       - name: Install the Swift toolchain
         if: steps.swift-cache.outputs.cache-hit != 'true'
         run: sh scripts/install-linux-toolchain.sh
+      - name: The installed toolchain is the one the script names
+        run: /opt/swift/usr/bin/swift --version 2>&1 | grep -F "Swift version ${{ steps.swift-version.outputs.version }} "
       # Parse every source file, INCLUDING the macOS-only ones. Runs BEFORE the suite
       # so a syntax break fails in seconds rather than after six minutes of tests.
       #
@@ -280,13 +343,13 @@ jobs:
         run: |
           export PATH="/opt/swift/usr/bin:$PATH"
           set +e
-          # `ControlProofTests` is skipped here and runs beside this lane in
-          # `proof-linux`. It sweeps 46 controls at 21 settings each, every one baking a
-          # 65-cubed colour cube, and it pushed this job past its own 25-minute timeout —
-          # a lane that is cancelled tells you nothing at all, which is worse than a slow
-          # one. Splitting keeps "did I break something ordinary" at about eight minutes
-          # while the drift check still runs on every push, in parallel rather than in
-          # series behind it.
+          # `ControlProofTests` is skipped here. It sweeps every registered control at
+          # 21 settings, each baking a 65-cubed colour cube, and it pushed this job past
+          # its own 25-minute timeout — a lane that is cancelled tells you nothing at
+          # all, which is worse than a slow one. On Linux the full sweep runs in
+          # proof.yml's `proof-linux` on pushes and PRs that touch its paths, nightly on
+          # main and on dispatch; on macOS test-fast runs it with the rest of the suite.
+          # ProofSmokeTests (eight sentinel controls) still runs here.
           #
           # `--parallel` is NOT here for speed. Without it this lane dies before it runs
           # a single test:
@@ -306,19 +369,38 @@ jobs:
           # so the ceiling does not exist. That makes this the fix rather than a
           # workaround: the serial path fails as a function of how many tests we have,
           # which is a number that only goes up.
-          swift test --parallel --filter LumenCoreTests --skip ControlProofTests 2>&1 \
-            | tee engine.log
+          swift test --parallel --filter LumenCoreTests --skip ControlProofTests \
+            --xunit-output engine.xml 2>&1 | tee engine.log
           status=$?
+          # Formats, checked against Swift 6.1.2 on Linux: a compiler error carries a
+          # column (`File.swift:L:C: error:`); a swift-corelibs-xctest failure has none
+          # and no `-[Class test]` brackets (`File.swift:L: error: Suite.test : ...`).
+          # `--parallel` prints `[k/N] Testing Module.Suite/test` and replays only the
+          # failing tests' own output, so there is no whole-run `Executed N tests`
+          # line; the totals come from the xunit file.
           echo "=== compile errors ==="
-          grep -E "error:" engine.log | grep -v ": error: -\[" \
+          grep -E "\.swift:[0-9]+:[0-9]+: error:|^error:" engine.log \
             | sed "s#$PWD/##" | sort -u | head -40
           echo "=== summary ==="
-          grep -E "Executed [0-9]+ test" engine.log | tail -1
+          ran=$(grep -oE 'tests="[0-9]+"' engine.xml 2>/dev/null | head -1 | tr -dc 0-9)
+          failed=$(grep -oE 'failures="[0-9]+"' engine.xml 2>/dev/null | head -1 | tr -dc 0-9)
+          echo "ran ${ran:-0} tests, ${failed:-unknown} failed (engine.xml)"
           echo "=== failing tests ==="
-          grep -E ": error: -\[" engine.log \
-            | sed -E 's/^.*error: -\[([^]]*)\].*/\1/' | sort | uniq -c | sort -rn | head -20
+          grep -E "\.swift:[0-9]+: error: " engine.log \
+            | sed -E 's/^.*: error: ([^ ]+) : .*/\1/' | sort | uniq -c | sort -rn | head -20
           echo "=== first failures per test ==="
-          grep -E ": error: -\[" engine.log | sed "s#$PWD/##" \
-            | sed 's/^.*error: //' \
-            | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          grep -E "\.swift:[0-9]+: error: " engine.log | sed "s#$PWD/##" \
+            | sed 's/^.*: error: //' \
+            | awk '{ if (seen[$1]++ < 2) print }' | head -40
+          # A target that compiles out (the CSQLite3 case above) is green with fewer
+          # tests. The floor is the source's own `func test` count outside
+          # ControlProofTests, less 2% for helpers and platform-gated tests.
+          declared=$(grep -rhoE "func test[A-Za-z0-9_]*\(" Tests/LumenCoreTests \
+            --include='*.swift' --exclude=ControlProofTests.swift | wc -l)
+          floor=$((declared * 98 / 100))
+          echo "=== test count: ${ran:-0} ran, ${declared} declared, floor ${floor} ==="
+          if [ "$status" -eq 0 ] && [ "${ran:-0}" -lt "$floor" ]; then
+            echo "::error::only ${ran:-0} engine tests ran; the source declares ${declared} (floor ${floor})"
+            status=1
+          fi
           exit $status

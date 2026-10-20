@@ -48,11 +48,22 @@ jobs:
         run: |
           export LUMEN_PROBE_NUMERICS_DIR="$RUNNER_TEMP/proof-numerics"
           export LUMEN_PROBE_EVIDENCE_DIR="$RUNNER_TEMP/proof-numerics-evidence"
+          # Measure all three even when one fails, and put a failure's reason in the
+          # job log rather than only in the artifact.
+          set +e
+          fail=0
           for control in color.protectSkin mixer.red.hue bw.red; do
             export LUMEN_PROBE_CONTROL="$control"
-            swift test -c release --filter ControlProbeHarness/testProbeOneControl \
-              > "$RUNNER_TEMP/proof-numerics/$control.log" 2>&1
+            log="$RUNNER_TEMP/proof-numerics/$control.log"
+            swift test -c release --filter ControlProbeHarness/testProbeOneControl > "$log" 2>&1
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::$control failed (exit $rc)"
+              tail -60 "$log"
+              fail=1
+            fi
           done
+          exit $fail
       - name: Capture the complete registry without writing fixtures
         if: inputs.full_registry
         shell: bash
@@ -62,7 +73,8 @@ jobs:
           export LUMEN_PROBE_RECORDS_DIR="$RUNNER_TEMP/proof-numerics/records"
           export LUMEN_PROBE_EVIDENCE_DIR="$RUNNER_TEMP/proof-numerics-evidence"
           swift test -c release --filter ControlProbeHarness/testDumpTheRegistry \
-            > "$RUNNER_TEMP/proof-numerics/registry.log" 2>&1
+            > "$RUNNER_TEMP/proof-numerics/registry.log" 2>&1 \
+            || { echo "::error::registry dump failed"; tail -60 "$RUNNER_TEMP/proof-numerics/registry.log"; exit 1; }
           python3 - <<'PY'
           import json, os, pathlib
           directory = pathlib.Path(os.environ['LUMEN_PROBE_RECORDS_DIR'])
@@ -80,14 +92,18 @@ jobs:
         if: always()
         run: git diff --exit-code -- Tests/LumenCoreTests/Proof/records
       - name: Validate machine-readable stage fingerprints
+        # always(): after a failed probe this still says which fingerprints exist.
+        if: always()
         shell: bash
         run: |
           python3 - <<'PY'
           import json, os, pathlib
           directory = pathlib.Path(os.environ['RUNNER_TEMP']) / 'proof-numerics'
           controls = ['color.protectSkin', 'mixer.red.hue', 'bw.red']
-          if sorted(path.stem for path in directory.glob('*.json')) != sorted(controls):
-              raise RuntimeError('Expected exactly three control fingerprints')
+          found = {path.stem for path in directory.glob('*.json')}
+          missing, extra = sorted(set(controls) - found), sorted(found - set(controls))
+          if missing or extra:
+              raise RuntimeError(f'Expected exactly three control fingerprints: missing={missing} extra={extra}')
           def invalid_constant(value):
               raise ValueError(f'Nonfinite JSON constant: {value}')
           for control in controls:

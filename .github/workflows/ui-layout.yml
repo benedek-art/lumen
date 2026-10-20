@@ -22,18 +22,33 @@ name: UI layout
 # fitting", which is a question a designer and a reviewer read differently from a
 # regression and which is worth being able to see red or green on its own line.
 #
-# It runs on every push for the reason the suite exists: the geometry it measures is a
-# chain of literals spread across six files, and every one of the defects it found got in
-# because somebody changed one of them for a good local reason — the readout became a pill
-# and took eight points off every track in the app — with nothing anywhere able to notice.
+# It runs on every change to the app or the engine for the reason the suite exists: the
+# geometry it measures is a chain of literals spread across six files, and every one of
+# the defects it found got in because somebody changed one of them for a good local
+# reason — the readout became a pill and took eight points off every track in the app —
+# with nothing anywhere able to notice. test-fast also runs LayoutMetricTests, inside
+# the complete suite; this lane is the separately named verdict and its readable report.
 
 on:
+  # Pushes to main and pull requests against it, as in ci.yml, so a PR does not start
+  # this macOS run twice. Only the targets LayoutMetricTests builds on: a docs-only or
+  # pipeline-only change has never moved a panel inset.
   push:
-    branches: ["**"]
-    # Same rule as `ci.yml`: a docs-only push must not start a macOS run. Runner minutes
-    # are the scarce resource here, and a status note has never moved a panel inset.
-    paths-ignore:
-      - "docs/**"
+    branches: [main]
+    paths:
+      - "Sources/LumenApp/**"
+      - "Sources/LumenCore/**"
+      - "Tests/LumenAppTests/**"
+      - "Package.swift"
+      - ".github/workflows/ui-layout.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Sources/LumenApp/**"
+      - "Sources/LumenCore/**"
+      - "Tests/LumenAppTests/**"
+      - "Package.swift"
+      - ".github/workflows/ui-layout.yml"
   workflow_dispatch:
 
 # One run per branch, newest wins — the same shape `ci.yml` uses and for the same reason:
