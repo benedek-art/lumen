@@ -142,6 +142,66 @@ public struct PhotoMetadata: Equatable, Sendable {
         return value
     }
 
+    /// The ISO a frame was shot at, from the EXIF sensitivity tags.
+    ///
+    /// PhotographicSensitivity (0x8827, the old ISOSpeedRatings) is a SHORT, and CIPA
+    /// DC-008-2016 §4.6.5 says "when the value is 65535 or more, 65535 shall be
+    /// recorded". The real value then lives in the LONG tag SensitivityType (0x8830)
+    /// names: 1 SOS; 2 REI; 3 ISOSpeed; 4 SOS+REI; 5 SOS+ISOSpeed; 6 REI+ISOSpeed;
+    /// 7 all three. Reading 0x8827 alone stored 65535 for the A7 IV's extended ISO
+    /// 102400/204800, and `NoiseProfile.forISO(65535)` sits ~36% (shot) and ~50% (read)
+    /// under the 102400 anchor — the noisiest frames got the weakest denoise. Measured
+    /// on the sample A7 IV ARWs (DSC06673/06674/06679, TIFF walk): every one writes
+    /// SensitivityType=2 with a LONG RecommendedExposureIndex equal to 0x8827 (250/250,
+    /// 640/640), so REI is where Sony puts the number.
+    ///
+    /// A positive 0x8827 below 65535 wins outright, so nothing at or below ISO 65534
+    /// changes. Only a saturated, missing or non-positive value consults the other
+    /// tags — the named ones first, then whichever of REI, ISOSpeed, SOS is positive —
+    /// and with none of them the old answer (`speedRatings`, as written) stands.
+    public static func resolveISO(speedRatings: Int?,
+                                  sensitivityType: Int? = nil,
+                                  standardOutputSensitivity: Int? = nil,
+                                  recommendedExposureIndex: Int? = nil,
+                                  isoSpeed: Int? = nil) -> Int? {
+        if let ratings = speedRatings, ratings > 0, ratings < 65535 { return ratings }
+        func positive(_ value: Int?) -> Int? {
+            guard let value, value > 0 else { return nil }
+            return value
+        }
+        let sos = positive(standardOutputSensitivity)
+        let rei = positive(recommendedExposureIndex)
+        let speed = positive(isoSpeed)
+        let named: Int?
+        switch sensitivityType {
+        case 1: named = sos
+        case 2: named = rei
+        case 3: named = speed
+        case 4: named = sos ?? rei
+        case 5: named = sos ?? speed
+        case 6: named = rei ?? speed
+        case 7: named = sos ?? rei ?? speed
+        default: named = nil
+        }
+        return named ?? rei ?? speed ?? sos ?? speedRatings
+    }
+
+    /// An EXIF integer as ImageIO hands it over: an `NSNumber` (integer- or
+    /// float-backed), a Swift `Int`/`Double`, or a one-element array of either — the
+    /// standard makes 0x8827 an array and plenty of files write it as a scalar. Takes
+    /// the first element; anything non-finite or out of `Int` range is nil.
+    public static func exifInteger(_ value: Any?) -> Int? {
+        guard let value else { return nil }
+        if let array = value as? [Any] { return exifInteger(array.first) }
+        if let int = value as? Int { return int }
+        let double: Double
+        if let number = value as? NSNumber { double = number.doubleValue }
+        else if let raw = value as? Double { double = raw }
+        else { return nil }
+        guard double.isFinite, abs(double) < 9.0e15 else { return nil }
+        return Int(double.rounded())
+    }
+
     /// EXIF OffsetTimeOriginal: `+02:00`, `-05:00`, or `Z`.
     public static func parseEXIFOffset(_ text: String) -> Int? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
