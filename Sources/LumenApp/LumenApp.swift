@@ -507,6 +507,20 @@ private struct LumenCommands: Commands {
                     .keyboardShortcut("k", modifiers: [.command, .shift])
                     .disabled(!commands.hasCatalog)
                 }
+                // THE REJECT SWEEP. ⌘⌫ is Lightroom's Delete Rejected Photos; here it
+                // moves (to `_Rejected` or the Trash) after a count, and never deletes.
+                // Inside a text field the chord stays "delete to line start".
+                Group {
+                    Divider()
+                    Button("Move Rejected Photos…") {
+                        if RejectSweepGate.giveChordToTextField() { return }
+                        state.sweepRejectedPhotos()
+                    }
+                    .keyboardShortcut(.delete, modifiers: [.command])
+                    .disabled(!commands.hasCatalog)
+                    Button("Remove Rejected from Catalog…") { state.removeRejectedFromCatalog() }
+                        .disabled(!commands.hasCatalog)
+                }
             }
 
             CommandMenu("Export") {

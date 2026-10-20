@@ -33,7 +33,8 @@ public struct OperationFileRecord: Codable, Equatable, Sendable, Identifiable {
 }
 
 public struct OperationReport: Codable, Equatable, Sendable, Identifiable {
-    public enum Kind: String, Codable, Sendable { case ingest, export }
+    /// `rejects` is the reject sweep (`RejectSweep`): its delivered files were moved.
+    public enum Kind: String, Codable, Sendable { case ingest, export, rejects }
     public enum State: String, Codable, Sendable { case running, completed, cancelled, refused, interrupted }
     public var schemaVersion = 1
     public var id: UUID
@@ -82,7 +83,8 @@ public struct OperationReport: Codable, Equatable, Sendable, Identifiable {
     public var summary: String {
         let counts = Dictionary(grouping: records, by: \.outcome).mapValues(\.count)
         var parts: [String] = []
-        for (outcome, label) in [(OperationFileRecord.Outcome.delivered, "delivered"),
+        for (outcome, label) in [(OperationFileRecord.Outcome.delivered,
+                                  kind == .rejects ? "moved" : "delivered"),
                                 (.verified, "verified"), (.copied, "copied without verification"),
                                 (.alreadyPresent, "already present"), (.skipped, "skipped"),
                                 (.failed, "failed"), (.notAttempted, "not attempted"),

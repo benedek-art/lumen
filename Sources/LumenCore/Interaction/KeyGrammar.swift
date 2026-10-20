@@ -19,7 +19,8 @@
 //   1. every `.keyboardShortcut("k", modifiers: […])` in Sources/LumenApp is declared
 //      here, with the same key and the same modifiers, and every binding declared here
 //      is attached somewhere in Sources/LumenApp. Both directions: a shortcut with no
-//      entry fails, and an entry promising a shortcut nobody attaches fails too;
+//      entry fails, and an entry promising a shortcut nobody attaches fails too. The
+//      one named key the scan reads, `.delete`, is declared as "⌫";
 //   2. every bare character `KeyDispatcher`'s switch claims is in `dispatchedKeys`, and
 //      every character in `dispatchedKeys` is claimed by that switch. Set equality, so
 //      a key added without a reference entry fails;
@@ -125,6 +126,10 @@ public enum KeyGrammar {
             KeyRow(keys: "U", action: "Unflag"),
             KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask; "
                   + "while healing, delete the selected spot or stroke"),
+            // Lightroom's Delete Rejected Photos chord. A menu item, so ⌘ reaches it past
+            // the dispatcher; it asks first and never deletes (`RejectSweep`).
+            KeyRow(KeyBinding("⌫", command: true),
+                   "Move the rejected photos to a _Rejected folder or the Trash, after asking"),
             KeyRow(keys: "1–5", action: "Rating"),
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
@@ -221,8 +226,9 @@ public enum KeyGrammar {
             // nowhere at all and a keyword field could not cut a word. It is declared
             // here because it IS attached and the grammar has to account for every
             // attached chord; it carries no photograph meaning because Lumen has none
-            // to give it — the folder is the library, files are never moved, and taking
-            // a frame out of an album is a verb on the row.
+            // to give it — the folder is the library, files move only through the
+            // reject sweep (⌘⌫, which asks first), and taking a frame out of an album
+            // is a verb on the row.
             KeyRow(KeyBinding("x", command: true),
                    "Cut — text fields only; Lumen has no cut for photographs"),
             KeyRow(KeyBinding("v", command: true, shift: true),

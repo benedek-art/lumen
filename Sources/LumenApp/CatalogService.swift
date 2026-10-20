@@ -1998,6 +1998,43 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    // MARK: - Removing photographs (the reject sweep)
+
+    /// Removes each photo's rows through `CatalogStore.deletePhoto` and unlinks the
+    /// cached preview payloads it hands back. Returns the ids actually removed; one
+    /// that fails stays catalogued and is logged, and the others still go.
+    func removePhotos(ids: [Int64]) async -> [Int64] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[Int64], Never>) in
+            queue.async { [weak self, store] in
+                var removed: [Int64] = []
+                var payloads: [PreviewRow] = []
+                for id in ids {
+                    do {
+                        payloads.append(contentsOf: try store.deletePhoto(id: id))
+                        removed.append(id)
+                    } catch {
+                        NSLog("Lumen catalog: removing photo %lld failed — %@",
+                              id, String(describing: error))
+                    }
+                }
+                self?.onInvalidatedPreviews?(payloads)
+                continuation.resume(returning: removed)
+            }
+        }
+    }
+
+    /// Every pending sidecar written now, behind whatever the catalog lane already
+    /// holds. Called before files are moved, so each sidecar carries its latest flag
+    /// and recipe and no later flush recreates one at the old path.
+    func flushSidecarsNow() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [weak self] in
+                self?.flushSidecars()
+                continuation.resume()
+            }
+        }
+    }
+
     /// LRU stamp on every serve. Silent on failure by design — a lost stamp costs
     /// eviction accuracy and nothing else.
     func touchPreview(photoID: Int64, level: PreviewLevel, recipeFP: String) {

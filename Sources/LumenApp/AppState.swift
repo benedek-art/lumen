@@ -3223,6 +3223,12 @@ final class AppState: ObservableObject {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var found: [URL] = []
         for case let file as URL in enumerator {
+            // Where the reject sweep puts frames (⌘⌫). Descending would register them
+            // again on the next open and undo the sweep.
+            if RejectSweep.isSweepFolderName(file.lastPathComponent), isDirectory(file) {
+                enumerator.skipDescendants()
+                continue
+            }
             if extensions.contains(file.pathExtension.lowercased()),
                (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
                 found.append(file)
@@ -3270,6 +3276,32 @@ final class AppState: ObservableObject {
         Task {
             await renderCoordinator.invalidate(url: old)
             await renderCoordinator.invalidate(url: new)
+        }
+    }
+
+    /// Takes photographs the reject sweep moved away or removed from the catalog out of
+    /// the roll, without a rescan. The undo stack goes with them: its steps name files
+    /// that are no longer here, and undoing one would write a sidecar where none belongs.
+    func dropSweptPhotos(_ urls: Set<URL>) {
+        guard !urls.isEmpty else { return }
+        sliderGesture(active: false)
+        history.clear()
+        let leavingPrimary = primarySelection.map { urls.contains($0.id) } ?? false
+        let cursor = primarySelection.flatMap { rollIndex(of: $0) }
+        allPhotos = allPhotos.filter { !urls.contains($0.id) }
+        var kept = recipes
+        for url in urls { kept.removeValue(forKey: url) }
+        recipes = kept
+        selection = selection.subtracting(urls)
+        if let order = libraryOrder { libraryOrder = order.filter { !urls.contains($0) } }
+        if leavingPrimary { primarySelection = nil }
+        sourceRevision &+= 1
+        refreshLibraryQuery()
+        refreshLibrarySections()
+        // Land where the cursor was, as a reject under a filter does.
+        let list = photos
+        if primarySelection == nil, !list.isEmpty {
+            select(list[Swift.min(cursor ?? 0, list.count - 1)])
         }
     }
 
