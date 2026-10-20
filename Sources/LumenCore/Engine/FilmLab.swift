@@ -21,7 +21,10 @@
 // OCCUPIES the single S14 display-transform slot in place of the AgX-class sigmoid —
 // one transform stage, parameterized, never two tone mappers in series. `FilmChain`
 // therefore honours the same contract as `DisplayTransform.apply`: scene-linear in,
-// display-linear out, with 1.0 = SDR white scaled by `displayWhite`.
+// display-linear out, with 1.0 = SDR white and mid-grey on 0.18 ABSOLUTE at every
+// display peak (D8). The film picture itself tops out at print paper white, which is
+// SDR white (`FilmChain.paperWhite`), and is never scaled by `displayWhite`: any HDR
+// headroom comes from the base rendering only.
 //
 // What is NOT here, by design: anything spatial. Halation is an S13 pre-curve blur and
 // grain is a density-domain plate; both have global/neighbourhood support, so this file
