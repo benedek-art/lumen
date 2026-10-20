@@ -2154,8 +2154,10 @@ struct MaskPanel: View {
                                } })
             if lightExpanded {
                 VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                    adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05,
-                                 decimals: 2,
+                    // The global Exposure row's range, typing limit and step, since
+                    // the help promises the same unit.
+                    adjustSlider(mask.id, "Exposure", \.exposure, -5...5,
+                                 hardRange: -10...10, step: 0.01, decimals: 2,
                                  help: "Brightness of the selected area, in stops. +1 "
                                      + "is twice the light, the same unit as the "
                                      + "photograph's own Exposure.")
@@ -3005,14 +3007,17 @@ struct MaskPanel: View {
     /// panels — which build `LumenSlider` directly — run at 60 of 71.
     private func adjustSlider(_ id: String, _ t: String,
                               _ p: WritableKeyPath<LocalAdjust, Double>,
-                              _ r: ClosedRange<Double>, step: Double = 1,
+                              _ r: ClosedRange<Double>,
+                              hardRange: ClosedRange<Double>? = nil, step: Double = 1,
                               decimals: Int = 0, bipolar: Bool = true,
                               help: String? = nil) -> some View {
-        LumenSlider(title: t,
+        let limit = hardRange ?? r
+        return LumenSlider(title: t,
                     value: maskValue(id, t, get: { $0.adjust[keyPath: p] },
                                      set: { $0.adjust[keyPath: p] =
-                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: 0, step: step, decimals: decimals,
+                                         Num.clamp($1, limit.lowerBound, limit.upperBound) }),
+                    range: r, hardRange: hardRange, defaultValue: 0,
+                    step: step, decimals: decimals,
                     bipolar: bipolar, help: help)
     }
 

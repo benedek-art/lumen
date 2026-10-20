@@ -47,5 +47,29 @@ final class MaskZonesControlContractTests: XCTestCase {
         XCTAssertFalse(helper.contains("Num.clamp($1, r.lowerBound, r.upperBound)"))
         XCTAssertTrue(helper.contains("hardRange: hardRange"))
     }
+
+    // MARK: - Finding 13: mask Exposure is the global Exposure's row
+
+    func testMaskExposureMatchesTheGlobalExposureRow() throws {
+        let basic = try source("BasicPanel.swift")
+        let global = try slice(basic, from: "LumenSlider(title: \"Exposure\"", to: "help:")
+        for part in ["range: -5...5", "hardRange: -10...10", "step: 0.01"] {
+            XCTAssertTrue(global.contains(part), "global Exposure lost `\(part)`")
+        }
+
+        let panel = try source("MaskPanel.swift")
+        let row = try slice(panel, from: "adjustSlider(mask.id, \"Exposure\"", to: "help:")
+        for part in ["-5...5", "hardRange: -10...10", "step: 0.01"] {
+            XCTAssertTrue(row.contains(part),
+                          "mask Exposure is not the global row's `\(part)`; its help "
+                          + "promises the same unit")
+        }
+
+        let helper = try slice(panel, from: "private func adjustSlider(",
+                               to: "private func wheel(")
+        XCTAssertTrue(helper.contains("let limit = hardRange ?? r"))
+        XCTAssertTrue(helper.contains("Num.clamp($1, limit.lowerBound, limit.upperBound)"))
+        XCTAssertTrue(helper.contains("hardRange: hardRange"))
+    }
 }
 #endif

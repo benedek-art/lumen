@@ -578,8 +578,8 @@ enum SliderInventory {
 
         // Masks — the develop column half: what the mask DOES.
         SliderSpec("Strength", "MaskPanel.swift:342", .developTop, 0...200, step: 1),
-        SliderSpec("Exposure", "MaskPanel.swift:2151", .developTop, -4...4,
-                   step: 0.05, decimals: 2),
+        SliderSpec("Exposure", "MaskPanel.swift:2153", .developTop, -5...5,
+                   hard: -10...10, step: 0.01, decimals: 2),
         SliderSpec("Contrast", "MaskPanel.swift:2156", .developTop, -100...100, step: 1),
         SliderSpec("Highlights", "MaskPanel.swift:2160", .developTop, -100...100, step: 1),
         SliderSpec("Shadows", "MaskPanel.swift:2164", .developTop, -100...100, step: 1),
