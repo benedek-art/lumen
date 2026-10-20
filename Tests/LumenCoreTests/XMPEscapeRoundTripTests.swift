@@ -18,6 +18,8 @@ final class XMPEscapeRoundTripTests: XCTestCase {
             switch scalar.value {
             case 0x09, 0x0A, 0x0D: out.append(scalar)
             case 0xFFFE, 0xFFFF: continue
+            // Dropped by the writer: Apple's XMLParser eats it after an entity.
+            case 0xFEFF: continue
             case let v where v >= 0x20: out.append(scalar)
             default: continue
             }
@@ -46,7 +48,7 @@ final class XMPEscapeRoundTripTests: XCTestCase {
     }
 
     func testEachAwkwardCharacterRoundTrips() {
-        for s in ["a\rb", "a\r\nb", "x\u{FFFE}y", "x\u{FFFF}y", "&\u{0301}", "]]>",
+        for s in ["a\rb", "a\r\nb", "<\u{FEFF}>", "x\u{FFFE}y", "x\u{FFFF}y", "&\u{0301}", "]]>",
                   "<\"&>", "\u{0085}\u{2028}", "\u{1F600}\t\n", "a\u{01}b\u{1F}c"] {
             assertRoundTrips(s)
         }
@@ -57,7 +59,7 @@ final class XMPEscapeRoundTripTests: XCTestCase {
     func testANonCharacterInAMaskNameDoesNotCostTheRecipe() throws {
         var recipe = Recipe()
         recipe.develop.tone.exposure = 0.5
-        recipe.masks = [Mask(id: "m1", name: "m\u{FFFE}")]
+        recipe.masks = [Mask(id: "m1", name: "m\u{FFFE}<\u{FEFF}")]
         let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
         let read = try XCTUnwrap(XMPSidecar.parse(XMPSidecar.serialize(
             SidecarContent(recipeJSON: json, strokesPayload: "QUJD"))))
@@ -65,7 +67,7 @@ final class XMPEscapeRoundTripTests: XCTestCase {
         XCTAssertEqual(read.strokesPayload, "QUJD", "the elements after the recipe were lost")
         let decoded = try CanonicalJSON.decodeRecipe(
             from: Data(try XCTUnwrap(read.recipeJSON).utf8))
-        XCTAssertEqual(decoded.masks.first?.name, "m\u{FFFE}",
+        XCTAssertEqual(decoded.masks.first?.name, "m\u{FFFE}<\u{FEFF}",
                        "the recipe JSON carries the scalar as a \\uFFFE escape")
         XCTAssertEqual(decoded.develop.tone.exposure, 0.5)
         XCTAssertEqual(try RecipeFingerprint.fingerprint(decoded),

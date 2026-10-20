@@ -1129,12 +1129,20 @@ def gen_maskalgebra_fixture():
 def xmp_escape(s):
     # Characters below 0x20 other than tab/LF/CR are illegal in XML 1.0 even as
     # numeric references, so they are dropped rather than escaped — matching the Swift.
-    # U+FFFE and U+FFFF are not XML Chars either (XML 1.0 §2.2) and are dropped too.
+    # U+FFFE and U+FFFF are not XML Chars either (XML 1.0 §2.2) and are dropped too,
+    # and so is U+FEFF, which Apple's XMLParser eats after an entity.
     s = "".join(ch for ch in s
-                if (ord(ch) >= 0x20 or ch in "\t\n\r") and ch not in "\ufffe\uffff")
+                if (ord(ch) >= 0x20 or ch in "\t\n\r") and ch not in "\ufffe\uffff\ufeff")
     # A raw CR reads back as LF (XML 1.0 §2.11); the reference does not.
     return (s.replace("&", "&amp;").replace("<", "&lt;")
              .replace(">", "&gt;").replace('"', "&quot;").replace("\r", "&#13;"))
+
+
+def xmp_json_escape_noncharacters(js):
+    # Inside the recipe JSON those three can only sit in a string, where a \\u escape
+    # keeps them: the recipe survives the sidecar exactly.
+    return (js.replace("\ufffe", "\\uFFFE").replace("\uffff", "\\uFFFF")
+              .replace("\ufeff", "\\uFEFF"))
 
 
 def xmp_serialize(content):
@@ -1164,7 +1172,7 @@ def xmp_serialize(content):
         fields += (f"   <lumen:sourceExtension>{xmp_escape(content['sourceExtension'])}"
                    "</lumen:sourceExtension>\n")
     if content.get("recipeJSON") is not None:
-        fields += f"   <lumen:recipe>{xmp_escape(content['recipeJSON'])}</lumen:recipe>\n"
+        fields += f"   <lumen:recipe>{xmp_escape(xmp_json_escape_noncharacters(content['recipeJSON']))}</lumen:recipe>\n"
     # Last, after the recipe: a reader that stops partway reaches the smaller fields first.
     if content.get("strokesPayload") is not None:
         fields += (f"   <lumen:strokes>{xmp_escape(content['strokesPayload'])}"

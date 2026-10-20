@@ -662,18 +662,21 @@ public enum XMPSidecar {
         return fields
     }
 
-    /// U+FFFE and U+FFFF have no XML form, so `escapeXML` drops them. Inside the recipe
+    /// U+FFFE and U+FFFF have no XML form, and U+FEFF does not survive Apple's parser,
+    /// so `escapeXML` drops all three. Inside the recipe
     /// JSON they can only sit in a string literal, where `\uFFFE` is a legal escape that
     /// decodes to the same scalar: written that way the recipe survives the sidecar
     /// exactly, and its fingerprint still matches the catalog's on the next merge.
     static func jsonEscapingNonCharacters(_ json: String) -> String {
-        guard json.unicodeScalars.contains(where: { $0 == "\u{FFFE}" || $0 == "\u{FFFF}" })
-        else { return json }
+        guard json.unicodeScalars.contains(where: {
+            $0 == "\u{FFFE}" || $0 == "\u{FFFF}" || $0 == "\u{FEFF}"
+        }) else { return json }
         var out = ""
         for scalar in json.unicodeScalars {
             switch scalar {
             case "\u{FFFE}": out += "\\uFFFE"
             case "\u{FFFF}": out += "\\uFFFF"
+            case "\u{FEFF}": out += "\\uFEFF"
             default: out.unicodeScalars.append(scalar)
             }
         }
@@ -704,6 +707,11 @@ public enum XMPSidecar {
             // U+FFFE and U+FFFF are not XML Chars either (§2.2): the parse stops at
             // the element, and a recipe after it is lost. Dropped, like the controls.
             case "\u{FFFE}", "\u{FFFF}": break
+            // Legal, but Apple's XMLParser hands text over in chunks split at entities
+            // and decodes each chunk as if it began a file, so a U+FEFF that follows
+            // `&lt;` is eaten as a byte-order mark: macOS and Linux would read the same
+            // sidecar differently. A zero-width no-break space is not worth that.
+            case "\u{FEFF}": break
             default:
                 if scalar.value >= 0x20 { out.unicodeScalars.append(scalar) }
             }
