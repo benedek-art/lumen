@@ -1914,20 +1914,20 @@ public struct RenderGraph {
             // BAND-LIMITED to the resolution this plate is about to be sampled at, and
             // through the SAME `plateScale` call `ReferenceRenderer` makes, because the
             // two plates have to be identical bytes or gpu-parity fails (C2-01b).
-            let values = grain.plate(
-                channel: channel,
-                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
-                                                      channel: channel))
-            var pixels = [Float](repeating: 0, count: size * size * 4)
-            for i in 0..<(size * size) {
-                pixels[i * 4 + channel] =
-                    Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
-                pixels[i * 4 + 3] = channel == 0 ? 1 : 0
+            let pixelsPerCell = grain.plateScale(longEdgePixels: longEdge, channel: channel)
+            let image = GrainPlateCache.plate(profile: grain.profile, channel: channel,
+                                              pixelsPerCell: pixelsPerCell,
+                                              monochrome: false) {
+                let values = grain.plate(channel: channel,
+                                         renderPixelsPerCell: pixelsPerCell)
+                var pixels = [Float](repeating: 0, count: size * size * 4)
+                for i in 0..<(size * size) {
+                    pixels[i * 4 + channel] =
+                        Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
+                    pixels[i * 4 + 3] = channel == 0 ? 1 : 0
+                }
+                return pixels
             }
-            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
-                                size: CGSize(width: size, height: size),
-                                format: .RGBAf, colorSpace: nil)
             return tiled(image,
                          scale: grain.plateScale(longEdgePixels: longEdge,
                                                  channel: channel))
@@ -1937,21 +1937,20 @@ public struct RenderGraph {
             // One field written to all three channels. A black-and-white photograph has
             // no dye layers to grain independently, and three decorrelated fields on one
             // would be coloured speckle on a picture with no colour in it.
-            let values = grain.plate(
-                channel: 0,
-                renderPixelsPerCell: grain.plateScale(longEdgePixels: longEdge,
-                                                      channel: 0))
-            var pixels = [Float](repeating: 1, count: size * size * 4)
-            for i in 0..<(size * size) {
-                let v = Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
-                pixels[i * 4] = v
-                pixels[i * 4 + 1] = v
-                pixels[i * 4 + 2] = v
+            let pixelsPerCell = grain.plateScale(longEdgePixels: longEdge, channel: 0)
+            let image = GrainPlateCache.plate(profile: grain.profile, channel: 0,
+                                              pixelsPerCell: pixelsPerCell,
+                                              monochrome: true) {
+                let values = grain.plate(channel: 0, renderPixelsPerCell: pixelsPerCell)
+                var pixels = [Float](repeating: 1, count: size * size * 4)
+                for i in 0..<(size * size) {
+                    let v = Float(Double(values[i]) / FilmGrainProfile.plateEncodeScale + 0.5)
+                    pixels[i * 4] = v
+                    pixels[i * 4 + 1] = v
+                    pixels[i * 4 + 2] = v
+                }
+                return pixels
             }
-            let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-            let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
-                                size: CGSize(width: size, height: size),
-                                format: .RGBAf, colorSpace: nil)
             return tiled(image,
                          scale: grain.plateScale(longEdgePixels: longEdge, channel: 0))
                 .cropped(to: extent)
@@ -2387,6 +2386,48 @@ struct LocalPlan {
             if let localGrade { c = localGrade.apply(c) }
             return LumenLog.encode(c)
         }
+    }
+}
+
+/// The untiled 128² grain fields, per (profile, channel, cell scale). A field is a pure
+/// function of exactly those — `GrainPlan.plate` reads the profile's seed and
+/// persistence and nothing else of the plan — so a drag reuses the field and the
+/// bitmap Core Image already uploaded instead of re-running four octaves of noise and
+/// a 256 KB copy per channel per frame. Tiling, offset and crop stay per call, since
+/// they follow the extent.
+enum GrainPlateCache {
+    private struct Key: Equatable {
+        let profile: FilmGrainProfile
+        let channel: Int
+        let pixelsPerCell: Double
+        let monochrome: Bool
+    }
+    private static let lock = NSLock()
+    private static var entries: [(key: Key, image: CIImage)] = []
+    private static let limit = 12
+
+    static func plate(profile: FilmGrainProfile, channel: Int, pixelsPerCell: Double,
+                      monochrome: Bool, pixels make: () -> [Float]) -> CIImage {
+        let key = Key(profile: profile, channel: channel, pixelsPerCell: pixelsPerCell,
+                      monochrome: monochrome)
+        lock.lock()
+        if let hit = entries.first(where: { $0.key == key }) {
+            lock.unlock()
+            return hit.image
+        }
+        lock.unlock()
+        let size = GrainPlan.plateSize
+        let pixels = make()
+        let data = pixels.withUnsafeBufferPointer { Data(buffer: $0) }
+        let image = CIImage(bitmapData: data, bytesPerRow: size * 16,
+                            size: CGSize(width: size, height: size),
+                            format: .RGBAf, colorSpace: nil)
+        lock.lock()
+        defer { lock.unlock() }
+        entries.removeAll { $0.key == key }
+        entries.insert((key, image), at: 0)
+        if entries.count > limit { entries.removeLast(entries.count - limit) }
+        return image
     }
 }
 
