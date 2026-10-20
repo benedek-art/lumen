@@ -164,7 +164,14 @@ public struct WhiteBalanceEngine: Sendable {
                                     space: RGBColorSpace = .rec2020) -> (kelvin: Double, tint: Double) {
         // The same neutral `init` adapts from, so a file with none cannot seed the
         // search (or the fallback answer) with NaN.
-        let shot = Neutral.sanitizedAsShot(kelvin: asShotKelvin, tint: asShotTint)
+        // Clamped exactly as `init` clamps it, so the search minimizes the model the
+        // render runs: unclamped, a file reporting 1800 K searched against an 1800 K
+        // neutral the render never adapts from, and a click on a grey card left it
+        // blue-magenta.
+        let sanitized = Neutral.sanitizedAsShot(kelvin: asShotKelvin, tint: asShotTint)
+        let shot = Neutral(kelvin: Num.clamp(sanitized.kelvin, ColorTemperature.minKelvin,
+                                             ColorTemperature.maxKelvin),
+                           tint: Num.clamp(sanitized.tint, -300, 300))
         // Undo the current WB so we search against the decoded value.
         let decoded = current.matrix.inverse.apply(sample)
         guard decoded.isFinite, decoded.maxComponent > 1e-9 else {

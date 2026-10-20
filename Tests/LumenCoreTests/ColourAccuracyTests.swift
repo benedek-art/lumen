@@ -73,4 +73,24 @@ final class ColourAccuracyTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - White balance eyedropper
+
+    /// Clicking a grey that already renders neutral must keep it neutral, on a file
+    /// whose as-shot neutral sits outside the slider range. Before the fix the search
+    /// used the unclamped 1800 K while the render adapts from 2000 K, and the answer
+    /// rendered the grey as RGB(0.1804, 0.1780, 0.1985).
+    func testEyedropperOnAGreyKeepsItNeutralWhenAsShotIsBelowTheSliderRange() {
+        let grey = RGB(0.18, 0.18, 0.18)
+        let current = WhiteBalanceEngine(asShotKelvin: 1800, asShotTint: 0,
+                                         targetKelvin: nil, targetTint: nil)
+        let picked = WhiteBalanceEngine.neutralizing(sample: grey, asShotKelvin: 1800,
+                                                     asShotTint: 0, current: current)
+        let rendered = WhiteBalanceEngine(asShotKelvin: 1800, asShotTint: 0,
+                                          targetKelvin: picked.kelvin,
+                                          targetTint: picked.tint).apply(grey)
+        XCTAssertEqual(rendered.r, 0.18, accuracy: 1e-4)
+        XCTAssertEqual(rendered.g, 0.18, accuracy: 1e-4)
+        XCTAssertEqual(rendered.b, 0.18, accuracy: 1e-4)
+    }
 }
