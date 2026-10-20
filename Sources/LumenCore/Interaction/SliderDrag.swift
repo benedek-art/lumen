@@ -260,10 +260,25 @@ public struct SliderTrack: Sendable, Equatable {
     ///
     /// A pure function of the CURRENT pointer position. No accumulator, no dependence
     /// on how many samples came before — which is the property the whole file is about.
+    ///
+    /// A start already past the soft limit — typed there, which the hard range allows —
+    /// gets `nudged`'s one-sided window, for the same reason. Clamping the start first
+    /// meant a press on the thumb of a −8 EV Exposure, with no motion at all, committed
+    /// −5: the press is a zero-travel sample and the release another. So the window
+    /// widens just far enough to include the start: the drag moves relative to where the
+    /// value IS, may bring it back inside, and cannot push it further out.
     public func value(from start: Double, travelled: Double) -> Double {
         guard isUsable, travelled.isFinite else { return resolve(start) }
-        let startAxis = clampedAxis(scale.axis(clamped(start)))
-        return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        let startAxis = scale.axis(start)
+        guard start.isFinite, start < lowerBound || start > upperBound,
+              startAxis.isFinite else {
+            let startAxis = clampedAxis(scale.axis(clamped(start)))
+            return resolve(scale.value(atAxis: clampedAxis(startAxis + (travelled / width) * axisSpan)))
+        }
+        let low = Swift.min(lowerBound, start), high = Swift.max(upperBound, start)
+        let lowAxis = Swift.min(axisLower, startAxis), highAxis = Swift.max(axisUpper, startAxis)
+        let a = Swift.min(Swift.max(startAxis + (travelled / width) * axisSpan, lowAxis), highAxis)
+        return snapped(Swift.min(Swift.max(scale.value(atAxis: a), low), high))
     }
 
     /// How far the pointer has to travel to move a control from `from` to `to`. The
