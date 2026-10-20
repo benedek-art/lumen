@@ -43,8 +43,20 @@ public struct DisplayTransformParams: Equatable, Sendable {
 
     /// Primaries inset: purity reduction before the curve (0…0.99 per channel).
     public var attenuation: RGB = RGB(0.14, 0.18, 0.12)
-    /// Primaries rotation before the curve, radians (±0.4).
-    public var rotation: RGB = RGB(0.02, -0.03, 0.06)
+    /// Primaries rotation before the curve, radians (±0.4). Positive turns a primary
+    /// counter-clockwise about white in xy (`insetSpace`).
+    ///
+    /// Blue is NEGATIVE, and the sign is the point. Rec.2020 blue sits at about 238°
+    /// around D65, so a positive rotation turns the inset blue toward the purple line
+    /// — the way the per-channel curve already skews a bright blue — and purity
+    /// restore undoes only part of the inset, so most of the rotation survives to the
+    /// output even at Hue preservation 100. Blue shipped as +0.06, which DOUBLED the
+    /// blue-to-magenta skew the inset exists to kill (LED blue +41° by +2 EV against
+    /// +22° unrotated, a sky blue +6° at every exposure, in OKLCh). −0.04 is the
+    /// measured minimax: ≤ 5° on LED, sky and jersey blues from −3 to +2 EV, with
+    /// skin, orange and purple inside 6°. DisplayTransformBlueRotationTests pins the
+    /// sign and the bounds on every curved preset.
+    public var rotation: RGB = RGB(0.02, -0.03, -0.04)
     /// Post-curve purity recovery, 0…1.
     public var purityRestore: Double = 0.4
 
@@ -87,7 +99,9 @@ public struct DisplayTransformParams: Equatable, Sendable {
         p.skew = 0.4
         p.huePreservation = 70
         p.attenuation = RGB(0.22, 0.24, 0.20)
-        p.rotation = RGB(0.04, -0.05, 0.09)
+        // Blue measured on this preset's own inset (huePreservation 70, purity restore
+        // 0.25): −0.04 is its minimax too; the old +0.09 drove LED blue +48° purple.
+        p.rotation = RGB(0.04, -0.05, -0.04)
         p.purityRestore = 0.25
         return p
     }

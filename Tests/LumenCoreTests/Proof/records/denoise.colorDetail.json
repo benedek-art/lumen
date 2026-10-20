@@ -1,18 +1,18 @@
 {
-  "authority" : 11.784315925895186,
+  "authority" : 11.794275270221917,
   "deadSteps" : 0,
   "frame" : "noisyChromaEdge",
-  "frontLoading" : 0.5561013952313193,
+  "frontLoading" : 0.556288425602246,
   "givenBack" : 0,
-  "hueRotation" : 5.062779351988755,
+  "hueRotation" : 4.674299372432841,
   "id" : "denoise.colorDetail",
   "isMonotone" : true,
-  "meanSeparation" : 0.1846338881225259,
+  "meanSeparation" : 0.18044159217702083,
   "overshoot" : 0,
   "overshootAbove" : 0,
   "overshootBelow" : 0,
   "panel" : "Detail",
-  "smallestLiveStep" : 0.6275219078304275,
+  "smallestLiveStep" : 0.6254962054349846,
   "travelHigh" : 100,
   "travelLow" : 0
 }
