@@ -1644,9 +1644,17 @@ public final class PipelineRenderer {
             // through `localStageInput` so it is the same image the CPU reference hands
             // its rasterizer — a luma band is denominated in EV of the corrected scene,
             // not of the raw decode, or the handles move when Exposure does.
-            let source = maskSource(decoded: decoded, plan: plan,
-                                    width: width, height: height, extent: extent,
-                                    strokeSets: strokeSets)
+            //
+            // BUILT HERE, RENDERED ON FIRST READ. The graph is assembled now; the
+            // readback — a GPU pass and an 11 MB RGBAf copy at the proxy — waits for a
+            // `bake` below to ask for it. An exact raster hit never does, and a stale
+            // serve asks from `bakeQueue` only if its request is not superseded first,
+            // so a drag that kept every key paid for a picture on every event and used
+            // none of them (twice per event with the EDR preview's second graph). One
+            // box per graph: every mask in the stack shares one readback, as before.
+            let source = maskStage(decoded: decoded, plan: plan,
+                                   width: width, height: height, extent: extent,
+                                   strokeSets: strokeSets)
 
             // Everything the raster reads goes into the key, or the cache lies —
             // PlanTableCache's rule, applied to planes. The source image is keyed by
@@ -1717,7 +1725,7 @@ public final class PipelineRenderer {
             let pictureKey: String?
             if source != nil {
                 // `sourceURL` is threaded in from the caller — the local `source` is
-                // the staged ImageBuffer, which has no url (the first draft of this
+                // the staged image's buffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
                 pictureKey = Self.maskSourceFingerprint(recipe: plan.recipe)
                     .map { photograph + "|source-generation:\(maskSourceGeneration)|" + $0 }
@@ -1752,7 +1760,8 @@ public final class PipelineRenderer {
                 let bake = { [brushPlanes] in
                     // The brush half is accumulated rather than replayed. Built inside
                     // `bake` and not before it, so a frame served a stale raster does
-                    // not pay for painting it will not use.
+                    // not pay for painting it will not use. The picture likewise.
+                    let picture = source?.value
                     var painted: [String: Plane] = [:]
                     // Painted at the size the fold actually runs at: a mask with a
                     // stroke thinner than `MaskRaster.brushFineRadiusPx` folds on a
@@ -1777,11 +1786,11 @@ public final class PipelineRenderer {
                             set: set,
                             size: foldSize,
                             sourceKey: automasked ? (sourceKey ?? "-") : "-",
-                            source: automasked ? source : nil)
+                            source: automasked ? picture : nil)
                     }
                     return MaskRaster.combine(mask: mask,
                                               size: (width: width, height: height),
-                                              source: source,
+                                              source: picture,
                                               strokeSets: strokeSets,
                                               aiMattes: aiMattes,
                                               brushPlanes: painted,
@@ -1921,6 +1930,22 @@ public final class PipelineRenderer {
                             width: Int, height: Int, extent: CGRect,
                             strokeSets: [String: BrushStrokeSet],
                             masks: [Mask]? = nil) -> ImageBuffer? {
+        maskStage(decoded: decoded, plan: plan, width: width, height: height,
+                  extent: extent, strokeSets: strokeSets, masks: masks)?.value
+    }
+
+    /// `maskSource` with the readback left for the first reader.
+    ///
+    /// The `staged` graph is built HERE, eagerly, so it reads the plan, the heal
+    /// strokes and the decode at the moment it always did; only the GPU render and the
+    /// RGBAf copy wait. Nil exactly when `maskSource` would have been nil —
+    /// `buffer(from:)`'s extent guard is asked now rather than at render time — so
+    /// `makeGraph` can keep using "is there a source" as a key term without paying
+    /// for one.
+    private func maskStage(decoded: CIImage, plan: RenderPlan,
+                           width: Int, height: Int, extent: CGRect,
+                           strokeSets: [String: BrushStrokeSet],
+                           masks: [Mask]? = nil) -> LazyStageBuffer? {
         // Rendering starts at enabled masks; an overlay starts at the requested row,
         // even when it is disabled. Both need the complete reference closure, not just
         // the root's own kinds: a disabled luma donor still lends its selection.
@@ -1945,7 +1970,10 @@ public final class PipelineRenderer {
                 small, plan: plan,
                 options: RenderGraph.Options(longEdge: Swift.max(width, height),
                                              maskSource: true))
-        return Self.buffer(from: staged, context: context)
+        let bounds = staged.extent.integral
+        guard bounds.width >= 1, bounds.height >= 1,
+              bounds.width.isFinite, bounds.height.isFinite else { return nil }
+        return LazyStageBuffer(image: staged, context: context)
     }
 
     /// Whether rasterizing THIS mask reads the picture — `maskSource`'s `needsPicture`,
@@ -2956,6 +2984,56 @@ enum DitherStepCube {
                 Dither.codeStep(value.g, transfer: transfer, levels: levels),
                 Dither.codeStep(value.b, transfer: transfer, levels: levels))
         }
+    }
+}
+
+/// The mask stage input, rendered on first read and never again.
+///
+/// `makeGraph` used to read the picture back eagerly, before any raster lookup, and an
+/// exact hit or a superseded stale serve threw it away. Now a `bake` that runs asks
+/// for it, and a frame whose rasters are all held does not. The image is fixed when
+/// the box is made, so a late render (on `bakeQueue`, say) is the same render the eager
+/// one was: same graph, same context, same RGBAf readback.
+///
+/// Locked across the render, not just the memo: a frame can bake one mask on the
+/// render thread while another's deferred bake drains on `bakeQueue`, and both must
+/// get the ONE buffer, not one each. Nothing under the lock calls back into this box
+/// or into `MaskRasterCache`'s lock, so the wait is never a deadlock. The image is
+/// dropped once the buffer exists, so a pending closure holding the box does not also
+/// hold the graph, and the decode behind it, alive.
+final class LazyStageBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var image: CIImage?
+    private let context: CIContext
+    private var buffer: ImageBuffer?
+
+    init(image: CIImage, context: CIContext) {
+        self.image = image
+        self.context = context
+    }
+
+    var value: ImageBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let image {
+            buffer = PipelineRenderer.buffer(from: image, context: context)
+            self.image = nil
+            Self.statsLock.lock()
+            Self.renders += 1
+            Self.statsLock.unlock()
+        }
+        return buffer
+    }
+
+    // Static on purpose, as `MaskRasterCache.Stats` is: the tests ask "did that frame
+    // read the picture back", and one number answers it.
+    private static let statsLock = NSLock()
+    private static var renders = 0
+
+    static var renderCount: Int {
+        statsLock.lock()
+        defer { statsLock.unlock() }
+        return renders
     }
 }
 

@@ -299,6 +299,42 @@ final class MaskReferencePipelineTests: XCTestCase {
                        "adjusting a mask does not change its selection")
     }
 
+    /// The picture a luma band samples is read back only by a raster that bakes. A hit
+    /// reads nothing; a tone edit, which moves the band's input, bakes and reads the
+    /// NEW picture — the same pixels a renderer with no history produces.
+    func testAPictureMaskReadsThePictureBackOnlyWhenItsRasterBakes() throws {
+        let source = MaskReferenceFixtureSource(longEdge: 128)
+        var r = Recipe()
+        r.develop.denoise.mode = .off
+        var banded = Mask(id: "banded", components: [band()])
+        banded.adjust.exposure = 1
+        r.masks = [banded]
+        let held = PipelineRenderer()
+        let before = try pixels(held, source, r)
+        let bakes = MaskRasterCache.currentStats.bakes
+        let reads = LazyStageBuffer.renderCount
+
+        let repeated = try pixels(held, source, r)
+        XCTAssertEqual(worst(before, repeated), 0)
+        r.masks[0].adjust.exposure = 2
+        let adjusted = try pixels(held, source, r)
+        XCTAssertGreaterThan(worst(before, adjusted), 0.01)
+        XCTAssertEqual(MaskRasterCache.currentStats.bakes, bakes,
+                       "adjusting a mask does not change its selection")
+        XCTAssertEqual(LazyStageBuffer.renderCount, reads,
+                       "a frame whose raster is held must not read the picture back")
+
+        r.develop.tone.exposure = 1.5
+        let toned = try pixels(held, source, r)
+        XCTAssertGreaterThan(MaskRasterCache.currentStats.bakes, bakes,
+                             "a tone edit moves the band's input, so its raster bakes")
+        XCTAssertGreaterThan(LazyStageBuffer.renderCount, reads,
+                             "and that bake reads the picture")
+        let fresh = try pixels(PipelineRenderer(), source, r)
+        XCTAssertLessThan(worst(toned, fresh), 1e-6,
+                          "the deferred readback is the same picture an eager one was")
+    }
+
     func testForgettingAnotherSourceKeepsGeometryBrushPlanes() throws {
         // Browsing to a neighbour, or prefetching one, used to run forgetMattes for
         // THAT file, and forgetMattes cleared every photo's brush planes. A brush
