@@ -103,9 +103,14 @@ public enum ExportNaming {
         // The two filesystem-hostile characters the export side has always mapped —
         // and only those, so a template that rendered a name before renders the same
         // name now. (`RenameTemplate.sanitize` also collapses runs of spaces; doing that
-        // here would rename existing deliveries.)
-        let rendered = out.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
+        // here would rename existing deliveries.) By unicode scalar, as `sanitize` does:
+        // a string search compares graphemes, so "/" followed by a combining mark (one
+        // from EXIF's LensModel, say) went through as a real path separator.
+        var cleaned = String.UnicodeScalarView()
+        for scalar in out.unicodeScalars {
+            cleaned.append(scalar == "/" || scalar == ":" ? "-" : scalar)
+        }
+        let rendered = String(cleaned)
         return RenameTemplate.usableBasename(rendered)
             ?? RenameTemplate.usableBasename(name)
             ?? "Untitled"

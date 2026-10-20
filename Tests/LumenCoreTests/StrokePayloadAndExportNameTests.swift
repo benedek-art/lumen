@@ -85,4 +85,29 @@ final class StrokePayloadAndExportNameTests: XCTestCase {
         r.masks = [Mask(id: "m", name: "unpainted", components: [empty])]
         XCTAssertEqual(BrushStrokeSidecar.decision(for: r, blob: { _ in nil }), .none)
     }
+
+    // MARK: - Export names and combining marks
+
+    func testACombiningMarkCannotSmuggleASeparatorIntoAnExportName() {
+        let ctx = ExportNamingContext(source: URL(fileURLWithPath: "/card/DSC_0001.NEF"),
+                                      recipeName: "a/\u{0301}b", camera: "c:\u{0301}d",
+                                      lens: "../\u{0301}x")
+        let folder = URL(fileURLWithPath: "/Users/x/Deliveries", isDirectory: true)
+        for template in ["{lens}", "{recipe}", "{camera}"] {
+            let out = ExportNaming.render(template: template, context: ctx)
+            XCTAssertFalse(out.unicodeScalars.contains("/"), "\(template) -> \(out.debugDescription)")
+            XCTAssertFalse(out.unicodeScalars.contains(":"), "\(template) -> \(out.debugDescription)")
+            XCTAssertEqual(folder.appendingPathComponent(out).deletingLastPathComponent()
+                               .standardizedFileURL.path, folder.path)
+        }
+        // Only the separator scalar is mapped; the mark that followed it stays.
+        XCTAssertEqual(ExportNaming.render(template: "{recipe}", context: ctx), "a-\u{0301}b")
+    }
+
+    func testUsableBasenameRejectsASeparatorScalarInsideAGrapheme() {
+        XCTAssertNil(RenameTemplate.usableBasename("a/\u{0301}b"))
+        XCTAssertNil(RenameTemplate.usableBasename("../\u{0301}x"))
+        XCTAssertNil(RenameTemplate.usableBasename("a\\\u{0301}b"))
+        XCTAssertEqual(RenameTemplate.usableBasename("cafe\u{0301}"), "cafe\u{0301}")
+    }
 }
