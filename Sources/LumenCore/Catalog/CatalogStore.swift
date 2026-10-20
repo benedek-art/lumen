@@ -4724,9 +4724,14 @@ public final class CatalogStore {
 
         if let text = query.text, !text.trimmingCharacters(in: .whitespaces).isEmpty {
             if ftsEnabled, let match = CatalogStore.ftsMatchExpression(text) {
-                criteria.append("photo.id IN (SELECT rowid FROM cache.photo_fts "
-                                + "WHERE photo_fts MATCH ?)")
+                // unicode61 keeps letters and digits in one token, so "DSC0003.ARW"
+                // indexes as `dsc0003` and a prefix term "0003"* cannot reach it. The
+                // frame number is the most common filename search there is, and the
+                // LIKE fallback finds it; the filename substring keeps the two agreeing.
+                criteria.append("(photo.id IN (SELECT rowid FROM cache.photo_fts "
+                                + "WHERE photo_fts MATCH ?) OR photo.filename LIKE ?)")
                 parameters.append(.text(match))
+                parameters.append(.text("%" + text.trimmingCharacters(in: .whitespaces) + "%"))
             } else {
                 // Fallback when FTS5 is not compiled in. Still fully parameterized:
                 // any % or _ the user typed simply widens their own match.
