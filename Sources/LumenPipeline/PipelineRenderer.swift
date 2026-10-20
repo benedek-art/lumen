@@ -2135,11 +2135,7 @@ public final class PipelineRenderer {
     /// channel. A non-finite plane value survived the old `Num.saturate` too — Swift's
     /// `min`/`max` propagate NaN — so nothing that used to be clamped stops being.
     static func image(from plane: Plane, targetExtent: CGRect) -> CIImage? {
-        let data = plane.values.withUnsafeBufferPointer { Data(buffer: $0) }
-        let image = CIImage(bitmapData: data,
-                            bytesPerRow: plane.width * MemoryLayout<Float>.size,
-                            size: CGSize(width: plane.width, height: plane.height),
-                            format: .Rf, colorSpace: nil)
+        let image = MaskPlaneImages.image(for: plane)
         guard plane.width > 0, plane.height > 0,
               targetExtent.width > 0, targetExtent.height > 0 else { return image }
         let sx = targetExtent.width / CGFloat(plane.width)
@@ -2147,6 +2143,47 @@ public final class PipelineRenderer {
         return image.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
             .transformed(by: CGAffineTransform(translationX: targetExtent.origin.x,
                                                y: targetExtent.origin.y))
+    }
+
+    /// The unscaled single-channel image of a mask raster, reused while the raster is.
+    ///
+    /// `MaskRasterCache` hands every frame of a drag the same `Plane`, and this used to
+    /// copy it into a fresh `Data` (2.8 MB per mask at the 1024 proxy, far more at a
+    /// settle) and so give Core Image a new bitmap to upload, per mask per frame. Keyed
+    /// by CONTENT — `Array ==` is O(1) when both share the cache's buffer, a full
+    /// compare otherwise — so a changed raster is always a miss and the same bytes are
+    /// uploaded either way. Bounded by bytes.
+    enum MaskPlaneImages {
+        private static let lock = NSLock()
+        private static var entries: [(plane: Plane, image: CIImage)] = []
+        private static let byteBudget = 64 * 1024 * 1024
+
+        static func image(for plane: Plane) -> CIImage {
+            lock.lock()
+            defer { lock.unlock() }
+            if let index = entries.firstIndex(where: {
+                $0.plane.width == plane.width && $0.plane.height == plane.height
+                    && $0.plane.values == plane.values
+            }) {
+                let hit = entries.remove(at: index)
+                entries.insert(hit, at: 0)
+                return hit.image
+            }
+            let data = plane.values.withUnsafeBufferPointer { Data(buffer: $0) }
+            let image = CIImage(bitmapData: data,
+                                bytesPerRow: plane.width * MemoryLayout<Float>.size,
+                                size: CGSize(width: plane.width, height: plane.height),
+                                format: .Rf, colorSpace: nil)
+            entries.insert((plane, image), at: 0)
+            // Each entry holds the plane and its copy: two of `values.count` floats.
+            var bytes = 0
+            entries = Array(entries.prefix { entry in
+                bytes += entry.plane.values.count * MemoryLayout<Float>.size * 2
+                return bytes <= byteBudget
+            })
+            if entries.isEmpty { entries = [(plane, image)] }
+            return image
+        }
     }
 
     // MARK: - Geometry (S16)
