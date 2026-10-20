@@ -2622,9 +2622,12 @@ struct LoupeView: View {
                 }
                 if panStart == nil { panStart = viewport.pan }
                 let base: CGSize = panStart ?? .zero
-                let moved = CGSize(width: base.width + value.translation.width,
-                                   height: base.height + value.translation.height)
-                viewport.pan = LoupeGeometry.clampPan(moved, container: container, drawn: drawn)
+                // Through `panTo`, like the wheel and the arrows: pressed against the
+                // bound, a direct write re-published the same pan on every event, and
+                // the HUD never saw drag pans as input.
+                viewport.panTo(x: base.width + value.translation.width,
+                               y: base.height + value.translation.height,
+                               container: container, drawn: drawn)
             }
             .onEnded { _ in
                 panStart = nil
