@@ -210,3 +210,12 @@ def test_mixed_batch_models_and_lambdas():
     n = add_noise_ext(clean, K, r, torch.tensor([3200.0, 1600.0]), [SONY, GX], NoiseOpts.parse("all"), P,
                       torch.Generator().manual_seed(0))
     assert n.shape == clean.shape and torch.isfinite(n).all()
+
+
+def test_measured_zero_hot_rate_stays_zero():
+    """Regression: calibrate_rows always measures hot_rate, so 0 means 'none seen', not 'unknown'."""
+    from lumen_denoise.noise_ext import ExtParams
+    P = ExtParams({"ILCE-7M4": {"iso": [800, 3200, 12800], "hot_rate": [0.0, 0.0, 0.0]}})
+    assert P.get("ILCE-7M4", "hot_rate", 1600) == 0.0
+    P = ExtParams({"ILCE-7M4": {"iso": [800, 3200, 12800], "hot_rate": [0.0, 0.0, 4e-5]}})
+    assert P.get("ILCE-7M4", "hot_rate", 1600) < 1e-10 and abs(P.get("ILCE-7M4", "hot_rate", 12800) / 4e-5 - 1) < 1e-6

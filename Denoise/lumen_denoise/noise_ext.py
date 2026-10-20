@@ -122,6 +122,10 @@ class ExtParams:
             for key in _CURVES:  # calibrate_rows writes 0.0 = "below detection / no frames", not "none":
                 cv = d.get(key)    # drop those points (log-log would collapse the whole interval to 0)
                 if isinstance(cv, (list, tuple)):
+                    if key == "hot_rate":  # 0 here is a real measurement (no hot px seen), not "undetectable"
+                        if not any(v and v > 0 for v in cv):
+                            d[key] = 0.0; continue
+                        cv = [max(v or 0.0, 1e-12) for v in cv]  # log-log needs > 0; 1e-12 ~ none
                     keep = [(i, v) for i, v in zip(d["iso"], cv) if v and v > 0]
                     if keep:
                         d[key + "_iso"], d[key] = [i for i, _ in keep], [v for _, v in keep]

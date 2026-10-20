@@ -4,14 +4,14 @@ python -m lumen_denoise.prepare_real <list.txt> <outdir> [--crops 4 --ps 512 --w
 
 Unlike prepare.py there is NO downsampling: the noise itself is the training signal and must stay
 exactly as the sensor made it. Each crop: float16 .npy (4, ps, ps) RGGB normalized black=0 white=1,
-named <stem>_c<k>.npy; meta JSON (default <outdir>/real_meta.json): {crop_stem: {model, iso, frame}}.
+named <stem>_<crc32(path)>_c<k>.npy (+ <..>.done.json written last, so an interrupted frame is redone); meta JSON (default <outdir>/real_meta.json): {crop_stem: {model, iso, frame}}.
 Disk: 4*ps*ps*2 B per crop = 2 MiB at ps 512 -> 8 MiB/frame with 4 crops -> ~40 GiB for 5,000
 frames (--crops 2: 20 GiB; --ps 384: 4.5 MiB/frame, 22 GiB). Re-runs skip finished frames.
 Crops that are mostly clipped or black are rejected (no usable noise statistics: clipped noise is
 not zero-mean; pure black teaches only the read floor), except a keep_dark share so night scenes
 still contribute.
 """
-import argparse, json, random, zlib
+import argparse, json, os, random, zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import numpy as np
@@ -52,12 +52,25 @@ def pick_crops(p, n, ps, rng, tries=40, keep_dark=0.15, **kw):
     return out
 
 
+def frame_key(src):
+    """Unique per source file: same basename on two cards must not collide (crc32 of the full path)."""
+    return f"{Path(src).stem}_{zlib.crc32(str(Path(src).resolve()).encode()):08x}"
+
+
+def _save_atomic(f, arr=None, obj=None):
+    tmp = f.with_name(f.name + ".tmp")
+    with open(tmp, "wb") as fh:
+        np.save(fh, arr) if arr is not None else fh.write(json.dumps(obj).encode())
+    os.replace(tmp, f)
+
+
 def one(args):
     src, outdir, n, ps = args
-    stem = Path(src).stem
-    done = sorted(Path(outdir).glob(f"{stem}_c*.npy"))
-    if done:
-        return stem, None, [f.stem for f in done], 0
+    stem = frame_key(src)
+    done = Path(outdir) / f"{stem}.done.json"  # written last: its presence = every crop is complete
+    if done.exists():
+        d = json.load(open(done))
+        return stem, d["meta"], d["names"], 0
     r = raw.load(src)
     p = to_rggb(raw.pack(r.cfa), r.pattern)
     rng = random.Random(zlib.crc32(stem.encode()))  # deterministic per frame
@@ -65,8 +78,10 @@ def one(args):
     for k, (y0, x0) in enumerate(pick_crops(p, n, ps, rng)):
         c = p[:, y0:y0 + ps, x0:x0 + ps].astype(np.float16)
         f = Path(outdir) / f"{stem}_c{k}.npy"
-        np.save(f, c); names.append(f.stem); nbytes += f.stat().st_size
-    return stem, {"model": r.model, "iso": float(r.iso), "frame": stem}, names, nbytes
+        _save_atomic(f, c); names.append(f.stem); nbytes += f.stat().st_size
+    m = {"model": r.model, "iso": float(r.iso), "frame": stem}
+    _save_atomic(done, obj={"meta": m, "names": names})
+    return stem, m, names, nbytes
 
 
 def main(argv=None):
@@ -83,9 +98,9 @@ def main(argv=None):
     jobs = [(f, str(out), a.crops, a.ps) for f in files]
     ex = ProcessPoolExecutor(a.workers) if a.workers > 1 else None
     for i, (stem, m, names, nb) in enumerate((ex.map if ex else map)(one, jobs)):
-        if m:
-            for s in names:
-                meta[s] = m
+        for s in names:  # also restores entries a killed run never got to write into the meta JSON
+            meta[s] = m
+        if nb:
             tot += nb; nnew += 1
         print(i, stem, len(names), "crops", f"{nb / 2**20:.1f} MiB", flush=True)
         if i % 50 == 0:

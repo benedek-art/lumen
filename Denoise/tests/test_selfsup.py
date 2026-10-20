@@ -253,3 +253,23 @@ def test_pixel_var_unbiased_in_blacks():
         y = torch.poisson(clean / K, generator=g) * K + torch.randn(clean.shape, generator=g) * r ** .5
         v = ss.pixel_var(y, torch.tensor(K), torch.tensor(r)).mean().item()
         assert abs(v / (K * x + r) - 1) < 0.02, (x, v / (K * x + r))
+
+
+def test_prepare_real_unique_keys_and_interrupted_frame(tmp_path, monkeypatch):
+    """Regression: same basename on two cards must not collide; a frame whose crops exist but whose
+    .done marker does not (killed mid-frame) is redone, and its meta entries come back on re-run."""
+    cfa = np.full((256, 256), 0.1, np.float32) + np.random.RandomState(1).randn(256, 256).astype(np.float32) * 0.01
+    fake = rawmod.Raw(cfa, "RGGB", np.zeros(4), 16383.0, np.ones(4), 12800.0, "ILCE-7M4")
+    calls = []
+    monkeypatch.setattr(pr.raw, "load", lambda p: calls.append(p) or fake)
+    lst = tmp_path / "list.txt"; lst.write_text("/cardA/DSC1.ARW\n/cardB/DSC1.ARW\n")
+    out = tmp_path / "out"
+    meta = pr.main([str(lst), str(out), "--crops", "2", "--ps", "32", "--workers", "1"])
+    assert len({m["frame"] for m in meta.values()}) == 2 and len(calls) == 2
+    # simulate a kill: drop one frame's marker and the whole meta file
+    k = pr.frame_key("/cardA/DSC1.ARW")
+    (out / f"{k}.done.json").unlink(); (out / "real_meta.json").unlink()
+    calls.clear()
+    assert pr.main([str(lst), str(out), "--crops", "2", "--ps", "32", "--workers", "1"]) == meta
+    assert calls == ["/cardA/DSC1.ARW"]
+    assert not list(out.glob("*.tmp"))
