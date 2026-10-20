@@ -137,12 +137,12 @@ def _digest_candidates(data, chunks, dtype):
     tiles = [data[y:y + 256, x:x + 256] for y in range(0, data.shape[0], 256) for x in range(0, data.shape[1], 256)]
     new = hashlib.md5(b"".join(hashlib.md5(le(t)).digest() for t in tiles)).digest()
     return {51111: [new, hashlib.md5(le(data)).digest()],  # DNG SDK 1.4+ tiled MD5; spec's plain MD5
-            50858: [hashlib.md5(le(data)).digest(),
+            50972: [hashlib.md5(le(data)).digest(),
                     hashlib.md5(b"".join(np.ascontiguousarray(c).astype(dtype).tobytes() for c in chunks)).digest()]}
 
 
 # Known TIFF/EXIF/DNG tag ids a neutralized digest tag must not be renamed to.
-_KNOWN = {50858, 50879, 50931, 50932, 50933, 50934, 50935, 50936, 50937, 50938, 50939, 50940, 50941, 50942,
+_KNOWN = {50879, 50931, 50932, 50933, 50934, 50935, 50936, 50937, 50938, 50939, 50940, 50941, 50942,
           50964, 50965, 50966, 50967, 50968, 50969, 50970, 50971, 50972, 50973, 50974, 50975, 50981, 50982,
           51008, 51009, 51022, 51023, 51041, 51043, 51044, 51058, 51081, 51089, 51090, 51091, 51107, 51108,
           51109, 51110, 51111, 51112, 51113, 51114, 51125, 51157, 51158, 51159, 51160, 51161, 51162,
@@ -186,7 +186,7 @@ def _patch_cfa(path, cfa, orig, black, fix_digests=False):
             return [data[i:i + rps] for i in range(0, data.shape[0], rps)]
 
         ifd0 = tf.pages[0].tags
-        digests = {t: ifd0[t] for t in (50858, 51111) if t in ifd0} if fix_digests else {}
+        digests = {t: ifd0[t] for t in (50972, 51111) if t in ifd0} if fix_digests else {}
         algo = {}
         if digests:
             cands = _digest_candidates(data, chunks(), dtype)

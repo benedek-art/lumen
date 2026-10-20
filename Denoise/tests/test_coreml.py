@@ -68,3 +68,11 @@ def test_parity(residual, fp16, tol):
     m = net(residual)
     err, psnr = ex.parity(_convert(residual, fp16), m, TILE, seed=1)
     assert err < tol, (err, psnr)
+
+
+def test_export_refuses_archive(monkeypatch):
+    import sys
+    from lumen_denoise import export_coreml
+    monkeypatch.setattr(sys, "argv", ["x", "--out", "/volumes/OFFLOAD drive/m.mlpackage"])
+    with pytest.raises(PermissionError):
+        export_coreml.main()

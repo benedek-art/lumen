@@ -17,7 +17,7 @@ match its pixels as damaged.
 - NewRawImageDigest (51111, DNG 1.4+) is an MD5 of the decoded pixels. The spec text describes a
   plain row-scan MD5, but the DNG SDK computes an MD5 per 256x256 tile and then an MD5 over those
   tile digests. Neither can be confirmed here without the SDK or Adobe's files.
-- RawImageDigest (50858, legacy) is checked the same way.
+- RawImageDigest (50972, legacy) is checked the same way.
 - So nothing is assumed. Before patching, `_patch_cfa` computes each candidate algorithm on the
   untouched pass-1 pixels and compares it with the value Adobe stored:
   - **If a candidate matches**, the algorithm is proven for that file, and the digest is

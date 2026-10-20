@@ -92,8 +92,8 @@ def main():
     g.add_argument("--fp32", dest="fp16", action="store_false")
     ap.add_argument("--check", action="store_true", help="parity vs PyTorch after export (macOS)")
     a = ap.parse_args()
-    if "/Volumes/Offload Drive" in str(a.out):
-        raise SystemExit("refusing to write to the read-only archive drive")
+    from .infer import guard_output
+    guard_output(a.out)  # realpath + casefold, same rule as infer
     net = Denoiser.from_state_dict(torch.load(a.weights, map_location="cpu"))
     ml = convert(net, a.tile, a.fp16)
     ml.save(a.out)

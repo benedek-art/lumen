@@ -43,7 +43,7 @@ def _write_dng(path, data, tiled, byteorder="<", digest=None, raw_digest=None, u
     if uid:
         tags0.append((50781, "B", 16, bytes(16), True))
     if raw_digest is not None:
-        tags0.append((50858, "B", 16, raw_digest, True))
+        tags0.append((50972, "B", 16, raw_digest, True))
     if digest is not None:
         tags0.append((51111, "B", 16, digest, True))
     raw_tags = [(33421, "H", 2, (2, 2), True), (33422, "B", 4, (0, 1, 1, 2), True),
@@ -126,22 +126,22 @@ def test_single_pass_recomputes_known_digest(tmp_path, tiled):
     data, orig, cfa, off = _scene()
     p = str(tmp_path / "a.dng")
     _write_dng(p, data, tiled, ">", digest=_le_tiles(data), raw_digest=hashlib.md5(data.astype("<u2").tobytes()).digest())
-    assert dng._patch_cfa(p, cfa, orig, [BLACK] * 4, fix_digests=True) == {51111: "recomputed", 50858: "recomputed"}
+    assert dng._patch_cfa(p, cfa, orig, [BLACK] * 4, fix_digests=True) == {51111: "recomputed", 50972: "recomputed"}
     got, tags0, _ = _read(p)
     exp = _expected(data, orig, cfa, off)
     np.testing.assert_array_equal(got, exp)
     assert bytes(tags0[51111]) == _le_tiles(exp)
-    assert bytes(tags0[50858]) == hashlib.md5(exp.astype("<u2").tobytes()).digest()
+    assert bytes(tags0[50972]) == hashlib.md5(exp.astype("<u2").tobytes()).digest()
 
 
 def test_single_pass_neutralizes_unknown_digest(tmp_path):
     data, orig, cfa, off = _scene()
     p = str(tmp_path / "a.dng")
     _write_dng(p, data, True, digest=b"\x01" * 16, raw_digest=b"\x02" * 16)
-    assert dng._patch_cfa(p, cfa, orig, [BLACK] * 4, fix_digests=True) == {51111: "neutralized", 50858: "neutralized"}
+    assert dng._patch_cfa(p, cfa, orig, [BLACK] * 4, fix_digests=True) == {51111: "neutralized", 50972: "neutralized"}
     got, tags0, ids = _read(p)
     np.testing.assert_array_equal(got, _expected(data, orig, cfa, off))
-    assert 51111 not in tags0 and 50858 not in tags0
+    assert 51111 not in tags0 and 50972 not in tags0
     assert ids == sorted(ids)  # IFD stays sorted
     new = [t for t in ids if t not in (50706, 50781) and t >= 32768]
     assert len(new) == 2 and not set(new) & dng._KNOWN
