@@ -42,4 +42,34 @@ final class CoreCorrectnessTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Spot retouch
+
+    /// A finite but huge spot or source position (hand-edited or corrupt sidecar) used
+    /// to trap in Int(floor(...)) on every render of the photo. StrokeHeal already
+    /// refuses these; spots must too.
+    func testHugeFiniteSpotCoordinatesDoNotTrap() {
+        let image = ImageBuffer(width: 40, height: 30) { u, v in RGB(gray: 0.2 + 0.3 * u + 0.1 * v) }
+        for v in [1e20, -1e20, 1e300, -1e300, Double.greatestFiniteMagnitude] {
+            let far = HealSpot(x: v, y: 0.5, sourceX: 0.5, sourceY: 0.5)
+            XCTAssertNil(SpotRetouch.resolve(far, width: 40, height: 30))
+            let farY = HealSpot(x: 0.5, y: v, sourceX: 0.5, sourceY: 0.5)
+            XCTAssertNil(SpotRetouch.resolve(farY, width: 40, height: 30))
+            XCTAssertEqual(SpotRetouch.apply(image, spots: [far, farY]).pixels, image.pixels)
+            for mode in [HealMode.clone, .heal] {
+                let farSource = HealSpot(mode: mode, x: 0.5, y: 0.5, sourceX: v, sourceY: -v)
+                let out = SpotRetouch.apply(image, spots: [farSource])
+                XCTAssertTrue(out.pixels.allSatisfy { $0.isFinite }, "\(mode) \(v)")
+            }
+            let window = SpotSourceSearch.window(for: far, sourceWidth: 40, sourceHeight: 30)
+            XCTAssertGreaterThanOrEqual(window.width, 1)
+            XCTAssertLessThanOrEqual(window.x + window.width, 40)
+        }
+    }
+
+    func testBilinearFarOffTheFrameRepeatsTheEdge() {
+        let image = ImageBuffer(width: 4, height: 3) { u, v in RGB(u, v, 0.5) }
+        XCTAssertEqual(image.bilinear(-1e30, 1.5), image.bilinear(-3, 1.5))
+        XCTAssertEqual(image.bilinear(1e30, 1e30), image[3, 2])
+    }
 }
