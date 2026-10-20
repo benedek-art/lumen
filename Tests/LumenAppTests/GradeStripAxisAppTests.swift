@@ -4,6 +4,7 @@
 // draws, and `LookPanel.pivotsAfterDrag` is what `movePivot` stores. Both used the
 // factory −9 … +5 EV axis, so at Whites +100 the strip drew crossfades 10.7 % narrower
 // than the rendered ones and a Balance-shifted handle landed 0.21 EV off its release.
+#if os(macOS)
 
 import XCTest
 @testable import LumenApp
@@ -41,3 +42,5 @@ final class GradeStripAxisAppTests: XCTestCase {
         }
     }
 }
+
+#endif
