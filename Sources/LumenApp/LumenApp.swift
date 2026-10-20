@@ -410,6 +410,29 @@ private struct LumenCommands: Commands {
                     // reason the comment above gives. See `RetouchPaste`.
                     Toggle("Paste Includes Spot Removal", isOn: $commands.pasteIncludesRetouch)
                 }
+                // Lightroom's group-checkbox pair, for when the two commands above are
+                // not the right cut — WB and noise reduction only across an astro
+                // session, everything but the crop across a burst. The sheet remembers
+                // its last answer; see `SettingsSubsetSheet` and `SettingsGroup`.
+                // ⌃⌘V because LR's ⌥⌘V is Paste Look here, and ⌥⇧⌘V is the system's
+                // Paste and Match Style in every text field.
+                Group {
+                    Divider()
+                    Button("Copy Settings…") { state.presentSettingsSubsetSheet(.copySettings) }
+                        .keyboardShortcut("c", modifiers: [.command, .shift])
+                        .disabled(!commands.hasSelection)
+                    Button("Sync Settings…") { state.presentSettingsSubsetSheet(.syncSettings) }
+                        .keyboardShortcut("s", modifiers: [.command, .shift])
+                        .disabled(!commands.hasSelection)
+                    Button("Sync Settings Without Dialog") {
+                        state.syncSettings(groups: state.rememberedSettingsGroups)
+                    }
+                    .keyboardShortcut("s", modifiers: [.command, .shift, .option])
+                    .disabled(!commands.hasSelection)
+                    Button("Paste from Previous") { state.pasteFromPrevious() }
+                        .keyboardShortcut("v", modifiers: [.command, .control])
+                        .disabled(!commands.hasSelection)
+                }
                 // A SECOND GROUP because a builder takes ten children and Cut made this
                 // one eleven. Split where the divider already was rather than at the
                 // count, so the nesting matches a boundary the menu itself draws.

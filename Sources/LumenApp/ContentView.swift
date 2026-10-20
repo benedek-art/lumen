@@ -250,6 +250,8 @@ struct ContentView: View {
             case .keyReference: KeyReferenceSheet()
             case .export: ExportSheet()
             case .ingest: IngestSheet()
+            case .copySettings: SettingsSubsetSheet(mode: .copy)
+            case .syncSettings: SettingsSubsetSheet(mode: .sync)
             }
         }
     }

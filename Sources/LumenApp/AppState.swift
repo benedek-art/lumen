@@ -284,6 +284,8 @@ struct StackSummary: Equatable, Sendable {
 
 enum SheetKind: String, Identifiable, Sendable {
     case keyReference, export, ingest
+    /// The two faces of the group-checkbox sheet (`SettingsSubsetSheet`).
+    case copySettings, syncSettings
     var id: String { rawValue }
 }
 
@@ -340,6 +342,8 @@ final class AppState: ObservableObject {
                 refreshPhotoSnapshots()
             }
             guard primarySelection?.id != oldValue?.id else { return }
+            // Paste from Previous reads the photo being left (`PreviousPhoto`).
+            previousPhoto.note(primarySelection?.id)
             // A gesture cannot span photos: if a drag's release was dropped, the
             // switch is the moment its deferred writes land (audit queue item 4 —
             // the second unlatch beside the watchdog).
@@ -1467,6 +1471,10 @@ final class AppState: ObservableObject {
     var showIngestSheet: Bool {
         get { activeSheet == .ingest }
         set { present(newValue ? .ingest : (showIngestSheet ? nil : activeSheet)) }
+    }
+    /// Copy Settings… and Sync Settings…, through the same guard as the others.
+    func presentSettingsSubsetSheet(_ sheet: SheetKind) {
+        present(sheet)
     }
 
     /// True while anything modal is on screen — the bare-key grammar stands down.
@@ -4319,6 +4327,14 @@ final class AppState: ObservableObject {
     /// been copied ⌥⌘V did nothing at all, no picture change and no message, which
     /// reads as the app being wedged (W2/D1-04).
     @Published private var copiedLook: Look?
+    /// The groups Copy Settings… ticked, travelling with `copiedRecipe`; nil after a
+    /// plain ⌘C, which copies the whole recipe as it always has. Both whole-recipe
+    /// pastes read it, so ⌘V after Copy Settings… pastes only what was ticked —
+    /// Lightroom's contract for its Copy Settings dialog.
+    private var copiedGroups: Set<SettingsGroup>?
+    /// The photograph the cursor was on before this one, for Paste from Previous.
+    /// Plain, not published: nothing draws it.
+    var previousPhoto = PreviousPhoto()
 
     /// A copy with nothing selected copies NOTHING — it does not empty the clipboard.
     /// `primarySelection.map` assigned nil, so a stray ⌘C or ⌥⌘C in the grid with the
@@ -4326,6 +4342,15 @@ final class AppState: ObservableObject {
     func copySettings() {
         guard let photo = primarySelection else { return }
         copiedRecipe = recipe(for: photo)
+        copiedGroups = nil
+    }
+
+    /// Copy Settings…: the same copy, remembering which groups the next paste carries.
+    func copySettings(groups: Set<SettingsGroup>) {
+        guard let photo = primarySelection else { return }
+        copiedRecipe = recipe(for: photo)
+        copiedGroups = groups
+        statusMessage = "Copied \(SettingsGroup.summary(groups)) — ⌘V pastes them"
     }
 
     /// Whether Paste Settings carries Heal and Clone spots and heal strokes. OFF by
@@ -4339,6 +4364,14 @@ final class AppState: ObservableObject {
 
     func pasteSettings() {
         guard let source = copiedRecipe else { return }
+        if let groups = copiedGroups {
+            // Copy Settings… filled the clipboard: its checkboxes ARE the paste's
+            // masks and spot-removal answers, so the menu's toggle does not apply.
+            updateRecipe(label: "Paste Settings") { recipe in
+                recipe = recipe.adoptingSettings(from: source, groups: groups)
+            }
+            return
+        }
         // `Recipe.adoptingSettings` is the rule, in LumenCore where it is tested: the
         // develop, the look less the one leaf that describes the target
         // (`LookSubset.carriedRenderPreset` — four doors into a look, one decision),
@@ -4364,6 +4397,12 @@ final class AppState: ObservableObject {
     /// nine times out of ten. Two commands cost nothing and ask nothing.
     func pasteSettingsWithoutMasks() {
         guard let source = copiedRecipe else { return }
+        if let groups = copiedGroups?.subtracting([.masks]) {
+            updateRecipe(label: "Paste Settings Without Masks") { recipe in
+                recipe = recipe.adoptingSettings(from: source, groups: groups)
+            }
+            return
+        }
         let retouch = pasteIncludesRetouch
         updateRecipe(label: "Paste Settings Without Masks") { recipe in
             recipe = recipe.adoptingSettings(from: source, includingMasks: false,
