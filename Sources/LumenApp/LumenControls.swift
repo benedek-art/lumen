@@ -1166,6 +1166,15 @@ struct LumenSlider: View {
                                 reset()
                                 return
                             }
+                            // THE BRACKET OPENS BEFORE THE FIRST WRITE. A press on the
+                            // track (not the thumb) jumps the value, and that jump is
+                            // the gesture's first edit: written before the gesture was
+                            // announced it landed outside the deferral (an immediate
+                            // catalog write and fingerprint) and outside the gesture's
+                            // undo epoch, so a click-then-drag was not one bracketed
+                            // edit like every other input to this row.
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
                             let thumbX = fraction * Double(width)
                             if SliderDrag.grabsThumb(
                                 pressX: Double(drag.startLocation.x), thumbX: thumbX) {
@@ -1173,7 +1182,9 @@ struct LumenSlider: View {
                             } else {
                                 dragStartValue = geometryOfDrag.valueAtPress(
                                     x: Double(drag.startLocation.x))
-                                value = dragStartValue
+                                // Through `commit`, so a press landing on the value it
+                                // already holds publishes nothing.
+                                commit(dragStartValue)
                             }
                             // The gesture's gearbox, opened at the press. Coarse it is
                             // arithmetically identical to the old direct call — see
@@ -1181,8 +1192,6 @@ struct LumenSlider: View {
                             // the same one with an anchor that ⇧ can move.
                             gearbox = FineDrag(startValue: dragStartValue,
                                                fine: Self.shiftIsDown)
-                            onEditingChanged?(true)
-                            sliderGestureChanged(true)
                         }
                         if pressWasReset { return }
                         let travelled = Double(drag.location.x - drag.startLocation.x)
@@ -1261,6 +1270,14 @@ struct LumenSlider: View {
                     .focused($textFocused)
                     .onSubmit { commitText() }
                     .onExitCommand { isEditingText = false }
+                    // COMMIT ON BLUR. Clicking away from the field (another row, the
+                    // photograph) dropped focus but left the field open with the typed
+                    // text neither applied nor discarded. Return and Escape both clear
+                    // `isEditingText` before focus leaves, so this only ever sees a
+                    // genuine blur, and Escape still cancels.
+                    .onChange(of: textFocused) { _, focused in
+                        if !focused && isEditingText { commitText() }
+                    }
             } else {
                 // TABULAR FIGURES ON SF PRO, not SF Mono. The app mixed two typefaces
                 // at 23 sites — a second family, a different x-height, inches from the
@@ -1376,11 +1393,27 @@ struct LumenSlider: View {
             onReset()
             return
         }
+        // Already at rest: nothing to reset, and an empty bracket is not free — the
+        // write goes through the binding, and a mask row's optional-backed setter
+        // materializes its struct for a value that did not change.
+        guard value != defaultValue else { return }
         onEditingChanged?(true)
         sliderGestureChanged(true)
         value = defaultValue
         onEditingChanged?(false)
         sliderGestureChanged(false)
+    }
+
+    /// What a typed entry writes, or nil when it writes nothing: refused text, or a
+    /// value the control already holds. Return on the pre-filled readout, or a blur
+    /// without typing, re-enters the current value — that is not an edit and must not
+    /// record one. Typing reaches the hard limit; dragging does not. That asymmetry is
+    /// what makes soft limits helpful instead of restrictive.
+    static func typedValue(_ text: String, current: Double,
+                           hardRange: ClosedRange<Double>) -> Double? {
+        guard let parsed = SliderEntry.value(of: text, current: current) else { return nil }
+        let clamped = min(max(parsed, hardRange.lowerBound), hardRange.upperBound)
+        return clamped == current ? nil : clamped
     }
 
     private func commitText() {
@@ -1399,13 +1432,11 @@ struct LumenSlider: View {
         // `JSONEncoder` refuses non-conforming floats, so the canonical JSON collapses to
         // "{}" and that is what gets written to the sidecar, erasing the photo's edit
         // from the copy that exists to survive losing the catalog.
-        guard let parsed = SliderEntry.value(of: textValue, current: value) else { return }
-        // Typing reaches the hard limit; dragging does not. That asymmetry is what
-        // makes soft limits helpful instead of restrictive.
+        guard let next = Self.typedValue(textValue, current: value,
+                                         hardRange: effectiveHardRange) else { return }
         onEditingChanged?(true)
         sliderGestureChanged(true)
-        value = min(max(parsed, effectiveHardRange.lowerBound),
-                    effectiveHardRange.upperBound)
+        value = next
         onEditingChanged?(false)
         sliderGestureChanged(false)
     }
@@ -1981,23 +2012,38 @@ struct LumenColorWheel: View {
                             dragActive = true
                             if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
                                 pressWasReset = true
+                                // Only what is not already at rest is written: the
+                                // mask panel's wheel bindings materialize a whole
+                                // `GradingWheels` on any write, so resetting an
+                                // untouched mask wheel recorded an edit and an undo
+                                // step that changed nothing anyone could see.
+                                if sat != 0 || lum != 0 {
+                                    onEditingChanged?(true)
+                                    sliderGestureChanged(true)
+                                    if sat != 0 { sat = 0 }
+                                    if lum != 0 { lum = 0 }
+                                    onEditingChanged?(false)
+                                    sliderGestureChanged(false)
+                                }
+                            } else {
+                                // Opened ONCE per gesture, like `LumenSlider`'s track;
+                                // it used to fire on every mouse event.
                                 onEditingChanged?(true)
-                                sliderGestureChanged(true)
-                                sat = 0
-                                lum = 0
-                                onEditingChanged?(false)
-                                sliderGestureChanged(false)
                             }
                         }
                         if pressWasReset { return }
-                        onEditingChanged?(true)
                         sliderGestureChanged(true)
                         let dx = drag.location.x - diameter / 2
                         let dy = drag.location.y - diameter / 2
                         let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
-                        hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
+                        let nextHue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
                             .truncatingRemainder(dividingBy: 360)
-                        sat = Double(r)
+                        let nextSat = Double(r)
+                        // Guarded like `LumenSlider.commit`: an event that leaves a
+                        // component where it is (sat pinned at the rim, a press that
+                        // has not moved) must not write it.
+                        if nextHue != hue { hue = nextHue }
+                        if nextSat != sat { sat = nextSat }
                     }
                     .onEnded { _ in
                         dragActive = false
