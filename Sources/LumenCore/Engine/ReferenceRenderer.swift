@@ -413,7 +413,12 @@ public enum ReferenceRenderer {
         // mask's colour stage through the same kernels as the global one, and the CPU
         // path runs their twin, so the two paths execute one implementation (AI-03).
         let colorStage = front.color.exactStage
-        let hueShift = a.hue * scale
+        // Strength scales the rotation but never past the Hue slider's own ±180°: a
+        // rotation by 240° IS one by −120°, so an unclamped Hue +120 at Strength 200
+        // rendered as if Hue had been dragged the other way, and Hue +180 at 200 came
+        // back to no turn at all. "Individual limits remain" (MaskPanel), as they do for
+        // every other scaled slider. Kept in lockstep with `LocalPlan` (AI-03).
+        let hueShift = Num.clamp(a.hue * scale, -180, 180)
         let context = OKLabTransform.working
         let tintColor = a.colorTint
         let tintStrength = Num.clamp(a.colorTintStrength, 0, 100) / 100 * scale

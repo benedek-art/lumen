@@ -2317,7 +2317,9 @@ struct LocalPlan {
             mixer: Mixer(),
             pointColors: adjust.pointColors.map { $0.scalingShift(by: scale) },
             color: color, primaries: Primaries(), bw: nil)
-        let hueShift = adjust.hue * scale
+        // Clamped to the Hue slider's ±180° after Strength, so a strong mask never wraps
+        // the turn round the other way — `ReferenceRenderer.applyLocalAdjust` says why.
+        let hueShift = Num.clamp(adjust.hue * scale, -180, 180)
         let tintColor = adjust.colorTint
         let tintStrength = Num.clamp(adjust.colorTintStrength, 0, 100) / 100 * scale
         // Temp and Tint were in the identity test above and then never applied, so a
