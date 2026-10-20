@@ -252,6 +252,8 @@ struct ContentView: View {
             case .ingest: IngestSheet()
             case .copySettings: SettingsSubsetSheet(mode: .copy)
             case .syncSettings: SettingsSubsetSheet(mode: .sync)
+            case .saveDevelopPreset: SaveDevelopPresetSheet()
+            case .manageDevelopPresets: ManageDevelopPresetsSheet()
             }
         }
     }

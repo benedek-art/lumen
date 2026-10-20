@@ -286,6 +286,8 @@ enum SheetKind: String, Identifiable, Sendable {
     case keyReference, export, ingest
     /// The two faces of the group-checkbox sheet (`SettingsSubsetSheet`).
     case copySettings, syncSettings
+    /// New Develop Preset… and Manage Presets… (`DevelopPresetSheets`).
+    case saveDevelopPreset, manageDevelopPresets
     var id: String { rawValue }
 }
 
@@ -1472,7 +1474,8 @@ final class AppState: ObservableObject {
         get { activeSheet == .ingest }
         set { present(newValue ? .ingest : (showIngestSheet ? nil : activeSheet)) }
     }
-    /// Copy Settings… and Sync Settings…, through the same guard as the others.
+    /// Copy Settings… and Sync Settings… (and the develop preset sheets), through the
+    /// same guard as the others.
     func presentSettingsSubsetSheet(_ sheet: SheetKind) {
         present(sheet)
     }

@@ -530,6 +530,19 @@ private struct LumenCommands: Commands {
                     .keyboardShortcut("k", modifiers: [.command, .shift])
                     .disabled(!commands.hasCatalog)
                 }
+                // DEVELOP PRESETS: the ticked groups of one photo, saved under a name and
+                // applied to a whole selection — "Soccer ISO 6400" across a burst.
+                // ⇧⌘N is Lightroom's New Preset. The list is its own view so only it
+                // observes the preset library (`DevelopPresetSheets`).
+                Group {
+                    Divider()
+                    Button("New Develop Preset…") {
+                        state.presentSettingsSubsetSheet(.saveDevelopPreset)
+                    }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(!commands.hasSelection)
+                    DevelopPresetMenu(state: state, hasSelection: commands.hasSelection)
+                }
             }
 
             CommandMenu("Export") {

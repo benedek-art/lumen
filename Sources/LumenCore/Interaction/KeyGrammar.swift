@@ -239,6 +239,8 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("v", command: true, control: true),
                    "Paste from Previous — the last ticked groups from the photo you "
                        + "were on before"),
+            KeyRow(KeyBinding("n", command: true, shift: true),
+                   "New Develop Preset… — save ticked groups of this photo under a name"),
             KeyRow(KeyBinding("r", command: true, shift: true), "Reset settings"),
             KeyRow(KeyBinding("a", command: true), "Select all"),
             KeyRow(KeyBinding("d", command: true), "Select none"),
