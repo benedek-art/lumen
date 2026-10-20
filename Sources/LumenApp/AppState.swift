@@ -901,6 +901,9 @@ final class AppState: ObservableObject {
     /// exists on the next photograph after Paste Settings.
     private var maskThumbnailKey: String?
     private var maskThumbnailTask: Task<Void, Never>?
+    /// Supersession for `maskThumbnailTask`. The key above now records what LANDED, so
+    /// it can no longer double as the in-flight guard; this does that job instead.
+    private var maskThumbnailGeneration: UInt64 = 0
 
     /// Rebuild the thumbnails if anything they depend on has changed.
     ///
@@ -908,24 +911,22 @@ final class AppState: ObservableObject {
     /// called from the edit path, so a drag would otherwise queue one job per mouse
     /// event on an actor whose queue can hold a cold decode.
     func refreshMaskThumbnails() {
+        maskThumbnailGeneration &+= 1
+        let generation = maskThumbnailGeneration
         guard let photo = primarySelection else {
+            maskThumbnailTask?.cancel()
             if !maskThumbnails.isEmpty { maskThumbnails = [:] }
             maskThumbnailKey = nil
             return
         }
         let recipe = recipe(for: photo)
         guard !recipe.masks.isEmpty else {
+            maskThumbnailTask?.cancel()
             if !maskThumbnails.isEmpty { maskThumbnails = [:] }
             maskThumbnailKey = nil
             return
         }
         let strokes = strokeSets(for: recipe)
-        let key = Self.maskThumbnailKey(url: photo.id, recipe: recipe,
-                                        sourceIdentity: SourceFileIdentity.read(photo.id),
-                                        strokeSets: strokes)
-        guard key != maskThumbnailKey else { return }
-        maskThumbnailKey = key
-
         let ids = recipe.masks.map(\.id)
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
@@ -945,7 +946,17 @@ final class AppState: ObservableObject {
             // thing on screen. 90 ms is below the point a settled image feels late and
             // above the gap between two mouse events.
             try? await Task.sleep(nanoseconds: 90 * 1_000_000)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self.maskThumbnailGeneration == generation else { return }
+            // THE KEY IS TAKEN HERE, once per quiet period, and not at the call. This
+            // method is called from `updateRecipe` on every pixel-touching edit, and the
+            // key is a `stat` of the original plus a canonical-JSON pass over every mask
+            // and a dozen develop/look structs (`maskSourceFingerprint`) — all on the
+            // main actor, per mouse event of every slider drag on any masked photo,
+            // only to be superseded by the next event. Same answer, paid once.
+            let key = AppState.maskThumbnailKey(url: photo.id, recipe: recipe,
+                                                sourceIdentity: SourceFileIdentity.read(photo.id),
+                                                strokeSets: strokes)
+            guard key != self.maskThumbnailKey else { return }
             var built: [String: CGImage] = [:]
             for id in ids {
                 guard !Task.isCancelled else { return }
@@ -955,7 +966,8 @@ final class AppState: ObservableObject {
                     built[id] = image
                 }
             }
-            guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
+            guard !Task.isCancelled, self.maskThumbnailGeneration == generation else { return }
+            self.maskThumbnailKey = key
             self.maskThumbnails = built
         }
     }
@@ -2091,6 +2103,7 @@ final class AppState: ObservableObject {
                     states[entry.url] = state
                 }
                 self.isApplyingQuerySource = true
+                self.flushSourceStateSave()
                 self.activeSmartCollection = album
                 // Suppress the source-switch observer while assigning its final source.
                 self.selectedCollectionID = nil
@@ -2316,13 +2329,35 @@ final class AppState: ObservableObject {
     /// The thumbnail slider emits a value per pixel of drag. Writing each one is a
     /// database transaction per frame of a gesture; the size the drag settles on is the
     /// only one worth keeping.
+    ///
+    /// THE KEY IS CAPTURED, and a source switch flushes (`flushSourceStateSave`). The
+    /// timer used to read `sourceKey` when it FIRED: resize the grid, open another
+    /// folder inside 800 ms, and the old folder's size was never saved while the new
+    /// folder's row was written with the old folder's sort and size — before its own
+    /// stored state had even been read back (that waits for the scan).
+    ///
+    /// Not scheduled while a restore is being applied: that is the stored value coming
+    /// back, and writing it straight back out is a transaction for nothing.
     private func scheduleSourceStateSave() {
+        guard !isRestoringSourceState else { return }
         sourceStateSaveTask?.cancel()
+        let key = sourceKey
         sourceStateSaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
-            self?.saveSourceState()
+            guard !Task.isCancelled, let self else { return }
+            self.sourceStateSaveTask = nil
+            guard self.sourceKey == key else { return }
+            self.saveSourceState()
         }
+    }
+
+    /// Land a pending debounced save under the source it was made in. Called before
+    /// anything that changes `sourceKey`.
+    private func flushSourceStateSave() {
+        guard let pending = sourceStateSaveTask else { return }
+        pending.cancel()
+        sourceStateSaveTask = nil
+        saveSourceState()
     }
 
     // MARK: Albums, keywords and stacks
@@ -3126,6 +3161,9 @@ final class AppState: ObservableObject {
     ///   keys relative filenames on it — but the scan is replaced by the chosen list.
     func openFolder(_ url: URL, restrictedTo restriction: Set<URL>? = nil) {
         rememberFolder(url, restrictedTo: restriction)
+        // Before the key changes: a grid resize still inside its debounce belongs to
+        // the source being left.
+        flushSourceStateSave()
         activeSmartCollection = nil
         folderURL = url
         selection = []
