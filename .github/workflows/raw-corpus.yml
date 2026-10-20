@@ -150,6 +150,8 @@ jobs:
           2767;2767.IIQ;69fc81e92360a45920158f7d6238eed0cd6260cd32aa4a0beec2ac79273add80;11591029;Phase One;-;-;CC0;Phase One P65+ · IIQ S medium format · exiv2 itself misreads its primary IFD;https://raw.pixls.us/getfile.php/2767/nice/Phase%20One%20-%20P65%2B%20-%20IIQ%20S%20%284%3A3%29.IIQ
           1116;1116.X3F;44508f7df4191aacaecb6461e1841dae002e5b71a4f95a00aa3f52d1c6d6bc5f;10317264;SIGMA;-;-;CC0;Sigma DP1 · X3F FOVEON · here to exercise the refusal path on a real file;https://raw.pixls.us/getfile.php/1116/nice/Sigma%20-%20DP1%20-%203%3A2.X3F
           3949;3949.GPR;bfd992594af380748f3d46e37814dae595356cb6fce182d4188230ca978e6a9f;4073376;GoPro;2;-;CC0;GoPro HERO8 Black · GPR VC5 · ORIENTATION 2 — a MIRROR, self-inverse in aspect;https://raw.pixls.us/getfile.php/3949/nice/GoPro%20-%20HERO8%20Black%20-%2016bit%20%284%3A3%29.GPR
+          6929;6929.ARW;851b43c2116c4139104a5036f83ac3b6a148789b2142214dd7192c13972b25b6;49184768;SONY;1;-;CC0;Sony ILCE-7M4 (A7 IV) · ARW 14-bit LOSSLESS compressed, tiled LJPEG · 33 MP RGGB · the owner body;https://raw.pixls.us/getfile.php/6929/nice/Sony%20-%20ILCE-7M4%20-%2014bit%20%284%3A3%29.ARW
+          2545;2545.RW2;e7ba64725da183b07af44eb3ff66d4e84c08480dd6b2fff7eb3312bb4989df50;19743232;Panasonic;1;-;CC0;Panasonic DMC-GX85 · RW2 12-bit packed · 16 MP BGGR · the owner second body;https://raw.pixls.us/getfile.php/2545/nice/Panasonic%20-%20DMC-GX85%20-%204%3A3.RW2
           MANIFEST
           # THE CACHE KEY. Hashing the manifest and not this workflow file: editing a
           # comment here must not throw away 234 MB, and changing a URL or a digest must.
@@ -403,6 +405,34 @@ jobs:
       # The three tests that need no RAW9 must not skip at all, and that is checked by
       # name as well. The two RAW9 tests may skip only after reaching every file, which
       # means no file on this runner offers RAW9; that skip goes into the job summary.
+      - name: Flat-decode defaults and the as-shot neutral identity
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        shell: bash
+        env:
+          LUMEN_AUDIT_RAW_DIR: ${{ env.CORPUS_DIR }}
+        run: |
+          set +e
+          swift test --filter RawDevelopDefaultsTests 2>&1 | tee raw-defaults.log
+          status=$?
+          echo "=== per-file ==="
+          grep -E "^raw-defaults-file: " raw-defaults.log
+          echo "=== summary ==="
+          grep -E "Executed [0-9]+ test" raw-defaults.log | tail -1
+          grep -E ": error: -\[" raw-defaults.log | sed 's#/Users/runner/work/lumen/lumen/##' | head -40
+          # A lane that skipped reads like a lane that passed.
+          seen=$(grep -cE "^raw-defaults-file: " raw-defaults.log || true)
+          [ "${seen:-0}" -gt 0 ] || { echo "RawDevelopDefaultsTests saw no files"; status=1; }
+          {
+            echo
+            echo "### Flat-decode defaults (RawDevelopDefaultsTests)"
+            echo
+            echo '```'
+            grep -E "^raw-defaults-file: " raw-defaults.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: The decoder checks must have SEEN the corpus, not skipped it
         if: always()
         shell: bash
