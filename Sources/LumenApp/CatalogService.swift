@@ -2035,6 +2035,24 @@ final class CatalogService: @unchecked Sendable {
         }
     }
 
+    /// Photos still owed a sidecar write — queued, or kept for a retry after a failed
+    /// write — by photo path and by row id. Read after `flushSidecarsNow`, these are the
+    /// frames whose portable copy is behind the catalog.
+    func photosOwingSidecars() -> (paths: Set<String>, photoIDs: Set<Int64>) {
+        sidecarLock.lock()
+        defer { sidecarLock.unlock() }
+        var paths = Set(unsavedSidecars.keys)
+        var ids: Set<Int64> = []
+        for (url, entry) in pendingSidecars {
+            paths.insert(url.standardizedFileURL.path)
+            if let id = entry.photoID { ids.insert(id) }
+        }
+        for record in unsavedSidecars.values {
+            if let id = record.photoID { ids.insert(id) }
+        }
+        return (paths, ids)
+    }
+
     /// LRU stamp on every serve. Silent on failure by design — a lost stamp costs
     /// eviction accuracy and nothing else.
     func touchPreview(photoID: Int64, level: PreviewLevel, recipeFP: String) {

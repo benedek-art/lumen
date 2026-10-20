@@ -12,9 +12,11 @@
 // and Linux-tested, rather than in the app's `#if os(macOS)` executor:
 //
 //   1. A SIDECAR TRAVELS WITH ITS PHOTOGRAPH. `NAME.EXT.xmp` (and the other tools'
-//      qualified files) is that frame's alone. A bare `NAME.xmp` goes only when every
-//      photograph sharing its basename goes with it: in a RAW+JPEG pair where only the
-//      RAW was rejected, the bare file may be the JPEG's (`SidecarNaming`), so it stays.
+//      qualified files) is that frame's alone. A bare `NAME.xmp` goes with the frame
+//      that owns it: the RAW its `sourceExtension` names, or, unowned, the RAW by
+//      Adobe's convention (`SidecarNaming` never gives a JPEG the bare name). It stays
+//      only when a photograph that stays may own it — a kept RAW twin, say a NEF+DNG
+//      pair where just one was rejected.
 //   2. A GROUP MOVES TOGETHER. Every swept file with one basename in one directory —
 //      the RAW, its JPEG twin, their sidecars — gets one destination stem, so a
 //      collision rename cannot split a sidecar from its photograph.
@@ -55,15 +57,20 @@ public enum RejectSweep {
     }
 
     /// One photograph the sweep may consider.
-    public struct Candidate: Equatable, Sendable {
+    public struct SweepCandidate: Equatable, Sendable {
         public var url: URL
         public var photoID: Int64?
         public var isRejected: Bool
+        /// True while the catalog still owes this frame a sidecar write (a write that
+        /// failed and waits for its retry). Moving it would leave its latest flag and
+        /// edits nowhere once the catalog row goes, so it is skipped.
+        public var sidecarOwed: Bool
 
-        public init(url: URL, photoID: Int64?, isRejected: Bool) {
+        public init(url: URL, photoID: Int64?, isRejected: Bool, sidecarOwed: Bool = false) {
             self.url = url
             self.photoID = photoID
             self.isRejected = isRejected
+            self.sidecarOwed = sidecarOwed
         }
     }
 
@@ -76,7 +83,7 @@ public enum RejectSweep {
 
     /// Files that move or stay together: one basename in one directory.
     public struct Group: Equatable, Sendable {
-        public var photos: [Candidate]
+        public var photos: [SweepCandidate]
         /// Originals first, then sidecars, so an executor can stop before any sidecar
         /// leaves without its photograph.
         public var moves: [FileMove]
@@ -95,6 +102,10 @@ public enum RejectSweep {
         /// Bare sidecars left in place because a photograph that stays shares them.
         public var keptSidecars: [URL] = []
 
+        public init(disposition: Disposition) {
+            self.disposition = disposition
+        }
+
         public var photoCount: Int { groups.reduce(0) { $0 + $1.photos.count } }
         public var sidecarCount: Int {
             groups.reduce(0) { $0 + $1.moves.filter(\.isSidecar).count }
@@ -106,19 +117,29 @@ public enum RejectSweep {
 
     /// The plan for sweeping the rejected candidates.
     ///
-    /// - Parameter listing: the file names in a directory, or `[]` when it does not
-    ///   exist. Asked for each source directory (sidecars and staying siblings) and,
-    ///   for `.rejectedFolder`, each destination (names already taken).
-    public static func plan(_ candidates: [Candidate], into disposition: Disposition,
-                            listing: (URL) -> [String]) -> Plan {
+    /// - Parameters:
+    ///   - listing: the file names in a directory, or `[]` when it does not exist.
+    ///     Asked for each source directory (sidecars and staying siblings) and, for
+    ///     `.rejectedFolder`, each destination (names already taken).
+    ///   - bareSidecarOwner: the `sourceExtension` a bare `NAME.xmp` records, or nil
+    ///     when it records none or cannot be read. Asked only for a bare sidecar that a
+    ///     staying photograph shares a basename with.
+    public static func plan(_ candidates: [SweepCandidate], into disposition: Disposition,
+                            listing: (URL) -> [String],
+                            bareSidecarOwner: (URL) -> String? = { _ in nil }) -> Plan {
         var plan = Plan(disposition: disposition)
         var seen: Set<String> = []
-        var byDirectory: [String: [Candidate]] = [:]
+        var byDirectory: [String: [SweepCandidate]] = [:]
         for candidate in candidates where candidate.isRejected {
             let url = candidate.url.standardizedFileURL
             guard seen.insert(url.path).inserted else { continue }
             if isInsideSweepFolder(url) {
                 plan.skipped.append(Skip(url: url, reason: "Already in a \(folderName) folder."))
+                continue
+            }
+            if candidate.sidecarOwed {
+                plan.skipped.append(Skip(url: url, reason: "Its sidecar could not be saved yet; "
+                                         + "it stays until Lumen has written it."))
                 continue
             }
             var normalized = candidate
@@ -133,7 +154,7 @@ public enum RejectSweep {
             var actualName: [String: String] = [:]
             for name in names { actualName[name.lowercased()] = name }
 
-            var byStem: [String: [Candidate]] = [:]
+            var byStem: [String: [SweepCandidate]] = [:]
             for candidate in byDirectory[directoryPath] ?? [] {
                 guard actualName[candidate.url.lastPathComponent.lowercased()] != nil else {
                     plan.skipped.append(Skip(url: candidate.url,
@@ -161,17 +182,22 @@ public enum RejectSweep {
                         if let found = actualName[wanted] { sidecars.append(found) }
                     }
                 }
-                let stays = names.contains { name in
+                // Photographs with this basename that are NOT moving, by extension.
+                let staying: [String] = names.compactMap { name in
                     let lower = name.lowercased()
-                    guard !moving.contains(lower), stem(of: name) == key else { return false }
-                    return PhotoFormats.browsable.contains(
-                        URL(fileURLWithPath: name).pathExtension.lowercased())
+                    guard !moving.contains(lower), stem(of: name) == key else { return nil }
+                    let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
+                    return PhotoFormats.browsable.contains(ext) ? ext : nil
                 }
+                let movingExtensions = Set(photos.map { $0.url.pathExtension.lowercased() })
                 // The basename as it is spelled on disk, which is what a rename keeps.
                 let stemText = URL(fileURLWithPath: originals[0])
                     .deletingPathExtension().lastPathComponent
                 for ext in bareSidecarExtensions {
                     guard let found = actualName[(stemText + "." + ext).lowercased()] else { continue }
+                    let stays = !staying.isEmpty && !bareTravels(
+                        owner: bareSidecarOwner(directory.appendingPathComponent(found)),
+                        moving: movingExtensions, staying: Set(staying))
                     if stays {
                         plan.keptSidecars.append(directory.appendingPathComponent(found))
                     } else if !sidecars.contains(found) {
@@ -208,6 +234,18 @@ public enum RejectSweep {
             }
         }
         return plan
+    }
+
+    /// Whether a bare `NAME.xmp` leaves with the moving photographs when others with
+    /// the same basename stay. An owner tag decides; without one, Adobe's convention
+    /// gives the bare name to a RAW, so it goes with a moving RAW unless a RAW stays.
+    static func bareTravels(owner: String?, moving: Set<String>, staying: Set<String>) -> Bool {
+        if let owner = owner?.lowercased() {
+            if moving.contains(owner) { return true }
+            if staying.contains(owner) { return false }
+        }
+        let isRaw: (String) -> Bool = { PhotoFormats.raw.contains($0) }
+        return moving.contains(where: isRaw) && !staying.contains(where: isRaw)
     }
 
     /// The lowercased basename a group is keyed by: the name up to its LAST dot, so

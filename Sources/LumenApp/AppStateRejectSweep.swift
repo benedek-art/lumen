@@ -54,18 +54,22 @@ extension AppState {
         sliderGesture(active: false)
         RejectSweepGate.running = true
         statusMessage = "Preparing to move rejected photos…"
+        let folder = folderURL
         Task {
             defer { RejectSweepGate.running = false }
             // Sidecars first, so each one carries its latest flag and recipe when it
             // moves and no later flush writes a new one at the old path.
             await catalog.flushSidecarsNow()
+            guard folderURL == folder, !isScanning else {
+                statusMessage = "The folder changed; nothing was moved."
+                return
+            }
             // Read after the flush: a flag changed while it ran is honoured.
             let items = rejectedItems
-            let candidates = items.map {
-                RejectSweep.Candidate(url: $0.id, photoID: $0.catalogID, isRejected: true)
-            }
+            let candidates = sweepCandidates(items, catalog: catalog)
             let folderPlan = RejectSweep.plan(candidates, into: .rejectedFolder,
-                                              listing: Self.directoryNames)
+                                              listing: Self.directoryNames,
+                                              bareSidecarOwner: Self.sidecarOwner)
             guard !folderPlan.isEmpty else {
                 statusMessage = "None of the rejected photos can be moved: "
                     + (folderPlan.skipped.first?.reason ?? "their originals are missing.")
@@ -85,7 +89,8 @@ extension AppState {
             case .alertFirstButtonReturn:
                 plan = folderPlan
             case .alertSecondButtonReturn:
-                plan = RejectSweep.plan(candidates, into: .trash, listing: Self.directoryNames)
+                plan = RejectSweep.plan(candidates, into: .trash, listing: Self.directoryNames,
+                                        bareSidecarOwner: Self.sidecarOwner)
             default:
                 statusMessage = nil
                 return
@@ -184,6 +189,24 @@ extension AppState {
         return RejectSweep.GroupResult(moved: true, landed: done.map { $0.to })
     }
 
+    /// A frame whose sidecar write is still owed after the flush is skipped: once its
+    /// catalog row goes, that write is the only copy of its latest flag and edits.
+    private func sweepCandidates(_ items: [PhotoItem],
+                                 catalog: CatalogService) -> [RejectSweep.SweepCandidate] {
+        let owed = catalog.photosOwingSidecars()
+        return items.map { item in
+            let isOwed = owed.paths.contains(item.id.standardizedFileURL.path)
+                || item.catalogID.map { owed.photoIDs.contains($0) } == true
+            return RejectSweep.SweepCandidate(url: item.id, photoID: item.catalogID,
+                                              isRejected: true, sidecarOwed: isOwed)
+        }
+    }
+
+    /// The owner tag (`sourceExtension`) a bare sidecar records, if it can be read.
+    nonisolated static func sidecarOwner(_ sidecar: URL) -> String? {
+        (try? Data(contentsOf: sidecar)).flatMap { XMPSidecar.parse($0) }?.sourceExtension
+    }
+
     /// A directory's file names, or none when it does not exist.
     nonisolated static func directoryNames(_ directory: URL) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
@@ -215,14 +238,29 @@ extension AppState {
             defer { RejectSweepGate.running = false }
             // The sidecars are what bring flags and edits back on the next scan.
             await catalog.flushSidecarsNow()
+            // A frame still owed a sidecar keeps its row: that row is then the only
+            // record of its latest flag and edits.
+            let owed = catalog.photosOwingSidecars()
+            // Only frames still rejected after the flush: a flag may have changed.
+            let stillRejected = Set(rejectedItems.map(\.id))
             var urlByID: [Int64: URL] = [:]
-            for item in items { if let id = item.catalogID { urlByID[id] = item.id } }
+            var kept = 0
+            for item in items where stillRejected.contains(item.id) {
+                guard let id = item.catalogID else { continue }
+                if owed.photoIDs.contains(id) || owed.paths.contains(item.id.standardizedFileURL.path) {
+                    kept += 1
+                } else {
+                    urlByID[id] = item.id
+                }
+            }
             let removed = await catalog.removePhotos(ids: Array(urlByID.keys))
             dropSweptPhotos(Set(removed.compactMap { urlByID[$0] }))
             var message = "Removed \(removed.count) rejected "
                 + (removed.count == 1 ? "photo" : "photos") + " from the catalog."
-            if removed.count < urlByID.count {
-                message += " \(urlByID.count - removed.count) could not be removed."
+            let notRemoved = urlByID.count - removed.count + kept
+            if notRemoved > 0 {
+                message += " \(notRemoved) could not be removed"
+                    + (kept > 0 ? " — their sidecars are not saved yet." : ".")
             }
             statusMessage = message
         }

@@ -10,9 +10,9 @@ final class RejectSweepTests: XCTestCase {
     private let shoot = URL(fileURLWithPath: "/Volumes/Card/Soccer", isDirectory: true)
 
     private func photo(_ name: String, id: Int64, rejected: Bool = true,
-                       in folder: URL? = nil) -> RejectSweep.Candidate {
-        RejectSweep.Candidate(url: (folder ?? shoot).appendingPathComponent(name),
-                              photoID: id, isRejected: rejected)
+                       in folder: URL? = nil) -> RejectSweep.SweepCandidate {
+        RejectSweep.SweepCandidate(url: (folder ?? shoot).appendingPathComponent(name),
+                                   photoID: id, isRejected: rejected)
     }
 
     /// A listing closure over a hand-built tree: directory path -> names.
@@ -39,9 +39,10 @@ final class RejectSweepTests: XCTestCase {
         XCTAssertTrue(plan.skipped.isEmpty)
     }
 
-    func testQualifiedSidecarsTravelAndABareOneSharedWithAKeeperStays() {
-        // RAW+JPEG pair, only the RAW rejected: DSC_7.xmp may be the JPEG's, so it stays;
-        // the RAW's own qualified darktable file and DxO file go.
+    func testARejectedRawTakesItsBareSidecarAwayFromAKeptJPEGTwin() {
+        // RAW+JPEG pair, only the RAW rejected. A JPEG's sidecar is always NAME.JPG.xmp
+        // (`SidecarNaming`), so DSC_7.xmp is the RAW's and goes with it, as do its
+        // darktable and DxO files; the JPEG keeps its own.
         let plan = RejectSweep.plan(
             [photo("DSC_7.NEF", id: 7), photo("DSC_7.JPG", id: 8, rejected: false)],
             into: .rejectedFolder,
@@ -49,8 +50,43 @@ final class RejectSweepTests: XCTestCase {
                                            "DSC_7.NEF.xmp", "DSC_7.NEF.dop", "DSC_7.JPG.xmp"]]))
         XCTAssertEqual(plan.groups.count, 1)
         XCTAssertEqual(plan.groups[0].moves.map(\.source.lastPathComponent),
-                       ["DSC_7.NEF", "DSC_7.NEF.xmp", "DSC_7.NEF.dop"])
-        XCTAssertEqual(plan.keptSidecars.map(\.lastPathComponent), ["DSC_7.xmp"])
+                       ["DSC_7.NEF", "DSC_7.NEF.xmp", "DSC_7.NEF.dop", "DSC_7.xmp"])
+        XCTAssertTrue(plan.keptSidecars.isEmpty)
+    }
+
+    func testABareSidecarAKeptRawTwinMayOwnStays() {
+        // NEF+DNG, only the NEF rejected, and the bare file names no owner: it stays.
+        let tree = [shoot.path: ["DSC_7.NEF", "DSC_7.DNG", "DSC_7.xmp"]]
+        let candidates = [photo("DSC_7.NEF", id: 7), photo("DSC_7.DNG", id: 8, rejected: false)]
+        let unowned = RejectSweep.plan(candidates, into: .rejectedFolder, listing: listing(tree))
+        XCTAssertEqual(unowned.groups[0].moves.map(\.source.lastPathComponent), ["DSC_7.NEF"])
+        XCTAssertEqual(unowned.keptSidecars.map(\.lastPathComponent), ["DSC_7.xmp"])
+
+        // Lumen's owner tag says it is the NEF's: it travels.
+        let owned = RejectSweep.plan(candidates, into: .rejectedFolder, listing: listing(tree),
+                                     bareSidecarOwner: { _ in "NEF" })
+        XCTAssertEqual(owned.groups[0].moves.map(\.source.lastPathComponent),
+                       ["DSC_7.NEF", "DSC_7.xmp"])
+        XCTAssertTrue(owned.keptSidecars.isEmpty)
+
+        // A tag naming the photograph that stays wins over the RAW convention.
+        let theirs = RejectSweep.plan(
+            [photo("DSC_8.ARW", id: 1), photo("DSC_8.JPG", id: 2, rejected: false)],
+            into: .rejectedFolder,
+            listing: listing([shoot.path: ["DSC_8.ARW", "DSC_8.JPG", "DSC_8.xmp"]]),
+            bareSidecarOwner: { _ in "jpg" })
+        XCTAssertEqual(theirs.keptSidecars.map(\.lastPathComponent), ["DSC_8.xmp"])
+    }
+
+    func testAFrameStillOwedASidecarIsSkipped() {
+        let plan = RejectSweep.plan(
+            [RejectSweep.SweepCandidate(url: shoot.appendingPathComponent("DSC_1.ARW"), photoID: 1,
+                                        isRejected: true, sidecarOwed: true),
+             photo("DSC_2.ARW", id: 2)],
+            into: .rejectedFolder,
+            listing: listing([shoot.path: ["DSC_1.ARW", "DSC_2.ARW"]]))
+        XCTAssertEqual(plan.photoIDs, [2])
+        XCTAssertEqual(plan.skipped.map(\.url.lastPathComponent), ["DSC_1.ARW"])
     }
 
     func testAPairRejectedTogetherIsOneGroupWithEverySidecar() {

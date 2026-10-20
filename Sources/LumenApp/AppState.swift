@@ -3295,7 +3295,6 @@ final class AppState: ObservableObject {
         selection = selection.subtracting(urls)
         if let order = libraryOrder { libraryOrder = order.filter { !urls.contains($0) } }
         if leavingPrimary { primarySelection = nil }
-        sourceRevision &+= 1
         refreshLibraryQuery()
         refreshLibrarySections()
         // Land where the cursor was, as a reject under a filter does.
