@@ -1350,11 +1350,39 @@ public enum ColorCube {
     public struct Baked: Sendable {
         public let size: Int
         public let data: Data
+        /// The table's input domain (`LUT3D.domainMin` / `domainMax`). Unit for every
+        /// table the plan bakes; only a user's `.cube` file carries another.
+        public let domainMin: RGB
+        public let domainMax: RGB
 
         public init(_ lut: LUT3D) {
             self.size = lut.size
             self.data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+            self.domainMin = lut.domainMin
+            self.domainMax = lut.domainMax
         }
+
+        var hasUnitDomain: Bool { domainMin == RGB(0, 0, 0) && domainMax == RGB(1, 1, 1) }
+    }
+
+    /// `LUT3D.latticeCoordinate` in the graph: `(c − min)/(max − min)` per channel, as a
+    /// diagonal scale plus a bias, ahead of the fetch. The fetch then clamps to the unit
+    /// cube exactly as `LUT3D.sample` saturates after the same map, so a non-unit-domain
+    /// cube reads its own lattice once on both paths. A unit-domain table — every one
+    /// the plan bakes — never comes here: its image goes to the fetch untouched, exactly
+    /// as before a domain could be carried.
+    static func intoLattice(_ image: CIImage, _ cube: Baked) -> CIImage? {
+        let lo = cube.domainMin, hi = cube.domainMax
+        let sr = 1 / (hi.r - lo.r), sg = 1 / (hi.g - lo.g), sb = 1 / (hi.b - lo.b)
+        let filter = CIFilter(name: "CIColorMatrix")
+        filter?.setValue(image, forKey: kCIInputImageKey)
+        filter?.setValue(CIVector(x: sr, y: 0, z: 0, w: 0), forKey: "inputRVector")
+        filter?.setValue(CIVector(x: 0, y: sg, z: 0, w: 0), forKey: "inputGVector")
+        filter?.setValue(CIVector(x: 0, y: 0, z: sb, w: 0), forKey: "inputBVector")
+        filter?.setValue(CIVector(x: 0, y: 0, z: 0, w: 1), forKey: "inputAVector")
+        filter?.setValue(CIVector(x: -lo.r * sr, y: -lo.g * sg, z: -lo.b * sb, w: 0),
+                         forKey: "inputBiasVector")
+        return filter?.outputImage
     }
 
     /// Wrap a baked table in the stock colour-cube filter. The data layout LUT3D
@@ -1386,7 +1414,14 @@ public enum ColorCube {
     /// If that kernel did not compile the core roster has already sent the render to the
     /// CPU path; the `CIColorCube` branch below is only reachable from a caller that
     /// does not check, and it is the old behaviour rather than a wrong picture.
-    public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
+    public static func filter(_ cube: Baked, image input: CIImage) -> CIImage? {
+        let image: CIImage
+        if cube.hasUnitDomain {
+            image = input
+        } else {
+            guard let mapped = intoLattice(input, cube) else { return nil }
+            image = mapped
+        }
         if let kernel = KernelLibrary.cubeLookup {
             let n = cube.size
             // Atlas: x = r + g·n, one row per blue index. `CIImage(bitmapData:)` puts the

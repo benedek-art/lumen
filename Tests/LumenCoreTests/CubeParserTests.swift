@@ -177,6 +177,64 @@ final class CubeParserTests: XCTestCase {
                           "a doubled domain and a unit domain produced the same table")
     }
 
+    /// The Adobe spec's DOMAIN is an affine map in FRONT of the lattice: knot i of N sits
+    /// at DOMAIN_MIN + i/(N−1)·(DOMAIN_MAX − DOMAIN_MIN). The parser used to honour it by
+    /// re-baking — building a second N³ table whose unit-lattice knots each held an
+    /// interpolated read of the file's table — so every pixel went through two
+    /// interpolations. On a smooth look (a 0.6 power with a cross-channel term, domain
+    /// −0.25…1.25, size 9) the second one measured 2.7e-3, the better part of an 8-bit
+    /// code, and it lands differently on the GPU's trilinear fetch than on the CPU's
+    /// tetrahedral one.
+    /// `CreativeLUT.swift` promises the user's cube is "never re-baked into a second
+    /// table". The lattice must be the file's own numbers, and a read at c must be ONE
+    /// interpolation of them at (c − min)/(max − min).
+    func testANonUnitDomainIsAppliedInFrontOfTheFilesOwnLatticeNotRebaked() {
+        let n = 9
+        var rows: [String] = []
+        for bi in 0..<n {
+            for gi in 0..<n {
+                for ri in 0..<n {
+                    let r = Double(ri) / Double(n - 1), g = Double(gi) / Double(n - 1)
+                    let b = Double(bi) / Double(n - 1)
+                    let lift = 0.15 * (r - g) * b
+                    rows.append(String(format: "%.6f %.6f %.6f", pow(r, 0.6) + lift,
+                                       pow(g, 0.6) - lift, pow(b, 0.6) + 0.1 * r * g))
+                }
+            }
+        }
+        let domain = ["DOMAIN_MIN -0.25 -0.25 -0.25", "DOMAIN_MAX 1.25 1.25 1.25"]
+        guard let ranged = LUT3D.fromCubeFile((["LUT_3D_SIZE 9"] + domain + rows)
+                                                .joined(separator: "\n")),
+              let lattice = LUT3D.fromCubeFile((["LUT_3D_SIZE 9"] + rows)
+                                                .joined(separator: "\n")) else {
+            return XCTFail("a size-9 cube with a −0.25…1.25 domain was rejected")
+        }
+        XCTAssertTrue(ranged.data == lattice.data,
+                      "the file's lattice was replaced by a re-baked second table")
+
+        var worst = 0.0
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> Double {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Double(state >> 11) / Double(1 << 53)
+        }
+        for _ in 0..<4000 {
+            let c = RGB(next(), next(), next())
+            let direct = lattice.sample(RGB((c.r + 0.25) / 1.5, (c.g + 0.25) / 1.5,
+                                            (c.b + 0.25) / 1.5))
+            let read = ranged.sample(c)
+            worst = max(worst, abs(read.r - direct.r), abs(read.g - direct.g),
+                        abs(read.b - direct.b))
+        }
+        XCTAssertLessThan(worst, 1e-6,
+                          "a non-unit-domain cube read \(worst) away from one interpolation "
+                              + "of its own lattice — it was interpolated twice")
+
+        // And the writer carries the domain out again, so a round trip is the same cube.
+        XCTAssertEqual(LUT3D.fromCubeFile(ranged.cubeFileContents(title: "ranged")), ranged,
+                       "the domain was dropped on the way back out to a .cube file")
+    }
+
     /// Resolve's dialect spells the domain differently. `LUT_3D_INPUT_RANGE lo hi` is
     /// Resolve's (and OpenColorIO's resolve_cube baker's) way of writing what the Adobe
     /// 1.0 spec calls `DOMAIN_MIN lo lo lo` / `DOMAIN_MAX hi hi hi`. The parser used to
