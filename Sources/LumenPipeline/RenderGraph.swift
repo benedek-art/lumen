@@ -2396,20 +2396,20 @@ struct LocalPlan {
 /// a 256 KB copy per channel per frame. Tiling, offset and crop stay per call, since
 /// they follow the extent.
 enum GrainPlateCache {
-    private struct Key: Equatable {
+    private struct GrainPlateKey: Equatable {
         let profile: FilmGrainProfile
         let channel: Int
         let pixelsPerCell: Double
         let monochrome: Bool
     }
     private static let lock = NSLock()
-    private static var entries: [(key: Key, image: CIImage)] = []
+    private static var entries: [(key: GrainPlateKey, image: CIImage)] = []
     private static let limit = 12
 
     static func plate(profile: FilmGrainProfile, channel: Int, pixelsPerCell: Double,
                       monochrome: Bool, pixels make: () -> [Float]) -> CIImage {
-        let key = Key(profile: profile, channel: channel, pixelsPerCell: pixelsPerCell,
-                      monochrome: monochrome)
+        let key = GrainPlateKey(profile: profile, channel: channel,
+                                pixelsPerCell: pixelsPerCell, monochrome: monochrome)
         lock.lock()
         if let hit = entries.first(where: { $0.key == key }) {
             lock.unlock()
