@@ -115,9 +115,15 @@ public enum KeyGrammar {
             KeyRow(keys: "Space", action: "Hold for loupe from the grid; fit ↔ 1:1 under "
                   + "the cursor in the loupe"),
             KeyRow(keys: "Esc",
-                   action: "Leave what you are inside — a focused slider, then masking, "
-                       + "then the Heal tool, then the crop tool (putting its framing "
-                       + "back), then back to the grid"),
+                   action: "Leave what you are inside — a focused slider, then a pending "
+                       + "eyedropper pick, then masking, then the Heal tool, then the "
+                       + "crop tool (putting its framing back), then back to the grid"),
+            // Lightroom's `?`. Bare, so the dispatcher claims it; ⌘/ is the menu's.
+            KeyRow(keys: "?", action: "This reference"),
+            // Special keys, maintained by hand (see the header). Tab is Lightroom's
+            // panel key; the rule is `PanelChromeToggle`.
+            KeyRow(keys: "Tab", action: "Hide / show the sidebar and the develop column"),
+            KeyRow(keys: "⇧Tab", action: "Hide / show every panel, filmstrip included"),
         ]),
         KeyGroup(title: "Culling", rows: [
             KeyRow(keys: "P", action: "Pick"),
@@ -134,6 +140,11 @@ public enum KeyGrammar {
             KeyRow(keys: "← →", action: "Previous / next photo; in Compare and Survey, "
                   + "the next frame of the comparison"),
             KeyRow(keys: "↑ ↓", action: "Previous / next row"),
+            // Claimed ahead of the ⌘ guard, because the bare arrows stand down while
+            // the loupe is zoomed in or a slider holds focus. The new frame opens at
+            // fit (`LoupeViewport.resetForNewPhoto` says why).
+            KeyRow(keys: "⌘← ⌘→",
+                   action: "Previous / next photo, even zoomed in or with a slider focused"),
         ]),
         KeyGroup(title: "Develop", rows: [
             // `B` AND `L` LEFT THIS GROUP. docs/12 names them for a culling verb and a
@@ -142,6 +153,11 @@ public enum KeyGrammar {
             // panel without a key; nothing else reaches the target album or the
             // surround. `D` stays: nothing else wants it.
             KeyRow(keys: "D", action: "Detail panel"),
+            // Lightroom's two develop keys, free in this grammar until now.
+            KeyRow(keys: "W", action: "White-balance eyedropper; again or Esc to put it away"),
+            KeyRow(keys: "J",
+                   action: "Clipping overlay: red where highlights clip, blue where "
+                       + "shadows do"),
             KeyRow(keys: "M", action: "Masks"),
             KeyRow(keys: "O", action: "Show the selected mask's overlay"),
             KeyRow(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
@@ -189,6 +205,9 @@ public enum KeyGrammar {
         KeyGroup(title: "View controls", rows: [
             KeyRow(keys: "Z", action: "Zoom 1:1 / fit, under the cursor"),
             KeyRow(keys: "+ = −", action: "Zoom in / out"),
+            KeyRow(keys: "I",
+                   action: "Info overlay on the loupe: exposure, then camera and lens, "
+                       + "then off"),
             // Two features, one pair of keys, split by what is on screen — the rule is
             // `InspectionHolds` and this line is what the sheet prints of it. In the
             // grid the keys size the cells, exactly as they always did; where one
@@ -243,6 +262,11 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("g", command: true, shift: true), "Unstack"),
             KeyRow(KeyBinding("\\", command: true), "Clear the filter"),
             KeyRow(KeyBinding("/", command: true), "This reference"),
+            // The View menu's zoom chords; `ZoomChord` decides what they mean where.
+            KeyRow(KeyBinding("=", command: true),
+                   "Zoom in; in the grid, larger thumbnails"),
+            KeyRow(KeyBinding("-", command: true),
+                   "Zoom out; in the grid, smaller thumbnails"),
             KeyRow(KeyBinding("l", command: true, option: true),
                    "Show / hide the latency HUD (Debug)"),
         ]),
@@ -268,6 +292,8 @@ public enum KeyGrammar {
         "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f", "q", "/",
         // Zoom and thumbnail size
         "z", "=", "+", "[", "]",
+        // Lightroom habits: clipping, white balance, info overlay, this reference
+        "j", "w", "i", "?",
     ]
 
     /// Files allowed to attach a `.keyboardShortcut` whose key is computed rather than

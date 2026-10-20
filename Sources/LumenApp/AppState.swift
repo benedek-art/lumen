@@ -1362,6 +1362,9 @@ final class AppState: ObservableObject {
     }
 
     @Published var sidebarVisible = true
+    /// Tab's half of the develop column (`ParityKeys.panelChord`): the photographer's
+    /// own hide, ANDed with what the workspace and view mode allow. Not persisted.
+    @Published var developColumnHidden = false
 
     /// Persisted (docs/32 Stream A): the strip's visibility is furniture the
     /// photographer arranged, and an editor that forgets it makes them arrange it every

@@ -1363,6 +1363,12 @@ struct LoupeView: View {
                         .padding(10)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
+
+                // `I`'s capture info, top-leading: the one corner no other HUD uses.
+                CaptureInfoOverlay(photo: photo)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
