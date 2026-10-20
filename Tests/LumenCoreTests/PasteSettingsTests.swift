@@ -56,6 +56,44 @@ final class PasteSettingsTests: XCTestCase {
                        "Paste Settings Without Masks replaced this photograph's masks")
     }
 
+    /// A source that differs from the default beyond tone and B&W, with masks in a
+    /// folder, so dropping the folders or copying only part of the look or develop shows.
+    func testARichSourcePastesWholeAndWithoutMasksKeepsTheTargetsFolders() {
+        var src = source()
+        src.maskGroups = [MaskGroup(id: "g1", name: "Sky folder", amount: 60)]
+        src.masks = [Mask(id: "m1", name: "Sky", group: "g1")]
+        src.look.vignette = -25
+        src.look.grain = CreativeGrain(amount: 30, size: 40, roughness: 70)
+        src.develop.raw.temp = 5200
+        src.develop.detail.clarity = 15
+
+        var target = Recipe(pipelineVersion: 1)
+        target.look.render.preset = "Linear"
+        target.maskGroups = [MaskGroup(id: "tg", name: "Face folder")]
+        target.masks = [Mask(id: "own", name: "Face", group: "tg")]
+
+        let all = target.adoptingSettings(from: src, includingMasks: true,
+                                          includingRetouch: false)
+        XCTAssertEqual(all.maskGroups, src.maskGroups, "the pasted masks lost their folders")
+        XCTAssertEqual(all.masks, src.masks)
+        XCTAssertTrue(all.masks.allSatisfy { m in
+            m.group == nil || all.maskGroups.contains { $0.id == m.group }
+        }, "a pasted mask names a folder the result has not got")
+        var expectedLook = src.look
+        expectedLook.render.preset =
+            LookSubset.carriedRenderPreset(src.look.render.preset, onto: "Linear")
+        XCTAssertEqual(all.look, expectedLook, "only part of the look pasted")
+        XCTAssertEqual(all.develop, src.develop, "only part of develop pasted")
+
+        let withoutMasks = target.adoptingSettings(from: src, includingMasks: false,
+                                                   includingRetouch: false)
+        XCTAssertEqual(withoutMasks.maskGroups, target.maskGroups,
+                       "Paste Settings Without Masks replaced this photograph's folders")
+        XCTAssertEqual(withoutMasks.masks, target.masks)
+        XCTAssertEqual(withoutMasks.look, expectedLook)
+        XCTAssertEqual(withoutMasks.develop, src.develop)
+    }
+
     private func spotted() -> Recipe {
         var source = source()
         source.develop.heal.spots = [

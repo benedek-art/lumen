@@ -1129,9 +1129,12 @@ def gen_maskalgebra_fixture():
 def xmp_escape(s):
     # Characters below 0x20 other than tab/LF/CR are illegal in XML 1.0 even as
     # numeric references, so they are dropped rather than escaped — matching the Swift.
-    s = "".join(ch for ch in s if ord(ch) >= 0x20 or ch in "\t\n\r")
+    # U+FFFE and U+FFFF are not XML Chars either (XML 1.0 §2.2) and are dropped too.
+    s = "".join(ch for ch in s
+                if (ord(ch) >= 0x20 or ch in "\t\n\r") and ch not in "\ufffe\uffff")
+    # A raw CR reads back as LF (XML 1.0 §2.11); the reference does not.
     return (s.replace("&", "&amp;").replace("<", "&lt;")
-             .replace(">", "&gt;").replace('"', "&quot;"))
+             .replace(">", "&gt;").replace('"', "&quot;").replace("\r", "&#13;"))
 
 
 def xmp_serialize(content):
@@ -1143,6 +1146,11 @@ def xmp_serialize(content):
         fields += f"   <lumen:flag>{content['flag']}</lumen:flag>\n"
     if content.get("label") is not None:
         fields += f"   <xmp:Label>{xmp_escape(content['label'])}</xmp:Label>\n"
+    keywords = content.get("keywords") or []
+    if keywords:
+        fields += "   <dc:subject>\n    <rdf:Bag>\n"
+        fields += "".join(f"     <rdf:li>{xmp_escape(w)}</rdf:li>\n" for w in keywords)
+        fields += "    </rdf:Bag>\n   </dc:subject>\n"
     fields += (f"   <lumen:pipelineVersion>{content['pipelineVersion']}"
                "</lumen:pipelineVersion>\n")
     if content.get("recipeFingerprint") is not None:
@@ -1152,14 +1160,24 @@ def xmp_serialize(content):
         fields += f"   <lumen:writeStamp>{xmp_escape(content['writeStamp'])}</lumen:writeStamp>\n"
     if content.get("catalogUUID") is not None:
         fields += f"   <lumen:catalogUUID>{xmp_escape(content['catalogUUID'])}</lumen:catalogUUID>\n"
+    if content.get("sourceExtension") is not None:
+        fields += (f"   <lumen:sourceExtension>{xmp_escape(content['sourceExtension'])}"
+                   "</lumen:sourceExtension>\n")
     if content.get("recipeJSON") is not None:
         fields += f"   <lumen:recipe>{xmp_escape(content['recipeJSON'])}</lumen:recipe>\n"
+    # Last, after the recipe: a reader that stops partway reaches the smaller fields first.
+    if content.get("strokesPayload") is not None:
+        fields += (f"   <lumen:strokes>{xmp_escape(content['strokesPayload'])}"
+                   "</lumen:strokes>\n")
+    # The dc binding only when there is a bag, as in the Swift.
+    dublin_core = '\n    xmlns:dc="http://purl.org/dc/elements/1.1/"' if keywords else ""
     return (
         '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
         '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Lumen">\n'
         ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">\n'
         '  <rdf:Description rdf:about=""\n'
-        '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"\n'
+        '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"'
+        f"{dublin_core}\n"
         '    xmlns:lumen="http://lumenapp.dev/xmp/1.0/">\n'
         f"{fields}  </rdf:Description>\n"
         " </rdf:RDF>\n"
@@ -1199,6 +1217,21 @@ def gen_xmp_fixture():
                      "recipeFingerprint": None,
                      "recipeJSON": '{"name":"a \\"quoted\\" <tag>"}',
                      "catalogUUID": None, "writeStamp": None}},
+        # Every element the writer can emit, so the order and layout of dc:subject,
+        # sourceExtension and strokes (last, after the recipe) are pinned too.
+        {"name": "everything",
+         "content": {"rating": 2, "flag": "pick", "label": "Green",
+                     "keywords": ["dawn", "a & b"], "pipelineVersion": 1,
+                     "recipeFingerprint": fp(recipe_json), "recipeJSON": recipe_json,
+                     "catalogUUID": "9E107D9D-372B-4F2C-A1B2-000000000002",
+                     "writeStamp": "2026-08-19T21:30:00Z", "sourceExtension": "arw",
+                     "strokesPayload": "QUJD+/=="}},
+        # A CR must come back as CR (raw it would read back as LF), and U+FFFE is not
+        # an XML Char, so it is dropped rather than breaking the parse.
+        {"name": "carriageReturnAndNonCharacter",
+         "content": {"rating": 0, "label": "a\r\nb\ufffe", "pipelineVersion": 1,
+                     "recipeFingerprint": None, "recipeJSON": None,
+                     "catalogUUID": None, "writeStamp": "x\ry\uffff"}},
     ]
     for c in cases:
         xml_text = xmp_serialize(c["content"])
@@ -1207,7 +1240,8 @@ def gen_xmp_fixture():
         root = ET.fromstring(xml_text.split("?>\n", 1)[1].rsplit("\n<?xpacket", 1)[0])
         ns = {"xmp": "http://ns.adobe.com/xap/1.0/",
               "lumen": "http://lumenapp.dev/xmp/1.0/",
-              "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"}
+              "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+              "dc": "http://purl.org/dc/elements/1.1/"}
         desc = root.find(".//rdf:Description", ns)
         rating = desc.find("xmp:Rating", ns)
         check(rating is not None and int(rating.text) == c["content"]["rating"],
@@ -1236,6 +1270,23 @@ def gen_xmp_fixture():
         label = desc.find("xmp:Label", ns)
         c["parsed"] = dict(c["content"])
         c["parsed"]["label"] = label.text if label is not None else None
+        stamp = desc.find("lumen:writeStamp", ns)
+        c["parsed"]["writeStamp"] = stamp.text if stamp is not None else None
+        if c["content"].get("keywords"):
+            got = [li.text for li in desc.findall("dc:subject/rdf:Bag/rdf:li", ns)]
+            check(got == c["content"]["keywords"], f"xmp {c['name']} keywords round-trip")
+        for key, tag in (("sourceExtension", "lumen:sourceExtension"),
+                         ("strokesPayload", "lumen:strokes")):
+            if c["content"].get(key) is not None:
+                el = desc.find(tag, ns)
+                check(el is not None and el.text == c["content"][key],
+                      f"xmp {c['name']} {key} round-trip")
+        if c["content"].get("strokesPayload") is not None:
+            check(xml_text.index("<lumen:recipe>") < xml_text.index("<lumen:strokes>"),
+                  f"xmp {c['name']} strokes written before the recipe")
+        if c["name"] == "carriageReturnAndNonCharacter":
+            check(c["parsed"]["label"] == "a\r\nb" and c["parsed"]["writeStamp"] == "x\ry",
+                  "xmp CR did not survive, or a non-character was not dropped")
         if c["parsed"]["label"] != c["content"]["label"]:
             print(f"  {c['name']}: label sanitised on write, "
                   f"{c['content']['label']!r} -> {c['parsed']['label']!r}")

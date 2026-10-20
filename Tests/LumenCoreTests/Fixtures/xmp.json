@@ -113,6 +113,64 @@
     "catalogUUID": null,
     "writeStamp": null
    }
+  },
+  {
+   "name": "everything",
+   "content": {
+    "rating": 2,
+    "flag": "pick",
+    "label": "Green",
+    "keywords": [
+     "dawn",
+     "a & b"
+    ],
+    "pipelineVersion": 1,
+    "recipeFingerprint": "xxh64:1a2e1be4b14ca699",
+    "recipeJSON": "{\"develop\":{\"tone\":{\"exposure\":0.35}},\"pipelineVersion\":1}",
+    "catalogUUID": "9E107D9D-372B-4F2C-A1B2-000000000002",
+    "writeStamp": "2026-08-19T21:30:00Z",
+    "sourceExtension": "arw",
+    "strokesPayload": "QUJD+/=="
+   },
+   "xmp": "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n    xmlns:lumen=\"http://lumenapp.dev/xmp/1.0/\">\n   <xmp:Rating>2</xmp:Rating>\n   <lumen:flag>pick</lumen:flag>\n   <xmp:Label>Green</xmp:Label>\n   <dc:subject>\n    <rdf:Bag>\n     <rdf:li>dawn</rdf:li>\n     <rdf:li>a &amp; b</rdf:li>\n    </rdf:Bag>\n   </dc:subject>\n   <lumen:pipelineVersion>1</lumen:pipelineVersion>\n   <lumen:recipeFingerprint>xxh64:1a2e1be4b14ca699</lumen:recipeFingerprint>\n   <lumen:writeStamp>2026-08-19T21:30:00Z</lumen:writeStamp>\n   <lumen:catalogUUID>9E107D9D-372B-4F2C-A1B2-000000000002</lumen:catalogUUID>\n   <lumen:sourceExtension>arw</lumen:sourceExtension>\n   <lumen:recipe>{&quot;develop&quot;:{&quot;tone&quot;:{&quot;exposure&quot;:0.35}},&quot;pipelineVersion&quot;:1}</lumen:recipe>\n   <lumen:strokes>QUJD+/==</lumen:strokes>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>",
+   "parsed": {
+    "rating": 2,
+    "flag": "pick",
+    "label": "Green",
+    "keywords": [
+     "dawn",
+     "a & b"
+    ],
+    "pipelineVersion": 1,
+    "recipeFingerprint": "xxh64:1a2e1be4b14ca699",
+    "recipeJSON": "{\"develop\":{\"tone\":{\"exposure\":0.35}},\"pipelineVersion\":1}",
+    "catalogUUID": "9E107D9D-372B-4F2C-A1B2-000000000002",
+    "writeStamp": "2026-08-19T21:30:00Z",
+    "sourceExtension": "arw",
+    "strokesPayload": "QUJD+/=="
+   }
+  },
+  {
+   "name": "carriageReturnAndNonCharacter",
+   "content": {
+    "rating": 0,
+    "label": "a\r\nb\ufffe",
+    "pipelineVersion": 1,
+    "recipeFingerprint": null,
+    "recipeJSON": null,
+    "catalogUUID": null,
+    "writeStamp": "x\ry\uffff"
+   },
+   "xmp": "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Lumen\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    xmlns:lumen=\"http://lumenapp.dev/xmp/1.0/\">\n   <xmp:Rating>0</xmp:Rating>\n   <xmp:Label>a&#13;\nb</xmp:Label>\n   <lumen:pipelineVersion>1</lumen:pipelineVersion>\n   <lumen:writeStamp>x&#13;y</lumen:writeStamp>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>",
+   "parsed": {
+    "rating": 0,
+    "label": "a\r\nb",
+    "pipelineVersion": 1,
+    "recipeFingerprint": null,
+    "recipeJSON": null,
+    "catalogUUID": null,
+    "writeStamp": "x\ry"
+   }
   }
  ]
 }

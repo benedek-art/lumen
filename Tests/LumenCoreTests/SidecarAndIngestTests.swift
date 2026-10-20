@@ -19,6 +19,10 @@ private struct XMPFixture: Decodable {
         let recipeJSON: String?
         let catalogUUID: String?
         let writeStamp: String?
+        /// Absent in most cases; `everything` carries all three.
+        let keywords: [String]?
+        let sourceExtension: String?
+        let strokesPayload: String?
     }
     struct Case: Decodable {
         let name: String
@@ -69,12 +73,16 @@ final class SidecarAndIngestTests: XCTestCase {
     }
 
     private func sidecarContent(_ c: XMPFixture.Content) -> SidecarContent {
-        SidecarContent(rating: c.rating, flag: expectedFlag(c), label: c.label,
-                       pipelineVersion: c.pipelineVersion,
-                       recipeFingerprint: c.recipeFingerprint,
-                       recipeJSON: c.recipeJSON,
-                       catalogUUID: c.catalogUUID,
-                       writeStamp: c.writeStamp)
+        var content = SidecarContent(rating: c.rating, flag: expectedFlag(c), label: c.label,
+                                     pipelineVersion: c.pipelineVersion,
+                                     recipeFingerprint: c.recipeFingerprint,
+                                     recipeJSON: c.recipeJSON,
+                                     strokesPayload: c.strokesPayload,
+                                     catalogUUID: c.catalogUUID,
+                                     writeStamp: c.writeStamp,
+                                     sourceExtension: c.sourceExtension)
+        content.keywords = c.keywords
+        return content
     }
 
     func testXMPSerializationMatchesFixtureBytes() throws {
@@ -104,6 +112,17 @@ final class SidecarAndIngestTests: XCTestCase {
             // prove it sanitises was the one case that could never pass.
             XCTAssertEqual(parsed, sidecarContent(c.parsed), "xmp case \(c.name)")
         }
+    }
+
+    /// The strokes go after the recipe, so a reader that stops partway through a
+    /// damaged file has already reached everything smaller. Checked here without the
+    /// fixture, so it does not depend on the Python mirror.
+    func testTheStrokesAreWrittenAfterTheRecipe() throws {
+        let xml = XMPSidecar.serialize(SidecarContent(recipeJSON: "{}",
+                                                      strokesPayload: "QUJD"))
+        let recipe = try XCTUnwrap(xml.range(of: "<lumen:recipe>"))
+        let strokes = try XCTUnwrap(xml.range(of: "<lumen:strokes>"))
+        XCTAssertLessThan(recipe.lowerBound, strokes.lowerBound)
     }
 
     /// Flag and rating are separate axes, which is the entire reason `lumen:flag`
@@ -337,6 +356,50 @@ final class SidecarAndIngestTests: XCTestCase {
                                          sidecarMTime: 1_800_000_600)
         XCTAssertEqual(clean.decision, .sidecarWins)
         XCTAssertNil(clean.unpreservedSidecar)
+    }
+
+    /// The sidecar's recipe is compared by its own fingerprint, not the one the file
+    /// states. A recipe edited by hand or by another tool leaves a stale
+    /// `lumen:recipeFingerprint` behind; trusting it hid the newer edit from rules 2
+    /// and 3, and the next flush wrote the catalog's recipe over it.
+    func testTheMergeIgnoresAStaleStatedFingerprint() throws {
+        var here = Recipe()
+        here.develop.tone.exposure = 0.25
+        var overThere = Recipe()
+        overThere.develop.tone.exposure = 1.75
+        let fpHere = try RecipeFingerprint.fingerprint(here)
+        let fpThere = try RecipeFingerprint.fingerprint(overThere)
+
+        let catalog = SidecarMerge.State(recipe: here, recipeFingerprint: fpHere,
+                                         sidecarMTime: 1_800_000_000)
+        let stale = SidecarContent(
+            recipeFingerprint: fpHere,
+            recipeJSON: try CanonicalJSON.canonicalRecipeJSON(overThere))
+
+        let rule2 = SidecarMerge.resolve(catalog: catalog, sidecar: stale,
+                                         sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(rule2.decision, .sidecarWins,
+                       "a stale stated fingerprint hid the sidecar's newer recipe")
+        XCTAssertEqual(rule2.state.recipe, overThere)
+        XCTAssertEqual(rule2.state.recipeFingerprint, fpThere)
+
+        var unflushed = catalog
+        unflushed.hasUnflushedEdits = true
+        let rule3 = SidecarMerge.resolve(catalog: unflushed, sidecar: stale,
+                                         sidecarMTime: 1_800_000_600)
+        XCTAssertEqual(rule3.decision, .conflictCatalogWins)
+        XCTAssertEqual(rule3.state.recipe, here)
+        XCTAssertEqual(rule3.unpreservedSidecar, stale,
+                       "the sidecar's recipe was discarded without being reported")
+
+        // Filling in an empty catalog: the state's fingerprint is the recipe's.
+        let filled = SidecarMerge.resolve(
+            catalog: SidecarMerge.State(),
+            sidecar: SidecarContent(
+                recipeFingerprint: "garbage",
+                recipeJSON: try CanonicalJSON.canonicalRecipeJSON(overThere)))
+        XCTAssertEqual(filled.state.recipe, overThere)
+        XCTAssertEqual(filled.state.recipeFingerprint, fpThere)
     }
 
     func testMergingIsAdditivePerField() throws {

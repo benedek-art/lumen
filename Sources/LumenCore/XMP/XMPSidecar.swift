@@ -466,7 +466,7 @@ public enum SidecarMerge {
         var out = catalog
         if out.recipe == nil, let incoming {
             out.recipe = incoming
-            out.recipeFingerprint = sidecar.recipeFingerprint
+            out.recipeFingerprint = try? RecipeFingerprint.fingerprint(incoming)
         }
         if out.rating == 0, sidecar.rating > 0 { out.rating = sidecar.rating }
         if out.flag == .none { out.flag = sidecar.flag }
@@ -489,7 +489,7 @@ public enum SidecarMerge {
         var out = catalog
         if let incoming {
             out.recipe = incoming
-            out.recipeFingerprint = sidecar.recipeFingerprint
+            out.recipeFingerprint = try? RecipeFingerprint.fingerprint(incoming)
         }
         if sidecar.rating > 0 { out.rating = sidecar.rating }
         if sidecar.flag != .none { out.flag = sidecar.flag }
@@ -507,8 +507,10 @@ public enum SidecarMerge {
                                       sidecar: SidecarContent) -> Bool {
         guard let incoming else { return false }
         guard let catalogRecipe = catalog.recipe else { return true }
-        let theirs = sidecar.recipeFingerprint
-            ?? (try? RecipeFingerprint.fingerprint(incoming))
+        // Computed from the recipe the file carries, never taken from its stated
+        // `lumen:recipeFingerprint`: a hand edit or another tool can change the recipe
+        // and leave the stated value stale, which would hide the newer edit.
+        let theirs = try? RecipeFingerprint.fingerprint(incoming)
         let ours = catalog.recipeFingerprint
             ?? (try? RecipeFingerprint.fingerprint(catalogRecipe))
         guard let theirs, let ours else {
@@ -676,7 +678,14 @@ public enum XMPSidecar {
             // launch. A label is user-editable and a write stamp can come from
             // another tool, so this is reachable. Dropped rather than escaped,
             // because there is no legal escape for them.
-            case "\t", "\n", "\r": out.unicodeScalars.append(scalar)
+            case "\t", "\n": out.unicodeScalars.append(scalar)
+            // A raw CR is legal but every reader turns it (and CRLF) into LF (XML 1.0
+            // §2.11), so the text would not come back as written. The reference is
+            // not normalized.
+            case "\r": out += "&#13;"
+            // U+FFFE and U+FFFF are not XML Chars either (§2.2): the parse stops at
+            // the element, and a recipe after it is lost. Dropped, like the controls.
+            case "\u{FFFE}", "\u{FFFF}": break
             default:
                 if scalar.value >= 0x20 { out.unicodeScalars.append(scalar) }
             }
