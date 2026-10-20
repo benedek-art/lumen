@@ -168,3 +168,13 @@ def test_region_loss_is_per_camera():
              ("baseline", "DMC-GX85", 40.0), ("model", "DMC-GX85", 39.0)]]
     loss = sb.region_losses(rows, 6400)
     assert loss[("DMC-GX85", "detail")] == -1.0 and loss[("ILCE-7M4", "detail")] == 1.0
+
+
+def test_same_model_ablation_not_failed_by_float_noise(frames, table):
+    # model = baseline plus a negligible perturbation (same-model ablation): must not FAIL on ~-0.00x dB
+    def model(x, K, r):
+        y = common.m_wiener(x, K, r)
+        return y + np.float32(1e-6) * np.sign(np.sin(np.arange(y.size, dtype=np.float32))).reshape(y.shape)
+    out = sb.gate_checks(model, common.m_wiener, common.Ctx(table=table, frames=frames, isos=(6400,), quick=True))
+    g = next(c for c in out if c.name == "psnr_gain_vs_baseline@6400")
+    assert g.status == "PASS" and abs(g.value) < 0.02

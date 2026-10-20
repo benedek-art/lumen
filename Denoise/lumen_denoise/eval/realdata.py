@@ -1,9 +1,9 @@
 """Real high-ISO RAW access for the no-reference checks (the photos live only on the user's Mac).
 
 python -m lumen_denoise.eval.realdata <list.txt|dir> [--n 4]   # prints model/ISO/K/r and picked crops
-Everything degrades to "not available" (never raises) when rawpy, exiftool or the files are missing.
+Everything degrades to "not available" (never raises) when rawpy or the files are missing.
 """
-import argparse, shutil
+import argparse
 from pathlib import Path
 import numpy as np
 from scipy.ndimage import gaussian_filter
@@ -31,13 +31,12 @@ def list_files(src, n=0):
 
 
 def available(files=None):
-    """(ok, reason): rawpy importable, exiftool on PATH (raw.load shells out to it), files present."""
+    """(ok, reason): rawpy importable, files present. raw.load reads ISO/model in-process (exiftool is only its
+    fallback), so a missing exiftool is no reason to skip; an unreadable file surfaces per file instead."""
     try:
         import rawpy  # noqa: F401
     except Exception as e:  # ImportError or a broken libraw
         return False, f"rawpy not importable ({type(e).__name__})"
-    if shutil.which("exiftool") is None:
-        return False, "exiftool not on PATH (raw.load reads ISO/model with it)"
     if files is not None and not files:
         return False, "no real high-ISO RAW files given"
     return True, "ok"

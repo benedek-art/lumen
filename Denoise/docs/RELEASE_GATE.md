@@ -74,7 +74,7 @@ same noise. Tone (gamma 1/2.2) space, per camera and ISO; ISO clamped to each ca
 
 | check | threshold | rationale |
 |---|---|---|
-| `psnr_gain_vs_baseline@iso` | >= 0.0 dB, worst camera (`MIN_MEAN_GAIN_DB`) | a release must not regress; per camera, so an A7 IV gain can't hide a GX85 loss |
+| `psnr_gain_vs_baseline@iso` | >= -0.02 dB, worst camera (`MIN_MEAN_GAIN_DB`) | a release must not regress; per camera, so an A7 IV gain can't hide a GX85 loss. The -0.02 dB slack absorbs float noise when a model is compared with itself plus a tiny change (seen on the Mac: -0.002 dB) and is far below anything visible |
 | `psnr_gain_vs_noisy@iso` | >= +1.0 / +3.0 / +5.0 dB at ISO 1600 / 6400 / 25600, worst camera (`MIN_GAIN_OVER_NOISY_DB`) | must clearly beat doing nothing; a 5x5 Wiener already gains 5.5 / 6.2 / 6.8 dB |
 | `worst_region_vs_baseline@iso` | >= -0.15 dB dark/detail (`MAX_CRITICAL_LOSS_DB`), -0.3 dB other (`MAX_REGION_LOSS_DB`), worst camera x region | shadow blotches and smeared texture are what users notice first |
 | `ssim_vs_baseline@iso` | >= -0.002 (`MAX_SSIM_DROP`) | SSIM differences below this are invisible |
@@ -163,7 +163,7 @@ Paths are the repo defaults; every flag can override them.
 | real base-ISO RAWs | `data/lists/local_clean_val.txt` (`--lowiso-list`) | same (held-out clean list) |
 | night-sky RAWs | `data/lists/local_astro.txt` (`--astro-list`) | write by hand: one path per line |
 
-rawpy and `exiftool` must be installed (`brew install exiftool`); otherwise the real rows SKIP.
+rawpy must be installed; otherwise the real rows SKIP. ISO/model are read in-process (`raw.load`); exiftool is only a fallback.
 
 ```
 python -m lumen_denoise.eval.gate --model net:runs/A/best.pt --baseline net:runs/prev/best.pt          # full
@@ -213,4 +213,4 @@ proxy and `hf_kept_shadow` (a 5x5 Wiener does remove shadow texture and leaves l
   0.19 vs 0.20 cap at ISO 25600); recheck all of them on real held-out frames.
 - **A/B provenance.** The gate cannot prove the A/B files judged the model being gated, and judgements are
   treated as independent.
-- **Real-file paths only exercised with fake loaders in the cloud** (rawpy files and exiftool absent).
+- **Real-file paths only exercised with fake loaders in the cloud** (no RAW files in the cloud).
