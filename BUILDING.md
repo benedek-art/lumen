@@ -16,8 +16,9 @@ swift run LumenApp       # launch directly
 scripts/build-app.sh     # or build dist/Lumen.app and `open dist/Lumen.app`
 ```
 
-**Or download it, already built.** Every push builds the bundle on CI and attaches it:
-open the branch's latest run under the repository's **Actions** tab, and take the
+**Or download it, already built.** Every push to main and every pull request builds the
+bundle on CI and attaches it (a branch with no open PR gets no run; dispatch CI on it by
+hand): open the latest run under the repository's **Actions** tab, and take the
 `Lumen-app` artifact from the summary page. Unzip and `open Lumen.app`.
 
 **Then clear the quarantine flag, or it will not open.** A bundle that arrives through
