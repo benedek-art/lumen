@@ -13,6 +13,9 @@ def violations(workflow)
   errors << 'only successful main runs may publish' unless publisher['if'] == "success() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_validated_release == true"
   errors << 'release opt-in must default to false' unless workflow.dig(true, 'workflow_dispatch', 'inputs', 'publish_validated_release', 'default') == false
   errors << 'publisher cannot continue after failure' if publisher['continue-on-error']
+  # Branch pushes test each PR alone; only the pull_request trigger tests the merge
+  # with main, which is what parallel PRs need before any of them lands.
+  errors << 'CI must run on pull requests against main' unless Array(workflow.dig(true, 'pull_request', 'branches')).include?('main')
   # A re-run of an old main run passes every gate with an old commit. The publisher
   # must ask where main is now, refuse unless it is this run's commit, and do so
   # unconditionally and BEFORE anything is published.
@@ -88,6 +91,7 @@ end
 # Guard the guard: each unsafe mutation must be rejected by the actual policy.
 mutations = [
   ->(w) { w[true]['workflow_dispatch']['inputs']['publish_validated_release']['default'] = true },
+  ->(w) { w[true].delete('pull_request') },
   ->(w) { w['jobs']['publish-release']['if'] = "success() && github.ref == 'refs/heads/main'" },
   ->(w) { w['permissions']['contents'] = 'write' },
   ->(w) { w['jobs']['publish-release'].delete('needs') },

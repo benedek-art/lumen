@@ -15,6 +15,15 @@ on:
     # them anyway.
     paths-ignore:
       - "docs/**"
+  # A push run tests the branch tip in isolation. With several PRs open against main
+  # at once, each can be green alone and red once another lands first: nothing ever
+  # compiled or tested the MERGE. `pull_request` runs on GitHub's merge ref
+  # (refs/pull/N/merge, its own concurrency group), so the PR's checks answer "is main
+  # still green with this in it", which is the question a merge button asks.
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
   # Re-recording proof records moved to proof.yml's dispatch, with the control sweep
   # itself; the GPU goldens moved to gpu-parity.yml, which triggers itself on the
   # paths that can break parity instead of waiting for a human who never came.
@@ -121,7 +130,8 @@ jobs:
           retention-days: 30
 
   # An update is not a test artifact. The complete optimized suite gates the
-  # updater, including GPU tests omitted from the fast lane. Failed, skipped or
+  # updater. test-fast runs the same unfiltered command today; this job stays separate
+  # so the publisher's gate cannot be weakened by editing the per-push lane. Failed, skipped or
   # cancelled prerequisites leave the existing release alone.
   release-validation:
     if: github.ref == 'refs/heads/main'
@@ -238,7 +248,7 @@ jobs:
   # What this lane does NOT cover, stated so nobody reads it as more than it is:
   # LumenPipeline and LumenApp never compile here, and the macOS-side behaviour of
   # LumenCore (the SDK's own SQLite3 module rather than the shim) is only re-checked in
-  # the `proof-macos` lane below.
+  # the macOS `test-fast` and `release-validation` lanes above.
   engine-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
