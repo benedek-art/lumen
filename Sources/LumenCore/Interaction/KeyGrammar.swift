@@ -252,6 +252,9 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("d", command: true), "Select none"),
             KeyRow(KeyBinding("a", command: true, shift: true), "Auto Tone"),
             KeyRow(KeyBinding("e", command: true), "Export"),
+            KeyRow(KeyBinding("e", command: true, shift: true, option: true),
+                   "Export with Previous — the last folder and the checked recipes, "
+                       + "no dialog"),
             KeyRow(KeyBinding("b", command: true),
                    "Assessment surround (ISO 12646 mid-grey)"),
             KeyRow(KeyBinding("k", command: true), "Go to a control, or run a command"),

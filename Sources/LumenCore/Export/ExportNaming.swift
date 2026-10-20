@@ -45,11 +45,19 @@ public struct ExportNamingContext: Sendable, Equatable {
     /// sequence start. Every recipe of one photo shares it, so the client JPEG and the
     /// archive TIFF of frame 12 are both `…0012`.
     public var sequence: Int
+    /// The recipe's `customText`, for `{custom}` (and the ingest spelling `{job}`).
+    public var customText: String?
+    /// How many photos the batch holds, for `{total}`; nil renders it empty.
+    public var batchCount: Int?
+    /// The `{seq}` of the batch's last photo — how wide `{seq:auto}` pads so every name
+    /// of the batch has the same number of digits.
+    public var lastSequence: Int?
 
     public init(source: URL, recipeName: String, captureDate: DateComponents? = nil,
                 fileDate: DateComponents? = nil, camera: String? = nil,
                 lens: String? = nil, iso: Int? = nil, rating: Int? = nil,
-                label: String? = nil, sequence: Int = 1) {
+                label: String? = nil, sequence: Int = 1, customText: String? = nil,
+                batchCount: Int? = nil, lastSequence: Int? = nil) {
         self.source = source
         self.recipeName = recipeName
         self.captureDate = captureDate
@@ -60,6 +68,9 @@ public struct ExportNamingContext: Sendable, Equatable {
         self.rating = rating
         self.label = label
         self.sequence = sequence
+        self.customText = customText
+        self.batchCount = batchCount
+        self.lastSequence = lastSequence
     }
 }
 
@@ -71,11 +82,15 @@ public enum ExportNaming {
         "date", "time", "yyyy", "mm", "dd", "year", "month", "day", "hour", "minute",
         "seq", "seq3", "seq4",
         "camera", "lens", "iso", "rating", "label",
+        // `{orig}` and `{job}` are the ingest renamer's spellings of `{name}` and
+        // `{custom}`, accepted so a template copied from ingest means the same here.
+        "custom", "job", "folder", "orignum", "orig", "total", "seq:auto",
     ]
 
     /// The tokens the sheet lists, in the order it lists them.
     public static let documentedTokens = [
-        "{name}", "{seq}", "{seq:N}", "{date}", "{time}", "{yyyy}", "{mm}", "{dd}",
+        "{name}", "{orignum}", "{custom}", "{folder}", "{seq}", "{seq:N}", "{seq:auto}",
+        "{total}", "{date}", "{time}", "{yyyy}", "{mm}", "{dd}",
         "{camera}", "{lens}", "{iso}", "{rating}", "{label}", "{recipe}", "{ext}",
     ]
 
@@ -126,9 +141,14 @@ public enum ExportNaming {
     /// a date, a camera, a recipe name — is shared by every frame shot that day on that
     /// body, and the batch is then told apart only by `-1`, `-2` … suffixes in no
     /// meaningful order. The sheet warns on this before the run (J3-08).
+    /// `{orig}` is `{name}` in the ingest spelling, and `{orignum}` (the camera's frame
+    /// counter) tells frames apart the way `{name}` does, so Lightroom's
+    /// `{custom}_{orignum}` is not warned on.
     public static func identifiesEachPhoto(_ template: String) -> Bool {
         let tokens = RenameTemplate.tokens(in: template.isEmpty ? "{name}" : template)
-        return tokens.contains { $0 == "name" || isSequence($0) }
+        return tokens.contains {
+            $0 == "name" || $0 == "orig" || $0 == "orignum" || isSequence($0)
+        }
     }
 
     /// Whether the template reads the sequence at all — when the sheet shows Start at.
@@ -146,7 +166,31 @@ public enum ExportNaming {
     // MARK: - internals
 
     static func isSequence(_ token: String) -> Bool {
-        token == "seq" || token == "seq3" || token == "seq4" || seqWidth(token) != nil
+        token == "seq" || token == "seq3" || token == "seq4" || token == "seq:auto"
+            || seqWidth(token) != nil
+    }
+
+    /// The camera's frame number: the last run of digits in the source's basename —
+    /// `01234` for DSC01234, `1000123` for P1000123, still `01234` after an ingest
+    /// rename to 2026-08-20_DSC01234. Empty when the name has no digits.
+    public static func originalNumber(of basename: String) -> String {
+        var current = ""
+        var last = ""
+        for character in basename {
+            if character.isASCII && character.isNumber {
+                current.append(character)
+            } else if !current.isEmpty {
+                last = current
+                current = ""
+            }
+        }
+        return current.isEmpty ? last : current
+    }
+
+    /// The name of the folder the source sits in, or empty at the volume root.
+    static func folderName(of source: URL) -> String {
+        let name = source.deletingLastPathComponent().lastPathComponent
+        return name == "/" || name == "." || name == ".." ? "" : name
     }
 
     /// `{seq:N}`, N in 1…9 — `RenameTemplate`'s rule, so the two homes agree.
@@ -192,6 +236,14 @@ public enum ExportNaming {
         case "iso": return context.iso.map(String.init) ?? ""
         case "rating": return context.rating.map(String.init) ?? ""
         case "label": return text(context.label)
+        case "custom", "job": return text(context.customText)
+        case "folder": return folderName(of: context.source)
+        case "orignum": return originalNumber(of: name)
+        case "orig": return name
+        case "total": return context.batchCount.map { String(Swift.max($0, 0)) } ?? ""
+        case "seq:auto":
+            let last = Swift.max(context.lastSequence ?? context.sequence, context.sequence)
+            return sequence(String(Swift.max(last, 0)).count)
         default:
             if let width = seqWidth(token) { return sequence(width) }
             return nil

@@ -386,9 +386,8 @@ extension AppState {
                         failures.append(job.url.lastPathComponent + " → "
                                             + exportRecipe.name + ": " + keywordFailure)
                     } else {
-                        var recipeNaming = naming
-                        recipeNaming.recipeName = exportRecipe.name
-                        recipeNaming.sequence = exportRecipe.sequenceNumber(forPhotoAt: job.index)
+                        let recipeNaming = naming.forRecipe(exportRecipe, photoIndex: job.index,
+                                                            batchCount: jobs.count)
                         let wanted = Self.destination(directory: directory,
                                                       recipe: exportRecipe,
                                                       naming: recipeNaming)
@@ -470,6 +469,7 @@ extension AppState {
             }
             report.finish(stopped && completed < total ? .cancelled : .completed)
             await checkpointOperationReport(report)
+            let finishedReport = report
             await MainActor.run {
                 self.isExporting = false
                 self.exportProgress = 0
@@ -526,6 +526,9 @@ extension AppState {
                         + (failures.first.map { " — " + $0 } ?? "")
                         + renamedNote + reducedNote
                 }
+                // Export with Previous and the reveal (`AppStateQuickExport.swift`).
+                self.noteExportFinished(directory: directory, recipes: active,
+                                        report: finishedReport)
             }
         }
     }
@@ -584,6 +587,7 @@ extension AppState {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.prompt = "Export Here"
+        panel.directoryURL = lastExportDirectoryURL
         if panel.runModal() == .OK, let url = panel.url {
             // The sheet STAYS UP for the run. It used to close here, one line before
             // the batch started, which put the progress readout and the Stop button
