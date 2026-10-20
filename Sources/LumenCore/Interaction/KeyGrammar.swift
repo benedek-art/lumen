@@ -235,6 +235,18 @@ public enum KeyGrammar {
                    "Paste settings, leaving this frame's masks alone"),
             KeyRow(KeyBinding("c", command: true, option: true), "Copy Look"),
             KeyRow(KeyBinding("v", command: true, option: true), "Paste Look"),
+            KeyRow(KeyBinding("c", command: true, shift: true),
+                   "Copy Settings… — tick which groups the next paste carries"),
+            KeyRow(KeyBinding("s", command: true, shift: true),
+                   "Sync Settings… — ticked groups from the photo under the cursor "
+                       + "to the rest of the selection"),
+            KeyRow(KeyBinding("s", command: true, shift: true, option: true),
+                   "Sync Settings with the last ticked groups, no dialog"),
+            KeyRow(KeyBinding("v", command: true, control: true),
+                   "Paste from Previous — the last ticked groups from the photo you "
+                       + "were on before"),
+            KeyRow(KeyBinding("n", command: true, shift: true),
+                   "New Develop Preset… — save ticked groups of this photo under a name"),
             KeyRow(KeyBinding("r", command: true, shift: true), "Reset settings"),
             KeyRow(KeyBinding("a", command: true), "Select all"),
             KeyRow(KeyBinding("d", command: true), "Select none"),

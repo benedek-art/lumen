@@ -410,6 +410,29 @@ private struct LumenCommands: Commands {
                     // reason the comment above gives. See `RetouchPaste`.
                     Toggle("Paste Includes Spot Removal", isOn: $commands.pasteIncludesRetouch)
                 }
+                // Lightroom's group-checkbox pair, for when the two commands above are
+                // not the right cut — WB and noise reduction only across an astro
+                // session, everything but the crop across a burst. The sheet remembers
+                // its last answer; see `SettingsSubsetSheet` and `SettingsGroup`.
+                // ⌃⌘V because LR's ⌥⌘V is Paste Look here, and ⌥⇧⌘V is the system's
+                // Paste and Match Style in every text field.
+                Group {
+                    Divider()
+                    Button("Copy Settings…") { state.presentSettingsSubsetSheet(.copySettings) }
+                        .keyboardShortcut("c", modifiers: [.command, .shift])
+                        .disabled(!commands.hasSelection)
+                    Button("Sync Settings…") { state.presentSettingsSubsetSheet(.syncSettings) }
+                        .keyboardShortcut("s", modifiers: [.command, .shift])
+                        .disabled(!commands.hasSelection)
+                    Button("Sync Settings Without Dialog") {
+                        state.syncSettings(groups: state.rememberedSettingsGroups)
+                    }
+                    .keyboardShortcut("s", modifiers: [.command, .shift, .option])
+                    .disabled(!commands.hasSelection)
+                    Button("Paste from Previous") { state.pasteFromPrevious() }
+                        .keyboardShortcut("v", modifiers: [.command, .control])
+                        .disabled(!commands.hasSelection)
+                }
                 // A SECOND GROUP because a builder takes ten children and Cut made this
                 // one eleven. Split where the divider already was rather than at the
                 // count, so the nesting matches a boundary the menu itself draws.
@@ -520,6 +543,19 @@ private struct LumenCommands: Commands {
                     .disabled(!commands.hasCatalog)
                     Button("Remove Rejected from Catalog…") { state.removeRejectedFromCatalog() }
                         .disabled(!commands.hasCatalog)
+                }
+                // DEVELOP PRESETS: the ticked groups of one photo, saved under a name and
+                // applied to a whole selection — "Soccer ISO 6400" across a burst.
+                // ⇧⌘N is Lightroom's New Preset. The list is its own view so only it
+                // observes the preset library (`DevelopPresetSheets`).
+                Group {
+                    Divider()
+                    Button("New Develop Preset…") {
+                        state.presentSettingsSubsetSheet(.saveDevelopPreset)
+                    }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(!commands.hasSelection)
+                    DevelopPresetMenu(state: state, hasSelection: commands.hasSelection)
                 }
             }
 
