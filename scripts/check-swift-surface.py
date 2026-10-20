@@ -210,6 +210,10 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
+    # Core ML: the raw-denoise runner (`RawDenoiseCoreMLRunner`) and its tests.
+    "CoreML", "MLModel", "MLModelConfiguration", "MLComputeUnits", "MLMultiArray",
+    "MLMultiArrayDataType", "MLFeatureValue", "MLDictionaryFeatureProvider", "MLModelMetadataKey",
+    "CancellationError",
     # stdlib
     "Int", "Int8", "Int16", "Int32", "Int64", "UInt", "UInt8", "UInt16", "UInt32",
     "UInt64", "Double", "Float", "Float16", "Float32", "Float64", "SIMD2", "SIMD3", "SIMD4", "SIMD8", "Bool", "String", "Substring",
