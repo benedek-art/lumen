@@ -387,6 +387,14 @@ final class RawCorpusTests: XCTestCase {
                 let size = source.nativePixelSize
                 probe.native = Dim(w: size.width, h: size.height)
                 openedCount += 1
+                // Apple's per-file default black offset, which AppleRawSource now zeroes.
+                // Only the mono row logged it before (5.0 in run 39152441459); "varies
+                // by image" says each camera's value belongs in the record.
+                if let defaults = CIRAWFilter(imageURL: entry.url) {
+                    emit("corpus-shadowbias: \(entry.id) default-shadowBias=\(defaults.shadowBias) "
+                        + "baselineExposure=\(defaults.baselineExposure) "
+                        + "decoder=\(defaults.decoderVersion.rawValue) · \(entry.label)")
+                }
             } catch {
                 probe.openFailure = String(describing: error)
             }
@@ -1588,9 +1596,12 @@ final class RawCorpusTests: XCTestCase {
                     Self.applyMonoOption(option, filter, kelvin: kelvin, tint: tint)
                 }
             }
-            // Lumen never writes `shadowBias` or `baselineExposure`; if Apple's default
-            // for either is what pulls the frame to -0.004, zeroing it on top of the
-            // flat set shows it.
+            // `shadowBias` is now IN the flat set (run 39152441459: this variant read
+            // 0.0 where lumen-flat read -0.004222), so this decode is the same setting
+            // as lumen-flat and the two lines must now agree. Kept, not deleted, so the
+            // line stays comparable with that run; the pre-fix decode is now the
+            // `flat-without-shadowBias` line. Lumen still never writes
+            // `baselineExposure`, so the variant after this one still separates it.
             _ = Self.monoDecode(entry, variant: "flat-plus-shadowBias-0") { filter in
                 Self.applyMonoFlat(filter, kelvin: kelvin, tint: tint, except: nil)
                 filter.shadowBias = 0
@@ -1606,7 +1617,7 @@ final class RawCorpusTests: XCTestCase {
     /// Every option `AppleRawSource.decode` writes besides the decoder pin, scale and
     /// draft flag (the sweep holds those at the per-file default, 0.125 and false).
     private static let monoFlatOptions = [
-        "neutralTemperature+neutralTint", "boostAmount", "boostShadowAmount",
+        "neutralTemperature+neutralTint", "boostAmount", "boostShadowAmount", "shadowBias",
         "localToneMapAmount", "isGamutMappingEnabled", "contrastAmount", "exposure",
         "extendedDynamicRangeAmount", "sharpnessAmount", "luminanceNoiseReductionAmount",
         "colorNoiseReductionAmount", "isLensCorrectionEnabled",
@@ -1620,6 +1631,7 @@ final class RawCorpusTests: XCTestCase {
             filter.neutralTint = tint
         case "boostAmount": filter.boostAmount = 0
         case "boostShadowAmount": filter.boostShadowAmount = 0
+        case "shadowBias": filter.shadowBias = 0
         case "localToneMapAmount": filter.localToneMapAmount = 0
         case "isGamutMappingEnabled": filter.isGamutMappingEnabled = false
         case "contrastAmount": filter.contrastAmount = 0

@@ -307,6 +307,14 @@ public final class AppleRawSource: ImageSource {
         // Everything display-referred: off. This is the whole point of the contract.
         filter.boostAmount = 0
         filter.boostShadowAmount = 0
+        // Apple's default is not zero ("varies by image"): it subtracts a black offset
+        // before baseline exposure. Raw-corpus run 39152441459, file 1087: default 5.0;
+        // the flat set without this decoded to a constant -0.004222 in every channel,
+        // with it to 0.0. ~0.005 of white (~80 DN of an A7 IV's 512..16383 range), so
+        // everything below ~-7.6 EV went to zero or negative and deep shadows stopped
+        // being proportional to light. Blacks is a tone decision; D8 says the display
+        // transform is ours, so the decoder subtracts nothing.
+        filter.shadowBias = 0
         filter.localToneMapAmount = 0
         filter.isGamutMappingEnabled = false
         filter.contrastAmount = 0
