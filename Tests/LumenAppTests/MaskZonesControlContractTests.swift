@@ -91,5 +91,69 @@ final class MaskZonesControlContractTests: XCTestCase {
         let linear = SliderTrack(width: 142, lowerBound: 0.2, upperBound: 5, step: 0.05)
         XCTAssertEqual(linear.fraction(of: 1), 0.8 / 4.8, accuracy: 1e-9)
     }
+
+    // MARK: - Finding 37: a zone pivot resets alone and is reachable by VoiceOver
+
+    func testAZonePivotResetsToItsOwnDefault() {
+        for (index, home) in Zones.defaultPivots.enumerated() {
+            XCTAssertEqual(ZonesPanel.defaultPivot(at: index), home)
+        }
+        XCTAssertNil(ZonesPanel.defaultPivot(at: -1))
+        XCTAssertNil(ZonesPanel.defaultPivot(at: Zones.defaultPivots.count))
+    }
+
+    func testAZonePivotStepsByWholePercentsAndStaysOnTheAxis() {
+        XCTAssertEqual(ZonePivotStrip.steppedPivot(0.5, .increment), 0.51, accuracy: 1e-12)
+        XCTAssertEqual(ZonePivotStrip.steppedPivot(0.5, .decrement), 0.49, accuracy: 1e-12)
+        // Off-grid positions snap rather than accumulate float dust.
+        XCTAssertEqual(ZonePivotStrip.steppedPivot(0.3333, .increment), 0.34, accuracy: 1e-12)
+        XCTAssertEqual(ZonePivotStrip.steppedPivot(1, .increment), 1)
+        XCTAssertEqual(ZonePivotStrip.steppedPivot(0, .decrement), 0)
+        XCTAssertEqual(ZonePivotStrip.steppedPivot(.nan, .increment), 0.01, accuracy: 1e-12)
+    }
+
+    func testAZonePivotIsNamedForItsZone() {
+        let names = ["Darks", "Shadows", "Midtones", "Lights", "Brights"]
+        XCTAssertEqual(ZonePivotStrip.pivotLabel(index: 2, names: names), "Midtones centre")
+        XCTAssertEqual(ZonePivotStrip.pivotLabel(index: 7, names: names), "Zone centre 8")
+    }
+
+    func testThePivotHandleHasADoubleClickResetAndAnAdjustableAction() throws {
+        let zones = try source("ZonesPanel.swift")
+        let call = try slice(zones, from: "ZonePivotStrip(pivots:", to: "if let flattened")
+        XCTAssertTrue(call.contains("names: Self.register.map(\\.name)"))
+        XCTAssertTrue(call.contains("onPivotReset:"))
+        XCTAssertTrue(call.contains("Self.defaultPivot(at: index)"))
+
+        let handle = try slice(zones, from: "private func handle(", to: "private func stepPivot(")
+        for needle in [
+            "(NSApp.currentEvent?.clickCount ?? 1) >= 2",
+            "onPivotReset(index)",
+            ".accessibilityElement(children: .ignore)",
+            ".accessibilityLabel(Text(Self.pivotLabel(index: index, names: names)))",
+            ".accessibilityAdjustableAction { direction in",
+            "case .increment: stepPivot(index, from: position, .increment)",
+            "case .decrement: stepPivot(index, from: position, .decrement)",
+        ] {
+            XCTAssertTrue(handle.contains(needle), "the pivot handle lost \(needle)")
+        }
+        let step = try slice(zones, from: "private func stepPivot(", to: "\n}\n")
+        XCTAssertTrue(step.contains("sliderGestureChanged(true)")
+                      && step.contains("sliderGestureChanged(false)"),
+                      "an assistive step is bracketed like a drag")
+    }
+
+    // MARK: - Finding 36: the pivot drag's release is a sample
+
+    func testThePivotDragResolvesTheReleaseLocation() throws {
+        let zones = try source("ZonesPanel.swift")
+        let handle = try slice(zones, from: "private func handle(", to: "private func stepPivot(")
+        XCTAssertFalse(handle.contains(".onEnded { _ in"),
+                       "the release location is thrown away")
+        let ended = try slice(handle, from: ".onEnded { drag in", to: "dragOrigin = nil")
+        XCTAssertTrue(ended.contains("drag.translation.width"))
+        XCTAssertTrue(ended.contains("onPivotChanged(index,"),
+                      "the release is not committed before the drag state is cleared")
+    }
 }
 #endif
