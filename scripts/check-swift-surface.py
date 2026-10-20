@@ -312,7 +312,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # `NSView`, written through Core Image.
     "Metal", "QuartzCore", "CALayer", "CAMetalLayer", "NSObjectProtocol",
     # AppKit
-    "AppKit", "NSApp", "NSApplication", "NSApplicationDelegate", "NSImage", "NSColor",
+    "AppKit", "NSApp", "Selector", "NSApplication", "NSApplicationDelegate", "NSImage", "NSColor",
     "NSView", "NSViewRepresentable", "NSViewController", "NSWindow", "NSEvent",
     "NSCursor", "NSMenu", "NSMenuItem", "NSPasteboard", "NSSavePanel", "NSOpenPanel",
     "NSWorkspace", "NSBezierPath", "NSGraphicsContext", "NSScreen", "NSFont",
