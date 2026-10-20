@@ -60,5 +60,33 @@ final class CatalogCorrectnessRound3Tests: XCTestCase {
         try store.removeKeyword("Iceland", photoIDs: [ids[0]])
         XCTAssertEqual(try store.keywords(photoID: ids[0]), [])
     }
+
+    // MARK: #1 — an index switched off mid-session is rebuilt on the next open
+
+    func testATextIndexDisabledMidSessionIsRebuiltOnReopen() throws {
+        let root = try scratch()
+        let store = try openStore(root)
+        let (folderID, ids) = try seed(store, names: ["A.RAF", "B.RAF"])
+        guard store.isTextIndexAvailable else {
+            store.close()
+            throw XCTSkip("no FTS5 in this SQLite")
+        }
+        // Briefly unwritable WITHOUT being emptied: a transient cache error.
+        try store.debugExecute("ALTER TABLE cache.photo_fts RENAME TO photo_fts_off;")
+        try store.addKeyword("Reykjavik", photoIDs: [ids[0]])
+        XCTAssertFalse(store.isTextIndexAvailable)
+        try store.debugExecute("ALTER TABLE cache.photo_fts_off RENAME TO photo_fts;")
+        store.close()
+
+        let reopened = try openStore(root)
+        defer { reopened.close() }
+        XCTAssertTrue(reopened.isTextIndexAvailable)
+        var query = PhotoQuery(); query.text = "Reykjavik"
+        XCTAssertEqual(try reopened.photos(matching: query, folderID: folderID).map(\.id), [ids[0]],
+                       "a keyword written while the index was off must be searchable after reopen")
+        XCTAssertEqual(try reopened.countPhotos(matching: query, folderID: folderID), 1)
+        XCTAssertNil(try reopened.metaValue(CatalogStore.textIndexStaleKey),
+                     "the stale marker is cleared once the rebuild has run")
+    }
 }
 #endif

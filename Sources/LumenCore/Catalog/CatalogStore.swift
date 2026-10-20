@@ -1074,6 +1074,14 @@ public final class CatalogStore {
     /// honest claim rather than a stronger one.
     private var ftsEnabled: Bool
 
+    /// True once `reindexText` has turned the index off this session: every write from
+    /// then on leaves the index behind, and `markTextIndexStale` records that in `main`
+    /// so the next open rebuilds it. Same serialisation as `ftsEnabled`.
+    private var textIndexWentStale = false
+
+    /// The `meta` key that says the text index missed writes and must be rebuilt.
+    static let textIndexStaleKey = "text_index_stale"
+
     public let path: String
     public let cachePath: String
 
@@ -4906,13 +4914,26 @@ public final class CatalogStore {
     ///
     /// `EXISTS … LIMIT 1` on both sides: FTS5 keeps no row count, so `COUNT(*)` on the
     /// index is a scan, and this runs on every open.
+    ///
+    /// An index that is NOT empty but missed writes — a session in which `reindexText`
+    /// failed and switched it off — is invisible to that check, so it is the one case
+    /// that does use a flag: `textIndexStaleKey` in `main`, which stayed writable when
+    /// the cache did not. It is cleared only after a rebuild succeeds.
     private func rebuildTextIndexIfNeeded() throws {
         guard ftsEnabled else { return }
+        let stale = try metaValue(CatalogStore.textIndexStaleKey) != nil
         let indexHasRows = try db.scalarInt(
             "SELECT EXISTS(SELECT 1 FROM cache.photo_fts LIMIT 1);") == 1
         let catalogHasRows = try db.scalarInt(
             "SELECT EXISTS(SELECT 1 FROM main.photo LIMIT 1);") == 1
-        if catalogHasRows && !indexHasRows { try rebuildTextIndex() }
+        if catalogHasRows && (!indexHasRows || stale) { try rebuildTextIndex() }
+        if stale { try setMetaValue(CatalogStore.textIndexStaleKey, nil) }
+    }
+
+    /// Records in `main` that the text index has missed a write. Inside the caller's
+    /// transaction when there is one, so it commits (or rolls back) with the edit.
+    private func markTextIndexStale() {
+        try? setMetaValue(CatalogStore.textIndexStaleKey, "1")
     }
 
     /// Repopulate `cache.photo_fts` from `main`, wholesale. Internal so a test can
@@ -4974,7 +4995,12 @@ public final class CatalogStore {
     /// `isTextIndexAvailable` already exists to describe and which is correct, just
     /// slower — the degradation this store was designed for, finally reachable.
     private func reindexText(photoID: Int64) {
-        guard ftsEnabled else { return }
+        guard ftsEnabled else {
+            // Every write after the switch-off is one the index misses; re-mark, since
+            // the edit that first marked it may have rolled back.
+            if textIndexWentStale { markTextIndexStale() }
+            return
+        }
         do {
             guard let fields = try firstRow(
                 "SELECT filename, ext, camera, lens, job FROM photo WHERE id = ?;",
@@ -5000,6 +5026,8 @@ public final class CatalogStore {
             NSLog("Lumen catalog: text index unavailable (%@) — searches fall back to "
                   + "LIKE for the rest of this session", String(describing: error))
             ftsEnabled = false
+            textIndexWentStale = true
+            markTextIndexStale()
         }
     }
 
