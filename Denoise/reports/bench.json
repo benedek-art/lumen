@@ -1,0 +1,70 @@
+{
+ "noisy": {
+  "1600": {
+   "psnr": 39.477,
+   "ssim": 0.9331,
+   "sec_per_crop": 0.0
+  },
+  "6400": {
+   "psnr": 33.109,
+   "ssim": 0.7806,
+   "sec_per_crop": 0.0
+  },
+  "25600": {
+   "psnr": 26.459,
+   "ssim": 0.4918,
+   "sec_per_crop": 0.0
+  }
+ },
+ "bm3d": {
+  "1600": {
+   "psnr": 45.033,
+   "ssim": 0.9847,
+   "sec_per_crop": 5.945
+  },
+  "6400": {
+   "psnr": 40.906,
+   "ssim": 0.9636,
+   "sec_per_crop": 6.217
+  },
+  "25600": {
+   "psnr": 36.233,
+   "ssim": 0.9132,
+   "sec_per_crop": 6.717
+  }
+ },
+ "net:runs/tmp/sony_init.pt": {
+  "1600": {
+   "psnr": 37.796,
+   "ssim": 0.9722,
+   "sec_per_crop": 0.097
+  },
+  "6400": {
+   "psnr": 37.303,
+   "ssim": 0.9641,
+   "sec_per_crop": 0.067
+  },
+  "25600": {
+   "psnr": 36.048,
+   "ssim": 0.9418,
+   "sec_per_crop": 0.068
+  }
+ },
+ "net:runs/A_nf32_sony/best.pt": {
+  "1600": {
+   "psnr": 43.632,
+   "ssim": 0.9849,
+   "sec_per_crop": 0.038
+  },
+  "6400": {
+   "psnr": 41.818,
+   "ssim": 0.9753,
+   "sec_per_crop": 0.027
+  },
+  "25600": {
+   "psnr": 39.085,
+   "ssim": 0.952,
+   "sec_per_crop": 0.028
+  }
+ }
+}
