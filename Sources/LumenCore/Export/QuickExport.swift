@@ -156,6 +156,13 @@ public enum QuickExport {
         return folders
     }
 
+    /// Whether the end of a run reveals it: the option is on, the run finished rather
+    /// than being stopped (Finder jumping forward after Stop is noise), and something
+    /// was actually delivered.
+    public static func shouldRevealWhenDone(optionOn: Bool, report: OperationReport) -> Bool {
+        optionOn && report.state == .completed && !deliveredPaths(in: report).isEmpty
+    }
+
     /// The remembered reveal paths that still exist; if none do, the export folder when
     /// it exists. Empty means there is nothing to show.
     public static func existingRevealTargets(_ last: LastExport,

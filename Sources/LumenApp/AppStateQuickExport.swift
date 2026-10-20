@@ -74,14 +74,16 @@ extension AppState {
 
     /// Called once at the end of every batch, on the main actor, after the status line
     /// is written. Remembers the run for ⌥⇧⌘E and the reveal command, and reveals the
-    /// delivery when the sheet's "Show in Finder when done" is on.
+    /// delivery when the sheet's "Show in Finder when done" is on and the run was not
+    /// stopped.
     func noteExportFinished(directory: URL, recipes: [ExportRecipe], report: OperationReport) {
         let memory = LastExport(directory: directory.path, recipes: recipes, report: report)
         if let data = memory.encoded() {
             UserDefaults.standard.set(data, forKey: QuickExport.lastExportDefaultsKey)
         }
-        guard UserDefaults.standard.bool(forKey: QuickExport.revealWhenDoneDefaultsKey),
-              memory.deliveredCount > 0 else { return }
+        guard QuickExport.shouldRevealWhenDone(
+            optionOn: UserDefaults.standard.bool(forKey: QuickExport.revealWhenDoneDefaultsKey),
+            report: report) else { return }
         revealLastExport()
     }
 }

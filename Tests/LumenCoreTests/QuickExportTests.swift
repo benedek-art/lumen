@@ -120,6 +120,21 @@ final class QuickExportTests: XCTestCase {
         XCTAssertEqual(memory.recipeIDs.count, ExportRecipe.defaults.count)
     }
 
+    func testRevealWhenDoneOnlyAfterAFinishedRunThatDelivered() {
+        var run = report([(.delivered, "/Out/a.jpg")])
+        run.finish(.completed)
+        XCTAssertTrue(QuickExport.shouldRevealWhenDone(optionOn: true, report: run))
+        XCTAssertFalse(QuickExport.shouldRevealWhenDone(optionOn: false, report: run))
+
+        var stopped = report([(.delivered, "/Out/a.jpg"), (.pending, nil)])
+        stopped.finish(.cancelled)
+        XCTAssertFalse(QuickExport.shouldRevealWhenDone(optionOn: true, report: stopped))
+
+        var skippedOnly = report([(.skipped, nil)])
+        skippedOnly.finish(.completed)
+        XCTAssertFalse(QuickExport.shouldRevealWhenDone(optionOn: true, report: skippedOnly))
+    }
+
     // MARK: - Reveal
 
     func testRevealSelectsFilesThenFoldersThenTheExportFolder() {
