@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .nafnet import NAFNet, PRESETS, cfg_to_tensor, tensor_to_cfg
+
+ARCHS = {"unet": 0, "nafnet": 1}  # stored as the arch_code buffer (absent = old UNet checkpoint)
+
 
 def _lrelu(x):
     return F.leaky_relu(x, 0.2)
@@ -40,20 +44,34 @@ class UNetSeeInDark(nn.Module):
 
 
 class Denoiser(nn.Module):
-    """Wraps the UNet: input = noisy packed (4ch, normalized) [+ noise-std map];
-    output = clean estimate directly (same convention as published SID/ELD/LED weights)."""
+    """Wraps the backbone: input = noisy packed (4ch, normalized) [+ noise-std map];
+    output = clean estimate directly (same convention as published SID/ELD/LED weights).
+    arch="nafnet" (residual only): NAFNet blocks, config via preset="s|m|l" or width/enc/middle/dec/tlc."""
 
-    def __init__(self, noise_map=True, nf=32, residual=False, zero_init=True):
+    def __init__(self, noise_map=True, nf=32, residual=False, zero_init=True, arch="unet", **arch_kw):
         super().__init__()
         self.noise_map = noise_map
-        self.net = UNetSeeInDark(4 + int(noise_map), 4, nf)
+        self.arch = arch
+        if arch == "nafnet":
+            # NAFNet only as a residual noise-unit net: same 5ch input / identity-at-init contract
+            assert residual and noise_map, "arch='nafnet' requires residual=True and noise_map=True"
+            cfg = dict(PRESETS[arch_kw.pop("preset", "m")]); cfg.update(arch_kw)
+            self.net = NAFNet(5, 4, **cfg)
+            # infer.py rebuilds from a plain state dict, so the arch + config travel inside it
+            self.register_buffer("arch_code", torch.tensor([ARCHS[arch]], dtype=torch.long))
+            self.register_buffer("arch_cfg", cfg_to_tensor(**cfg))
+            last = self.net.ending
+        else:
+            assert arch == "unet" and not arch_kw, f"unknown arch/options {arch} {arch_kw}"
+            self.net = UNetSeeInDark(4 + int(noise_map), 4, nf)
+            last = self.net.conv10_1
         self.residual = residual
         if residual:
             # predict the noise to subtract; zero-init => starts as identity, so it can't
             # degrade clean input (direct-output nets hit a ~45 dB reconstruction ceiling)
             self.register_buffer("residual_flag", torch.ones(1))
             if zero_init:
-                nn.init.zeros_(self.net.conv10_1.weight); nn.init.zeros_(self.net.conv10_1.bias)
+                nn.init.zeros_(last.weight); nn.init.zeros_(last.bias)
 
     def forward(self, noisy, std_map=None):
         if self.residual:
@@ -67,7 +85,10 @@ class Denoiser(nn.Module):
 
     @staticmethod
     def from_state_dict(sd):
-        m = Denoiser(nf=sd["net.conv1_1.weight"].shape[0], residual="residual_flag" in sd)
+        if "arch_code" in sd and int(sd["arch_code"][0]) == ARCHS["nafnet"]:
+            m = Denoiser(residual=True, arch="nafnet", **tensor_to_cfg(sd["arch_cfg"]))
+        else:
+            m = Denoiser(nf=sd["net.conv1_1.weight"].shape[0], residual="residual_flag" in sd)
         m.load_state_dict(sd)
         return m
 
