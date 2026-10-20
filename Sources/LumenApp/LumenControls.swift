@@ -2004,6 +2004,15 @@ struct LumenColorWheel: View {
     /// count off the AppKit event at press time instead.
     @State private var dragActive = false
     @State private var pressWasReset = false
+    /// The gesture's anchor and gear (`WheelDrag` in LumenCore): a press on the puck
+    /// picks it up where it is, and ⇧ fines the drag without moving it.
+    @State private var gearbox: WheelDrag?
+    /// Whether the pointer has left the press. Until it has, nothing is written.
+    @State private var dragMoved = false
+
+    private static var shiftIsDown: Bool {
+        NSEvent.modifierFlags.contains(.shift)
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -2051,17 +2060,27 @@ struct LumenColorWheel: View {
                                 lum = 0
                                 onEditingChanged?(false)
                                 sliderGestureChanged(false)
+                            } else {
+                                gearbox = WheelDrag(
+                                    press: wheelOffset(drag.startLocation),
+                                    puck: WheelDrag.puckOffset(hue: hue, saturation: sat,
+                                                               radius: Double(diameter / 2)),
+                                    fine: Self.shiftIsDown)
                             }
                         }
                         if pressWasReset { return }
+                        // A PRESS IS NOT A MOVE (B3-05, as on the mixer ring). The first
+                        // click of a double-click has `clickCount` 1, so writing here
+                        // jumped the puck before the reset and left one ⌘Z landing on a
+                        // tint nobody chose. A click on bare disc still places the puck —
+                        // on release, below.
+                        if !dragMoved {
+                            guard drag.translation != .zero else { return }
+                            dragMoved = true
+                        }
                         onEditingChanged?(true)
                         sliderGestureChanged(true)
-                        let dx = drag.location.x - diameter / 2
-                        let dy = drag.location.y - diameter / 2
-                        let r = min((dx * dx + dy * dy).squareRoot() / (diameter / 2), 1)
-                        hue = (atan2(Double(dy), Double(dx)) * 180 / .pi + 360)
-                            .truncatingRemainder(dividingBy: 360)
-                        sat = Double(r)
+                        follow(drag)
                     }
                     .onEnded { _ in
                         dragActive = false
@@ -2069,8 +2088,22 @@ struct LumenColorWheel: View {
                             pressWasReset = false
                             return
                         }
-                        onEditingChanged?(false)
-                        sliderGestureChanged(false)
+                        let moved = dragMoved
+                        let box = gearbox
+                        dragMoved = false
+                        gearbox = nil
+                        if moved {
+                            onEditingChanged?(false)
+                            sliderGestureChanged(false)
+                        } else if let box, !box.grabbedPuck {
+                            // Click to place: one bracketed write, so it is one undo
+                            // step that a double-click's reset folds into.
+                            onEditingChanged?(true)
+                            sliderGestureChanged(true)
+                            write(box.resolving(travelled: .zero, fine: false).offset)
+                            onEditingChanged?(false)
+                            sliderGestureChanged(false)
+                        }
                     }
             )
             // THE PUCK AS AN ADJUSTABLE ELEMENT (UX-03). The disc is gradients and a
@@ -2136,6 +2169,31 @@ struct LumenColorWheel: View {
                     .frame(width: diameter + 40)
             }
         }
+    }
+
+    /// A point in the wheel's frame as an offset from its centre.
+    private func wheelOffset(_ location: CGPoint) -> WheelPoint {
+        WheelPoint(x: Double(location.x - diameter / 2),
+                   y: Double(location.y - diameter / 2))
+    }
+
+    /// One motion sample through the gesture's gearbox, storing it only when ⇧ moved.
+    private func follow(_ drag: DragGesture.Value) {
+        guard let box = gearbox else { return }
+        let out = box.resolving(travelled: WheelPoint(x: Double(drag.translation.width),
+                                                      y: Double(drag.translation.height)),
+                                fine: Self.shiftIsDown)
+        if let changed = out.changedGear { gearbox = changed }
+        write(out.offset)
+    }
+
+    /// SATURATION BEFORE HUE. The open undo step takes the key of its first write, and
+    /// a double-click's reset writes `sat` first — so a click-to-place and the reset
+    /// that follows it share a key and fold into one step.
+    private func write(_ offset: WheelPoint) {
+        guard let puck = WheelDrag.reading(offset, radius: Double(diameter / 2)) else { return }
+        sat = puck.saturation
+        hue = puck.hue
     }
 
     /// One assistive write, bracketed the way a click on the disc is.

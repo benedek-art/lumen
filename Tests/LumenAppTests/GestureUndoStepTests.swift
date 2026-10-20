@@ -93,6 +93,39 @@ final class GestureUndoStepTests: XCTestCase {
         }
     }
 
+    /// A double-click on bare disc is one undo step (B3-05 on the wheel). The first
+    /// click places the puck on release — `sat` then `hue`, the order `LumenColorWheel`
+    /// writes — and the second click's reset writes `sat` in a new gesture. The reset
+    /// folds in only because the placement's step carries the `sat` key; written hue
+    /// first, one ⌘Z landed on a tint nobody chose.
+    @MainActor
+    func testAWheelDoubleClickIsOneUndoStep() throws {
+        try withState { state, photo in
+            let original = state.recipe(for: photo)
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wheel.Shadows.sat", targets: [photo]) { _, r in
+                r.look.wheels.shadows.sat = 0.6
+            }
+            state.updateRecipe(coalescingKey: "wheel.Shadows.hue", targets: [photo]) { _, r in
+                r.look.wheels.shadows.hue = 200
+            }
+            state.sliderGesture(active: false)
+
+            state.sliderGesture(active: true)
+            state.updateRecipe(coalescingKey: "wheel.Shadows.sat", targets: [photo]) { _, r in
+                r.look.wheels.shadows.sat = 0
+            }
+            state.sliderGesture(active: false)
+
+            XCTAssertEqual(state.history.steps.count, 1,
+                           "a double-click on the wheel made \(state.history.steps.count) "
+                               + "undo steps")
+            state.undo()
+            XCTAssertEqual(state.recipe(for: photo), original,
+                           "one ⌘Z did not return the grade from before the double-click")
+        }
+    }
+
     /// Two separate drags are two gestures, and the epoch is what says so: if a release
     /// and a re-press shared one, the second drag's edits would fold into the first's
     /// step through the epoch clause, past every key and every window.
