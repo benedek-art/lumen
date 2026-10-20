@@ -1060,11 +1060,15 @@ final class PhotoRenderModel: ObservableObject {
     @MainActor
     private func apply(_ result: RenderResult, url: URL, recipe: Recipe) {
         appliedGeneration = Swift.max(appliedGeneration, result.generation)
+        // A result that could not stat its file keeps the identity this photo already
+        // has: `load` reads a nil here as a replaced file and clears the frame.
+        let sourceIdentity = result.sourceIdentity
+            ?? (imageURL == url ? imageSourceIdentity : nil)
         image = result.image
         edrImage = result.edrImage
         imageURL = url
         previewIdentity = result.previewIdentity
-        imageSourceIdentity = result.sourceIdentity
+        imageSourceIdentity = sourceIdentity
         isDraft = result.isDraft
         usedEmbeddedPreview = result.usedEmbeddedPreview
         note = result.note

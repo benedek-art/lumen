@@ -312,5 +312,20 @@ final class AuditPreviewReliabilityTests: XCTestCase {
         let rows = await service.previewState(photoID: id)?.rows ?? []
         XCTAssertTrue(rows.isEmpty)
     }
+
+    /// The embedded-preview fallback must say which file it came from. Without an
+    /// identity the loupe took every later request for a replaced file and cleared the
+    /// picture to the surround on each slider event.
+    func testEmbeddedPreviewFallbackCarriesTheSourceIdentity() async throws {
+        // PNG bytes behind a RAW extension: the RAW stage refuses it, ImageIO reads it.
+        let url = try scratch().appendingPathComponent("refused.ARW")
+        try write(pixels(width: 96, height: 64), to: url)
+        let rendered = await RenderCoordinator().renderOneShot(
+            url: url, recipe: Recipe(), maxLongEdge: 96, draft: false)
+        let result = try XCTUnwrap(rendered)
+        try XCTSkipUnless(result.usedEmbeddedPreview, "this OS decoded the stand-in as a RAW")
+        XCTAssertNotNil(result.sourceIdentity)
+        XCTAssertEqual(result.sourceIdentity, SourceFileIdentity.read(url))
+    }
 }
 #endif

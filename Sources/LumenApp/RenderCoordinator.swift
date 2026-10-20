@@ -474,7 +474,11 @@ actor RenderCoordinator {
                                             .map(\.nativeLongEdge) ?? 0),
                                     regionUnit: nil,
                                     fullPixelSize: nil,
-                                    decodeMilliseconds: 0)
+                                    decodeMilliseconds: 0,
+                                    // The viewer compares this with the file's stat on
+                                    // every request; nil reads as "the file was replaced"
+                                    // and blanked the picture on each slider event.
+                                    sourceIdentity: SourceFileIdentity.read(url))
             }
             return nil
         }
