@@ -350,6 +350,18 @@ final class CullScaleTests: XCTestCase {
         }
     }
 
+    /// The size slider is continuous, so `pixels` changes on nearly every drag event.
+    /// A cell's load task keyed on raw pixels was cancelled and restarted for every
+    /// visible cell on each of those events, to fetch the same cache level again.
+    func testACellsLoadTaskIsKeyedOnTheCacheLevel() throws {
+        let source = try code("GridView.swift")
+        let compact = source.filter { !$0.isWhitespace }
+        XCTAssertTrue(compact.contains(
+            ".task(id:CellRequest(url:photo.id,pixels:ThumbnailLadder.bucket(for:pixels),"),
+            "PhotoCell's load task is keyed on raw pixels again — every slider event "
+                + "restarts every visible cell's load")
+    }
+
     /// The body of a function, by brace matching from its declaration. Used only on
     /// comment-and-string-blanked text, which is what makes the brace count honest.
     private static func functionBody(named name: String, in code: String) throws -> String {

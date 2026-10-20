@@ -321,7 +321,11 @@ struct PhotoCell: View {
         }
         .frame(width: side)
         .contentShape(Rectangle())
-        .task(id: CellRequest(url: photo.id, pixels: pixels, sourceIdentity: photo.sourceIdentity)) {
+        // Keyed on the cache level, not raw pixels: the size slider moves `pixels` on
+        // every drag event, and only a bucket edge changes what the loader returns.
+        .task(id: CellRequest(url: photo.id,
+                              pixels: ThumbnailLadder.bucket(for: pixels),
+                              sourceIdentity: photo.sourceIdentity)) {
             await loadThumbnail()
         }
     }
@@ -433,8 +437,8 @@ struct PhotoCell: View {
     }
 }
 
-/// `.task` identity for a cell's pixels: the same photo at a new thumbnail size is a
-/// new request, the same photo at the same size is not.
+/// `.task` identity for a cell's pixels: the same photo at a new cache level is a
+/// new request, the same photo at the same level is not.
 private struct CellRequest: Equatable {
     let url: URL
     let pixels: Int
