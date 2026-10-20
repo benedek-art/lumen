@@ -1915,7 +1915,7 @@ public struct RenderGraph {
             // through the SAME `plateScale` call `ReferenceRenderer` makes, because the
             // two plates have to be identical bytes or gpu-parity fails (C2-01b).
             let pixelsPerCell = grain.plateScale(longEdgePixels: longEdge, channel: channel)
-            let image = GrainPlateCache.plate(profile: grain.profile, channel: channel,
+            let image = GrainPlateCache.field(profile: grain.profile, channel: channel,
                                               pixelsPerCell: pixelsPerCell,
                                               monochrome: false) {
                 let values = grain.plate(channel: channel,
@@ -1938,7 +1938,7 @@ public struct RenderGraph {
             // no dye layers to grain independently, and three decorrelated fields on one
             // would be coloured speckle on a picture with no colour in it.
             let pixelsPerCell = grain.plateScale(longEdgePixels: longEdge, channel: 0)
-            let image = GrainPlateCache.plate(profile: grain.profile, channel: 0,
+            let image = GrainPlateCache.field(profile: grain.profile, channel: 0,
                                               pixelsPerCell: pixelsPerCell,
                                               monochrome: true) {
                 let values = grain.plate(channel: 0, renderPixelsPerCell: pixelsPerCell)
@@ -2406,7 +2406,7 @@ enum GrainPlateCache {
     private static var entries: [(key: GrainPlateKey, image: CIImage)] = []
     private static let limit = 12
 
-    static func plate(profile: FilmGrainProfile, channel: Int, pixelsPerCell: Double,
+    static func field(profile: FilmGrainProfile, channel: Int, pixelsPerCell: Double,
                       monochrome: Bool, pixels make: () -> [Float]) -> CIImage {
         let key = GrainPlateKey(profile: profile, channel: channel,
                                 pixelsPerCell: pixelsPerCell, monochrome: monochrome)
