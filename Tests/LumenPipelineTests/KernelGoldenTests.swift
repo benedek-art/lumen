@@ -745,6 +745,136 @@ final class KernelGoldenTests: XCTestCase {
         XCTAssertGreaterThan(abs(grey.b - 0.4), 0.01, "and a decisive one")
     }
 
+    /// `LocalTableCache` is allowed to save a bake and nothing else. Every answer has to
+    /// be the bytes a cold `LocalPlan` would have produced; a repeat has to be a hit, or
+    /// the cache saves nothing; and every key field has to miss when it moves, or a drag
+    /// of that control would freeze the mask on screen. The balance and white below are
+    /// odd on purpose, so no other test's entry can answer the first lookup.
+    func testTheLocalTableCacheServesAColdBakeAndMissesWhenAnyInputMoves() throws {
+        var adjust = LocalAdjust()
+        adjust.contrast = 30
+        adjust.temp = 20
+        adjust.sat = 25
+        adjust.hue = 12
+        adjust.wheels = GradingWheels(shadows: Wheel(hue: 210, sat: 0.3))
+        let anchors = RenderPlan(recipe: Recipe()).tone
+
+        func cached(_ adjust: LocalAdjust, scale: Double = 1,
+                    size: Int = LUT3D.interactiveSize,
+                    wheels: GradingWheels = GradingWheels(),
+                    balanced: WhiteBalanceEngine.Neutral =
+                        WhiteBalanceEngine.Neutral(kelvin: 5417, tint: 3))
+            -> LocalTableCache.LocalTables {
+            LocalTableCache.plan(adjust: adjust, scale: scale,
+                                 whiteAnchorEV: anchors.whiteAnchorEV,
+                                 blackAnchorEV: anchors.blackAnchorEV, size: size,
+                                 globalColor: ColorAdjust(), globalWheels: wheels,
+                                 balanced: balanced)
+        }
+        func assertCold(_ served: LocalTableCache.LocalTables, _ adjust: LocalAdjust,
+                        scale: Double = 1, size: Int = LUT3D.interactiveSize,
+                        wheels: GradingWheels = GradingWheels(),
+                        balanced: WhiteBalanceEngine.Neutral =
+                            WhiteBalanceEngine.Neutral(kelvin: 5417, tint: 3),
+                        _ what: String, line: UInt = #line) {
+            let cold = LocalPlan(adjust: adjust, scale: scale,
+                                 whiteAnchorEV: anchors.whiteAnchorEV,
+                                 blackAnchorEV: anchors.blackAnchorEV, size: size,
+                                 globalColor: ColorAdjust(), globalWheels: wheels,
+                                 balanced: balanced)
+            XCTAssertEqual(served.pre?.data, cold.preLUT.map { ColorCube.Baked($0).data },
+                           "\(what): pre table is not the cold bake", line: line)
+            XCTAssertEqual(served.colorStage, cold.colorStage,
+                           "\(what): colour stage is not the cold one", line: line)
+            XCTAssertEqual(served.post?.data, cold.postLUT.map { ColorCube.Baked($0).data },
+                           "\(what): post table is not the cold bake", line: line)
+        }
+
+        var hits = LocalTableCache.hits
+        let first = cached(adjust)
+        XCTAssertNotNil(first.pre)
+        XCTAssertNotNil(first.post)
+        assertCold(first, adjust, "cold lookup")
+        XCTAssertEqual(LocalTableCache.hits, hits, "a cold key was answered from the cache")
+
+        let again = cached(adjust)
+        XCTAssertEqual(LocalTableCache.hits, hits + 1, "a repeated key re-baked")
+        XCTAssertEqual(again.pre?.data, first.pre?.data)
+        XCTAssertEqual(again.post?.data, first.post?.data)
+        XCTAssertEqual(again.colorStage, first.colorStage)
+
+        var moved = adjust
+        moved.hue = 40
+        var ownWheels = adjust
+        ownWheels.wheels = GradingWheels(shadows: Wheel(hue: 30, sat: 0.3))
+        let globalWheels = GradingWheels(mid: Wheel(hue: 90, sat: 0.2))
+        let cool = WhiteBalanceEngine.Neutral(kelvin: 4100, tint: -5)
+        hits = LocalTableCache.hits
+        let hue = cached(moved)
+        assertCold(hue, moved, "mask hue")
+        XCTAssertNotEqual(hue.post?.data, first.post?.data, "hue moved and the table did not")
+        let half = cached(adjust, scale: 0.5)
+        assertCold(half, adjust, scale: 0.5, "amount")
+        XCTAssertNotEqual(half.pre?.data, first.pre?.data, "amount moved and the table did not")
+        assertCold(cached(ownWheels), ownWheels, "mask wheels")
+        assertCold(cached(adjust, wheels: globalWheels), adjust, wheels: globalWheels,
+                   "global wheels")
+        assertCold(cached(adjust, balanced: cool), adjust, balanced: cool, "balance")
+        XCTAssertEqual(LocalTableCache.hits, hits, "a moved input was answered from the cache")
+
+        // An export's table is baked for that render and never held.
+        hits = LocalTableCache.hits
+        _ = cached(adjust, size: LUT3D.exportSize)
+        assertCold(cached(adjust, size: LUT3D.exportSize), adjust, size: LUT3D.exportSize,
+                   "export size")
+        XCTAssertEqual(LocalTableCache.hits, hits, "an export-size table was cached")
+    }
+
+    /// The same contract for the local point curve, whose table is keyed separately.
+    func testTheLocalCurveCacheServesAColdBakeAndMissesWhenAnyInputMoves() {
+        let shape = CurveSet(luma: [[0, 0], [0.5, 0.7], [1, 1]], preserveLuminance: false)
+        let size = LUT3D.interactiveSize
+        func cold(_ curve: CurveSet?, amount: Double, white: Double) -> Data? {
+            let local = LocalCurve(curve: curve, amount: amount, white: white)
+            guard !local.isIdentity else { return nil }
+            return ColorCube.Baked(LocalCurvePlan(curve: local, size: size).lut).data
+        }
+
+        var hits = LocalTableCache.hits
+        let first = LocalTableCache.curve(shape, amount: 100, white: 1.37, size: size)
+        XCTAssertNotNil(first.table)
+        XCTAssertEqual(first.table?.data, cold(shape, amount: 100, white: 1.37))
+        XCTAssertEqual(LocalTableCache.hits, hits, "a cold key was answered from the cache")
+        let again = LocalTableCache.curve(shape, amount: 100, white: 1.37, size: size)
+        XCTAssertEqual(LocalTableCache.hits, hits + 1, "a repeated key re-baked")
+        XCTAssertEqual(again.table?.data, first.table?.data)
+
+        hits = LocalTableCache.hits
+        let weaker = LocalTableCache.curve(shape, amount: 60, white: 1.37, size: size)
+        XCTAssertEqual(weaker.table?.data, cold(shape, amount: 60, white: 1.37))
+        XCTAssertNotEqual(weaker.table?.data, first.table?.data)
+        let brighter = LocalTableCache.curve(shape, amount: 100, white: 2.11, size: size)
+        XCTAssertEqual(brighter.table?.data, cold(shape, amount: 100, white: 2.11))
+        var other = shape
+        other.luma = [[0, 0], [0.5, 0.3], [1, 1]]
+        let darker = LocalTableCache.curve(other, amount: 100, white: 1.37, size: size)
+        XCTAssertEqual(darker.table?.data, cold(other, amount: 100, white: 1.37))
+        XCTAssertNotEqual(darker.table?.data, first.table?.data)
+        XCTAssertEqual(LocalTableCache.hits, hits, "a moved input was answered from the cache")
+
+        XCTAssertNil(LocalTableCache.curve(nil, amount: 100, white: 1.37, size: size).table,
+                     "a mask with no curve must still skip the tap")
+        XCTAssertNil(LocalTableCache.curve(shape, amount: 0, white: 1.37, size: size).table,
+                     "an Amount of zero must still skip the tap")
+
+        hits = LocalTableCache.hits
+        _ = LocalTableCache.curve(shape, amount: 100, white: 1.37, size: LUT3D.exportSize)
+        let export = LocalTableCache.curve(shape, amount: 100, white: 1.37,
+                                           size: LUT3D.exportSize)
+        XCTAssertEqual(export.table?.size, LUT3D.exportSize)
+        XCTAssertEqual(LocalTableCache.hits, hits, "an export-size table was cached")
+    }
+
     func testAMaskedColourEditIsBakedAtTheRendersOwnTableSize() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
 

@@ -1362,11 +1362,12 @@ public enum ColorCube {
     /// Core Image wants, so this is a memcpy and a filter, not a conversion.
     ///
     /// This stays the right call for every table the PLAN owns — the finish and
-    /// colour-grade tables, the tone gain cube, a mask's local point curve, the fallback
-    /// tone cube. Every one of those is keyed to the recipe and is rebuilt the moment a
-    /// number moves, so caching one would freeze the photographer's edit on screen,
-    /// which is a far worse defect than the copy it would save. Only a table that is
-    /// invariant for the life of the process takes the overload below.
+    /// colour-grade tables, the tone gain cube, the fallback tone cube. Every one of
+    /// those is keyed to the recipe and is rebuilt the moment a number moves, so caching
+    /// one without its key would freeze the photographer's edit on screen, which is a
+    /// far worse defect than the copy it would save. Only a table that is invariant for
+    /// the life of the process, or one held under a key of every input that built it
+    /// (a mask's local tables, `LocalTableCache`), takes the overload below.
     public static func filter(_ lut: LUT3D, image: CIImage) -> CIImage? {
         filter(Baked(lut), image: image)
     }
