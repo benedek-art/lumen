@@ -299,6 +299,39 @@ final class CubeParserTests: XCTestCase {
                      "a file of nothing but whitespace is not a cube")
     }
 
+    /// Swift's `Float("nan")`, `Float("inf")` and `Float("infinity")` all SUCCEED, so a
+    /// parser whose only test of a field is "did it parse as a number" lets a corrupt or
+    /// badly exported file put NaN or ±∞ into the table. That is not one bad lattice
+    /// point: tetrahedral blending adds `(c100 − c000) · f` even at weight zero, and
+    /// NaN · 0 is NaN, so every pixel whose cell touches the entry comes out NaN —
+    /// through the amount blend, the grain and the encoder — on CPU and in the GPU's
+    /// baked cube alike. The domain headers are numbers read the same way, and a
+    /// non-finite or zero-width domain poisons every sample of the rescale instead.
+    /// Both are refused like any other malformed file.
+    func testANonFiniteSampleOrDomainIsRejectedNotInterpolated() {
+        let header = "LUT_3D_SIZE 2\n"
+        let valid = Self.redInvertingBody.dropLast()
+        for bad in ["0 nan 0", "0 0 inf", "0.5 -inf 0.5", "0 0 infinity", "0 NaN 0",
+                    "nan 0 0", "inf 0 0", "-nan 1 1"] {
+            XCTAssertNil(LUT3D.fromCubeFile(header + (valid + [bad]).joined(separator: "\n")),
+                         "the sample row \"\(bad)\" was accepted into the table")
+        }
+        // A ninth row that happens to START with nan is still a value row, not a vendor
+        // keyword to skip: the file has nine samples where it declares eight.
+        XCTAssertNil(LUT3D.fromCubeFile(header + (Self.redInvertingBody + ["nan nan nan"])
+                        .joined(separator: "\n")),
+                     "a trailing nan row was skipped as a keyword instead of refused")
+        let body = Self.redInvertingBody.joined(separator: "\n")
+        for domain in ["DOMAIN_MIN nan 0 0", "DOMAIN_MAX 1 inf 1", "DOMAIN_MIN -inf 0 0",
+                       "DOMAIN_MAX 0 1 1", "DOMAIN_MIN 1 0 0\nDOMAIN_MAX 0.5 1 1",
+                       "LUT_3D_INPUT_RANGE -inf inf", "LUT_3D_INPUT_RANGE 0 inf"] {
+            XCTAssertNil(LUT3D.fromCubeFile(header + domain + "\n" + body),
+                         "the domain \"\(domain)\" was accepted")
+        }
+        // The control: the same rows, all finite, still parse.
+        assertRedInverting(LUT3D.fromCubeFile(Self.lfCube), "the finite control cube")
+    }
+
     // MARK: - Round trip
 
     /// The writer and the reader are each other's inverse, including across a hostile

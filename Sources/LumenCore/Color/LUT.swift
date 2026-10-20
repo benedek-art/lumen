@@ -351,6 +351,14 @@ public struct LUT3D: Equatable, Sendable {
     /// skip cannot swallow a malformed row. The Resolve keywords that would change what
     /// the samples MEAN — a 1-D shaper's input range, the video-range flags — are
     /// refused by name instead, because ignoring them would render the file wrong.
+    ///
+    /// Every number must also be FINITE. Swift's `Float("nan")`, `Float("inf")` and
+    /// `Float("infinity")` succeed, so "it parsed" is not "it is a sample": one NaN
+    /// entry is NaN in every pixel whose cell touches it (tetrahedral blending adds
+    /// corner differences at weight zero, and NaN · 0 is NaN), on CPU and in the GPU's
+    /// baked cube alike. For the same reason a row that starts with `nan` or `inf` is
+    /// a value row, not a keyword to skip, and the domain must be finite with max > min
+    /// on every channel, or the rescale below divides by zero or by infinity.
     public static func fromCubeFile(_ text: String) -> LUT3D? {
         var size = 0
         var values: [Float] = []
@@ -371,21 +379,26 @@ public struct LUT3D: Equatable, Sendable {
                 return nil      // 1-D shapers and video-range remaps; not supported
             case "LUT_3D_INPUT_RANGE":
                 guard parts.count >= 3, let lo = Double(parts[1]), let hi = Double(parts[2]),
-                      hi > lo else { return nil }
+                      lo.isFinite, hi.isFinite, hi > lo else { return nil }
                 domainMin = RGB(lo, lo, lo)
                 domainMax = RGB(hi, hi, hi)
             case "DOMAIN_MIN":
                 guard parts.count >= 4, let r = Double(parts[1]), let g = Double(parts[2]),
-                      let b = Double(parts[3]) else { return nil }
+                      let b = Double(parts[3]),
+                      r.isFinite, g.isFinite, b.isFinite else { return nil }
                 domainMin = RGB(r, g, b)
             case "DOMAIN_MAX":
                 guard parts.count >= 4, let r = Double(parts[1]), let g = Double(parts[2]),
-                      let b = Double(parts[3]) else { return nil }
+                      let b = Double(parts[3]),
+                      r.isFinite, g.isFinite, b.isFinite else { return nil }
                 domainMax = RGB(r, g, b)
             default:
-                if let c = head.first, c.isLetter || c == "_" { continue }   // unknown keyword
+                if let c = head.first, c.isLetter || c == "_", Float(head) == nil {
+                    continue        // unknown keyword (`nan`/`inf` are numbers, refused below)
+                }
                 guard parts.count >= 3, let r = Float(parts[0]), let g = Float(parts[1]),
-                      let b = Float(parts[2]) else { return nil }
+                      let b = Float(parts[2]),
+                      r.isFinite, g.isFinite, b.isFinite else { return nil }
                 values.append(r)
                 values.append(g)
                 values.append(b)
@@ -393,6 +406,8 @@ public struct LUT3D: Equatable, Sendable {
             }
         }
         guard size >= 2, values.count == size * size * size * 4 else { return nil }
+        guard domainMax.r > domainMin.r, domainMax.g > domainMin.g,
+              domainMax.b > domainMin.b else { return nil }      // zero-width or inverted
         guard domainMin == RGB(0, 0, 0), domainMax == RGB(1, 1, 1) else {
             // Rescale a non-unit domain into ours rather than rejecting the file.
             let lut = LUT3D(size: size, data: values)
