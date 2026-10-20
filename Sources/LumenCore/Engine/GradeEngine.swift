@@ -776,8 +776,11 @@ public struct GradeEngine: Sendable {
 
         var out: RGB = c
 
-        // Tint: (a, b) translation at constant L. No chroma-to-luminance leakage, and
-        // an all-zero offset never enters the round trip at all.
+        // Tint: (a, b) translation at constant OKLab L — NOT constant scene Y: the
+        // a, b move changes the LMS mix under L's cube root, so Y moves (about ±10 % at
+        // mid-grey at full deflection; see the file header and
+        // WheelTintLightnessContractTests). An all-zero offset never enters the round
+        // trip at all.
         if da != 0 || db != 0 {
             var lab: OKLab = context.toLab(c)
             lab.a += da
