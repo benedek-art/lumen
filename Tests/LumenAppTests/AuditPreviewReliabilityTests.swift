@@ -123,6 +123,19 @@ final class AuditPreviewReliabilityTests: XCTestCase {
             captured: nil, current: nil, onDisk: old))
     }
 
+    func testASupersededMattePassAsksToBeRunAgainWithinItsBudget() {
+        // A superseded pass stores and attempts nothing, so the progress rule never
+        // re-entered and the panel said "Computing" until an unrelated edit.
+        let superseded = MattePass(available: [], attempted: [], evicted: [],
+                                   superseded: true)
+        XCTAssertTrue(superseded.warrantsRetry(supersededRetries: 0))
+        XCTAssertFalse(superseded.warrantsRetry(
+            supersededRetries: MattePass.supersededRetryLimit),
+            "a file rewritten continuously is not segmented in a loop")
+        let settled = MattePass(available: [], attempted: [], evicted: [])
+        XCTAssertFalse(settled.warrantsRetry(supersededRetries: 0))
+    }
+
     func testAMattePassThatCannotReadTheOriginalSaysSoInsteadOfWorking() async throws {
         // F5-09: "not attempted, not pending" was always WORKING, and a pass that cannot
         // build its source attempts nothing — so the panel said "Computing" forever.

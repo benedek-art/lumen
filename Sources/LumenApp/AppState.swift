@@ -716,7 +716,8 @@ final class AppState: ObservableObject {
     /// this photograph. Empty from the outside; carried forward by the one recursive
     /// call, which is what turns "try again" into "try again only if the last try got
     /// somewhere". See the note at the re-entry below for what it costs when it does not.
-    func ensureMaskMattes(attemptedSoFar: Set<String> = []) {
+    /// `supersededRetries` counts the superseded passes in a row already re-run.
+    func ensureMaskMattes(attemptedSoFar: Set<String> = [], supersededRetries: Int = 0) {
         guard let photo = primarySelection else { return }
         let url = photo.id
         let recipe = recipe(for: photo)
@@ -747,6 +748,15 @@ final class AppState: ObservableObject {
             // thousands a second, while the loupe showed the embedded preview and looked
             // fine. Requiring the attempted set to have GROWN makes a pass that could
             // not run a pass that will not run again.
+            //
+            // A SUPERSEDED pass attempted nothing because the file changed under it, so it
+            // never shows progress; it is retried on its own, bounded, budget instead.
+            if pass.warrantsRetry(supersededRetries: supersededRetries),
+               self.primarySelection?.id == url {
+                self.ensureMaskMattes(attemptedSoFar: attemptedSoFar,
+                                      supersededRetries: supersededRetries + 1)
+                return
+            }
             let progressed = !pass.attempted.isSubset(of: attemptedSoFar)
             if progressed,
                self.primarySelection?.id == url,

@@ -87,6 +87,20 @@ struct MattePass: Sendable {
     /// WORKING, and the panel said "Computing on this Mac" forever about a file on an
     /// ejected volume (audit F5-09).
     var sourceUnavailable: Bool = false
+    /// The file changed under the pass while Vision ran, so its mattes were discarded
+    /// and nothing new is attempted. Without it the caller saw no progress, never
+    /// re-entered, and the panel said "Computing" until some unrelated edit called back.
+    var superseded: Bool = false
+
+    /// Consecutive superseded passes a caller re-runs before giving up. A file being
+    /// rewritten continuously would otherwise segment it in a loop.
+    static let supersededRetryLimit = 2
+
+    /// Whether this pass should be run again now, given how many superseded passes in a
+    /// row have already been retried.
+    func warrantsRetry(supersededRetries: Int) -> Bool {
+        superseded && supersededRetries < Self.supersededRetryLimit
+    }
 }
 
 actor RenderCoordinator {
@@ -670,13 +684,14 @@ actor RenderCoordinator {
             }
         }
         let dropped = evictedMattes.subtracting([url])
-        // A superseded pass leaves its file in the eviction set, so the next pass
-        // reports it and whoever holds a ledger entry for it drops that entry.
+        // A superseded pass leaves its file in the eviction set, so a pass for another
+        // file reports it, and says so itself so its caller runs it again.
         evictedMattes = superseded ? [url] : []
         return MattePass(available: renderer.matteKinds(for: url),
                          attempted: renderer.attemptedMatteKinds(for: url),
                          evicted: Array(dropped),
-                         sourceUnavailable: unavailable)
+                         sourceUnavailable: unavailable,
+                         superseded: superseded)
     }
 
     /// Whether mattes segmented from the picture built under `captured` still belong to
