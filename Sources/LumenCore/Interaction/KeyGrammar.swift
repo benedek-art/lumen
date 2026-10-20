@@ -120,7 +120,9 @@ public enum KeyGrammar {
                        + "back), then back to the grid"),
         ]),
         KeyGroup(title: "Culling", rows: [
-            KeyRow(keys: "P", action: "Pick"),
+            // One row says it for every cull key (`CullTargeting`).
+            KeyRow(keys: "P", action: "Pick — the selection in the grid; the active "
+                  + "frame only in the loupe, Compare and Survey"),
             KeyRow(keys: "X", action: "Reject"),
             KeyRow(keys: "U", action: "Unflag"),
             KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask; "
@@ -129,7 +131,8 @@ public enum KeyGrammar {
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
             KeyRow(keys: "-", action: "Purple label (outside the loupe)"),
-            KeyRow(keys: "A", action: "Toggle auto-advance"),
+            KeyRow(keys: "A", action: "Toggle auto-advance — in Compare and Survey, "
+                  + "to the next compared frame"),
             KeyRow(keys: "B", action: "Add the selection to the target album"),
             KeyRow(keys: "← →", action: "Previous / next photo; in Compare and Survey, "
                   + "the next frame of the comparison"),
