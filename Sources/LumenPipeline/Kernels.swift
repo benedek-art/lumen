@@ -1367,8 +1367,47 @@ public enum ColorCube {
     /// number moves, so caching one would freeze the photographer's edit on screen,
     /// which is a far worse defect than the copy it would save. Only a table that is
     /// invariant for the life of the process takes the overload below.
+    ///
+    /// What it does cache is the COPY, keyed by the table's CONTENT rather than by the
+    /// edit: `PlanTableCache` hands every frame of a drag the same `LUT3D` while the
+    /// slider that moves is not one the table reads, and copying it into a fresh `Data`
+    /// per frame (575 KB at 33, 4.4 MB at 65, up to four tables a frame) also gave
+    /// Core Image a new bitmap to upload each time. A hit needs equal bytes, so a moved
+    /// number is a miss and the frozen-edit failure above cannot happen.
     public static func filter(_ lut: LUT3D, image: CIImage) -> CIImage? {
-        filter(Baked(lut), image: image)
+        filter(RecentBakes.baked(lut), image: image)
+    }
+
+    /// The last few tables' copies. `Array ==` answers in O(1) when both sides share a
+    /// buffer, which is the plan-cache hit this exists for; a different buffer with
+    /// equal content is a full compare, cheaper than the copy it replaces, and returns
+    /// the same bytes either way. Bounded by bytes so 65-point tables cannot pile up.
+    enum RecentBakes {
+        private static let lock = NSLock()
+        private static var entries: [(lut: LUT3D, baked: Baked)] = []
+        private static let byteBudget = 40 * 1024 * 1024
+
+        static func baked(_ lut: LUT3D) -> Baked {
+            lock.lock()
+            defer { lock.unlock() }
+            if let index = entries.firstIndex(where: {
+                $0.lut.size == lut.size && $0.lut.data == lut.data
+            }) {
+                let hit = entries.remove(at: index)
+                entries.insert(hit, at: 0)
+                return hit.baked
+            }
+            let made = Baked(lut)
+            entries.insert((lut, made), at: 0)
+            // Each entry holds the table and its copy: two of `data.count` bytes.
+            var bytes = 0
+            entries = Array(entries.prefix { entry in
+                bytes += entry.baked.data.count * 2
+                return bytes <= byteBudget
+            })
+            if entries.isEmpty { entries = [(lut, made)] }
+            return made
+        }
     }
 
     /// The same wrap, over bytes that were copied once. Same dimension, same bytes, same
