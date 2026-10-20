@@ -53,20 +53,20 @@ final class AccuracyProbeTests: XCTestCase {
     /// 0.3290) and D50 at (0.3457, 0.3585). The Kelvin values carry the 1968 c₂
     /// revision (D65 ≈ 6504 K, D50 ≈ 5003 K) because that is what the published xy
     /// pairs are defined at; a slider showing "6504" must mean the illuminant the
-    /// standard calls that. Tolerance 0.0015 in xy — the CIE polynomials are quoted
-    /// to four figures and the locus blends analytically, so anything past a
-    /// milli-xy is a real disagreement with the standard, not rounding.
+    /// standard calls that. Tolerance 5e-4 in xy: the published pairs are quoted to
+    /// four figures and the code lands within 1.2e-4 of them, so anything past
+    /// half a milli-xy is a real disagreement with the standard, not rounding.
     func testTheKelvinSliderLandsOnThePublishedDIlluminants() {
         let d65 = ColorTemperature.chromaticity(kelvin: 6504, tint: 0)
-        XCTAssertEqual(d65.x, 0.3127, accuracy: 0.0015,
+        XCTAssertEqual(d65.x, 0.3127, accuracy: 5e-4,
                        "6504 K renders x=\(d65.x) against D65's published 0.3127")
-        XCTAssertEqual(d65.y, 0.3290, accuracy: 0.0015,
+        XCTAssertEqual(d65.y, 0.3290, accuracy: 5e-4,
                        "6504 K renders y=\(d65.y) against D65's published 0.3290")
 
         let d50 = ColorTemperature.chromaticity(kelvin: 5003, tint: 0)
-        XCTAssertEqual(d50.x, 0.3457, accuracy: 0.0015,
+        XCTAssertEqual(d50.x, 0.3457, accuracy: 5e-4,
                        "5003 K renders x=\(d50.x) against D50's published 0.3457")
-        XCTAssertEqual(d50.y, 0.3585, accuracy: 0.0015,
+        XCTAssertEqual(d50.y, 0.3585, accuracy: 5e-4,
                        "5003 K renders y=\(d50.y) against D50's published 0.3585")
     }
 

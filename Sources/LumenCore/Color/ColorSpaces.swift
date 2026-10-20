@@ -149,8 +149,11 @@ public enum ChromaticAdaptation {
         -0.250268, 1.204414, 0.045854,
         -0.002079, 0.048952, 0.953127)
 
-    /// Bradford — kept for ICC-compatible profile conversions on export, where
-    /// matching the ICC convention matters more than matching our own.
+    /// Bradford — not currently used by the pipeline. CAT16 does all of Lumen's own
+    /// adaptation, including `RGBColorSpace.matrix(to:)` (so the ProPhoto soft proof,
+    /// gamut warning and scopes adapt D65→D50 with CAT16), while the exported file's
+    /// ICC conversion is done by CoreGraphics with Bradford. Kept for ICC-convention
+    /// comparisons.
     public static let bradford = Mat3(
         0.8951, 0.2664, -0.1614,
         -0.7502, 1.7135, 0.0367,
@@ -608,9 +611,10 @@ public enum ColorTemperature {
         return ChromaticAdaptation.cat16.apply(c.xyz())
     }
 
-    /// Chromaticity for a (Kelvin, tint) pair. Tint offsets perpendicular to the
-    /// locus in CIE 1960 uv — positive tint toward magenta, negative toward green,
-    /// matching every photographic UI ever shipped.
+    /// Chromaticity for a (Kelvin, tint) pair. Tint offsets the CIE 1960 v coordinate
+    /// with u held fixed (an approximation of the locus normal, exact only where the
+    /// locus is horizontal in uv) — positive tint toward magenta, negative toward
+    /// green. `temperatureAndTint` relies on this convention by matching u.
     ///
     /// Magenta is bounded by `tintLimit(kelvin:)`. Past that bound the slider goes on
     /// moving and the picture stops changing, which is an ordinary thing for a control

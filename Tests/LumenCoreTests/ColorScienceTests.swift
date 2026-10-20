@@ -34,6 +34,48 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertEqual(w.sum, 1.0, accuracy: 1e-9)
     }
 
+    /// The four other export spaces against their published RGB→XYZ matrices. The
+    /// white-luminance test below cannot catch a wrong primary (the derivation forces
+    /// row 1 to sum to 1 for any primaries); these can.
+    func testPublishedMatricesForEveryExportSpace() {
+        // SMPTE EG 432-1 (P3 primaries, D65 white), quoted to four decimals.
+        let p3 = Mat3(0.4866, 0.2657, 0.1982,
+                      0.2290, 0.6917, 0.0793,
+                      0.0000, 0.0451, 1.0439)
+        // ITU-R BT.2087 / BT.2020 (D65), four decimals.
+        let rec2020 = Mat3(0.6370, 0.1446, 0.1689,
+                           0.2627, 0.6780, 0.0593,
+                           0.0000, 0.0281, 1.0610)
+        // Adobe RGB (1998) Color Image Encoding, section 4.3.4.3, five decimals.
+        let adobe = Mat3(0.57667, 0.18556, 0.18823,
+                         0.29734, 0.62736, 0.07529,
+                         0.02703, 0.07069, 0.99134)
+        XCTAssertLessThan(RGBColorSpace.displayP3.toXYZ.maxAbsDifference(p3), 1e-4)
+        XCTAssertLessThan(RGBColorSpace.rec2020.toXYZ.maxAbsDifference(rec2020), 1e-4)
+        XCTAssertLessThan(RGBColorSpace.adobeRGB.toXYZ.maxAbsDifference(adobe), 1e-4)
+
+        // ROMM RGB, ISO 22028-2, four decimals. Its Z-of-blue is 0.8249, the ICC D50
+        // XYZ; our white is CIE D50 xy (0.34567, 0.35850), whose Z is 0.82519. That
+        // one entry is checked against the xy-derived Z, the rest against ISO.
+        var romm = Mat3(0.7977, 0.1352, 0.0313,
+                        0.2880, 0.7119, 0.0001,
+                        0.0000, 0.0000, 0.8249)
+        let proPhoto = RGBColorSpace.proPhoto.toXYZ
+        XCTAssertEqual(proPhoto.m[2][2], 0.82519, accuracy: 1e-5)
+        romm.m[2][2] = proPhoto.m[2][2]
+        XCTAssertLessThan(proPhoto.maxAbsDifference(romm), 1e-4)
+
+        // A published cross-space matrix (Rec.2020 → Display P3 linear, both D65),
+        // which also exercises fromXYZ.
+        let rec2020ToP3 = Mat3(1.343578, -0.282180, -0.061399,
+                               -0.065297, 1.075788, -0.010490,
+                               0.002822, -0.019598, 1.016777)
+        XCTAssertLessThan(RGBColorSpace.rec2020.matrix(to: .displayP3)
+                            .maxAbsDifference(rec2020ToP3), 1e-5)
+    }
+
+    /// Structural smoke test only: `toXYZ` scales the primaries so white has Y = 1,
+    /// so this holds for any primaries. Correctness is the published-matrix test above.
     func testEverySpaceMapsWhiteToUnitLuminance() {
         for space in [RGBColorSpace.srgb, .rec2020, .displayP3, .adobeRGB, .proPhoto] {
             XCTAssertEqual(space.luminance(RGB.one), 1.0, accuracy: 1e-9, space.name)
@@ -146,6 +188,34 @@ final class ColorScienceTests: XCTestCase {
         XCTAssertGreaterThan(TransferFunction.hlg.encode(0.001), deepSRGB * 3)
     }
 
+    /// The linear toe segments (IEC 61966-2-1: slope 12.92 below 0.0031308 / 0.04045;
+    /// ITU-R BT.709: slope 4.5 below 0.018 / 0.081). The round-trip grid only hits 0.
+    func testTransferToeSegmentsHitPublishedValues() {
+        let srgb = TransferFunction.srgb, rec709 = TransferFunction.rec709
+        XCTAssertEqual(srgb.encode(0.002), 0.025840, accuracy: 1e-9)
+        XCTAssertEqual(srgb.decode(0.02), 0.0015479876161, accuracy: 1e-12)
+        // Either side of the decode breakpoint 0.04045.
+        XCTAssertEqual(srgb.decode(0.04), 0.0030959752322, accuracy: 1e-9)
+        XCTAssertEqual(srgb.decode(0.041), 0.0031743, accuracy: 1e-7)  // ((0.041+0.055)/1.055)^2.4
+        XCTAssertEqual(srgb.decode(0.5), 0.2140411, accuracy: 1e-7)
+        // Continuity at the encode breakpoint: the toe and power segments meet.
+        XCTAssertEqual(srgb.encode(0.0031308), 0.04045, accuracy: 1e-4)
+
+        XCTAssertEqual(rec709.encode(0.01), 0.045, accuracy: 1e-12)
+        XCTAssertEqual(rec709.decode(0.045), 0.01, accuracy: 1e-12)
+        XCTAssertEqual(rec709.encode(0.017), 0.0765, accuracy: 1e-12)
+        // BT.709's rounded constants leave a 2.5e-4 step at the join (1.099·0.018^0.45 −
+        // 0.099 = 0.08125), which is the standard's own discontinuity.
+        XCTAssertEqual(rec709.encode(0.018), 0.081, accuracy: 5e-4)
+
+        for tf in [srgb, rec709] {
+            for x in [0.0005, 0.001, 0.002, 0.003, 0.01, 0.017] {
+                XCTAssertEqual(tf.decode(tf.encode(x)), x, accuracy: 1e-9,
+                               "\(tf.rawValue) toe round trip at \(x)")
+            }
+        }
+    }
+
     func testSRGBKnownPoints() {
         XCTAssertEqual(TransferFunction.srgb.encode(0), 0, accuracy: 1e-9)
         XCTAssertEqual(TransferFunction.srgb.encode(1), 1, accuracy: 1e-9)
@@ -188,6 +258,24 @@ final class ColorScienceTests: XCTestCase {
         let d50 = ColorTemperature.locus(kelvin: 5000)
         XCTAssertEqual(d50.x, 0.34567, accuracy: 1e-3, "5000 K is not at D50")
         XCTAssertEqual(d50.y, 0.35850, accuracy: 1e-3, "5000 K is not at D50")
+    }
+
+    /// The Planckian (tungsten) branch, used at and below 3500 K, against published
+    /// CIE 1931 Planckian chromaticities and CIE Illuminant A (2856 K). The Kim et al.
+    /// cubic lands within 6e-4 of each; 1e-3 is the tolerance.
+    func testTheTungstenEndLandsOnThePlanckianLocus() {
+        let published: [(kelvin: Double, x: Double, y: Double)] = [
+            (2000, 0.5267, 0.4133),
+            (2500, 0.4770, 0.4137),
+            (2856, 0.44757, 0.40745),   // CIE Illuminant A
+            (3000, 0.4369, 0.4041),
+            (3500, 0.4053, 0.3907),
+        ]
+        for p in published {
+            let c = ColorTemperature.chromaticity(kelvin: p.kelvin, tint: 0)
+            XCTAssertEqual(c.x, p.x, accuracy: 1e-3, "x at \(p.kelvin) K")
+            XCTAssertEqual(c.y, p.y, accuracy: 1e-3, "y at \(p.kelvin) K")
+        }
     }
 
     /// The round trip is against the tint the RENDER USES, not the tint that was asked
