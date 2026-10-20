@@ -10,7 +10,7 @@ import LumenCore
 /// stop when cancelled, and each view holds and cancels the handle.
 final class OverlayCancellationTests: XCTestCase {
 
-    private nonisolated static func frame() -> PixelSampler {
+    private nonisolated static func checkerboard() -> PixelSampler {
         let side = 64
         var bytes = [UInt8](repeating: 0, count: side * side * 4)
         for p in 0..<(side * side) {
@@ -24,7 +24,7 @@ final class OverlayCancellationTests: XCTestCase {
     }
 
     private nonisolated static func buildAll() -> [Bool] {
-        let sampler = frame()
+        let sampler = checkerboard()
         return [
             ClippingOverlayView.build(sampler: sampler, mode: .highlights,
                                       fullFrame: false) != nil,
