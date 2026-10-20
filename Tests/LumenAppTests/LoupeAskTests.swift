@@ -12,12 +12,12 @@ final class LoupeAskTests: XCTestCase {
     private let previous = URL(fileURLWithPath: "/roll/previous.ARW")
 
     func testAFrameOfThisPhotoSizesTheAsk() {
-        XCTAssertEqual(LoupeAsk.frame(42, shownFor: current, photo: current), 42)
+        XCTAssertEqual(LoupeAsk.sizingFrame(42, shownFor: current, photo: current), 42)
     }
 
     func testThePreviousPhotosFrameDoesNot() {
-        XCTAssertNil(LoupeAsk.frame(42, shownFor: previous, photo: current))
-        XCTAssertNil(LoupeAsk.frame(42, shownFor: nil, photo: current))
+        XCTAssertNil(LoupeAsk.sizingFrame(42, shownFor: previous, photo: current))
+        XCTAssertNil(LoupeAsk.sizingFrame(42, shownFor: nil, photo: current))
     }
 }
 #endif

@@ -1125,7 +1125,7 @@ final class PhotoRenderModel: ObservableObject {
 enum LoupeAsk {
     /// The frame the render ask may be sized from: the one on screen only when it is
     /// of the photo being asked for, so a switch never asks at the last photo's aspect.
-    static func frame<Frame>(_ frame: Frame?, shownFor shown: URL?, photo: URL) -> Frame? {
+    static func sizingFrame<Frame>(_ frame: Frame?, shownFor shown: URL?, photo: URL) -> Frame? {
         shown == photo ? frame : nil
     }
 }
@@ -1354,7 +1354,7 @@ struct LoupeView: View {
             // the previous photo's, and its aspect was one more key the first ask went
             // through, restarting the task, before the frame was cleared.
             let drawnDevice: Double? = region == nil
-                ? LoupeAsk.frame(model.image, shownFor: model.imageURL,
+                ? LoupeAsk.sizingFrame(model.image, shownFor: model.imageURL,
                                  photo: photo.id).map { cg in
                     let d = drawnFull(forZoom: layoutZoom, image: cg,
                                       container: container)
