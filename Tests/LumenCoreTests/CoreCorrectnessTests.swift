@@ -151,4 +151,26 @@ final class CoreCorrectnessTests: XCTestCase {
         XCTAssertEqual(ZoneWeights.crossfade(x: 0.1, pivots: pivots).index, 0)
         XCTAssertEqual(ZoneWeights.crossfade(x: 0.2, pivots: pivots).weight, 0.5, accuracy: 1e-12)
     }
+
+    // MARK: - Dither
+
+    /// The interleave ran most-significant-bit first, which builds a clustered screen
+    /// rather than a Bayer matrix: at a half-code value rows 0-3 of every cell rounded
+    /// down and rows 4-7 rounded up, banding flat skies in 8-bit exports.
+    func testTheDitherMatrixIsTheDispersedBayerMatrix() {
+        XCTAssertEqual((0..<8).map { Dither.index(x: $0, y: 0) }, [0, 32, 8, 40, 2, 34, 10, 42])
+        XCTAssertEqual((0..<8).map { Dither.index(x: 0, y: $0) }, [0, 48, 12, 60, 3, 51, 15, 63])
+        for y in 0..<Dither.matrixSide {
+            let ups = (0..<Dither.matrixSide).filter { Dither.offset(x: $0, y: y) >= 0 }.count
+            XCTAssertEqual(ups, 4, "row \(y) at a half-code value")
+        }
+        for by in stride(from: 0, to: 8, by: 2) {
+            for bx in stride(from: 0, to: 8, by: 2) {
+                let quarters = Set([Dither.index(x: bx, y: by), Dither.index(x: bx + 1, y: by),
+                                    Dither.index(x: bx, y: by + 1), Dither.index(x: bx + 1, y: by + 1)]
+                    .map { $0 / 16 })
+                XCTAssertEqual(quarters.count, 4, "2x2 block at (\(bx),\(by))")
+            }
+        }
+    }
 }
