@@ -87,8 +87,16 @@ public struct ImageBuffer: Sendable {
     }
 
     /// Bilinear sample at continuous coordinates (pixel centres at +0.5).
+    ///
+    /// Coordinates are limited to one pixel past each edge before the Int conversion.
+    /// That changes no result (the edge repeats anyway) but keeps a far-off finite
+    /// coordinate, such as a spot source decoded as 1e20, from trapping.
     public func bilinear(_ x: Double, _ y: Double) -> RGB {
-        let fx = x - 0.5, fy = y - 0.5
+        func limited(_ v: Double, _ extent: Int) -> Double {
+            guard v.isFinite else { return -1 }
+            return Swift.min(Swift.max(v, -1), Double(extent))
+        }
+        let fx = limited(x - 0.5, width), fy = limited(y - 0.5, height)
         let x0 = Int(floor(fx)), y0 = Int(floor(fy))
         let tx = fx - Double(x0), ty = fy - Double(y0)
         let a = clampedSample(x0, y0).mix(clampedSample(x0 + 1, y0), tx)

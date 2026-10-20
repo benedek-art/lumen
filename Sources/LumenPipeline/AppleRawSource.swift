@@ -42,7 +42,16 @@ public final class AppleRawSource: ImageSource {
     private let pinnedVersion: CIRAWDecoderVersion
 
     /// The as-shot neutral, which is what Lumen's own CAT16 white balance adapts FROM.
+    ///
+    /// These are Adobe/DNG-convention numbers (`DNGTemperature`: the DNG SDK's Robertson
+    /// isotemperature table, `kTintScale` -3000), NOT `ColorTemperature`'s. Measured:
+    /// Apple's 5454.009 K / -12.9935 for corpus 1087 comes with `neutralChromaticity`
+    /// (0.3333341, 0.3333340), which `DNGTemperature.chromaticity` reproduces to 5e-9;
+    /// `ColorTemperature.chromaticity` puts the same pair at (0.32745, 0.33752).
+    /// RawCorpusTests pins this on every corpus file. Stored unconverted, because
+    /// `decode` hands Apple its own pair back.
     public let asShotTemperature: Double
+    /// Tint in the same DNG convention as `asShotTemperature` (positive = greener light).
     public let asShotTint: Double
 
     private let defaultLuminanceNR: Float
@@ -307,6 +316,14 @@ public final class AppleRawSource: ImageSource {
         // Everything display-referred: off. This is the whole point of the contract.
         filter.boostAmount = 0
         filter.boostShadowAmount = 0
+        // Apple's default is not zero ("varies by image"): it subtracts a black offset
+        // before baseline exposure. Raw-corpus run 39152441459, file 1087: default 5.0;
+        // the flat set without this decoded to a constant -0.004222 in every channel,
+        // with it to 0.0. ~0.005 of white (~80 DN of an A7 IV's 512..16383 range), so
+        // everything below ~-7.6 EV went to zero or negative and deep shadows stopped
+        // being proportional to light. Blacks is a tone decision; D8 says the display
+        // transform is ours, so the decoder subtracts nothing.
+        filter.shadowBias = 0
         filter.localToneMapAmount = 0
         filter.isGamutMappingEnabled = false
         filter.contrastAmount = 0

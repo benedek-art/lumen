@@ -695,6 +695,13 @@ struct FilterBar: View {
         .lumenClickCursor()
         .fixedSize()
         .help("After a flag, star or label, move to the next photo")
+        // One named button, not a caption and an unnamed "on, button" (see
+        // `LumenToggleRow`).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Auto-advance"))
+        .accessibilityValue(Text(state.autoAdvance ? "on" : "off"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { state.autoAdvance.toggle() }
     }
 
     /// THE GRID'S OWN CONTROL, drawn only where the grid is.

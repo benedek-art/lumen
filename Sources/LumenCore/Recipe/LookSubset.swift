@@ -197,8 +197,21 @@ public struct LookSubset: Codable, Equatable, Sendable {
     // MARK: - Taking a look off a photograph
 
     /// The look this recipe expresses.
+    ///
+    /// A retouched frame states `healSpotsPipelineVersion` because of its spots, and a
+    /// look never carries them. Copied as it stands, that stamp raised every target to
+    /// a spot recipe, and an older build then refused to write photographs it can
+    /// represent fully. The same cap `Recipe.adoptingSettings` applies when the
+    /// retouching stays behind.
     public static func extracted(from recipe: Recipe) -> LookSubset {
-        LookSubset(pipelineVersion: recipe.pipelineVersion, look: recipe.look)
+        LookSubset(pipelineVersion: carriedVersion(recipe.pipelineVersion), look: recipe.look)
+    }
+
+    /// The stamp a look may carry: at most one below the spot version when the spot
+    /// version is all that raised it. Looks saved before this cap say 3 in the catalog,
+    /// and a look cannot hold spot vocabulary, so `applied(to:)` caps those as well.
+    static func carriedVersion(_ version: Int) -> Int {
+        version == healSpotsPipelineVersion ? healSpotsPipelineVersion - 1 : version
     }
 
     // MARK: - How much of it lands
@@ -661,7 +674,8 @@ public struct LookSubset: Codable, Equatable, Sendable {
             : LookSubset.blended(from: recipe.look, toward: look, amount: strength)
         copy.look.render.preset = LookSubset.carriedRenderPreset(look.render.preset,
                                                                  onto: recipe.look.render.preset)
-        copy.pipelineVersion = max(recipe.pipelineVersion, pipelineVersion)
+        copy.pipelineVersion = max(recipe.pipelineVersion,
+                                   LookSubset.carriedVersion(pipelineVersion))
         return copy
     }
 

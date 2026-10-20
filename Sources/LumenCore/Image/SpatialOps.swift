@@ -43,16 +43,29 @@ public enum SpatialOps {
         let r = Swift.min(radius, Swift.max(w, h))
         let n = Double(2 * r + 1)
 
+        // A running sum cannot carry a non-finite sample: once NaN is added it never
+        // subtracts back out (NaN - NaN = NaN, Inf - Inf = NaN), so one bad pixel used to
+        // poison every output below and to the right of it. Finite samples go into the
+        // sum; non-finite ones are only counted, and a window holding any reads NaN.
+        // Finite input takes exactly the same additions in the same order as before.
+        @inline(__always) func add(_ v: Double, _ sum: inout Double, _ bad: inout Int) {
+            if v.isFinite { sum += v } else { bad += 1 }
+        }
+        @inline(__always) func remove(_ v: Double, _ sum: inout Double, _ bad: inout Int) {
+            if v.isFinite { sum -= v } else { bad -= 1 }
+        }
+
         var tmp = Plane(width: w, height: h)
         for y in 0..<h {
             var sum = 0.0
-            for k in -r...r { sum += plane.clampedSample(k, y) }
-            tmp[0, y] = sum / n
+            var bad = 0
+            for k in -r...r { add(plane.clampedSample(k, y), &sum, &bad) }
+            tmp[0, y] = bad > 0 ? .nan : sum / n
             if w > 1 {
                 for x in 1..<w {
-                    sum += plane.clampedSample(x + r, y)
-                    sum -= plane.clampedSample(x - r - 1, y)
-                    tmp[x, y] = sum / n
+                    add(plane.clampedSample(x + r, y), &sum, &bad)
+                    remove(plane.clampedSample(x - r - 1, y), &sum, &bad)
+                    tmp[x, y] = bad > 0 ? .nan : sum / n
                 }
             }
         }
@@ -60,13 +73,14 @@ public enum SpatialOps {
         var out = Plane(width: w, height: h)
         for x in 0..<w {
             var sum = 0.0
-            for k in -r...r { sum += tmp.clampedSample(x, k) }
-            out[x, 0] = sum / n
+            var bad = 0
+            for k in -r...r { add(tmp.clampedSample(x, k), &sum, &bad) }
+            out[x, 0] = bad > 0 ? .nan : sum / n
             if h > 1 {
                 for y in 1..<h {
-                    sum += tmp.clampedSample(x, y + r)
-                    sum -= tmp.clampedSample(x, y - r - 1)
-                    out[x, y] = sum / n
+                    add(tmp.clampedSample(x, y + r), &sum, &bad)
+                    remove(tmp.clampedSample(x, y - r - 1), &sum, &bad)
+                    out[x, y] = bad > 0 ? .nan : sum / n
                 }
             }
         }

@@ -99,10 +99,12 @@ public enum SpotRetouch {
         let rin = Num.clamp(Swift.max(1 - feather, pixelGuard), 0, 1 - 1e-6)
 
         let cx = spot.x * w, cy = spot.y * h
-        let minX = Swift.max(Int(floor(cx - radius)), 0)
-        let minY = Swift.max(Int(floor(cy - radius)), 0)
-        let maxX = Swift.min(Int(ceil(cx + radius)), width)
-        let maxY = Swift.min(Int(ceil(cy + radius)), height)
+        // Intersect with the frame in floating point BEFORE converting: a finite position
+        // from a decoded recipe (x = 1e20) does not fit in Int and would trap.
+        let minX = StrokeHeal.boundedIndex(floor(cx - radius), lower: 0, upper: width)
+        let minY = StrokeHeal.boundedIndex(floor(cy - radius), lower: 0, upper: height)
+        let maxX = StrokeHeal.boundedIndex(ceil(cx + radius), lower: 0, upper: width)
+        let maxY = StrokeHeal.boundedIndex(ceil(cy + radius), lower: 0, upper: height)
         let resolved = SpotGeometry(cx: cx, cy: cy, sx: spot.sourceX * w, sy: spot.sourceY * h,
                                 radius: radius, rin: rin, opacity: opacity,
                                 heal: spot.mode == .heal,

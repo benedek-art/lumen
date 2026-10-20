@@ -1042,6 +1042,15 @@ final class CatalogService: @unchecked Sendable {
                 "\(url.lastPathComponent) has more brush strokes than a sidecar can "
                 + "hold, so its .xmp keeps an earlier copy. The catalog and its "
                 + "backups have the current painting.")
+        case .unresolved(let missing, _):
+            // The recipe points at blobs this machine cannot read. `.some(nil)` here
+            // would delete the sidecar's copy — in this state possibly the only one —
+            // and writing the resolvable part would overwrite the missing sets. Say
+            // nothing about the strokes, so the file keeps what it has.
+            NSLog("Lumen catalog: %@ references %d stroke blob(s) the catalog cannot "
+                  + "read (%@) — the sidecar keeps its previous brush painting",
+                  url.lastPathComponent, missing.count,
+                  missing.joined(separator: ", "))
         }
         return nil
     }
@@ -1365,18 +1374,20 @@ final class CatalogService: @unchecked Sendable {
         // On the catalog's queue, after the row write, like every other sidecar
         // enqueue in this file: a sidecar is never told something the catalog was not.
         await onQueue("keyword write", fallback: ()) { [self] store in
-            var before: [Int64: Set<String>] = [:]
+            var before: [Int64: [String]] = [:]
             for target in targets {
-                before[target.id] = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
+                before[target.id] = try store.keywords(photoID: target.id)
             }
             try store.removeKeyword(name, photoIDs: ids)
             for target in targets {
-                let after = Set(try store.keywords(photoID: target.id).map(KeywordPath.leaf))
-                let removed = (before[target.id] ?? []).subtracting(after)
+                // Leaves AND synonyms: the sidecar may spell the keyword either way.
+                let edit = try SidecarKeywordEdit.removal(
+                    before: before[target.id] ?? [],
+                    after: try store.keywords(photoID: target.id),
+                    synonyms: store.synonyms(ofKeyword:))
                 self.enqueueSidecar(for: target.url, photoID: target.id, rating: nil,
                                     label: nil, recipe: nil,
-                                    keywordEdit: SidecarKeywordEdit(
-                                        removed: Array(removed)))
+                                    keywordEdit: edit)
             }
         }
     }
@@ -1996,6 +2007,61 @@ final class CatalogService: @unchecked Sendable {
         await onQueue("discard obsolete previews", fallback: []) { store in
             try store.discardPreviews(rows)
         }
+    }
+
+    // MARK: - Removing photographs (the reject sweep)
+
+    /// Removes each photo's rows through `CatalogStore.deletePhoto` and unlinks the
+    /// cached preview payloads it hands back. Returns the ids actually removed; one
+    /// that fails stays catalogued and is logged, and the others still go.
+    func removePhotos(ids: [Int64]) async -> [Int64] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[Int64], Never>) in
+            queue.async { [weak self, store] in
+                var removed: [Int64] = []
+                var payloads: [PreviewRow] = []
+                for id in ids {
+                    do {
+                        payloads.append(contentsOf: try store.deletePhoto(id: id))
+                        removed.append(id)
+                    } catch {
+                        NSLog("Lumen catalog: removing photo %lld failed — %@",
+                              id, String(describing: error))
+                    }
+                }
+                self?.onInvalidatedPreviews?(payloads)
+                continuation.resume(returning: removed)
+            }
+        }
+    }
+
+    /// Every pending sidecar written now, behind whatever the catalog lane already
+    /// holds. Called before files are moved, so each sidecar carries its latest flag
+    /// and recipe and no later flush recreates one at the old path.
+    func flushSidecarsNow() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [weak self] in
+                self?.flushSidecars()
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Photos still owed a sidecar write — queued, or kept for a retry after a failed
+    /// write — by photo path and by row id. Read after `flushSidecarsNow`, these are the
+    /// frames whose portable copy is behind the catalog.
+    func photosOwingSidecars() -> (paths: Set<String>, photoIDs: Set<Int64>) {
+        sidecarLock.lock()
+        defer { sidecarLock.unlock() }
+        var paths = Set(unsavedSidecars.keys)
+        var ids: Set<Int64> = []
+        for (url, entry) in pendingSidecars {
+            paths.insert(url.standardizedFileURL.path)
+            if let id = entry.photoID { ids.insert(id) }
+        }
+        for record in unsavedSidecars.values {
+            if let id = record.photoID { ids.insert(id) }
+        }
+        return (paths, ids)
     }
 
     /// LRU stamp on every serve. Silent on failure by design — a lost stamp costs

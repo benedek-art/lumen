@@ -164,5 +164,24 @@ final class ZoomBroadcastTests: XCTestCase {
                            + "counting above cannot see it because it counts the wrong "
                            + "object")
     }
+
+    /// The pointer drag pans through `panTo` too. A direct `viewport.pan =` write skips
+    /// both the guard measured above and the HUD's input stamp, so the only direct
+    /// writes left in the loupe are the re-anchor inside `applyZoomChange`.
+    func testLoupeWritesPanDirectlyOnlyWhenReanchoringAZoom() throws {
+        let code = blankingComments(in: try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/LumenApp/LoupeView.swift"),
+            encoding: .utf8))
+        let write = "viewport.pan = "
+        let reanchor = try XCTUnwrap(code.components(separatedBy: "func applyZoomChange(").last)
+            .components(separatedBy: "\n    }\n").first ?? ""
+        XCTAssertGreaterThan(reanchor.components(separatedBy: write).count, 1)
+        XCTAssertEqual(code.components(separatedBy: write).count,
+                       reanchor.components(separatedBy: write).count,
+                       "a `viewport.pan =` write outside applyZoomChange bypasses panTo")
+    }
 }
 #endif

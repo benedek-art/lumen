@@ -411,9 +411,9 @@ parameterization, which preserves grays by construction.
 |---|---|---|---|
 | Red primary: Hue | −100 (→magenta) .. +100 (→yellow) | 0 | |
 | Red primary: Purity | −100 .. +100 | 0 | |
-| Green primary: Hue | −100 (→cyan) .. +100 (→yellow) | 0 | |
+| Green primary: Hue | −100 (→yellow) .. +100 (→cyan) | 0 | |
 | Green primary: Purity | −100 .. +100 | 0 | |
-| Blue primary: Hue | −100 (→magenta) .. +100 (→cyan) | 0 | |
+| Blue primary: Hue | −100 (→cyan) .. +100 (→magenta) | 0 | |
 | Blue primary: Purity | −100 .. +100 | 0 | |
 | Shadows Tint | −100 (green) .. +100 (magenta) | 0 | Shadow-only cast fix WB can't reach |
 

@@ -332,6 +332,53 @@ final class CullScaleTests: XCTestCase {
                            + "publish at the end")
     }
 
+    // MARK: Coming back to the sheet
+
+    /// `ContentView` switches between the grid and the loupe, so every return to the
+    /// grid is a new `ScrollView` at row one. Its only `scrollTo` used to be the
+    /// selection `onChange`, which does not fire on appear: back from the loupe on
+    /// frame 1,240 the sheet showed frame 1. The strip has always centred on appear.
+    func testBothSurfacesCentreTheSelectionWhenTheyAppear() throws {
+        for name in ["GridView.swift", "FilmstripView.swift"] {
+            let source = try code(name)
+            let appears = bodies(after: ".onAppear", in: source)
+            XCTAssertFalse(appears.isEmpty, "\(name) has no onAppear")
+            XCTAssertTrue(appears.contains {
+                $0.contains("state.primarySelection?.id") && $0.contains("proxy.scrollTo(")
+            }, "\(name) no longer scrolls to the selected frame when it appears — "
+                + "returning from the loupe lands at the top of the roll")
+        }
+    }
+
+    /// The size slider is continuous, so `pixels` changes on nearly every drag event.
+    /// A cell's load task keyed on raw pixels was cancelled and restarted for every
+    /// visible cell on each of those events, to fetch the same cache level again.
+    func testACellsLoadTaskIsKeyedOnTheCacheLevel() throws {
+        let source = try code("GridView.swift")
+        let compact = source.filter { !$0.isWhitespace }
+        XCTAssertTrue(compact.contains(
+            ".task(id:CellRequest(url:photo.id,pixels:ThumbnailLadder.bucket(for:pixels),"),
+            "PhotoCell's load task is keyed on raw pixels again — every slider event "
+                + "restarts every visible cell's load")
+    }
+
+    /// `GridView` is rebuilt on every return from the loupe, so every visible cell is
+    /// a new view whose image starts nil. A cache hit assigned under the well's 120 ms
+    /// animation faded in every thumbnail at once, though all the pixels were in memory.
+    func testACachedThumbnailIsShownWithoutTheFade() throws {
+        let source = try code("GridView.swift")
+        let body = try Self.functionBody(named: "loadThumbnail", in: source)
+        guard let hit = body.range(of: "loader.thumbnail(for:"),
+              let decode = body.range(of: "loader.image(for:") else {
+            return XCTFail("loadThumbnail no longer has a cache-hit and a decode path")
+        }
+        let hitBranch = body[hit.upperBound..<decode.lowerBound]
+        XCTAssertTrue(hitBranch.contains("disablesAnimations = true")
+                          && hitBranch.contains("withTransaction("),
+                      "a cache hit is assigned under the well's fade-in again — the "
+                          + "whole sheet blinks on every return to the grid")
+    }
+
     /// The body of a function, by brace matching from its declaration. Used only on
     /// comment-and-string-blanked text, which is what makes the brace count honest.
     private static func functionBody(named name: String, in code: String) throws -> String {

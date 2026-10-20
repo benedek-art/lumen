@@ -606,7 +606,13 @@ public struct ToneEngine: Sendable {
     public func contrastMapped(_ t: Double) -> Double {
         let c = Num.clamp(tone.contrast, -100, 100)
         guard c != 0 else { return t }
-        let pivot = Num.clamp(tone.contrastPivot, -4, 4)
+        // Inside the LIVE anchors as well as ±4: Whites ≥ +67 pulls the white anchor
+        // below 4, and a pivot above it gave the tones between them the black side's
+        // long reach — Contrast −100 at pivot 4, Whites +100 mapped the anchor 3.5 to
+        // 3.8 and pushed visible tones past white. Clamped, that side's reach is 0
+        // and both anchors stay fixed points.
+        let pivot = Num.clamp(tone.contrastPivot, Swift.max(-4, blackAnchorEV),
+                              Swift.min(4, whiteAnchorEV))
         let slope = 1 + 0.6 * (c / 100)
         let d = t - pivot
         // The LIVE anchors, not the defaults: Whites and Blacks move them, and a reach

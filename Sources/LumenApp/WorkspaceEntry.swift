@@ -141,6 +141,8 @@ extension AppState {
     func enterMasking() {
         PanelLayout.shared.setMasking(true)
         showLoupe()
+        // The mask editor IS the column, so a Tab-hidden column comes back with it.
+        if developColumnHidden { developColumnHidden = false }
         // The Heal tool's circles take the photograph's drags exactly as the crop
         // rectangle's do, so it goes away for the same reason.
         HealTool.shared.armed = false
@@ -161,6 +163,9 @@ extension AppState {
         } else {
             showLoupe()
         }
+        // Arriving somewhere means seeing its column: a Tab-hidden one would make the
+        // rail's tab look dead (`ParityKeys.panelChord`).
+        if developColumnHidden { developColumnHidden = false }
 
         let viewport = LoupeViewport.shared
         if workspace == .crop && armingCrop {

@@ -321,9 +321,13 @@ public struct DisplayTransform: Sendable {
         let perChannel = RGB(tone(inset.r), tone(inset.g), tone(inset.b))
 
         // Hue-stable: curve the norm, keep the ratios.
-        let norm = Swift.max(inset.maxComponent, 1e-9)
-        let scaled = tone(norm)
-        let ratio = norm > 0 ? inset * (scaled / norm) : RGB(black, black, black)
+        // The black fallback keys on the UNfloored max: `norm` is floored for the
+        // log below, and testing it instead made the fallback unreachable, so scene
+        // black rendered at 0 rather than the black target whenever hue preservation
+        // was on (0.3·black at the Film Base preset's 70, black only at 0).
+        let maxComponent = inset.maxComponent
+        let norm = Swift.max(maxComponent, 1e-9)
+        let ratio = maxComponent > 1e-9 ? inset * (tone(norm) / norm) : RGB(black, black, black)
 
         // Path to white. Ratios may hold through the midtones, but a display cannot
         // show "brighter than white": above the pivot the only honest rendering of

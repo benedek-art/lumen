@@ -480,6 +480,12 @@ struct MaskPanel: View {
                     state.sliderGestureSink(active)
                     state.setMaskEdgeGesture(active, mask: mask.id)
                 }
+                // ⌥-scroll here forces the overlay on too; the state's wheel closer
+                // releases it when the burst ends.
+                .environment(\.sliderWheelTick) { owner in
+                    state.sliderWheelSink(owner)
+                    state.setMaskEdgeGesture(true, mask: mask.id)
+                }
         }
         .padding(.leading, MaskPanel.detailIndent)
         .padding(.trailing, 2)
@@ -2111,8 +2117,10 @@ struct MaskPanel: View {
             // not be defended; "Start"/"End" were a 1994 histogram dialog.
             levelsSlider(mask.id, "Ramp from", low: true)
             levelsSlider(mask.id, "Ramp to", low: false)
+            // A gamma, so 0.2 and 5 are equal-strength opposites: on the log axis
+            // the neutral 1 sits at the middle of the track instead of at 17 %.
             refineSlider(mask.id, "Ramp shape", \.levelsGamma, 0.2...5, 1,
-                         step: 0.05, decimals: 2, bipolar: true,
+                         step: 0.05, decimals: 2, bipolar: true, scale: .log,
                          help: "Bends the fade between Ramp from and Ramp to. "
                              + "Below 1 the selection holds back and arrives late; "
                              + "above 1 it comes up early and eases in.")
@@ -2148,8 +2156,10 @@ struct MaskPanel: View {
                                } })
             if lightExpanded {
                 VStack(alignment: .leading, spacing: Lumen.rowGap) {
-                    adjustSlider(mask.id, "Exposure", \.exposure, -4...4, step: 0.05,
-                                 decimals: 2,
+                    // The global Exposure row's range, typing limit and step, since
+                    // the help promises the same unit.
+                    adjustSlider(mask.id, "Exposure", \.exposure, -5...5,
+                                 hardRange: -10...10, step: 0.01, decimals: 2,
                                  help: "Brightness of the selected area, in stops. +1 "
                                      + "is twice the light, the same unit as the "
                                      + "photograph's own Exposure.")
@@ -2811,6 +2821,7 @@ struct MaskPanel: View {
     private func refineSlider(_ id: String, _ t: String, _ p: WritableKeyPath<MaskRefine, Double>,
                               _ r: ClosedRange<Double>, _ d: Double, step: Double = 1,
                               decimals: Int = 0, bipolar: Bool = false,
+                              scale: SliderScale = .linear,
                               help: String? = nil,
                               behaviour: BehaviourShape? = nil,
                               behaviourValue: Double = 0) -> some View {
@@ -2818,7 +2829,7 @@ struct MaskPanel: View {
                     value: maskValue(id, t, get: { $0.refine[keyPath: p] },
                                      set: { $0.refine[keyPath: p] =
                                          Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: d, step: step, decimals: decimals,
+                    range: r, scale: scale, defaultValue: d, step: step, decimals: decimals,
                     bipolar: bipolar,
                     behaviour: behaviour, behaviourValue: behaviourValue,
                     help: help)
@@ -2940,7 +2951,10 @@ struct MaskPanel: View {
                                      + "is spaced in mireds, so a move counts the same "
                                      + "everywhere on the scale. Reset is the "
                                      + "photograph's own white balance.")
+            // The global row's hard range too: Basic accepts a typed ±300 and the
+            // engine renders it, so the stand-in can sit outside ±150.
             optionalAdjustSlider(mask.id, "Tint", \.kelvinTint, -150...150, neutral.tint,
+                                 hardRange: -300...300,
                                  step: 1, bipolar: true,
                                  trackStops: Lumen.tintStops,
                                  help: "The green–magenta axis the Kelvin scale cannot "
@@ -2966,17 +2980,22 @@ struct MaskPanel: View {
     private func optionalAdjustSlider(_ id: String, _ t: String,
                                       _ p: WritableKeyPath<LocalAdjust, Double?>,
                                       _ r: ClosedRange<Double>, _ standIn: Double,
+                                      hardRange: ClosedRange<Double>? = nil,
                                       step: Double = 1, decimals: Int = 0,
                                       bipolar: Bool = false,
                                       scale: SliderScale = .linear,
                                       trackStops: [LumenTrackStop]? = nil,
                                       help: String? = nil) -> some View {
-        LumenSlider(title: t,
+        // The setter clamps to what TYPING accepts, not to the drag range: a stand-in
+        // past the drag range (a global Tint typed to 220) has to survive a reset or an
+        // arrow-key nudge instead of being pulled back to the drag range's end.
+        let limit = hardRange ?? r
+        return LumenSlider(title: t,
                     value: maskValue(id, "abs." + t,
                                      get: { $0.adjust[keyPath: p] ?? standIn },
                                      set: { $0.adjust[keyPath: p] =
-                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, scale: scale, defaultValue: standIn,
+                                         Num.clamp($1, limit.lowerBound, limit.upperBound) }),
+                    range: r, hardRange: hardRange, scale: scale, defaultValue: standIn,
                     step: step, decimals: decimals,
                     bipolar: bipolar,
                     trackStops: trackStops,
@@ -2991,14 +3010,17 @@ struct MaskPanel: View {
     /// panels — which build `LumenSlider` directly — run at 60 of 71.
     private func adjustSlider(_ id: String, _ t: String,
                               _ p: WritableKeyPath<LocalAdjust, Double>,
-                              _ r: ClosedRange<Double>, step: Double = 1,
+                              _ r: ClosedRange<Double>,
+                              hardRange: ClosedRange<Double>? = nil, step: Double = 1,
                               decimals: Int = 0, bipolar: Bool = true,
                               help: String? = nil) -> some View {
-        LumenSlider(title: t,
+        let limit = hardRange ?? r
+        return LumenSlider(title: t,
                     value: maskValue(id, t, get: { $0.adjust[keyPath: p] },
                                      set: { $0.adjust[keyPath: p] =
-                                         Num.clamp($1, r.lowerBound, r.upperBound) }),
-                    range: r, defaultValue: 0, step: step, decimals: decimals,
+                                         Num.clamp($1, limit.lowerBound, limit.upperBound) }),
+                    range: r, hardRange: hardRange, defaultValue: 0,
+                    step: step, decimals: decimals,
                     bipolar: bipolar, help: help)
     }
 

@@ -57,11 +57,17 @@ public enum CaptureMetadataReader {
             ?? (aux[kCGImagePropertyExifAuxLensModel] as? String)
 
         // ISOSpeedRatings is an ARRAY in the standard, and a scalar in plenty of files.
-        if let ratings = exif[kCGImagePropertyExifISOSpeedRatings] as? [Int] {
-            out.iso = ratings.first
-        } else if let single = exif[kCGImagePropertyExifISOSpeedRatings] as? Int {
-            out.iso = single
-        }
+        // It is also a SHORT that saturates at 65535, so the extended-ISO tags ride
+        // along and `PhotoMetadata.resolveISO` picks the real value (the A7 IV writes
+        // SensitivityType=2 plus RecommendedExposureIndex).
+        out.iso = PhotoMetadata.resolveISO(
+            speedRatings: PhotoMetadata.exifInteger(exif[kCGImagePropertyExifISOSpeedRatings]),
+            sensitivityType: PhotoMetadata.exifInteger(exif[kCGImagePropertyExifSensitivityType]),
+            standardOutputSensitivity: PhotoMetadata.exifInteger(
+                exif[kCGImagePropertyExifStandardOutputSensitivity]),
+            recommendedExposureIndex: PhotoMetadata.exifInteger(
+                exif[kCGImagePropertyExifRecommendedExposureIndex]),
+            isoSpeed: PhotoMetadata.exifInteger(exif[kCGImagePropertyExifISOSpeed]))
 
         out.shutterSeconds = exif[kCGImagePropertyExifExposureTime] as? Double
         out.aperture = exif[kCGImagePropertyExifFNumber] as? Double

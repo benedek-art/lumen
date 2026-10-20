@@ -126,6 +126,19 @@ public final class PipelineRenderer {
     /// `MaskRaster.combine` per mouse event. See the type's header for the contract.
     private let maskRasters = MaskRasterCache()
 
+    /// The CIImage last built over each mask's draft raster, so a frame handed the SAME
+    /// held plane (an exact hit, or a stale serve of `previous.plane`) does not copy it
+    /// into new `Data` and a new bitmap image again. See `maskImage(maskID:...)`.
+    private struct MaskImageMemo {
+        let plane: Plane
+        let extent: CGRect
+        let image: CIImage
+    }
+    private var maskImageMemo: [String: MaskImageMemo] = [:]
+    private let maskImageMemoLock = NSLock()
+    /// MaskRasterCache's capacity: one held image per raster it could hand back.
+    private static let maskImageMemoLimit = 16
+
     /// Painted brush planes, so appending a stroke costs one stroke rather than the
     /// whole set. Separate from `maskRasters` because it caches a different thing at a
     /// different granularity: one component's painting, before the fold and before the
@@ -228,6 +241,10 @@ public final class PipelineRenderer {
         // a raster rebake is a background stale-while-bake, not a stall.
         maskSourceGeneration &+= 1
         maskRasters.clear()
+        // The memo pins planes the raster cache just let go of; they go together.
+        maskImageMemoLock.lock()
+        maskImageMemo.removeAll()
+        maskImageMemoLock.unlock()
         // Automask brush prefixes sampled the same old pixels. Clearing the finished
         // alpha alone would rebuild it from that obsolete prefix. The generation in
         // pictureKey also isolates a deferred old bake that paints after this clear.
@@ -464,6 +481,17 @@ public final class PipelineRenderer {
         /// a read of tens of megabytes before a pixel is computed. The owner's "six to
         /// seven seconds" on a photo change is unattributed until this is on the HUD.
         public let decodeMilliseconds: Double
+        /// The other three phases, stamped beside the signposts that already bound
+        /// them, so a slow settle can be attributed without attaching Instruments.
+        /// Plan: building the `RenderPlan`, including any exact colour-table bake.
+        public let planMilliseconds: Double
+        /// Graph: `makeGraph` (mask rasterisation, stale-raster lending) plus the
+        /// lazy build, geometry and dither assembly after it. CPU only; no pixel is
+        /// evaluated here.
+        public let graphMilliseconds: Double
+        /// Render: the `createCGImage` call alone, where the lazy graph is actually
+        /// evaluated. On a cold frame this includes Core Image's kernel compile.
+        public let renderMilliseconds: Double
     }
 
     /// `showingUncropped` is set while the crop tool is open, so the tool draws its
@@ -550,10 +578,13 @@ public final class PipelineRenderer {
         Self.signposter.endInterval("decode", decodeInterval)
 
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        let planStarted = DispatchTime.now().uptimeNanoseconds
         let planInterval = Self.signposter.beginInterval("plan")
         let plan = previewPlan(source: source, recipe: recipe, draft: draft,
                                softProof: softProof)
         Self.signposter.endInterval("plan", planInterval)
+        let graphStarted = DispatchTime.now().uptimeNanoseconds
+        let planMs = Double(graphStarted - planStarted) / 1e6
         let rasterInterval = Self.signposter.beginInterval("rasterize")
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
@@ -580,6 +611,7 @@ public final class PipelineRenderer {
         // judging the sky was judging an artifact the file does not have. Same plate,
         // same amplitude table, same everything as the export's.
         image = Self.applyDither(image, colorSpace: .srgb, bitDepth: 8)
+        let graphMs = Double(DispatchTime.now().uptimeNanoseconds - graphStarted) / 1e6
 
         // The graph is lazy, so THIS is where the GPU actually evaluates it — and
         // where a region ask changes what a zoomed render costs: only the sub-rect's
@@ -626,11 +658,13 @@ public final class PipelineRenderer {
                     height: integral.height / fullExtent.height)
             }
         }
+        let renderStarted = DispatchTime.now().uptimeNanoseconds
         let renderInterval = Self.signposter.beginInterval("render")
         let cgImage = context.createCGImage(
             image, from: rasterRect, format: .RGBA8,
             colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         Self.signposter.endInterval("render", renderInterval)
+        let renderMs = Double(DispatchTime.now().uptimeNanoseconds - renderStarted) / 1e6
         guard let cgImage else {
             throw RenderError.renderFailed
         }
@@ -643,7 +677,10 @@ public final class PipelineRenderer {
             : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
                                fullPixelSize: fullPixelSize,
-                               decodeMilliseconds: decodeMs)
+                               decodeMilliseconds: decodeMs,
+                               planMilliseconds: planMs,
+                               graphMilliseconds: graphMs,
+                               renderMilliseconds: renderMs)
     }
 
     // MARK: - EDR preview
@@ -732,9 +769,13 @@ public final class PipelineRenderer {
         }
         let decodeMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1e6
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
+        // The same three phase stamps as the SDR path's, without its signposts.
+        let planStarted = DispatchTime.now().uptimeNanoseconds
         let plan = edrPreviewPlan(source: source, recipe: recipe, draft: draft,
                                   softProof: softProof,
                                   displayWhiteTarget: displayWhiteTarget)
+        let graphStarted = DispatchTime.now().uptimeNanoseconds
+        let planMs = Double(graphStarted - planStarted) / 1e6
         let graph = makeGraph(plan: plan, decoded: decoded,
                               sourceURL: source.url,
                               allowStaleRasters: draft,
@@ -747,6 +788,7 @@ public final class PipelineRenderer {
                                                              noiseScale: scale * scale))
         image = Self.applyGeometry(image, recipe: recipe, scaleTo: maxLongEdge,
                                    skipCrop: showingUncropped)
+        let graphMs = Double(DispatchTime.now().uptimeNanoseconds - graphStarted) / 1e6
 
         let fullExtent: CGRect = image.extent
         var rasterRect: CGRect = fullExtent
@@ -772,10 +814,14 @@ public final class PipelineRenderer {
                     height: integral.height / fullExtent.height)
             }
         }
-        guard let space = Self.edrColorSpace,
-              let cgImage = context.createCGImage(image, from: rasterRect,
-                                                  format: .RGBAh, colorSpace: space)
-        else {
+        guard let space = Self.edrColorSpace else {
+            throw RenderError.renderFailed
+        }
+        let renderStarted = DispatchTime.now().uptimeNanoseconds
+        let rendered = context.createCGImage(image, from: rasterRect,
+                                             format: .RGBAh, colorSpace: space)
+        let renderMs = Double(DispatchTime.now().uptimeNanoseconds - renderStarted) / 1e6
+        guard let cgImage = rendered else {
             throw RenderError.renderFailed
         }
         let fullPixelSize: CGSize = extentUsable
@@ -783,7 +829,10 @@ public final class PipelineRenderer {
             : CGSize(width: cgImage.width, height: cgImage.height)
         return PreviewDelivery(image: cgImage, regionUnit: deliveredUnit,
                                fullPixelSize: fullPixelSize,
-                               decodeMilliseconds: decodeMs)
+                               decodeMilliseconds: decodeMs,
+                               planMilliseconds: planMs,
+                               graphMilliseconds: graphMs,
+                               renderMilliseconds: renderMs)
     }
 
     // MARK: - Export
@@ -816,14 +865,15 @@ public final class PipelineRenderer {
                        allowOverwrite: Bool = false,
                        catalogKeywords: [String]? = nil) throws -> [String] {
         try exportRecipe.metadata.validateContact()
+        let masks = SharedMaskImages()
         let image = try exportedImage(source: source, recipe: recipe,
                                       using: exportRecipe, strokeSets: strokeSets,
-                                      softProof: softProof)
+                                      softProof: softProof, sharedMasks: masks)
         // nil unless the recipe writes a gain map, so every other export reaches
         // `write` with exactly the arguments it always had.
         let hdr = try exportedHDRImage(source: source, recipe: recipe,
                                        using: exportRecipe, strokeSets: strokeSets,
-                                       softProof: softProof)
+                                       softProof: softProof, sharedMasks: masks)
         try write(image, to: destination, using: exportRecipe,
                   sourceProperties: Self.sourceImageProperties(source.url),
                   allowOverwrite: allowOverwrite, hdrImage: hdr,
@@ -852,9 +902,11 @@ public final class PipelineRenderer {
     func exportedImage(source: any ImageSource, recipe: Recipe,
                        using exportRecipe: ExportRecipe,
                        strokeSets: [String: BrushStrokeSet] = [:],
-                       softProof: SoftProof? = nil) throws -> CIImage {
+                       softProof: SoftProof? = nil,
+                       sharedMasks: SharedMaskImages? = nil) throws -> CIImage {
         try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
                                strokeSets: strokeSets, softProof: softProof,
+                               sharedMasks: sharedMasks,
                                displayWhiteTarget: nil, dither: true)
     }
 
@@ -872,11 +924,31 @@ public final class PipelineRenderer {
     func exportedHDRImage(source: any ImageSource, recipe: Recipe,
                           using exportRecipe: ExportRecipe,
                           strokeSets: [String: BrushStrokeSet] = [:],
-                          softProof: SoftProof? = nil) throws -> CIImage? {
+                          softProof: SoftProof? = nil,
+                          sharedMasks: SharedMaskImages? = nil) throws -> CIImage? {
         guard let white = exportRecipe.gainMapWhiteTargetPercent else { return nil }
         return try deliveredRendition(source: source, recipe: recipe, using: exportRecipe,
                                       strokeSets: strokeSets, softProof: softProof,
+                                      sharedMasks: sharedMasks,
                                       displayWhiteTarget: white, dither: false)
+    }
+
+    /// The mask images one `export` call's two renditions share.
+    ///
+    /// A gain-map export used to rasterize every CPU mask twice at full resolution
+    /// (the mask source readback and `MaskRaster.combine`, seconds for a refined mask
+    /// on a 33 MP file) because `MaskRasterCache` refuses to retain anything above its
+    /// 1024 proxy, so the HDR rendition missed exactly where the SDR one had just
+    /// baked. The bake was redundant: the renditions differ only by display white,
+    /// which reaches S14/S15 and nothing `localStageInput` reads, and every raster key
+    /// term is a function of the url, recipe, strokes and mattes, all the same within
+    /// one call. So the second graph takes the first graph's images verbatim.
+    ///
+    /// Scoped to ONE call on purpose: it holds no key, so it is only correct while the
+    /// decode, recipe, strokes and proof are the ones it was filled under. No lock:
+    /// both renditions run one after the other on the caller's thread. Never stored.
+    final class SharedMaskImages {
+        var images: [String: CIImage]?
     }
 
     /// One delivered rendition: `exportedImage`'s body, parameterized by the display
@@ -887,6 +959,7 @@ public final class PipelineRenderer {
                                     using exportRecipe: ExportRecipe,
                                     strokeSets: [String: BrushStrokeSet],
                                     softProof: SoftProof?,
+                                    sharedMasks: SharedMaskImages?,
                                     displayWhiteTarget: Double?,
                                     dither: Bool) throws -> CIImage {
         // An export is a promise in a way a preview is not, so it refuses rather than
@@ -918,7 +991,12 @@ public final class PipelineRenderer {
                               allowStaleRasters: false,
                               strokeSets: strokeSets,
                               aiMattes: mattes[source.url]?.planes ?? [:],
-                              deferGrain: true)
+                              deferGrain: true,
+                              reusingMaskImages: sharedMasks?.images)
+        // The first rendition fills the box; the second only reads it.
+        if let sharedMasks, sharedMasks.images == nil {
+            sharedMasks.images = graph.maskImages
+        }
         var image = graph.build(decoded, plan: plan,
                                 options: RenderGraph.Options(longEdge: longEdge,
                                                              lutSize: LUT3D.exportSize))
@@ -1158,10 +1236,13 @@ public final class PipelineRenderer {
                                  sourceURL: source.url,
                                  allowStaleRasters: false,
                                  strokeSets: strokeSets, aiMattes: cached)
+        // Same decode, recipe, strokes and mattes, so the same masks: only the
+        // display white differs, and no mask input reads it (`SharedMaskImages`).
         let hdrGraph = makeGraph(plan: hdrPlan, decoded: decoded,
                                  sourceURL: source.url,
                                  allowStaleRasters: false,
-                                 strokeSets: strokeSets, aiMattes: cached)
+                                 strokeSets: strokeSets, aiMattes: cached,
+                                 reusingMaskImages: sdrGraph.maskImages)
         let sdr = Self.applyGeometry(sdrGraph.build(decoded, plan: sdrPlan, options: options),
                                      recipe: recipe)
         let hdr = Self.applyGeometry(hdrGraph.build(decoded, plan: hdrPlan, options: options),
@@ -1564,7 +1645,8 @@ public final class PipelineRenderer {
                            strokeSets: [String: BrushStrokeSet],
                            aiMattes: [String: Plane],
                            deferGrain: Bool = false,
-                           maskRasterCeiling: CGFloat? = nil) -> RenderGraph {
+                           maskRasterCeiling: CGFloat? = nil,
+                           reusingMaskImages: [String: CIImage]? = nil) -> RenderGraph {
         var graph = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
         let extent = decoded.extent
 
@@ -1573,7 +1655,12 @@ public final class PipelineRenderer {
         // grain plate. Drafts now build the full graph; what makes that affordable is
         // `MaskRasterCache` below, which lets a draft frame reuse a raster instead of
         // paying probe (b)'s 12–190 ms per mask per event.
-        if !plan.masks.isEmpty {
+        //
+        // `reusingMaskImages` is a sibling graph's finished masks for the same decode
+        // and recipe (`SharedMaskImages`): taken whole, nothing is rasterized again.
+        if let reusingMaskImages {
+            graph.maskImages = reusingMaskImages
+        } else if !plan.masks.isEmpty {
             // The raster resolution SCALES WITH THE RENDER (docs/31 round two §3).
             // Only a draft frame rasterizes at the 1024 proxy — that is the price a
             // moving hand pays, bounded by MaskRasterCache so it is paid once per
@@ -1612,9 +1699,17 @@ public final class PipelineRenderer {
             // through `localStageInput` so it is the same image the CPU reference hands
             // its rasterizer — a luma band is denominated in EV of the corrected scene,
             // not of the raw decode, or the handles move when Exposure does.
-            let source = maskSource(decoded: decoded, plan: plan,
-                                    width: width, height: height, extent: extent,
-                                    strokeSets: strokeSets)
+            //
+            // BUILT HERE, RENDERED ON FIRST READ. The graph is assembled now; the
+            // readback — a GPU pass and an 11 MB RGBAf copy at the proxy — waits for a
+            // `bake` below to ask for it. An exact raster hit never does, and a stale
+            // serve asks from `bakeQueue` only if its request is not superseded first,
+            // so a drag that kept every key paid for a picture on every event and used
+            // none of them (twice per event with the EDR preview's second graph). One
+            // box per graph: every mask in the stack shares one readback, as before.
+            let source = maskStage(decoded: decoded, plan: plan,
+                                   width: width, height: height, extent: extent,
+                                   strokeSets: strokeSets)
 
             // Everything the raster reads goes into the key, or the cache lies —
             // PlanTableCache's rule, applied to planes. The source image is keyed by
@@ -1685,7 +1780,7 @@ public final class PipelineRenderer {
             let pictureKey: String?
             if source != nil {
                 // `sourceURL` is threaded in from the caller — the local `source` is
-                // the staged ImageBuffer, which has no url (the first draft of this
+                // the staged image's buffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
                 pictureKey = Self.maskSourceFingerprint(recipe: plan.recipe)
                     .map { photograph + "|source-generation:\(maskSourceGeneration)|" + $0 }
@@ -1720,7 +1815,8 @@ public final class PipelineRenderer {
                 let bake = { [brushPlanes] in
                     // The brush half is accumulated rather than replayed. Built inside
                     // `bake` and not before it, so a frame served a stale raster does
-                    // not pay for painting it will not use.
+                    // not pay for painting it will not use. The picture likewise.
+                    let picture = source?.value
                     var painted: [String: Plane] = [:]
                     // Painted at the size the fold actually runs at: a mask with a
                     // stroke thinner than `MaskRaster.brushFineRadiusPx` folds on a
@@ -1745,11 +1841,11 @@ public final class PipelineRenderer {
                             set: set,
                             size: foldSize,
                             sourceKey: automasked ? (sourceKey ?? "-") : "-",
-                            source: automasked ? source : nil)
+                            source: automasked ? picture : nil)
                     }
                     return MaskRaster.combine(mask: mask,
                                               size: (width: width, height: height),
-                                              source: source,
+                                              source: picture,
                                               strokeSets: strokeSets,
                                               aiMattes: aiMattes,
                                               brushPlanes: painted,
@@ -1759,6 +1855,7 @@ public final class PipelineRenderer {
                                               masks: plan.allMasks)
                 }
                 let alpha: Plane
+                var cached = false
                 let dependencies = MaskDependency.closure(of: mask, in: plan.allMasks)
                 if let sourceKey,
                    let maskJSON = Self.maskSelectionFingerprint(dependencies) {
@@ -1783,14 +1880,27 @@ public final class PipelineRenderer {
                                               identity: photograph,
                                               allowStale: allowStaleRasters,
                                               bakeExact: bake)
+                    cached = true
                 } else {
                     // An unencodable mask must not collide with anything: no cache.
                     alpha = bake()
                 }
-                guard let image = Self.image(from: alpha, targetExtent: extent) else {
+                // Draft-proxy rasters only. A settle or export raster is the render's
+                // own size (132 MB on a 33 MP frame, plus the image's own copy) and
+                // pinning one here would undo MaskRasterCache's retention rule. An
+                // uncached bake is fresh storage every frame and could never hit.
+                let memoize = cached && allowStaleRasters
+                    && alpha.values.count <= Self.maskRasterLongEdge * Self.maskRasterLongEdge
+                guard let image = maskImage(maskID: mask.id, plane: alpha,
+                                            extent: extent, memoize: memoize) else {
                     continue
                 }
                 graph.maskImages[mask.id] = image
+            }
+            // Drafts only, so a settle between two drags does not throw the draft's
+            // images away. A settle never inserts, so this is the only growth to bound.
+            if allowStaleRasters {
+                pruneMaskImages(keeping: Set(plan.masks.map(\.id)))
             }
         }
 
@@ -1889,6 +1999,22 @@ public final class PipelineRenderer {
                             width: Int, height: Int, extent: CGRect,
                             strokeSets: [String: BrushStrokeSet],
                             masks: [Mask]? = nil) -> ImageBuffer? {
+        maskStage(decoded: decoded, plan: plan, width: width, height: height,
+                  extent: extent, strokeSets: strokeSets, masks: masks)?.value
+    }
+
+    /// `maskSource` with the readback left for the first reader.
+    ///
+    /// The `staged` graph is built HERE, eagerly, so it reads the plan, the heal
+    /// strokes and the decode at the moment it always did; only the GPU render and the
+    /// RGBAf copy wait. Nil exactly when `maskSource` would have been nil —
+    /// `buffer(from:)`'s extent guard is asked now rather than at render time — so
+    /// `makeGraph` can keep using "is there a source" as a key term without paying
+    /// for one.
+    private func maskStage(decoded: CIImage, plan: RenderPlan,
+                           width: Int, height: Int, extent: CGRect,
+                           strokeSets: [String: BrushStrokeSet],
+                           masks: [Mask]? = nil) -> LazyStageBuffer? {
         // Rendering starts at enabled masks; an overlay starts at the requested row,
         // even when it is disabled. Both need the complete reference closure, not just
         // the root's own kinds: a disabled luma donor still lends its selection.
@@ -1913,7 +2039,10 @@ public final class PipelineRenderer {
                 small, plan: plan,
                 options: RenderGraph.Options(longEdge: Swift.max(width, height),
                                              maskSource: true))
-        return Self.buffer(from: staged, context: context)
+        let bounds = staged.extent.integral
+        guard bounds.width >= 1, bounds.height >= 1,
+              bounds.width.isFinite, bounds.height.isFinite else { return nil }
+        return LazyStageBuffer(image: staged, context: context)
     }
 
     /// Whether rasterizing THIS mask reads the picture — `maskSource`'s `needsPicture`,
@@ -2109,6 +2238,53 @@ public final class PipelineRenderer {
         return image.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
             .transformed(by: CGAffineTransform(translationX: targetExtent.origin.x,
                                                y: targetExtent.origin.y))
+    }
+
+    /// `image(from:targetExtent:)`, reusing the image built last frame when `plane` IS
+    /// the plane it was built from — the copy `image(from:)` makes runs after the
+    /// raster cache's lookup, so on a drag every hit and every stale serve paid it again.
+    ///
+    /// STORAGE IDENTITY, NOT EQUALITY. The memo retains the plane, so its buffer can be
+    /// neither freed (and its address reused) nor written in place — a `[Float]` that is
+    /// shared copies on write. Same base address and count therefore means the same
+    /// bytes, and the reused CIImage is the one `image(from:)` would build again from
+    /// them: bit-identical. Comparing values instead would cost the scan it saves.
+    func maskImage(maskID: String, plane: Plane, extent: CGRect,
+                   memoize: Bool) -> CIImage? {
+        guard memoize else { return Self.image(from: plane, targetExtent: extent) }
+        maskImageMemoLock.lock()
+        if let held = maskImageMemo[maskID],
+           held.extent == extent,
+           held.plane.width == plane.width, held.plane.height == plane.height,
+           held.plane.values.withUnsafeBufferPointer({ a in
+               plane.values.withUnsafeBufferPointer { b in
+                   a.baseAddress == b.baseAddress && a.count == b.count
+               }
+           }) {
+            maskImageMemoLock.unlock()
+            return held.image
+        }
+        maskImageMemoLock.unlock()
+        // Built outside the lock: it is the 2.8 MB copy, and another render's frame
+        // should not wait on it.
+        guard let image = Self.image(from: plane, targetExtent: extent) else { return nil }
+        maskImageMemoLock.lock()
+        if maskImageMemo[maskID] == nil, maskImageMemo.count >= Self.maskImageMemoLimit {
+            // Coarse, like `forgetMattes`: a plan with more raster masks than this
+            // simply builds its images the old way.
+            maskImageMemo.removeAll()
+        }
+        maskImageMemo[maskID] = MaskImageMemo(plane: plane, extent: extent, image: image)
+        maskImageMemoLock.unlock()
+        return image
+    }
+
+    /// Drops memo entries for masks the current plan no longer has, so a deleted mask
+    /// or the previous photograph's stack does not stay pinned.
+    func pruneMaskImages(keeping ids: Set<String>) {
+        maskImageMemoLock.lock()
+        maskImageMemo = maskImageMemo.filter { ids.contains($0.key) }
+        maskImageMemoLock.unlock()
     }
 
     // MARK: - Geometry (S16)
@@ -2924,6 +3100,56 @@ enum DitherStepCube {
                 Dither.codeStep(value.g, transfer: transfer, levels: levels),
                 Dither.codeStep(value.b, transfer: transfer, levels: levels))
         }
+    }
+}
+
+/// The mask stage input, rendered on first read and never again.
+///
+/// `makeGraph` used to read the picture back eagerly, before any raster lookup, and an
+/// exact hit or a superseded stale serve threw it away. Now a `bake` that runs asks
+/// for it, and a frame whose rasters are all held does not. The image is fixed when
+/// the box is made, so a late render (on `bakeQueue`, say) is the same render the eager
+/// one was: same graph, same context, same RGBAf readback.
+///
+/// Locked across the render, not just the memo: a frame can bake one mask on the
+/// render thread while another's deferred bake drains on `bakeQueue`, and both must
+/// get the ONE buffer, not one each. Nothing under the lock calls back into this box
+/// or into `MaskRasterCache`'s lock, so the wait is never a deadlock. The image is
+/// dropped once the buffer exists, so a pending closure holding the box does not also
+/// hold the graph, and the decode behind it, alive.
+final class LazyStageBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var image: CIImage?
+    private let context: CIContext
+    private var buffer: ImageBuffer?
+
+    init(image: CIImage, context: CIContext) {
+        self.image = image
+        self.context = context
+    }
+
+    var value: ImageBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let image {
+            buffer = PipelineRenderer.buffer(from: image, context: context)
+            self.image = nil
+            Self.statsLock.lock()
+            Self.renders += 1
+            Self.statsLock.unlock()
+        }
+        return buffer
+    }
+
+    // Static on purpose, as `MaskRasterCache.Stats` is: the tests ask "did that frame
+    // read the picture back", and one number answers it.
+    private static let statsLock = NSLock()
+    private static var renders = 0
+
+    static var renderCount: Int {
+        statsLock.lock()
+        defer { statsLock.unlock() }
+        return renders
     }
 }
 

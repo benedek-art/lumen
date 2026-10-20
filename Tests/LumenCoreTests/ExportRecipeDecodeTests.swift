@@ -76,7 +76,18 @@ final class ExportRecipeDecodeTests: XCTestCase {
                                   resizeMode: .longEdge, resizeValue: 3000,
                                   allowUpscale: true, resolutionPPI: 240,
                                   filenameTemplate: "{name}-{date}", subfolder: "out")
-        recipe.watermark = Watermark(text: "©", opacity: 40)
+        recipe.watermark = Watermark(text: "©", position: .topLeft, opacity: 40,
+                                     sizePercent: 7, insetPercent: 5)
+        // Every remaining field off its default too. `tolerant` falls back to the
+        // default on any nested decode error, so a field left at its default here would
+        // round-trip "exactly" even if its decoder could never read what was written.
+        recipe.sharpen = OutputSharpen(medium: .matte, amount: .high)
+        recipe.metadata = MetadataPolicy(includeEXIF: false, includeCameraSerial: true,
+                                         includeGPS: true, includeKeywords: false,
+                                         copyright: "© 2026", contact: "a@b.c")
+        recipe.sequenceStart = 250
+        recipe.collision = .skip
+        recipe.hdr = HDRSettings(headroomEV: 1.5, mapScale: 0.5, deliberateSDRBase: false)
         let data = try JSONEncoder().encode(recipe)
         XCTAssertEqual(try JSONDecoder().decode(ExportRecipe.self, from: data), recipe,
                        "a field the encoder wrote came back different or missing")

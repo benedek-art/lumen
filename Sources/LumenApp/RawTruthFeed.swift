@@ -37,11 +37,13 @@ extension AppState {
     /// Fill the `⇧H` panel for the current selection.
     func scheduleRawTruthRefresh() {
         guard showRawTruth else { return }
+        rawTruthTask?.cancel()
         guard let photo = primarySelection else {
             // The bump matters on THIS branch too: without it, a measurement already
             // in flight for the previous photo still passed the generation check and
             // repopulated the panel under an empty selection.
             rawTruthGeneration &+= 1
+            rawTruthTask = nil
             rawTruth = nil
             rawTruthPlan = nil
             rawTruthMeasuring = false
@@ -72,7 +74,9 @@ extension AppState {
         let expected: RawStatistics.Provenance =
             RawTruth.provenance(isRenderedFile: PhotoFormats.isRendered(url))
 
-        Task { [weak self] in
+        // Stored so the next call cancels it: the coordinator's measurement checks
+        // cancellation on arrival, so a photo paged past never reaches its decode.
+        rawTruthTask = Task { [weak self] in
             if let catalog, let photoID,
                let cached = await catalog.rawStatistics(photoID: photoID,
                                                         provenance: expected) {

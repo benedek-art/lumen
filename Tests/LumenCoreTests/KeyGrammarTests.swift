@@ -152,12 +152,20 @@ final class KeyGrammarTests: XCTestCase {
         return found
     }
 
+    /// Named `KeyEquivalent`s the scan reads as a key, with the glyph the reference
+    /// declares them by. Only `.delete` (⌘⌫, the reject sweep) so far; anything else
+    /// named stays `.computed` and needs an exemption.
+    private static let namedKeys: [String: String] = [".delete": "⌫"]
+
     private static func classify(_ argument: String) -> Shortcut {
         let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix(".defaultAction") || trimmed.hasPrefix(".cancelAction") {
             return .sheetAction
         }
-        guard trimmed.hasPrefix("\""), let key = firstStringLiteral(in: trimmed) else {
+        let head = trimmed.split(separator: ",", maxSplits: 1).first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        let literal = trimmed.hasPrefix("\"") ? firstStringLiteral(in: trimmed) : nil
+        guard let key = namedKeys[head] ?? literal else {
             return .computed(trimmed)
         }
         let modifiers = trimmed.contains("modifiers:")
@@ -254,10 +262,14 @@ final class KeyGrammarTests: XCTestCase {
             .keyboardShortcut(.defaultAction)
         Button("Step") { }
             .keyboardShortcut(decrement, modifiers: modifiers)
+        Button("Sweep") { }
+            .keyboardShortcut(.delete, modifiers: [.command])
+        Button("Forward") { }
+            .keyboardShortcut(.deleteForward, modifiers: [.command])
         Text("a .keyboardShortcut(\\"z\\", modifiers: [.command]) inside a string")
         """
         let read = Self.shortcuts(in: sample)
-        // Six call sites are written above; four are real. The commented-out one and
+        // Eight call sites are written above; six are real. The commented-out one and
         // the one inside a `Text` are prose, and a scanner that counted them would
         // demand a reference entry for a sentence.
         XCTAssertEqual(read, [
@@ -266,6 +278,8 @@ final class KeyGrammarTests: XCTestCase {
             .literal(KeyBinding("\\", command: true)),
             .sheetAction,
             .computed("decrement, modifiers: modifiers"),
+            .literal(KeyBinding("⌫", command: true)),
+            .computed(".deleteForward, modifiers: [.command]"),
         ])
     }
 

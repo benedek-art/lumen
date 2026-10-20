@@ -158,12 +158,17 @@ struct ControlPalette: View {
     @State private var selection: Int = 0
     @FocusState private var fieldFocused: Bool
 
+    /// Develop presets are a third lane, between the verbs and the places: Return
+    /// applies the named preset to the selection (`DevelopPresetLibrary.matching`).
+    @ObservedObject private var shelf = DevelopPresetShelf.shared
+
     private var commands: [PaletteCommand] { PaletteCommand.matching(query) }
+    private var presets: [DevelopPreset] { shelf.library.matching(query) }
     private var results: [ControlIndex.Control] { ControlIndex.search(query) }
-    /// One cursor over both lanes. The commands come first, so a row index below
-    /// `commands.count` is a verb and everything above it is a place — which is the only
-    /// arithmetic the arrow keys and Return need to know.
-    private var rowCount: Int { commands.count + results.count }
+    /// One cursor over the three lanes, in drawing order: commands, presets, places.
+    /// A row index says which lane it is in by where it falls — the only arithmetic the
+    /// arrow keys and Return need to know.
+    private var rowCount: Int { commands.count + presets.count + results.count }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -199,15 +204,28 @@ struct ControlPalette: View {
                                         commit()
                                     }
                             }
+                            if !commands.isEmpty && !presets.isEmpty {
+                                Divider().overlay(Lumen.separator)
+                            }
+                            ForEach(Array(presets.enumerated()), id: \.element.name) {
+                                index, preset in
+                                let rowIndex = index + commands.count
+                                presetRow(preset, isSelected: rowIndex == selection)
+                                    .id(rowIndex)
+                                    .onTapGesture {
+                                        selection = rowIndex
+                                        commit()
+                                    }
+                            }
                             // Only between two populated lanes. A rule under an empty
                             // list is a line that says a boundary happened where there
                             // is nothing on the other side of it.
-                            if !commands.isEmpty && !results.isEmpty {
+                            if commands.count + presets.count > 0 && !results.isEmpty {
                                 Divider().overlay(Lumen.separator)
                             }
                             ForEach(Array(results.enumerated()), id: \.element.id) {
                                 index, control in
-                                let rowIndex = index + commands.count
+                                let rowIndex = index + commands.count + presets.count
                                 row(control, isSelected: rowIndex == selection)
                                     .id(rowIndex)
                                     .onTapGesture {
@@ -286,6 +304,32 @@ struct ControlPalette: View {
         .contentShape(Rectangle())
     }
 
+    /// A preset's row: its name, and on the right what it carries — or why it cannot
+    /// apply, dimmed, as a command row says it.
+    private func presetRow(_ preset: DevelopPreset, isSelected: Bool) -> some View {
+        let unavailable = state.editTargets.isEmpty
+        return HStack(spacing: 8) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.lumenGlyphRow)
+                .foregroundStyle(Lumen.secondaryText)
+                .frame(width: 18)
+            Text("Apply Preset: \(preset.name)")
+                .font(.lumenLead)
+                .foregroundStyle(Lumen.primaryText)
+                .lineLimit(1)
+            Spacer()
+            Text(unavailable ? "No photo selected" : preset.summary)
+                .font(.lumenBody)
+                .foregroundStyle(Lumen.secondaryText)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(isSelected ? Lumen.fillColor.opacity(0.30) : Color.clear)
+        .opacity(unavailable ? 0.45 : 1)
+        .contentShape(Rectangle())
+    }
+
     private func row(_ control: ControlIndex.Control, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             // THE SAME MARK THE COLUMN USES, in the same order — glyph, then name.
@@ -345,7 +389,13 @@ struct ControlPalette: View {
             state.showControlPalette = false
             return
         }
-        let index = selection - commands.count
+        let presetIndex = selection - commands.count
+        if presets.indices.contains(presetIndex) {
+            state.applyDevelopPreset(presets[presetIndex])
+            state.showControlPalette = false
+            return
+        }
+        let index = presetIndex - presets.count
         guard results.indices.contains(index) else { return }
         let control = results[index]
         // `jump`, which is `reveal` plus everything arriving somewhere means — the view

@@ -98,6 +98,61 @@ final class HistoryPanelTests: XCTestCase {
                        + "photograph's")
     }
 
+    /// A ROW IS REFUSED WHEN THE WALK TO IT CROSSES ANOTHER PHOTOGRAPH'S STEP. The walk
+    /// is the global undo, so it would revert that photograph unseen, and the next edit
+    /// would drop its step from the redo tail.
+    func testTheWalkToARowCountsOnlyStepsThisPhotographIsNotIn() {
+        // A exposure (1), B contrast (2), A shadows (3).
+        let steps = [step(a, key: "tone.exposure"), step(b, key: "tone.contrast"),
+                     step(a, key: "tone.shadows")]
+        // Viewing B with the cursor at 3: B's base row is position 1.
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: b, from: 3, to: 1), 1,
+                       "walking B back to 'As opened' reverts A's Shadows")
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: b, from: 2, to: 1), 0)
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 3, to: 2), 0,
+                       "undoing A's own last step crosses nothing")
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 3, to: 0), 1)
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 0, to: 3), 1,
+                       "a redo walk counts the same way")
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 2, to: 2), 0)
+
+        // A step over both photographs is in both lists, so it is not foreign.
+        let both = HistoryStack.Step(
+            before: [a: HistoryStack.PhotoEdit(recipe: Recipe()),
+                     b: HistoryStack.PhotoEdit(recipe: Recipe())],
+            after: [a: HistoryStack.PhotoEdit(recipe: Recipe()),
+                    b: HistoryStack.PhotoEdit(recipe: Recipe())],
+            coalescingKey: nil, label: "Paste Settings", gestureEpoch: nil)
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: [step(a, key: "tone.exposure"), both],
+                                                 url: a, from: 2, to: 0), 0)
+        XCTAssertEqual(HistoryStack.foreignPrefix(steps: steps, url: b), [0, 1, 1, 2])
+    }
+
+    func testTheHistoryPanelRefusesRowsThatCrossOtherPhotographs() throws {
+        let panel = try Self.strippingComments(Self.appSource("HistoryPanel.swift"))
+        XCTAssertTrue(panel.contains("HistoryStack.foreignPrefix(steps: history.steps"))
+        XCTAssertTrue(panel.contains(".disabled(refused)"),
+                      "a row whose walk reverts another photograph is still clickable")
+        XCTAssertTrue(panel.contains("on: Lumen.panelValue, enabled: !refused)"),
+                      "a refused row still shows the hover lift and the pointing hand")
+        XCTAssertTrue(panel.contains("if !isCurrent { move(to: entry.position) }"),
+                      "clicking the current row would walk off other photographs' steps")
+    }
+
+    /// Edit A, then B, view A: A's current row is one foreign step behind the cursor,
+    /// but it is where A already is, so it keeps its own tooltip and is not refused.
+    func testTheCurrentRowIsNeverRefused() {
+        let steps = [step(a, key: "tone.exposure"), step(b, key: "tone.contrast")]
+        let rows = HistoryStack.entries(steps: steps, for: a)
+        XCTAssertEqual(HistoryStack.currentRow(in: rows, position: 2), rows.count - 1)
+        let foreign = HistoryStack.foreignSteps(steps: steps, url: a, from: 2,
+                                                to: rows[rows.count - 1].position)
+        XCTAssertEqual(foreign, 1)
+        XCTAssertFalse(HistoryStack.refusesRow(isCurrent: true, foreign: foreign))
+        XCTAssertTrue(HistoryStack.refusesRow(isCurrent: false, foreign: foreign))
+        XCTAssertFalse(HistoryStack.refusesRow(isCurrent: false, foreign: 0))
+    }
+
     /// THE CURRENT MARK IS THE LATEST LISTED STEP AT OR BEFORE THE CURSOR, and the
     /// multi-photograph case is why it cannot be an equality test: edit A, then edit B,
     /// and the cursor stands at 2 while A's rows stop at 1. A is showing what its own
@@ -172,6 +227,9 @@ final class HistoryPanelTests: XCTestCase {
             // The identity components go — a mask's id is not vocabulary.
             "mask.c.amount.9F3B-11": "Mask Amount",
             "point.2.hue": "Point Colour Hue",
+            // A wheel drag opens its step under the saturation key, which must not
+            // arrive as the abbreviation.
+            "wheel.Shadows.sat": "Saturation",
             // And the qualifier never doubles the word it qualifies.
             "histogram.zone.5": "Zone",
         ]

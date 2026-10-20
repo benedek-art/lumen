@@ -307,7 +307,13 @@ public struct RenderPlan: Sendable {
             self.grain = nil
         }
 
-        let curve = CurveStack(develop.curve)
+        // The curve SETTINGS, not a built `CurveStack`: the stack is read only inside
+        // the finish bake, and building it eagerly ran the parametric bake (probe
+        // sweeps, slope limiting, 1024 zone blends) on every plan only to discard it
+        // whenever the finish table hit, which is every drag that is not a curve,
+        // Whites or Blacks. Built inside `bakePlain` it is the same pure function of
+        // the same value, so the table is bit-identical; it is just paid for on a miss.
+        let curveSet = develop.curve
         let boundary = RenderPlan.sharedGamutBoundary
         let white = transform.white
         let scale = Swift.max(white, 1e-6)
@@ -318,8 +324,10 @@ public struct RenderPlan: Sendable {
         let proof = softProof?.transform(working: space)
         self.softProof = proof
         // One closure, used for both tables, so the proofed and unproofed versions
-        // cannot drift into being different pictures with one difference.
-        let display: @Sendable (RGB) -> RGB = { encoded in
+        // cannot drift into being different pictures with one difference. It takes the
+        // built stack as an argument so the stack is built once per BAKE, never once
+        // per sample, which would be the parametric bake 35 937 times over.
+        let display: @Sendable (CurveStack) -> @Sendable (RGB) -> RGB = { curve in { encoded in
             let scene = LumenLog.decode(encoded)
             let formed: RGB
             if let chain {
@@ -334,7 +342,7 @@ public struct RenderPlan: Sendable {
             // question is "does this fit in the file", and every highlight would answer
             // no for the wrong reason.
             return curve.apply(formed, white: white, space: space) / scale
-        }
+        } }
 
         // The single most expensive thing a plan does, and the one least likely to have
         // changed since the last frame. `transform` comes from the render preset, the
@@ -368,9 +376,9 @@ public struct RenderPlan: Sendable {
                 [look.render, develop.curve]
             }
         }
-        let bakePlain = { LUT3D(size: lutSize, transform: display) }
-        // The proofed variant below stays on the blocking path either way: it is a
-        // cheap map over `plain`, and mapping a stale `plain` keeps the two consistent.
+        let bakePlain = { LUT3D(size: lutSize, transform: display(CurveStack(curveSet))) }
+        // The proofed variant below is a map over whichever `plain` is served, cached
+        // under THAT table's key, so a stale `plain` and its proof stay consistent.
         //
         // SERVED AS A PAIR. `bakePlain` normalizes by `scale` (the division at the end
         // of `display`) and `RenderGraph` multiplies `finishScale` back, so the table
@@ -390,17 +398,21 @@ public struct RenderPlan: Sendable {
         // fix is structural anyway: the cache returns the scalar it baked with, so
         // `finishScale` is whatever pairs with the table actually served, and no future
         // caller has to know any of the above.
-        let served: (table: LUT3D, pairedValue: Double)
+        let served: (table: LUT3D, pairedValue: Double, servedKey: String?)
         if let baseKey {
-            served = allowStaleTables
-                ? PlanTableCache.pairedTableAllowingStale(.finish, key: baseKey,
-                                                          size: lutSize,
-                                                          pairedWith: scale,
-                                                          build: bakePlain)
-                : (PlanTableCache.table(.finish, key: baseKey, size: lutSize,
-                                        pairedWith: scale, build: bakePlain), scale)
+            if allowStaleTables {
+                let paired = PlanTableCache.pairedTableAllowingStale(.finish, key: baseKey,
+                                                                     size: lutSize,
+                                                                     pairedWith: scale,
+                                                                     build: bakePlain)
+                served = (paired.table, paired.pairedValue, paired.servedKey)
+            } else {
+                served = (PlanTableCache.table(.finish, key: baseKey, size: lutSize,
+                                               pairedWith: scale, build: bakePlain),
+                          scale, baseKey)
+            }
         } else {
-            served = (bakePlain(), scale)
+            served = (bakePlain(), scale, nil)
         }
         let plain = served.table
         self.finishScale = served.pairedValue
@@ -432,28 +444,28 @@ public struct RenderPlan: Sendable {
                 }
                 return LUT3D(size: lutSize, data: mapped)
             }
-            let proofKey = baseKey.flatMap { base in
+            // Keyed by the key `plain` was BAKED under, not the one this plan asked
+            // for. A draft plan may be holding a STALE `plain` (that is what
+            // `pairedTableAllowingStale` is for) and `mapProof` closes over it.
+            // Storing that map under the REQUESTED key poisoned the slot once: the
+            // settle asked with the exact key, hit the stale map, and the proofed
+            // picture at rest stayed one mouse event behind forever, under a gamut
+            // flag computed from the exact table. Under the served key that cannot
+            // happen — a stale map lands under the OLD key, which describes it
+            // exactly, and the settle can only hit a map of the exact table.
+            //
+            // So the draft path caches too. It matters: with the perceptual intent the
+            // map is `Gamut.softClip` per sample, ~7 ms, and every drag that does not
+            // re-key the finish table (Texture, Exposure, masks...) was paying it per
+            // event for the very table the settle had already proofed.
+            let proofKey = served.servedKey.flatMap { base in
                 PlanTableCache.key([base, "proof"], [proof.settings])
             }
-            // A draft plan may be holding a STALE `plain` (that is what
-            // `tableAllowingStale` is for) — and `mapProof` closes over it. Storing
-            // that map under the exact `proofKey` poisoned the slot: the settle
-            // rebuilt the plan with the exact `plain`, hit the poisoned entry, and
-            // the soft-proofed picture at rest stayed one mouse event behind
-            // forever, with the gamut flag (computed from the exact before-proof
-            // table) disagreeing with the proofed pixels under it. On the draft
-            // path the map is built fresh and NOT cached — a few milliseconds of
-            // matrix-and-clamp per drag plan — and only the blocking path, whose
-            // `plain` is exact by construction, may populate the cache.
-            if allowStaleTables {
-                self.finishLUT = mapProof()
-            } else {
-                self.finishLUT = proofKey.map {
-                    PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
-                                         pairedWith: served.pairedValue,
-                                         build: mapProof)
-                } ?? mapProof()
-            }
+            self.finishLUT = proofKey.map {
+                PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                     pairedWith: served.pairedValue,
+                                     build: mapProof)
+            } ?? mapProof()
             // Kept only when there is a flag to draw; the flag needs the value from
             // before the map and nothing else does.
             self.finishLUTBeforeProof = proof.settings.showGamutWarning ? plain : nil

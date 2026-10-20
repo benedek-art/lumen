@@ -19,7 +19,8 @@
 //   1. every `.keyboardShortcut("k", modifiers: […])` in Sources/LumenApp is declared
 //      here, with the same key and the same modifiers, and every binding declared here
 //      is attached somewhere in Sources/LumenApp. Both directions: a shortcut with no
-//      entry fails, and an entry promising a shortcut nobody attaches fails too;
+//      entry fails, and an entry promising a shortcut nobody attaches fails too. The
+//      one named key the scan reads, `.delete`, is declared as "⌫";
 //   2. every bare character `KeyDispatcher`'s switch claims is in `dispatchedKeys`, and
 //      every character in `dispatchedKeys` is claimed by that switch. Set equality, so
 //      a key added without a reference entry fails;
@@ -115,25 +116,48 @@ public enum KeyGrammar {
             KeyRow(keys: "Space", action: "Hold for loupe from the grid; fit ↔ 1:1 under "
                   + "the cursor in the loupe"),
             KeyRow(keys: "Esc",
-                   action: "Leave what you are inside — a focused slider, then masking, "
-                       + "then the Heal tool, then the crop tool (putting its framing "
-                       + "back), then back to the grid"),
+                   action: "Leave what you are inside — a focused slider, then a pending "
+                       + "eyedropper pick, then masking, then the Heal tool, then the "
+                       + "crop tool (putting its framing back), then back to the grid"),
+            // Lightroom's `?`. Bare, so the dispatcher claims it; ⌘/ is the menu's.
+            KeyRow(keys: "?", action: "This reference"),
+            // Special keys, maintained by hand (see the header). Tab is Lightroom's
+            // panel key; the rule is `PanelChromeToggle`.
+            KeyRow(keys: "Tab", action: "Hide / show the sidebar and the develop column"),
+            KeyRow(keys: "⇧Tab", action: "Hide / show every panel, filmstrip included"),
         ]),
         KeyGroup(title: "Culling", rows: [
-            KeyRow(keys: "P", action: "Pick"),
+            // One row says it for every cull key (`CullTargeting`).
+            KeyRow(keys: "P", action: "Pick — the selection in the grid; the active "
+                  + "frame only in the loupe, Compare and Survey"),
             KeyRow(keys: "X", action: "Reject"),
             KeyRow(keys: "U", action: "Unflag"),
             KeyRow(keys: "⌫", action: "Reject — or, while masking, delete the mask; "
                   + "while healing, delete the selected spot or stroke"),
+            // Lightroom's Delete Rejected Photos chord. A menu item, so ⌘ reaches it past
+            // the dispatcher; it asks first and never deletes (`RejectSweep`).
+            KeyRow(KeyBinding("⌫", command: true),
+                   "Move the rejected photos to a _Rejected folder or the Trash, after asking"),
             KeyRow(keys: "1–5", action: "Rating"),
             KeyRow(keys: "0", action: "Clear rating"),
             KeyRow(keys: "6–9", action: "Red / yellow / green / blue label"),
             KeyRow(keys: "-", action: "Purple label (outside the loupe)"),
-            KeyRow(keys: "A", action: "Toggle auto-advance"),
+            KeyRow(keys: "A", action: "Toggle auto-advance — in Compare and Survey, "
+                  + "to the next compared frame"),
+            // Lightroom's override: a decision key with Shift held (or Caps Lock on)
+            // moves to the next photo even while auto-advance is off (`CullAdvance`).
+            KeyRow(keys: "⇧P ⇧X ⇧U ⇧0–9 ⇧-",
+                   action: "Decide and move to the next photo, even with auto-advance "
+                       + "off; Caps Lock does the same"),
             KeyRow(keys: "B", action: "Add the selection to the target album"),
             KeyRow(keys: "← →", action: "Previous / next photo; in Compare and Survey, "
                   + "the next frame of the comparison"),
             KeyRow(keys: "↑ ↓", action: "Previous / next row"),
+            // Claimed ahead of the ⌘ guard, because the bare arrows stand down while
+            // the loupe is zoomed in or a slider holds focus. The new frame opens at
+            // fit (`LoupeViewport.resetForNewPhoto` says why).
+            KeyRow(keys: "⌘← ⌘→",
+                   action: "Previous / next photo, even zoomed in or with a slider focused"),
         ]),
         KeyGroup(title: "Develop", rows: [
             // `B` AND `L` LEFT THIS GROUP. docs/12 names them for a culling verb and a
@@ -142,6 +166,11 @@ public enum KeyGrammar {
             // panel without a key; nothing else reaches the target album or the
             // surround. `D` stays: nothing else wants it.
             KeyRow(keys: "D", action: "Detail panel"),
+            // Lightroom's two develop keys, free in this grammar until now.
+            KeyRow(keys: "W", action: "White-balance eyedropper; again or Esc to put it away"),
+            KeyRow(keys: "J",
+                   action: "Clipping overlay: red where highlights clip, blue where "
+                       + "shadows do"),
             KeyRow(keys: "M", action: "Masks"),
             KeyRow(keys: "O", action: "Show the selected mask's overlay"),
             KeyRow(keys: "⇧O", action: "Cycle the overlay colour: red, green, white, black"),
@@ -189,6 +218,9 @@ public enum KeyGrammar {
         KeyGroup(title: "View controls", rows: [
             KeyRow(keys: "Z", action: "Zoom 1:1 / fit, under the cursor"),
             KeyRow(keys: "+ = −", action: "Zoom in / out"),
+            KeyRow(keys: "I",
+                   action: "Info overlay on the loupe: exposure, then camera and lens, "
+                       + "then off"),
             // Two features, one pair of keys, split by what is on screen — the rule is
             // `InspectionHolds` and this line is what the sheet prints of it. In the
             // grid the keys size the cells, exactly as they always did; where one
@@ -221,19 +253,53 @@ public enum KeyGrammar {
             // nowhere at all and a keyword field could not cut a word. It is declared
             // here because it IS attached and the grammar has to account for every
             // attached chord; it carries no photograph meaning because Lumen has none
-            // to give it — the folder is the library, files are never moved, and taking
-            // a frame out of an album is a verb on the row.
+            // to give it — the folder is the library, files move only through the
+            // reject sweep (⌘⌫, which asks first), and taking a frame out of an album
+            // is a verb on the row.
             KeyRow(KeyBinding("x", command: true),
                    "Cut — text fields only; Lumen has no cut for photographs"),
             KeyRow(KeyBinding("v", command: true, shift: true),
                    "Paste settings, leaving this frame's masks alone"),
             KeyRow(KeyBinding("c", command: true, option: true), "Copy Look"),
             KeyRow(KeyBinding("v", command: true, option: true), "Paste Look"),
+            KeyRow(KeyBinding("c", command: true, shift: true),
+                   "Copy Settings… — tick which groups the next paste carries"),
+            KeyRow(KeyBinding("s", command: true, shift: true),
+                   "Sync Settings… — ticked groups from the photo under the cursor "
+                       + "to the rest of the selection"),
+            KeyRow(KeyBinding("s", command: true, shift: true, option: true),
+                   "Sync Settings with the last ticked groups, no dialog"),
+            KeyRow(KeyBinding("v", command: true, control: true),
+                   "Paste from Previous — the last ticked groups from the photo you "
+                       + "were on before"),
+            KeyRow(KeyBinding("n", command: true, shift: true),
+                   "New Develop Preset… — save ticked groups of this photo under a name"),
             KeyRow(KeyBinding("r", command: true, shift: true), "Reset settings"),
             KeyRow(KeyBinding("a", command: true), "Select all"),
             KeyRow(KeyBinding("d", command: true), "Select none"),
+            // Lightroom's Select Flagged and Deselect Unflagged chords. Invert, Select
+            // Rejects, Select Unflagged and Select by Rating are menu-only (Edit menu).
+            KeyRow(KeyBinding("a", command: true, option: true), "Select the picks shown"),
+            KeyRow(KeyBinding("d", command: true, shift: true, option: true),
+                   "Deselect everything that is not a pick"),
+            // The Library menu's filter shortcuts. ⌘L is Lightroom's Enable Filters;
+            // each flag or rating chord pressed again takes its criterion back off.
+            KeyRow(KeyBinding("l", command: true), "Filters off / back on, keeping them"),
+            KeyRow(KeyBinding("p", command: true, option: true), "Show picks only"),
+            KeyRow(KeyBinding("u", command: true, option: true), "Show unflagged only"),
+            KeyRow(KeyBinding("x", command: true, option: true), "Show rejected only"),
+            KeyRow(KeyBinding("1", command: true, control: true), "Show rated 1★ or more"),
+            KeyRow(KeyBinding("2", command: true, control: true), "Show rated 2★ or more"),
+            KeyRow(KeyBinding("3", command: true, control: true), "Show rated 3★ or more"),
+            KeyRow(KeyBinding("4", command: true, control: true), "Show rated 4★ or more"),
+            KeyRow(KeyBinding("5", command: true, control: true), "Show rated 5★"),
             KeyRow(KeyBinding("a", command: true, shift: true), "Auto Tone"),
+            KeyRow(KeyBinding("m", command: true, shift: true, option: true),
+                   "Match total exposures to the active photo"),
             KeyRow(KeyBinding("e", command: true), "Export"),
+            KeyRow(KeyBinding("e", command: true, shift: true, option: true),
+                   "Export with Previous — the last folder and the checked recipes, "
+                       + "no dialog"),
             KeyRow(KeyBinding("b", command: true),
                    "Assessment surround (ISO 12646 mid-grey)"),
             KeyRow(KeyBinding("k", command: true), "Go to a control, or run a command"),
@@ -243,6 +309,11 @@ public enum KeyGrammar {
             KeyRow(KeyBinding("g", command: true, shift: true), "Unstack"),
             KeyRow(KeyBinding("\\", command: true), "Clear the filter"),
             KeyRow(KeyBinding("/", command: true), "This reference"),
+            // The View menu's zoom chords; `ZoomChord` decides what they mean where.
+            KeyRow(KeyBinding("=", command: true),
+                   "Zoom in; in the grid, larger thumbnails"),
+            KeyRow(KeyBinding("-", command: true),
+                   "Zoom out; in the grid, smaller thumbnails"),
             KeyRow(KeyBinding("l", command: true, option: true),
                    "Show / hide the latency HUD (Debug)"),
         ]),
@@ -268,6 +339,8 @@ public enum KeyGrammar {
         "\\", "y", "r", "m", "o", "'", "b", "l", "d", "h", "s", "a", "f", "q", "/",
         // Zoom and thumbnail size
         "z", "=", "+", "[", "]",
+        // Lightroom habits: clipping, white balance, info overlay, this reference
+        "j", "w", "i", "?",
     ]
 
     /// Files allowed to attach a `.keyboardShortcut` whose key is computed rather than

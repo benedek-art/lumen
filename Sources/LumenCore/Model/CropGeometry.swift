@@ -244,11 +244,24 @@ extension CropGeometry {
         w = Swift.max(w, minimumCropFraction)
         h = Swift.max(h, minimumCropFraction)
 
+        if ratio == nil {
+            // An unlocked drag past the frame edge stops at the edge. Left to
+            // `normalized`, the overflow slid the rectangle and moved the anchor.
+            if handle.movesLeft { w = Swift.min(w, anchorX) }
+            if handle.movesRight { w = Swift.min(w, 1 - anchorX) }
+            if handle.movesTop { h = Swift.min(h, anchorY) }
+            if handle.movesBottom { h = Swift.min(h, 1 - anchorY) }
+        }
+
         if let ratio {
             if handle.isCorner {
                 // Honour whichever axis the drag pushed further, so the corner tracks
-                // the pointer instead of lagging on one axis.
-                w = Swift.max(w, h * ratio)
+                // the pointer instead of lagging on one axis. Measured as a change from
+                // the start, in width units: taking the larger extent instead ignored
+                // every inward drag along one axis.
+                let viaWidth = w, viaHeight = h * ratio
+                w = abs(viaWidth - start.w) >= abs(viaHeight - start.h * ratio)
+                    ? viaWidth : viaHeight
                 h = w / ratio
             } else if handle.movesLeft || handle.movesRight {
                 h = w / ratio

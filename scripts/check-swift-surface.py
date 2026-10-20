@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Four mechanical passes over the Swift sources, for when there is no compiler.
+"""Mechanical passes (thirteen, see main()) over the Swift sources, for when there is no compiler.
 
 This is NOT a type checker and must never be described as one. It catches four classes
 of error, all of which a tree that has not been compiled in a while is likely to carry:
@@ -204,6 +204,9 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # (`ExclusivePublish`) branches on them, on Darwin and Glibc alike.
     "ENOTSUP", "EOPNOTSUPP", "EINVAL", "EEXIST", "EPERM", "EXDEV", "EMLINK", "ENOSYS",
     "EIO", "ENOSPC", "O_CREAT", "O_EXCL", "O_WRONLY",
+    # Ingest durability (`IngestDurability`): flushing a landed copy and its directory.
+    # F_FULLFSYNC is Darwin-only and sits behind `#if canImport(Darwin)`.
+    "O_RDONLY", "F_FULLFSYNC", "NSLocalizedDescriptionKey",
     # Dispatch: `LUT3D`'s bake fans slices across cores, and libdispatch is available
     # on both platforms this builds for.
     "Dispatch", "DispatchQueue", "DispatchSemaphore", "DispatchGroup",
@@ -233,7 +236,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     "URL", "URLComponents", "URLResourceKey", "URLSession", "URLRequest", "URLResponse", "UUID",
     "FileManager", "FileHandle", "ProcessInfo", "FileWrapper", "Bundle", "JSONEncoder", "JSONDecoder",
     "JSONSerialization", "PropertyListEncoder", "PropertyListDecoder",
-    "PropertyListSerialization", "NSError", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
+    "PropertyListSerialization", "NSError", "NSURL", "CocoaError", "NSString", "NSNumber", "NSObject", "NSArray",
     "NSCocoaErrorDomain", "NSFileReadNoSuchFileError", "NSPOSIXErrorDomain",
     "ENOENT", "ENOTDIR", "S_IFMT", "S_IFREG", "NSFileReadNoPermissionError",
     "NSPopUpButton", "NSRect", "FileAttributeType",

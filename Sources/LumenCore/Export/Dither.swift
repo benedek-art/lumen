@@ -31,8 +31,12 @@ public enum Dither {
     /// property that makes an ordered dither spread error evenly rather than clumping.
     ///
     /// The classic bit-interleave construction: the index is built by interleaving the
-    /// bits of `y` with the bits of `x ^ y`, most significant first. That is the same
-    /// matrix the recursive doubling produces, without materialising the recursion.
+    /// bits of `x ^ y` with the bits of `y`, LEAST significant first, so the lowest
+    /// coordinate bits become the highest index bits. That is the same matrix the
+    /// recursive doubling produces (row 0 is 0, 32, 8, 40, 2, 34, 10, 42), without
+    /// materialising the recursion. Taken most significant first, the interleave gives
+    /// a clustered screen instead: neighbours got near-equal thresholds and a half-code
+    /// flat area dithered into horizontal bands four rows high.
     public static func index(x: Int, y: Int) -> Int {
         let side = matrixSide
         // `%` is remainder, not modulo, and gives a negative answer for a negative
@@ -41,11 +45,9 @@ public enum Dither {
         let yw = ((y % side) + side) % side
         let mixed = xw ^ yw
         var value = 0
-        var bit = matrixBits - 1
-        while bit >= 0 {
-            value = (value << 1) | ((yw >> bit) & 1)
+        for bit in 0..<matrixBits {
             value = (value << 1) | ((mixed >> bit) & 1)
-            bit -= 1
+            value = (value << 1) | ((yw >> bit) & 1)
         }
         return value
     }

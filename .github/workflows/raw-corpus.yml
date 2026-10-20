@@ -23,7 +23,9 @@
 # is either a property that must hold of ANY photograph from ANY camera, or a cross-check
 # between two independent readers of the same bytes. Exactly one number is pinned per
 # file — the EXIF orientation tag — and it is pinned because it lives in the file's bytes
-# and the file is pinned by sha256.
+# and the file is pinned by sha256. (Since the ILCE-7M4/DMC-GX85 rows, some rows pin
+# more on the same argument — a default crop read from the file's own tags and LibRaw's
+# channel ratios over the same bytes — in the flags column; see its legend below.)
 #
 # THIS LANE HAS NEVER RUN. It was written on a Linux box from source reading and fetched
 # remote metadata. Every URL below returns HTTP 200 with the byte count listed and one
@@ -60,10 +62,19 @@ on:
   # move cannot silently drop the trigger. This lane runs only `RawCorpusTests`: a
   # change to the two boundary suites re-runs the real-file corpus beside it; it does
   # not run those suites here (the macOS test lanes do).
+  #
+  # The metadata reader and the materializer joined that list later, and on the
+  # header's own terms: line 7 names `CaptureMetadataReader` as half of what this lane
+  # exists to check (R-4's orientation pins and R-10 read it), and every decode goes
+  # through `DecodeMaterializer` (RawDecodeBoundaryTests pins it synthetically, R-6 and
+  # R-12/R-13 read its plane). Before that, a change to either ran no real-file check
+  # unless somebody dispatched this lane by hand — the failure lines 39-43 describe.
   push:
     paths:
       - ".github/workflows/raw-corpus.yml"
       - "Sources/LumenPipeline/AppleRawSource.swift"
+      - "Sources/LumenPipeline/CaptureMetadataReader.swift"
+      - "Sources/LumenPipeline/DecodeMaterializer.swift"
       - "Tests/LumenPipelineTests/RawCorpusTests.swift"
       - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
       - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
@@ -116,7 +127,22 @@ jobs:
       #           exiv2 sidecar records none, so the test reads it and does not
       #           cross-check. THE ONLY PINNED NUMBER IN THIS FILE, and it is pinned
       #           because it is a property of bytes that a sha256 already froze.
-      #   flags   'mono' = no colour filter array at all (R-7b applies, not R-7)
+      #   flags   ','-separated; '-' = none. A reader that does not know a flag ignores
+      #           it, and every datum goes HERE rather than into an 11th column:
+      #           RawCorpusTests.parseRow joins columns 9..n-1 back into the label, so a
+      #           new column would vanish into it silently. No flag may contain the
+      #           word 'negative' (the guard below and AuditRawAccuracyTests grep it).
+      #             mono       no colour filter array at all (R-7b applies, not R-7)
+      #             crop=WxH   the file's own default crop, in SENSOR order, read from
+      #                        its bytes (ARW DefaultCropSize 0xC620, cross-checked
+      #                        against the embedded full-size JPEG's SOF; RW2 crop tags
+      #                        0x2f-0x32). R-3b asserts nativePixelSize equals it.
+      #             rg=, bg=   LibRaw's R/G and B/G of the mean scene-linear decode at
+      #                        camera WB, linear Rec.2020, over that crop. R-7c.
+      #             hl         clipped highlights big enough to carry R-12's statistic
+      #             shadows    LibRaw p0.1/p50 of luminance <= 0.1 with the right black,
+      #                        >= 0.27 with black forced to 0. R-13.
+      #           How each number was measured is in RawCorpusTests beside its test.
       #   licence every row must read CC0 or the fetcher refuses it
       #   label   what this file buys, for the job summary
       #   url     getfile.php, url-encoded, verified 200
@@ -128,21 +154,31 @@ jobs:
       # 90°-class directions from four different manufacturers, because one direction
       # cannot tell "rotated correctly" from "rotated backwards". The per-file argument
       # is the table in the plan, §3.1.
+      #
+      # AND FOUR MORE, for the owner's two bodies, which the sixteen did not cover:
+      # Sony ILCE-7M4 (14-bit lossless-compressed ARW in a 7168x5120 tiled container,
+      # full-frame and APS-C crop mode) and Panasonic DMC-GX85 (12-bit BGGR RW2, 4:3
+      # and 16:9). The 16:9 file holds a full 4:3 frame of real image data and its
+      # aspect lives only in tags 0x2f-0x32, and its embedded previews are 4:3, so R-5
+      # cannot see a missed crop; R-3b's crop= flag is what can. All four were fetched
+      # in full on 2026-10-20 with this lane's User-Agent: bytes and sha256 match the
+      # columns exactly, and raw.pixls.us's repository JSON lists each as CC0 with the
+      # same digest.
       - name: The corpus manifest
         id: manifest
         shell: bash
         run: |
           mkdir -p "$CORPUS_DIR"
           cat > "$RUNNER_TEMP/corpus.tsv" <<'MANIFEST'
-          1346;1346.CR2;b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee;12841893;Canon;1;-;CC0;Canon EOS 5D · CR2 lossless-JPEG Bayer · the control case;https://raw.pixls.us/getfile.php/1346/nice/Canon%20-%20EOS%205D%20-%20RAW%20%283%3A2%29.CR2
+          1346;1346.CR2;b30089172973388d03e192a14a63f750e22914dfc01db5713b6b3bce3c9baeee;12841893;Canon;1;rg=1.048,bg=0.915,shadows;CC0;Canon EOS 5D · CR2 lossless-JPEG Bayer · the control case;https://raw.pixls.us/getfile.php/1346/nice/Canon%20-%20EOS%205D%20-%20RAW%20%283%3A2%29.CR2
           2102;2102.CR2;ba644e7dd2abe74eca260e67f0206ff113bf0f62e710f8130611e964d6be5bf1;5805950;Canon;1;-;CC0;Canon EOS 40D · CR2 sRAW2 · delivery 1936x1288 is NOT the sensor — the dimensions trap;https://raw.pixls.us/getfile.php/2102/nice/Canon%20-%20EOS%2040D%20-%20sRAW2%20%28sRAW%29%20%283%3A2%29.CR2
           4671;4671.CR3;4a859ab137f792aedaf3416b0aad1497ebaab02052a49453902e226699154aa7;7395184;Canon;-;-;CC0;Canon EOS RP · CR3 ISO-BMFF · no exiv2 sidecar exists for it, which is the point;https://raw.pixls.us/getfile.php/4671/nice/Canon%20-%20EOS%20RP%20-%203%3A2.CR3
           5812;5812.NEF;75249c11a3a845367c7a322a1c4e7076f33c785ec2518fc6594c34c185b41161;19789738;NIKON;8;-;CC0;Nikon Z 30 · NEF 12-bit lossless · ORIENTATION 8 · 5600x3728 RGGB;https://raw.pixls.us/getfile.php/5812/nice/Nikon%20-%20Z%2030%20-%2012bit%2012bit%20compressed%20%28Lossless%29%20%283%3A2%29.NEF
           824;824.NEF;d468895b0b30a60d05a7f6468d69f2f15830dd49b2d82698b34245072a22e747;16106536;NIKON;1;-;CC0;Nikon D200 · NEF 12-bit UNCOMPRESSED · GRBG — a different Bayer phase from the Z 30;https://raw.pixls.us/getfile.php/824/nice/Nikon%20-%20D200%20-%2012bit%2012bit%20uncompressed%20%283%3A2%29.nef
-          2349;2349.ARW;7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad;14712832;SONY;6;-;CC0;Sony DSLR-A450 · ARW 12-bit compressed · ORIENTATION 6 — the opposite rotation;https://raw.pixls.us/getfile.php/2349/nice/Sony%20-%20DSLR-A450%20-%2012bit%2012bit%20compressed%20%283%3A2%29.ARW
+          2349;2349.ARW;7c2205a14fbfb05aa22e2e290750ea8894229a52a106a67516b4e797759e37ad;14712832;SONY;6;rg=0.924,bg=0.801;CC0;Sony DSLR-A450 · ARW 12-bit compressed · ORIENTATION 6 — the opposite rotation;https://raw.pixls.us/getfile.php/2349/nice/Sony%20-%20DSLR-A450%20-%2012bit%2012bit%20compressed%20%283%3A2%29.ARW
           6001;6001.RAF;caeadb2666f6c5d9bbe32fbe692c2079b6a7e028f8514a13173f360656d08507;28948064;FUJIFILM;6;-;CC0;Fujifilm X-H2 · RAF X-TRANS 14-bit · ORIENTATION 6 · 40.9 MP — the worst case;https://raw.pixls.us/getfile.php/6001/nice/Fujifilm%20-%20X-H2%20-%2014bit%2014bit%20compressed%20%283%3A2%29.RAF
-          2607;2607.RW2;c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e;19166720;Panasonic;1;-;CC0;Panasonic DC-GH5S · RW2 4:3 · sensor border and multi-aspect crop;https://raw.pixls.us/getfile.php/2607/nice/Panasonic%20-%20DC-GH5S%20-%204%3A3.RW2
-          5283;5283.ORF;bf2eef6becc0851e48231617c3e2eac27a2cdb44c75b93035c561d837952c18b;21820729;OM;1;-;CC0;OM System OM-1 · ORF 16-bit · Make reads "OM Digital Solutions" — joinCamera's case;https://raw.pixls.us/getfile.php/5283/nice/OM%20System%20-%20OM-1%20-%2016bit%20%284%3A3%29.ORF
+          2607;2607.RW2;c1d55f5f47b97ee2d8064924f3ac3f6e00dbbe47680ca1e85f3550974b24336e;19166720;Panasonic;1;crop=3680x2760,rg=0.809,bg=0.473,shadows;CC0;Panasonic DC-GH5S · RW2 4:3 · sensor border and multi-aspect crop;https://raw.pixls.us/getfile.php/2607/nice/Panasonic%20-%20DC-GH5S%20-%204%3A3.RW2
+          5283;5283.ORF;bf2eef6becc0851e48231617c3e2eac27a2cdb44c75b93035c561d837952c18b;21820729;OM;1;rg=1.014,bg=0.939;CC0;OM System OM-1 · ORF 16-bit · Make reads "OM Digital Solutions" — joinCamera's case;https://raw.pixls.us/getfile.php/5283/nice/OM%20System%20-%20OM-1%20-%2016bit%20%284%3A3%29.ORF
           2239;2239.PEF;e35ae4154a468be3154f5f462e884ba5941f010d3e8f23d347fbec14809f44d3;9561139;PENTAX;1;-;CC0;Pentax K10D · PEF 12-bit compressed · a container almost nothing else writes;https://raw.pixls.us/getfile.php/2239/nice/Pentax%20-%20K10D%20-%2012bit%2012bit%20compressed%20%283%3A2%29.PEF
           1087;1087.DNG;3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977;21700096;LEICA;1;mono;CC0;Leica M Monochrom Typ 246 · DNG · NO COLOUR FILTER ARRAY — R-7b, not R-7;https://raw.pixls.us/getfile.php/1087/nice/Leica%20-%20M%20Monochrom%20%28Typ%20246%29%20-%2012bit%20%283%3A2%29.DNG
           4264;4264.DNG;e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2;29195592;Apple;6;-;CC0;Apple iPhone 12 Pro · ProRAW LINEAR DNG — already demosaiced · ORIENTATION 6;https://raw.pixls.us/getfile.php/4264/nice/Apple%20-%20iPhone%2012%20Pro%20-%208bit%20%284%3A3%29.DNG
@@ -150,6 +186,10 @@ jobs:
           2767;2767.IIQ;69fc81e92360a45920158f7d6238eed0cd6260cd32aa4a0beec2ac79273add80;11591029;Phase One;-;-;CC0;Phase One P65+ · IIQ S medium format · exiv2 itself misreads its primary IFD;https://raw.pixls.us/getfile.php/2767/nice/Phase%20One%20-%20P65%2B%20-%20IIQ%20S%20%284%3A3%29.IIQ
           1116;1116.X3F;44508f7df4191aacaecb6461e1841dae002e5b71a4f95a00aa3f52d1c6d6bc5f;10317264;SIGMA;-;-;CC0;Sigma DP1 · X3F FOVEON · here to exercise the refusal path on a real file;https://raw.pixls.us/getfile.php/1116/nice/Sigma%20-%20DP1%20-%203%3A2.X3F
           3949;3949.GPR;bfd992594af380748f3d46e37814dae595356cb6fce182d4188230ca978e6a9f;4073376;GoPro;2;-;CC0;GoPro HERO8 Black · GPR VC5 · ORIENTATION 2 — a MIRROR, self-inverse in aspect;https://raw.pixls.us/getfile.php/3949/nice/GoPro%20-%20HERO8%20Black%20-%2016bit%20%284%3A3%29.GPR
+          6929;6929.ARW;851b43c2116c4139104a5036f83ac3b6a148789b2142214dd7192c13972b25b6;49184768;SONY;1;crop=7008x4672,rg=0.950,bg=0.770,hl,shadows;CC0;Sony ILCE-7M4 (A7 IV) · ARW 14-bit LOSSLESS-compressed L · 7168x5120 tiled container, DefaultCrop 7008x4672 at (12,8) · 4208 fully clipped quads;https://raw.pixls.us/getfile.php/6929/nice/Sony%20-%20ILCE-7M4%20-%2014bit%20%284%3A3%29.ARW
+          6934;6934.ARW;d7df1bb1d09a6284d5ff6be876e8251480ea7eb99c9e5485743e0eeaa40dbad7;25272320;SONY;1;crop=4608x3072,rg=0.934,bg=0.754,shadows;CC0;Sony ILCE-7M4 · ARW lossless M · APS-C crop mode · 5120x3584 container, DefaultCrop 4608x3072 at (44,30);https://raw.pixls.us/getfile.php/6934/nice/Sony%20-%20ILCE-7M4%20-%2014bit%20%284%3A3%29.ARW
+          2545;2545.RW2;e7ba64725da183b07af44eb3ff66d4e84c08480dd6b2fff7eb3312bb4989df50;19743232;Panasonic;1;crop=4592x3448,rg=1.101,bg=0.818,shadows;CC0;Panasonic DMC-GX85 · RW2 12-bit BGGR 4:3 · 4816x3464 container, crop tags 0x2f-0x32 give 4592x3448;https://raw.pixls.us/getfile.php/2545/nice/Panasonic%20-%20DMC-GX85%20-%204%3A3.RW2
+          2547;2547.RW2;b60c6cf96efba1b21ed21a5517ddbcab2364e7ae1c349b4873226c16050b3c30;19742720;Panasonic;1;crop=4592x2584,rg=1.119,bg=0.768,shadows;CC0;Panasonic DMC-GX85 · RW2 16:9 · a full 4:3 frame of sensor data, the 16:9 crop lives ONLY in tags 0x2f-0x32;https://raw.pixls.us/getfile.php/2547/nice/Panasonic%20-%20DMC-GX85%20-%2016%3A9.RW2
           MANIFEST
           # THE CACHE KEY. Hashing the manifest and not this workflow file: editing a
           # comment here must not throw away 234 MB, and changing a URL or a digest must.
@@ -351,6 +391,18 @@ jobs:
           grep -E ": error: -\[" corpus.log | sed 's#/Users/runner/work/lumen/lumen/##' \
             | sed 's/^.*error: //' \
             | awk '{ key = $1 " " $2; if (seen[key]++ < 2) print }' | head -40
+          # Per-file wall time (RawCorpusTests.timingLine). Printed, never asserted: a
+          # runner VM's GPU is noisy and is not the owner's Mac. A before/after for a
+          # Sources/LumenPipeline change needs a workflow_dispatch on base and on head,
+          # because this lane's push paths do not cover that directory.
+          echo "=== timing ==="
+          grep -E '^corpus-timing: ' corpus.log || true
+          {
+            echo "### Timing (ms, CI VM, not asserted)"
+            echo '```'
+            grep -E '^corpus-timing: ' corpus.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
           exit $status
 
       # Decoder selection, RAW9 colour and native dimensions (AuditRawAccuracyTests),

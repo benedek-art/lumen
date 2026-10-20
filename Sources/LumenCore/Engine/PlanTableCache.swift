@@ -381,11 +381,17 @@ public enum PlanTableCache {
     /// A frame served from here is then genuinely one mouse event behind — the whole
     /// previous picture, consistently — which is the error the stale path was always
     /// documented as making and, until now, was not the error it made.
+    ///
+    /// `servedKey` is the key the returned table was BAKED under — `key` on a hit or a
+    /// blocking bake, the borrowed entry's own key on a stale serve. A caller that
+    /// derives and caches something from the table (the proofed finish table) keys it
+    /// by this, never by `key`: anything else stores a stale picture under an exact
+    /// name.
     static func pairedTableAllowingStale(_ slot: Slot, key: String, size: Int,
                                          pairedWith value: Double,
                                          build: @escaping () -> LUT3D)
-    -> (table: LUT3D, pairedValue: Double) {
-        guard size <= LUT3D.interactiveSize else { return (build(), value) }
+    -> (table: LUT3D, pairedValue: Double, servedKey: String) {
+        guard size <= LUT3D.interactiveSize else { return (build(), value, key) }
 
         lock.lock()
         var slotEntries = entries[slot] ?? []
@@ -404,7 +410,7 @@ public enum PlanTableCache {
             // whenever the key covers the scalar, which is the invariant this cache
             // already requires of every key — and if some future key ever fails to,
             // the pair stays a pair rather than silently becoming a hybrid again.
-            return (hit.table, hit.pairedValue)
+            return (hit.table, hit.pairedValue, key)
         }
         // The stale borrow NEVER crosses photographs (docs/31 round two §4). "One
         // mouse event behind" is a statement about THIS photograph's previous
@@ -417,7 +423,7 @@ public enum PlanTableCache {
         else {
             lock.unlock()
             return (table(slot, key: key, size: size, pairedWith: value, build: build),
-                    value)
+                    value, key)
         }
         stats.staleServes += 1
         slotTraffic[slot, default: Stats()].staleServes += 1
@@ -428,7 +434,7 @@ public enum PlanTableCache {
         lock.unlock()
 
         if mustStart { bakeQueue.async { drainPending(slot) } }
-        return (newest.table, newest.pairedValue)
+        return (newest.table, newest.pairedValue, newest.key)
     }
 
     /// Bake the latest pending key for `slot`, and keep going if another arrived while

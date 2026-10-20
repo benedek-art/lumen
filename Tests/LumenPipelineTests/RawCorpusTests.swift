@@ -15,6 +15,10 @@
 // from any camera, or a cross-check between two independent readers of the same bytes.
 // The one pinned number is the EXIF orientation tag, which is in the file's bytes, and
 // the file is pinned by sha256 — see docs/audit-2026-09/w6/raw-corpus-plan.md §5.1.
+// Later rows (the ILCE-7M4 and DMC-GX85 additions, and four controls) pin more on the
+// same argument, each in the manifest's flags column and each from an Apple-independent
+// reading of the frozen bytes: the default crop (R-3b, from the file's own tags) and
+// LibRaw's channel ratios (R-7c); R-12/R-13 carry thresholds measured with LibRaw.
 //
 // The corpus is not in the repository. It is 234 MB of CC0 RAW files fetched and cached
 // by .github/workflows/raw-corpus.yml, which points LUMEN_RAW_CORPUS at the directory.
@@ -96,6 +100,37 @@ final class RawCorpusTests: XCTestCase {
         var isNegative: Bool { flags.contains("negative") }
         var isHardNegative: Bool { flags.contains("hard") }
         var isMono: Bool { flags.contains("mono") }
+
+        /// R-12: the file has clipped highlights big enough to carry the statistic.
+        var expectsNeutralHighlights: Bool { flags.contains("hl") }
+        /// R-13: LibRaw puts this file's p0.1/p50 at or under 0.1 with the right black.
+        var expectsShadowsOnBlack: Bool { flags.contains("shadows") }
+
+        /// The text after `key=` in the flags column, or nil when the row has no such
+        /// flag. Data rides in the flags column and not in an 11th column because
+        /// `parseRow` joins columns 9..n-1 back into the label, so an extra column
+        /// would be swallowed silently.
+        func flagValue(_ key: String) -> String? {
+            let prefix = key + "="
+            guard let token = flags.first(where: { $0.hasPrefix(prefix) }) else {
+                return nil
+            }
+            return String(token.dropFirst(prefix.count))
+        }
+
+        /// R-3b: the file's own default crop, `crop=WxH`, in SENSOR order. Nil when
+        /// absent OR malformed; R-3b tells the two apart through `flagValue`.
+        var expectedCrop: Dim? {
+            guard let text = flagValue("crop") else { return nil }
+            let parts = text.split(separator: "x")
+            guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]),
+                  w > 0, h > 0 else { return nil }
+            return Dim(w: w, h: h)
+        }
+
+        /// R-7c: LibRaw's R/G and B/G of the mean scene-linear decode.
+        var libRawRG: Double? { flagValue("rg").flatMap { Double($0) } }
+        var libRawBG: Double? { flagValue("bg").flatMap { Double($0) } }
     }
 
     /// Width and height as one value, so a transpose is a comparison rather than four
@@ -164,6 +199,33 @@ final class RawCorpusTests: XCTestCase {
         var nearBlackFraction: Double?
         var nearWhiteFraction: Double?
 
+        // R-12 / R-13, on the same scene-linear (linear Rec.2020) readback as R-6.
+        /// Mean R/G and B/G over the brightest 0.05% of pixels by Rec.2020 luminance.
+        var highlightRG: Double?
+        var highlightBG: Double?
+        var highlightPixels = 0
+        /// The brightest finite luminance in the decode. Logged, never asserted: it
+        /// shows whether headroom above 1.0 survives the real decode.
+        var lumaMax: Double?
+        /// Luminance percentiles of the decode, and the share of R,G,B samples <= 0.
+        var shadowP01: Double?
+        var shadowP50: Double?
+        var nonPositiveFraction: Double?
+
+        var shadowRatio: Double? {
+            guard let low = shadowP01, let mid = shadowP50, mid > 0 else { return nil }
+            return low / mid
+        }
+        /// R-7c: R/G and B/G of `decodeMeans`, nil unless all three are positive.
+        var decodeRG: Double? { channelRatio(0) }
+        var decodeBG: Double? { channelRatio(2) }
+        private func channelRatio(_ channel: Int) -> Double? {
+            guard let means = decodeMeans, means.count == 3,
+                  means[1].isFinite, means[1] > 0,
+                  means[channel].isFinite, means[channel] > 0 else { return nil }
+            return means[channel] / means[1]
+        }
+
         // R-7 / R-7b
         var minChroma: Double?
         var medianChroma: Double?
@@ -176,6 +238,19 @@ final class RawCorpusTests: XCTestCase {
         var exportClaimed: Dim?
         var exportOrientation: Int?
         var exportRan = false
+
+        // Wall time per step, in ms, on the success path only: a hung or failed step
+        // records nothing rather than a number that times a refusal. Printed, never
+        // asserted — a shared runner's GPU says nothing about the owner's Mac, but a
+        // base-versus-head dispatch on the same runner class does say whether a change
+        // to the decode or the export moved anything.
+        var openMs: Double?
+        var decodeMs: Double?
+        var previewMs: Double?
+        var exportMs: Double?
+        /// The first file measured pays the shared renderer's CIContext and every
+        /// kernel compile, so its row is not comparable with the rest.
+        var timedCold = false
 
         // R-10
         var metadataRead = false
@@ -221,6 +296,8 @@ final class RawCorpusTests: XCTestCase {
     private static var probes: [String: Probe] = [:]
     private static var loadFailure: String?
     private static var corpusRoot: URL?
+    /// How many files have reached `measure`'s open, so the first can be labelled cold.
+    private static var timedFiles = 0
 
     private static let renderer = PipelineRenderer()
 
@@ -284,6 +361,34 @@ final class RawCorpusTests: XCTestCase {
     private static func fmt(_ value: Int?) -> String {
         guard let value else { return "-" }
         return String(value)
+    }
+
+    private static func ms(since t0: DispatchTime) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
+    }
+
+    /// One `corpus-timing:` line per file. The numbers go through `fmt` into locals
+    /// first, so no literal lands inside an interpolation (see `dash`).
+    ///
+    /// first-preview is open + decode + preview: the NON-draft path at 1024 px, which
+    /// is not exactly the app's first frame (that may take the coarse decode), and the
+    /// export is a full-scale decode resized to 1600.
+    private static func timingLine(_ entry: CorpusEntry, _ p: Probe) -> String {
+        let native = p.native?.text ?? dash
+        let opened = fmt(p.openMs, 0)
+        let decoded = fmt(p.decodeMs, 0)
+        let rendered = fmt(p.previewMs, 0)
+        var firstPreview: Double?
+        if let o = p.openMs, let d = p.decodeMs, let r = p.previewMs {
+            firstPreview = o + d + r
+        }
+        let first = fmt(firstPreview, 0)
+        let exported = fmt(p.exportMs, 0)
+        let warmth = p.timedCold ? "cold" : "warm"
+        return "corpus-timing: \(entry.id) native=\(native) open=\(opened) "
+            + "decode@1024=\(decoded) preview=\(rendered) "
+            + "first-preview(non-draft)=\(first) "
+            + "export-fullDecode@1600=\(exported) ms \(warmth)"
     }
 
     // MARK: - Class setup: the inventory, before anything else
@@ -387,6 +492,14 @@ final class RawCorpusTests: XCTestCase {
                 let size = source.nativePixelSize
                 probe.native = Dim(w: size.width, h: size.height)
                 openedCount += 1
+                // Apple's per-file default black offset, which AppleRawSource now zeroes.
+                // Only the mono row logged it before (5.0 in run 39152441459); "varies
+                // by image" says each camera's value belongs in the record.
+                if let defaults = CIRAWFilter(imageURL: entry.url) {
+                    emit("corpus-shadowbias: \(entry.id) default-shadowBias=\(defaults.shadowBias) "
+                        + "baselineExposure=\(defaults.baselineExposure) "
+                        + "decoder=\(defaults.decoderVersion.rawValue) · \(entry.label)")
+                }
             } catch {
                 probe.openFailure = String(describing: error)
             }
@@ -427,6 +540,8 @@ final class RawCorpusTests: XCTestCase {
             "chroma_min", "chroma_median",
             "mean_luma", "p5", "p95", "near_black", "near_white",
             "nonfinite", "float_samples",
+            "expected_crop", "rg", "bg", "rg_libraw", "bg_libraw",
+            "hl_rg", "hl_bg", "hl_px", "shadow_p01_p50", "nonpositive",
             "export_bytes", "export_px", "export_claimed",
             "camera", "iso", "capture_at", "decoder_pin", "decoder_pin_2",
             "hung", "note",
@@ -456,6 +571,16 @@ final class RawCorpusTests: XCTestCase {
             cells.append(fmt(p.nearWhiteFraction))
             cells.append(String(p.nonFiniteSamples))
             cells.append(String(p.floatSamples))
+            cells.append(entry.expectedCrop?.text ?? "-")
+            cells.append(fmt(p.decodeRG, 3))
+            cells.append(fmt(p.decodeBG, 3))
+            cells.append(fmt(entry.libRawRG, 3))
+            cells.append(fmt(entry.libRawBG, 3))
+            cells.append(fmt(p.highlightRG, 3))
+            cells.append(fmt(p.highlightBG, 3))
+            cells.append(String(p.highlightPixels))
+            cells.append(fmt(p.shadowRatio, 3))
+            cells.append(fmt(p.nonPositiveFraction, 5))
             cells.append(fmt(p.exportBytes))
             cells.append(p.exportPixels?.text ?? "-")
             cells.append(p.exportClaimed?.text ?? "-")
@@ -648,6 +773,9 @@ final class RawCorpusTests: XCTestCase {
             p.iso = metadata.iso
         }
 
+        p.timedCold = RawCorpusTests.timedFiles == 0
+        RawCorpusTests.timedFiles += 1
+        let openStarted = DispatchTime.now()
         guard let openAttempt = RawCorpusTests.watched(
             "open \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             () -> Result<AppleRawSource, Error> in
@@ -665,6 +793,7 @@ final class RawCorpusTests: XCTestCase {
         switch openAttempt {
         case .success(let opened):
             source = opened
+            p.openMs = RawCorpusTests.ms(since: openStarted)
         case .failure(let error):
             p.openFailure = String(describing: error)
             return
@@ -684,6 +813,7 @@ final class RawCorpusTests: XCTestCase {
 
         // R-2. The decode itself, at the same scale `renderPreview` will ask for, so
         // this costs the demosaic once and the render below hits the source's cache.
+        let decodeStarted = DispatchTime.now()
         guard let decoded = RawCorpusTests.watched(
             "decode \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             source.decode(recipe: recipe, draft: false, scaleFactor: scale)
@@ -696,6 +826,7 @@ final class RawCorpusTests: XCTestCase {
             _ = source.releaseDecodes()
             return
         }
+        p.decodeMs = RawCorpusTests.ms(since: decodeStarted)
         let extent = decodedImage.extent
         p.decodedExtent = extent
         // `CGRect.infinite` is legitimate for a Core Image generator, and an infinite
@@ -718,6 +849,7 @@ final class RawCorpusTests: XCTestCase {
         RawCorpusTests.emit(RawCorpusTests.whiteBalanceLine(entry, p))
 
         // R-3/R-4/R-5/R-6/R-7 all read the same delivered frame, rendered once.
+        let renderStarted = DispatchTime.now()
         guard let renderAttempt = RawCorpusTests.watched(
             "render \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
             () -> Result<CGImage, Error> in
@@ -738,6 +870,7 @@ final class RawCorpusTests: XCTestCase {
         switch renderAttempt {
         case .success(let image):
             delivered = image
+            p.previewMs = RawCorpusTests.ms(since: renderStarted)
         case .failure(let error):
             p.renderFailure = String(describing: error)
             _ = source.releaseDecodes()
@@ -758,6 +891,7 @@ final class RawCorpusTests: XCTestCase {
         // R-8. A full-decode export, which is the path a delivered file actually takes.
         RawCorpusTests.exportAndReopen(entry: entry, source: source, recipe: recipe,
                                        into: p)
+        RawCorpusTests.emit(RawCorpusTests.timingLine(entry, p))
         // The export decodes at scaleFactor 1.0, so the source is now holding a
         // full-sensor half-float plane — 330 MB on the 40 MP X-H2. Sixteen of those
         // outliving each other on a 7 GB runner is how this lane starts swapping
@@ -842,6 +976,64 @@ final class RawCorpusTests: XCTestCase {
         p.nonFiniteSamples = nonFinite
         p.nonFiniteFirst = first
         p.decodeMeans = (0..<3).map { counts[$0] > 0 ? sums[$0] / Double(counts[$0]) : .nan }
+        readHighlightsAndShadows(buffer, into: p)
+    }
+
+    /// R-12's and R-13's statistics, from the readback `readFiniteness` already holds.
+    ///
+    /// The plane is `DecodeMaterializer.context`'s output: extended LINEAR Rec.2020, at
+    /// the decode's camera-reference white balance with Apple's tone stages off. So the
+    /// luminance weights are Rec.2020's (0.2627, 0.6780, 0.0593), and a ratio of two
+    /// percentiles does not depend on Apple's exposure gain — only an OFFSET (a misread
+    /// black level) moves it. Nearest-rank percentiles over every finite pixel; at
+    /// ~700 000 pixels the 0.05% tail is ~350 pixels, which is the size the LibRaw
+    /// references in the manifest were measured at (see R-12).
+    private static func readHighlightsAndShadows(_ buffer: ImageBuffer, into p: Probe) {
+        let pixelCount = buffer.pixels.count / 4
+        func lumaAt(_ pixel: Int) -> Float? {
+            let r = buffer.pixels[pixel * 4]
+            let g = buffer.pixels[pixel * 4 + 1]
+            let b = buffer.pixels[pixel * 4 + 2]
+            guard r.isFinite, g.isFinite, b.isFinite else { return nil }
+            return 0.2627 * r + 0.6780 * g + 0.0593 * b
+        }
+        var lumas: [Float] = []
+        lumas.reserveCapacity(pixelCount)
+        var nonPositive = 0
+        for pixel in 0..<pixelCount {
+            guard let y = lumaAt(pixel) else { continue }
+            lumas.append(y)
+            for channel in 0..<3 where buffer.pixels[pixel * 4 + channel] <= 0 {
+                nonPositive += 1
+            }
+        }
+        // Below ~2000 pixels the 0.05% tail is a single pixel; say nothing.
+        guard lumas.count >= 2000 else { return }
+        lumas.sort()
+        func quantile(_ q: Double) -> Float {
+            let index = Int((Double(lumas.count - 1) * q).rounded())
+            return lumas[Swift.min(lumas.count - 1, Swift.max(0, index))]
+        }
+        p.lumaMax = lumas.last.map { Double($0) }
+        p.shadowP01 = Double(quantile(0.001))
+        p.shadowP50 = Double(quantile(0.5))
+        p.nonPositiveFraction = Double(nonPositive) / Double(lumas.count * 3)
+
+        let threshold = quantile(0.9995)
+        var sums = [0.0, 0.0, 0.0]
+        var tail = 0
+        for pixel in 0..<pixelCount {
+            guard let y = lumaAt(pixel), y >= threshold else { continue }
+            for channel in 0..<3 {
+                sums[channel] += Double(buffer.pixels[pixel * 4 + channel])
+            }
+            tail += 1
+        }
+        p.highlightPixels = tail
+        if tail > 0, sums[1] > 0 {
+            p.highlightRG = sums[0] / sums[1]
+            p.highlightBG = sums[2] / sums[1]
+        }
     }
 
     /// The white-balance inputs one file hands the renderer, and what the decode looks
@@ -1055,9 +1247,38 @@ final class RawCorpusTests: XCTestCase {
             p.previewNote = "no preview >= 256 px — R-5 skipped, not failed"
             return
         }
+        // A camera can record an aspect crop its preview does not show. The GX85's 16:9
+        // RW2 (2547) carries a 1920x1440 4:3 preview of the whole sensor — no
+        // letterbox; its row-band means match the 4:3 file's — so squashing both to
+        // 32x32 compares different framings: on the preview alone, full frame against
+        // its own centred 16:9 band gives r = 0.736 before any tone difference. When
+        // the manifest pins the crop and the preview's aspect is more than 2% off it,
+        // compare against the preview's centred region of that aspect (2547's band is
+        // centred: 432 rows trimmed above and below). The aspect comes from the
+        // manifest, never from the delivered frame, so a 90° error still shows here.
+        var compared = chosen
+        if let crop = entry.expectedCrop {
+            let rotated = (5...8).contains(entry.orientation ?? 1)
+            let want = rotated
+                ? Double(crop.h) / Double(crop.w)
+                : Double(crop.w) / Double(crop.h)
+            let width = Double(chosen.width)
+            let height = Double(chosen.height)
+            if abs(want / (width / height) - 1.0) > 0.02 {
+                let keepH = Swift.min(height, (width / want).rounded())
+                let keepW = Swift.min(width, (height * want).rounded())
+                let region = CGRect(x: ((width - keepW) / 2).rounded(),
+                                    y: ((height - keepH) / 2).rounded(),
+                                    width: keepW, height: keepH)
+                if let trimmed = chosen.cropping(to: region) {
+                    compared = trimmed
+                    source += "-aspect-cropped"
+                }
+            }
+        }
         p.previewSource = source
-        p.previewSize = "\(chosen.width)x\(chosen.height)"
-        guard let a = lumaGrid(chosen, side: 32), let b = lumaGrid(delivered, side: 32)
+        p.previewSize = "\(compared.width)x\(compared.height)"
+        guard let a = lumaGrid(compared, side: 32), let b = lumaGrid(delivered, side: 32)
         else {
             p.previewNote = "could not reduce one of the two frames to a 32x32 grid"
             return
@@ -1122,6 +1343,7 @@ final class RawCorpusTests: XCTestCase {
                                         colorSpace: .srgb, resizeMode: .longEdge,
                                         resizeValue: Double(exportLongEdge))
         let destination = exportDir.appendingPathComponent("\(entry.id).tif")
+        let exportStarted = DispatchTime.now()
         guard let outcome = watched(
             "export \(entry.id)", seconds: exportWatchdogSeconds, { () -> String? in
             do {
@@ -1140,6 +1362,7 @@ final class RawCorpusTests: XCTestCase {
             p.exportError = failure
             return
         }
+        p.exportMs = ms(since: exportStarted)
         if let attributes = try? FileManager.default
             .attributesOfItem(atPath: destination.path),
            let size = attributes[.size] as? NSNumber {
@@ -1285,6 +1508,91 @@ final class RawCorpusTests: XCTestCase {
                               + "purpose — 'same picture, same size, possibly sideways'. "
                               + "Whether it is the right way up is R-4.")
         }
+    }
+
+    /// R-3b. The file's OWN default crop, exactly — for the rows whose manifest carries
+    /// `crop=WxH`.
+    ///
+    /// R-3 compares Apple with Apple: in the 2026-10-18 run E == N on all twelve decoded
+    /// files, so it can only catch ImageIO and CIRAWFilter disagreeing, never both being
+    /// off the file's crop, and its 10% band would pass every error that matters here:
+    /// LibRaw's 7028x4688 visible area instead of the A7 IV's 7008x4672 is a pixel ratio
+    /// of 1.006; the GX85's 4608x3464 visible area (masked border included) instead of
+    /// 4592x3448 is 1.008; and a GX85 16:9 frame opened as 4:3 (4592x3448 instead of
+    /// 4592x2584, 440 rows of real sky and ground above and below) is something R-3 has
+    /// no independent number to compare against at all.
+    ///
+    /// The expectation is byte-derived, like the orientation pin, and frozen by the same
+    /// sha256. ARW: the raw SubIFD's DefaultCropSize (0xC620) — 7008x4672 at (12,8) on
+    /// 6929, 4608x3072 at (44,30) on 6934 — which is what Adobe Camera Raw/Lightroom
+    /// present, and which the camera's own embedded full-size JPEG matches exactly (its
+    /// SOF0 reads 7008x4672 and 4608x3072). RW2: tags 0x2f-0x32 (CropTop/Left/Bottom/
+    /// Right): 8/8/3456/4600 on 2545 and 440/8/3024/4600 on 2547, which is what Adobe's
+    /// converter maps to DefaultCrop. 2607 (GH5S, 3680x2760 from its own 0x2f-0x32) is
+    /// the control: Apple delivered exactly that on 2026-10-18, so the check is known
+    /// to be passable and a failure on the GX85 is about the GX85.
+    ///
+    /// `nativePixelSize` is SENSOR order (5812, orientation 8, reads N=5568x3712), and
+    /// so is the flag, so N is compared untransposed. The delivered 1024 px frame is
+    /// ORIENTED, so its aspect is compared against the crop transposed for orientations
+    /// 5-8, within 1.5 px on the short edge: the widest rounding gap the 2026-10-18 run
+    /// shows between N's aspect and D is 0.96 px (1087, 5976x3992 -> 1024x685), and the
+    /// 16:9-opened-as-4:3 error is 192 px. There is no full-scale export probe to pin as
+    /// well — R-8 exports at a 1600 px long edge — so N and D are what this checks.
+    ///
+    /// A failure is a real gap against Lightroom, not noise. The fix belongs in
+    /// `AppleRawSource` (apply the DefaultCrop / RW2 crop rectangle from the file's
+    /// metadata), never in this flag.
+    func testNativeSizeIsTheFilesOwnDefaultCrop() throws {
+        let entries = try corpus()
+        var checked = 0
+        for entry in entries where !entry.isNegative {
+            if let raw = entry.flagValue("crop"), entry.expectedCrop == nil {
+                XCTFail("\(entry.id) · \(entry.label): the manifest flag crop=\(raw) is "
+                        + "not WxH in positive integers. R-3b cannot check this row.")
+                continue
+            }
+            guard let crop = entry.expectedCrop else { continue }
+            let p = probe(for: entry)
+            guard p.decodedCleanly, let native = p.native else {
+                RawCorpusTests.emit("corpus-note: \(entry.id) · R-3b skipped — the file "
+                    + "did not decode (\(p.verdict)); there is no size to check.")
+                continue
+            }
+            checked += 1
+            let delivered = p.delivered?.text ?? RawCorpusTests.dash
+            let container = p.exif?.text ?? RawCorpusTests.dash
+            RawCorpusTests.emit("corpus-crop: \(entry.id) expected=\(crop.text) "
+                + "N=\(native.text) E=\(container) D=\(delivered) · \(entry.label)")
+
+            XCTAssertTrue(native.w == crop.w && native.h == crop.h,
+                          "\(entry.id) · \(entry.label): CIRAWFilter.nativeSize is "
+                              + "\(native.text) and the file's own default crop is "
+                              + "\(crop.text) (sensor order, read from its bytes). "
+                              + "Larger means Apple delivers masked border or, on a "
+                              + "multi-aspect RW2, the rows outside the camera's aspect "
+                              + "crop — Lightroom shows \(crop.text). Lumen has no crop "
+                              + "of its own, so this frame reaches the user as-is.")
+
+            guard let frame = p.delivered, frame.longEdge > 0 else { continue }
+            let orientation = p.exifOrientation ?? entry.orientation ?? 1
+            let oriented = (5...8).contains(orientation) ? Dim(w: crop.h, h: crop.w) : crop
+            let scale = Double(frame.longEdge) / Double(oriented.longEdge)
+            let wantW = Double(oriented.w) * scale
+            let wantH = Double(oriented.h) * scale
+            let gap = Swift.max(abs(Double(frame.w) - wantW), abs(Double(frame.h) - wantH))
+            XCTAssertLessThanOrEqual(
+                gap, 1.5,
+                "\(entry.id) · \(entry.label): the delivered frame is \(frame.text); the "
+                    + "default crop \(crop.text) at orientation \(orientation) and this "
+                    + "long edge implies \(RawCorpusTests.fmt(wantW, 1))x"
+                    + "\(RawCorpusTests.fmt(wantH, 1)) — \(RawCorpusTests.fmt(gap, 1)) px "
+                    + "off. The rendered picture has a different aspect from the one the "
+                    + "camera recorded (1.5 px is about 1.5x the widest rounding gap "
+                    + "measured).")
+        }
+        RawCorpusTests.emit("corpus-summary: R-3b checked \(checked) file(s) against "
+            + "their own default crop.")
     }
 
     /// R-4. THE ONE THIS LANE WAS BUILT FOR.
@@ -1529,6 +1837,278 @@ final class RawCorpusTests: XCTestCase {
         }
     }
 
+    // MARK: - The as-shot white's units
+
+    /// `CIRAWFilter.neutralTemperature`/`neutralTint` are Adobe DNG-convention numbers
+    /// (`DNGTemperature`), not `ColorTemperature`'s. Measured on corpus 1087 in run
+    /// 39152441459: 5454.009 K / -12.993514 beside neutralChromaticity 0.3333341 /
+    /// 0.3333340, which the DNG SDK port reproduces to 5e-9 and Lumen's own model misses
+    /// by 0.006 in x. That was one file; this pins it on EVERY file that opens, across
+    /// Canon, Nikon, Sony, Panasonic and DNG, so an OS release that changes Apple's
+    /// convention fails here instead of silently moving every as-shot white.
+    ///
+    /// 1e-4 in x and y: the measured disagreement is 5e-9 and Apple's values are Float32
+    /// (3e-8 spacing near 1/3), while the two candidate models differ by ~6e-3. A file
+    /// whose neutral is not finite has no convention to pin; it is logged and left to
+    /// `WhiteBalanceEngine.Neutral.sanitizedAsShot` and the corpus-wb line.
+    func testApplesAsShotNeutralIsInTheDNGTemperatureConvention() throws {
+        let entries = try corpus()
+        var checked = 0
+        for entry in entries {
+            let p = probe(for: entry)
+            guard p.opened, let filter = CIRAWFilter(imageURL: entry.url) else { continue }
+            let kelvin = Double(filter.neutralTemperature)
+            let tint = Double(filter.neutralTint)
+            let apple = filter.neutralChromaticity
+            let appleX = Double(apple.x), appleY = Double(apple.y)
+            let dng = DNGTemperature.chromaticity(kelvin: kelvin, tint: tint)
+            RawCorpusTests.emit("corpus-dngtemp: \(entry.id) "
+                + "neutralTemperature=\(String(describing: kelvin)) "
+                + "neutralTint=\(String(describing: tint)) "
+                + "neutralChromaticity=\(String(describing: appleX))/"
+                + "\(String(describing: appleY)) "
+                + "dng-xy=\(String(describing: dng.x))/\(String(describing: dng.y)) "
+                + "source=\(String(describing: p.asShotTemperature ?? .nan))/"
+                + "\(String(describing: p.asShotTint ?? .nan)) · \(entry.label)")
+            guard kelvin.isFinite, tint.isFinite, kelvin > 0 else {
+                RawCorpusTests.emit("corpus-note: \(entry.id) · DNG-convention pin skipped "
+                    + "— the as-shot neutral is not a finite temperature")
+                continue
+            }
+            checked += 1
+            let message = "\(entry.id) · \(entry.label): Apple reports "
+                + "\(kelvin) K / \(tint) with neutralChromaticity \(appleX)/\(appleY), "
+                + "but the DNG SDK convention puts that pair at \(dng.x)/\(dng.y). "
+                + "AppleRawSource.asShotTemperature/asShotTint are documented as "
+                + "DNG-convention numbers; if Apple changed convention, every as-shot "
+                + "white Lumen adapts from has moved."
+            XCTAssertEqual(dng.x, appleX, accuracy: 1e-4, message)
+            XCTAssertEqual(dng.y, appleY, accuracy: 1e-4, message)
+        }
+        RawCorpusTests.emit("corpus-summary: DNG-convention pin checked \(checked) of "
+            + "\(entries.count) files")
+        XCTAssertGreaterThan(checked, 0,
+                             "No corpus file opened with a finite as-shot neutral, so "
+                                 + "the DNG-convention pin tested nothing.")
+    }
+
+    /// R-7c. The decode's colour against an INDEPENDENT decoder, for rows carrying
+    /// `rg=` and `bg=`.
+    ///
+    /// `decodeMeans` used to be logged and never compared, so a wrong as-shot WB, a
+    /// missing matrix, a channel swap or a wrong per-channel black on a new camera
+    /// passed, and R-7's chroma < 20 cannot tell a decode error from a scene or look
+    /// issue (it fails on 2607 and 5812 for downstream reasons). This compares the
+    /// SAME statistic from LibRaw: R/G and B/G of the per-channel mean over the whole
+    /// scene-linear decode, at camera WB, linear Rec.2020. Gain is deliberately not
+    /// compared — Apple/LibRaw green differs 1.14-1.35x with baseline exposure.
+    ///
+    /// How the references were made (rawpy 0.27 / LibRaw 0.22; "refs.py" below is a
+    /// scratch script that is not in the repository, and this paragraph is its recipe.
+    /// Re-measured independently on 2026-10-20 to the same three decimals on all eight
+    /// rows; a float variant that skips the 16-bit output clip moves a ratio by at most
+    /// ln 0.011 (2607 R/G; then 5283 B/G 0.009, 2607 B/G 0.006, 6929 B/G 0.004, the
+    /// rest <= 0.001) — the files with clipped areas, all well inside the bound below):
+    /// `postprocess(use_camera_wb=True, output_color=XYZ, gamma=(1,1),
+    /// no_auto_bright=True, output_bps=16, user_flip=0)`, XYZ (D65) -> linear Rec.2020,
+    /// cropped to the file's default crop (A7 IV DefaultCrop; GX85 0x2f-0x32; for the
+    /// controls, Apple's N centred in LibRaw's visible area; 6934's crop clamped to
+    /// LibRaw's 4624x3080 visible area), mean per channel, ratio.
+    ///
+    /// The bound is |ln(Apple / LibRaw)| <= 0.05 on each ratio. On the four controls,
+    /// Apple's 2026-10-18 corpus-wb means against these references give ln deviations
+    /// of 1346 +0.001/-0.011, 2349 +0.013/-0.028, 2607 -0.015/-0.027, 5283 +0.005/
+    /// +0.008: worst 0.028, so 0.05 is 1.8x the worst agreement across four makes. The
+    /// failures it exists for are far outside it: black forced to 0 moves 6929 to
+    /// 1.323/1.096 (ln +0.33/+0.35), a red/blue swap on 2545 is ln -0.30, a doubled WB
+    /// is ln ~+0.9 on R/G. A miss of 0.05-0.15 is a matrix or WB disagreement worth
+    /// reading; beyond that it is a decode error.
+    func testDecodeChannelRatiosAgreeWithLibRaw() throws {
+        let entries = try corpus()
+        var checked = 0
+        for entry in entries where !entry.isNegative && !entry.isMono {
+            let flagged = entry.flagValue("rg") != nil || entry.flagValue("bg") != nil
+            guard let refRG = entry.libRawRG, let refBG = entry.libRawBG,
+                  refRG > 0, refBG > 0 else {
+                if flagged {
+                    XCTFail("\(entry.id) · \(entry.label): the manifest carries only one "
+                            + "of rg=/bg=, or one is not a positive number. R-7c needs "
+                            + "both.")
+                }
+                continue
+            }
+            let p = probe(for: entry)
+            guard p.decodedCleanly else {
+                RawCorpusTests.emit("corpus-note: \(entry.id) · R-7c skipped — the file "
+                    + "did not decode (\(p.verdict)).")
+                continue
+            }
+            guard let rg = p.decodeRG, let bg = p.decodeBG else {
+                XCTFail("\(entry.id) · \(entry.label): the decode decoded but its "
+                        + "per-channel means are missing or not positive "
+                        + "(\(p.floatReadbackNote)), so R-7c has nothing to compare.")
+                continue
+            }
+            checked += 1
+            let devRG = log(rg / refRG)
+            let devBG = log(bg / refBG)
+            RawCorpusTests.emit("corpus-ratio: \(entry.id) "
+                + "apple rg=\(RawCorpusTests.fmt(rg, 3)) bg=\(RawCorpusTests.fmt(bg, 3)) "
+                + "libraw rg=\(RawCorpusTests.fmt(refRG, 3)) "
+                + "bg=\(RawCorpusTests.fmt(refBG, 3)) "
+                + "ln-dev rg=\(RawCorpusTests.fmt(devRG, 3)) "
+                + "bg=\(RawCorpusTests.fmt(devBG, 3)) "
+                + "N=\(p.native?.text ?? RawCorpusTests.dash) "
+                + "crop=\(entry.expectedCrop?.text ?? RawCorpusTests.dash) · \(entry.label)")
+            // The reference is a mean over the DEFAULT CROP, so on a crop= row whose
+            // Apple frame is not that crop the two means cover different pixels, and a
+            // miss can be framing rather than colour. Measured on 2547: LibRaw over the
+            // full 4:3 frame instead of its 16:9 crop gives B/G 0.820 against 0.768,
+            // ln +0.066, past the bound on its own. Asserted all the same — R-3b fails
+            // on that row too — but the message must not call it a matrix error.
+            var framing = ""
+            if let crop = entry.expectedCrop, let native = p.native,
+               native.w != crop.w || native.h != crop.h {
+                framing = " FRAMING: Apple's frame is \(native.text), the reference was "
+                    + "measured over the default crop \(crop.text), so part of this "
+                    + "deviation may be area, not colour (2547 full 4:3 vs 16:9: B/G "
+                    + "ln +0.066). Read R-3b's failure on this row first."
+            }
+            let meaning = "Bound 0.05 is 1.8x the worst control (2349/2607, 0.028). "
+                + "Tens of percent is a channel swap, missing matrix, doubled WB or a "
+                + "wrong black; a few percent over the bound is a matrix/WB disagreement "
+                + "to read against the corpus-ratio lines." + framing
+            XCTAssertLessThanOrEqual(
+                abs(devRG), 0.05,
+                "\(entry.id) · \(entry.label): Apple's decode R/G is "
+                    + "\(RawCorpusTests.fmt(rg, 3)), LibRaw's is "
+                    + "\(RawCorpusTests.fmt(refRG, 3)) — ln deviation "
+                    + "\(RawCorpusTests.fmt(devRG, 3)). " + meaning)
+            XCTAssertLessThanOrEqual(
+                abs(devBG), 0.05,
+                "\(entry.id) · \(entry.label): Apple's decode B/G is "
+                    + "\(RawCorpusTests.fmt(bg, 3)), LibRaw's is "
+                    + "\(RawCorpusTests.fmt(refBG, 3)) — ln deviation "
+                    + "\(RawCorpusTests.fmt(devBG, 3)). " + meaning)
+        }
+        RawCorpusTests.emit("corpus-summary: R-7c compared \(checked) file(s) with LibRaw.")
+    }
+
+    /// R-12. A real clipped region comes out neutral, not magenta — for rows carrying
+    /// `hl`.
+    ///
+    /// Every other highlight test here is synthetic (RawDecodeBoundaryTests writes 4.0
+    /// into a CIImage and reads it back). 6929 is the file that can carry this: its
+    /// sensor really clips at 16383 (LibRaw's camera_white_level says 15360), with
+    /// 4208 2x2 quads at >= 15000 on every site and 19 635 green-only-clipped quads, 47%
+    /// of them with WB-scaled R and B above the green clip — exactly what renders
+    /// magenta unless a decoder reconstructs or clips all channels together.
+    ///
+    /// Statistic (`readHighlightsAndShadows`): over the brightest 0.05% of the decode's
+    /// pixels by Rec.2020 luminance, mean R / mean G and mean B / mean G. LibRaw on the
+    /// same crop, box-averaged by 7 to Apple's ~1000 px decode (the same refs.py):
+    /// highlight_mode=Clip gives 1.024 / 0.917; highlight_mode=Ignore — the magenta
+    /// failure — gives 2.711 / 2.498. The band [0.8, 1.25] leaves 1.15x below the clip
+    /// reference's B/G and is 2x under the magenta case. 6934's green-only clipping is
+    /// too small to move the statistic (Ignore changes only B/G, 0.990 -> 1.225), and
+    /// the GX85 files clip nowhere, so 6929 is the only row flagged.
+    ///
+    /// The brightest luminance is logged as well: whether headroom above 1.0 survives
+    /// the real decode is the other half of the highlights finding, and it is a
+    /// measurement, not an assertion.
+    func testClippedHighlightsAreNotMagenta() throws {
+        let entries = try corpus()
+        let flagged = entries.filter { $0.expectsNeutralHighlights && !$0.isNegative }
+        XCTAssertFalse(flagged.isEmpty,
+                       "No manifest row carries the `hl` flag, so R-12 tests nothing. "
+                           + "6929 (ILCE-7M4) is the row it was written for.")
+        for entry in flagged {
+            let p = probe(for: entry)
+            guard p.decodedCleanly else {
+                RawCorpusTests.emit("corpus-note: \(entry.id) · R-12 skipped — the file "
+                    + "did not decode (\(p.verdict)).")
+                continue
+            }
+            guard let rg = p.highlightRG, let bg = p.highlightBG else {
+                XCTFail("\(entry.id) · \(entry.label): no highlight statistic — the "
+                        + "scene-linear readback was missing or under 2000 pixels "
+                        + "(\(p.floatReadbackNote)).")
+                continue
+            }
+            RawCorpusTests.emit("corpus-highlight: \(entry.id) "
+                + "top0.05% n=\(p.highlightPixels) "
+                + "R/G=\(RawCorpusTests.fmt(rg, 3)) B/G=\(RawCorpusTests.fmt(bg, 3)) "
+                + "max-luma=\(RawCorpusTests.fmt(p.lumaMax, 3)) · libraw clip 1.024/0.917, "
+                + "magenta 2.711/2.498 · \(entry.label)")
+            XCTAssertTrue(
+                rg >= 0.8 && rg <= 1.25 && bg >= 0.8 && bg <= 1.25,
+                "\(entry.id) · \(entry.label): the brightest 0.05% of the decode "
+                    + "(\(p.highlightPixels) px) has R/G \(RawCorpusTests.fmt(rg, 3)) and "
+                    + "B/G \(RawCorpusTests.fmt(bg, 3)); expected both in [0.8, 1.25] "
+                    + "(LibRaw clip: 1.024/0.917). Above means the clipped region renders "
+                    + "magenta — green clipped while WB lifted R and B past it (LibRaw "
+                    + "unclipped: 2.711/2.498). Below 0.8 means a green or cyan cast in "
+                    + "the reconstruction.")
+        }
+    }
+
+    /// R-13. The shadows sit on the black level — for rows carrying `shadows`.
+    ///
+    /// R-6 checks the delivered frame's mean, spread and pinned ends, and a lifted
+    /// pedestal passes all three. The decode is linear at a fixed WB with boost,
+    /// shadow boost, contrast and tone map all 0, so p0.1/p50 of its luminance does not
+    /// depend on Apple's exposure gain, only on an OFFSET — which is what a misread
+    /// black level is. LibRaw, same refs.py and the same ~1000 px box-average, right
+    /// black vs black forced to 0 (`user_black=0`): 6929 0.085 vs 0.390, 6934 0.095 vs
+    /// 0.403, 2545 0.036 vs 0.282, 2547 0.032 vs 0.274; controls 1346 0.037 vs 0.550 and
+    /// 2607 0.067 vs 0.362. The ceiling 0.2 is 2.1x the worst right-black value and
+    /// 1.37x under the best black=0 value; it sits nearer the right-black side's
+    /// headroom on purpose, because Apple's own vignetting correction (corners up to
+    /// ~0.65 EV on the A7 IV's lens) can legitimately lift p0.1 where LibRaw's cannot.
+    ///
+    /// The other side: no raw sample on these files sits below black (LibRaw's
+    /// per-channel minimum is 513 on the A7 IV against black 512), so LibRaw puts 0.000%
+    /// of R,G,B samples at or below zero on every flagged row. Over-subtraction makes
+    /// them, so they must stay under 1%.
+    func testShadowsSitOnTheBlackLevel() throws {
+        let entries = try corpus()
+        let flagged = entries.filter { $0.expectsShadowsOnBlack && !$0.isNegative }
+        XCTAssertFalse(flagged.isEmpty,
+                       "No manifest row carries the `shadows` flag, so R-13 tests nothing.")
+        for entry in flagged {
+            let p = probe(for: entry)
+            guard p.decodedCleanly else {
+                RawCorpusTests.emit("corpus-note: \(entry.id) · R-13 skipped — the file "
+                    + "did not decode (\(p.verdict)).")
+                continue
+            }
+            guard let ratio = p.shadowRatio, let nonPositive = p.nonPositiveFraction else {
+                XCTFail("\(entry.id) · \(entry.label): no shadow statistic — the readback "
+                        + "was missing, under 2000 pixels, or its median luminance is not "
+                        + "positive (p50 \(RawCorpusTests.fmt(p.shadowP50, 5))).")
+                continue
+            }
+            RawCorpusTests.emit("corpus-shadows: \(entry.id) "
+                + "p0.1=\(RawCorpusTests.fmt(p.shadowP01, 5)) "
+                + "p50=\(RawCorpusTests.fmt(p.shadowP50, 5)) "
+                + "ratio=\(RawCorpusTests.fmt(ratio, 3)) "
+                + "nonpositive=\(RawCorpusTests.fmt(nonPositive * 100, 3))% · \(entry.label)")
+            XCTAssertLessThan(
+                ratio, 0.2,
+                "\(entry.id) · \(entry.label): p0.1/p50 of the scene-linear luminance is "
+                    + "\(RawCorpusTests.fmt(ratio, 3)); expected < 0.2 (LibRaw with the "
+                    + "file's black: <= 0.095 on every flagged row; with black forced to 0: "
+                    + ">= 0.274). The darkest tones are lifted off black by an offset — a "
+                    + "black level read too low, or a pedestal added after the decode.")
+            XCTAssertLessThan(
+                nonPositive, 0.01,
+                "\(entry.id) · \(entry.label): \(RawCorpusTests.fmt(nonPositive * 100, 2))% "
+                    + "of R,G,B samples are <= 0; expected < 1% (LibRaw: 0.000%, and no "
+                    + "raw sample of this file is below its black level). That is "
+                    + "over-subtraction: a black level read too high, or a shadow bias.")
+        }
+    }
+
     // MARK: - Diagnostic: which flat-mode option blacks out the monochrome decode
 
     /// DIAGNOSTIC, NOT AN INVARIANT. Corpus 1087 (Leica M Monochrom Typ 246: LinearRaw,
@@ -1588,9 +2168,12 @@ final class RawCorpusTests: XCTestCase {
                     Self.applyMonoOption(option, filter, kelvin: kelvin, tint: tint)
                 }
             }
-            // Lumen never writes `shadowBias` or `baselineExposure`; if Apple's default
-            // for either is what pulls the frame to -0.004, zeroing it on top of the
-            // flat set shows it.
+            // `shadowBias` is now IN the flat set (run 39152441459: this variant read
+            // 0.0 where lumen-flat read -0.004222), so this decode is the same setting
+            // as lumen-flat and the two lines must now agree. Kept, not deleted, so the
+            // line stays comparable with that run; the pre-fix decode is now the
+            // `flat-without-shadowBias` line. Lumen still never writes
+            // `baselineExposure`, so the variant after this one still separates it.
             _ = Self.monoDecode(entry, variant: "flat-plus-shadowBias-0") { filter in
                 Self.applyMonoFlat(filter, kelvin: kelvin, tint: tint, except: nil)
                 filter.shadowBias = 0
@@ -1606,7 +2189,7 @@ final class RawCorpusTests: XCTestCase {
     /// Every option `AppleRawSource.decode` writes besides the decoder pin, scale and
     /// draft flag (the sweep holds those at the per-file default, 0.125 and false).
     private static let monoFlatOptions = [
-        "neutralTemperature+neutralTint", "boostAmount", "boostShadowAmount",
+        "neutralTemperature+neutralTint", "boostAmount", "boostShadowAmount", "shadowBias",
         "localToneMapAmount", "isGamutMappingEnabled", "contrastAmount", "exposure",
         "extendedDynamicRangeAmount", "sharpnessAmount", "luminanceNoiseReductionAmount",
         "colorNoiseReductionAmount", "isLensCorrectionEnabled",
@@ -1620,6 +2203,7 @@ final class RawCorpusTests: XCTestCase {
             filter.neutralTint = tint
         case "boostAmount": filter.boostAmount = 0
         case "boostShadowAmount": filter.boostShadowAmount = 0
+        case "shadowBias": filter.shadowBias = 0
         case "localToneMapAmount": filter.localToneMapAmount = 0
         case "isGamutMappingEnabled": filter.isGamutMappingEnabled = false
         case "contrastAmount": filter.contrastAmount = 0
@@ -1738,6 +2322,157 @@ final class RawCorpusTests: XCTestCase {
         else { return "corpus-mono-sweep: \(entry.id) variant=imageio decode=failed" }
         return "corpus-mono-sweep: \(entry.id) variant=imageio "
             + monoStatistics(CIImage(cgImage: image))
+    }
+
+    // MARK: - Diagnostic: the lens-profile toggle on real files
+
+    /// DIAGNOSTIC, with one assertion. The only thing that reads `LensCorrections` is
+    /// `filter.isLensCorrectionEnabled = dev.geometry.lens.profile` in
+    /// `AppleRawSource.decode`, and until this test no real file was ever decoded with
+    /// the profile on and again off. Apple's documentation says the default for
+    /// `isLensCorrectionEnabled` "varies by image" and that `isLensCorrectionSupported`
+    /// says whether it can be enabled at all — so whether the A7 IV's embedded Sony
+    /// corrections (0x7031-0x7037: vignetting, CA and distortion all Auto; corners about
+    /// 0.65 EV low on the FE 50 F2.5 at f/5 by darktable's decoding of the knots) or the
+    /// GX85's DistortionInfo (0x0119) are applied by Apple is unknown. This answers it.
+    ///
+    /// Per decoded file: Apple's DEFAULT isLensCorrectionEnabled and Supported from a
+    /// fresh CIRAWFilter, then two decodes through `AppleRawSource` at scale 0.125 —
+    /// recipe `geometry.lens.profile` true (Recipe's default) and false — logging both
+    /// extents, the pixel RMS and max difference, and each decode's corner/centre
+    /// luminance ratio (mean of the four 10% corner boxes over the central 10% box).
+    ///
+    /// ASSERTED, only where it cannot be wrong: when Apple says the file does not
+    /// support lens correction, the toggle must be a no-op, so the two decodes must be
+    /// bit-identical. A difference there means the toggle reaches pixels through some
+    /// other path — a decode-cache key collision or a filter setting leaking between
+    /// decodes. Whether a SUPPORTED file changes, and by how much, is logged and not
+    /// asserted: that is the open question, and the first run's lines are the answer.
+    func testLensProfileToggleDiagnostic() throws {
+        let entries = try corpus()
+        var unsupportedChecked = 0
+        for entry in entries where !entry.isNegative {
+            let p = probe(for: entry)
+            guard p.decodedCleanly else { continue }
+            guard let fresh = CIRAWFilter(imageURL: entry.url) else {
+                RawCorpusTests.emit("corpus-lens: \(entry.id) fresh CIRAWFilter refused")
+                continue
+            }
+            let defaultEnabled = fresh.isLensCorrectionEnabled
+            let supported = fresh.isLensCorrectionSupported
+            let freshNative = "\(Int(fresh.nativeSize.width))x\(Int(fresh.nativeSize.height))"
+            guard let source = try? AppleRawSource(url: entry.url) else {
+                RawCorpusTests.emit("corpus-lens: \(entry.id) AppleRawSource refused")
+                continue
+            }
+            let profileOn = Recipe()
+            var withoutProfile = Recipe()
+            withoutProfile.develop.geometry.lens.profile = false
+            let profileOff = withoutProfile
+            let decoded = RawCorpusTests.watched(
+                "lens \(entry.id)", seconds: RawCorpusTests.watchdogSeconds, {
+                () -> (on: ImageBuffer?, off: ImageBuffer?) in
+                let on = source.decode(recipe: profileOn, draft: false, scaleFactor: 0.125)
+                    .flatMap { PipelineRenderer.buffer(from: $0,
+                                                       context: DecodeMaterializer.context) }
+                let off = source.decode(recipe: profileOff, draft: false, scaleFactor: 0.125)
+                    .flatMap { PipelineRenderer.buffer(from: $0,
+                                                       context: DecodeMaterializer.context) }
+                return (on: on, off: off)
+            })
+            guard let pair = decoded else {
+                // NOT released here: on a timeout the leaked worker is still inside
+                // `source.decode`, and `releaseDecodes` from this thread would mutate
+                // the same decode cache under it — a data race that can take down the
+                // whole process and every test after this one. Same rule as `watched`:
+                // stop touching an abandoned source.
+                XCTFail("\(entry.id) · \(entry.label): the two 0.125-scale lens-toggle "
+                        + "decodes did not finish inside "
+                        + "\(Int(RawCorpusTests.watchdogSeconds))s.")
+                continue
+            }
+            _ = source.releaseDecodes()
+            guard let on = pair.on, let off = pair.off else {
+                let onState = pair.on == nil ? "nil" : "ok"
+                let offState = pair.off == nil ? "nil" : "ok"
+                XCTFail("\(entry.id) · \(entry.label): a lens-toggle decode returned no "
+                        + "pixels (profile on: \(onState), off: \(offState)) on a file "
+                        + "that decoded cleanly at preview scale.")
+                continue
+            }
+            let sameExtent = on.width == off.width && on.height == off.height
+            var identical = sameExtent
+            var sumSquares = 0.0
+            var maxDiff = 0.0
+            if sameExtent {
+                for index in 0..<on.pixels.count where index % 4 != 3 {
+                    let a = on.pixels[index], b = off.pixels[index]
+                    if a.bitPattern != b.bitPattern { identical = false }
+                    let d = Double(a) - Double(b)
+                    if d.isFinite {
+                        sumSquares += d * d
+                        maxDiff = Swift.max(maxDiff, abs(d))
+                    }
+                }
+            }
+            let samples = Double(Swift.max(1, on.width * on.height * 3))
+            let rms = sameExtent ? (sumSquares / samples).squareRoot() : Double.nan
+            let vignetteOn = RawCorpusTests.cornerOverCentre(on)
+            let vignetteOff = RawCorpusTests.cornerOverCentre(off)
+            let identity = identical ? "bit-identical" : "differ"
+            RawCorpusTests.emit("corpus-lens: \(entry.id) default-enabled=\(defaultEnabled) "
+                + "supported=\(supported) fresh-native=\(freshNative) "
+                + "N=\(p.native?.text ?? RawCorpusTests.dash) "
+                + "on=\(on.width)x\(on.height) off=\(off.width)x\(off.height) "
+                + "\(identity) rms=\(RawCorpusTests.fmt(rms, 6)) "
+                + "max=\(RawCorpusTests.fmt(maxDiff, 5)) "
+                + "corner/centre on=\(RawCorpusTests.fmt(vignetteOn, 3)) "
+                + "off=\(RawCorpusTests.fmt(vignetteOff, 3)) · \(entry.label)")
+
+            guard !supported else { continue }
+            unsupportedChecked += 1
+            XCTAssertTrue(
+                identical,
+                "\(entry.id) · \(entry.label): Apple reports isLensCorrectionSupported = "
+                    + "false, so geometry.lens.profile must be a no-op, and the decodes "
+                    + "with it on (\(on.width)x\(on.height)) and off "
+                    + "(\(off.width)x\(off.height)) are not bit-identical (RMS "
+                    + "\(RawCorpusTests.fmt(rms, 6)), max \(RawCorpusTests.fmt(maxDiff, 5))). "
+                    + "The toggle reaches pixels through another path: a decode-cache key "
+                    + "collision or a filter setting leaking between decodes.")
+        }
+        RawCorpusTests.emit("corpus-summary: lens toggle asserted bit-identity on "
+            + "\(unsupportedChecked) unsupported file(s); supported files are logged only.")
+    }
+
+    /// Mean luminance of the four 10%-by-10% corner boxes over that of the central box,
+    /// on a linear Rec.2020 readback. Under 1 is vignetting; a lens profile that
+    /// corrects it moves this toward 1 (scene content permitting — hence logged only).
+    private static func cornerOverCentre(_ buffer: ImageBuffer) -> Double? {
+        let boxW = Swift.max(1, buffer.width / 10)
+        let boxH = Swift.max(1, buffer.height / 10)
+        guard buffer.width >= boxW * 3, buffer.height >= boxH * 3 else { return nil }
+        func meanLuma(x0: Int, y0: Int) -> Double {
+            var sum = 0.0
+            var n = 0
+            for y in y0..<(y0 + boxH) {
+                for x in x0..<(x0 + boxW) {
+                    let base = (y * buffer.width + x) * 4
+                    let value = 0.2627 * Double(buffer.pixels[base])
+                        + 0.6780 * Double(buffer.pixels[base + 1])
+                        + 0.0593 * Double(buffer.pixels[base + 2])
+                    if value.isFinite { sum += value; n += 1 }
+                }
+            }
+            return n > 0 ? sum / Double(n) : .nan
+        }
+        let right = buffer.width - boxW
+        let bottom = buffer.height - boxH
+        let corners = (meanLuma(x0: 0, y0: 0) + meanLuma(x0: right, y0: 0)
+            + meanLuma(x0: 0, y0: bottom) + meanLuma(x0: right, y0: bottom)) / 4
+        let centre = meanLuma(x0: (buffer.width - boxW) / 2, y0: (buffer.height - boxH) / 2)
+        guard centre.isFinite, centre > 0, corners.isFinite else { return nil }
+        return corners / centre
     }
 
     // MARK: - Tier 3 — export and metadata
