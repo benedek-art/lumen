@@ -1612,9 +1612,26 @@ public final class PipelineRenderer {
             // through `localStageInput` so it is the same image the CPU reference hands
             // its rasterizer — a luma band is denominated in EV of the corrected scene,
             // not of the raw decode, or the handles move when Exposure does.
-            let source = maskSource(decoded: decoded, plan: plan,
-                                    width: width, height: height, extent: extent,
-                                    strokeSets: strokeSets)
+            //
+            // BUILT ON FIRST USE, not here. It is a synchronous GPU readback of the whole
+            // staged frame at raster size (11 MB of RGBAf at the 1024 proxy), and its
+            // only reader is a `bake` closure below — which does not run at all when
+            // `MaskRasterCache` hits, the common case on every frame of a drag that does
+            // not touch the mask. `needsPicture` is `maskSource`'s own gate, evaluated
+            // up front so the key below can still be chosen without the pixels; the
+            // buffer, once built, is the same one the eager call produced, and is built
+            // at most once per graph however many masks' bakes ask for it.
+            let needsPicture = plan.masks.contains { mask in
+                Self.maskReadsPicture(mask, in: plan.allMasks, strokeSets: strokeSets,
+                                      longEdge: Swift.max(width, height))
+            }
+            let lazySource = LazyMaskSource { [self] in
+                needsPicture
+                    ? maskSource(decoded: decoded, plan: plan,
+                                 width: width, height: height, extent: extent,
+                                 strokeSets: strokeSets)
+                    : nil
+            }
 
             // Everything the raster reads goes into the key, or the cache lies —
             // PlanTableCache's rule, applied to planes. The source image is keyed by
@@ -1683,7 +1700,7 @@ public final class PipelineRenderer {
             // mask that reads nothing keeps caching regardless, because a term it does
             // not depend on cannot be missing from its key.
             let pictureKey: String?
-            if source != nil {
+            if needsPicture {
                 // `sourceURL` is threaded in from the caller — the local `source` is
                 // the staged ImageBuffer, which has no url (the first draft of this
                 // asked it for one and the macOS compiler said no).
@@ -1712,12 +1729,13 @@ public final class PipelineRenderer {
                 // `maskReadsPicture`. `source == nil` short-circuits it because then
                 // the rasterizer has no picture to hand anybody and `pictureKey` is
                 // already "-".
-                let usesPicture = source != nil
+                let usesPicture = needsPicture
                     && Self.maskReadsPicture(mask, in: plan.allMasks,
                                              strokeSets: strokeSets,
                                              longEdge: Swift.max(width, height))
                 let sourceKey: String? = usesPicture ? pictureKey : "-"
                 let bake = { [brushPlanes] in
+                    let source = lazySource.value
                     // The brush half is accumulated rather than replayed. Built inside
                     // `bake` and not before it, so a frame served a stale raster does
                     // not pay for painting it will not use.
@@ -1885,6 +1903,26 @@ public final class PipelineRenderer {
     /// Returns nil when no mask component actually reads the picture, because then this
     /// is a whole extra render pass bought for nothing: a Linear or Radial gradient is
     /// pure geometry and a brush is pure geometry plus its stroke set.
+    /// `maskSource`'s buffer, built at most once and only when a bake asks. Bakes run
+    /// inline and on `MaskRasterCache`'s queue, so the build is under a lock.
+    private final class LazyMaskSource: @unchecked Sendable {
+        private let lock = NSLock()
+        private var make: (() -> ImageBuffer?)?
+        private var built: ImageBuffer?
+
+        init(_ make: @escaping () -> ImageBuffer?) { self.make = make }
+
+        var value: ImageBuffer? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let make {
+                built = make()
+                self.make = nil
+            }
+            return built
+        }
+    }
+
     private func maskSource(decoded: CIImage, plan: RenderPlan,
                             width: Int, height: Int, extent: CGRect,
                             strokeSets: [String: BrushStrokeSet],
