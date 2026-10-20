@@ -497,6 +497,18 @@ public struct ScrollNudge: Equatable, Sendable {
         return Int(whole)
     }
 
+    /// Which of an event's two deltas is the scroll, given AppKit's ⇧ conversion.
+    ///
+    /// Y is the axis this feature reads, but with ⇧ held macOS delivers a MOUSE wheel's
+    /// motion as horizontal scrolling: Y arrives as zero and the click is in X, so ⌥⇧ —
+    /// the documented ten-step nudge — did nothing on any external mouse. A trackpad is
+    /// not converted, so its X stays ignored. The converted X keeps the wheel's sign.
+    public static func axisDelta(dx: Double, dy: Double,
+                                 precise: Bool, shift: Bool) -> Double {
+        if !precise && shift && dy == 0 { return dx }
+        return dy
+    }
+
     /// Drop the remainder because a new gesture has begun.
     ///
     /// Only a trackpad can say when one does — a wheel has no phases, which is the whole

@@ -158,8 +158,13 @@ private final class LumenScrollNudgeView: NSView {
         //
         // Y only, and X ignored. A mouse wheel has no X at all, so honouring it would
         // mean the same flick meant different things on different devices, and a diagonal
-        // one would need a tie-break nobody could predict.
-        let steps = nudge.steps(scrolling: Double(event.scrollingDeltaY),
+        // one would need a tie-break nobody could predict. The one exception is a
+        // mouse wheel under ⇧, which AppKit itself moves to X — `ScrollNudge.axisDelta`.
+        let delta = ScrollNudge.axisDelta(dx: Double(event.scrollingDeltaX),
+                                          dy: Double(event.scrollingDeltaY),
+                                          precise: event.hasPreciseScrollingDeltas,
+                                          shift: event.modifierFlags.contains(.shift))
+        let steps = nudge.steps(scrolling: delta,
                                 precise: event.hasPreciseScrollingDeltas)
         guard steps != 0 else { return }
         onSteps?(steps)
