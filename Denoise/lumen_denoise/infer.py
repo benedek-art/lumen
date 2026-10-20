@@ -42,6 +42,18 @@ def default_noise(iso):
     return 1.65e-7 * iso, 1.3e-7
 
 
+def mean_preserve(p, d, sigma=24.0):
+    """Restore the input's large-scale level: noise is zero-mean, so blur(p) is an unbiased level
+    estimate and blur(p - d) is the denoiser's own bias (L1-trained nets shift dark areas by
+    ~10-20 DN of 14-bit; the release gate's low-ISO check requires <= 1). sigma in packed px;
+    0 disables. At sigma 24 the noise leaking back costs < 0.01 dB."""
+    if not sigma:
+        return d
+    import cv2
+    diff = (p - d).astype(np.float32)
+    return d + np.stack([cv2.GaussianBlur(c, (0, 0), sigma, borderType=cv2.BORDER_REFLECT) for c in diff])
+
+
 def _weights(t, a0, n, ov):
     """1-D blend weights for a tile [a0, a0+t) of an axis of length n: at interior tile edges the
     outer ov//4 px get weight 0 (UNet zero-padding artifacts), then a linear ramp; image edges 1."""
@@ -60,7 +72,7 @@ def _starts(n, tile, step):
 
 
 class Engine:
-    def __init__(self, weights=DEFAULT_WEIGHTS, calib=DEFAULT_CALIB, net=None, dev=DEV, tile=1024, ov=64):
+    def __init__(self, weights=DEFAULT_WEIGHTS, calib=DEFAULT_CALIB, net=None, dev=DEV, tile=1024, ov=64, mp_sigma=24.0):
         if net is None:
             net = Denoiser.from_state_dict(torch.load(weights, map_location="cpu"))
         assert tile > 2 * ov and tile % 16 == 0, (tile, ov)
@@ -69,6 +81,7 @@ class Engine:
         if self.half:
             self.net.half()
         self._net32 = None
+        self.mp_sigma = mp_sigma
         self.table = NoiseTable(calib) if calib and Path(calib).exists() else None
         self.tile, self.ov = tile, ov
 
@@ -143,7 +156,7 @@ class Engine:
             cfa = np.pad(cfa, ((0, H % 2), (0, W % 2)), mode="reflect")
         p = to_rggb(rawio.pack(cfa), r.pattern)
         K, rv, src_n = self.noise_params(r, p)
-        d = self.denoise_packed(p, K, rv)
+        d = mean_preserve(p, self.denoise_packed(p, K, rv), self.mp_sigma)
         d = strength * d + (1 - strength) * p
         dn = rawio.denormalize(r, rawio.unpack(from_rggb(d, r.pattern))[:H, :W])
         iso = int(r.iso) if float(r.iso).is_integer() else r.iso
