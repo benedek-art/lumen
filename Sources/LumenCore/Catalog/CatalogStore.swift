@@ -1480,6 +1480,12 @@ public final class CatalogStore {
         try migrate()
         try seedMetaIfNeeded()
         try rebuildTextIndexIfNeeded()
+        // photo.id has no AUTOINCREMENT, so after a restore from backup (or a fresh
+        // lumen.db beside an old cache.db) the next photo reuses the id of one only the
+        // lost catalog knew. Cache rows for that id would hand the new frame another
+        // frame's previews, scores and raw stats. The cache is derived; drop them now,
+        // before any id can be reused. Failing to sweep must not block opening.
+        try? sweepCacheOrphans()
     }
 
     deinit {
