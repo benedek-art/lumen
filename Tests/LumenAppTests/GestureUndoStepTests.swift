@@ -208,6 +208,7 @@ final class GestureUndoStepTests: XCTestCase {
 
     /// Dropping a folded-back step must not make the step it exposes look recent: an
     /// edit right after goes in its own step, not into the older one.
+    @MainActor
     func testAnEditAfterADroppedStepDoesNotFoldIntoTheOlderStep() {
         let url = URL(fileURLWithPath: "/roll/frame.arw")
         func edit(_ highlights: Double) -> [URL: HistoryStack.PhotoEdit] {
