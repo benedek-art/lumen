@@ -1136,8 +1136,11 @@ public struct RenderGraph {
         if let masked = KernelLibrary.apply(
             KernelLibrary.thresholdMask, extent: imageProxy.extent,
             [imageProxy, proxy, Float(brightest * 0.99)]),
-           let sums = Self.averageColor(masked),
-           let weight = Self.averageAlpha(masked), weight > 1e-6 {
+           let mean = Self.averageRGBA(masked), mean.alpha > 1e-6 {
+            // One area average and one readback for both the sums and the weight: they
+            // were two identical `CIAreaAverage` passes over the same proxy graph, each
+            // a GPU round trip, on every frame with Dehaze set.
+            let (sums, weight) = (mean.rgb, mean.alpha)
             airlight = RGB(sums.r / weight, sums.g / weight, sums.b / weight)
         }
         // t = 1 − ω·darkChannel(I / A), refined. Three things here were not the
@@ -2205,6 +2208,22 @@ public struct RenderGraph {
                                  format: .RGBAf, colorSpace: nil)
         let value = Double(pixel[3])
         return value.isFinite ? value : nil
+    }
+
+    /// `averageColor` and `averageAlpha` from ONE area average and one readback —
+    /// the same filter on the same input, so the same four floats either would read.
+    static func averageRGBA(_ image: CIImage) -> (rgb: RGB, alpha: Double)? {
+        let filter = CIFilter.areaAverage()
+        filter.inputImage = image
+        filter.extent = image.extent
+        guard let output = filter.outputImage else { return nil }
+        var pixel = [Float](repeating: 0, count: 4)
+        statisticsContext.render(output, toBitmap: &pixel, rowBytes: 16,
+                                 bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                 format: .RGBAf, colorSpace: nil)
+        let alpha = Double(pixel[3])
+        guard alpha.isFinite else { return nil }
+        return (RGB(Double(pixel[0]), Double(pixel[1]), Double(pixel[2])), alpha)
     }
 
     /// The brightest value in `image`. Used on an already-downsampled proxy, which is
