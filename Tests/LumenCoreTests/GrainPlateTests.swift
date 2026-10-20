@@ -270,6 +270,62 @@ final class GrainPlateTests: XCTestCase {
         XCTAssertEqual(mono.plate(channel: 0), mono.plate(channel: 2))
     }
 
+    /// The memo in front of the bake hands back exactly what a bake would, and never one
+    /// argument's plate for another's. Every argument is moved on its own — the seed,
+    /// the persistence, the band limit from nil to one that drops an octave — and each
+    /// must still give its own plate on the second, remembered, call.
+    func testARememberedPlateIsTheBakedPlateAndTheKeyDoesNotCollapse() {
+        func pair(seed: UInt64 = 0x51_7A7E, persistence: Double = 0.5,
+                  perCell: Double? = nil) -> ([Float], [Float]) {
+            let first = FilmGrainProfile.plate(size: 128, seed: seed, sigma: 1,
+                                               persistence: persistence,
+                                               renderPixelsPerCell: perCell)
+            let second = FilmGrainProfile.plate(size: 128, seed: seed, sigma: 1,
+                                                persistence: persistence,
+                                                renderPixelsPerCell: perCell)
+            XCTAssertEqual(first, second, "a repeated call is not the same plate")
+            return (first, second)
+        }
+        let base = pair().1
+        // 0.5 render px per texel drops the 2-texel octave and keeps the other three.
+        XCTAssertNotEqual(base, pair(perCell: 0.5).1, "the band limit was not keyed")
+        XCTAssertNotEqual(base, pair(persistence: 0.7).1, "persistence was not keyed")
+        XCTAssertNotEqual(base, pair(seed: 0x51_7A7F).1, "the seed was not keyed")
+        // A cell size that keeps every octave is a different key with the same bake.
+        XCTAssertEqual(base, pair(perCell: 4).1)
+
+        // Evict it: more distinct keys than the memo holds. What comes back afterwards
+        // is a fresh bake, and it must be the plate that was remembered.
+        for i in 0..<(GrainPlateMemo.capacity + 4) {
+            _ = FilmGrainProfile.plate(size: 16, seed: 0xE71C_0000 + UInt64(i), sigma: 1)
+        }
+        XCTAssertLessThanOrEqual(FilmGrainProfile.plateMemo.count, GrainPlateMemo.capacity)
+        XCTAssertEqual(base, pair().0, "a re-baked plate differs from the remembered one")
+    }
+
+    /// The memo is shared by every thread that builds a graph; hammered from many at
+    /// once, across more keys than it holds, every answer is still that key's plate.
+    func testTheMemoIsTheBakeUnderConcurrentUse() {
+        let seeds: [UInt64] = (0..<24).map { 0xC0_0000 + UInt64($0) }
+        var expected: [[Float]] = []
+        for seed in seeds {
+            expected.append(FilmGrainProfile.plate(size: 32, seed: seed, sigma: 1,
+                                                   renderPixelsPerCell: 0.3))
+        }
+        let lock = NSLock()
+        var mismatches: [Int] = []
+        DispatchQueue.concurrentPerform(iterations: 240) { i in
+            let k = (i * 7) % seeds.count
+            let got = FilmGrainProfile.plate(size: 32, seed: seeds[k], sigma: 1,
+                                             renderPixelsPerCell: 0.3)
+            if got != expected[k] {
+                lock.lock(); mismatches.append(k); lock.unlock()
+            }
+        }
+        XCTAssertEqual(mismatches, [])
+        XCTAssertLessThanOrEqual(FilmGrainProfile.plateMemo.count, GrainPlateMemo.capacity)
+    }
+
     /// The half-pixel floor, which is the reason the Size slider starts where it does:
     /// there is nothing to draw finer than half a pixel, so `plateScale` refuses. Size 0
     /// lands exactly on that floor at the interactive working resolution — 0.5 × 36000 ÷

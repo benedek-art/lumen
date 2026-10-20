@@ -1104,6 +1104,16 @@ public struct FilmGrainProfile: Sendable {
         let n: Int = Swift.max(size, 2)
         let count: Int = n * n
         guard sigma.isFinite, sigma > 0 else { return [Float](repeating: 0, count: count) }
+        // Every preview graph build bakes this plate again — three channels, up to four
+        // octaves of 128² lattice hashes — for arguments that do not move during a drag:
+        // the seed and persistence are the profile's, sigma is 1 and the cell size only
+        // changes with the ladder rung. The bake is a pure function of exactly these
+        // arguments, so a remembered one is the same Floats. Keyed on the RAW arguments,
+        // before the clamps below, which is at least as fine as the output.
+        let memoKey = GrainPlateMemo.Key(size: size, seed: seed, sigma: sigma.bitPattern,
+                                         persistence: persistence.bitPattern,
+                                         perCell: renderPixelsPerCell?.bitPattern)
+        if let remembered = FilmGrainProfile.plateMemo.lookup(memoKey) { return remembered }
         var acc: [Double] = [Double](repeating: 0, count: count)
 
         let octaves: Int = 4
@@ -1175,8 +1185,13 @@ public struct FilmGrainProfile: Sendable {
 
         var out: [Float] = [Float](repeating: 0, count: count)
         for i in 0..<count { out[i] = Float((acc[i] - mean) * gain) }
+        FilmGrainProfile.plateMemo.store(out, for: memoKey)
         return out
     }
+
+    /// The baked plates `plate(size:seed:sigma:persistence:renderPixelsPerCell:)` has
+    /// handed out recently. See `GrainPlateMemo`.
+    static let plateMemo = GrainPlateMemo()
 
     /// Bilinear, wrapping sample of a plate produced by `plate(size:seed:sigma:)`.
     /// Coordinates are in plate cells and may be any finite value.
@@ -1216,6 +1231,55 @@ public struct FilmGrainProfile: Sendable {
         z = z ^ (z >> 31)
         let unit: Double = Double(z >> 11) * (1.0 / 9007199254740992.0)
         return unit * 2.0 - 1.0
+    }
+}
+
+/// A small, locked memo of baked grain plates, keyed on the exact bits of every argument
+/// the bake reads. Both renderers and every thread share it: `PipelineRenderer` builds
+/// graphs from the preview, EDR and export paths at once, which is why it is locked the
+/// way `PlanKeyMemo` is. The bake runs OUTSIDE the lock, so two threads missing on the
+/// same key both bake and the second store is a no-op — the same bytes either way.
+///
+/// Sixteen entries, first in first out: three channels times a few ladder rungs is what
+/// a session revisits, and a 128² plate is 64 KB, so the whole memo is about 1 MB. A
+/// returned `[Float]` is copy-on-write, so no caller can change what is remembered.
+final class GrainPlateMemo: @unchecked Sendable {
+    struct Key: Hashable {
+        let size: Int
+        let seed: UInt64
+        let sigma: UInt64
+        let persistence: UInt64
+        let perCell: UInt64?
+    }
+
+    static let capacity: Int = 16
+
+    private let lock = NSLock()
+    private var entries: [Key: [Float]] = [:]
+    private var order: [Key] = []
+
+    func lookup(_ key: Key) -> [Float]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[key]
+    }
+
+    func store(_ values: [Float], for key: Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard entries[key] == nil else { return }
+        entries[key] = values
+        order.append(key)
+        while order.count > GrainPlateMemo.capacity {
+            entries[order.removeFirst()] = nil
+        }
+    }
+
+    /// How many plates are held — for the tests that hold the bound.
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.count
     }
 }
 
