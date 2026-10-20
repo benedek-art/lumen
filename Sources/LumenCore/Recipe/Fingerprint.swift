@@ -177,6 +177,15 @@ public enum RecipeFingerprint {
         s += "|temp=\(r.temp.map(CanonicalJSON.canonicalNumber) ?? "asShot")"
         s += "|tint=\(r.tint.map(CanonicalJSON.canonicalNumber) ?? "asShot")"
         s += "|model=\(recipe.develop.denoise.model ?? "default")"
+        // An enabled raw-domain pre-pass replaces the decoder's input mosaic, so the
+        // decoded pixels any later stage sees are different pixels. Appended only when
+        // enabled, so every fingerprint written before the field existed — and every
+        // recipe that carries a switched-off block — is unchanged. Strength is left out
+        // on purpose: the pre-pass result is cached at full strength and the blend is
+        // a post-step (`RawDenoiseSettings`), so moving it must not orphan the cache.
+        if let raw = recipe.develop.denoise.raw, raw.enabled {
+            s += "|raw=\(raw.model ?? "default")"
+        }
         return "xxh64:" + XXH64.hexDigest(s)
     }
 }
