@@ -3176,6 +3176,9 @@ final class AppState: ObservableObject {
         let extensions = Self.browsableExtensions
         scanGeneration &+= 1
         let generation = scanGeneration
+        // Kept across a superseded scan: an edit made while folder A was scanning is
+        // still newer than what folder B's scan reads, if B shares the photo.
+        if scanWindowEdits == nil { scanWindowEdits = [] }
         let catalog = self.catalog
         // The previous folder's culling pass is measuring photographs that are leaving
         // the screen; it stops after the one it is on.
@@ -3299,12 +3302,41 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func applyScan(_ urls: [URL], stored: [URL: CatalogService.StoredState], restoreSourceState: Bool = true) {
+    /// Photos edited while a folder scan was in flight; nil when none is. Filled by
+    /// `persist` and the culling writes, consumed by `applyScan`.
+    private var scanWindowEdits: Set<URL>?
+
+    /// `stored` with the roll's current flag, rating, label and recipe laid over every
+    /// photo in `edited` that both the scan and the roll on screen hold.
+    nonisolated static func carryingScanWindowEdits(
+        _ stored: [URL: CatalogService.StoredState], edited: Set<URL>,
+        roll: [PhotoItem], recipes: [URL: Recipe]
+    ) -> [URL: CatalogService.StoredState] {
+        guard !edited.isEmpty else { return stored }
+        var out = stored
+        for item in roll where edited.contains(item.id) {
+            guard var state = out[item.id] else { continue }
+            state.flag = item.flag
+            state.rating = item.rating
+            state.label = item.label
+            if let recipe = recipes[item.id] { state.recipe = recipe }
+            out[item.id] = state
+        }
+        return out
+    }
+
+    private func applyScan(_ urls: [URL], stored scanned: [URL: CatalogService.StoredState], restoreSourceState: Bool = true) {
         // The old roll's last deferred writes land BEFORE its state is wiped — a
         // gesture whose release never arrived must not lose its edit to a folder
         // switch (the same promise `prepareToQuit` makes at the other exit).
         // Through `sliderGesture(active: false)` so the watchdog is retired with it.
         sliderGesture(active: false)
+        // `registerAndLoad` read `stored` in one transaction, and an edit made on the
+        // still-visible old roll during the scan was saved AFTER it. Those photos keep
+        // their in-memory state, or the next edit would persist stale + delta.
+        let stored = Self.carryingScanWindowEdits(scanned, edited: scanWindowEdits ?? [],
+                                                  roll: allPhotos, recipes: recipes)
+        scanWindowEdits = nil
         // The undo stack and the in-memory recipes belong to the roll that produced
         // them; they die at the exact moment `allPhotos` is replaced, never earlier.
         // (⌘Z across a folder switch used to revert an .xmp in a folder that is not
@@ -3636,6 +3668,7 @@ final class AppState: ObservableObject {
             // label this build has no word for", so asserting it deleted other tools'
             // labels from the file.
             catalog?.saveCullingState(updated[i], labelChanged: was.label != now.label)
+            scanWindowEdits?.insert(updated[i].id)
             if updated[i].id == primarySelection?.id {
                 freshPrimary = updated[i]
             }
@@ -3694,6 +3727,7 @@ final class AppState: ObservableObject {
         allPhotos = updated
         for entry in restored {
             catalog?.saveCullingState(entry.item, labelChanged: entry.labelChanged)
+            scanWindowEdits?.insert(entry.item.id)
         }
         if let freshPrimary { primarySelection = freshPrimary }
         refreshLibraryQueryIfCullingShowsInTheGrid()
@@ -4322,6 +4356,7 @@ final class AppState: ObservableObject {
     /// "Edited: no" filter honest.
     func persist(_ changes: [URL: Recipe]) {
         guard let catalog else { return }
+        scanWindowEdits?.formUnion(changes.keys)
         for (url, recipe) in changes {
             // One dictionary lookup. This was `allPhotos.first(where:)` — a linear scan
             // of the whole source, per changed photo, per mouse event, on the main
