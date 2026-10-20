@@ -332,6 +332,24 @@ final class CullScaleTests: XCTestCase {
                            + "publish at the end")
     }
 
+    // MARK: Coming back to the sheet
+
+    /// `ContentView` switches between the grid and the loupe, so every return to the
+    /// grid is a new `ScrollView` at row one. Its only `scrollTo` used to be the
+    /// selection `onChange`, which does not fire on appear: back from the loupe on
+    /// frame 1,240 the sheet showed frame 1. The strip has always centred on appear.
+    func testBothSurfacesCentreTheSelectionWhenTheyAppear() throws {
+        for name in ["GridView.swift", "FilmstripView.swift"] {
+            let source = try code(name)
+            let appears = bodies(after: ".onAppear", in: source)
+            XCTAssertFalse(appears.isEmpty, "\(name) has no onAppear")
+            XCTAssertTrue(appears.contains {
+                $0.contains("state.primarySelection?.id") && $0.contains("proxy.scrollTo(")
+            }, "\(name) no longer scrolls to the selected frame when it appears — "
+                + "returning from the loupe lands at the top of the roll")
+        }
+    }
+
     /// The body of a function, by brace matching from its declaration. Used only on
     /// comment-and-string-blanked text, which is what makes the brace count honest.
     private static func functionBody(named name: String, in code: String) throws -> String {

@@ -83,6 +83,11 @@ struct GridView: View {
                 .onAppear {
                     // ↑/↓ are the keymap's, but only the grid knows how wide a row is.
                     state.gridColumns = columnCount(width: geometry.size.width, side: side)
+                    // Every mode switch rebuilds this view at the top of the roll; land
+                    // on the frame the loupe left selected, as the filmstrip does.
+                    if let id = state.primarySelection?.id {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                     // The ROLL, not a fresh array of its URLs — see the `onChange`
                     // below for the keystroke this projection used to be paid on.
                     state.thumbnails.prefetch(around: state.primarySelection?.id,
