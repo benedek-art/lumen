@@ -56,6 +56,14 @@ extension AppState {
         // The photos as they stand now: one that left the library during the read (a
         // removal, a folder switch) gets no recipe written, and the rest carry their
         // current fields (`recipe(for:)` reads `iso` for an unedited frame's baseline).
+        // The read is asynchronous: if the photographer moved the cursor or changed the
+        // selection meanwhile, the match was for photos they are no longer pointing at.
+        guard primarySelection?.id == reference.id,
+              Set(editTargets.map(\.id)) == Set(targets.map(\.id)) else {
+            statusMessage = "Match Total Exposures cancelled: the selection changed while "
+                + "exposure settings were read"
+            return
+        }
         var current: [URL: PhotoItem] = [:]
         for photo in allPhotos { current[photo.id] = photo }
         guard let liveReference = current[reference.id] else {

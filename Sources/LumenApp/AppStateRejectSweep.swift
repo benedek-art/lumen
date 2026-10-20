@@ -122,8 +122,10 @@ extension AppState {
             }
         }
 
-        let removed = await catalog.removePhotos(ids: movedIDs)
+        // Out of the roll BEFORE the await: the catalog cleanup yields the main actor,
+        // and an edit landing on a moved photo then would write a sidecar at its old path.
         dropSweptPhotos(movedURLs)
+        let removed = await catalog.removePhotos(ids: movedIDs)
 
         var report = OperationReport(kind: .rejects,
                                      records: RejectSweep.records(for: plan, results: results))
