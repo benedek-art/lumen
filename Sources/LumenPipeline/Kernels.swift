@@ -1399,16 +1399,32 @@ public enum ColorCube {
     /// picture bug, produced by a performance fix, which is a bad trade at any speed.
     ///
     /// Caching the bytes leaves nothing mutable to share. `Data` is a `Sendable` value
-    /// type and this struct holds nothing else, so a `static let` of one is safe to read
-    /// from anywhere with no lock and no `@unchecked`. What remains per call is an
-    /// object header and three `setValue`s; the 4 MB was the whole of the cost.
-    public struct Baked: Sendable {
+    /// type, and the only other thing held is the atlas image over those same bytes.
+    /// What remains per call is the kernel node; the 4 MB was the whole of the cost.
+    ///
+    /// The atlas is built here, once, for the same reason the bytes are: a fresh
+    /// `CIImage(bitmapData:)` every frame is a fresh leaf, and Core Image cannot
+    /// recognise as the upload it already holds something it has never seen before.
+    /// `@unchecked` only because the SDK does not mark `CIImage` `Sendable`; a CIImage
+    /// is immutable and documented thread-safe, so a `static let` of this struct is
+    /// still safe to read from anywhere with no lock. No `CIFilter` is held.
+    public struct Baked: @unchecked Sendable {
         public let size: Int
         public let data: Data
+        /// The table as an RGBAf atlas for `KernelLibrary.cubeLookup`: x = r + g·n, one
+        /// row per blue index. `CIImage(bitmapData:)` puts the first row at the TOP of
+        /// its extent (see `RenderGraph`'s grain anchoring), which the kernel accounts
+        /// for. No colour space: these are numbers.
+        public let atlas: CIImage
 
         public init(_ lut: LUT3D) {
-            self.size = lut.size
-            self.data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+            let n = lut.size
+            let data = lut.data.withUnsafeBufferPointer { Data(buffer: $0) }
+            self.size = n
+            self.data = data
+            self.atlas = CIImage(bitmapData: data, bytesPerRow: n * n * 16,
+                                 size: CGSize(width: n * n, height: n), format: .RGBAf,
+                                 colorSpace: nil).samplingNearest()
         }
     }
 
@@ -1445,12 +1461,7 @@ public enum ColorCube {
     public static func filter(_ cube: Baked, image: CIImage) -> CIImage? {
         if let kernel = KernelLibrary.cubeLookup {
             let n = cube.size
-            // Atlas: x = r + g·n, one row per blue index. `CIImage(bitmapData:)` puts the
-            // first row at the TOP of its extent (see `RenderGraph`'s grain anchoring),
-            // which the kernel accounts for. No colour space: these are numbers.
-            let atlas = CIImage(bitmapData: cube.data, bytesPerRow: n * n * 16,
-                                size: CGSize(width: n * n, height: n), format: .RGBAf,
-                                colorSpace: nil).samplingNearest()
+            let atlas = cube.atlas
             let atlasExtent = atlas.extent
             return kernel.apply(extent: image.extent,
                                 roiCallback: { index, rect in index == 0 ? rect : atlasExtent },

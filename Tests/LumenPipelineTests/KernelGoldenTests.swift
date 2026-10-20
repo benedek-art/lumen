@@ -4110,6 +4110,40 @@ final class KernelGoldenTests: XCTestCase {
             second.data.withUnsafeBytes { b in a.baseAddress == b.baseAddress }
         }
         XCTAssertTrue(shared, "the 4 MB dither table was copied again for this frame")
+        // Nor is its atlas image rebuilt: the same leaf every frame is what lets Core
+        // Image keep the texture it uploaded on the last one.
+        XCTAssertTrue(first.atlas === second.atlas,
+                      "the dither atlas was rebuilt for this frame")
+    }
+
+    /// A baked table's atlas is its OWN table's, not a neighbour's: two tables of the
+    /// same size render differently, and the same table renders the same twice.
+    func testBakedAtlasBelongsToItsOwnTable() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        let squared = ColorCube.Baked(LUT3D(size: 17) { c in RGB(c.r * c.r, c.g, c.b) })
+        let inverted = ColorCube.Baked(LUT3D(size: 17) { c in RGB(1 - c.r, c.g, c.b) })
+        let side = 16
+        let source = ImageBuffer(width: side, height: side) { x, y in
+            RGB(Double(x) / Double(side - 1), Double(y) / Double(side - 1), 0.5)
+        }
+        let input = ciImage(from: source)
+        guard let a1 = ColorCube.filter(squared, image: input),
+              let a2 = ColorCube.filter(squared, image: input),
+              let b = ColorCube.filter(inverted, image: input),
+              let ra1 = readBack(a1, width: side, height: side),
+              let ra2 = readBack(a2, width: side, height: side),
+              let rb = readBack(b, width: side, height: side)
+        else { return XCTFail("cube render failed") }
+
+        var worstApart = 0.0
+        for y in 0..<side {
+            for x in 0..<side {
+                XCTAssertEqual(ra1[x, y].maxAbsDifference(ra2[x, y]), 0,
+                               "the same baked table rendered differently at \(x),\(y)")
+                worstApart = Swift.max(worstApart, ra1[x, y].maxAbsDifference(rb[x, y]))
+            }
+        }
+        XCTAssertGreaterThan(worstApart, 0.25, "two different tables rendered alike")
     }
 
     /// 16-bit does not band, and paying for a dither there would be noise for nothing.
