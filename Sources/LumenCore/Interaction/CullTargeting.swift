@@ -40,20 +40,26 @@ public enum CullTargeting {
     /// - Parameters:
     ///   - selection: the selected photos, in drawing order.
     ///   - active: the photo under the cursor, if any.
+    ///   - shown: on Compare and Survey, the frames on screen. The cursor can sit on a
+    ///     photo that is not one of them (⌘-click deselects a frame and leaves the
+    ///     cursor on it; the survey's × does the same), and a key must not decide about
+    ///     a photo nobody can see. nil skips the check.
     ///
     /// The grid branch is `AppState.editTargets` exactly. The active-only branch never
     /// falls back to the selection when there is no cursor: broadcasting is the bug.
     public static func targets<ID: Hashable>(on surface: Surface,
                                              selection: [ID],
-                                             active: ID?) -> [ID] {
+                                             active: ID?,
+                                             shown: [ID]? = nil) -> [ID] {
         switch scope(on: surface) {
         case .selection:
             if selection.count > 1 { return selection }
             if let active { return [active] }
             return []
         case .activeOnly:
-            if let active { return [active] }
-            return []
+            guard let active else { return [] }
+            if surface.isComparing, let shown, !shown.contains(active) { return [] }
+            return [active]
         }
     }
 

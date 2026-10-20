@@ -35,9 +35,12 @@ extension AppState {
         } else {
             selected = []
         }
+        // Compare and Survey only decide about a cursor that is one of their frames.
+        let shown: [URL]? = surface.isComparing ? comparisonSet.map(\.id) : nil
         return CullTargeting.targets(on: surface,
                                      selection: selected,
-                                     active: primarySelection?.id)
+                                     active: primarySelection?.id,
+                                     shown: shown)
     }
 
     /// Auto-advance after a cull decision, for every case the roll walk must not

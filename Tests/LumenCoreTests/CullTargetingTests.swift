@@ -41,6 +41,29 @@ final class CullTargetingTests: XCTestCase {
         }
     }
 
+    /// ⌘-click deselects a frame and leaves the cursor on it; × in a survey removes the
+    /// highlighted frame and leaves the cursor there too. X must not reject it unseen.
+    func testACursorOffTheComparisonChangesNothing() {
+        let shown = ["a", "b", "c"]
+        for surface in [CullTargeting.Surface.compare, .survey] {
+            XCTAssertEqual(CullTargeting.targets(on: surface, selection: shown, active: "z",
+                                                 shown: shown), [], "\(surface)")
+            XCTAssertEqual(CullTargeting.targets(on: surface, selection: shown, active: "b",
+                                                 shown: shown), ["b"], "\(surface)")
+        }
+        // The loupe always shows its cursor; the grid is the selection.
+        XCTAssertEqual(CullTargeting.targets(on: .loupe, selection: shown, active: "z",
+                                             shown: shown), ["z"])
+        XCTAssertEqual(CullTargeting.targets(on: .grid, selection: shown, active: "z",
+                                             shown: shown), shown)
+    }
+
+    func testTheExtensionPassesTheComparisonAsShown() throws {
+        let code = try appSource("AppStateCullTargets.swift")
+        XCTAssertTrue(code.contains("shown: shown"),
+                      "Compare and Survey would rate a cursor that is off screen")
+    }
+
     func testOnlyCompareAndSurveyAreComparing() {
         XCTAssertEqual(CullTargeting.Surface.allCases.filter(\.isComparing),
                        [.compare, .survey])
