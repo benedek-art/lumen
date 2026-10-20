@@ -79,6 +79,7 @@ def test_default_batch_and_loss_match_original(ds):
     from lumen_denoise.noise_ext import NoiseOpts
     meta, table = json.load(open(ds / "meta.json")), train.NoiseTable(ds / "calib.json")
     d = train.Data(ds / "gt", meta, mix=True); d.star_p = 0.5
+    dev, train.DEV = train.DEV, "cpu"  # bit-equality needs one RNG: on a Mac DEV would be mps
     outs = []
     for f in (lambda: d.batch(3, 32, table), lambda: _orig_batch(d, 3, 32, table)):
         random.seed(1); torch.manual_seed(1); outs.append(f())
@@ -90,6 +91,7 @@ def test_default_batch_and_loss_match_original(ds):
     assert len(d.last_iso) == len(d.last_model) == 3
     x, y = outs[0][0], outs[0][1]
     assert torch.equal(losses.make_loss("base")(x, y)[0], train.loss_fn(x, y))
+    train.DEV = dev
 
 
 def test_default_run_and_infer_load(ds):
