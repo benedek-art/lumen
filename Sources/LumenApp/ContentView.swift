@@ -412,53 +412,70 @@ private struct Sidebar: View {
 
 
     var body: some View {
-        ScrollView {
-            // Four sections on the SAME header the develop panels use, which is most of
-            // the answer to "the side bar with the files is hard to understand": it was
-            // five unrelated jobs — an action, a path, three counts, three catalog
-            // structures and a help button — stacked with hairlines between them and no
-            // grouping, in a column whose own idiom appeared nowhere else in the app.
-            // One idiom, four groups, and the rules are gone the way they went in the
-            // panels (Phase 1): the header carries its own 20 pt boundary.
-            //
-            // (It said 16 for as long as `topRhythm` has been 20 — raised after "everything
-            // is super back to back to back … I get a fatigue when I scroll down".)
-            //
-            // The FOLDER now sits above all four rather than inside the first. It is what
-            // the whole column is about, so it reads as the column's title; and it took
-            // the third of "Library"'s three jobs out of a section that is now just the
-            // flag axis.
-            VStack(alignment: .leading, spacing: 2) {
-                folderHeader
-                librarySection
-                if state.isCatalogAvailable {
-                    albumsSection
-                    keywordsSection
-                    stackSection
-                }
-
-                if let catalogStatus = state.catalogStatus {
-                    // Was .orange — the one chroma violation in the chrome (Law 7:
-                    // zero-chroma everywhere the photo isn't). Urgency reads through
-                    // primary-value text in a quiet chrome just as well.
-                    Text(catalogStatus)
-                        .font(.lumenCaption)
-                        .foregroundStyle(Lumen.primaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 12)
-                }
+        // NO SCROLL VIEW WHEN IT FITS. In this full-height NavigationSplitView sidebar a
+        // ScrollView took the title bar's height as an automatic content inset: rows were
+        // DRAWN below the title bar but HIT-TESTED as if they started at the window top,
+        // so every click target sat ~58 pt above its row (a click on "Picked" selected
+        // "Rejected", one on "Rejected" opened Albums; measured against the
+        // accessibility frames and with real clicks, 2026-10-20). Ignoring the safe area
+        // instead fixed hover but swallowed clicks. A plain stack hit-tests exactly.
+        // ponytail: an overflowing sidebar (dozens of albums/keywords) still falls back to
+        // the ScrollView and its offset; move the column to List(.sidebar) when that matters.
+        ViewThatFits(in: .vertical) {
+            VStack(spacing: 0) {
+                sidebarContent
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 16)
-            // A VStack inside a ScrollView is only as wide as its widest child, and the
-            // album rows put their count on a trailing Spacer — without this they draw
-            // the count hard against the name instead of at the column edge.
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // docs/30: every scroll view in the app is silent. A legacy scroller insets
+            // its content, so an indicator appearing is a relayout of everything inside it.
+            ScrollView { sidebarContent }
+                .scrollIndicators(.never)
         }
-        // docs/30: every scroll view in the app is silent. A legacy scroller insets
-        // its content, so an indicator appearing is a relayout of everything inside it.
-        .scrollIndicators(.never)
         .background(Lumen.panelBackground)
+    }
+
+    private var sidebarContent: some View {
+        // Four sections on the SAME header the develop panels use, which is most of
+        // the answer to "the side bar with the files is hard to understand": it was
+        // five unrelated jobs — an action, a path, three counts, three catalog
+        // structures and a help button — stacked with hairlines between them and no
+        // grouping, in a column whose own idiom appeared nowhere else in the app.
+        // One idiom, four groups, and the rules are gone the way they went in the
+        // panels (Phase 1): the header carries its own 20 pt boundary.
+        //
+        // (It said 16 for as long as `topRhythm` has been 20 — raised after "everything
+        // is super back to back to back … I get a fatigue when I scroll down".)
+        //
+        // The FOLDER now sits above all four rather than inside the first. It is what
+        // the whole column is about, so it reads as the column's title; and it took
+        // the third of "Library"'s three jobs out of a section that is now just the
+        // flag axis.
+        VStack(alignment: .leading, spacing: 2) {
+            folderHeader
+            librarySection
+            if state.isCatalogAvailable {
+                albumsSection
+                keywordsSection
+                stackSection
+            }
+
+            if let catalogStatus = state.catalogStatus {
+                // Was .orange — the one chroma violation in the chrome (Law 7:
+                // zero-chroma everywhere the photo isn't). Urgency reads through
+                // primary-value text in a quiet chrome just as well.
+                Text(catalogStatus)
+                    .font(.lumenCaption)
+                    .foregroundStyle(Lumen.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 12)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 16)
+        // A VStack inside a ScrollView is only as wide as its widest child, and the
+        // album rows put their count on a trailing Spacer — without this they draw
+        // the count hard against the name instead of at the column edge.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Library
@@ -1139,6 +1156,10 @@ private struct Sidebar: View {
             // radius, so the selected album sat in a squarer rectangle than anything
             // beside it.
             .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
+            // The WHOLE row is the target. Under .plain a Color.clear background is not
+            // hit-testable, so an unselected row only answered on its glyphs: a click in
+            // the gap between "Picked" and its count did nothing.
+            .contentShape(RoundedRectangle(cornerRadius: Lumen.radiusChip, style: .continuous))
         }
         .buttonStyle(.plain)
         // On the PANEL value, not the control surface: this row sits directly on the
