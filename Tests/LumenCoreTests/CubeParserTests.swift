@@ -177,6 +177,43 @@ final class CubeParserTests: XCTestCase {
                           "a doubled domain and a unit domain produced the same table")
     }
 
+    /// Resolve's dialect spells the domain differently. `LUT_3D_INPUT_RANGE lo hi` is
+    /// Resolve's (and OpenColorIO's resolve_cube baker's) way of writing what the Adobe
+    /// 1.0 spec calls `DOMAIN_MIN lo lo lo` / `DOMAIN_MAX hi hi hi`. The parser used to
+    /// read the keyword as the first field of a value row, `Float("LUT_3D_INPUT_RANGE")`
+    /// was nil, and a file Resolve itself wrote was refused as "not a cube".
+    func testResolvesInputRangeKeywordIsReadAsTheDomain() {
+        let unit = ["TITLE \"resolve\"", "LUT_3D_SIZE 2", "LUT_3D_INPUT_RANGE 0.0 1.0"]
+            + Self.redInvertingBody
+        let unitCube = LUT3D.fromCubeFile(unit.joined(separator: "\r\n") + "\r\n")
+        assertRedInverting(unitCube, "a Resolve cube with LUT_3D_INPUT_RANGE 0 1")
+        XCTAssertEqual(unitCube, LUT3D.fromCubeFile(Self.lfCube),
+                       "a unit input range must parse to exactly the unit-domain table")
+
+        // Not merely skipped: a range that runs to 2 is the same rescale DOMAIN_MAX 2 is.
+        let doubled = ["LUT_3D_SIZE 2", "LUT_3D_INPUT_RANGE 0.0 2.0"] + Self.redInvertingBody
+        let viaDomain = ["LUT_3D_SIZE 2", "DOMAIN_MIN 0 0 0", "DOMAIN_MAX 2 2 2"]
+            + Self.redInvertingBody
+        guard let ranged = LUT3D.fromCubeFile(doubled.joined(separator: "\n")) else {
+            return XCTFail("a Resolve cube with LUT_3D_INPUT_RANGE 0 2 was rejected")
+        }
+        XCTAssertEqual(ranged.sample(RGB(1, 0, 0)).r, 0.5, accuracy: 1e-4,
+                       "LUT_3D_INPUT_RANGE 0 2 was parsed but its range was ignored")
+        XCTAssertEqual(ranged, LUT3D.fromCubeFile(viaDomain.joined(separator: "\n")),
+                       "the Resolve and Adobe spellings of the same domain disagreed")
+    }
+
+    /// The Adobe spec says a reader ignores keywords it does not know, and producers do
+    /// write vendor lines into the header. A keyword is a word, so it cannot be mistaken
+    /// for a value row, which starts with a number.
+    func testAnUnknownHeaderKeywordIsSkippedNotFatal() {
+        let lines = ["TITLE \"vendor\"", "LUT_3D_SIZE 2", "LUT_GENERATOR_VERSION 7 beta"]
+            + Self.redInvertingBody
+        XCTAssertEqual(LUT3D.fromCubeFile(lines.joined(separator: "\n")),
+                       LUT3D.fromCubeFile(Self.lfCube),
+                       "an unknown header keyword made the whole cube unreadable")
+    }
+
     // MARK: - The forms that must STILL be rejected
 
     /// The point of the section: the fix widens the separators the parser tolerates, not
@@ -189,6 +226,21 @@ final class CubeParserTests: XCTestCase {
                      "a 1-D cube became acceptable once it arrived with CRLF endings")
         XCTAssertNil(LUT3D.fromCubeFile("LUT_1D_SIZE\t4\n0\t0\t0\n1\t1\t1\n"),
                      "a 1-D cube became acceptable once it arrived tab-separated")
+    }
+
+    /// The Resolve keywords whose meaning a 3-D-only reader cannot honour are refused by
+    /// name rather than skipped: a 1-D shaper's input range belongs to a table this
+    /// parser does not read, and the video-range flags change what every sample means,
+    /// so ignoring either would render the file wrong instead of refusing it. A
+    /// degenerate input range would divide by zero in the domain rescale.
+    func testResolveKeywordsThatChangeTheMeaningAreRefused() {
+        let body = Self.redInvertingBody.joined(separator: "\n")
+        for header in ["LUT_1D_INPUT_RANGE 0.0 1.0", "LUT_IN_VIDEO_RANGE", "LUT_OUT_VIDEO_RANGE",
+                       "LUT_3D_INPUT_RANGE 1.0 1.0", "LUT_3D_INPUT_RANGE 1.0 0.0",
+                       "LUT_3D_INPUT_RANGE 0.0", "LUT_3D_INPUT_RANGE low high"] {
+            XCTAssertNil(LUT3D.fromCubeFile("LUT_3D_SIZE 2\n\(header)\n" + body),
+                         "\(header) was accepted")
+        }
     }
 
     /// A one-entry cube has no cell to interpolate across; `LUT3D` traps on `size < 2`,

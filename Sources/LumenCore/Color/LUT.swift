@@ -343,6 +343,14 @@ public struct LUT3D: Equatable, Sendable {
     ///
     /// Widening what is *accepted* is not the same as trusting it: a 1-D cube, a size
     /// out of range, a short triple and a wrong sample count are all still nil.
+    ///
+    /// Resolve's dialect writes the domain as `LUT_3D_INPUT_RANGE lo hi`, which means
+    /// exactly `DOMAIN_MIN lo lo lo` / `DOMAIN_MAX hi hi hi`, so it feeds the same
+    /// rescale. Other keywords a reader does not know are skipped, as the Adobe spec
+    /// asks: a keyword starts with a letter or `_`, a value row with a number, so the
+    /// skip cannot swallow a malformed row. The Resolve keywords that would change what
+    /// the samples MEAN — a 1-D shaper's input range, the video-range flags — are
+    /// refused by name instead, because ignoring them would render the file wrong.
     public static func fromCubeFile(_ text: String) -> LUT3D? {
         var size = 0
         var values: [Float] = []
@@ -359,8 +367,13 @@ public struct LUT3D: Equatable, Sendable {
             case "LUT_3D_SIZE":
                 guard parts.count >= 2, let n = Int(parts[1]), n >= 2, n <= 129 else { return nil }
                 size = n
-            case "LUT_1D_SIZE":
-                return nil      // 1-D cubes are a different animal; not supported
+            case "LUT_1D_SIZE", "LUT_1D_INPUT_RANGE", "LUT_IN_VIDEO_RANGE", "LUT_OUT_VIDEO_RANGE":
+                return nil      // 1-D shapers and video-range remaps; not supported
+            case "LUT_3D_INPUT_RANGE":
+                guard parts.count >= 3, let lo = Double(parts[1]), let hi = Double(parts[2]),
+                      hi > lo else { return nil }
+                domainMin = RGB(lo, lo, lo)
+                domainMax = RGB(hi, hi, hi)
             case "DOMAIN_MIN":
                 guard parts.count >= 4, let r = Double(parts[1]), let g = Double(parts[2]),
                       let b = Double(parts[3]) else { return nil }
@@ -370,6 +383,7 @@ public struct LUT3D: Equatable, Sendable {
                       let b = Double(parts[3]) else { return nil }
                 domainMax = RGB(r, g, b)
             default:
+                if let c = head.first, c.isLetter || c == "_" { continue }   // unknown keyword
                 guard parts.count >= 3, let r = Float(parts[0]), let g = Float(parts[1]),
                       let b = Float(parts[2]) else { return nil }
                 values.append(r)
