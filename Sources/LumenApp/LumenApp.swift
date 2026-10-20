@@ -332,7 +332,7 @@ private struct LumenCommands: Commands {
             // and only falls through to the photo history when nothing answered.
             CommandGroup(replacing: .undoRedo) {
                 Button(commands.undoLabel.map { "Undo \($0)" } ?? "Undo") {
-                    if TextEditingFocus.isActive,
+                    if TextEditingFocus.isActive, TextEditingFocus.canUndoTyping,
                        NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) { return }
                     state.undo()
                 }
@@ -340,7 +340,7 @@ private struct LumenCommands: Commands {
                 .disabled(!commands.canUndo)
 
                 Button(commands.redoLabel.map { "Redo \($0)" } ?? "Redo") {
-                    if TextEditingFocus.isActive,
+                    if TextEditingFocus.isActive, TextEditingFocus.canRedoTyping,
                        NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) { return }
                     state.redo()
                 }

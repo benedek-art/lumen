@@ -192,6 +192,19 @@ enum TextEditingFocus {
         guard isActive else { return false }
         return NSApp.sendAction(#selector(NSTextView.selectAll(_:)), to: nil, from: nil)
     }
+
+    /// Whether the typing has a step of its own to undo / redo. `undo:` is answered by
+    /// the WINDOW (it owns the field editor's undo manager), so `sendAction` reports
+    /// success whether or not anything was undone — without this, ⌘Z with a field
+    /// focused and no typing to revert silently did nothing instead of undoing the
+    /// photo edit.
+    static var canUndoTyping: Bool {
+        NSApp.keyWindow?.firstResponder?.undoManager?.canUndo ?? false
+    }
+
+    static var canRedoTyping: Bool {
+        NSApp.keyWindow?.firstResponder?.undoManager?.canRedo ?? false
+    }
 }
 
 // MARK: - Asking for the keyboard
