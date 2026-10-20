@@ -82,7 +82,7 @@ final class SliderThumbPressTests: XCTestCase {
         // point, so the value is one point's worth in from the soft limit (−4.93) — not
         // −7.93 with the thumb left pinned at the end for another 42 points.
         let pt = exposure.span / exposure.width
-        XCTAssertEqual(exposure.value(from: -8, travelled: 1), (-5 + pt * 1).rounded(toPlaces: 2),
+        XCTAssertEqual(exposure.value(from: -8, travelled: 1), rounded(-5 + pt * 1, toPlaces: 2),
                        accuracy: 1e-9)
         // Outward travel cannot move the thumb, so it does not move the value: held
         // where it is, as `nudged` holds it, not evicted to the soft limit.
@@ -103,9 +103,10 @@ final class SliderThumbPressTests: XCTestCase {
     }
 }
 
-private extension Double {
-    func rounded(toPlaces places: Int) -> Double {
-        let scale = Foundation.pow(10, Double(places))
-        return (self * scale).rounded() / scale
-    }
+// A free function rather than an `extension Double`: scripts/check-swift-surface.py
+// indexes any in-tree extension as the type's whole member list, and one here made it
+// report every `Double.pi`/`.infinity`/`.nan` in the tree as naming nothing.
+private func rounded(_ value: Double, toPlaces places: Int) -> Double {
+    let scale = Foundation.pow(10, Double(places))
+    return (value * scale).rounded() / scale
 }
