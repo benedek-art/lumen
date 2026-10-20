@@ -101,6 +101,8 @@ struct SaveDevelopPresetSheet: View {
     }
 
     private func confirm() {
+        // Once: Return can reach both the field's submit and the default button.
+        guard state.activeSheet == .saveDevelopPreset else { return }
         let groups = chosen
         let typed = name
         state.rememberedDevelopPresetGroups = groups
@@ -132,8 +134,8 @@ struct ManageDevelopPresetsSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if shelf.presets.isEmpty {
-                Text("No presets yet. Edit a photo, then Photo ▸ Develop Presets ▸ "
-                     + "New Preset… (⇧⌘N).")
+                Text("No presets yet. Edit a photo, then Photo ▸ New Develop "
+                     + "Preset… (⇧⌘N).")
                     .font(.lumenBody)
                     .foregroundStyle(Lumen.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -154,8 +156,15 @@ struct ManageDevelopPresetsSheet: View {
                 Button("Export All…") { state.exportAllDevelopPresets() }
                     .disabled(shelf.presets.isEmpty)
                 Spacer()
-                Button("Done") { state.activeSheet = nil }
-                    .keyboardShortcut(.defaultAction)
+                // While a name is being typed, Return is the rename: a default "Done"
+                // would take the key first and close the sheet with the rename unsaved.
+                if let editing = renaming {
+                    Button("Rename") { commitRename(of: editing) }
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Done") { state.activeSheet = nil }
+                        .keyboardShortcut(.defaultAction)
+                }
             }
         }
         .padding(16)
@@ -171,10 +180,7 @@ struct ManageDevelopPresetsSheet: View {
                 TextField(preset.name, text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .font(.lumenBody)
-                    .onSubmit {
-                        state.renameDevelopPreset(preset, to: draft)
-                        renaming = nil
-                    }
+                    .onSubmit { commitRename(of: preset.name) }
                     .onExitCommand { renaming = nil }
             } else {
                 VStack(alignment: .leading, spacing: 2) {
@@ -209,10 +215,18 @@ struct ManageDevelopPresetsSheet: View {
         .controlSize(.small)
         .padding(.vertical, 2)
     }
+
+    /// Once per edit: Return can reach both the field's submit and the default button.
+    private func commitRename(of name: String) {
+        guard renaming == name else { return }
+        renaming = nil
+        guard let preset = shelf.library.preset(named: name) else { return }
+        state.renameDevelopPreset(preset, to: draft)
+    }
 }
 
-/// The Photo menu's submenu: New Preset…, Manage, Import, then one item per preset that
-/// applies it to the selection. Its own view so only it observes the shelf, not the
+/// The Photo menu's submenu: Manage, Import, then one item per preset that applies it
+/// to the selection. Its own view so only it observes the shelf, not the
 /// whole menu bar (`LumenCommands`' header has why that matters).
 struct DevelopPresetMenu: View {
 
