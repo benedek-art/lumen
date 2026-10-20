@@ -496,16 +496,91 @@ public enum MaskRaster {
         }
         // Robust 2nd/98th percentile normalization keeps the guide's contrast stable
         // across frames instead of chasing a single specular pixel.
-        var sorted = g.values
-        sorted.sort()
-        guard let first = sorted.first, let last = sorted.last else { return g }
-        let loIndex = Swift.min(sorted.count - 1, Swift.max(0, Int(Double(sorted.count) * 0.02)))
-        let hiIndex = Swift.min(sorted.count - 1, Swift.max(0, Int(Double(sorted.count) * 0.98)))
-        var lo = Double(sorted[loIndex])
-        var hi = Double(sorted[hiIndex])
+        //
+        // Two order statistics and the extremes are all this reads, so it selects them
+        // rather than sorting the plane: O(n) against O(n log n), on a plane that is
+        // 11 M px at a settle and 33 M at export, every refined bake. The k-th smallest
+        // of a multiset is one value however it is found, and every g here is finite
+        // (safeLog2 floors at −16, never NaN, never −0), so lo/hi are bit-identical to
+        // what `sorted[loIndex]` / `sorted[hiIndex]` gave.
+        let n = g.values.count
+        guard n > 0 else { return g }
+        var first = g.values[0], last = g.values[0]
+        for v in g.values {
+            if v < first { first = v }
+            if v > last { last = v }
+        }
+        let loIndex = Swift.min(n - 1, Swift.max(0, Int(Double(n) * 0.02)))
+        let hiIndex = Swift.min(n - 1, Swift.max(0, Int(Double(n) * 0.98)))
+        var scratch = g.values
+        let loValue = kthSmallest(&scratch, loIndex, in: 0..<n)
+        // The first select leaves everything above loIndex ≥ loValue, so the hi
+        // statistic lives in that tail and the second select need not revisit the rest.
+        let hiValue = hiIndex == loIndex
+            ? loValue : kthSmallest(&scratch, hiIndex, in: (loIndex + 1)..<n)
+        var lo = Double(loValue)
+        var hi = Double(hiValue)
         if !(hi > lo) { lo = Double(first); hi = Double(last) }
         let span = Swift.max(hi - lo, 1e-6)
         return g.map { Num.saturate(($0 - lo) / span) }
+    }
+
+    /// The value `a.sorted()[k]` would hold, found by introselect over `range` (k is an
+    /// absolute index into `a`). On return `a[range]` is partitioned about index k:
+    /// every element below it is ≤ the result and every element above it ≥, which is
+    /// what lets `guidePlane` run its second select on the tail alone.
+    ///
+    /// Precondition: no NaN in `a[range]` — `<` must be a total order on it.
+    ///
+    /// The partition is THREE-WAY on purpose. A guide off a black frame or an astro sky
+    /// is mostly the −16 EV floor, and a constant plane is all one value; a two-way
+    /// quickselect walks those one element per round and goes quadratic, which at
+    /// 33 M px is a hang. Equal elements land in the middle band and end the search in
+    /// one pass. Rounds are capped at ~2·log₂ n regardless; past that, or once the
+    /// range is small, the rest is sorted in place, which is exact and no worse than
+    /// the full sort this replaced.
+    static func kthSmallest(_ a: inout [Float], _ k: Int, in range: Range<Int>) -> Float {
+        precondition(range.contains(k), "kthSmallest: k outside range")
+        return a.withUnsafeMutableBufferPointer { p -> Float in
+            @inline(__always) func median3(_ x: Float, _ y: Float, _ z: Float) -> Float {
+                Swift.max(Swift.min(x, y), Swift.min(Swift.max(x, y), z))
+            }
+            var lo = range.lowerBound
+            var hi = range.upperBound
+            var rounds = 2 * (Int.bitWidth - range.count.leadingZeroBitCount)
+            while true {
+                let count = hi - lo
+                if count <= 32 || rounds <= 0 {
+                    p[lo..<hi].sort()
+                    return p[k]
+                }
+                rounds -= 1
+                let mid = lo + count / 2
+                let pivot: Float
+                if count >= 1024 {
+                    // Tukey's ninther: a median of three medians, for long ranges.
+                    let s = count / 8
+                    pivot = median3(median3(p[lo], p[lo + s], p[lo + 2 * s]),
+                                    median3(p[mid - s], p[mid], p[mid + s]),
+                                    median3(p[hi - 1 - 2 * s], p[hi - 1 - s], p[hi - 1]))
+                } else {
+                    pivot = median3(p[lo], p[mid], p[hi - 1])
+                }
+                // [lo, lt) < pivot, [lt, i) == pivot, [gt, hi) > pivot.
+                var lt = lo, i = lo, gt = hi
+                while i < gt {
+                    let v = p[i]
+                    if v < pivot {
+                        p.swapAt(lt, i); lt += 1; i += 1
+                    } else if v > pivot {
+                        gt -= 1; p.swapAt(i, gt)
+                    } else {
+                        i += 1
+                    }
+                }
+                if k < lt { hi = lt } else if k >= gt { lo = gt } else { return p[k] }
+            }
+        }
     }
 
     /// Signed-distance dilate/erode. The α ≥ 0.5 set's exact Euclidean distance

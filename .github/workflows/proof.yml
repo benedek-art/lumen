@@ -10,6 +10,11 @@
 #
 # The nightly schedule only fires on the repository's default branch; while the work
 # lives on a feature branch, the paths trigger is the one doing the guarding.
+#
+# proof-linux also reruns the plan-cost benches against the same release build. That
+# step is telemetry, never a verdict. engine-linux runs them in debug under --parallel,
+# which inflates a bake about 10x and drops a passing test's prints, so this is the only
+# lane where the PLANPROBE / BENCH numbers are both shipping-shaped and visible.
 name: Proof sweep
 on:
   push:
@@ -144,6 +149,48 @@ jobs:
           # the first line of each block; continuation lines pass through as they are.
           grep -A 40 -E ": error: " proof.log | sed 's/^.*error: //' | head -400
           exit $status
+      # Release-build plan cost per control (draft/settle p50/p95, per-slot hits) plus
+      # the interactive-path benches, which skip unless LUMEN_BENCH is set. It uses the
+      # same PROOF_CONFIGURATION expression as the sweep, so SwiftPM reuses its build
+      # products and does not compile again. A three-class serial filter is far below
+      # the argument-length limit that forced engine-linux onto --parallel.
+      # `continue-on-error` because a shared runner is noisy, and a timing must not turn
+      # the drift lane red. The sweep above stays this job's verdict, and the probe's
+      # own assertions are still gated in engine-linux. `!cancelled()` rather than
+      # `always()`, so a superseded push does not start a bench nobody will read.
+      - name: Plan-cost benches (release, telemetry only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          LUMEN_BENCH: "1"
+          PROOF_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'release' }}
+        run: |
+          export PATH="/opt/swift/usr/bin:$PATH"
+          # `set +e` for the same pipefail reason as the sweep, and because a grep that
+          # matches nothing exits 1. The summary should say so instead of aborting.
+          set +e
+          swift test -c "$PROOF_CONFIGURATION" --filter 'PlanCostProbeTests|InteractiveCostBenchTests|SpeedBenchTests' 2>&1 | tee bench.log
+          status=$?
+          {
+            echo "### Plan-cost benches ($PROOF_CONFIGURATION, exit $status)"
+            echo '```'
+            grep -E '^(PLANPROBE|BENCH)' bench.log | head -300
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "=== bench lines ==="
+          grep -E '^(PLANPROBE|BENCH)' bench.log || echo "(no bench lines)"
+          echo "=== failures ==="
+          grep -A 20 -E ": error: " bench.log | head -100
+          exit $status
+      - name: Keep the bench log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-cost-bench-linux
+          path: bench.log
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Keep the evidence sheets
         if: always()
         uses: actions/upload-artifact@v4

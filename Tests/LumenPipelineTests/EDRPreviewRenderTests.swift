@@ -248,5 +248,35 @@ final class EDRPreviewRenderTests: XCTestCase {
         }
         waitForBakes(stub)
     }
+
+    /// The phase split both preview paths now hand back. Wall times cannot be pinned,
+    /// but each must be a real stamp: finite and never negative, on the SDR frame and
+    /// the EDR frame alike, cold (tables to bake) and warm.
+    func testBothPreviewsReportEveryPhaseTime() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        PlanTableCache.clear()
+        let stub = StubSource(sourceImage(width: 256, height: 96))
+        let renderer = PipelineRenderer()
+        for pass in ["cold", "warm"] {
+            let sdr = try renderer.renderPreviewDelivery(source: stub, recipe: recipe(),
+                                                         maxLongEdge: 256, draft: false,
+                                                         coarseDecode: false)
+            let edr = try renderer.renderPreviewEDR(source: stub, recipe: recipe(),
+                                                    maxLongEdge: 256, draft: false,
+                                                    coarseDecode: false,
+                                                    displayWhiteTarget: 400)
+            for (frame, delivery) in [("SDR", sdr), ("EDR", edr)] {
+                let phases = [("decode", delivery.decodeMilliseconds),
+                              ("plan", delivery.planMilliseconds),
+                              ("graph", delivery.graphMilliseconds),
+                              ("render", delivery.renderMilliseconds)]
+                for (phase, ms) in phases {
+                    XCTAssertTrue(ms.isFinite, "\(pass) \(frame) \(phase) time is \(ms)")
+                    XCTAssertGreaterThanOrEqual(ms, 0, "\(pass) \(frame) \(phase) time")
+                }
+            }
+        }
+        waitForBakes(stub)
+    }
 }
 #endif

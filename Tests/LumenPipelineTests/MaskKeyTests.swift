@@ -129,6 +129,40 @@ final class MaskKeyTests: XCTestCase {
         }
     }
 
+    // MARK: - C. the picture is read back by the bake that uses it
+
+    /// `makeGraph` read the stage input back — a GPU pass and an RGBAf copy — on every
+    /// frame, before asking the raster cache anything, and a hit threw it away. The
+    /// frame may BUILD the stage graph (that is free); only a `bake` may render it.
+    /// `MaskReferencePipelineTests` counts the renders on macOS; this keeps the shape
+    /// on every lane.
+    func testTheMaskPictureIsReadBackInsideTheBakeNotBeforeTheLookup() throws {
+        let renderer = Self.stripComments(try Self.source("PipelineRenderer.swift"))
+        let frame = try Self.slice(of: renderer,
+                                   from: "if !plan.masks.isEmpty {",
+                                   to: "for mask in plan.masks {")
+        XCTAssertTrue(frame.contains("maskStage("),
+                      "the frame builds the stage input lazily, once for the stack")
+        XCTAssertFalse(frame.contains("maskSource("),
+                       "`maskSource` reads the picture back; called here it is paid "
+                       + "on every frame, hit or miss")
+        XCTAssertFalse(frame.contains(".value"),
+                       "nothing above the loop may force the readback")
+
+        let bake = try Self.slice(of: renderer, from: "let bake = {", to: "let alpha: Plane")
+        XCTAssertTrue(bake.contains("source?.value"),
+                      "the bake is the one reader of the picture")
+
+        // One render per box, under its lock, however many bakes ask.
+        let box = try Self.slice(of: renderer, from: "final class LazyStageBuffer",
+                                 to: "static var renderCount")
+        XCTAssertTrue(box.contains("lock.lock()"),
+                      "a synchronous bake and a drained one can ask at once")
+        XCTAssertTrue(box.contains("self.image = nil"),
+                      "the graph is dropped once rendered, so it renders once and a "
+                      + "pending bake does not keep the decode alive")
+    }
+
     // MARK: - the arithmetic the predicate is composed of, executed
 
     func testTheMaskKindsThatReadNoPicture() {
