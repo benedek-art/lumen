@@ -909,23 +909,23 @@ final class AppState: ObservableObject {
     /// event on an actor whose queue can hold a cold decode.
     func refreshMaskThumbnails() {
         guard let photo = primarySelection else {
+            maskThumbnailTask?.cancel()
             if !maskThumbnails.isEmpty { maskThumbnails = [:] }
             maskThumbnailKey = nil
             return
         }
         let recipe = recipe(for: photo)
         guard !recipe.masks.isEmpty else {
+            maskThumbnailTask?.cancel()
             if !maskThumbnails.isEmpty { maskThumbnails = [:] }
             maskThumbnailKey = nil
             return
         }
-        let strokes = strokeSets(for: recipe)
-        let key = Self.maskThumbnailKey(url: photo.id, recipe: recipe,
-                                        sourceIdentity: SourceFileIdentity.read(photo.id),
-                                        strokeSets: strokes)
-        guard key != maskThumbnailKey else { return }
-        maskThumbnailKey = key
 
+        // The key is NOT computed here. It is a dozen JSON encode/decode round trips
+        // plus a stat, this is called on every mouse event of a drag, and the next
+        // event throws the key away — so it is built after the quiet period, off the
+        // main actor. `maskThumbnailKey` therefore names what has LANDED.
         let ids = recipe.masks.map(\.id)
         maskThumbnailTask?.cancel()
         maskThumbnailTask = Task { [weak self] in
@@ -946,16 +946,25 @@ final class AppState: ObservableObject {
             // above the gap between two mouse events.
             try? await Task.sleep(nanoseconds: 90 * 1_000_000)
             guard !Task.isCancelled else { return }
+            let strokes = self.strokeSets(for: recipe)
+            let url = photo.id
+            let key = await Task.detached(priority: .userInitiated) {
+                AppState.maskThumbnailKey(url: url, recipe: recipe,
+                                          sourceIdentity: SourceFileIdentity.read(url),
+                                          strokeSets: strokes)
+            }.value
+            guard !Task.isCancelled, key != self.maskThumbnailKey else { return }
             var built: [String: CGImage] = [:]
             for id in ids {
                 guard !Task.isCancelled else { return }
                 let plane = await self.renderCoordinator.maskThumbnail(
-                    url: photo.id, recipe: recipe, maskID: id, strokeSets: strokes)
+                    url: url, recipe: recipe, maskID: id, strokeSets: strokes)
                 if let plane, let image = AppState.greyImage(from: plane) {
                     built[id] = image
                 }
             }
-            guard !Task.isCancelled, self.maskThumbnailKey == key else { return }
+            guard !Task.isCancelled else { return }
+            self.maskThumbnailKey = key
             self.maskThumbnails = built
         }
     }
