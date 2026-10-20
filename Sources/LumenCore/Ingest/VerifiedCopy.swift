@@ -388,11 +388,59 @@ public struct FileReadback: IngestReadback {
     }
 }
 
+/// Getting landed bytes onto the medium, not just into the page cache.
+///
+/// A read-back straight after a write is served from memory, so without a flush the
+/// verdict proves RAM: a power cut or a yanked USB drive inside the writeback window
+/// can leave a frame reported "every copy verified" truncated or empty, on a volume
+/// whose card has just been formatted. So every copy is flushed before its `.part` is
+/// renamed, and the directory entry is flushed after the rename, before any verdict.
+enum IngestDurability {
+    /// Flush a file's data and metadata to the medium. On Darwin `fsync` only reaches
+    /// the drive's cache; `F_FULLFSYNC` is the real barrier, with `fsync` as the
+    /// fallback for filesystems that do not support it (some network volumes).
+    static func syncFile(_ handle: FileHandle) throws {
+        let fd = handle.fileDescriptor
+        #if canImport(Darwin)
+        if fcntl(fd, F_FULLFSYNC) == 0 { return }
+        #endif
+        guard fsync(fd) == 0 else { throw posixError("fsync") }
+    }
+
+    /// Flush a directory, so the rename that put a file into it survives a crash.
+    static func syncDirectory(_ url: URL) throws {
+        let fd = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_RDONLY)
+        }
+        guard fd >= 0 else { throw posixError("open") }
+        defer { close(fd) }
+        #if canImport(Darwin)
+        if fcntl(fd, F_FULLFSYNC) == 0 { return }
+        #endif
+        // Some filesystems cannot sync a directory handle at all and say so with
+        // EINVAL; there is nothing more to flush there, and refusing every copy to such
+        // a volume would be the wrong answer.
+        guard fsync(fd) == 0 || errno == EINVAL else { throw posixError("fsync") }
+    }
+
+    private static func posixError(_ call: String) -> Error {
+        let code = errno
+        return NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [
+            NSLocalizedDescriptionKey: call + " failed: " + String(cString: strerror(code))])
+    }
+}
+
 public struct VerifiedCopyDriver: Sendable {
 
     public var verify: Bool
     public var chunkSize: Int
     public var readback: any IngestReadback
+    /// Flushes a finished `.part` before it is renamed into place. A seam so a test can
+    /// prove the flush happens before the verdict, and that a failed flush is a failure.
+    var syncFile: @Sendable (FileHandle) throws -> Void = IngestDurability.syncFile
+    /// Flushes the destination directory after the rename, before the verdict.
+    var syncDirectory: @Sendable (URL) throws -> Void = IngestDurability.syncDirectory
 
     public init(verify: Bool = true,
                 chunkSize: Int = IngestFileDigest.defaultChunkSize,
@@ -436,6 +484,7 @@ public struct VerifiedCopyDriver: Sendable {
             switch failure {
             case .verificationMismatch: reason = "Verification mismatch"
             case .unreadableCopy(let why): reason = "Read-back failed: " + why
+            case .unwritableDestination(let why): reason = "Flush to the medium failed: " + why
             default: reason = "Verification failed"
             }
             return .unverifiedCopyRemains(verificationFailure: reason,
@@ -724,6 +773,26 @@ public struct VerifiedCopyDriver: Sendable {
             onChunk(Int64(chunk.count))
         }
 
+        // A complete copy is flushed to the medium before it gets its final name, so a
+        // name never points at bytes that exist only in the page cache. A flush that
+        // fails is that destination's failure: its `.part` is removed, never renamed.
+        if !stopped && readFailure == nil && bytes == copy.byteCount {
+            var flushed: [Writer] = []
+            for writer in live {
+                do {
+                    try syncFile(writer.handle)
+                    flushed.append(writer)
+                } catch let error {
+                    try? writer.handle.close()
+                    try? fm.removeItem(at: writer.temp)
+                    results.append(verdict(writer.planned, writer.final, writer.role,
+                                           .failed(.unwritableDestination(
+                                               error.localizedDescription))))
+                }
+            }
+            live = flushed
+        }
+
         for writer in live { try? writer.handle.close() }
 
         if stopped || readFailure != nil {
@@ -783,6 +852,17 @@ public struct VerifiedCopyDriver: Sendable {
                 try? fm.removeItem(at: writer.temp)
                 results.append(verdict(writer.planned, writer.final, writer.role,
                                        .failed(.unwritableDestination(error.localizedDescription))))
+                continue
+            }
+
+            // The rename lives in the directory, and is lost with it unless the directory
+            // is flushed too. Until it is, the copy is not durable, so it is not kept.
+            do {
+                try syncDirectory(landed.deletingLastPathComponent())
+            } catch let error {
+                let failure = cleanupUnverifiedCopy(at: landed, owner: installedOwner,
+                    failure: .unwritableDestination(error.localizedDescription))
+                results.append(verdict(writer.planned, landed, writer.role, .failed(failure)))
                 continue
             }
 
