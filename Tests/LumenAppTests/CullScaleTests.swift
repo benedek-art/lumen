@@ -283,7 +283,9 @@ final class CullScaleTests: XCTestCase {
     /// this pins that the cull path uses it too.
     func testACullKeystrokeRepublishesTheGridOnce() throws {
         let state = try code("AppState.swift")
-        let body = try Self.functionBody(named: "mutateTargets", in: state)
+        let body = try Self.functionBody(named: "mutateTargets", in: state,
+                                         file: "AppState.swift",
+                                         scan: "the one-publish-per-cull-keystroke scan")
         XCTAssertFalse(body.contains("body(&allPhotos["),
                        "mutateTargets mutates the published array element by element "
                            + "again — forty frames rated in one keystroke is forty "
@@ -301,11 +303,11 @@ final class CullScaleTests: XCTestCase {
     /// comment-and-string-blanked text, which is what makes the brace count honest.
     /// A missing declaration FAILS (not skips): a skip leaves CI green while the
     /// guarantee above stops being checked.
-    private static func functionBody(named name: String, in code: String) throws -> String {
+    private static func functionBody(named name: String, in code: String,
+                                     file: String, scan: String) throws -> String {
         guard let decl = code.range(of: "func \(name)(") else {
-            throw ScanFailure(description: "\(name) is no longer in AppState.swift under that "
-                                  + "name; the one-publish-per-cull-keystroke scan "
-                                  + "is reading nothing")
+            throw ScanFailure(description: "\(name) is no longer in \(file) under that "
+                                  + "name; \(scan) is reading nothing")
         }
         guard let open = code[decl.upperBound...].firstIndex(of: "{") else {
             throw ScanFailure(description: "\(name) has no body")

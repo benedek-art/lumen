@@ -408,6 +408,12 @@ support, and would turn a *good* macOS update into a red build. The lane **logs*
 files decoded and which refused, into the job summary, so a change in the support matrix
 is visible as a diff rather than as a failure.
 
+> *Note, 2026-10-20 (414a2e1):* one exception now exists. The R-0/R-1/R-2 test
+> (`testEveryFileEitherDecodesCleanlyOrRefusesCleanly`) asserts that six controls are
+> not refused — 1346 (CR2), 5812 and 824 (NEF), 2349 (ARW), 2607 (RW2) and 6168
+> (DNG), `RawCorpusTests.controlIDs` — so later invariants cannot pass having measured
+> nothing. Every other file is still logged, not pinned.
+
 ---
 
 #### Tier 1 — geometry.
@@ -588,6 +594,9 @@ job summary so that change is *visible*, which is the whole premise of D50.
 
 - No per-camera dimension, colour, or pixel goldens. Not one.
 - No assertion that any particular format decodes. The support matrix is Apple's.
+  *(Note, 2026-10-20: except the six `controlIDs` — 1346 (CR2), 5812 and 824 (NEF),
+  2349 (ARW), 2607 (RW2) and 6168 (DNG) — which R-2's test now requires to decode; see
+  the note under R-2.)*
 - No cross-run comparison. Two runs on different runner images are two different
   decoders; a drift check across them would be measuring macOS.
 - Nothing about *quality*. This lane asks "is it a photograph of the right thing, the
@@ -716,6 +725,8 @@ final class RawCorpusTests: XCTestCase {
     /// asserting Apple's support matrix — which moves in the direction of MORE support,
     /// so pinning it would turn a good macOS update into a red build. The outcome per
     /// file is written to the evidence sheet instead, where a change shows as a diff.
+    /// (Note, 2026-10-20: the shipped test makes one exception — the six controlIDs,
+    /// 1346, 5812, 824, 2349, 2607 and 6168, must not be refused.)
     func testEveryFileEitherDecodesCleanlyOrRefusesCleanly() throws { }
 
     // MARK: Tier 1 — geometry

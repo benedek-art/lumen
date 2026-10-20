@@ -1328,6 +1328,7 @@ final class RawCorpusTests: XCTestCase {
         var rotatedSeen = 0
         // Decoded files whose manifest orientation is 90°-class, and the ones actually
         // checked: a nil EXIF read or delivered size must not silently drop a file.
+        // Square frames are the one stated skip and leave the expected set.
         var rotatedExpected = Set<String>()
         var rotatedChecked = Set<String>()
         var directions = Set<Int>()
@@ -1355,6 +1356,8 @@ final class RawCorpusTests: XCTestCase {
                 RawCorpusTests.emit("corpus-note: \(entry.id) is square (E "
                     + "\(exif.text), D \(delivered.text)) — an aspect test cannot see a "
                     + "rotation in it. R-4 skipped for this file; R-5 covers it.")
+                // A deliberate skip, not a dropped read: keep it out of `unchecked`.
+                rotatedExpected.remove(entry.id)
                 continue
             }
 
