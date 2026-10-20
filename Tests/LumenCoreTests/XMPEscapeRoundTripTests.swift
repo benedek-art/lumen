@@ -65,8 +65,28 @@ final class XMPEscapeRoundTripTests: XCTestCase {
         XCTAssertEqual(read.strokesPayload, "QUJD", "the elements after the recipe were lost")
         let decoded = try CanonicalJSON.decodeRecipe(
             from: Data(try XCTUnwrap(read.recipeJSON).utf8))
-        XCTAssertEqual(decoded.masks.first?.name, "m")
+        XCTAssertEqual(decoded.masks.first?.name, "m\u{FFFE}",
+                       "the recipe JSON carries the scalar as a \\uFFFE escape")
         XCTAssertEqual(decoded.develop.tone.exposure, 0.5)
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(decoded),
+                       try RecipeFingerprint.fingerprint(recipe),
+                       "a lossy write would make an untouched sidecar read as an edit")
+    }
+
+    /// The case that loss would cause: the sidecar Lumen wrote, mtime bumped by a sync
+    /// client, recipe untouched. Merge must keep the catalog's recipe, not "recover"
+    /// a copy of it with the character stripped.
+    func testAnUntouchedSidecarWithANonCharacterIsNotAnEdit() throws {
+        // A fingerprinted string (mask names are cosmetic and would not show the loss).
+        var recipe = Recipe()
+        recipe.look.filmLab = FilmLab(stock: "custom/stock\u{FFFF}")
+        let fp = try RecipeFingerprint.fingerprint(recipe)
+        let json = try CanonicalJSON.canonicalRecipeJSON(recipe)
+        let read = try XCTUnwrap(XMPSidecar.parse(XMPSidecar.serialize(
+            SidecarContent(recipeFingerprint: fp, recipeJSON: json))))
+        let incoming = try CanonicalJSON.decodeRecipe(
+            from: Data(try XCTUnwrap(read.recipeJSON).utf8))
+        XCTAssertEqual(try RecipeFingerprint.fingerprint(incoming), fp)
     }
 
     /// 500 seeded strings over a pool of the characters above plus plain ones.

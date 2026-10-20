@@ -651,7 +651,7 @@ public enum XMPSidecar {
             fields += "   <lumen:sourceExtension>\(escapeXML(ext))</lumen:sourceExtension>\n"
         }
         if let recipe = content.recipeJSON {
-            fields += "   <lumen:recipe>\(escapeXML(recipe))</lumen:recipe>\n"
+            fields += "   <lumen:recipe>\(escapeXML(jsonEscapingNonCharacters(recipe)))</lumen:recipe>\n"
         }
         // Last, and after the recipe: it is the largest element by far, and a reader
         // that gives up partway through a damaged file should have reached everything
@@ -660,6 +660,24 @@ public enum XMPSidecar {
             fields += "   <lumen:strokes>\(escapeXML(strokes))</lumen:strokes>\n"
         }
         return fields
+    }
+
+    /// U+FFFE and U+FFFF have no XML form, so `escapeXML` drops them. Inside the recipe
+    /// JSON they can only sit in a string literal, where `\uFFFE` is a legal escape that
+    /// decodes to the same scalar: written that way the recipe survives the sidecar
+    /// exactly, and its fingerprint still matches the catalog's on the next merge.
+    static func jsonEscapingNonCharacters(_ json: String) -> String {
+        guard json.unicodeScalars.contains(where: { $0 == "\u{FFFE}" || $0 == "\u{FFFF}" })
+        else { return json }
+        var out = ""
+        for scalar in json.unicodeScalars {
+            switch scalar {
+            case "\u{FFFE}": out += "\\uFFFE"
+            case "\u{FFFF}": out += "\\uFFFF"
+            default: out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
     }
 
     static func escapeXML(_ s: String) -> String {
