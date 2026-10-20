@@ -386,9 +386,8 @@ extension AppState {
                         failures.append(job.url.lastPathComponent + " → "
                                             + exportRecipe.name + ": " + keywordFailure)
                     } else {
-                        var recipeNaming = naming
-                        recipeNaming.recipeName = exportRecipe.name
-                        recipeNaming.sequence = exportRecipe.sequenceNumber(forPhotoAt: job.index)
+                        let recipeNaming = naming.forRecipe(exportRecipe, photoIndex: job.index,
+                                                            batchCount: jobs.count)
                         let wanted = Self.destination(directory: directory,
                                                       recipe: exportRecipe,
                                                       naming: recipeNaming)
