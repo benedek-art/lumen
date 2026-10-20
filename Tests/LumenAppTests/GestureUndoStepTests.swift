@@ -206,6 +206,26 @@ final class GestureUndoStepTests: XCTestCase {
         XCTAssertFalse(history.canUndo)
     }
 
+    /// Dropping a folded-back step must not make the step it exposes look recent: an
+    /// edit right after goes in its own step, not into the older one.
+    func testAnEditAfterADroppedStepDoesNotFoldIntoTheOlderStep() {
+        let url = URL(fileURLWithPath: "/roll/frame.arw")
+        func edit(_ highlights: Double) -> [URL: HistoryStack.PhotoEdit] {
+            var r = Recipe()
+            r.develop.tone.highlights = highlights
+            return [url: HistoryStack.PhotoEdit(recipe: r)]
+        }
+        let history = HistoryStack()
+        history.record(before: edit(0), after: edit(10), coalescingKey: "tone.highlights")
+        _ = history.undo()
+        _ = history.redo()
+        history.record(before: edit(10), after: edit(20), coalescingKey: "tone.highlights")
+        history.record(before: edit(20), after: edit(10), coalescingKey: "tone.highlights")
+        XCTAssertEqual(history.steps.count, 1)
+        history.record(before: edit(10), after: edit(30), coalescingKey: "tone.highlights")
+        XCTAssertEqual(history.steps.count, 2)
+    }
+
     // MARK: The ⌥-scroll latch
 
     @MainActor

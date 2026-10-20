@@ -133,7 +133,8 @@ final class HistoryStack: ObservableObject {
                 coalescingKey: String?, label: String? = nil,
                 gestureEpoch: Int? = nil) {
         let now = Date()
-        defer { lastEditTime = now }
+        var editTime = now
+        defer { lastEditTime = editTime }
 
         // The rule lives in LumenCore (HistoryCoalescing) where it is tested. The
         // third input — the photo sets must MATCH — is what keeps a drag that spans a
@@ -171,6 +172,9 @@ final class HistoryStack: ObservableObject {
                     steps.removeLast()
                     position = steps.count
                 }
+                // The step now exposed may be arbitrarily old: the next edit must not
+                // fold into it as if it were recent.
+                editTime = .distantPast
                 return
             }
             // The open step keeps its own key: it is still the same step, and a wheel
