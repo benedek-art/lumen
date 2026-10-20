@@ -807,19 +807,67 @@ public struct ExportRecipe: Codable, Equatable, Sendable, Identifiable {
     ///
     /// Under `.rename` this is exactly `disambiguated(wanted) { claimed || exists }`,
     /// the call the batch made before the policy existed.
+    ///
+    /// `isOriginal` names the files no policy may replace: the photographs being
+    /// exported and their RAW+JPEG siblings (`originalIdentities(of:)`). Overwrite is
+    /// the re-delivery of a corrected batch, and an original is never a delivery —
+    /// with the default `{name}` template, a JPEG exported as JPEG into its own folder
+    /// wants exactly its own path, and `replacing: true` renamed the render over the
+    /// file it was rendered from. An original under Overwrite is renamed instead, and
+    /// no disambiguated candidate may land on one either. Skip is left alone: it
+    /// writes nothing.
     public static func placement(for wanted: URL, policy: ExportCollisionPolicy,
                                  claimedThisRun: (URL) -> Bool,
-                                 existsOnDisk: (URL) -> Bool) -> ExportPlacement {
-        let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) }
+                                 existsOnDisk: (URL) -> Bool,
+                                 isOriginal: (URL) -> Bool = { _ in false }) -> ExportPlacement {
+        let taken: (URL) -> Bool = { claimedThisRun($0) || existsOnDisk($0) || isOriginal($0) }
         if claimedThisRun(wanted) {
             return .write(disambiguated(wanted, isTaken: taken), replacing: false)
         }
         guard existsOnDisk(wanted) else { return .write(wanted, replacing: false) }
         switch policy {
         case .rename: return .write(disambiguated(wanted, isTaken: taken), replacing: false)
-        case .overwrite: return .write(wanted, replacing: true)
+        case .overwrite:
+            if isOriginal(wanted) {
+                return .write(disambiguated(wanted, isTaken: taken), replacing: false)
+            }
+            return .write(wanted, replacing: true)
         case .skip: return .skip(wanted)
         }
+    }
+
+    /// The file identities `placement`'s `isOriginal` protects for a batch exporting
+    /// `sources`: each source, and every photograph beside it sharing its name stem —
+    /// the camera's JPEG of a RAW+JPEG pair is not in a RAW-only batch, but
+    /// `DSC00001.ARW` exported as JPEG into the card folder wants `DSC00001.jpg`.
+    ///
+    /// Identities, not paths (`IngestLocation.fileIdentity`): device and inode for a
+    /// file that exists, so a case or Unicode-normalisation variant of the name on
+    /// APFS, a symbolic link or a hard link all compare as the original they are. The
+    /// stem match folds case and normalisation for the same reason — on Linux, or for
+    /// a camera that writes `DSC00001.JPG` beside `dsc00001.arw`, the spellings differ.
+    public static func originalIdentities(of sources: [URL]) -> Set<String> {
+        func key(_ url: URL) -> String {
+            url.deletingPathExtension().lastPathComponent
+                .precomposedStringWithCanonicalMapping.lowercased()
+        }
+        var identities: Set<String> = []
+        var stemsByFolder: [URL: Set<String>] = [:]
+        for source in sources {
+            identities.insert(IngestLocation.fileIdentity(of: source))
+            stemsByFolder[source.deletingLastPathComponent().standardizedFileURL, default: []]
+                .insert(key(source))
+        }
+        for (folder, stems) in stemsByFolder {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+            for name in names {
+                let sibling = folder.appendingPathComponent(name)
+                guard PhotoFormats.browsable.contains(sibling.pathExtension.lowercased()),
+                      stems.contains(key(sibling)) else { continue }
+                identities.insert(IngestLocation.fileIdentity(of: sibling))
+            }
+        }
+        return identities
     }
 }
 

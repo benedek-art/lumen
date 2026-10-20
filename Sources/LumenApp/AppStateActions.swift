@@ -309,6 +309,11 @@ extension AppState {
         // per channel at encode. The proof you approved was not the file you shipped.
         let proof = activeSoftProof
         let exportCatalog = catalog
+        // No policy may replace a photograph being exported or its RAW+JPEG sibling:
+        // with `{name}` into the source folder, Overwrite renamed the render over the
+        // original (`ExportRecipe.placement` says why). Taken before the batch writes
+        // anything, so a delivery of this run is never mistaken for an original.
+        let originals = ExportRecipe.originalIdentities(of: jobs.map { $0.url })
         // Anything an export of THIS run claims is newer than this; an empty claim
         // older than it, beside its partial, is one an interrupted run abandoned.
         let runStart = Date()
@@ -403,7 +408,8 @@ extension AppState {
                         let placement = ExportRecipe.placement(
                             for: wanted, policy: exportRecipe.collision,
                             claimedThisRun: { claimed.contains(IngestLocation.fileIdentity(of: $0)) },
-                            existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) })
+                            existsOnDisk: { FileManager.default.fileExists(atPath: $0.path) },
+                            isOriginal: { originals.contains(IngestLocation.fileIdentity(of: $0)) })
                         if case .skip = placement {
                             // Not written and not a failure: the file the policy keeps is
                             // already there. Not claimed either, so a second frame wanting
