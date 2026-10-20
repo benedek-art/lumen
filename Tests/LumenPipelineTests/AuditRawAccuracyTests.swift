@@ -365,6 +365,55 @@ final class AuditRawAccuracyTests: XCTestCase {
         }
     }
 
+    /// Apple's `shadowBias` defaults to a per-file black offset (5.0 on corpus 1087 in
+    /// raw-corpus run 39152441459, where it moved a flat decode from 0.0 to -0.004222),
+    /// and `AppleRawSource.decode` zeroes it. The oracle above zeroes it too, so every
+    /// pixel check in this class already holds Lumen to a decode with no offset; this
+    /// test names that, and records per file what the default is and how far the
+    /// default-biased decode sits from the flat one. No real-RAW-free version exists: a
+    /// `CIRAWFilter` cannot be made without a camera file, and the setter is private to
+    /// `decode`.
+    func testFlatDecodeSubtractsNoShadowBias() throws {
+        try eachFixture("shadow-bias") { fixture in
+            guard let apple = CIRAWFilter(imageURL: fixture.url) else {
+                XCTAssertThrowsError(try AppleRawSource(url: fixture.url))
+                return "refused-at-open"
+            }
+            if let refused = Self.refusedWithoutDecoder(apple, fixture) { return refused }
+            let defaultBias = apple.shadowBias
+            let source = try AppleRawSource(url: fixture.url)
+            let actual = source.decode(recipe: quietRecipe, draft: false, scaleFactor: 0.08)
+            guard let flat = try oracle(fixture.url, source: source, version: nil,
+                                        scale: 0.08) else {
+                XCTAssertNil(actual, "\(fixture.name): Apple's filter forms no image with "
+                                 + "these settings and Lumen delivered one anyway")
+                return "refused-at-decode default-shadowBias=\(defaultBias)"
+            }
+            let lumen = try XCTUnwrap(actual, "\(fixture.name): Lumen refused a file "
+                                          + "Apple's filter decodes")
+            try assertPixels(lumen, reference: flat,
+                             label: "shadowBias=0 " + fixture.name)
+            // How much the default offset moves this file: the size of the bug the line
+            // in `decode` fixes, per camera. Logged, not asserted, since Apple says the
+            // default varies by image and may be zero for some.
+            var effect = Self.dash
+            if let biased = try oracle(fixture.url, source: source, version: nil,
+                                       scale: 0.08, zeroShadowBias: false) {
+                let rect = flat.image.extent
+                let unbiased = pixels(flat.image, context: flat.context, bounds: rect)
+                let withBias = pixels(biased.image, context: biased.context, bounds: rect)
+                var worst = 0.0
+                for (index, pair) in zip(unbiased, withBias).enumerated() where index % 4 != 3 {
+                    guard pair.0.isFinite, pair.1.isFinite else { continue }
+                    worst = max(worst, abs(Double(pair.0) - Double(pair.1)))
+                }
+                effect = String(describing: worst)
+            }
+            return "decoded default-shadowBias=\(defaultBias) "
+                + "baselineExposure=\(apple.baselineExposure) default-bias-maxAbsolute=" + effect
+        }
+    }
+
     /// A file Apple's filter opens but selects no RAW decoder for (default "",
     /// supported ["None"]: on the lane, the IIQ, X3F, GPR and that OS's X-H2 RAF) is not
     /// a RAW decode, and Lumen refuses it at open (`RawParams.selectsRawDecoder`).
@@ -388,7 +437,13 @@ final class AuditRawAccuracyTests: XCTestCase {
     /// Independent platform filter/context, never the materializer under test.
     /// `version` nil is Apple's per-file default. Nil result: the platform will not
     /// open the file, or forms no image from it with these settings.
-    private func oracle(_ url: URL, source: AppleRawSource, version: Int?, scale: Float)
+    ///
+    /// The flat set is REPLICATED from `AppleRawSource.decode`; keep the two in step.
+    /// `zeroShadowBias: false` leaves Apple's per-file black offset in place, which is
+    /// what Lumen decoded before run 39152441459 measured it; only the shadow-bias test
+    /// asks for that.
+    private func oracle(_ url: URL, source: AppleRawSource, version: Int?, scale: Float,
+                        zeroShadowBias: Bool = true)
         throws -> (image: CIImage, context: CIContext)? {
         guard let filter = CIRAWFilter(imageURL: url) else { return nil }
         // Read before any scaled decode: RAW9 can rewrite `nativeSize` afterwards.
@@ -404,6 +459,7 @@ final class AuditRawAccuracyTests: XCTestCase {
         filter.neutralTint = Float(source.asShotTint)
         filter.boostAmount = 0
         filter.boostShadowAmount = 0
+        if zeroShadowBias { filter.shadowBias = 0 }
         filter.localToneMapAmount = 0
         filter.isGamutMappingEnabled = false
         filter.contrastAmount = 0
