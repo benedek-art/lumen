@@ -555,6 +555,19 @@ public enum MaskRaster {
     /// leaves it exactly where it was. Fading can reach "Edge does nothing"; it cannot
     /// reach "Edge −12 erodes", which is the only answer the label permits. A fallback
     /// that still moves the boundary is not a nicety here, it is the requirement.
+    ///
+    /// EVERY CONSTANT ABOVE IS RELATIVE TO THE MASK'S PEAK, not to 1. A component at
+    /// amount 60 is a hard 0.6 plateau, and read against 1 it broke all three: the
+    /// plateau sits inside 0.02…0.98 with a gradient of zero, so the mean collapsed and
+    /// a 1 px edge measured ~45 px; the rebuild then filled the interior to 1.0 and laid
+    /// a halo outside the edge at Edge +25 AND at Edge −25; and at amount 40 nothing
+    /// reached 0.5, so the slider did nothing. Against `densityPeak` the boundary is at
+    /// half the peak, the band is the peak's 2…98%, and the rebuild tops out at the
+    /// peak. For a mask that reaches 1 every scaling is by exactly 1, so this is the
+    /// same arithmetic to the last bit. A mask holding TWO plateaus — 0.6 beside 1.0 —
+    /// has no single peak to rebuild to, and goes to `advected`, which carries each
+    /// plateau's own density with it: a plateau is told apart from a ramp by having no
+    /// gradient at all, and a 0…1 mask's plateaus are at 0 and 1, outside the band.
     static func edgeShifted(_ a: Plane, edge: Double, longEdge: Int) -> Plane {
         guard edge.isFinite else { return a }
         let e = Num.clamp(edge, -50, 50)
@@ -572,22 +585,31 @@ public enum MaskRaster {
         let w = a.width, h = a.height
         let n = w * h
 
+        // An all-but-empty mask has no density to shift a boundary of.
+        let peak = densityPeak(a)
+        guard peak > 1e-6 else { return a }
+        let threshold = 0.5 * peak
+
         // Ramp width from the mean gradient over the transition band: a ramp of width
-        // W px has |∇α| = 1/W, and a hard edge lands at ~1 px.
+        // W px has |∇α| = peak/W, and a hard edge lands at ~1 px. A pixel with NO
+        // gradient is on a plateau, not on a ramp, and is left out of the mean; a 0…1
+        // mask's plateaus are at 0 and 1, outside the band, so it has none to leave.
         var gradSum = 0.0
         var gradCount = 0
+        var plateauCount = 0
         for y in 0..<h {
             for x in 0..<w {
                 let v = a[x, y]
-                if v > 0.02 && v < 0.98 {
+                if v > 0.02 * peak && v < 0.98 * peak {
                     let gx = (a.clampedSample(x + 1, y) - a.clampedSample(x - 1, y)) * 0.5
                     let gy = (a.clampedSample(x, y + 1) - a.clampedSample(x, y - 1)) * 0.5
                     let m = (gx * gx + gy * gy).squareRoot()
+                    if m == 0 { plateauCount += 1; continue }
                     if m.isFinite { gradSum += m; gradCount += 1 }
                 }
             }
         }
-        let meanGrad = gradCount > 0 ? gradSum / Double(gradCount) : 1.0
+        let meanGrad = gradCount > 0 ? gradSum / Double(gradCount) / peak : 1.0
         let rampWidth = Num.clamp(meanGrad > 1e-6 ? 1.0 / meanGrad : 1.0, 1.0, Double(Swift.max(longEdge, 2)))
 
         // A finite sentinel, not infinity: the transform adds squared distances, and
@@ -599,7 +621,7 @@ public enum MaskRaster {
         var anyInside = false
         var anyOutside = false
         for i in 0..<n {
-            let inside = Double(a.values[i]) >= 0.5
+            let inside = Double(a.values[i]) >= threshold
             fInside[i] = inside ? 0 : big
             fOutside[i] = inside ? big : 0
             if inside { anyInside = true } else { anyOutside = true }
@@ -615,7 +637,11 @@ public enum MaskRaster {
         // width, which is what keeps this change bounded to the masks that were broken.
         // Measured after the boundary guard above, because a plane with no boundary has
         // already returned and there is nothing there to measure.
-        let coherence = rampCoherence(a)
+        //
+        // A plateau inside the band is a second density (0.6 beside 1.0): the rebuild
+        // can only reach one peak, so that mask is moved by advection alone.
+        let coherence = plateauCount >= minimumBoundarySamples
+            ? 0 : rampCoherence(a, peak: peak)
 
         // φ, held rather than recomputed inline, because the advection below needs its
         // GRADIENT and a gradient needs the neighbours. The two indicator planes are
@@ -626,7 +652,7 @@ public enum MaskRaster {
         fOutside = []
         var phi = [Double](repeating: 0, count: n)
         for i in 0..<n {
-            let inside = Double(a.values[i]) >= 0.5
+            let inside = Double(a.values[i]) >= threshold
             phi[i] = inside
                 ? -(dToOutside[i].squareRoot() - 0.5)
                 : (dToInside[i].squareRoot() - 0.5)
@@ -636,7 +662,7 @@ public enum MaskRaster {
         for y in 0..<h {
             for x in 0..<w {
                 let i = y * w + x
-                let rebuilt = Num.saturate(0.5 + (shift - phi[i]) / rampWidth)
+                let rebuilt = peak * Num.saturate(0.5 + (shift - phi[i]) / rampWidth)
                 // `coherence < 1` is a guard on the ARITHMETIC, not only on the cost:
                 // `Num.mix(v, rebuilt, 1)` is `v + (rebuilt − v)`, which is not
                 // guaranteed to be `rebuilt` to the last bit, and the one property this
@@ -651,6 +677,15 @@ public enum MaskRaster {
             }
         }
         return out
+    }
+
+    /// The density every Edge Shift constant is measured against: the largest finite
+    /// alpha, held at 1 for any mask that reaches 1 so those masks' arithmetic is
+    /// scaled by exactly 1.
+    static func densityPeak(_ a: Plane) -> Double {
+        var peak: Float = 0
+        for v in a.values where v.isFinite && v > peak { peak = v }
+        return Swift.min(Double(peak), 1)
     }
 
     /// The alpha this pixel would be holding if the boundary had already moved by
@@ -703,8 +738,11 @@ public enum MaskRaster {
     /// the right shape because what matters is the RATIO of the widths present — 1 px
     /// against 55 px is the same defect at any resolution — and because it is scale-free
     /// the same two constants hold from a 96 px loupe tile to a 61 MP export.
-    static func rampCoherence(_ a: Plane) -> Double {
-        let measured = rampWidthSpread(a)
+    ///
+    /// `peak` is the mask's density (`densityPeak`): the boundary is at half of it and
+    /// the widths are read against it, so a plateau at 0.4 has a boundary at all.
+    static func rampCoherence(_ a: Plane, peak: Double = 1) -> Double {
+        let measured = rampWidthSpread(a, peak: peak)
         // Too little boundary to say anything: keep the shipped behaviour rather than
         // let a four-pixel mask's arithmetic noise disengage the control.
         guard measured.samples >= minimumBoundarySamples else { return 1 }
@@ -727,18 +765,18 @@ public enum MaskRaster {
     /// is a per-pixel allocation on a plane whose boundary is normally O(perimeter) and
     /// pathologically O(pixels). Two sweeps of arithmetic beat one sweep that can ask
     /// for half a gigabyte on a 61 MP mask whose alpha happens to hover around 0.5.
-    static func rampWidthSpread(_ a: Plane) -> (spread: Double, samples: Int) {
+    static func rampWidthSpread(_ a: Plane, peak: Double = 1) -> (spread: Double, samples: Int) {
         let cap = Double(Swift.max(Swift.max(a.width, a.height), 2))
         var sum = 0.0
         var count = 0
-        forEachBoundaryLogWidth(a, cap) { l in
+        forEachBoundaryLogWidth(a, cap, peak) { l in
             sum += l
             count += 1
         }
         guard count > 0 else { return (0, 0) }
         let mean = sum / Double(count)
         var deviation = 0.0
-        forEachBoundaryLogWidth(a, cap) { deviation += abs($0 - mean) }
+        forEachBoundaryLogWidth(a, cap, peak) { deviation += abs($0 - mean) }
         return (deviation / Double(count), count)
     }
 
@@ -761,10 +799,11 @@ public enum MaskRaster {
     /// Indexed directly rather than through `clampedSample`, and the body is called only
     /// for the boundary: this runs twice over every pixel of every mask that reaches the
     /// Edge slider, including the ones it will decide to leave alone.
-    private static func forEachBoundaryLogWidth(_ a: Plane, _ cap: Double,
+    private static func forEachBoundaryLogWidth(_ a: Plane, _ cap: Double, _ peak: Double,
                                                 _ body: (Double) -> Void) {
         let w = a.width, h = a.height
         guard w > 0, h > 0 else { return }
+        let t = 0.5 * peak
         a.values.withUnsafeBufferPointer { v in
             for y in 0..<h {
                 let row = y * w
@@ -772,13 +811,13 @@ public enum MaskRaster {
                 let rowBelow = (y < h - 1 ? y + 1 : h - 1) * w
                 for x in 0..<w {
                     let centre = Double(v[row + x])
-                    let inside = centre >= 0.5
+                    let inside = centre >= t
                     let left = Double(v[row + (x > 0 ? x - 1 : 0)])
                     let right = Double(v[row + (x < w - 1 ? x + 1 : w - 1)])
                     let above = Double(v[rowAbove + x])
                     let below = Double(v[rowBelow + x])
-                    guard (left >= 0.5) != inside || (right >= 0.5) != inside
-                        || (above >= 0.5) != inside || (below >= 0.5) != inside
+                    guard (left >= t) != inside || (right >= t) != inside
+                        || (above >= t) != inside || (below >= t) != inside
                     else { continue }
                     let gx = (right - left) * 0.5
                     let gy = (below - above) * 0.5
@@ -786,7 +825,7 @@ public enum MaskRaster {
                     g = Swift.max(g, Swift.max(abs(right - centre), abs(left - centre)))
                     g = Swift.max(g, Swift.max(abs(below - centre), abs(above - centre)))
                     guard g.isFinite, g > 0 else { continue }
-                    body(log(Num.clamp(1 / g, 1, cap)))
+                    body(log(Num.clamp(peak / g, 1, cap)))
                 }
             }
         }
