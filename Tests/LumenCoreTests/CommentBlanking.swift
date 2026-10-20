@@ -2,7 +2,9 @@
 // byte-for-byte as Tests/LumenAppTests/CommentBlanking.swift and
 // Tests/LumenPipelineTests/CommentBlanking.swift, because test targets cannot share a
 // source file without a new package target; `CommentBlankingTests` (LumenCoreTests, so
-// it runs on Linux) fails if the copies ever differ.
+// it runs on Linux) fails if the copies ever differ, and fails on any test helper named
+// like a comment stripper that does not call this one. A scan can still skip
+// stripping altogether: `LayoutSource.read`/`flattened` (LumenAppTests) return raw text.
 //
 // Why it exists. Twenty-one test files carried their own copy of a stripper that
 // walked `//` and `/*` with no idea of string literals, so `URL(string: "https://…")`

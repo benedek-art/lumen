@@ -142,9 +142,6 @@ final class CommentBlankingTests: XCTestCase {
 
     /// The signature check above only knows one shape of walk. This one knows any: a
     /// function named like a comment stripper must hand its work to the shared one.
-    /// `MaskPanelTests` keeps its own string-aware, nesting stripper, pinned by its own
-    /// fixtures (`testTheStripperHandlesEveryCommentShapeSwiftAllows`); it removes
-    /// rather than blanks, and those fixtures only run on macOS.
     func testEveryNamedStripperDelegatesToTheSharedOne() throws {
         let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -157,12 +154,14 @@ final class CommentBlankingTests: XCTestCase {
             guard let walk = fm.enumerator(at: dir, includingPropertiesForKeys: nil) else { continue }
             for case let url as URL in walk where url.pathExtension == "swift" {
                 let name = url.lastPathComponent
-                if ["CommentBlanking.swift", "CommentBlankingTests.swift", "MaskPanelTests.swift"]
-                    .contains(name) { continue }
+                if ["CommentBlanking.swift", "CommentBlankingTests.swift"].contains(name) { continue }
                 let code = blankingComments(in: try String(contentsOf: url, encoding: .utf8))
                 let range = NSRange(code.startIndex..., in: code)
-                for match in declaration.matches(in: code, range: range) {
-                    guard let r = Range(match.range, in: code) else { continue }
+                // `enumerateMatches`, not `matches(in:range:)`: the in-tree
+                // `MaskPanel.matches(_:index:…)` makes `check-swift-surface.py`'s label pass
+                // read the Foundation call as a mismatch, and that script has to stay at 0.
+                declaration.enumerateMatches(in: code, options: [], range: range) { match, _, _ in
+                    guard let match, let r = Range(match.range, in: code) else { return }
                     let body = ShellSource.body(after: String(code[r]), in: String(code[r.lowerBound...])) ?? ""
                     if !body.contains("blankingComments(in:") {
                         offenders.append("\(target)/\(name)")

@@ -536,9 +536,11 @@ final class MaskPanelTests: XCTestCase {
             }
 
             // …and they were the bulk of the file, so a stripper that quietly became
-            // the identity function cannot pass by removing nothing. Both files are
-            // well over a quarter prose; the margin is deliberately loose.
-            XCTAssertGreaterThan(raw.count - stripped.count, raw.count / 4,
+            // the identity function cannot pass by removing nothing. Comments are
+            // blanked, not removed, so count what is left that is not whitespace. Both
+            // files are well over a quarter prose; the margin is deliberately loose.
+            let ink = { (text: String) in text.filter { !$0.isWhitespace }.count }
+            XCTAssertGreaterThan(ink(raw) - ink(stripped), ink(raw) / 4,
                                  "\(relative) is largely comment — stripping should show")
 
             // The derived canary. Deriving it by line requires that no `//` in this
@@ -709,97 +711,18 @@ final class MaskPanelTests: XCTestCase {
 
 // MARK: - the scan's foundation
 
-/// `PreviewRungTests.stripComments`, copied — which is itself a copy of
-/// `DeliveryNameTests.strippingComments` — and then taught the two shapes every one of
-/// those copies still gets wrong. It travels rather than being shared because each
-/// suite's proof should not depend on another suite's helper staying put.
+/// The shared `blankingComments(in:)` (CommentBlanking.swift), under the name this
+/// file's scans already use. It BLANKS rather than removes: every comment character
+/// becomes a space and newlines stay, so code is untouched and `flat` reads the same.
 ///
 /// A scan that reads doc comments proves only that somebody wrote the symbol's name
 /// down, and in this file that would be actively wrong: every label this suite checks
 /// for the ABSENCE of is present in a comment eight lines from where it used to be.
-///
-/// TWO THINGS THE COPIES GET WRONG, both fixed here and both pinned by
-/// `testTheStripperHandlesEveryCommentShapeSwiftAllows`:
-///
-///   · SWIFT BLOCK COMMENTS NEST. Closing on the first `*/` hands the tail of the
-///     comment back as code, which is a scan reading prose and calling it a defect —
-///     the exact thing stripping exists to prevent.
-///
-///   · A COMMENT MARKER INSIDE A STRING LITERAL IS TEXT. This is the worse of the two,
-///     because it deletes CODE rather than keeping prose: `URL(string: "https://…")`
-///     read as a line comment loses the closing quote and everything after it, every
-///     later quote in the file pairs off by one, and the damage is silent — no
-///     assertion for an absent word can see a line that is simply gone. It is not
-///     hypothetical: `check-swift-surface.py`'s own `_scan` carries a note about the
-///     investigation this cost in `"http://www.w3.org/…"`, and `AppUpdater.swift` holds
-///     a live example. So the scan below walks strings and comments in ONE pass, the
-///     way that script does — a pass for either alone is wrong in the presence of the
-///     other, since a `"` inside a comment desyncs strings just as a `//` inside a
-///     string desyncs comments.
-///
-/// What it still does not handle, said here rather than discovered later: raw literals
-/// (`#"…"#`), where a `\` is not an escape. Nothing in `Sources/` uses one today.
+/// Nested block comments and comment markers inside string literals are the two shapes
+/// a naive walk gets wrong; `testTheStripperHandlesEveryCommentShapeSwiftAllows` pins
+/// both on this name.
 private func stripComments(_ source: String) -> String {
-    var out = ""
-    var index = source.startIndex
-    var depth = 0
-
-    /// Bounded so a delimiter at the very end of the file cannot walk off it.
-    func skip(_ count: Int, from start: String.Index) -> String.Index {
-        source.index(start, offsetBy: count, limitedBy: source.endIndex) ?? source.endIndex
-    }
-
-    while index < source.endIndex {
-        let rest = source[index...]
-
-        if depth > 0 {
-            if rest.hasPrefix("/*") { depth += 1; index = skip(2, from: index); continue }
-            if rest.hasPrefix("*/") { depth -= 1; index = skip(2, from: index); continue }
-            // Newlines are kept so a stripped file still has the raw file's lines, which
-            // is what lets a scan reason line by line.
-            if source[index] == "\n" { out.append("\n") }
-            index = source.index(after: index)
-            continue
-        }
-
-        // Literals are copied through whole, delimiters and all. This is the branch the
-        // copies simply do not have: without it the walk never learns it is inside a
-        // literal, so the first `//` or `/*` in one opens a comment.
-        if rest.hasPrefix("\"\"\"") {
-            var end = skip(3, from: index)
-            while end < source.endIndex, !source[end...].hasPrefix("\"\"\"") {
-                if source[end] == "\\" { end = skip(1, from: end) }
-                if end < source.endIndex { end = source.index(after: end) }
-            }
-            end = skip(3, from: end)
-            out += source[index..<end]
-            index = end
-            continue
-        }
-        if source[index] == "\"" {
-            var end = source.index(after: index)
-            // A single-line literal cannot span a newline, so an unterminated quote
-            // stops at the end of its line instead of swallowing the rest of the file.
-            while end < source.endIndex, source[end] != "\"", source[end] != "\n" {
-                if source[end] == "\\" { end = skip(1, from: end) }
-                if end < source.endIndex { end = source.index(after: end) }
-            }
-            if end < source.endIndex, source[end] == "\"" { end = source.index(after: end) }
-            out += source[index..<end]
-            index = end
-            continue
-        }
-
-        if rest.hasPrefix("//") {
-            while index < source.endIndex, source[index] != "\n" { index = source.index(after: index) }
-            continue
-        }
-        if rest.hasPrefix("/*") { depth = 1; index = skip(2, from: index); continue }
-
-        out.append(source[index])
-        index = source.index(after: index)
-    }
-    return out
+    blankingComments(in: source)
 }
 
 #endif

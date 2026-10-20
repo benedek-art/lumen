@@ -236,18 +236,21 @@ final class SidecarNewerFormatTests: XCTestCase {
         // Comment-blanked and whitespace-collapsed: the call at `saveRecipe` wraps.
         let code = ShellSource.squashed(try ShellSource.code("Sources/LumenApp/CatalogService.swift"))
         let clamp = "Swift.min(recipe.pipelineVersion, supportedPipelineVersion)"
+        // The whole trio, clamp as its version element: a clamp computed elsewhere in
+        // the body while the raw version is what gets written does not match.
+        let trio = "(json, fingerprint, " + clamp + ")"
         // Both functions that hand a recipe trio to the sidecar queue, each checked in
         // its own body so one clamped site cannot stand in for the other.
         for marker in ["func requeueUnsavedSidecars(", "func saveRecipe(_ recipe: Recipe"] {
             let body = try XCTUnwrap(ShellSource.body(after: marker, in: code), "\(marker) moved")
-            XCTAssertTrue(body.contains(clamp),
+            XCTAssertTrue(body.contains(trio),
                           "\(marker) hands the sidecar an unclamped pipeline version")
         }
-        // And no third site: every `(json, fingerprint, …)` trio carries the clamp.
+        // And no third site: every `(json, fingerprint, …)` trio is a clamped one.
         let trios = code.components(separatedBy: "(json, fingerprint,").count - 1
-        let clamps = code.components(separatedBy: clamp).count - 1
+        let clamped = code.components(separatedBy: trio).count - 1
         XCTAssertGreaterThanOrEqual(trios, 2)
-        XCTAssertEqual(trios, clamps,
+        XCTAssertEqual(trios, clamped,
                        "a recipe trio is built for the sidecar without the version clamp")
     }
 

@@ -10,8 +10,10 @@ import XCTest
 final class ProofRecordInventoryTests: XCTestCase {
 
     func testRecordsDirectoryHoldsExactlyTheRegistrysIds() throws {
+        // Hidden files are skipped: Finder drops an untracked .DS_Store here on a Mac.
         let files = try FileManager.default.contentsOfDirectory(
-            at: ProofRecordStore.directory, includingPropertiesForKeys: nil)
+            at: ProofRecordStore.directory, includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles])
         let onDisk = Set(files.map(\.lastPathComponent))
         let ids = ProofRegistry.all.map(\.id)
         let expected = Set(ids.map { "\($0).json" })

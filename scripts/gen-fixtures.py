@@ -1653,27 +1653,25 @@ def gen_engine_checks():
     REFERENCE_LITERAL = 1.6173165676349103
     check(abs(reference - REFERENCE_LITERAL) < 1e-12,
           f"untruncated texture window sums to {reference}, not 2 - sin(pi/8)")
-    for long_edge in [640, 1280, 2560, 5120, 10240, 20480]:
-        center = band_center(long_edge)
-        weights = [band_weight(i, center, half_width) for i in range(5)]
-        realized = sum(weights)
-        check(realized > 1e-9, f"no realized band weight at {long_edge}")
-        # The normalizer as the engine computes it, checked against the literal: an
-        # un-normalized (normalizer = 1) or wrongly-normalized window fails at 640 and
-        # 1280 px, where the window is truncated at level 0. The engine side of this is
-        # ScaleHonestyTests.testTextureDeliversTheUntruncatedBandWeightAtEveryBandCentre.
-        normalizer = reference / realized
-        delivered = sum(w * normalizer for w in weights)
-        check(abs(delivered - REFERENCE_LITERAL) < 1e-9,
-              f"texture weight at long edge {long_edge} delivers {delivered}, "
-              f"not {REFERENCE_LITERAL}")
-    # And the un-normalized sums really did differ, or the fix was a no-op. Literals
-    # from the window: 1 + (1 - sin(pi/8))/2 at centre 0, 2 - sin(pi/8) at centre 1.
-    raw = [sum(band_weight(i, band_center(le), half_width) for i in range(5))
-           for le in (1280, 2560)]
-    check(abs(raw[0] - 1.3086582838174551) < 1e-9 and abs(raw[1] - REFERENCE_LITERAL) < 1e-9,
-          f"truncated texture band sums moved: {raw}")
-    check(abs(raw[0] - raw[1]) > 0.2,
+    # The raw (un-normalized) window sum at each long edge, pinned to values derived
+    # by hand rather than to `reference / realized` (that product is `reference` for
+    # any window, so it cannot fail). Below 2560 px the centre clamps to level 0 and
+    # the window is cut at level 0: 1 + (1 - sin(pi/8))/2. From 2560 px up the centre
+    # sits at 1..3 inside levels 0..4 and the whole window lands: 2 - sin(pi/8). The
+    # engine's normalization itself is pinned by
+    # ScaleHonestyTests.testTextureDeliversTheUntruncatedBandWeightAtEveryBandCentre.
+    TRUNCATED_LITERAL = 1 + (1 - math.sin(math.pi / 8)) / 2
+    check(abs(TRUNCATED_LITERAL - 1.3086582838174551) < 1e-12,
+          f"truncated texture literal is {TRUNCATED_LITERAL}")
+    for long_edge, expected in [(640, TRUNCATED_LITERAL), (1280, TRUNCATED_LITERAL),
+                                (2560, REFERENCE_LITERAL), (5120, REFERENCE_LITERAL),
+                                (10240, REFERENCE_LITERAL), (20480, REFERENCE_LITERAL)]:
+        realized = sum(band_weight(i, band_center(long_edge), half_width)
+                       for i in range(5))
+        check(abs(realized - expected) < 1e-9,
+              f"texture band sum at long edge {long_edge} is {realized}, not {expected}")
+    # And the two really differ, or normalizing them would be a no-op.
+    check(REFERENCE_LITERAL - TRUNCATED_LITERAL > 0.2,
           "texture band weights did not actually differ across resolutions")
 
     # The window's SHAPE, which the normalization check cannot see and which decides
