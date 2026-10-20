@@ -993,7 +993,7 @@ VARIADIC_DECL = re.compile(
 # Method names that also exist on stdlib or platform types, where an in-tree
 # declaration of the same name says nothing about a call on something else.
 METHOD_SKIP = {
-    "append", "insert", "remove", "removeAll", "contains", "map", "flatMap",
+    "append", "matches", "insert", "remove", "removeAll", "contains", "map", "flatMap",
     "compactMap", "filter", "reduce", "forEach", "sorted", "sort", "first", "last",
     "min", "max", "joined", "split", "prefix", "suffix", "dropFirst", "dropLast",
     "hasPrefix", "hasSuffix", "replacingOccurrences", "trimmingCharacters", "encode",
