@@ -46,10 +46,21 @@ private struct SliderWheelKey: EnvironmentKey {
     static let defaultValue: (UUID) -> Void = { _ in }
 }
 
+/// The photograph the sliders are editing, so a row can let go of keyboard focus and an
+/// open readout field when it changes. Nil in previews and tests.
+private struct SliderSubjectKey: EnvironmentKey {
+    static let defaultValue: URL? = nil
+}
+
 extension EnvironmentValues {
     var sliderWheelTick: (UUID) -> Void {
         get { self[SliderWheelKey.self] }
         set { self[SliderWheelKey.self] = newValue }
+    }
+
+    var sliderSubject: URL? {
+        get { self[SliderSubjectKey.self] }
+        set { self[SliderSubjectKey.self] = newValue }
     }
 
     var sliderGestureChanged: (Bool) -> Void {

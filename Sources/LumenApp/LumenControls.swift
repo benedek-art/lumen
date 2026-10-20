@@ -536,6 +536,9 @@ struct LumenSlider: View {
     @Environment(\.sliderFocusChanged) private var sliderFocusChanged
     /// ⌥-scroll ticks, named by `wheelOwner` — see `wheelNudge`.
     @Environment(\.sliderWheelTick) private var sliderWheelTick
+    /// The photograph being edited. When it changes, focus and an open readout field
+    /// are let go rather than carried onto the next frame.
+    @Environment(\.sliderSubject) private var sliderSubject
 
     /// What double-clicking the label should do, when writing `defaultValue` is not it.
     ///
@@ -763,6 +766,15 @@ struct LumenSlider: View {
         .focused($rowFocused)
         .onChange(of: rowFocused) { _, focused in
             sliderFocusChanged(focused)
+        }
+        // A NEW PHOTOGRAPH LETS GO OF THE ROW. Focus taken by a drag on frame A used to
+        // follow the photographer: P auto-advanced to B, and the next → nudged B's
+        // value instead of paging. The filmstrip's cells are not focusable, so nothing
+        // else takes focus away. An open readout field closes with it, unsubmitted —
+        // its text was typed against the previous photograph.
+        .onChange(of: sliderSubject) { _, _ in
+            isEditingText = false
+            rowFocused = false
         }
         .onDisappear {
             // A panel switch removes the row without the focus ever changing, so the
@@ -1264,8 +1276,19 @@ struct LumenSlider: View {
                     .font(.lumenNumeric)
                     .multilineTextAlignment(.trailing)
                     .focused($textFocused)
+                    // Focus is asked for once the field EXISTS. Asked for in the tap that
+                    // inserts it, the request could be dropped, leaving a caret with no
+                    // focus behind it and digits reaching the key grammar as ratings.
+                    .onAppear { textFocused = true }
                     .onSubmit { commitText() }
                     .onExitCommand { isEditingText = false }
+                    // COMMIT ON BLUR, as Lightroom and Capture One do. The field used to
+                    // close only on Return or Escape, so clicking elsewhere left it open
+                    // with its snapshot, and a later Return wrote that stale text over
+                    // whatever had happened since — on another photo, possibly.
+                    .onChange(of: textFocused) { _, focused in
+                        if !focused && isEditingText { commitText() }
+                    }
             } else {
                 // TABULAR FIGURES ON SF PRO, not SF Mono. The app mixed two typefaces
                 // at 23 sites — a second family, a different x-height, inches from the
@@ -1282,7 +1305,6 @@ struct LumenSlider: View {
                     .onTapGesture {
                         textValue = formatted
                         isEditingText = true
-                        textFocused = true
                     }
                     // THE CURSOR IS THE ADVERTISEMENT. This readout is the app's
                     // PRECISION instrument — 2.13 points per unit against the track's
@@ -1340,6 +1362,11 @@ struct LumenSlider: View {
         // row's arithmetic — label, two gaps, readout, the rest is groove — is what
         // decided the panel's default width, and a readout that grew outward would
         // have quietly taken twelve points off every track in the app.
+        // A field left open without focus closes when the value moves under it, so a
+        // stale snapshot can never be committed over a newer edit.
+        .onChange(of: value) { _, _ in
+            if isEditingText && !textFocused { isEditingText = false }
+        }
         .padding(.horizontal, 5)
         .frame(width: Lumen.valueWidth, alignment: .trailing)
         // A PILL, NOT A BARE NUMBER. The readout is the app's precision instrument and
