@@ -133,9 +133,13 @@ public enum IngestPlanner {
 
     /// The whole plan. `renameTemplate` nil keeps the camera's own names.
     ///
-    /// `seq` is the file's 1-based position in the batch, which is what makes
-    /// `{seq:4}` count frames rather than repeat itself — so the order of `sources` is
-    /// part of the plan's meaning and the caller sorts before it gets here.
+    /// `seq` is the 1-based position of the file's FRAME in the batch, which is what
+    /// makes `{seq:4}` count frames rather than repeat itself — so the order of
+    /// `sources` is part of the plan's meaning and the caller sorts before it gets here.
+    /// A frame is every file in one card folder sharing one stem: DSCF0001.JPG and
+    /// DSCF0001.RAF are one frame and get one number, so a RAW+JPEG pair leaves the
+    /// card under one base name — the name Lightroom and every other tool pairs them
+    /// by. Numbering files instead gave the JPEG -0001 and its RAW -0002.
     public static func plan(sources: [IngestSourceFile],
                             destinations: [IngestDestinationRoot],
                             folderTemplate: String,
@@ -146,8 +150,12 @@ public enum IngestPlanner {
         var refusals: [String] = []
         let fields: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
 
-        for (index, source) in sources.enumerated() {
-            let seq = index + 1
+        var frameNumbers: [String: Int] = [:]
+
+        for source in sources {
+            let frame = source.url.deletingPathExtension().standardizedFileURL.path
+            let seq = frameNumbers[frame] ?? frameNumbers.count + 1
+            frameNumbers[frame] = seq
             let original = source.url.deletingPathExtension().lastPathComponent
             let context = RenameContext(
                 originalBasename: original,
