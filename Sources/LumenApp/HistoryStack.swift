@@ -327,6 +327,33 @@ extension HistoryStack {
         return rows
     }
 
+    /// How many steps a cursor walk from `from` to `to` crosses that `url` is not in.
+    ///
+    /// Those steps are not in `url`'s list, yet walking through them undoes or redoes
+    /// them on photographs that may be off screen, and the next edit then drops them
+    /// from the redo tail. A multi-photo step that includes `url` is listed, so it does
+    /// not count.
+    static func foreignSteps(steps: [Step], url: URL, from: Int, to: Int) -> Int {
+        foreignSteps(prefix: foreignPrefix(steps: steps, url: url), from: from, to: to)
+    }
+
+    /// `prefix[i]` is how many of the first `i` steps `url` is not in. Built once per
+    /// draw, so each row's count is a subtraction rather than a walk of the stack.
+    static func foreignPrefix(steps: [Step], url: URL) -> [Int] {
+        var prefix = [0]
+        prefix.reserveCapacity(steps.count + 1)
+        for step in steps {
+            prefix.append(prefix[prefix.count - 1] + (step.after[url] == nil ? 1 : 0))
+        }
+        return prefix
+    }
+
+    static func foreignSteps(prefix: [Int], from: Int, to: Int) -> Int {
+        guard !prefix.isEmpty else { return 0 }
+        let clamp = { (p: Int) in min(max(p, 0), prefix.count - 1) }
+        return abs(prefix[clamp(to)] - prefix[clamp(from)])
+    }
+
     /// Which row the photograph is showing, as an index into `entries`.
     ///
     /// The LAST row at or before the cursor, not the row whose position equals it — and

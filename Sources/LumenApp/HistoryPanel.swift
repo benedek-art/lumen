@@ -121,6 +121,7 @@ struct HistoryPanel: View {
     var body: some View {
         let rows = entries
         let current = HistoryStack.currentRow(in: rows, position: history.position)
+        let crossing = url.map { HistoryStack.foreignPrefix(steps: history.steps, url: $0) } ?? []
         // 2, which is the mask list's own row spacing rather than `Lumen.rowGap`: these
         // are single-line rows in a scrolling list, not slider rows with a track and a
         // readout, and the two lists sit in the same column at the same width.
@@ -136,7 +137,7 @@ struct HistoryPanel: View {
                 // session grows.
                 ForEach(drawn(rows)) { item in
                     row(item.entry, index: item.index, current: current,
-                        total: rows.count)
+                        total: rows.count, crossing: crossing)
                 }
                 if rows.count > Self.visibleSteps { moreRows(rows.count) }
                 footnote
@@ -177,8 +178,12 @@ struct HistoryPanel: View {
     /// - Parameter index: the row's index in the FULL list, so the marks below can be
     ///   compared against `current` whether or not the list is truncated.
     private func row(_ entry: HistoryStack.Entry, index: Int, current: Int?,
-                     total: Int) -> some View {
+                     total: Int, crossing: [Int]) -> some View {
         let isCurrent = index == current
+        // The walk is the global undo and redo, so a row past another photograph's
+        // steps would revert or reapply THOSE too, unseen. Such a row is refused.
+        let foreign = HistoryStack.foreignSteps(prefix: crossing, from: history.position,
+                                                to: entry.position)
         // Above the cursor: a step that has been made and walked back past. It is still
         // here and still clickable — that is the whole point of the cursor being a
         // cursor — so it is dimmed rather than removed.
@@ -217,6 +222,7 @@ struct HistoryPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(foreign > 0)
         // The whole "this is clickable" statement in one call — fill and pointing hand
         // together, so a row cannot ship with half of it. `on:` is the PANEL value
         // because that is what this row sits on: the lift is additive, and the control
@@ -229,7 +235,16 @@ struct HistoryPanel: View {
         // pointer crossing the list does not strobe. There is no equivalent for a
         // recipe, so the tooltip carries the information instead.
         .lumenInteractive(radius: Lumen.radiusChip, on: Lumen.panelValue)
-        .help(helpText(entry, isCurrent: isCurrent, isAhead: isAhead, total: total))
+        .help(foreign > 0
+              ? Self.blockedHelp(foreign)
+              : helpText(entry, isCurrent: isCurrent, isAhead: isAhead, total: total))
+    }
+
+    /// Why a row is refused, in the tooltip that would otherwise say where it lands.
+    static func blockedHelp(_ foreign: Int) -> String {
+        "Not reachable from here: the way there crosses \(foreign) "
+            + (foreign == 1 ? "step" : "steps")
+            + " on other photographs. Undo or redo those on their own photographs first."
     }
 
     private func titleColor(isCurrent: Bool, isAhead: Bool) -> Color {

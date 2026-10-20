@@ -98,6 +98,43 @@ final class HistoryPanelTests: XCTestCase {
                        + "photograph's")
     }
 
+    /// A ROW IS REFUSED WHEN THE WALK TO IT CROSSES ANOTHER PHOTOGRAPH'S STEP. The walk
+    /// is the global undo, so it would revert that photograph unseen, and the next edit
+    /// would drop its step from the redo tail.
+    func testTheWalkToARowCountsOnlyStepsThisPhotographIsNotIn() {
+        // A exposure (1), B contrast (2), A shadows (3).
+        let steps = [step(a, key: "tone.exposure"), step(b, key: "tone.contrast"),
+                     step(a, key: "tone.shadows")]
+        // Viewing B with the cursor at 3: B's base row is position 1.
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: b, from: 3, to: 1), 1,
+                       "walking B back to 'As opened' reverts A's Shadows")
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: b, from: 2, to: 1), 0)
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 3, to: 2), 0,
+                       "undoing A's own last step crosses nothing")
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 3, to: 0), 1)
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 0, to: 3), 1,
+                       "a redo walk counts the same way")
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: steps, url: a, from: 2, to: 2), 0)
+
+        // A step over both photographs is in both lists, so it is not foreign.
+        let both = HistoryStack.Step(
+            before: [a: HistoryStack.PhotoEdit(recipe: Recipe()),
+                     b: HistoryStack.PhotoEdit(recipe: Recipe())],
+            after: [a: HistoryStack.PhotoEdit(recipe: Recipe()),
+                    b: HistoryStack.PhotoEdit(recipe: Recipe())],
+            coalescingKey: nil, label: "Paste Settings", gestureEpoch: nil)
+        XCTAssertEqual(HistoryStack.foreignSteps(steps: [step(a, key: "tone.exposure"), both],
+                                                 url: a, from: 2, to: 0), 0)
+        XCTAssertEqual(HistoryStack.foreignPrefix(steps: steps, url: b), [0, 1, 1, 2])
+    }
+
+    func testTheHistoryPanelRefusesRowsThatCrossOtherPhotographs() throws {
+        let panel = try Self.strippingComments(Self.appSource("HistoryPanel.swift"))
+        XCTAssertTrue(panel.contains("HistoryStack.foreignPrefix(steps: history.steps"))
+        XCTAssertTrue(panel.contains(".disabled(foreign > 0)"),
+                      "a row whose walk reverts another photograph is still clickable")
+    }
+
     /// THE CURRENT MARK IS THE LATEST LISTED STEP AT OR BEFORE THE CURSOR, and the
     /// multi-photograph case is why it cannot be an equality test: edit A, then edit B,
     /// and the cursor stands at 2 while A's rows stop at 1. A is showing what its own
