@@ -455,7 +455,9 @@ actor RenderCoordinator {
                                     draft: draft, region: region,
                                     showingUncropped: showingUncropped,
                                     softProofing: softProof != nil, note: note,
-                                    mattesPending: !missingMatteKinds(url: url, recipe: recipe).isEmpty)
+                                    mattesPending: !missingMatteKinds(url: url, recipe: recipe).isEmpty,
+                                    strokesPending: Self.strokesPending(recipe: recipe,
+                                                                        strokeSets: strokeSets))
                                     ? (try? RecipeFingerprint.previewFingerprint(recipe)).map {
                                         DevelopedPreviewIdentity(source: sourceIdentity, recipeFingerprint: $0)
                                     } : nil,
@@ -567,12 +569,27 @@ actor RenderCoordinator {
     /// Subject or People matte this recipe needs has been generated draws that mask
     /// selecting nothing, yet carries the final recipe's fingerprint, so it could be
     /// stored and served as the developed picture until the recipe next changed.
+    ///
+    /// `strokesPending` is the same hole for brush blobs. They load asynchronously
+    /// beside the recipe (`ViewerRenderKey.strokeRefs`), so a settle that ran before
+    /// they landed drew every brush component — and the painted heal — as nothing, yet
+    /// carried the final recipe's fingerprint and was filed as the developed preview.
+    /// If the photographer moved on before the blobs arrived, that picture was what
+    /// the grid served for the edit until the recipe next changed.
     static func mayBecomeDevelopedPreview(draft: Bool, region: CGRect?,
                                           showingUncropped: Bool,
                                           softProofing: Bool, note: String?,
-                                          mattesPending: Bool) -> Bool {
+                                          mattesPending: Bool,
+                                          strokesPending: Bool = false) -> Bool {
         !draft && region == nil && !showingUncropped && !softProofing && note == nil
-            && !mattesPending
+            && !mattesPending && !strokesPending
+    }
+
+    /// Whether `recipe` needs a stroke blob `strokeSets` does not carry — the same
+    /// roster export refuses on (`BrushStrokes.references`).
+    static func strokesPending(recipe: Recipe,
+                               strokeSets: [String: BrushStrokeSet]) -> Bool {
+        BrushStrokes.references(in: recipe).contains { strokeSets[$0] == nil }
     }
 
     /// The kinds this recipe wants that no pass has looked for yet on this file.
