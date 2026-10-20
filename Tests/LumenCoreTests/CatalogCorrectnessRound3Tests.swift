@@ -88,5 +88,41 @@ final class CatalogCorrectnessRound3Tests: XCTestCase {
         XCTAssertNil(try reopened.metaValue(CatalogStore.textIndexStaleKey),
                      "the stale marker is cleared once the rebuild has run")
     }
+
+    // MARK: #2 — relink through a symlinked registered folder reuses that folder
+
+    func testRelinkThroughSymlinkedFolderDoesNotDuplicateOnRescan() throws {
+        let fm = FileManager.default
+        let root = try scratch()
+        let store = try openStore(root)
+        defer { store.close() }
+        let real = root.appendingPathComponent("real")
+        try fm.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let folderID = try store.registerFolder(path: link.path)
+        let original = link.appendingPathComponent("orig.raf")
+        try Data((0..<4096).map { UInt8($0 & 0xff) }).write(to: original)
+        let signature = try QuickSignature.compute(url: original)
+        _ = try store.scan(folderID: folderID, files: [ScannedFile(
+            filename: "orig.raf", fileSize: 4096, fileMTime: 1, quickSig: signature, ext: "raf")])
+        let id = try XCTUnwrap(store.photo(folderID: folderID, filename: "orig.raf")?.id)
+        let foldersBefore = try store.folders().count
+
+        let renamed = link.appendingPathComponent("x.raf")
+        try fm.moveItem(at: original, to: renamed)                 // the original goes missing
+        let target = try store.originalRelinkTarget(photoID: id)
+        let candidate = try OriginalRelinkCandidate.inspect(renamed) // resolves to real/x.raf
+        _ = try store.relinkOriginal(target, candidate: candidate)
+        XCTAssertEqual(try store.folders().count, foldersBefore)
+
+        let result = try store.scan(folderID: folderID, files: [ScannedFile(
+            filename: "x.raf", fileSize: 4096, fileMTime: candidate.fileMTime,
+            quickSig: signature, ext: "raf")])
+        XCTAssertEqual(result.added, [])
+        XCTAssertEqual(try store.photo(folderID: folderID, filename: "x.raf")?.id, id)
+        XCTAssertEqual(try store.photos(folderID: folderID).count, 1)
+    }
 }
 #endif

@@ -2325,7 +2325,7 @@ public final class CatalogStore {
                     debt[index].photoPath = candidate.url.path
                 }
             }
-            let folder = try self.registerFolder(path: candidate.url.deletingLastPathComponent().path)
+            let folder = try self.relinkFolder(for: candidate.url.deletingLastPathComponent())
             let previews = try self.previews(photoID: target.photoID)
             try self.db.run("""
                 UPDATE photo SET folder_id = ?, filename = ?, file_size = ?, file_mtime = ?,
@@ -2343,6 +2343,24 @@ public final class CatalogStore {
             return OriginalRelinkResult(photoID: target.photoID, original: target.original,
                 destination: candidate.url, invalidatedPreviews: previews)
         }
+    }
+
+    /// The folder row a relinked original lands in. `OriginalRelinkCandidate.inspect`
+    /// resolves symlinks, but folders are registered as the app opened them, so a
+    /// registered folder that is (or sits under) a symlink would otherwise gain a second
+    /// row under its resolved path — and the next scan of the registered one would add
+    /// the same file again as a fresh, unedited photo. Reuse a registered folder that
+    /// resolves to the same directory; register the resolved path only when none does.
+    private func relinkFolder(for directory: URL) throws -> Int64 {
+        let path = directory.path
+        if let exact = try folder(path: path) { return exact.id }
+        let resolved = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        for row in try folders() where
+            URL(fileURLWithPath: row.path).standardizedFileURL.resolvingSymlinksInPath().path
+                == resolved {
+            return row.id
+        }
+        return try registerFolder(path: path)
     }
 
     // MARK: - Scan reconciliation
