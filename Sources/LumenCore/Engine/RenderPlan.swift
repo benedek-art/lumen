@@ -369,8 +369,8 @@ public struct RenderPlan: Sendable {
             }
         }
         let bakePlain = { LUT3D(size: lutSize, transform: display) }
-        // The proofed variant below stays on the blocking path either way: it is a
-        // cheap map over `plain`, and mapping a stale `plain` keeps the two consistent.
+        // The proofed variant below is a map over whichever `plain` is served, cached
+        // under THAT table's key, so a stale `plain` and its proof stay consistent.
         //
         // SERVED AS A PAIR. `bakePlain` normalizes by `scale` (the division at the end
         // of `display`) and `RenderGraph` multiplies `finishScale` back, so the table
@@ -390,17 +390,21 @@ public struct RenderPlan: Sendable {
         // fix is structural anyway: the cache returns the scalar it baked with, so
         // `finishScale` is whatever pairs with the table actually served, and no future
         // caller has to know any of the above.
-        let served: (table: LUT3D, pairedValue: Double)
+        let served: (table: LUT3D, pairedValue: Double, servedKey: String?)
         if let baseKey {
-            served = allowStaleTables
-                ? PlanTableCache.pairedTableAllowingStale(.finish, key: baseKey,
-                                                          size: lutSize,
-                                                          pairedWith: scale,
-                                                          build: bakePlain)
-                : (PlanTableCache.table(.finish, key: baseKey, size: lutSize,
-                                        pairedWith: scale, build: bakePlain), scale)
+            if allowStaleTables {
+                let paired = PlanTableCache.pairedTableAllowingStale(.finish, key: baseKey,
+                                                                     size: lutSize,
+                                                                     pairedWith: scale,
+                                                                     build: bakePlain)
+                served = (paired.table, paired.pairedValue, paired.servedKey)
+            } else {
+                served = (PlanTableCache.table(.finish, key: baseKey, size: lutSize,
+                                               pairedWith: scale, build: bakePlain),
+                          scale, baseKey)
+            }
         } else {
-            served = (bakePlain(), scale)
+            served = (bakePlain(), scale, nil)
         }
         let plain = served.table
         self.finishScale = served.pairedValue
@@ -432,28 +436,28 @@ public struct RenderPlan: Sendable {
                 }
                 return LUT3D(size: lutSize, data: mapped)
             }
-            let proofKey = baseKey.flatMap { base in
+            // Keyed by the key `plain` was BAKED under, not the one this plan asked
+            // for. A draft plan may be holding a STALE `plain` (that is what
+            // `pairedTableAllowingStale` is for) and `mapProof` closes over it.
+            // Storing that map under the REQUESTED key poisoned the slot once: the
+            // settle asked with the exact key, hit the stale map, and the proofed
+            // picture at rest stayed one mouse event behind forever, under a gamut
+            // flag computed from the exact table. Under the served key that cannot
+            // happen — a stale map lands under the OLD key, which describes it
+            // exactly, and the settle can only hit a map of the exact table.
+            //
+            // So the draft path caches too. It matters: with the perceptual intent the
+            // map is `Gamut.softClip` per sample, ~7 ms, and every drag that does not
+            // re-key the finish table (Texture, Exposure, masks...) was paying it per
+            // event for the very table the settle had already proofed.
+            let proofKey = served.servedKey.flatMap { base in
                 PlanTableCache.key([base, "proof"], [proof.settings])
             }
-            // A draft plan may be holding a STALE `plain` (that is what
-            // `tableAllowingStale` is for) — and `mapProof` closes over it. Storing
-            // that map under the exact `proofKey` poisoned the slot: the settle
-            // rebuilt the plan with the exact `plain`, hit the poisoned entry, and
-            // the soft-proofed picture at rest stayed one mouse event behind
-            // forever, with the gamut flag (computed from the exact before-proof
-            // table) disagreeing with the proofed pixels under it. On the draft
-            // path the map is built fresh and NOT cached — a few milliseconds of
-            // matrix-and-clamp per drag plan — and only the blocking path, whose
-            // `plain` is exact by construction, may populate the cache.
-            if allowStaleTables {
-                self.finishLUT = mapProof()
-            } else {
-                self.finishLUT = proofKey.map {
-                    PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
-                                         pairedWith: served.pairedValue,
-                                         build: mapProof)
-                } ?? mapProof()
-            }
+            self.finishLUT = proofKey.map {
+                PlanTableCache.table(.finishProofed, key: $0, size: lutSize,
+                                     pairedWith: served.pairedValue,
+                                     build: mapProof)
+            } ?? mapProof()
             // Kept only when there is a flag to draw; the flag needs the value from
             // before the map and nothing else does.
             self.finishLUTBeforeProof = proof.settings.showGamutWarning ? plain : nil

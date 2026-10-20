@@ -847,6 +847,123 @@ extension PlanTableCacheTests {
     }
 }
 
+// MARK: - The proofed finish table on the draft path
+//
+// A draft plan used to re-map the proof over the finish table on every mouse event,
+// cached nowhere, because a map of a STALE plain table stored under the exact key once
+// poisoned the settle. The map is now cached on the draft path too, under the key of the
+// plain table actually served. These pin both halves: a draft hits the very table the
+// settle proofed, and a stale serve's map can never be what the settle finds.
+
+extension PlanTableCacheTests {
+
+    private var perceptualProof: SoftProof {
+        SoftProof(enabled: true, space: .srgb, intent: .perceptual)
+    }
+
+    private func drainEverySlot() {
+        let deadline = Date(timeIntervalSinceNow: 20)
+        while PlanTableCache.Slot.allCases.contains(where: { PlanTableCache.hasPendingBake($0) }),
+              Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.002)
+        }
+    }
+
+    /// The common drag: a control that does not re-key the finish table. The draft must
+    /// HIT the proofed table the settle baked, and that table must be the settle's.
+    func testADraftThatKeepsTheFinishKeyHitsTheProofedTable() {
+        drainEverySlot()
+        freshCache()
+        let recipe = liveRecipe()
+        let settled = RenderPlan(recipe: recipe, lutSize: 17, softProof: perceptualProof)
+
+        var dragged = recipe
+        dragged.develop.detail.texture = 40
+        let before = PlanTableCache.traffic(.finishProofed)
+        let draft = RenderPlan(recipe: dragged, lutSize: 17, softProof: perceptualProof,
+                               allowStaleTables: true)
+        let after = PlanTableCache.traffic(.finishProofed)
+
+        XCTAssertEqual(after.hits, before.hits + 1,
+                       "a Texture draft re-mapped the proof instead of hitting it")
+        XCTAssertEqual(after.bakes, before.bakes)
+        XCTAssertEqual(draft.finishLUT, settled.finishLUT)
+
+        // And it is the right picture, not merely a cached one.
+        PlanTableCache.clear()
+        let fresh = RenderPlan(recipe: dragged, lutSize: 17, softProof: perceptualProof)
+        XCTAssertEqual(draft.finishLUT, fresh.finishLUT)
+        let unproofed = RenderPlan(recipe: dragged, lutSize: 17)
+        XCTAssertNotEqual(fresh.finishLUT, unproofed.finishLUT,
+                          "the proof changed nothing, so this cannot tell a hit from a miss")
+    }
+
+    /// THE POISONING THIS ONCE SHIPPED. A Whites drag re-keys the finish table and the
+    /// draft rides a stale one; its map must land under the STALE key, so the settle
+    /// that follows bakes the exact proof rather than finding the stale one.
+    func testAStaleDraftsProofCannotPoisonTheSettle() {
+        drainEverySlot()
+        freshCache()
+        PlanTableCache.setRenderIdentity("proof-drag")
+        defer { PlanTableCache.setRenderIdentity("") }
+
+        let recipe = liveRecipe()
+        let warm = RenderPlan(recipe: recipe, lutSize: 17, softProof: perceptualProof)
+
+        // Hold the serial bake worker so the drag's exact finish bake cannot land
+        // mid-test. The tone slot is the gate: the drag never asks it for these keys.
+        _ = PlanTableCache.table(.toneGain, key: "proof-gate-idle", size: 2) {
+            LUT3D.identity(size: 2)
+        }
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        _ = PlanTableCache.tableAllowingStale(.toneGain, key: "proof-gate-running",
+                                              size: 2) {
+            started.signal()
+            _ = release.wait(timeout: .now() + 20)
+            return LUT3D.identity(size: 2)
+        }
+        var released = false
+        defer {
+            if !released { release.signal() }
+            drainEverySlot()
+        }
+        guard started.wait(timeout: .now() + 5) == .success else {
+            return XCTFail("the gate never started, so nothing was held")
+        }
+
+        PlanTableCache.resetStats()
+        var last = recipe
+        for whites in [55.0, 60.0] {
+            var dragged = recipe
+            dragged.develop.tone.whites = whites
+            let draft = RenderPlan(recipe: dragged, lutSize: 17, softProof: perceptualProof,
+                                   allowStaleTables: true)
+            XCTAssertEqual(draft.finishLUT, warm.finishLUT,
+                           "a stale draft must show the previous proofed picture whole")
+            last = dragged
+        }
+        XCTAssertEqual(PlanTableCache.traffic(.finish).staleServes, 2,
+                       "the fixture must ride a stale finish table")
+        // Both stale frames serve the warm table, whose proof the warm settle already
+        // stored under the warm key: no re-map at all.
+        XCTAssertEqual(PlanTableCache.traffic(.finishProofed).bakes, 0)
+        XCTAssertEqual(PlanTableCache.traffic(.finishProofed).hits, 2)
+
+        released = true
+        release.signal()
+        drainEverySlot()
+
+        let settled = RenderPlan(recipe: last, lutSize: 17, softProof: perceptualProof)
+        PlanTableCache.clear()
+        let fresh = RenderPlan(recipe: last, lutSize: 17, softProof: perceptualProof)
+        XCTAssertEqual(settled.finishLUT, fresh.finishLUT,
+                       "the settle found a stale draft's proof under the exact key")
+        XCTAssertNotEqual(fresh.finishLUT, warm.finishLUT,
+                          "Whites moved nothing, so this cannot tell stale from exact")
+    }
+}
+
 /// A build counter that is safe to bump from `bakeQueue` and read from the test.
 final class BuildCounter: @unchecked Sendable {
     private let lock = NSLock()
