@@ -324,11 +324,25 @@ public struct Histogram: Sendable {
     /// histogram keeps its exact proportions (the percentile of four bins is their
     /// tallest) — and anything above it saturates at 1.0, the way Lightroom draws
     /// its end spikes. `peak(_:)` still reports the true count.
+    ///
+    /// The reference is shared by R, G and B: the 99th percentile is taken over the
+    /// occupied bins of all three colour channels pooled. `HistogramView` paints the
+    /// three additively on one pair of axes and the reader compares their heights —
+    /// that is what a colour histogram is for — so they must be one instrument, as
+    /// the parade already is (`Parade.peak`). A per-channel reference drew a channel
+    /// spread over 200 bins and one packed into 20 both at full height: equal sample
+    /// counts, ten times the area, a tungsten cast read backwards. Luma keeps its own
+    /// reference — it is a separate line over the channels and the curve editor's
+    /// backdrop on its own. (HistogramDisplayTests pins both.)
     public func normalized(_ channel: Channel) -> [Double] {
         let base: Int = channel.rawValue * bins
+        let pool: [Channel] = channel == .luma ? [.luma] : [.red, .green, .blue]
         var occupied: [Int] = []
-        occupied.reserveCapacity(bins)
-        for i in 0..<bins where counts[base + i] > 0 { occupied.append(counts[base + i]) }
+        occupied.reserveCapacity(bins * pool.count)
+        for c in pool {
+            let b: Int = c.rawValue * bins
+            for i in 0..<bins where counts[b + i] > 0 { occupied.append(counts[b + i]) }
+        }
         var out = [Double](repeating: 0, count: bins)
         guard !occupied.isEmpty else { return out }
         occupied.sort()

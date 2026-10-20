@@ -71,4 +71,48 @@ final class HistogramDisplayTests: XCTestCase {
         let h = redHistogram(heights: [])
         XCTAssertEqual(h.normalized(.red).reduce(0, +), 0.0, accuracy: 1e-12)
     }
+
+    /// The three colour traces are drawn on one pair of axes, additively, so a
+    /// reader compares them — "red fills the graph, blue is a spike" is read as a
+    /// statement about the image. That only holds if R, G and B share ONE vertical
+    /// reference, the way the parade "normalizes as one instrument". Under a
+    /// per-channel reference a tungsten-lit frame with red spread evenly over 200
+    /// bins and blue packed into 20 drew both at full height: equal sample counts,
+    /// red painted with ten times blue's area, the cast read backwards. With the
+    /// shared 99th-percentile reference (here blue's 10-count bins) red draws at
+    /// 0.1 and the two areas match, as their counts do — exact here because no bin
+    /// exceeds the shared reference; a spike above it still saturates.
+    func testTheColourTracesShareOneVerticalScaleSoEqualCountsDrawEqualAreas() {
+        let bins = 256
+        var counts = [Int](repeating: 0, count: Histogram.channelCount * bins)
+        for i in 20..<220 { counts[0 * bins + i] = 1 }      // red: 200 bins of 1
+        for i in 100..<120 { counts[2 * bins + i] = 10 }    // blue: 20 bins of 10
+        let h = Histogram(bins: bins, counts: counts, sampleCount: 200,
+                          transform: ReadoutTransform(space: .srgb255, working: .rec2020),
+                          clippedLowCounts: [0, 0, 0, 0],
+                          clippedHighCounts: [0, 0, 0, 0])
+        let redArea = h.normalized(.red).reduce(0, +)
+        let blueArea = h.normalized(.blue).reduce(0, +)
+        XCTAssertEqual(redArea, blueArea, accuracy: blueArea * 0.01,
+                       "red and blue hold the same 200 samples, so their drawn areas must"
+                       + " match on a shared scale — got red \(redArea), blue \(blueArea)")
+        XCTAssertEqual(h.normalized(.blue)[110], 1.0, accuracy: 1e-12)
+        XCTAssertEqual(h.normalized(.red)[50], 0.1, accuracy: 1e-12)
+        XCTAssertEqual(h.normalized(.green).reduce(0, +), 0.0, accuracy: 1e-12)
+    }
+
+    /// Luma is a separate line drawn over the channels (and the curve editor's
+    /// backdrop on its own), so it keeps its own reference: a luma channel is not
+    /// rescaled by a colour channel's spread.
+    func testLumaKeepsItsOwnReference() {
+        let bins = 256
+        var counts = [Int](repeating: 0, count: Histogram.channelCount * bins)
+        for i in 20..<220 { counts[3 * bins + i] = 1 }      // luma: 200 bins of 1
+        for i in 100..<120 { counts[2 * bins + i] = 10 }    // blue: 20 bins of 10
+        let h = Histogram(bins: bins, counts: counts, sampleCount: 200,
+                          transform: ReadoutTransform(space: .srgb255, working: .rec2020),
+                          clippedLowCounts: [0, 0, 0, 0],
+                          clippedHighCounts: [0, 0, 0, 0])
+        XCTAssertEqual(h.normalized(.luma)[50], 1.0, accuracy: 1e-12)
+    }
 }

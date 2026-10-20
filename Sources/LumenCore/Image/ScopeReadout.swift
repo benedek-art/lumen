@@ -218,7 +218,8 @@ public enum ScopeReadout {
     /// two touching peaks as equal would be reading the clamp.
     public static let verticalScaleNote: String =
         "Vertical: linear, clamped at the 99th-percentile occupied bin — "
-        + "traces that touch the top are saturated, not equal."
+        + "traces that touch the top are saturated, not equal. "
+        + "R, G and B share one scale; luma has its own."
 
     // MARK: - Provenance
 
