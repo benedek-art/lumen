@@ -331,7 +331,7 @@ KNOWN = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {
     # `Font` arrived with `LumenType`, the app's type scale — `Font.system(size:weight:)`
     # is the only way to build one, so the ramp cannot be declared without it.
     "Font",
-    "SwiftUI", "View", "Text", "Image", "Color", "VStack", "HStack", "ZStack",
+    "SwiftUI", "View", "Text", "Image", "Color", "VStack", "HStack", "ZStack", "ViewThatFits",
     "Spacer", "Button", "Slider", "Toggle", "Picker", "ColorPicker", "TextField",
     "SecureField",
     "List", "ForEach", "ScrollView", "ScrollViewReader", "LazyVGrid", "LazyHGrid",
