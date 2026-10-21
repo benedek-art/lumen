@@ -930,10 +930,13 @@ enum ProofRegistry {
         // 0.02 gap and the shadow/mid/light/bright travels ran past their neighbours.
         // Floors at 70% of each pivot's own measurement. At proof #6, with the ±2 EV
         // companion and the wider travels, they were 12.61, 94.45, 155.59, 37.18, 44.30;
-        // WS-08's ±0.375 EV companion and one-stop travels measure 2.04, 24.24, 23.82,
-        // 19.72, 12.42. A quarter of the seam over a third of the travel: smaller
-        // numbers measuring the same thing, each pivot through its own un-eased seam.
-        // Dark stays weakest because its boundary is in the display toe.
+        // WS-08's ±0.375 EV companion and one-stop travels measure 2.04, 24.21, 23.76,
+        // 19.90, 12.42. A quarter of the seam over a third of the travel: smaller
+        // numbers measuring the same thing. At the default gaps each seam is un-eased;
+        // a pivot dragged to within a stop of a neighbour shrinks that seam's limit
+        // below 0.75 EV, and the conflict cap then holds the pair at it — which is the
+        // register doing its job at the end of the travel. Dark stays weakest because
+        // its boundary is in the display toe.
         let travels: [(Int, String, Double, Double, Double)] = [
             (0, "Dark", 0, 0.23, 1), (1, "Shadow", 0.43, 0.57, 16),
             (2, "Mid", 0.58, 0.71, 16), (3, "Light", 0.72, 0.85, 13),

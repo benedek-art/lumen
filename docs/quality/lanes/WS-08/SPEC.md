@@ -66,7 +66,12 @@ seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
   Midtones)"), with |applied| < 3. ZonesPanel shows the caption under the row that moved ([macOS-CI], Z8 snapshot).
 - **Z1.8** `testEasingIsLocal`. Darks +3 with Lights +0.5 leaves Lights applied at 0.5 ± 1e-9. Mid −3 with Brights +1
   leaves Brights at 1 ± 1e-9. A zone separated from the conflict by an untouched zone is never scaled. *Amended by lead, round 2: a lone
-  zone is never scaled (Mid −3 there applies −3 ± 1e-12).*
+  zone is never scaled (Mid −3 there applies −3 ± 1e-12).* *Amended by lead, round 2b: a touched pair the spill can
+  reconcile is delivered EXACTLY — Darks +3 with Lights +0.5 applies Darks 3 ± 1e-12 and Lights 0.5. The cap applies
+  only to an infeasible span (sum of its seam limits < its drop), starting at that capacity, so applied is
+  continuous and non-decreasing in the slider across the transition:
+  `testTheConflictCapIsContinuousAndMonotone` (Darks 0…3 against Lights +0.5 and against Midtones −1, 0.01 steps:
+  exact while feasible, span drop = capacity ± 1e-9 after, no step > 0.01, never falling).*
 - **Z1.8b** `testAConflictIsEasedAndKeepsTheFloor`. *Amended by lead, round 2.* Darks +3 with Midtones −3: both held back (|applied| < 3),
   the untouched Shadows between their applied values, slope ≥ 0.25 − 1e-9 over [−12, +8].
 - **Z1.9** `testTheClampNeverFiresOnAZonesOnlyRecipe`. `ToneEngine.zoneFlattening()` is nil for all of G5. It is read
@@ -77,7 +82,13 @@ seeded random ascending sets with every gap ≥ 1 EV. All lines below are in new
   `python3 tools/ramp_ev_kink.py /tmp/claude-0/ws08-after` (it inverts the default render to read back the tone the
   pipeline rendered). Reason: a plain Exposure +0.95 fails the display-code metric (maxKink 3.13, negSpanEV 0.07), so
   it measures the display toe, not the zones.* Pass for every recipe: `maxKinkEV ≤ 0.5` (change of du/dt over
-  0.1 EV) and `minSlope ≥ 0.10` from `ramp_ev_kink.py`, and `flatEV ≤ 0.05` from `ramp_check.py`. Today (EV
+  0.1 EV) and `minSlope ≥ 0.10` from `ramp_ev_kink.py`, and `flatEV ≤ 0.05` from `ramp_check.py`. *Amended by lead,
+  round 2b: a ±3 EV bump across a 2 EV gap has an irreducible rising-side kink; the defect the line targets is the
+  falling side. So `kinkFall ≤ 0.5` (windows where du/dt < 1: spilled or eased seams), and on rising seams
+  (`kinkRise`, du/dt > 1: the request itself) `≤` the base build's value on the same recipe. flatEV is measured in the
+  EV domain: `ramp_ev_kink.py` slope ≥ 0.10 over the whole span (no EV-domain flat run). Mid −3's display-code
+  flatEV (0.24 from `ramp_check.py`) is recorded as a display-toe effect — its spilled seams run at the 0.25 floor,
+  under 1 code/EV in the toe — not a zone defect.* Today (EV
   domain): Darks +3 −0.12 / 0.94; Mid −3 −0.12 / 2.59; Shadows +3 / Mid −3 / Lights +3 −0.11 / 4.86 (min slope /
   kink).
   Evidence: before/after `ramp-transfer-*.png` and the R5 4694 100 % crop at Darks 0 / +1.25 / +3.

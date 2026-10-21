@@ -1,14 +1,14 @@
 {
-  "authority" : 24.236339230891218,
+  "authority" : 24.208587511291,
   "deadSteps" : 0,
   "frame" : "neutralRamp",
-  "frontLoading" : 0.463082219859636,
+  "frontLoading" : 0.4617327280646317,
   "givenBack" : 0,
   "id" : "zones.pivot.1",
   "isMonotone" : true,
-  "meanSeparation" : 2.65362492906853,
+  "meanSeparation" : 2.64801167684734,
   "panel" : "Zones",
-  "smallestLiveStep" : 1.0657474230358588,
+  "smallestLiveStep" : 1.035391350130567,
   "travelHigh" : 0.57,
   "travelLow" : 0.43
 }

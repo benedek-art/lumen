@@ -306,11 +306,48 @@ final class ZonesResponseTests: XCTestCase {
     /// Z1.8. A zone separated from the conflict by an untouched zone is never scaled, and
     /// a lone zone is never scaled at all.
     func testEasingIsLocal() {
+        // A touched pair the spill can reconcile (drop 2.5 over a 2.865 EV span) is
+        // delivered exactly, both ends (amended, round 2b).
         let a = Self.engine([3, 0, 0, 0.5, 0]).appliedZoneEV
         XCTAssertEqual(a[3], 0.5, accuracy: 1e-9)
+        XCTAssertEqual(a[0], 3, accuracy: 1e-12)
+        XCTAssertEqual(AppliedReadout.zoneEasing(tone: Tone(), zones: Self.zones([3, 0, 0, 0.5, 0]))
+                           .filter { $0.conflictsWith != nil }, [])
         let b = Self.engine([0, 0, -3, 0, 1]).appliedZoneEV
         XCTAssertEqual(b[4], 1, accuracy: 1e-9)
         XCTAssertEqual(b[2], -3, accuracy: 1e-12)
+    }
+
+    /// Round 2b. Crossing from a span the spill can reconcile into one it cannot, the
+    /// applied value is continuous and never falls as the slider rises: exact up to the
+    /// span's capacity, held at it after. Same-sign (Darks against Lights +0.5, capacity
+    /// 2.865 EV) and opposite-sign (Darks against Midtones −1, capacity 1.910 EV).
+    func testTheConflictCapIsContinuousAndMonotone() {
+        let limit = 2 * 2 * (1 - ToneEngine.zoneSlopeFloor) / Double.pi
+        for (other, value, capacity) in [(3, 0.5, 3 * limit), (2, -1.0, 2 * limit)] {
+            var previous: [Double]? = nil
+            for k in 0...300 {
+                let v = Double(k) * 0.01
+                var ev = [Double](repeating: 0, count: 5)
+                ev[0] = v
+                ev[other] = value
+                let a = Self.engine(ev).appliedZoneEV
+                if v - value <= capacity - 1e-12 {
+                    XCTAssertEqual(a[0], v, accuracy: 1e-12, "Darks \(v) against \(value) is feasible")
+                } else {
+                    XCTAssertEqual(a[0] - a[other], capacity, accuracy: 1e-9,
+                                   "Darks \(v) against \(value): the span is not at its capacity")
+                }
+                if let previous {
+                    XCTAssertGreaterThanOrEqual(a[0], previous[0] - 1e-12, "Darks fell at \(v)")
+                    XCTAssertLessThanOrEqual(abs(a[0] - previous[0]), 0.01 + 1e-12,
+                                             "Darks jumped at \(v)")
+                    XCTAssertLessThanOrEqual(abs(a[other] - previous[other]), 0.01 + 1e-12,
+                                             "zone \(other) jumped at \(v)")
+                }
+                previous = a
+            }
+        }
     }
 
     /// Two touched zones that cannot both be honoured: held back, still monotone with

@@ -728,15 +728,20 @@ public struct ToneEngine: Sendable {
     /// leftward; past the end pivots the response is a flat shelf, so an end has room
     /// for any amount. An untouched zone no conflict reaches never moves.
     ///
-    /// A CONFLICT IS EASED. Only where two TOUCHED zones disagree by more than the
+    /// A CONFLICT IS CAPPED. Only where two TOUCHED zones disagree by more than the
     /// seams between them can carry (Darks +3 with Midtones −3; Darks +3 with Shadows
-    /// +0.5) is a request held back, by `solveZonalLimits`'s idea: the zone pulling the
-    /// span downhill is scaled toward zero with `Num.softKnee`, exact inside the knee and
-    /// approaching the span's capacity after. Both ends of a span that pull (a positive
-    /// zone before a negative one) share one scale; otherwise a positive run is settled
-    /// right to left and a negative run left to right, each against its neighbour's
-    /// APPLIED value. The untouched zones inside the span then take the spill between
-    /// the two eased values. `AppliedReadout.zoneEasing` names both kinds of move.
+    /// +0.5) is a request held back, by `solveZonalLimits`'s idea applied to the span:
+    /// the zone pulling it downhill is scaled toward zero until the span's drop is
+    /// exactly its capacity, the sum of its seams' limits. A span the spill can
+    /// reconcile is delivered exactly (Darks +3 with Lights +0.5 renders both as asked),
+    /// so scaling starts AT the capacity and the applied value is continuous through
+    /// it. No soft knee here: one would have to start below the capacity, holding back
+    /// spans that fit, or end above it, breaking the floor. Both ends of a span that pull
+    /// (a positive zone before a negative one) share one scale; otherwise a positive run
+    /// is settled right to left and a negative run left to right, each against its
+    /// neighbour's APPLIED value. The untouched zones inside the span then take the spill
+    /// between the two capped values. `AppliedReadout.zoneEasing` names both kinds of
+    /// move.
     ///
     /// The gaps are each list's own, so a legacy list closer than `minimumPivotGap`
     /// spills and eases harder instead of inverting.
@@ -780,14 +785,9 @@ public struct ToneEngine: Sendable {
         for j in capacity.indices {
             for i in touched[j]..<touched[j + 1] { capacity[j] += limits[i] }
         }
-        // The drop span j may keep: exact inside the knee, approaching capacity after.
+        // The drop span j may keep: all of it while it fits, the capacity after.
         func eased(_ drop: Double, _ j: Int) -> Double {
-            let limit = capacity[j]
-            guard limit > 0 else { return 0 }
-            // Inside the knee `softKnee` is the identity, and `limit × (drop / limit)`
-            // is not always `drop` to the last bit: answered here so exact means exact.
-            guard drop > zonalKnee * limit else { return drop }
-            return limit * Num.softKnee(drop / limit, knee: zonalKnee)
+            Swift.max(Swift.min(drop, capacity[j]), 0)
         }
         // Spans both ends pull: one shared scale, independent of everything else.
         for j in capacity.indices where t[j] > 0 && t[j + 1] < 0 {
