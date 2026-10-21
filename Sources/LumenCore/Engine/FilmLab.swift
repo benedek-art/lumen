@@ -3,19 +3,26 @@
 //
 // A film stock is not a preset: it is a *model*. Three physical stages in series —
 // negative characteristic curve → inversion (transmittance) → print characteristic
-// curve — each a per-channel sigmoid in log-exposure→density space. Because the curve
-// lives in log exposure, pre-curve EV overexposes *into the stock* (the pastel latitude
-// of +1.5 EV into Portra) rather than merely brightening the picture, and because the
-// image leaves each stage as density → transmittance, colour is inherently subtractive:
-// saturated colours darken as they saturate. That is the whole "expensive film" trick,
-// and no display-referred profile can express it.
+// curve — each a per-channel curve in log-exposure→density space. Because the curve
+// lives in log exposure, Film Exposure moves the scene *along the stock* and the lab
+// prints it back to mid-grey (overexposed: clean shadows, pastel highlights;
+// underexposed: muddy, fogged shadows), and because the image leaves each stage as
+// density → transmittance, colour is inherently subtractive.
 //
-// The equations (docs/14 §5.7, treated as measured physical facts, not expression):
+// The equations (docs/quality/lanes/WS-38 rebuilt them; docs/14 §5.7 for the frame):
 //
-//   D = Dmin + (Dmax − Dmin) · sigmoid( k · (log10 E + offset) )
-//   k = γ / ( 0.25 · (Dmax − Dmin) )        ⇒ dD/dlog10E at mid-grey is exactly γ
+//   negative  D = Dmin + γ·soft(log10 E − toe, τ_low), rolled into a shoulder far
+//             above grey — straight over ~10 stops, as the Portra/Ektar/Vision curves
+//   print     Dp = γp·log10(T·lamp), rolled into paper white (τ_low) and paper
+//             black (τ_high): the print's S-curve is the picture's
 //   T = 10^(−D)                              density → transmittance
-//   mid-grey anchored at E = 0.18
+//   levels    paper white (Dmin + a hair) → 1, paper black → the display floor
+//   lamp      solved per channel so scene mid-grey prints at 0.18 — the printer lights
+//
+// Colour on top of that tone: the path to white (ratios through the mid-tones,
+// per-channel into the shoulder), hue anchored to the neutral rendering plus each
+// stock's authored lobes, stock saturation relative to the sRGB boundary, then the
+// display-gamut map. See `FilmColor`.
 //
 // Placement (docs/14 §5.7, §2): when a stock is active the negative+print chain
 // OCCUPIES the single S14 display-transform slot in place of the AgX-class sigmoid —
@@ -38,74 +45,107 @@
 
 import Foundation
 
-/// Rec.2020 luma weights, resolved once — the monochrome stocks' scene→exposure rule.
+/// Rec.2020 luma weights, resolved once — the luminance the colour stages anchor greys to.
 private let filmLumaWeights: RGB = RGBColorSpace.rec2020.luminanceWeights
 
 // MARK: - Characteristic curve
 
-/// One stage's per-channel characteristic curve: the sigmoid's slope at mid-grey
-/// (`gamma`, in density per decade of exposure), its density floor and ceiling, and a
-/// per-channel horizontal trim of the log-exposure axis.
+/// One stage's per-channel characteristic curve, in density against log10 exposure.
 ///
-/// Per-channel divergence in `gamma` is what produces crossover — a cast that changes
-/// sign between shadows and highlights — and per-channel `logOffset` slides the toe and
-/// shoulder relative to the scene while leaving mid-grey where the chain's calibration
-/// gains put it. Those two knobs are the entire colour personality of a stock.
+/// A real colour negative is nearly STRAIGHT over a very long range — Kodak's Portra and
+/// Ektar curves run straight from about four stops under mid-grey to well past six over
+/// — and the picture's S-curve is the PRINT's (paper or print film). So a stage here is
+/// a straight line of slope `gamma` (density per decade) whose two ends are rolled off
+/// separately:
+///
+///   · the LOW end, toward `dMin`: a negative's toe (base + fog), a paper's or slide's
+///     clear highlights. `lowSoftness` is how gradually it gets there, in density.
+///   · the HIGH end: a negative's shoulder (`shoulderStops` over mid-grey), a paper's
+///     maximum black (`dMax`), a slide's maximum density (`toneCeiling ?? dMax`).
+///     `highSoftness` likewise.
+///
+/// Positive softness is a softplus (exponential approach — a definite knee); negative
+/// selects the hyperbolic form (algebraic approach — a long tail, which is what gives
+/// a slide its "rich but not empty" shadows). Both are C∞ and monotone, so every curve
+/// built from them is too.
+///
+/// `dMin`/`dMax` also feed the grain stage (`FilmGrainProfile.dMax`, `grainDMax`), so
+/// they keep the measured stock values; the tone uses `toneCeiling` where a slide's
+/// usable density range differs from the emulsion's nominal maximum.
 public struct FilmCharacteristic: Sendable {
 
-    /// `log10(0.18) + midGreyAnchor == 0`: scene mid-grey sits on the sigmoid's centre
-    /// before any per-channel trim. (= −log10(0.18).)
+    /// `−log10(0.18)`: log10 exposure of scene mid-grey, negated.
     public static let midGreyAnchor: Double = 0.7447274948966939
 
-    /// Density per decade of log exposure at mid-grey, per channel.
+    /// Density per decade of log exposure along the straight section, per channel.
     public var gamma: RGB
-    /// Base + fog. A colour negative's is the orange mask, hence non-neutral.
+    /// Base + fog (negative), paper white (print), clear film (slide).
     public var dMin: RGB
-    /// Maximum density the emulsion reaches.
+    /// The emulsion's maximum density (grain reads this one).
     public var dMax: RGB
-    /// Per-channel log10-exposure trim, added to the mid-grey anchor.
+    /// Per-channel trim of the toe position, in stops (+ moves the toe toward grey).
+    /// Where a layer runs out of speed first is what colours underexposed shadows.
     public var logOffset: RGB
+    /// Negative only: stops under mid-grey where the toe bends.
+    public var toeStops: Double
+    /// Negative only: stops over mid-grey where the shoulder bends.
+    public var shoulderStops: Double
+    /// Roll-off into `dMin`, density units (negative = hyperbolic).
+    public var lowSoftness: Double
+    /// Roll-off into the high end, density units (negative = hyperbolic).
+    public var highSoftness: Double
+    /// A slide's tonal density ceiling, when it differs from `dMax`.
+    public var toneCeiling: RGB?
+    /// The last stage's white: the density, above `dMin`, that prints as paper white.
+    /// The approach to `dMin` is asymptotic; a lab calls "white" a hair before it, and
+    /// that is what lets the shoulder land on white at a finite exposure with a gentle
+    /// slope instead of creeping toward it forever (a dead range of 251…254 codes).
+    public var whiteDelta: Double
 
     public init(gamma: RGB,
                 dMin: RGB = RGB(gray: 0.01),
                 dMax: RGB = RGB(gray: 4.0),
-                logOffset: RGB = RGB.zero) {
+                logOffset: RGB = RGB.zero,
+                toeStops: Double = 4.0,
+                shoulderStops: Double = 7.0,
+                lowSoftness: Double = 0.3,
+                highSoftness: Double = 0.3,
+                toneCeiling: RGB? = nil,
+                whiteDelta: Double = 0.004) {
         self.gamma = gamma
         self.dMin = dMin
         self.dMax = dMax
         self.logOffset = logOffset
-    }
-
-    /// The sigmoid's steepness constant, `k = γ / (0.25·(Dmax − Dmin))`.
-    public func k(_ channel: Int) -> Double {
-        let i: Int = Swift.min(Swift.max(channel, 0), 2)
-        let span: Double = Swift.max(dMax[i] - dMin[i], 1e-6)
-        return gamma[i] / (0.25 * span)
+        self.toeStops = toeStops
+        self.shoulderStops = shoulderStops
+        self.lowSoftness = lowSoftness
+        self.highSoftness = highSoftness
+        self.toneCeiling = toneCeiling
+        self.whiteDelta = whiteDelta
     }
 }
 
 // MARK: - Crossover / colour couplers
 
-/// The parts of a stock's colour that are not curve shape: the tonal crossover it
-/// carries at rest, the direction it moves under push, and the two coupler mechanisms
-/// that give film its hue skews.
+/// The parts of a stock's colour that live in density: the tonal crossover it carries
+/// at rest, the direction it moves under push, and the inter-layer couplers.
 ///
 /// Sign convention — tints are stated in the stock's OWN density domain. A
 /// negative→print chain inverts twice, so a positive density offset prints as *more* of
 /// that channel; a transparency inverts once, so a positive offset reads as *less*.
-/// The stock tables below are authored with their own kind's sign in mind.
+///
+/// The tints are weighted by the stage's own mean density (not by scene exposure), so a
+/// tint is a function of density added to density: `D + t·f(D)` stays monotone in `D`
+/// for any tint the tables hold, at every exposure and push.
 public struct FilmCrossover: Sendable {
 
-    /// Density offset applied in the toe (weight 1 at the deepest shadow, 0 by mid-grey).
+    /// Density offset in the shadows (full weight `FilmChain.tintReach` below grey).
     public var shadowTint: RGB
-    /// Density offset applied in the shoulder.
+    /// Density offset in the highlights.
     public var highlightTint: RGB
-    /// Additional shadow density offset per stop of push — the crossover colour a
-    /// pushed stock walks its shadows toward.
+    /// Additional shadow density offset per stop of push.
     public var pushTint: RGB
-    /// DIR inter-layer inhibition, 0…0.6. Developing silver in one layer releases an
-    /// inhibitor that suppresses its neighbours, so channel densities spread apart from
-    /// their mean: the source of film's chroma and of its edge micro-contrast.
+    /// DIR inter-layer inhibition, 0…0.6 (acts in the per-channel highlight branch).
     public var interlayer: Double
     /// Masking-coupler residue, −0.5…0.5: a small rotation of the density triple about
     /// the neutral axis. Row sums stay zero, so neutrals never move.
@@ -124,13 +164,124 @@ public struct FilmCrossover: Sendable {
     }
 }
 
+// MARK: - Stock colour rendering
+
+/// One hue-local adjustment: a Gaussian lobe in OKLab hue (degrees).
+public struct FilmHueLobe: Sendable, Equatable {
+    public var hue: Double
+    public var width: Double
+    public var amount: Double
+    public init(_ hue: Double, _ width: Double, _ amount: Double) {
+        self.hue = hue
+        self.width = width
+        self.amount = amount
+    }
+
+    func weight(at h: Double) -> Double {
+        let d = Num.wrapHue(h - hue + 180) - 180
+        let w = Swift.max(width, 1e-3)
+        return exp(-0.5 * (d / w) * (d / w))
+    }
+}
+
+/// How a stock renders colour on top of its tone curve.
+///
+/// The density chain sets lightness, the path to white and the crossover. What it does
+/// NOT set is hue and saturation through the mid-tones: a per-channel log curve scales
+/// chroma by its local slope, so it boosts dark and muted colours (dark skin went burnt
+/// orange at ×2) and drains light ones (light skin went ashen at ×0.5) — a vibrance
+/// curve, not a stock. So the colour is anchored instead:
+///
+///   · hue follows the neutral rendering's hue of the same scene colour, plus the
+///     stock's authored lobes (`hueShifts`: Velvia's violet blues, Ektar's cyan sky,
+///     Gold's golden skin);
+///   · chroma is the film's own, scaled by `chroma` (× `chromaShifts`) relative to the
+///     sRGB gamut boundary — slope `chroma` on muted colours, compressing toward the
+///     boundary instead of piling saturated skies up against it (`saturationReach` < 1
+///     lets the most saturated colours approach a little closer);
+///   · the extra purity fades out in the deepest tones (`darkFade…`): dense dyes go
+///     muddy, they do not glow.
+public struct FilmColor: Sendable {
+    public var chroma: Double
+    public var saturationReach: Double
+    public var hueShifts: [FilmHueLobe]
+    public var chromaShifts: [FilmHueLobe]
+    /// Spectral overlap of the layers, as the AgX-style primaries inset (purity toward
+    /// white, rotation in radians). It is what lets a saturated colour bleach to white
+    /// through the per-channel shoulder rather than clip.
+    public var insetAttenuation: RGB
+    public var insetRotation: RGB
+    public var darkFadeLow: Double
+    public var darkFadeHigh: Double
+
+    public init(chroma: Double,
+                saturationReach: Double = 0.9,
+                hueShifts: [FilmHueLobe] = [],
+                chromaShifts: [FilmHueLobe] = [],
+                insetAttenuation: RGB = RGB(0.14, 0.18, 0.12),
+                insetRotation: RGB = RGB(0.02, -0.03, 0.06),
+                darkFadeLow: Double = 0.0,
+                darkFadeHigh: Double = 0.2) {
+        self.chroma = chroma
+        self.saturationReach = saturationReach
+        self.hueShifts = hueShifts
+        self.chromaShifts = chromaShifts
+        self.insetAttenuation = insetAttenuation
+        self.insetRotation = insetRotation
+        self.darkFadeLow = darkFadeLow
+        self.darkFadeHigh = darkFadeHigh
+    }
+
+    func hueShift(at h: Double) -> Double {
+        var s = 0.0
+        for l in hueShifts { s += l.amount * l.weight(at: h) }
+        return s
+    }
+
+    func chromaGain(at h: Double) -> Double {
+        var k = chroma
+        for l in chromaShifts { k *= 1 + (l.amount - 1) * l.weight(at: h) }
+        return k
+    }
+}
+
+/// What push/pull processing does to a stock.
+///
+/// Push is underexposure (`underexposurePerStop` stops less light on the film per stop)
+/// developed longer: the gammas steepen, the print's highlight roll-off hardens, and the
+/// shadows the underexposure never recorded print as black (`shadowCrushPerStop`, the
+/// display level a lab prints down to black per stop). The lab still prints mid-grey
+/// to mid-grey. Pull is the reverse, without the crush.
+public struct FilmPushResponse: Sendable {
+    /// The datasheet's range, in stops. Velvia 50: −½…+1.
+    public var range: ClosedRange<Double>
+    public var gammaPerStop: Double
+    public var printToePerStop: Double
+    public var shadowCrushPerStop: Double
+    public var underexposurePerStop: Double
+
+    public init(range: ClosedRange<Double> = -1...2,
+                gammaPerStop: Double,
+                printToePerStop: Double = 0.1,
+                shadowCrushPerStop: Double = 0.006,
+                underexposurePerStop: Double = 1.0) {
+        self.range = range
+        self.gammaPerStop = gammaPerStop
+        self.printToePerStop = printToePerStop
+        self.shadowCrushPerStop = shadowCrushPerStop
+        self.underexposurePerStop = underexposurePerStop
+    }
+}
+
 // MARK: - Film stock
 
 /// A deeply parameterized stock. Six at launch: 5–10 deep beats 60 shallow (D18).
 ///
 /// These are Lumen's own interpretations, honestly named — they are built from our
 /// datasheet digitization and the model above, not from anyone's emulsion samples, and
-/// the display names say "Lumen" for exactly that reason.
+/// the display names say "Lumen" for exactly that reason. The tone constants were fitted
+/// (docs/quality/lanes/WS-38) so each stock's contrast, white point and black sit where
+/// the datasheets and the spec put them; `scripts/gen-fixtures.py` mirrors the tables.
 public struct FilmStock: Sendable {
 
     public enum Kind: String, Sendable {
@@ -145,8 +296,8 @@ public struct FilmStock: Sendable {
     /// Display name for the stock cards.
     public let name: String
     public let kind: Kind
-    /// True for B&W stocks: the exposure is the scene's Rec.2020 luma, and grain has no
-    /// chromatic structure.
+    /// True for B&W stocks: the exposure is the scene through `panchromatic`, and grain
+    /// has no chromatic structure.
     public let monochrome: Bool
 
     /// The camera-stage curve.
@@ -157,6 +308,12 @@ public struct FilmStock: Sendable {
     public let printName: String?
 
     public let crossover: FilmCrossover
+    public let color: FilmColor
+    public let push: FilmPushResponse
+    /// A B&W emulsion's spectral sensitivity as Rec.2020 weights (sum 1, so a grey is
+    /// its own exposure). Panchromatic film sees more blue and a little less red than
+    /// the eye: skies print lighter than luminance would put them.
+    public let panchromatic: RGB
 
     /// Per-channel halation strength before amount/redness. The measured RGB set is
     /// (0.05, 0.015, 0.0) — red-dominant because red penetrates to the film base and
@@ -187,6 +344,9 @@ public struct FilmStock: Sendable {
                 printName: String?,
                 printCurve: FilmCharacteristic?,
                 crossover: FilmCrossover,
+                color: FilmColor,
+                push: FilmPushResponse,
+                panchromatic: RGB = RGBColorSpace.rec2020.luminanceWeights,
                 halationStrength: RGB,
                 halationDefault: Double,
                 halationRedness: Double,
@@ -202,6 +362,9 @@ public struct FilmStock: Sendable {
         self.printName = printName
         self.printCurve = printCurve
         self.crossover = crossover
+        self.color = color
+        self.push = push
+        self.panchromatic = panchromatic
         self.halationStrength = halationStrength
         self.halationDefault = halationDefault
         self.halationRedness = halationRedness
@@ -211,8 +374,8 @@ public struct FilmStock: Sendable {
         self.gateLongEdgeMM = gateLongEdgeMM
     }
 
-    /// System gamma per channel: the log-log slope of scene → picture at mid-grey.
-    /// Negative × print for a print chain, the emulsion's own γ for a transparency.
+    /// Nominal system gamma per channel: negative × print slope along the straight
+    /// sections, or the slide's own.
     public var systemGamma: RGB {
         guard let p = printCurve else { return negative.gamma }
         return RGB(negative.gamma.r * p.gamma.r,
@@ -222,179 +385,264 @@ public struct FilmStock: Sendable {
 
     // MARK: The launch six
 
-    /// Wide latitude, low contrast, warm shadows and clean highlights — the portrait
-    /// default. Divergence between the channel gammas is deliberately tiny: Portra's
-    /// character is latitude, not crossover.
+    /// Wide latitude, low contrast, warm-neutral and gentle colour, clean highlights — the
+    /// portrait default. Its character is latitude: a long straight negative printed soft.
     public static let portra400: FilmStock = FilmStock(
         id: "lumen/portra400",
         name: "Lumen Portra 400",
         kind: .negative,
         monochrome: false,
-        negative: FilmCharacteristic(gamma: RGB(0.545, 0.550, 0.560),
-                                     dMin: RGB(0.06, 0.14, 0.22),
-                                     dMax: RGB(2.06, 2.14, 2.22),
-                                     logOffset: RGB(0.000, 0.000, -0.010)),
+        negative: FilmCharacteristic(gamma: RGB(0.5706, 0.5706, 0.5706),
+                                     dMin: RGB(0.0600, 0.1400, 0.2200),
+                                     dMax: RGB(2.0600, 2.1400, 2.2200),
+                                     logOffset: RGB(-0.8000, 0.0000, 0.0000),
+                                     toeStops: 5.432,
+                                     shoulderStops: 5.207,
+                                     lowSoftness: 0.1881,
+                                     highSoftness: 0.4158),
         printName: "Lumen Type-C Paper",
-        printCurve: FilmCharacteristic(gamma: RGB(2.48, 2.48, 2.48),
-                                       dMin: RGB(0.05, 0.06, 0.07),
-                                       dMax: RGB(2.15, 2.20, 2.25),
-                                       logOffset: RGB.zero),
-        crossover: FilmCrossover(shadowTint: RGB(0.015, 0.005, -0.015),
-                                 highlightTint: RGB(-0.005, 0.000, 0.010),
-                                 pushTint: RGB(-0.020, 0.010, 0.025),
-                                 interlayer: 0.14,
-                                 coupler: 0.05),
-        halationStrength: RGB(0.050, 0.015, 0.000),
+        printCurve: FilmCharacteristic(gamma: RGB(2.6388, 2.6388, 2.6388),
+                                       dMin: RGB(0.0500, 0.0600, 0.0700),
+                                       dMax: RGB(2.1500, 2.2000, 2.2500),
+                                       lowSoftness: 0.8981,
+                                       highSoftness: 0.9646,
+                                       whiteDelta: 0.008),
+        crossover: FilmCrossover(shadowTint: RGB(0.0180, 0.0040, -0.0180),
+                                 highlightTint: RGB(0.0060, 0.0040, -0.0080),
+                                 pushTint: RGB(-0.0100, 0.0050, 0.0120),
+                                 interlayer: 0.1,
+                                 coupler: 0.0),
+        color: FilmColor(chroma: 1.3,
+                         saturationReach: 0.9,
+                         hueShifts: [FilmHueLobe(50.0, 25.0, 1.5), FilmHueLobe(140.0, 22.0, -8.0), FilmHueLobe(240.0, 35.0, -4.0), FilmHueLobe(20.0, 20.0, 2.0)],
+                         chromaShifts: [FilmHueLobe(140.0, 25.0, 0.88), FilmHueLobe(250.0, 30.0, 0.92), FilmHueLobe(60.0, 30.0, 1.05)],
+                         insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
+                         insetRotation: RGB(0.0200, -0.0300, 0.0600),
+                         darkFadeLow: 0.0,
+                         darkFadeHigh: 0.2),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1737, printToePerStop: 0.1, shadowCrushPerStop: 0.0065, underexposurePerStop: 1.0),
+        halationStrength: RGB(0.0500, 0.0150, 0.0000),
         halationDefault: 35,
         halationRedness: 25,
         grainDefault: 45,
-        grainSizeScale: RGB(0.8, 1.0, 2.0),
+        grainSizeScale: RGB(0.8000, 1.0000, 2.0000),
         grainPitchMicrons: 12.0,
         gateLongEdgeMM: 36.0)
 
-    /// The consumer emulsion: steeper red than blue, so highlights run golden and
-    /// shadows cool — a real crossover, authored rather than apologized for.
+    /// The consumer emulsion: golden-warm throughout, punchier reds and yellows, medium
+    /// contrast.
     public static let gold200: FilmStock = FilmStock(
         id: "lumen/gold200",
         name: "Lumen Gold 200",
         kind: .negative,
         monochrome: false,
-        negative: FilmCharacteristic(gamma: RGB(0.605, 0.590, 0.578),
-                                     dMin: RGB(0.06, 0.14, 0.22),
-                                     dMax: RGB(2.06, 2.14, 2.22),
-                                     logOffset: RGB(0.012, 0.000, -0.016)),
+        negative: FilmCharacteristic(gamma: RGB(0.6875, 0.6875, 0.6875),
+                                     dMin: RGB(0.0600, 0.1400, 0.2200),
+                                     dMax: RGB(2.0600, 2.1400, 2.2200),
+                                     logOffset: RGB(-0.8000, 0.0000, 0.0000),
+                                     toeStops: 5.7305,
+                                     shoulderStops: 5.4492,
+                                     lowSoftness: 0.4514,
+                                     highSoftness: 0.434),
         printName: "Lumen Type-C Paper",
-        printCurve: FilmCharacteristic(gamma: RGB(2.52, 2.50, 2.48),
-                                       dMin: RGB(0.05, 0.06, 0.07),
-                                       dMax: RGB(2.10, 2.15, 2.20),
-                                       logOffset: RGB.zero),
-        crossover: FilmCrossover(shadowTint: RGB(0.020, 0.006, -0.022),
-                                 highlightTint: RGB(0.022, 0.010, -0.020),
-                                 pushTint: RGB(-0.018, 0.012, 0.026),
-                                 interlayer: 0.18,
-                                 coupler: 0.09),
-        halationStrength: RGB(0.060, 0.020, 0.000),
+        printCurve: FilmCharacteristic(gamma: RGB(2.7200, 2.7200, 2.7200),
+                                       dMin: RGB(0.0500, 0.0600, 0.0700),
+                                       dMax: RGB(2.1000, 2.1500, 2.2000),
+                                       lowSoftness: 1.0423,
+                                       highSoftness: 1.2986,
+                                       whiteDelta: 0.0038),
+        crossover: FilmCrossover(shadowTint: RGB(0.0250, 0.0060, -0.0220),
+                                 highlightTint: RGB(0.0300, 0.0100, -0.0350),
+                                 pushTint: RGB(-0.0100, 0.0050, 0.0120),
+                                 interlayer: 0.1,
+                                 coupler: 0.0),
+        color: FilmColor(chroma: 1.65,
+                         saturationReach: 1.0,
+                         hueShifts: [FilmHueLobe(60.0, 30.0, 3.0), FilmHueLobe(95.0, 25.0, 4.0), FilmHueLobe(250.0, 30.0, -3.0), FilmHueLobe(145.0, 22.0, -8.0), FilmHueLobe(20.0, 20.0, 4.0)],
+                         chromaShifts: [FilmHueLobe(95.0, 25.0, 1.12), FilmHueLobe(135.0, 30.0, 0.9), FilmHueLobe(250.0, 30.0, 0.9)],
+                         insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
+                         insetRotation: RGB(0.0200, -0.0300, 0.0600),
+                         darkFadeLow: 0.0,
+                         darkFadeHigh: 0.2),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1909, printToePerStop: 0.1, shadowCrushPerStop: 0.0057, underexposurePerStop: 1.0),
+        halationStrength: RGB(0.0600, 0.0200, 0.0000),
         halationDefault: 45,
         halationRedness: 35,
         grainDefault: 55,
-        grainSizeScale: RGB(0.8, 1.0, 2.0),
+        grainSizeScale: RGB(0.8000, 1.0000, 2.0000),
         grainPitchMicrons: 14.0,
         gateLongEdgeMM: 36.0)
 
-    /// Fine grain, high system gamma, strong inter-layer inhibition: saturation that
-    /// arrives as density rather than as separation, which is why it darkens as it
-    /// saturates instead of going neon.
+    /// Fine grain, the highest contrast and saturation of the Kodak negatives: red-forward,
+    /// a deep slightly cyan sky, vivid greens.
     public static let ektar100: FilmStock = FilmStock(
         id: "lumen/ektar100",
         name: "Lumen Ektar 100",
         kind: .negative,
         monochrome: false,
-        negative: FilmCharacteristic(gamma: RGB(0.665, 0.665, 0.670),
-                                     dMin: RGB(0.06, 0.14, 0.22),
-                                     dMax: RGB(2.06, 2.14, 2.22),
-                                     logOffset: RGB(-0.006, 0.000, 0.006)),
+        negative: FilmCharacteristic(gamma: RGB(0.9700, 0.9700, 0.9700),
+                                     dMin: RGB(0.0600, 0.1400, 0.2200),
+                                     dMax: RGB(2.0600, 2.1400, 2.2200),
+                                     logOffset: RGB(-0.5000, 0.0000, 0.0000),
+                                     toeStops: 5.3141,
+                                     shoulderStops: 5.4824,
+                                     lowSoftness: 0.3703,
+                                     highSoftness: 0.566),
         printName: "Lumen Type-C Paper",
-        printCurve: FilmCharacteristic(gamma: RGB(2.50, 2.50, 2.50),
-                                       dMin: RGB(0.05, 0.05, 0.06),
-                                       dMax: RGB(2.20, 2.24, 2.28),
-                                       logOffset: RGB.zero),
-        crossover: FilmCrossover(shadowTint: RGB(-0.008, 0.000, 0.012),
-                                 highlightTint: RGB(0.004, 0.000, 0.002),
-                                 pushTint: RGB(-0.015, 0.008, 0.020),
-                                 interlayer: 0.26,
-                                 coupler: 0.06),
-        halationStrength: RGB(0.030, 0.010, 0.000),
+        printCurve: FilmCharacteristic(gamma: RGB(2.5512, 2.5512, 2.5512),
+                                       dMin: RGB(0.0500, 0.0500, 0.0600),
+                                       dMax: RGB(2.2000, 2.2400, 2.2800),
+                                       lowSoftness: 1.4,
+                                       highSoftness: 1.75,
+                                       whiteDelta: 0.005),
+        crossover: FilmCrossover(shadowTint: RGB(-0.0080, 0.0000, 0.0120),
+                                 highlightTint: RGB(0.0000, 0.0000, 0.0000),
+                                 pushTint: RGB(-0.0100, 0.0050, 0.0120),
+                                 interlayer: 0.1,
+                                 coupler: 0.0),
+        color: FilmColor(chroma: 1.95,
+                         saturationReach: 0.9,
+                         hueShifts: [FilmHueLobe(25.0, 25.0, -3.0), FilmHueLobe(50.0, 20.0, -2.5), FilmHueLobe(85.0, 20.0, -3.0), FilmHueLobe(250.0, 30.0, -7.0), FilmHueLobe(150.0, 30.0, 4.0)],
+                         chromaShifts: [FilmHueLobe(25.0, 25.0, 1.1), FilmHueLobe(150.0, 30.0, 1.05), FilmHueLobe(95.0, 25.0, 0.92)],
+                         insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
+                         insetRotation: RGB(0.0200, -0.0300, 0.0600),
+                         darkFadeLow: 0.0,
+                         darkFadeHigh: 0.2),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.2, printToePerStop: 0.1, shadowCrushPerStop: 0.0075, underexposurePerStop: 1.0),
+        halationStrength: RGB(0.0300, 0.0100, 0.0000),
         halationDefault: 15,
         halationRedness: 15,
         grainDefault: 15,
-        grainSizeScale: RGB(0.8, 1.0, 2.0),
+        grainSizeScale: RGB(0.8000, 1.0000, 2.0000),
         grainPitchMicrons: 7.0,
         gateLongEdgeMM: 36.0)
 
-    /// Monochrome negative on a graded paper. No dye layers, so no chromatic grain
-    /// structure and no red-dominant halation — the halo here is neutral.
+    /// Monochrome negative on a graded paper. Panchromatic: skies print lighter than eye
+    /// luminance, deep reds a little darker. No dye layers, so the halo here is neutral.
     public static let triX400: FilmStock = FilmStock(
         id: "lumen/trix400",
         name: "Lumen Tri-X 400",
         kind: .negative,
         monochrome: true,
-        negative: FilmCharacteristic(gamma: RGB(0.620, 0.620, 0.620),
-                                     dMin: RGB(0.10, 0.10, 0.10),
-                                     dMax: RGB(2.10, 2.10, 2.10),
-                                     logOffset: RGB.zero),
+        negative: FilmCharacteristic(gamma: RGB(0.7651, 0.7651, 0.7651),
+                                     dMin: RGB(0.1000, 0.1000, 0.1000),
+                                     dMax: RGB(2.1000, 2.1000, 2.1000),
+                                     logOffset: RGB(0.0000, 0.0000, 0.0000),
+                                     toeStops: 5.8406,
+                                     shoulderStops: 4.9824,
+                                     lowSoftness: 0.4541,
+                                     highSoftness: 0.4775),
         printName: "Lumen Grade 2 Paper",
-        printCurve: FilmCharacteristic(gamma: RGB(2.35, 2.35, 2.35),
-                                       dMin: RGB(0.06, 0.06, 0.06),
-                                       dMax: RGB(2.20, 2.20, 2.20),
-                                       logOffset: RGB.zero),
-        crossover: FilmCrossover(shadowTint: RGB.zero,
-                                 highlightTint: RGB.zero,
-                                 pushTint: RGB.zero,
-                                 interlayer: 0,
-                                 coupler: 0),
-        halationStrength: RGB(0.040, 0.040, 0.040),
+        printCurve: FilmCharacteristic(gamma: RGB(2.5700, 2.5700, 2.5700),
+                                       dMin: RGB(0.0600, 0.0600, 0.0600),
+                                       dMax: RGB(2.2000, 2.2000, 2.2000),
+                                       lowSoftness: 1.0327,
+                                       highSoftness: 1.3809,
+                                       whiteDelta: 0.004),
+        crossover: FilmCrossover(shadowTint: RGB(0.0000, 0.0000, 0.0000),
+                                 highlightTint: RGB(0.0000, 0.0000, 0.0000),
+                                 pushTint: RGB(0.0000, 0.0000, 0.0000),
+                                 interlayer: 0.1,
+                                 coupler: 0.0),
+        color: FilmColor(chroma: 1.0,
+                         saturationReach: 1.0,
+                         hueShifts: [],
+                         chromaShifts: [],
+                         insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
+                         insetRotation: RGB(0.0200, -0.0300, 0.0600),
+                         darkFadeLow: 0.0,
+                         darkFadeHigh: 0.2),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.19, printToePerStop: 0.1, shadowCrushPerStop: 0.0065, underexposurePerStop: 1.0),
+        panchromatic: RGB(0.2500, 0.5500, 0.2000),
+        halationStrength: RGB(0.0400, 0.0400, 0.0400),
         halationDefault: 20,
         halationRedness: 0,
         grainDefault: 70,
-        grainSizeScale: RGB(1.0, 1.0, 1.0),
+        grainSizeScale: RGB(1.0000, 1.0000, 1.0000),
         grainPitchMicrons: 18.0,
         gateLongEdgeMM: 36.0)
 
-    /// Transparency: one inversion, inside the emulsion, and no print stage. High
-    /// gamma and a short exposure scale — the stock that punishes exposure error and
-    /// rewards it. Halation is zero: slide stocks have an effective backing.
+    /// Transparency: one inversion, inside the emulsion, and no print stage. High gamma,
+    /// a short exposure scale with dense, rich (not empty) shadows; emerald greens and
+    /// deep violet-leaning blues. Halation is zero: slide stocks have an effective backing.
     public static let velvia50: FilmStock = FilmStock(
         id: "lumen/velvia50",
         name: "Lumen Velvia 50",
         kind: .reversal,
         monochrome: false,
-        negative: FilmCharacteristic(gamma: RGB(1.720, 1.750, 1.800),
-                                     dMin: RGB(0.12, 0.14, 0.16),
-                                     dMax: RGB(3.40, 3.45, 3.50),
-                                     logOffset: RGB(0.004, 0.000, -0.004)),
+        negative: FilmCharacteristic(gamma: RGB(2.2800, 2.2800, 2.2800),
+                                     dMin: RGB(0.1200, 0.1400, 0.1600),
+                                     dMax: RGB(3.4000, 3.4500, 3.5000),
+                                     lowSoftness: 0.6312,
+                                     highSoftness: -2.35,
+                                     toneCeiling: RGB(3.9878, 4.0377, 4.0877),
+                                     whiteDelta: 0.004),
         printName: nil,
         printCurve: nil,
-        crossover: FilmCrossover(shadowTint: RGB(0.020, 0.000, -0.020),
-                                 highlightTint: RGB(-0.008, 0.000, 0.006),
-                                 pushTint: RGB(0.014, -0.004, -0.012),
-                                 interlayer: 0.30,
-                                 coupler: 0.04),
-        halationStrength: RGB.zero,
+        crossover: FilmCrossover(shadowTint: RGB(-0.0100, 0.0100, -0.0100),
+                                 highlightTint: RGB(0.0000, 0.0000, 0.0000),
+                                 pushTint: RGB(0.0000, 0.0000, 0.0000),
+                                 interlayer: 0.1,
+                                 coupler: 0.0),
+        color: FilmColor(chroma: 2.26,
+                         saturationReach: 0.9,
+                         hueShifts: [FilmHueLobe(268.0, 30.0, 6.0), FilmHueLobe(150.0, 30.0, 6.0), FilmHueLobe(330.0, 25.0, 4.0), FilmHueLobe(95.0, 20.0, -3.0)],
+                         chromaShifts: [FilmHueLobe(150.0, 30.0, 1.08), FilmHueLobe(330.0, 30.0, 1.05), FilmHueLobe(60.0, 25.0, 0.82)],
+                         insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
+                         insetRotation: RGB(0.0200, -0.0300, 0.0600),
+                         darkFadeLow: 0.0,
+                         darkFadeHigh: 0.2),
+        push: FilmPushResponse(range: -0.5...1.0, gammaPerStop: 0.12, printToePerStop: 0.0, shadowCrushPerStop: 0.006, underexposurePerStop: 0.0),
+        halationStrength: RGB(0.0000, 0.0000, 0.0000),
         halationDefault: 0,
         halationRedness: 0,
         grainDefault: 12,
-        grainSizeScale: RGB(0.8, 1.0, 2.0),
+        grainSizeScale: RGB(0.8000, 1.0000, 2.0000),
         grainPitchMicrons: 6.0,
         gateLongEdgeMM: 36.0)
 
-    /// Daylight cine negative through a print-film stage: a low-gamma camera stock
-    /// carrying the whole scale, and a steep print that puts the contrast back. The
-    /// gate is Super 35, so grain and halation are coarser per pixel than the stills
-    /// stocks at the same scan resolution — as they are in reality.
+    /// Daylight cine negative through a print-film stage: the Kodak print look — deep
+    /// blacks, bright neutral highlights, teal-leaning shadows and warm skin. The gate is
+    /// Super 35, so grain and halation are coarser per pixel than the stills stocks.
     public static let cine250D: FilmStock = FilmStock(
         id: "lumen/cine250d",
         name: "Lumen Cine 250D",
         kind: .negative,
         monochrome: false,
-        negative: FilmCharacteristic(gamma: RGB(0.500, 0.505, 0.510),
-                                     dMin: RGB(0.10, 0.20, 0.30),
-                                     dMax: RGB(2.00, 2.10, 2.20),
-                                     logOffset: RGB(0.000, 0.000, 0.008)),
+        negative: FilmCharacteristic(gamma: RGB(0.6703, 0.6703, 0.6703),
+                                     dMin: RGB(0.1000, 0.2000, 0.3000),
+                                     dMax: RGB(2.0000, 2.1000, 2.2000),
+                                     logOffset: RGB(-0.3000, 0.0000, 0.0000),
+                                     toeStops: 5.7562,
+                                     shoulderStops: 5.0,
+                                     lowSoftness: 0.3857,
+                                     highSoftness: 0.383),
         printName: "Lumen Print Film 2K",
-        printCurve: FilmCharacteristic(gamma: RGB(2.62, 2.62, 2.62),
-                                       dMin: RGB(0.06, 0.06, 0.07),
-                                       dMax: RGB(2.60, 2.65, 2.70),
-                                       logOffset: RGB.zero),
-        crossover: FilmCrossover(shadowTint: RGB(-0.010, 0.000, 0.014),
-                                 highlightTint: RGB(0.008, 0.004, -0.006),
-                                 pushTint: RGB(-0.016, 0.010, 0.024),
-                                 interlayer: 0.20,
-                                 coupler: 0.07),
-        halationStrength: RGB(0.050, 0.015, 0.000),
+        printCurve: FilmCharacteristic(gamma: RGB(2.3950, 2.3950, 2.3950),
+                                       dMin: RGB(0.0600, 0.0600, 0.0700),
+                                       dMax: RGB(2.6000, 2.6500, 2.7000),
+                                       lowSoftness: 1.05,
+                                       highSoftness: 0.9586,
+                                       whiteDelta: 0.007),
+        crossover: FilmCrossover(shadowTint: RGB(-0.0500, -0.0050, 0.0500),
+                                 highlightTint: RGB(0.0300, 0.0120, -0.0300),
+                                 pushTint: RGB(-0.0100, 0.0050, 0.0120),
+                                 interlayer: 0.1,
+                                 coupler: 0.0),
+        color: FilmColor(chroma: 1.08,
+                         saturationReach: 0.9,
+                         hueShifts: [FilmHueLobe(50.0, 25.0, 1.0), FilmHueLobe(25.0, 20.0, 4.0), FilmHueLobe(140.0, 35.0, 8.0), FilmHueLobe(250.0, 30.0, -4.0), FilmHueLobe(95.0, 25.0, -4.0)],
+                         chromaShifts: [FilmHueLobe(140.0, 35.0, 0.85), FilmHueLobe(250.0, 30.0, 0.9), FilmHueLobe(40.0, 25.0, 1.05)],
+                         insetAttenuation: RGB(0.1400, 0.1800, 0.1200),
+                         insetRotation: RGB(0.0200, -0.0300, 0.0600),
+                         darkFadeLow: 0.0,
+                         darkFadeHigh: 0.2),
+        push: FilmPushResponse(range: -1.0...2.0, gammaPerStop: 0.1781, printToePerStop: 0.1, shadowCrushPerStop: 0.005, underexposurePerStop: 1.0),
+        halationStrength: RGB(0.0500, 0.0150, 0.0000),
         halationDefault: 30,
         halationRedness: 20,
         grainDefault: 30,
-        grainSizeScale: RGB(0.8, 1.0, 2.0),
+        grainSizeScale: RGB(0.8000, 1.0000, 2.0000),
         grainPitchMicrons: 10.0,
         gateLongEdgeMM: 24.9)
 
@@ -1446,66 +1694,78 @@ extension FilmGrainProfile: Equatable {
     }
 }
 
-// MARK: - One solved stage of the chain
+// MARK: - The chain's shape functions
 
-/// A characteristic curve with its per-channel constants resolved once.
-private struct FilmStage: Sendable {
-    let dMin: RGB
-    let dMax: RGB
-    let delta: RGB
-    let k: RGB
-    let offset: RGB
-    /// True when density rises with exposure (a negative); false for a transparency.
-    let rising: Bool
-    let whiteT: RGB
-    let blackT: RGB
-
-    init(_ c: FilmCharacteristic, rising: Bool, anchor: Double) {
-        var span: RGB = RGB.zero
-        var slope: RGB = RGB.zero
-        var off: RGB = RGB.zero
-        for i in 0..<3 {
-            let d: Double = Swift.max(c.dMax[i] - c.dMin[i], 1e-6)
-            span[i] = d
-            slope[i] = Swift.max(c.gamma[i], 0.02) / (0.25 * d)
-            off[i] = c.logOffset[i] + anchor
+/// The roll-offs every stage is built from. `soft(u, τ)`: softplus in log10 units for
+/// τ > 0 (→ u for u ≫ 0, → 0 exponentially for u ≪ 0), the hyperbola
+/// (u + √(u² + τ²))/2 for τ < 0 (→ 0 like τ²/4|u|). `softMin`/`softMax` clamp `a` to
+/// `b` through them. All monotone and C∞.
+enum FilmShape {
+    @inline(__always) static func soft(_ u: Double, _ tau: Double) -> Double {
+        if tau < 0 {
+            return 0.5 * (u + (u * u + tau * tau).squareRoot())
         }
-        self.dMin = c.dMin
-        self.dMax = c.dMax
-        self.delta = span
-        self.k = slope
-        self.offset = off
-        self.rising = rising
-        self.whiteT = RGB(pow(10.0, -c.dMin.r), pow(10.0, -c.dMin.g), pow(10.0, -c.dMin.b))
-        self.blackT = RGB(pow(10.0, -c.dMax.r), pow(10.0, -c.dMax.g), pow(10.0, -c.dMax.b))
+        let t: Double = Swift.max(tau, 1e-6)
+        let z: Double = u / t
+        if z > 30 { return u }
+        return t * log10(1 + pow(10.0, z))
     }
 
-    /// `D = Dmin + (Dmax−Dmin)·sigmoid(k·(log10 E + offset))`, plus the sigmoid value
-    /// itself, which the crossover weights use as a tonal position that rises with
-    /// exposure for both kinds of stock.
-    func response(_ e: RGB) -> (density: RGB, tone: RGB) {
-        var d: RGB = RGB.zero
-        var t: RGB = RGB.zero
-        for i in 0..<3 {
-            let x: Double = Num.clamp(k[i] * (log10(Swift.max(e[i], 1e-12)) + offset[i]), -60, 60)
-            let s: Double = 1.0 / (1.0 + exp(-x))
-            t[i] = s
-            d[i] = dMin[i] + delta[i] * (rising ? s : 1.0 - s)
-        }
-        return (d, t)
+    @inline(__always) static func softMin(_ a: Double, _ b: Double, _ tau: Double) -> Double {
+        b - soft(b - a, tau)
+    }
+
+    @inline(__always) static func softMax(_ a: Double, _ b: Double, _ tau: Double) -> Double {
+        b + soft(a - b, tau)
+    }
+
+    /// Hyperbolic softplus with an explicit ε, for the push shadow crush.
+    @inline(__always) static func hyper(_ u: Double, _ eps: Double) -> Double {
+        0.5 * (u + (u * u + eps * eps).squareRoot())
     }
 }
 
 /// Everything the per-pixel chain needs, resolved at build time.
 private struct SolvedChain: Sendable {
-    var negative: FilmStage
-    var printStage: FilmStage?
+    var reversal: Bool
+    var monochrome: Bool
+    // Taking stage.
+    var gamma: RGB
+    var dMin: RGB
+    /// Negative: log10 exposure of each channel's toe. Reversal: unused.
+    var toeLog: RGB
+    /// Negative: shoulder density. Reversal: tone ceiling.
+    var top: RGB
+    var lowSoftness: Double
+    var highSoftness: Double
+    // Print stage (negatives).
+    var printGamma: RGB
+    var printDMin: RGB
+    var printDMax: RGB
+    var printLow: Double
+    var printHigh: Double
+    // Colour in density.
     var coupling: Mat3
     var shadowTint: RGB
     var highlightTint: RGB
-    var filmGain: RGB
-    var printGain: RGB
-    var monochrome: Bool
+    /// Mid-grey's density on the taking stage, per channel — the tint weights' origin.
+    var greyDensity: RGB
+    /// The taking stage's deepest-black density per channel (a negative's coupled fog,
+    /// a slide's ceiling), where the shadow tint has faded back out.
+    var blackDensity: RGB
+    // Exposure.
+    var inset: Mat3
+    var panchromatic: RGB
+    /// Stops of light into the taking stage (film exposure − push underexposure); 0 for
+    /// a slide, whose film exposure is applied to the scene instead.
+    var shift: Double
+    /// Push crush: display level printed down to black (0 = none).
+    var crush: Double
+    var color: FilmColor
+    // Calibration.
+    var gain: RGB
+    var black: RGB
+    var white: RGB
     /// Density units of grain per unit plate value at peak amplitude.
     var grainScale: Double
 }
@@ -1529,11 +1789,13 @@ public struct FilmChain: Sendable {
     /// neutral rendering rather than to a different look.
     public let stock: FilmStock?
     public let displayWhite: Double
-    /// EV into the stock, −2…+3, pre-curve. Not display brightness: this is the knob
-    /// that produces pastel latitude instead of a brighter picture.
+    /// EV into the stock, −2…+3. On a negative it is NOT display brightness: the lab
+    /// prints mid-grey back to mid-grey and only the stock's latitude shows (pastel
+    /// highlights over, fogged shadows under). On a slide it is scene exposure.
     public let filmExposure: Double
-    /// Push / pull in stops, −1…+2. Steepens the gammas with divergence, scales grain
-    /// amount and plate scale, and walks the shadows toward the stock's crossover.
+    /// Push / pull in stops, inside the stock's range (`FilmPushResponse.range`).
+    /// Underexposure developed longer: steeper, harder highlights, the unrecorded
+    /// shadows printed down to black; scales grain amount and plate scale.
     public let pushPull: Double
     /// Strength, normalized to 0…1 (`FilmLab.amount`).
     public let strength: Double
@@ -1570,9 +1832,52 @@ public struct FilmChain: Sendable {
     /// would slide the whole midtone range into the print's toe — a different stock.)
     static let paperWhite: Double = 1.0
 
-    /// Divergence of the push gamma multiplier across R/G/B. Divergent gammas are what
-    /// create push crossover; without the divergence a push is just more contrast.
-    private static let pushDivergence: RGB = RGB(0.03, 0.0, -0.03)
+    /// The display floor the film picture's black sits on — the neutral rendering's own
+    /// black target (`DisplayTransformParams.blackTarget`, 0.0152 % of SDR white), so a
+    /// stock's deepest black is the same black as the base rendering's, not a
+    /// lifted grey and not a crushed 0.
+    static let blackFloor: Double = 0.0152 / 100.0
+
+    /// Density span over which the crossover tints reach full weight either side of
+    /// mid-grey.
+    static let tintReach: Double = 1.2
+
+    /// Push crush softness, as a fraction of the crush level.
+    static let crushSoftness: Double = 0.7
+
+    /// The path to white, in stops of exposure into the stock: through the mid-tones the
+    /// colour rides the stock's own tone curve with its ratios kept, and over this
+    /// range it hands over to the per-channel curve, so a highlight bleaches to white
+    /// the way a print does instead of staying saturated at paper white.
+    static let pathToWhiteStart: Double = 0.0
+    static let pathToWhiteEnd: Double = 5.0
+
+    /// Mid-grey's density on a slide (it transmits 18 %).
+    static let reversalGreyDensity: Double = FilmCharacteristic.midGreyAnchor
+
+    /// The hue reference: the Neutral display transform at SDR white. Through the
+    /// mid-tones it keeps a colour's ratios (its hue is the inset/outset primaries'),
+    /// and toward white it walks the per-channel path — so a film colour sits on the
+    /// hue the neutral rendering gives the same scene colour, plus the stock's own
+    /// authored shifts. Fixed — never the recipe's base transform — so the film
+    /// picture at Strength 100 is the same on every base.
+    static let hueReference: DisplayTransform = DisplayTransform(DisplayTransformParams.neutral,
+                                                                 space: .rec2020)
+
+    /// The sRGB gamut in OKLab, for the stock saturation's reach, on a deliberately
+    /// COARSE grid (30° × 0.2 L): sRGB because that is the gamut nearly every print,
+    /// scan and export ends up in (a boost relative to Rec.2020's edge pushed skies
+    /// through sRGB and the encoder clipped them flat), coarse because the gain is
+    /// baked into a 33-point finish table and an exact boundary's cusps put creases in
+    /// it the table cannot follow. The fine boundary still does the actual gamut map.
+    static let saturationBoundary: Gamut.Boundary =
+        Gamut.Boundary(hueSteps: 12, lightnessSteps: 6,
+                       context: OKLabTransform.Context(space: .srgb))
+
+    /// Paper black is neutral: over the last few codes above the floor the picture's
+    /// chroma fades out (to the floor × this), so a dark tint cannot turn into a
+    /// channel below black on the way to the display's primaries.
+    static let neutralBlackSpan: Double = 15.0
 
     // MARK: Construction
 
@@ -1587,14 +1892,17 @@ public struct FilmChain: Sendable {
     public init(_ recipe: FilmLab, filmExposure: Double, displayWhite: Double = 1.0,
                 base: DisplayTransform? = nil) {
         let white: Double = Swift.max(displayWhite, 0.01)
-        let push: Double = Num.clamp(recipe.pushPull, -1, 2)
-        let blend: Double = Num.clamp(recipe.amount / 100.0, 0, 1)
         let found: FilmStock? = FilmStock.named(recipe.stock)
+        // Push is clamped to the STOCK's range (Velvia 50: −½…+1 per its datasheet).
+        let range: ClosedRange<Double> = found?.push.range ?? -1...2
+        let push: Double = Num.clamp(recipe.pushPull, range.lowerBound, range.upperBound)
+        let blend: Double = Num.clamp(recipe.amount / 100.0, 0, 1)
+        let exposure: Double = Num.clamp(filmExposure, -2, 3)
 
         self.recipe = recipe
         self.stock = found
         self.displayWhite = white
-        self.filmExposure = Num.clamp(filmExposure, -2, 3)
+        self.filmExposure = exposure
         self.pushPull = push
         self.strength = blend
 
@@ -1615,12 +1923,18 @@ public struct FilmChain: Sendable {
 
         if let s = found, blend > 0 {
             let grainScale: Double = profile.amount * FilmGrainProfile.densityScale
+            // A negative is printed to mid-grey whatever its exposure, so the exposure
+            // is part of the solve; a slide's exposure is scene brightness, applied in
+            // `apply`, and the same solved slide serves every exposure.
+            let solvedExposure: Double = s.kind == .negative ? exposure : 0
             let key: SolveKey = SolveKey(stockID: s.id,
                                          push: push.bitPattern,
+                                         exposure: solvedExposure.bitPattern,
                                          grainScale: grainScale.bitPattern,
                                          white: FilmChain.paperWhite.bitPattern)
             self.solved = FilmChain.solveMemo.chain(for: key) {
-                FilmChain.build(s, push: push, grainScale: grainScale, white: FilmChain.paperWhite)
+                FilmChain.build(s, push: push, exposure: solvedExposure,
+                                grainScale: grainScale)
             }
         } else {
             self.solved = nil
@@ -1646,14 +1960,14 @@ public struct FilmChain: Sendable {
     /// rendering by Strength.
     public func apply(_ c: RGB) -> RGB {
         // The base rendition is a display transform like any other, so it gets the
-        // display-gamut map that goes with one. It used to be handed no boundary at
-        // all, which was survivable only while the colour stages were clipping
-        // upstream — a scene-referred clip in the wrong place, now removed. At partial
-        // film strength the base is most of what you see.
+        // display-gamut map that goes with one. At partial film strength the base is
+        // most of what you see.
         let base: RGB = neutral.apply(c, gamut: Gamut.sharedBoundary)
         guard let s = solved else { return base }
-        let scene: RGB = c * pow(2.0, filmExposure)
-        let film: RGB = FilmChain.render(scene, s, white: FilmChain.paperWhite, grain: RGB.zero)
+        // A slide's Film Exposure is scene exposure (there is no print to re-level
+        // it); a negative's is inside the solve, where the printer re-levels it.
+        let scene: RGB = s.reversal ? c * pow(2.0, filmExposure) : c
+        let film: RGB = FilmChain.picture(scene, s)
         return base.mix(film, strength)
     }
 
@@ -1762,6 +2076,7 @@ public struct FilmChain: Sendable {
     fileprivate struct SolveKey: Equatable {
         let stockID: String
         let push: UInt64
+        let exposure: UInt64
         let grainScale: UInt64
         let white: UInt64
     }
@@ -1822,38 +2137,88 @@ public struct FilmChain: Sendable {
 
     private static func build(_ stock: FilmStock,
                               push: Double,
-                              grainScale: Double,
-                              white: Double) -> SolvedChain {
-        // Push steepens the per-channel gammas with slight divergence.
-        var negative: FilmCharacteristic = stock.negative
+                              exposure: Double,
+                              grainScale: Double) -> SolvedChain {
+        let reversal: Bool = stock.kind == .reversal
+        let n: FilmCharacteristic = stock.negative
+        let gammaScale: Double = 1.0 + stock.push.gammaPerStop * push
+        let gamma: RGB = RGB(Swift.max(n.gamma.r * gammaScale, 0.02),
+                             Swift.max(n.gamma.g * gammaScale, 0.02),
+                             Swift.max(n.gamma.b * gammaScale, 0.02))
+        let shift: Double = reversal ? 0 : exposure - push * stock.push.underexposurePerStop
+        let log2: Double = log10(2.0)
+        let greyLog: Double = -FilmCharacteristic.midGreyAnchor
+
+        var toeLog: RGB = RGB.zero
+        var top: RGB = RGB.zero
         for i in 0..<3 {
-            let factor: Double = 1.0 + 0.18 * push * (1.0 + FilmChain.pushDivergence[i])
-            negative.gamma[i] = Swift.max(negative.gamma[i] * factor, 0.02)
+            let toe: Double = n.toeStops - n.logOffset[i]
+            toeLog[i] = greyLog - toe * log2
+            top[i] = reversal
+                ? (n.toneCeiling ?? n.dMax)[i]
+                // The shoulder density is the emulsion's, set at normal development:
+                // pulling flattens the slope but does not take away the densest
+                // highlight the lab prints to white (that was grey whites at pull −1).
+                : n.dMin[i] + n.gamma[i] * (toe + n.shoulderStops) * log2
         }
 
-        let negStage: FilmStage = FilmStage(negative,
-                                 rising: stock.kind == .negative,
-                                 anchor: FilmCharacteristic.midGreyAnchor)
-        // The print's own log-exposure origin is absorbed by the calibration gain, so
-        // its anchor is 0 and only its per-channel gamma/density span carry character.
-        var printStage: FilmStage? = nil
-        if let p = stock.printCurve {
-            printStage = FilmStage(p, rising: true, anchor: 0)
+        let p: FilmCharacteristic = stock.printCurve ?? n
+        let printLow: Double = p.lowSoftness * (1.0 - stock.push.printToePerStop * push)
+
+        let a: FilmColor = stock.color
+        let inset: RGBColorSpace = DisplayTransform.insetSpace(.rec2020,
+                                                               attenuation: a.insetAttenuation,
+                                                               rotation: a.insetRotation)
+
+        var s: SolvedChain = SolvedChain(
+            reversal: reversal,
+            monochrome: stock.monochrome,
+            gamma: gamma,
+            dMin: n.dMin,
+            toeLog: toeLog,
+            top: top,
+            lowSoftness: n.lowSoftness,
+            highSoftness: n.highSoftness,
+            printGamma: p.gamma,
+            printDMin: p.dMin,
+            printDMax: p.dMax,
+            printLow: printLow,
+            printHigh: p.highSoftness,
+            coupling: FilmChain.couplingMatrix(interlayer: stock.crossover.interlayer,
+                                               coupler: stock.crossover.coupler),
+            shadowTint: stock.crossover.shadowTint + stock.crossover.pushTint * push,
+            highlightTint: stock.crossover.highlightTint,
+            greyDensity: RGB.zero,
+            blackDensity: RGB.zero,
+            inset: inset.matrix(to: .rec2020),
+            panchromatic: stock.panchromatic,
+            shift: shift,
+            crush: stock.push.shadowCrushPerStop * Swift.max(push, 0),
+            color: stock.color,
+            gain: RGB.zero,
+            black: RGB.zero,
+            white: RGB.zero,
+            grainScale: Swift.max(grainScale, 0))
+
+        if reversal {
+            s.greyDensity = RGB(gray: FilmChain.reversalGreyDensity)
+            s.blackDensity = top
+            s.black = RGB(pow(10.0, -top.r), pow(10.0, -top.g), pow(10.0, -top.b))
+            let w: RGB = n.dMin + n.whiteDelta
+            s.white = RGB(pow(10.0, -w.r), pow(10.0, -w.g), pow(10.0, -w.b))
+        } else {
+            let greyX: Double = log10(DisplayTransform.midGrey) + shift * log2
+            var dg: RGB = RGB.zero
+            for i in 0..<3 {
+                dg[i] = FilmChain.negativeDensity(greyX, s, i)
+            }
+            s.greyDensity = s.coupling.apply(dg)
+            s.blackDensity = s.coupling.apply(n.dMin)
+            s.black = RGB(pow(10.0, -p.dMax.r), pow(10.0, -p.dMax.g), pow(10.0, -p.dMax.b))
+            let w: RGB = p.dMin + p.whiteDelta
+            s.white = RGB(pow(10.0, -w.r), pow(10.0, -w.g), pow(10.0, -w.b))
         }
-
-        let shadow: RGB = stock.crossover.shadowTint + stock.crossover.pushTint * push
-
-        let seed: SolvedChain = SolvedChain(negative: negStage,
-                               printStage: printStage,
-                               coupling: FilmChain.couplingMatrix(interlayer: stock.crossover.interlayer,
-                                                                  coupler: stock.crossover.coupler),
-                               shadowTint: shadow,
-                               highlightTint: stock.crossover.highlightTint,
-                               filmGain: RGB.one,
-                               printGain: RGB.one,
-                               monochrome: stock.monochrome,
-                               grainScale: Swift.max(grainScale, 0))
-        return FilmChain.solveGains(seed, white: white)
+        return FilmChain.solveGains(s)
     }
 
     /// DIR inhibition + masking-coupler residue as one 3×3 on the density triple.
@@ -1875,27 +2240,26 @@ public struct FilmChain: Sendable {
     /// display mid-grey, in every channel — the anchor that makes "0.18 → 0.18" a
     /// property of construction rather than of tuning.
     ///
-    /// For a print chain the gain is the enlarger lamp, downstream of every
-    /// channel-mixing step, so the first bisection per channel is already exact. For a
-    /// transparency the gain is scene-side and the couplers mix channels after it, so
-    /// the sweeps iterate; six lands every shipped stock inside 1e-6. Build-time only.
-    private static func solveGains(_ base: SolvedChain, white: Double) -> SolvedChain {
+    /// For a print chain the gain is the enlarger lamp (the printer lights), downstream
+    /// of every channel-mixing step, so one bisection per channel is exact — and,
+    /// because Film Exposure is part of the solve, an over- or underexposed negative is
+    /// printed back to mid-grey the way a lab prints it. For a transparency the gain is
+    /// scene-side and the couplers mix channels after it, so the sweeps iterate; six
+    /// land every shipped stock inside 1e-9. Build-time only.
+    private static func solveGains(_ base: SolvedChain) -> SolvedChain {
         var s: SolvedChain = base
         let grey: RGB = RGB(gray: DisplayTransform.midGrey)
-        let target: Double = DisplayTransform.midGrey * white
-        let usePrintGain: Bool = base.printStage != nil
-
+        let target: Double = DisplayTransform.midGrey
+        let sweeps: Int = s.reversal ? 6 : 1
         var sweep: Int = 0
-        while sweep < 6 {
+        while sweep < sweeps {
             for i in 0..<3 {
-                let x: Double = FilmChain.bisect(target: target, lo: -14, hi: 14, steps: 52) { logGain in
+                let x: Double = FilmChain.bisect(target: target, lo: -12, hi: 12, steps: 60) { logGain in
                     var trial: SolvedChain = s
-                    let g: Double = pow(2.0, logGain)
-                    if usePrintGain { trial.printGain[i] = g } else { trial.filmGain[i] = g }
-                    return FilmChain.render(grey, trial, white: white, grain: RGB.zero)[i]
+                    trial.gain[i] = logGain
+                    return FilmChain.tone(grey, trial)[i]
                 }
-                let g: Double = pow(2.0, x)
-                if usePrintGain { s.printGain[i] = g } else { s.filmGain[i] = g }
+                s.gain[i] = x
             }
             sweep += 1
         }
@@ -1939,64 +2303,164 @@ public struct FilmChain: Sendable {
 
     // MARK: - Render
 
-    /// Negative → couplers → crossover → grain → transmittance → print → paper white.
-    private static func render(_ scene: RGB,
-                               _ s: SolvedChain,
-                               white: Double,
-                               grain: RGB) -> RGB {
-        var e: RGB = RGB(Swift.max(scene.r, 0), Swift.max(scene.g, 0), Swift.max(scene.b, 0))
+    /// A negative's density at log10 exposure `x`, channel `i`: fog, a toe into the
+    /// straight line, and a shoulder far above grey.
+    @inline(__always)
+    private static func negativeDensity(_ x: Double, _ s: SolvedChain, _ i: Int) -> Double {
+        let d: Double = s.dMin[i] + s.gamma[i] * FilmShape.soft(x - s.toeLog[i], s.lowSoftness)
+        return FilmShape.softMin(d, s.top[i], s.highSoftness)
+    }
+
+    /// A slide's density at log10 exposure `x` (gain applied): falling through mid-grey
+    /// at its gamma into clear film, rising into its tonal ceiling.
+    @inline(__always)
+    private static func reversalDensity(_ x: Double, _ s: SolvedChain, _ i: Int) -> Double {
+        let lin: Double = FilmChain.reversalGreyDensity
+            - s.gamma[i] * (x + FilmCharacteristic.midGreyAnchor)
+        let d: Double = FilmShape.softMin(lin, s.top[i], s.highSoftness)
+        return FilmShape.softMax(d, s.dMin[i], s.lowSoftness)
+    }
+
+    /// Scene → the stock's per-channel picture, display-linear, before colour anchoring.
+    /// Negative → couplers → crossover → transmittance → print → black/white levels.
+    private static func tone(_ scene: RGB, _ s: SolvedChain) -> RGB {
+        let c: RGB = RGB(Swift.max(scene.r, 0), Swift.max(scene.g, 0), Swift.max(scene.b, 0))
+        var e: RGB
         if s.monochrome {
-            let y: Double = filmLumaWeights.r * e.r + filmLumaWeights.g * e.g + filmLumaWeights.b * e.b
+            let y: Double = s.panchromatic.r * c.r + s.panchromatic.g * c.g + s.panchromatic.b * c.b
             e = RGB(gray: Swift.max(y, 0))
+        } else {
+            let m: RGB = s.inset.apply(c)
+            e = RGB(Swift.max(m.r, 0), Swift.max(m.g, 0), Swift.max(m.b, 0))
         }
-        e = e * s.filmGain
-
-        let neg: (density: RGB, tone: RGB) = s.negative.response(e)
-        var d: RGB = s.coupling.apply(neg.density)
-
-        // Crossover: the toe and shoulder casts the stock carries, plus whatever push
-        // has added to the toe. Tonal position is the sigmoid's own value, which rises
-        // with exposure for both a negative and a transparency.
-        let tone: Double = (neg.tone.r + neg.tone.g + neg.tone.b) / 3.0
-        let shadowWeight: Double = 1.0 - Num.smoothstep(0.0, 0.6, tone)
-        let highlightWeight: Double = Num.smoothstep(0.4, 1.0, tone)
-        d = d + s.shadowTint * shadowWeight + s.highlightTint * highlightWeight
-
-        // Grain, in density, during "development" — amplitude ∝ √(p(1−p)), p = D/Dmax.
-        if s.grainScale > 0 {
-            for i in 0..<3 {
-                let noise: Double = grain[i]
-                if noise == 0 { continue }
-                let dm: Double = Swift.max(s.negative.dMax[i], 1e-6)
-                let p: Double = Num.clamp(d[i] / dm, 0, 1)
-                d[i] += s.grainScale * (p * (1 - p)).squareRoot() * noise
+        let scale: Double = pow(2.0, s.shift)
+        var d: RGB = RGB.zero
+        for i in 0..<3 {
+            var x: Double = log10(Swift.max(e[i] * scale, 1e-30))
+            if s.reversal {
+                x += s.gain[i]
+                d[i] = FilmChain.reversalDensity(x, s, i)
+            } else {
+                d[i] = FilmChain.negativeDensity(x, s, i)
             }
+        }
+        d = s.coupling.apply(d)
+
+        // Crossover, each channel weighted by its own density (see `FilmCrossover`):
+        // `pos` is the density distance from mid-grey toward the highlights. The
+        // shadow tint fades back out over the last 0.3 density into the deepest black,
+        // because paper black is neutral.
+        for i in 0..<3 {
+            let pos: Double = s.reversal ? s.greyDensity[i] - d[i] : d[i] - s.greyDensity[i]
+            let floorPos: Double = s.reversal ? s.greyDensity[i] - s.blackDensity[i]
+                                              : s.blackDensity[i] - s.greyDensity[i]
+            let shadow: Double = (1.0 - Num.smoothstep(-FilmChain.tintReach, 0, pos))
+                * Num.smoothstep(floorPos, floorPos + 0.3, pos)
+            let highlight: Double = Num.smoothstep(0, FilmChain.tintReach, pos)
+            d[i] += s.shadowTint[i] * shadow + s.highlightTint[i] * highlight
         }
 
         // Density → transmittance. This is the step that makes colour subtractive.
-        let t: RGB = RGB(pow(10.0, -d.r), pow(10.0, -d.g), pow(10.0, -d.b))
-
-        let finalT: RGB
-        let last: FilmStage
-        if let p = s.printStage {
-            // Print exposure = the light the enlarger pushes through the negative.
-            let printExposure: RGB = t * s.printGain
-            let pd: RGB = p.response(printExposure).density
-            finalT = RGB(pow(10.0, -pd.r), pow(10.0, -pd.g), pow(10.0, -pd.b))
-            last = p
-        } else {
-            finalT = t
-            last = s.negative
+        var t: RGB = RGB(pow(10.0, -d.r), pow(10.0, -d.g), pow(10.0, -d.b))
+        if !s.reversal {
+            // The print: exposure = the light the printer pushes through the negative.
+            for i in 0..<3 {
+                let y: Double = log10(Swift.max(t[i], 1e-30)) + s.gain[i]
+                var pd: Double = s.printGamma[i] * y
+                pd = FilmShape.softMin(pd, s.printDMax[i], s.printHigh)
+                pd = FilmShape.softMax(pd, s.printDMin[i], s.printLow)
+                t[i] = pow(10.0, -pd)
+            }
         }
 
-        // Normalize against the final stage's own paper white and maximum black, so the
-        // picture spans exactly [0, white] with no free scaling factor (`paperWhite`).
+        // Levels: paper (or clear film) is white, maximum density is the black floor.
         var out: RGB = RGB.zero
         for i in 0..<3 {
-            let span: Double = last.whiteT[i] - last.blackT[i]
-            let v: Double = abs(span) < 1e-12 ? 0 : (finalT[i] - last.blackT[i]) / span
-            out[i] = Num.clamp(v, 0, 1) * white
+            let span: Double = s.white[i] - s.black[i]
+            var v: Double = abs(span) < 1e-15 ? 0 : Swift.min((t[i] - s.black[i]) / span, 1)
+            if s.crush > 0 {
+                let eps: Double = s.crush * FilmChain.crushSoftness
+                let zero: Double = FilmShape.hyper(-s.crush, eps)
+                v = (FilmShape.hyper(v - s.crush, eps) - zero)
+                    / (FilmShape.hyper(1 - s.crush, eps) - zero)
+            }
+            out[i] = v * (1 - FilmChain.blackFloor) + FilmChain.blackFloor
         }
         return out
+    }
+
+    /// The stock's picture of `scene`: its tone, its path to white, its colour, inside
+    /// the display gamut. Spans [floor, paper white] — paper white is SDR white at every
+    /// display peak (`paperWhite`).
+    private static func picture(_ scene: RGB, _ s: SolvedChain) -> RGB {
+        let v: RGB = FilmChain.tone(scene, s)
+        let formed: RGB = s.monochrome ? v : FilmChain.colour(scene, v, s)
+        // Inside paper white and paper black, with black itself neutral.
+        let floor: Double = FilmChain.blackFloor
+        let out: RGB = RGB(Num.clamp(formed.r, floor, 1), Num.clamp(formed.g, floor, 1),
+                           Num.clamp(formed.b, floor, 1))
+        let y: Double = filmLumaWeights.r * out.r + filmLumaWeights.g * out.g
+            + filmLumaWeights.b * out.b
+        let k: Double = Num.smoothstep(floor, floor * FilmChain.neutralBlackSpan, y)
+        return RGB(gray: y) + (out - RGB(gray: y)) * k
+    }
+
+    /// The path to white and the stock's colour on top of its tone `v`.
+    private static func colour(_ scene: RGB, _ v: RGB, _ s: SolvedChain) -> RGB {
+        let c: RGB = RGB(Swift.max(scene.r, 0), Swift.max(scene.g, 0), Swift.max(scene.b, 0))
+        // A grey stays exactly the stock's grey (with its crossover).
+        if c.r == c.g && c.g == c.b { return v }
+
+        // The path to white: ratio-preserving on the stock's own tone through the
+        // mid-tones, per-channel by the shoulder.
+        let m: RGB = s.inset.apply(c)
+        let ins: RGB = RGB(Swift.max(m.r, 0), Swift.max(m.g, 0), Swift.max(m.b, 0))
+        let peak: Double = ins.maxComponent
+        var formed: RGB = v
+        if peak > 1e-12 {
+            let greyTone: RGB = FilmChain.tone(RGB(gray: peak), s)
+            let ratio: RGB = (ins / peak) * greyTone
+            let ev: Double = log2(peak / DisplayTransform.midGrey) + s.shift
+            let u: Double = Num.saturate((ev - FilmChain.pathToWhiteStart)
+                                         / (FilmChain.pathToWhiteEnd - FilmChain.pathToWhiteStart))
+            formed = v.mix(ratio, 1 - u * u)
+        }
+
+        // Colour anchoring, relative to the stock's own (tinted) grey of the same
+        // luminance: hue from the neutral rendering plus the stock's lobes, chroma the
+        // film's own times the stock's saturation.
+        let ctx: OKLabTransform.Context = OKLabTransform.working
+        let luma: Double = filmLumaWeights.r * c.r + filmLumaWeights.g * c.g + filmLumaWeights.b * c.b
+        let grey: RGB = FilmChain.tone(RGB(gray: luma), s)
+        let lab: OKLab = ctx.toLab(RGB(Swift.max(formed.r, 0), Swift.max(formed.g, 0),
+                                       Swift.max(formed.b, 0)))
+        let labGrey: OKLab = ctx.toLab(grey)
+        let da: Double = lab.a - labGrey.a
+        let db: Double = lab.b - labGrey.b
+        var chroma: Double = (da * da + db * db).squareRoot()
+        guard chroma > 1e-12 else {
+            return Gamut.softClip(formed, boundary: Gamut.sharedBoundary)
+        }
+
+        let ref: OKLab = ctx.toLab(FilmChain.hueReference.apply(c))
+        let refHue: Double = atan2(ref.b, ref.a) * 180 / .pi
+        let look: FilmColor = s.color
+        let hue: Double = refHue + look.hueShift(at: refHue)
+        var k: Double = look.chromaGain(at: refHue)
+        k = 1 + (k - 1) * Num.smoothstep(look.darkFadeLow, look.darkFadeHigh, lab.L)
+        if k > 1 {
+            let edge: Double = FilmChain.saturationBoundary.maxChroma(
+                L: Num.clamp(lab.L, 1e-4, 1 - 1e-4), hue: Num.wrapHue(hue))
+            let x: Double = Swift.min(look.saturationReach * chroma / Swift.max(edge, 1e-6), 1.0)
+            chroma = chroma * k / (1 + (k - 1) * x)
+        } else {
+            chroma *= k
+        }
+        let h: Double = hue * .pi / 180
+        let out: RGB = ctx.toRGB(OKLab(L: lab.L,
+                                       a: labGrey.a + chroma * cos(h),
+                                       b: labGrey.b + chroma * sin(h)))
+        let clamped: RGB = RGB(Swift.max(out.r, 0), Swift.max(out.g, 0), Swift.max(out.b, 0))
+        return Gamut.softClip(clamped, boundary: Gamut.sharedBoundary)
     }
 }

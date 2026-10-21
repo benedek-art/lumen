@@ -1,15 +1,15 @@
 {
-  "authority" : 26.191633822376104,
+  "authority" : 25.423941981462463,
   "deadSteps" : 0,
   "frame" : "grainField",
-  "frontLoading" : 1.0532399376292811,
-  "givenBack" : 21.183351381714786,
+  "frontLoading" : 1.0887816381012358,
+  "givenBack" : 22.26214935551701,
   "hueRotation" : 0,
   "id" : "film.grain.size",
   "isMonotone" : false,
-  "meanSeparation" : 2.8035946427298364,
+  "meanSeparation" : 2.43765533212111,
   "panel" : "Film Lab",
-  "smallestLiveStep" : 22.43567552622109,
+  "smallestLiveStep" : 21.91502430079754,
   "travelHigh" : 2,
   "travelLow" : 0.5
 }

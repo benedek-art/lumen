@@ -1468,11 +1468,15 @@ struct LookPanel: View {
                                         get: { $0.exposure },
                                         set: { $0.exposure = Num.clamp($1, -2, 3) }),
                         range: -2...3, defaultValue: 0, step: 0.25, decimals: 2)
+            // The stock's own push range (Velvia 50's datasheet allows −½…+1); the
+            // engine clamps to the same range, so the slider never offers a dead end.
+            let pushRange: ClosedRange<Double> = stock?.push.range ?? -1...2
             LumenSlider(title: "Push / Pull",
                         value: bindFilm("film.push",
                                         get: { $0.pushPull },
-                                        set: { $0.pushPull = Num.clamp($1, -1, 2) }),
-                        range: -1...2, defaultValue: 0, step: 0.25, decimals: 2)
+                                        set: { $0.pushPull = Num.clamp($1, pushRange.lowerBound,
+                                                                       pushRange.upperBound) }),
+                        range: pushRange, defaultValue: 0, step: 0.25, decimals: 2)
             // A KNOWN stock with no halation response. An unknown stock also leaves
             // `halationSupported` false (no stock, no strengths), but that photo is
             // not on a stock without halation — it is on no stock at all, and the

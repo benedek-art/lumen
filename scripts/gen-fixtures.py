@@ -3720,41 +3720,49 @@ def gen_grade_checks():
 # ---------------------------------------------------------------------------
 
 MID_GREY_ANCHOR = 0.7447274948966939      # = −log10(0.18)
-FILM_PUSH_DIVERGENCE = (0.03, 0.0, -0.03)
 FILM_LUMA = tuple(_REC2020_TO_XYZ[1])     # the Y row: Rec.2020 luminance weights
+FILM_BLACK_FLOOR = 0.0152 / 100.0         # FilmChain.blackFloor
+FILM_TINT_REACH = 1.2                     # FilmChain.tintReach
+FILM_CRUSH_SOFTNESS = 0.7                 # FilmChain.crushSoftness
+FILM_NEUTRAL_BLACK_SPAN = 15.0            # FilmChain.neutralBlackSpan
+FILM_REVERSAL_GREY_DENSITY = MID_GREY_ANCHOR
+FILM_LOG2 = math.log10(2.0)
+
+# What this mirrors, and what it does not. The chain is negative (toe, straight line,
+# shoulder) → DIR coupling → per-channel density-weighted crossover tints → print (a
+# straight line rolled into paper white and paper black) → levels → push crush →
+# black floor. That is the WHOLE chain for a grey, which is all the fixture samples:
+# on a grey the colour stages (path to white, hue anchoring, gamut map) are identities
+# by construction (`FilmChain.colour` returns the grey untouched). They are exercised
+# in Swift by FilmStockLookTests and measured by docs/quality/lanes/WS-38/measure.py.
 
 
-class FilmStage:
-    """One characteristic curve with its per-channel constants resolved."""
+def film_soft(u, tau):
+    """FilmShape.soft: softplus in log10 units (tau > 0) or the hyperbola (tau < 0)."""
+    if tau < 0:
+        return 0.5 * (u + math.sqrt(u * u + tau * tau))
+    t = max(tau, 1e-6)
+    z = u / t
+    if z > 30:
+        return u
+    return t * math.log10(1 + 10.0 ** z)
 
-    def __init__(self, gamma, d_min, d_max, log_offset, rising, anchor):
-        self.d_min = list(d_min)
-        self.d_max = list(d_max)
-        self.delta = [max(d_max[i] - d_min[i], 1e-6) for i in range(3)]
-        self.k = [max(gamma[i], 0.02) / (0.25 * self.delta[i]) for i in range(3)]
-        self.offset = [log_offset[i] + anchor for i in range(3)]
-        self.rising = rising
-        self.white_t = [10.0 ** -d_min[i] for i in range(3)]
-        self.black_t = [10.0 ** -d_max[i] for i in range(3)]
 
-    def response(self, e):
-        """(density, tone) — tone is the sigmoid itself, which rises with exposure
-        for a negative and for a transparency alike, so the crossover weights read
-        the same way on both."""
-        density, tone = [0.0] * 3, [0.0] * 3
-        for i in range(3):
-            x = clamp(self.k[i] * (math.log10(max(e[i], 1e-12)) + self.offset[i]),
-                      -60, 60)
-            s = 1.0 / (1.0 + math.exp(-x))
-            tone[i] = s
-            density[i] = self.d_min[i] + self.delta[i] * (s if self.rising else 1.0 - s)
-        return density, tone
+def film_soft_min(a, b, tau):
+    return b - film_soft(b - a, tau)
+
+
+def film_soft_max(a, b, tau):
+    return b + film_soft(a - b, tau)
+
+
+def film_hyper(u, eps):
+    return 0.5 * (u + math.sqrt(u * u + eps * eps))
 
 
 def film_coupling_matrix(interlayer, coupler):
     """DIR inhibition + masking-coupler residue as one 3×3. Unit row sums, so a
-    neutral density triple survives exactly and the grey calibration cannot be
-    disturbed by colour couplers."""
+    neutral density triple survives exactly."""
     a = clamp(interlayer, 0, 0.6)
     b = clamp(coupler, -0.5, 0.5)
     third = 1.0 / 3.0
@@ -3770,42 +3778,73 @@ class SolvedFilmChain:
     pass
 
 
-def film_render(scene, s, white):
-    """Negative → couplers → crossover → transmittance → print → paper white.
-    Grain is omitted: it enters in density from a plate the chain does not own, and
-    is zero on every path this file checks."""
-    e = [max(scene[i], 0.0) for i in range(3)]
+def film_negative_density(x, s, i):
+    d = s.d_min[i] + s.gamma[i] * film_soft(x - s.toe_log[i], s.low)
+    return film_soft_min(d, s.top[i], s.high)
+
+
+def film_reversal_density(x, s, i):
+    lin = FILM_REVERSAL_GREY_DENSITY - s.gamma[i] * (x + MID_GREY_ANCHOR)
+    d = film_soft_min(lin, s.top[i], s.high)
+    return film_soft_max(d, s.d_min[i], s.low)
+
+
+def film_tone(scene, s):
+    """FilmChain.tone, on a scene triple (greys only reach here from the fixture)."""
+    c = [max(v, 0.0) for v in scene]
     if s.monochrome:
-        y = sum(FILM_LUMA[i] * e[i] for i in range(3))
+        y = sum(s.panchromatic[i] * c[i] for i in range(3))
         e = [max(y, 0.0)] * 3
-    e = [e[i] * s.film_gain[i] for i in range(3)]
-
-    density, tone_triple = s.negative.response(e)
-    d = mat_apply(s.coupling, density)
-
-    tone = sum(tone_triple) / 3.0
-    shadow_weight = 1.0 - smoothstep(0.0, 0.6, tone)
-    highlight_weight = smoothstep(0.4, 1.0, tone)
-    d = [d[i] + s.shadow_tint[i] * shadow_weight
-         + s.highlight_tint[i] * highlight_weight for i in range(3)]
-
-    t = [10.0 ** -d[i] for i in range(3)]
-
-    if s.print_stage is not None:
-        print_exposure = [t[i] * s.print_gain[i] for i in range(3)]
-        print_density, _ = s.print_stage.response(print_exposure)
-        final_t = [10.0 ** -print_density[i] for i in range(3)]
-        last = s.print_stage
     else:
-        final_t = t
-        last = s.negative
-
+        e = c                      # the inset matrix maps a grey to itself
+    scale = 2.0 ** s.shift
+    d = [0.0] * 3
+    for i in range(3):
+        x = math.log10(max(e[i] * scale, 1e-30))
+        if s.reversal:
+            x += s.gain[i]
+            d[i] = film_reversal_density(x, s, i)
+        else:
+            d[i] = film_negative_density(x, s, i)
+    d = list(mat_apply(s.coupling, d))
+    for i in range(3):
+        pos = s.grey_density[i] - d[i] if s.reversal else d[i] - s.grey_density[i]
+        floor_pos = (s.grey_density[i] - s.black_density[i] if s.reversal
+                     else s.black_density[i] - s.grey_density[i])
+        shadow = ((1.0 - smoothstep(-FILM_TINT_REACH, 0, pos))
+                  * smoothstep(floor_pos, floor_pos + 0.3, pos))
+        highlight = smoothstep(0, FILM_TINT_REACH, pos)
+        d[i] += s.shadow_tint[i] * shadow + s.highlight_tint[i] * highlight
+    t = [10.0 ** -d[i] for i in range(3)]
+    if not s.reversal:
+        for i in range(3):
+            y = math.log10(max(t[i], 1e-30)) + s.gain[i]
+            pd = s.print_gamma[i] * y
+            pd = film_soft_min(pd, s.print_d_max[i], s.print_high)
+            pd = film_soft_max(pd, s.print_d_min[i], s.print_low)
+            t[i] = 10.0 ** -pd
     out = [0.0] * 3
     for i in range(3):
-        span = last.white_t[i] - last.black_t[i]
-        v = 0.0 if abs(span) < 1e-12 else (final_t[i] - last.black_t[i]) / span
-        out[i] = clamp(v, 0, 1) * white
+        span = s.white[i] - s.black[i]
+        v = 0.0 if abs(span) < 1e-15 else min((t[i] - s.black[i]) / span, 1.0)
+        if s.crush > 0:
+            eps = s.crush * FILM_CRUSH_SOFTNESS
+            zero = film_hyper(-s.crush, eps)
+            v = (film_hyper(v - s.crush, eps) - zero) / (film_hyper(1 - s.crush, eps) - zero)
+        out[i] = v * (1 - FILM_BLACK_FLOOR) + FILM_BLACK_FLOOR
     return out
+
+
+def film_render(scene, s, white=1.0):
+    """FilmChain.picture for a grey: the tone, inside paper white and black, with the
+    black neutral. Paper white is SDR white at every display peak, so `white` is
+    accepted for the old signature and ignored, as the Swift does."""
+    v = film_tone(scene, s)
+    floor = FILM_BLACK_FLOOR
+    o = [clamp(x, floor, 1.0) for x in v]
+    y = sum(FILM_LUMA[i] * o[i] for i in range(3))
+    k = smoothstep(floor, floor * FILM_NEUTRAL_BLACK_SPAN, y)
+    return [y + (o[i] - y) * k for i in range(3)]
 
 
 def film_bisect(target, lo, hi, steps, f):
@@ -3836,106 +3875,150 @@ def film_bisect(target, lo, hi, steps, f):
     return 0.5 * (a + b)
 
 
-def film_solve_gains(s, white):
-    """Per-channel calibration gain so scene mid-grey lands on display mid-grey in
-    every channel. The print gain is downstream of every channel-mixing step so one
-    sweep is exact; a transparency's gain is scene-side and the couplers mix after
-    it, so the sweeps iterate."""
+def film_solve_gains(s):
+    """Per-channel printer lights (negative) or film gain (slide) putting scene
+    mid-grey on display mid-grey. One sweep is exact for a print; a slide's couplers
+    mix channels after its gain, so it iterates."""
     grey = [0.18, 0.18, 0.18]
-    target = 0.18 * white
-    use_print = s.print_stage is not None
-    for _ in range(6):
+    sweeps = 6 if s.reversal else 1
+    for _ in range(sweeps):
         for i in range(3):
             def probe(log_gain, i=i):
-                g = 2.0 ** log_gain
-                saved = list(s.print_gain), list(s.film_gain)
-                if use_print:
-                    s.print_gain[i] = g
-                else:
-                    s.film_gain[i] = g
-                out = film_render(grey, s, white)[i]
-                s.print_gain, s.film_gain = saved
+                saved = list(s.gain)
+                s.gain[i] = log_gain
+                out = film_tone(grey, s)[i]
+                s.gain = saved
                 return out
-            g = 2.0 ** film_bisect(target, -14, 14, 52, probe)
-            if use_print:
-                s.print_gain[i] = g
-            else:
-                s.film_gain[i] = g
+            s.gain[i] = film_bisect(0.18, -12, 12, 60, probe)
     return s
 
 
-def film_chain(stock, push=0.0, white=1.0):
-    push = clamp(push, -1, 2)
-    gamma = [max(stock["gamma"][i] * (1.0 + 0.18 * push * (1.0 + FILM_PUSH_DIVERGENCE[i])),
-                 0.02) for i in range(3)]
-
+def film_chain(stock, push=0.0, exposure=0.0, white=1.0):
+    lo, hi = stock["pushRange"]
+    push = clamp(push, lo, hi)
+    exposure = clamp(exposure, -2, 3)
     s = SolvedFilmChain()
-    s.negative = FilmStage(gamma, stock["dMin"], stock["dMax"], stock["logOffset"],
-                           stock["kind"] == "negative", MID_GREY_ANCHOR)
-    # The print's own log-exposure origin is absorbed by the calibration gain, so its
-    # anchor is 0 and only its gamma and density span carry character.
-    s.print_stage = (None if stock["print"] is None
-                     else FilmStage(stock["print"]["gamma"], stock["print"]["dMin"],
-                                    stock["print"]["dMax"], (0.0, 0.0, 0.0), True, 0.0))
-    s.coupling = film_coupling_matrix(stock["interlayer"], stock["coupler"])
-    s.shadow_tint = [stock["shadowTint"][i] + stock["pushTint"][i] * push
-                     for i in range(3)]
-    s.highlight_tint = list(stock["highlightTint"])
-    s.film_gain = [1.0, 1.0, 1.0]
-    s.print_gain = [1.0, 1.0, 1.0]
+    s.reversal = stock["kind"] == "reversal"
     s.monochrome = stock["monochrome"]
-    return film_solve_gains(s, white)
+    s.panchromatic = stock["panchromatic"]
+    scale = 1.0 + stock["gammaPerStop"] * push
+    s.gamma = [max(g * scale, 0.02) for g in stock["gamma"]]
+    s.d_min = list(stock["dMin"])
+    s.low, s.high = stock["low"], stock["high"]
+    s.shift = 0.0 if s.reversal else exposure - push * stock["underexposurePerStop"]
+    grey_log = -MID_GREY_ANCHOR
+    s.toe_log, s.top = [0.0] * 3, [0.0] * 3
+    for i in range(3):
+        toe = stock["toeStops"] - stock["logOffset"][i]
+        s.toe_log[i] = grey_log - toe * FILM_LOG2
+        s.top[i] = (stock["ceiling"][i] if s.reversal
+                    else s.d_min[i] + stock["gamma"][i] * (toe + stock["shoulderStops"]) * FILM_LOG2)
+    s.coupling = film_coupling_matrix(stock["interlayer"], stock["coupler"])
+    s.shadow_tint = [stock["shadowTint"][i] + stock["pushTint"][i] * push for i in range(3)]
+    s.highlight_tint = list(stock["highlightTint"])
+    s.crush = stock["shadowCrushPerStop"] * max(push, 0.0)
+    s.gain = [0.0, 0.0, 0.0]
+    wd = stock["whiteDelta"]
+    if s.reversal:
+        s.grey_density = [FILM_REVERSAL_GREY_DENSITY] * 3
+        s.black_density = list(s.top)
+        s.black = [10.0 ** -s.top[i] for i in range(3)]
+        s.white = [10.0 ** -(s.d_min[i] + wd) for i in range(3)]
+    else:
+        p = stock["print"]
+        s.print_gamma = list(p["gamma"])
+        s.print_d_min, s.print_d_max = list(p["dMin"]), list(p["dMax"])
+        s.print_low = p["low"] * (1.0 - stock["printToePerStop"] * push)
+        s.print_high = p["high"]
+        grey_x = math.log10(0.18) + s.shift * FILM_LOG2
+        dg = [film_negative_density(grey_x, s, i) for i in range(3)]
+        s.grey_density = list(mat_apply(s.coupling, dg))
+        s.black_density = list(mat_apply(s.coupling, s.d_min))
+        s.black = [10.0 ** -p["dMax"][i] for i in range(3)]
+        s.white = [10.0 ** -(p["dMin"][i] + wd) for i in range(3)]
+    return film_solve_gains(s)
 
 
-# The launch six, transcribed from FilmStock.all.
+# The launch six, transcribed from FilmStock.all (FilmLab.swift). Generated together
+# with the Swift tables from one parameter set (docs/quality/lanes/WS-38).
 FILM_STOCKS = {
     "lumen/portra400": dict(
         kind="negative", monochrome=False,
-        gamma=(0.545, 0.550, 0.560), dMin=(0.06, 0.14, 0.22), dMax=(2.06, 2.14, 2.22),
-        logOffset=(0.000, 0.000, -0.010),
-        print=dict(gamma=(2.48, 2.48, 2.48), dMin=(0.05, 0.06, 0.07),
-                   dMax=(2.15, 2.20, 2.25)),
-        shadowTint=(0.015, 0.005, -0.015), highlightTint=(-0.005, 0.000, 0.010),
-        pushTint=(-0.020, 0.010, 0.025), interlayer=0.14, coupler=0.05),
+        gamma=(0.5706, 0.5706, 0.5706), dMin=(0.06, 0.14, 0.22),
+        toeStops=5.432, shoulderStops=5.207, logOffset=(-0.8, 0.0, 0.0),
+        low=0.1881, high=0.4158, ceiling=None,
+        print=dict(gamma=(2.6388, 2.6388, 2.6388), dMin=(0.05, 0.06, 0.07), dMax=(2.15, 2.2, 2.25),
+                   low=0.8981, high=0.9646), whiteDelta=0.008,
+        shadowTint=(0.018, 0.004, -0.018), highlightTint=(0.006, 0.004, -0.008),
+        pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
+        pushRange=(-1.0, 2.0), gammaPerStop=0.1737,
+        printToePerStop=0.1, shadowCrushPerStop=0.0065,
+        underexposurePerStop=1.0, panchromatic=None,
+        insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/gold200": dict(
         kind="negative", monochrome=False,
-        gamma=(0.605, 0.590, 0.578), dMin=(0.06, 0.14, 0.22), dMax=(2.06, 2.14, 2.22),
-        logOffset=(0.012, 0.000, -0.016),
-        print=dict(gamma=(2.52, 2.50, 2.48), dMin=(0.05, 0.06, 0.07),
-                   dMax=(2.10, 2.15, 2.20)),
-        shadowTint=(0.020, 0.006, -0.022), highlightTint=(0.022, 0.010, -0.020),
-        pushTint=(-0.018, 0.012, 0.026), interlayer=0.18, coupler=0.09),
+        gamma=(0.6875, 0.6875, 0.6875), dMin=(0.06, 0.14, 0.22),
+        toeStops=5.7305, shoulderStops=5.4492, logOffset=(-0.8, 0.0, 0.0),
+        low=0.4514, high=0.434, ceiling=None,
+        print=dict(gamma=(2.72, 2.72, 2.72), dMin=(0.05, 0.06, 0.07), dMax=(2.1, 2.15, 2.2),
+                   low=1.0423, high=1.2986), whiteDelta=0.0038,
+        shadowTint=(0.025, 0.006, -0.022), highlightTint=(0.03, 0.01, -0.035),
+        pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
+        pushRange=(-1.0, 2.0), gammaPerStop=0.1909,
+        printToePerStop=0.1, shadowCrushPerStop=0.0057,
+        underexposurePerStop=1.0, panchromatic=None,
+        insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/ektar100": dict(
         kind="negative", monochrome=False,
-        gamma=(0.665, 0.665, 0.670), dMin=(0.06, 0.14, 0.22), dMax=(2.06, 2.14, 2.22),
-        logOffset=(-0.006, 0.000, 0.006),
-        print=dict(gamma=(2.50, 2.50, 2.50), dMin=(0.05, 0.05, 0.06),
-                   dMax=(2.20, 2.24, 2.28)),
-        shadowTint=(-0.008, 0.000, 0.012), highlightTint=(0.004, 0.000, 0.002),
-        pushTint=(-0.015, 0.008, 0.020), interlayer=0.26, coupler=0.06),
+        gamma=(0.97, 0.97, 0.97), dMin=(0.06, 0.14, 0.22),
+        toeStops=5.3141, shoulderStops=5.4824, logOffset=(-0.5, 0.0, 0.0),
+        low=0.3703, high=0.566, ceiling=None,
+        print=dict(gamma=(2.5512, 2.5512, 2.5512), dMin=(0.05, 0.05, 0.06), dMax=(2.2, 2.24, 2.28),
+                   low=1.4, high=1.75), whiteDelta=0.005,
+        shadowTint=(-0.008, 0.0, 0.012), highlightTint=(0.0, 0.0, 0.0),
+        pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
+        pushRange=(-1.0, 2.0), gammaPerStop=0.2,
+        printToePerStop=0.1, shadowCrushPerStop=0.0075,
+        underexposurePerStop=1.0, panchromatic=None,
+        insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/trix400": dict(
         kind="negative", monochrome=True,
-        gamma=(0.620, 0.620, 0.620), dMin=(0.10, 0.10, 0.10), dMax=(2.10, 2.10, 2.10),
-        logOffset=(0.0, 0.0, 0.0),
-        print=dict(gamma=(2.35, 2.35, 2.35), dMin=(0.06, 0.06, 0.06),
-                   dMax=(2.20, 2.20, 2.20)),
+        gamma=(0.7651, 0.7651, 0.7651), dMin=(0.1, 0.1, 0.1),
+        toeStops=5.8406, shoulderStops=4.9824, logOffset=(0.0, 0.0, 0.0),
+        low=0.4541, high=0.4775, ceiling=None,
+        print=dict(gamma=(2.57, 2.57, 2.57), dMin=(0.06, 0.06, 0.06), dMax=(2.2, 2.2, 2.2),
+                   low=1.0327, high=1.3809), whiteDelta=0.004,
         shadowTint=(0.0, 0.0, 0.0), highlightTint=(0.0, 0.0, 0.0),
-        pushTint=(0.0, 0.0, 0.0), interlayer=0.0, coupler=0.0),
+        pushTint=(0.0, 0.0, 0.0), interlayer=0.1, coupler=0.0,
+        pushRange=(-1.0, 2.0), gammaPerStop=0.19,
+        printToePerStop=0.1, shadowCrushPerStop=0.0065,
+        underexposurePerStop=1.0, panchromatic=(0.25, 0.55, 0.2),
+        insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/velvia50": dict(
         kind="reversal", monochrome=False,
-        gamma=(1.720, 1.750, 1.800), dMin=(0.12, 0.14, 0.16), dMax=(3.40, 3.45, 3.50),
-        logOffset=(0.004, 0.000, -0.004),
-        print=None,
-        shadowTint=(0.020, 0.000, -0.020), highlightTint=(-0.008, 0.000, 0.006),
-        pushTint=(0.014, -0.004, -0.012), interlayer=0.30, coupler=0.04),
+        gamma=(2.28, 2.28, 2.28), dMin=(0.12, 0.14, 0.16),
+        toeStops=4.0, shoulderStops=7.0, logOffset=(0.0, 0.0, 0.0),
+        low=0.6312, high=-2.35, ceiling=(3.9878, 4.0377, 4.0877),
+        print=None, whiteDelta=0.004,
+        shadowTint=(-0.01, 0.01, -0.01), highlightTint=(0.0, 0.0, 0.0),
+        pushTint=(0.0, 0.0, 0.0), interlayer=0.1, coupler=0.0,
+        pushRange=(-0.5, 1.0), gammaPerStop=0.12,
+        printToePerStop=0.0, shadowCrushPerStop=0.006,
+        underexposurePerStop=0.0, panchromatic=None,
+        insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
     "lumen/cine250d": dict(
         kind="negative", monochrome=False,
-        gamma=(0.500, 0.505, 0.510), dMin=(0.10, 0.20, 0.30), dMax=(2.00, 2.10, 2.20),
-        logOffset=(0.000, 0.000, 0.008),
-        print=dict(gamma=(2.62, 2.62, 2.62), dMin=(0.06, 0.06, 0.07),
-                   dMax=(2.60, 2.65, 2.70)),
-        shadowTint=(-0.010, 0.000, 0.014), highlightTint=(0.008, 0.004, -0.006),
-        pushTint=(-0.016, 0.010, 0.024), interlayer=0.20, coupler=0.07),
+        gamma=(0.6703, 0.6703, 0.6703), dMin=(0.1, 0.2, 0.3),
+        toeStops=5.7562, shoulderStops=5.0, logOffset=(-0.3, 0.0, 0.0),
+        low=0.3857, high=0.383, ceiling=None,
+        print=dict(gamma=(2.395, 2.395, 2.395), dMin=(0.06, 0.06, 0.07), dMax=(2.6, 2.65, 2.7),
+                   low=1.05, high=0.9586), whiteDelta=0.007,
+        shadowTint=(-0.05, -0.005, 0.05), highlightTint=(0.03, 0.012, -0.03),
+        pushTint=(-0.01, 0.005, 0.012), interlayer=0.1, coupler=0.0,
+        pushRange=(-1.0, 2.0), gammaPerStop=0.1781,
+        printToePerStop=0.1, shadowCrushPerStop=0.005,
+        underexposurePerStop=1.0, panchromatic=None,
+        insetAttenuation=(0.14, 0.18, 0.12), insetRotation=(0.02, -0.03, 0.06)),
 }
 
 FILM_PUSH_SETTINGS = (-1.0, -0.5, 0.0, 1.0, 2.0)
@@ -3943,85 +4026,82 @@ FILM_EXPOSURE_SETTINGS = (-2.0, 0.0, 1.5, 3.0)
 
 
 def gen_film_checks():
-    print("film chain: mid-grey anchor and monotonicity ...")
+    print("film chain: mid-grey anchor, monotonicity, lab-normalised exposure ...")
 
     for name, stock in sorted(FILM_STOCKS.items()):
         for push in FILM_PUSH_SETTINGS:
-            chain = film_chain(stock, push=push)
-
-            # Mid-grey lands on mid-grey in every channel, by construction rather
-            # than by tuning — that is what the gain solve is for.
-            anchor = film_render([0.18, 0.18, 0.18], chain, 1.0)
-            for i in range(3):
-                check(abs(anchor[i] - 0.18) < 1e-6,
-                      f"{name} at push {push} put mid-grey at {anchor[i]:.9f} "
-                      f"in channel {i}")
-
             for exposure in FILM_EXPOSURE_SETTINGS:
-                gain = 2.0 ** exposure
-                previous = [-1e30] * 3
-                for step in range(91):
-                    ev = -10 + step * 0.2
-                    scene = [0.18 * (2.0 ** ev) * gain] * 3
-                    out = film_render(scene, chain, 1.0)
+                chain = film_chain(stock, push=push, exposure=exposure)
+                # A negative is printed back to mid-grey at every film exposure; a
+                # slide's film exposure is scene exposure, applied before the chain.
+                gain = 2.0 ** exposure if chain.reversal else 1.0
+                if not chain.reversal or exposure == 0:
+                    anchor = film_render([0.18 * gain] * 3, chain, 1.0)
                     for i in range(3):
-                        check(out[i] >= previous[i] - 1e-9,
+                        check(abs(anchor[i] - 0.18) < 1e-6,
+                              f"{name} at push {push}, exposure {exposure} put mid-grey "
+                              f"at {anchor[i]:.9f} in channel {i}")
+                previous = [-1e30] * 3
+                for step in range(101):
+                    ev = -12 + step * 0.2
+                    out = film_render([0.18 * (2.0 ** ev) * gain] * 3, chain, 1.0)
+                    for i in range(3):
+                        check(out[i] >= previous[i] - 1e-12,
                               f"{name} inverted in channel {i} at {ev:+.1f} EV "
                               f"(push {push}, film exposure {exposure}): "
                               f"{previous[i]:.12f} → {out[i]:.12f}")
                     previous = out
 
-    # The ramp has to actually move, or "monotone" is satisfied by a flat line and
-    # the sweep above proves nothing. Measured across the stock's own useful range,
-    # not the clipped ends.
+    # The ramp has to actually move, reach paper white and reach paper black.
     for name, stock in sorted(FILM_STOCKS.items()):
         chain = film_chain(stock)
         low = film_render([0.18 * 2 ** -3] * 3, chain, 1.0)
         high = film_render([0.18 * 2 ** 2] * 3, chain, 1.0)
         check(high[1] - low[1] > 0.3,
               f"{name} spans only {high[1] - low[1]:.4f} from −3 to +2 EV")
+        white = film_render([0.18 * 2 ** 9] * 3, chain, 1.0)
+        check(min(white) > 0.98, f"{name} never reaches white: {white}")
+        black = film_render([0.18 * 2 ** -12] * 3, chain, 1.0)
+        check(max(black) < 0.002, f"{name} has lifted blacks: {black}")
 
-    # Crossover is supposed to be a colour, not a tone: it must not be strong enough
-    # to matter to the shape of the curve. This is the margin the analysis claimed,
-    # asserted rather than assumed — if a stock is ever authored with tints an order
-    # of magnitude larger, the monotonicity sweep above may still pass while the
-    # chain has stopped being safe by construction.
+    # Crossover is a colour, not a tone: bounded well inside the density span.
     for name, stock in sorted(FILM_STOCKS.items()):
-        span = max(stock["dMax"][i] - stock["dMin"][i] for i in range(3))
         for push in FILM_PUSH_SETTINGS:
             swing = max(abs(stock["shadowTint"][i] + stock["pushTint"][i] * push)
                         + abs(stock["highlightTint"][i]) for i in range(3))
-            check(swing < 0.05 * span,
-                  f"{name} crossover swings {swing:.4f} density at push {push}, "
-                  f"which is {swing / span:.1%} of its {span:.2f} span")
+            check(swing < 0.15,
+                  f"{name} crossover swings {swing:.4f} density at push {push}")
 
-    # Push/pull is swept above, but every assertion there — anchored, monotone,
-    # spans its range, crossover bounded — holds for a chain that DISCARDS it. So
-    # the sweep proved the chain survives push, never that push does anything.
+    # Push must do something, in the right direction, inside the stock's own range.
     for name, stock in sorted(FILM_STOCKS.items()):
+        lo, hi = stock["pushRange"]
         previous = None
         for push in (-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0):
             chain = film_chain(stock, push=push)
-            # Measured well below mid-grey, where a steeper gamma shows most.
             value = film_render([0.18 * 2 ** -3] * 3, chain, 1.0)[1]
-            if previous is not None:
+            inside = lo <= push <= hi and (previous is None or lo <= push - 0.5)
+            if previous is not None and inside:
                 check(abs(value - previous) > 1e-6,
-                      f"{name} rendered identically at push {push} and "
-                      f"{push - 0.5} ({value:.9f}) — push/pull is being ignored")
+                      f"{name} rendered identically at push {push} and {push - 0.5}")
                 check(value < previous + 1e-12,
-                      f"{name} got BRIGHTER in the shadows at push {push}, which is "
-                      "backwards: pushing steepens the curve")
+                      f"{name} got BRIGHTER in the shadows at push {push}")
+            if previous is not None and push > hi:
+                check(abs(value - previous) < 1e-12,
+                      f"{name} kept moving past its push range at {push}")
             previous = value
-        # Film exposure likewise: it is swept for safety and never for effect.
-        base = film_render([0.18] * 3, film_chain(stock), 1.0)[1]
-        for exposure in (-2.0, -1.0, 1.0, 3.0):
-            chain = film_chain(stock)
-            shifted = film_render([0.18 * 2 ** exposure] * 3, chain, 1.0)[1]
-            check(abs(shifted - base) > 1e-6,
-                  f"{name} rendered identically at film exposure {exposure}")
+        # A negative's film exposure is printed back to grey; its shadows move.
+        if stock["kind"] == "negative":
+            base = film_render([0.18 * 2 ** -3] * 3, film_chain(stock), 1.0)[1]
+            for exposure in (-2.0, -1.0, 1.0, 3.0):
+                chain = film_chain(stock, exposure=exposure)
+                check(abs(film_render([0.18] * 3, chain, 1.0)[1] - 0.18) < 1e-6,
+                      f"{name} was not printed back to grey at exposure {exposure}")
+                shifted = film_render([0.18 * 2 ** -3] * 3, chain, 1.0)[1]
+                check(abs(shifted - base) > 1e-6,
+                      f"{name} rendered identically at film exposure {exposure}")
 
-    print("  6 stocks × 5 push settings × 4 film exposures: "
-          "grey anchored, no inversion, and push/pull actually moves the picture")
+    print("  6 stocks × 5 push × 4 film exposures: grey anchored (lab-normalised), "
+          "monotone, white and black reached, push moves the picture")
 
 
 # ---------------------------------------------------------------------------

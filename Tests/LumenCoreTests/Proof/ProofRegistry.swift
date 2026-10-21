@@ -1020,11 +1020,21 @@ enum ProofRegistry {
             ("ektar100", "Ektar 100"), ("velvia50", "Velvia 50"),
             ("cine250d", "Cine 250D"), ("trix400", "Tri-X 400"),
         ]
-        // One floor for the six, set by the weakest — Cine 250D at 149.10, against
-        // Ektar 167.29, Gold 166.10, Portra 160.97, Velvia 159.24 and Tri-X 194.61.
-        // Six stocks measuring within 30% of each other is the answer to the question
-        // this loop asks: every one of them reaches the picture, and none is a preset
-        // that renders as the neutral transform.
+        // One floor PER STOCK since WS-38, each at 0.7 of that stock's own measurement
+        // (the fraction the old shared floor sat at: 59 of 84.55).
+        //
+        // THE NUMBERS FELL BECAUSE THE DEFECTS LEFT, not because the stocks stopped
+        // reaching the picture. The old 84…195 were mostly what docs/quality/lanes/
+        // WS-38/AUDIT.md convicted: lifted blacks, grey whites, ×1.5–2 chroma on muted
+        // colours and the hard sRGB clip of saturated hues — and this frame's columns
+        // are band-centre hues at unit luminance, i.e. at the gamut edge, exactly where
+        // the rebuilt stocks hold saturation inside the boundary (spec S20/S21). Peak
+        // separation from the neutral rendering is now 12.1 Portra, 16.5 Gold, 25.9
+        // Ektar, 57.4 Velvia, 19.6 Cine 250D, 139.6 Tri-X: the near-neutral portrait
+        // and cine stocks are close to Neutral by specification (S10, S12, S16), the
+        // slide and the B&W are not. Every one still reaches the picture.
+        let floors: [String: Double] = ["portra400": 8, "gold200": 11, "ektar100": 18,
+                                        "velvia50": 40, "cine250d": 13, "trix400": 97]
         var out: [ControlSpec] = stocks.map { id, name in
             ControlSpec(
                 // Strength is the blend against the neutral rendering, 0…100 in the
@@ -1035,11 +1045,8 @@ enum ProofRegistry {
                 displayName: "\(name) strength",
                 low: 0, high: 100, neutral: 0,
                 frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-                // One floor for the five colour stocks, at 70% of the weakest —
-                // Portra 400 at 84.55 since the inset fix (proof #16 convicted the
-                // old 104 on all five: a film curve's authority is mostly its colour,
-                // and the corrected desaturation direction softened every stock).
-                authorityFloor: 59,
+                // 0.7 of the stock's own measurement; see `floors` above.
+                authorityFloor: floors[id] ?? 8,
                 apply: { r, v in r.look.filmLab = FilmLab(stock: "lumen/\(id)", amount: v) })
         }
         /// Portra 400 at full strength — the stock the other five controls shape.
@@ -1051,8 +1058,17 @@ enum ProofRegistry {
             id: "film.exposure", panel: "Film Lab", displayName: "Film exposure",
             low: -2, high: 3,
             frameName: "tonalColourWedge", frame: { ProofFrames.tonalColourWedge() },
-            // Measured 186.01.
-            authorityFloor: 130,
+            // Measured 186.01 when it was a brightness slider (+3 printed 2 EV brighter,
+            // the audit's WS-38 §7); 75.46 since the lab prints a negative back to
+            // mid-grey at every exposure (spec S27), which is what the control always
+            // claimed to do. The floor keeps the old fraction: 0.7 × 75.46.
+            authorityFloor: 53,
+            // And it now moves a boundary rather than a magnitude, so it hands some
+            // travel back by construction: underexposure LIFTS the shadows into the
+            // fogged toe (S29) and overexposure presses them back down to a clean black
+            // (S28), so a deep-shadow pixel rises from −2 to 0 and falls from 0 to +3.
+            // Measured 22.80 of 75.46.
+            declaredReversal: 22.805,
             apply: { r, v in
                 var film = portra()
                 film.exposure = v
@@ -1161,7 +1177,11 @@ enum ProofRegistry {
             // back. The fraction it declares is now 81% of its authority against 37%,
             // which is high and is what a boundary control on a random field looks like
             // when its randomness is one-dimensional.
-            declaredReversal: 21.183,
+            //
+            // 21.183 → 22.262 in WS-38 without touching grain: the film picture the
+            // grain sits on was rebuilt (denser blacks, real whites), so the field's
+            // tones moved under the same plate. Same boundary behaviour, measured again.
+            declaredReversal: 22.262,
             apply: { r, v in
                 var film = portra()
                 film.grain = FilmGrain(size: v, amount: 100)
