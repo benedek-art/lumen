@@ -146,13 +146,21 @@ public enum LateralCAEstimator {
                 a11 += w * f1 * f1; a12 += w * f1 * f2; a22 += w * f2 * f2
                 b1 += w * f1 * y; b2 += w * f2 * y
             }
+            var result = LateralCAModel.Coefficients(k0: a11 > 0 ? b1 / a11 : 0, k2: 0)
             if cubic {
                 let det = a11 * a22 - a12 * a12
                 if det > 1e-18 * a11 * a22 {
-                    return .init(k0: (b1 * a22 - b2 * a12) / det, k2: (a11 * b2 - a12 * b1) / det)
+                    let k0 = (b1 * a22 - b2 * a12) / det, k2 = (a11 * b2 - a12 * b1) / det
+                    // Lateral CA does not reverse direction across a frame: a cubic whose
+                    // scale crosses zero inside it (1840 and GX85 blue, −0.26 px at
+                    // r = 0.5 and +0.15 at the corner) is fitting texture, and the plain
+                    // magnification stands.
+                    if k0 * (k0 + k2) > 0 { result = .init(k0: k0, k2: k2) }
                 }
             }
-            return .init(k0: a11 > 0 ? b1 / a11 : 0, k2: 0)
+            // A channel below the floor on its own is left exactly alone.
+            let worst = (0...20).map { abs(result.shift(at: Double($0) / 20)) }.max() ?? 0
+            return worst * halfDiagonal >= significancePixels ? result : .init()
         }
         let model = LateralCAModel(red: channel(\.red), blue: channel(\.blue))
         guard model.maxShiftPixels(halfDiagonal: halfDiagonal) >= significancePixels else { return nil }
