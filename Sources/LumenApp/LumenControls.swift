@@ -759,9 +759,16 @@ struct LumenSlider: View {
         // OUTSET, so the label does not sit flush against the fill's edge: the content
         // keeps its x (every groove in the panel still starts at the same place) and
         // the fill reaches `focusOutset` past it on both sides.
-        .padding(.horizontal, CGFloat(SliderMetrics.focusOutset))
-        .lumenFocusSurface(focused: rowFocused && keyboardFocus)
-        .padding(.horizontal, -CGFloat(SliderMetrics.focusOutset))
+        //
+        // The fill lives on a background that takes no hits: `lumenFocusSurface` carries
+        // its own content shape, and on the outset that would have stretched this row's
+        // click target 6 pt into its neighbours. The row's own shape stays its own frame.
+        .contentShape(Rectangle())
+        .background(
+            Color.clear
+                .lumenFocusSurface(focused: rowFocused && keyboardFocus)
+                .padding(.horizontal, -CGFloat(SliderMetrics.focusOutset))
+                .allowsHitTesting(false))
         // KEYBOARD NUDGE (docs/28 Phase 7), and the three things it needed.
         //
         // One: the row is focusable, with the system's own ring turned off. macOS draws
@@ -1137,9 +1144,8 @@ struct LumenSlider: View {
                         .frame(width: CGFloat(SliderMetrics.neutralTickWidth),
                                height: CGFloat(SliderMetrics.neutralTickHeight))
                         .offset(x: zeroFraction * width
-                                    - CGFloat(SliderMetrics.neutralTickWidth) / 2,
-                                y: CGFloat(SliderMetrics.neutralTickTop
-                                           + SliderMetrics.neutralTickBottom) / 2)
+                                    - CGFloat(SliderMetrics.neutralTickWidth / 2),
+                                y: CGFloat(SliderMetrics.neutralTickCentre))
                 }
                 // The handle. Sizes and the reason for them are with the constants;
                 // what is here is that it is LIT rather than filled.
@@ -1555,10 +1561,13 @@ struct LumenSlider: View {
         guard let parsed = SliderEntry.value(of: textValue, current: value) else { return }
         // Typing reaches the hard limit; dragging does not. That asymmetry is what
         // makes soft limits helpful instead of restrictive.
+        let next = min(max(parsed, effectiveHardRange.lowerBound),
+                       effectiveHardRange.upperBound)
+        // ↑/↓ in the field already wrote what it holds; Return on that is not an edit.
+        guard next != value else { return }
         onEditingChanged?(true)
         sliderGestureChanged(true)
-        value = min(max(parsed, effectiveHardRange.lowerBound),
-                    effectiveHardRange.upperBound)
+        value = next
         onEditingChanged?(false)
         sliderGestureChanged(false)
     }

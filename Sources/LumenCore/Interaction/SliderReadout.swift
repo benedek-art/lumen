@@ -96,6 +96,8 @@ public enum SliderMetrics {
     public static var grooveBottom: Double { grooveHeight / 2 }
     public static var neutralTickBottom: Double { grooveTop - neutralTickGap }
     public static var neutralTickTop: Double { neutralTickBottom - neutralTickHeight }
+    /// Centre of the tick relative to the groove's centre: the view's y offset.
+    public static var neutralTickCentre: Double { (neutralTickTop + neutralTickBottom) / 2 }
     public static var underlineTop: Double { grooveBottom + underlineGap }
     /// Centre of the underline relative to the groove's centre: the view's y offset.
     public static var underlineCentre: Double { underlineTop + underlineHeight / 2 }

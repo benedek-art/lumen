@@ -202,13 +202,15 @@ final class SliderReadoutTests: XCTestCase {
     func testTheSliderDrawsItsZeroAndUnderlineFromTheMetrics() throws {
         let s = ShellSource.squashed(try Self.slider())
         XCTAssertTrue(s.contains("SliderMetrics.underlineCentre"))
-        XCTAssertTrue(s.contains("SliderMetrics.neutralTickTop"))
+        XCTAssertTrue(s.contains("SliderMetrics.neutralTickCentre"))
         XCTAssertFalse(s.contains("neutralMarkHeight"), "the bar through the groove is back")
     }
 
     func testTheRowFillIsKeyboardFocusOnlyAndUnaskedFocusIsRefused() throws {
         let s = ShellSource.squashed(try Self.slider())
         XCTAssertTrue(s.contains(".lumenFocusSurface(focused: rowFocused && keyboardFocus)"))
+        XCTAssertTrue(s.contains(".allowsHitTesting(false))"),
+                      "the outset fill must not widen the row's click target")
         XCTAssertTrue(s.contains("case .unasked: rowFocused = false return"))
     }
 
