@@ -22,20 +22,20 @@ return (kelvin,
                                      asShot: (shot.kelvin, shot.tint)))
 ```
 
-## 2. WS-04 / WS-13 — CAT16 negative lobes at the ends of travel (SPEC line 6)
+## 2. WS-12/WS-13 (output gamut) and the D9 owner — line 6 at the ends of travel
 
 With the tint axis now on the Robertson isotherm (SPEC line 4, matched exactly to the Adobe/CAT16 model),
-a −150 tint is a strong *green* adaptation. In Rec.2020 its CAT16 matrix has a −0.27 R←G lobe (as-shot
-9365/+16.4: rows `[0.835, −0.273, −0.026] …`), so saturated blue/green pixels get a negative red channel
-and the display clamps them to 0. The old axis was mostly blue↔yellow and only touched B, so it crushed
-less. Same mechanism as SPEC note N3 at 2000 K. Measured worst tiles (shadows "any", pp): 983 tint −150
-19.0 vs 0.7 before; 864 tint −150 16.7 vs 1.5; 864 temp 2000 K 38.0 vs 25.3. See BUILD-NOTES.md, line 6.
+a −150 tint is a strong *green* adaptation. Its CAT16 matrix has off-diagonal terms (R←G −0.27 in
+Rec.2020) that carry saturated colours outside **sRGB**. The output encode then clamps R to 0, and the
+clipping metric counts that as crush. Share of pixels with a negative sRGB channel: 983 tint −150
+24.4 % (old model 1.1 %); 864 tint −150 22.6 % (3.7 %). Scene-linear Rec.2020 negatives are ~0 % on these
+tiles. At 2000 K (N3) there are true Rec.2020 negatives as well (864: 18.6 %).
 
-This is not fixable inside WS-03 without either breaking SPEC 3/4/7 (they are exact *because* WB is a
-CAT16 von Kries step) or changing decision D9. Options for the owners of S6 / the display transform:
-gamut-compress negative scene-linear channels after S6 instead of clamping, or decide (D9 owner) to apply
-WB as a diagonal in working RGB (`diag(W·1)`), which gives identical greys, so SPEC 3/4/7/8 still pass,
-and has no negative lobes.
+Options, none inside WS-03 without failing SPEC line 4. The numbers are in BUILD-NOTES, "Line 6".
+- Compress the output gamut instead of clipping it, in the display transform or output encode.
+- D9 decision: apply WB as a diagonal in working RGB. Greys stay exact (lines 3/7/9) and the matrix has
+  no negative lobes, so 983 −150 drops to 2.5 % out-of-gamut. But line 4 then misses the Adobe/CAT16
+  grey by 5.9° / C ratio 0.19, and non-neutral hues move 1.3–3.9° (mean) differently from CAT16.
 
 ## 3. WS-01 (LumenPipeline) — stale comment
 

@@ -22,7 +22,7 @@ ran from a release test build (`swift build -c release --build-tests -Xswiftc -e
 | 3 | 500 pairs: ΔE00 median 0.000, p90 0.000, max 0.010 (rounding of the 8-bit output). In the engine itself the channel spread is < 1e-9. | `python3 $T/kelvin_grid.py`; `WhiteBalanceConventionTests/testTypingTheLightsAdobeNumbersNeutralisesItsGrey` | pass |
 | 4 | All 21 cases: max \|Δhue\| 0.0°, max \|C ratio − 1\| 0.000. At 6504/+9.77, +75 → 325.7°, −75 → 152.6°. | `python3 $T/tint_axis.py` | pass |
 | 5 | Monotone on all 16 sweeps (2000 K tile excluded per N3). | `python3 $T/sweeps.py --out …/ws03_after` | pass |
-| 6 | **FAIL as specified.** Worst: +5.92 pp highlights (skin_tones @2000 K: 23.69 vs 17.77), +18.32 pp shadows (983 tint −150: 19.01 vs 0.70). Failing tiles: skin 2000 K hi +5.92; 6929 2000 K hi +0.97 (shadows −11.8); 3914 2000 K hi +0.54, 2500 K hi +0.70; 864 2000 K lo +12.65; 2545 tint −150 lo +1.43; 983 tint −150 lo +18.32; 864 tint −150/−100/−50 lo +15.18/+4.97/+1.29. Every other tile is within threshold, and several improve (1346 tint +150 highlights 1.81 → 0.00, 6929 2000 K crush 58.4 → 46.6). | same run | see "Line 6" below |
+| 6 | **FAIL as specified** (diagonal-adaptation experiment below: no option passes 6 without failing 4). Worst: +5.92 pp highlights (skin_tones @2000 K: 23.69 vs 17.77), +18.32 pp shadows (983 tint −150: 19.01 vs 0.70). Failing tiles: skin 2000 K hi +5.92; 6929 2000 K hi +0.97 (shadows −11.8); 3914 2000 K hi +0.54, 2500 K hi +0.70; 864 2000 K lo +12.65; 2545 tint −150 lo +1.43; 983 tint −150 lo +18.32; 864 tint −150/−100/−50 lo +15.18/+4.97/+1.29. Every other tile is within threshold, and several improve (1346 tint +150 highlights 1.81 → 0.00, 6929 2000 K crush 58.4 → 46.6). | same run | see "Line 6" below |
 | 7 | 28 cases: max \|Δmired\| **0.0019**, max \|Δtint\| **0.0047**. Before: 39.75 mired / 11.58 tint. | `swift test --filter WhiteBalanceConventionTests/testTheEyedropperReturnsTheIlluminantsAdobeNumbers` | pass |
 | 8 | 325 lines: 0 negative lines (tint −150…+300), max OKLab-a drop **0.0020** (as-shot 10000/+10 → 3846 K at +120). Clamp-free bands: no as-shot from line 3 clamps at ≤ +25 for any Temp ≥ 2500 K (2.5-mired grid); from 5500/+10, +150 is unclamped for every Temp ≥ 4500 K (1-mired grid). | `swift test --filter TintGuardTests` (`testNoInversionAcrossAsShotAndTargetGrid`, `testTheGuardLeavesOrdinaryWorkUnclamped`) | pass |
 | 9 | Presets unchanged. Max ΔE00 over the as-shot set: Daylight 0.00, Cloudy 0.00, Shade 0.00, Tungsten 0.01, Fluorescent 0.00, Flash 0.00. | `python3 $T/kelvin_grid.py`; `WhiteBalanceConventionTests/testEachPresetNeutralisesItsOwnAdobeLight`; `WhiteBalancePresetNameTests` | pass |
@@ -57,28 +57,82 @@ V1–V3 (human judgement, sheets in `evidence/`):
   than as-shot. On 3914, Auto ≈ as-shot (confidence 0.11), so it is no bluer. On 967 it is slightly warmer
   than as-shot, toward neutral.
 
-## Line 6: why it does not pass, and what would make it
+## Line 6: why it does not pass, and the diagonal-adaptation experiment (lane lead's request)
 
-Two different mechanisms. Neither is a defect of the conversion this lane was asked to fix.
+**Mechanism, measured (corrected from round 1).** At tint −150 the WB matrix creates almost no negative
+*scene-linear* channels. On 983 the share of pixels with a channel ≤ 0 is 0.00 % for CAT16, the old model
+and every alternative. The crush comes from the **sRGB output gamut**. CAT16's green adaptation has
+off-diagonal terms (R←G −0.27 in Rec.2020) that push saturated colours outside sRGB. The encoder then
+clamps R to 0, which the clipping metric counts as crush. That clamp is downstream of WS-03 (display
+transform / output gamut). Share of pixels with a negative sRGB channel after WB, by tile and adaptation:
 
-1. **Tint −150 tiles (983, 864, 2545): CAT16's negative lobe on the green axis.** Line 4 requires the tint
-   axis to be the isotherm, and the build matches the Adobe/CAT16 model exactly (0.0°, C ratio 1.000).
-   Before, −150 was a +v shift that was mostly blue↔yellow and only scaled B. Now it is a true green
-   adaptation, and in Rec.2020 its CAT16 matrix has an R←G lobe of −0.27 (as-shot 9365/+16.4: row
-   `[0.835, −0.273, −0.026]`; before `[0.988, 0.0, 0.003]`). Saturated blue cloth (864) and dark foliage
-   (983) get a negative red channel, and the display clamps it to 0. Lines 4 and 6 conflict here as
-   written, because line 4's reference model is this CAT16 matrix.
-2. **2000/2500 K tiles: the numbers now mean the Adobe light.** The as-shot is read correctly (the old
-   code read D65 as 6226/+15.9). The old guard clamped magenta to +3.6 at 2000 K and +29.7 at 2500 K for
-   every as-shot. The new as-shot-aware guard honours the file's own tint where the picture allows it:
-   3914 at 2500 K keeps its +48.2. These are larger, correct moves, so the extremes clip a little more:
-   skin highlights at 2000 K, and 3914 at 2500 K +0.70 pp. On 864 at 2000 K the guard stops at the
-   picture's turn (−3.7), the most magenta that cool-as-shot → 2000 K can render. N3 already names
-   the CAT16 lobes at 2000 K as the downstream cause.
+| tile | old model | CAT16 (shipped) | diagonal in Rec.2020 | 50/50 blend |
+|---|---|---|---|---|
+| 983 tint −150 | 1.05 % | 24.35 % | 2.51 % | 21.26 % |
+| 864 tint −150 | 3.72 % | 22.57 % | 13.79 % | 17.79 % |
+| 864 tint −100 | 3.51 % | 14.61 % | 7.27 % | 11.58 % |
+| 2545 tint −150 | 0.39 % | 3.50 % | 0.55 % | 2.15 % |
 
-The fix belongs to S6 / the display transform, or to decision D9. It is written up in NEEDS.md §2.
-Applying WB as `diag(W·1)` in working RGB renders every grey identically, so lines 3/4/7/8 are unchanged,
-and it has no negative lobes. That is a D9 change, not a WS-03 one.
+At 2000 K (864, −3.7) the matrix does create Rec.2020 negatives (N3): CAT16 18.6 %, old 17.6 %, diagonal
+0.05 % of pixels have a channel ≤ 0.
+
+**The alternatives, against the other lines.** Each one is constructed to map the decoded white of the
+target light to neutral, so lines 3/7/9 stay exact. Its matrix is `diag` in space P, set so that
+`M · (W⁻¹·𝟙) = 𝟙`. Line 4 compares the grey of a tint-only move with the Adobe/CAT16 prediction, and
+there every non-CAT16 space disagrees. Scene-linear, worst over the 21 line-4 cases
+(`scratchpad/proto/spaces.py`):
+
+| adaptation space | line 4 max \|Δhue\| | max \|C ratio − 1\| | min off-diagonal at −150 (9365/+16.4) | at 2000 K |
+|---|---|---|---|---|
+| CAT16 (shipped) | 0.0° | 0.000 | −0.273 | −0.557 |
+| Rec.2020 RGB (diagonal) | **5.9°** | **0.192** | 0.000 | 0.000 |
+| Bradford | 8.0° | 0.189 | −0.241 | −0.319 |
+| HPE | 10.9° | 0.146 | −0.263 | −1.026 |
+| XYZ | 10.6° | 0.154 | −0.064 | −2.305 |
+| OKLab LMS | 12.1° | 0.100 | −0.130 | −0.280 |
+
+Line 4's thresholds are 3° and 0.10. A 50/50 CAT16/Rec.2020 blend still reproduces greys exactly and
+lands at about 3° / 0.10 on line 4, but it leaves 983 at 21 % out-of-gamut, so line 6 still fails.
+
+**What a diagonal trades on non-neutral colours.** I used the 18 chromatic synthetic ColorChecker patches
+(C ≥ 0.03). `charts.json` holds only the greys of the real charts, so the patch truth comes from the
+synthetic chart, balanced at the 1346 and 967 chart-neutrals and taken to 2850/0 and 7500/+10. Mean
+|Δhue| between the Rec.2020 diagonal and CAT16:
+
+| base | target | mean (max) Δhue diag vs CAT16 | mean hue move from base: CAT16 / diag |
+|---|---|---|---|
+| 1346 5454/−7.6 | 2850/0 | 3.9° (7.9°) | 37.7° / 39.4° |
+| 1346 | 7500/+10 | 1.3° (2.6°) | 9.4° / 9.6° |
+| 967 4740/+15.5 | 2850/0 | 3.5° (6.6°) | 32.1° / 33.2° |
+| 967 | 7500/+10 | 1.5° (3.5°) | 18.3° / 18.3° |
+
+The diagonal is a modest hue trade, slightly larger moves at warm targets. It would remove the
+2000 K negatives and most of the −150 out-of-gamut share. It would also let the magenta guard simplify:
+gains `1/(W⁻¹·𝟙)` stay positive whenever the target's decoded white is positive, so there is no
+inversion pole.
+
+**Decision: CAT16 kept.** No candidate passes line 6 without failing line 4. Line 4's reference *is*
+CAT16, and the diagonal misses it by 5.9° / 0.19 against a 3° / 0.10 threshold. Choosing between a
+CAT16-exact tint axis (line 4) and fewer out-of-gamut pixels at the extremes (line 6) is a decision for
+the spec owner or D9, not the builder. Alternatively, the downstream sRGB gamut clamp could compress
+instead of clip (NEEDS §2). Line 6 stays **FAIL** with the tile numbers in the table at the top. Every tile
+inside 2500 K…50000 K and tint −100…+150 passes, except 864 tint −100/−50 (+4.97/+1.29 pp shadows) and
+3914 at 2500 K (+0.70 pp highlights; the file's +48.2 tint is now honoured instead of being clamped to +29.7).
+
+## Line 2: which inverse round-trips, and why the SDK's cannot
+
+- **`ColorTemperature.temperatureAndTint(for:)` round-trips within 0.01 mired and 0.01 tint** over the whole
+  line-2 grid (in fact to about 1e-9). It seeds with the SDK inverse and polishes with Newton steps on
+  `DNGTemperature.chromaticity`, so it is the exact inverse of the forward map white balance renders with.
+  Test: `WhiteBalanceConventionTests/testTheRoundTripReturnsThePair`.
+- **`DNGTemperature.temperatureAndTint` (the SDK's `Set_xy_coord`) cannot meet 0.01 mired.** The forward
+  direction interpolates linearly in reciprocal temperature between table rows. The inverse instead
+  weights two neighbouring rows by perpendicular distance to their two non-parallel isotherms. The two
+  agree only on the table rows. Measured on the line-2 grid, the SDK round trip moves up to **0.0326
+  mired** (3226 K, tint −150) and 0.0016 tint. The test holds it to < 0.035 / < 0.002.
+- Making the SDK port exact would change its outputs off the rows (A: 2855.7553 K, D65: 6503.70718 K
+  are pinned to 1e-6 in `DNGTemperatureTests`). Those numbers are what ACR/Apple report, so the port
+  stays faithful and the exact inverse lives in `ColorTemperature`.
 
 ## Files and functions touched
 
