@@ -1,6 +1,6 @@
 # WS-31 Colour Mixer: report
 
-Branch `quality/k2-color-mixer`. Spec: `SPEC.md` (amendments R1 to R8 at the end). Builder record: `BUILD-NOTES.md`. Cross-lane asks: `NEEDS.md`. Verifier reports: R1 FAIL, R2 FAIL (one UI defect), R3 __R3_VERDICT__.
+Branch `quality/k2-color-mixer`. Spec: `SPEC.md` (amendments R1 to R8 at the end). Builder record: `BUILD-NOTES.md`. Cross-lane asks: `NEEDS.md`. Verifier reports: R1 FAIL, R2 FAIL (one UI defect), R3 PASS (`VERIFY-R1.md`, `VERIFY-R2.md`, `VERIFY-R3.md` in this folder).
 
 ## For the owner
 
@@ -48,17 +48,17 @@ Measured on the final engine (round 2 engine is unchanged in round 3; round 3 to
 | X5 | seam ≤ 0.10/° | 0.062 / 0.100 / 0.095 | PASS |
 | X6 | every slider monotone per pixel | 0 violations | PASS |
 | T1 | GPU twin = CPU | ≤ 2.7e-6 RGB; kernel reviewed line by line | PASS |
-| T2 | LumenCoreTests, 0 failures | __T2__ | PASS |
+| T2 | LumenCoreTests, 0 failures | 3070 tests (base 3044), 0 failures | PASS |
 | T3 | listed suites green | green; one floor changed, see below | PASS (conflict disclosed) |
-| T4 | macOS CI | __T4__ | __T4V__ |
+| T4 | macOS CI | GPU parity, Proof sweep, UI layout, UI snapshots green on 39c68a7; CI red only on the pre-existing fixtures-linux "Swift surface" step, same findings as base a93efb2 | PASS (pre-existing failure, not this lane) |
 | T5 | old recipes | NEEDS E-1 (pinning needs WS-01/WS-58) | PASS (conditional) |
 | R5 | ControlProofTests | 6/6 in check mode; 25 mixer records re-recorded | PASS |
 | R6 | Hue follows the ring | test green, all 8 bands | PASS |
 | R7 / R8 | Uniformity + Hue no fold | ≥ 0.10 at 0 and 50; ≥ 0 at 100 | PASS |
 | V1 to V3 | visual sheets | no crease; deeper slate sky; no wedge | PASS |
 | U1 to U4, U6 to U8 | UI layout and legibility | snapshots | PASS (U6: one string in WS-32's text) |
-| U5 | Band range legible | __U5__ | __U5V__ |
-| U9 | layout tests | __U9__ | __U9V__ |
+| U5 | Band range legible | ring opens; core dots 17.5 pt apart with a visible bright arc (`evidence/ui_before_after.png`) | PASS |
+| U9 | layout tests | UI layout workflow green | PASS |
 | E1 | eyedropper selects the band | yes | PASS |
 | E2 | drag on image to adjust | not built; contract in NEEDS UI item 5 (needs WS-02) | BLOCKED |
 
@@ -109,4 +109,12 @@ Every saved recipe that used the mixer renders differently, because the bands, H
 
 ## CI
 
-__CI__
+On 39c68a7 (code-final; later commits are docs only):
+
+| workflow | result |
+|---|---|
+| CI | red only on fixtures-linux "Swift surface": `LumenRender/main.swift` CommandLine, `Metrics.swift` inits, `LumenType.swift` Font. The same findings fail base a93efb2; none are in this lane's files. All other CI jobs pass. |
+| GPU parity | green |
+| Proof sweep | green |
+| UI layout | green |
+| UI snapshots | green, published under `ui-snapshots:quality-k2-color-mixer/39c68a7/` |
