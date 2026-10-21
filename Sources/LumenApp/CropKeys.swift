@@ -18,7 +18,7 @@ import LumenCore
 @MainActor
 enum CropKeys {
 
-    static func handle(_ event: NSEvent, state: AppState,
+    static func handleKey(_ event: NSEvent, state: AppState,
                        flags: NSEvent.ModifierFlags) -> Bool? {
         let viewport = LoupeViewport.shared
         // Only while the rectangle is the thing the photographer is inside. Masking and

@@ -144,7 +144,7 @@ final class KeyDispatcher {
 
         // The crop tool's own keys (X, O, ⇧O, arrows, Return) while its rectangle is up;
         // nil everywhere else (`CropKeys`).
-        if let crop = CropKeys.handle(event, state: state, flags: flags) { return crop }
+        if let crop = CropKeys.handleKey(event, state: state, flags: flags) { return crop }
 
         // Arrows and the like arrive as special key codes rather than characters.
         if let special = specialKey(event, state: state, flags: flags) {

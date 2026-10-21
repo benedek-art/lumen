@@ -439,9 +439,9 @@ final class ExactColorStageTests: XCTestCase {
         var failures: [String] = []
         var worstExcess = -Double.infinity
         for (baseName, base) in [("neutral", Recipe()), ("aqua", aqua), ("many", many)] {
-            for (name, nudge) in nudges {
+            for (name, edit) in nudges {
                 var moved = base
-                nudge(&moved)
+                edit(&moved)
                 let j = jump(base, moved)
                 worstExcess = Swift.max(worstExcess, j.render - j.exact)
                 if !(j.render <= j.exact + 0.25) {

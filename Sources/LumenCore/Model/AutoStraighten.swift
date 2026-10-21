@@ -63,7 +63,11 @@ public enum AutoStraighten {
         guard width >= 16, height >= 16, luma.count == width * height else { return nil }
 
         // 1. Sobel, and the strong edge points with their local line direction.
-        struct EdgePoint { var x: Double; var y: Double; var w: Double }
+        struct EdgePoint {
+            var x: Double
+            var y: Double
+            var w: Double
+        }
         var horizontal: [EdgePoint] = []
         var vertical: [EdgePoint] = []
         var magnitudes: [Float] = []

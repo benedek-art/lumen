@@ -1179,7 +1179,7 @@ struct LumenSlider: View {
                         .strokeBorder(Lumen.secondaryText, lineWidth: 1)
                         .padding(-2.5)
                         .opacity(rowFocused ? 1 : 0))
-                    .offset(x: fraction * width - thumb / 2)
+                    .offset(x: fraction * width - thumb / 2, y: 0)
                     .shadow(color: .black.opacity(0.5), radius: isDragging ? 3 : 1.5, y: 0.5)
             }
             .frame(height: Lumen.rowHeight)
