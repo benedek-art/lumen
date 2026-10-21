@@ -494,6 +494,9 @@ final class KeyDispatcher {
         case " ":
             // Hold space for the loupe from the grid; release returns you to it.
             if holdActive == nil && state.viewMode == .grid {
+                // A hand left open by a release this monitor never saw (⌘-Tab away
+                // with Space down) must not claim the peek's release.
+                LoupeViewport.shared.cancelSpaceHold()
                 holdActive = " "
                 state.showLoupe()
                 return true
@@ -560,7 +563,15 @@ final class KeyDispatcher {
         }
 
         // The loupe's Space hand: a tap while zoomed fits, a hold that panned stays.
-        if key == " ", LoupeViewport.shared.spaceUp() { return true }
+        // The grid peek's release wins (it is checked below), and outside the loupe
+        // an open hand is dropped rather than toggling a zoom nobody can see.
+        if key == " ", holdActive != " " {
+            if state.viewMode == .loupe {
+                if LoupeViewport.shared.spaceUp() { return true }
+            } else {
+                LoupeViewport.shared.cancelSpaceHold()
+            }
+        }
 
         guard holdActive == key else { return false }
         holdActive = nil

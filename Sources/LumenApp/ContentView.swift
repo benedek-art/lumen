@@ -204,6 +204,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 1180, minHeight: 720)
         .keyboardGrammar()
+        // Compare opens at fit, by whichever door (C, the View menu). On the mode
+        // change rather than on `CompareView`'s appear, so a view that is merely
+        // re-mounted keeps the zoom the keys gave it.
+        .onChange(of: state.viewMode) { _, mode in
+            if mode == .compare { CompareSync.shared.fit() }
+        }
         // Every slider and wheel in the tree reports its gesture through this one
         // hook (RenderRequest.swift), so a drag defers per-event catalog writes and
         // scope re-bins to its release without ninety call sites knowing about it.

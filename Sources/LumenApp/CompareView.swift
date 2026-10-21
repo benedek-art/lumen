@@ -92,8 +92,9 @@ struct CompareView: View {
     /// so `C` and `N` reach the same view without the shell having to know which.
     var layout: CompareLayout?
 
-    /// Shared so the keymap can zoom it; reset to fit each time Compare opens, which
-    /// is what the per-view `@StateObject` it replaced did.
+    /// Shared so the keymap can zoom it; `ContentView` resets it to fit each time the
+    /// mode changes to Compare, which is what the per-view `@StateObject` it replaced
+    /// did.
     @ObservedObject private var sync: CompareSync = CompareSync.shared
 
     private var effectiveLayout: CompareLayout {
@@ -131,7 +132,6 @@ struct CompareView: View {
         // `AppState.surroundColor` builds the same `NSColor(white: 0.165, alpha: 1)`
         // that `Lumen.surroundCanvas` — hence `Lumen.viewerBackground` — is defined as.
         .background(state.surroundColor)
-        .onAppear { sync.fit() }
     }
 
     /// What is being compared. The rule lives on `AppState` because the arrow keys move

@@ -150,8 +150,11 @@ struct HistogramView: View {
                 // jumped by a line and back while paging a roll (the baseline develop
                 // and grade window snapshots put the first section header 19 pt apart for
                 // exactly this reason).
-                // Here it costs no height: along the floor of the well, clear of the two
-                // clipping triangles at the top, over the bins whose counts are lowest.
+                // Here it costs no height: along the floor of the well, translucent, so
+                // the bottom ~14 pt of the bars under it read through it dimmed. Not top
+                // centre: between the clipping triangles the widest note (about 250 pt
+                // at 10 pt) does not fit at the 320 pt column minimum, and a truncated
+                // disclosure is worse than none.
                 if let note = state.scopes?.provenance?.note {
                     Text(note)
                         .font(.lumenCaption)
@@ -162,10 +165,10 @@ struct HistogramView: View {
                         .background(Lumen.panel.opacity(0.85),
                                     in: RoundedRectangle(cornerRadius: Lumen.radiusChip,
                                                            style: .continuous))
+                        .help(measurementStatement)
                         .padding(.bottom, 2)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: .bottom)
-                        .help(measurementStatement)
                 }
             }
             .contentShape(Rectangle())

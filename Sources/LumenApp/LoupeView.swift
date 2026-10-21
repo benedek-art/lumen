@@ -173,6 +173,7 @@ final class LoupeViewport: ObservableObject {
         // AND `pan = .zero` — with nothing on screen moving either time. A gesture that
         // has run out of room is exactly when the hand keeps going.
         guard clamped != zoom else { return }
+        if spaceHeld { spaceUsed = true }
         // THE HUD COULD NOT SEE A ZOOM, which is why "the zoom is slow" has been an
         // adjective for three rounds. `noteInput` was called from exactly one place —
         // the recipe-edit path's `touchedPixels` — so the instrument built to answer
@@ -219,9 +220,10 @@ final class LoupeViewport: ObservableObject {
     /// True between a Space press made while ZOOMED and its release. Not published:
     /// nothing draws it, and only the keymap and `panTo` read it.
     private(set) var spaceHeld = false
-    /// Set by any pan while `spaceHeld`, so the release knows the press was a hand
-    /// rather than a tap.
-    private var spacePanned = false
+    /// Set by any pan OR zoom while `spaceHeld`, so the release knows the press was a
+    /// hand rather than a tap. A wheel zoom during the hold counts: releasing must not
+    /// then undo it.
+    private var spaceUsed = false
 
     /// Space pressed in the loupe. At fit it zooms to 1:1 under the cursor at once,
     /// so press-and-drag is Lightroom's space-drag: in at the point, then the drag
@@ -237,19 +239,28 @@ final class LoupeViewport: ObservableObject {
             return
         }
         spaceHeld = true
-        spacePanned = false
+        spaceUsed = false
+    }
+
+    /// Forget an open hold without acting on it: the photo or the view changed under
+    /// it, or the grid peek's release is the one that owns this Space.
+    @MainActor
+    func cancelSpaceHold() {
+        spaceHeld = false
+        spaceUsed = false
     }
 
     /// Space released. A tap while zoomed goes back to Fit, as before; a hold that
-    /// panned leaves the zoom where it is. Returns whether a zoomed hold was open, so
-    /// the keymap claims exactly the releases it started.
+    /// panned or zoomed leaves the zoom where it is. An explicit fit, not a toggle: a
+    /// blind toggle sent a picture that was already at fit to 1:1. Returns whether a
+    /// zoomed hold was open, so the keymap claims exactly the releases it started.
     @MainActor
     @discardableResult
     func spaceUp() -> Bool {
         guard spaceHeld else { return false }
-        spaceHeld = false
-        if !spacePanned { toggleZoom() }
-        spacePanned = false
+        let used = spaceUsed
+        cancelSpaceHold()
+        if !used && !ZoomLadder.isFit(zoom) { fit() }
         return true
     }
 
@@ -306,7 +317,7 @@ final class LoupeViewport: ObservableObject {
     func panTo(x: CGFloat, y: CGFloat, container: CGSize, drawn: CGSize) {
         let clamped = LoupeGeometry.clampPan(CGSize(width: x, height: y),
                                              container: container, drawn: drawn)
-        if spaceHeld { spacePanned = true }
+        if spaceHeld { spaceUsed = true }
         guard clamped != pan else { return }
         LatencyHUD.shared.noteInput()
         pan = clamped
@@ -347,6 +358,7 @@ final class LoupeViewport: ObservableObject {
         // and where every other zoom source in the app already goes. `ZoomLadder`'s own
         // header is the story of what two ladders cost this project.
         setZoom(LoupeZoom.fit, at: nil)
+        cancelSpaceHold()
         lastCursor = nil
     }
 }
