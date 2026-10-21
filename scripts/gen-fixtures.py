@@ -703,11 +703,24 @@ PARAMETRIC_KNEE = 0.8
 PARAMETRIC_PROBES = 1024
 
 
+def sanitized_splits(raw):
+    """`CurveEditing.sanitizedSplits`: 10-90 %, 2 % apart, the editor's bounds."""
+    default = [0.25, 0.5, 0.75]
+    out = list(raw) if len(raw) == 3 else list(default)
+    out = [v if math.isfinite(v) else default[i] for i, v in enumerate(out)]
+    out.sort()
+    out = [min(max(min(max(v, 0.0), 1.0), 0.10), 0.90) for v in out]
+    for i in range(1, 3):
+        if out[i] <= out[i - 1] + 0.02:
+            out[i] = min(0.90, out[i - 1] + 0.02)
+    for i in range(1, -1, -1):
+        if out[i] >= out[i + 1] - 0.02:
+            out[i] = max(0.10, out[i + 1] - 0.02)
+    return out
+
+
 def region_centres(splits=(0.25, 0.5, 0.75)):
-    s = sorted(splits)
-    a = clamp(s[0], 0.02, 0.96)
-    b = clamp(s[1], a + 0.01, 0.97)
-    c = clamp(s[2], b + 0.01, 0.98)
+    a, b, c = sanitized_splits(splits)
     return [a / 2, (a + b) / 2, (b + c) / 2, (c + 1) / 2]
 
 

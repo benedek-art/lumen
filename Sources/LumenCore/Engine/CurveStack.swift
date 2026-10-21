@@ -41,15 +41,15 @@ public struct CurveStack: Sendable {
     /// touched was still untouched. The whole identity plan drops from 70.3 ms to
     /// 17.7 ms; the draft plan, which is what a slider drag actually renders, drops
     /// from 10.1 ms to 2.6 ms.
-    private let parametricIsIdentity: Bool
+    let parametricIsIdentity: Bool
 
     /// Where the luma curve puts black: `f(0)` on the encoded axis, zero for a curve
     /// that does not lift it. Decided once, because it picks the branch in `apply`.
-    private let lumaBlack: Double
+    let lumaBlack: Double
 
     /// The same for the master curve (parametric, then points). The parametric curve
     /// pins 0, so this is the point curve's lift.
-    private let masterBlack: Double
+    let masterBlack: Double
 
     public init(_ set: CurveSet, encoding: TransferFunction = .srgb) {
         self.set = set
@@ -74,11 +74,15 @@ public struct CurveStack: Sendable {
     // MARK: - Parametric
 
     /// Region centres from the three movable splits.
+    ///
+    /// The splits go through `CurveEditing.sanitizedSplits` — the editor's own bounds,
+    /// 10–90 % with a 2 % gap — before anything is computed from them. The engine used
+    /// to clamp to 2–98 % with a 1 % gap on its own, so a sidecar holding splits the
+    /// editor cannot reach rendered one curve while the graph drew the splits repaired
+    /// to its bounds and the regions over them: two pictures of one recipe.
     public static func regionCentres(_ splits: [Double]) -> [Double] {
-        let s = splits.count == 3 ? splits.sorted() : [0.25, 0.5, 0.75]
-        let a = Num.clamp(s[0], 0.02, 0.96)
-        let b = Num.clamp(s[1], a + 0.01, 0.97)
-        let c = Num.clamp(s[2], b + 0.01, 0.98)
+        let s = CurveEditing.sanitizedSplits(splits)
+        let a = s[0], b = s[1], c = s[2]
         return [a / 2, (a + b) / 2, (b + c) / 2, (c + 1) / 2]
     }
 
@@ -325,6 +329,13 @@ public struct CurveStack: Sendable {
         return c?.evaluate(Num.saturate(x)) ?? x
     }
 
+    /// Which of the five curves are not the identity, in the order `run` takes them:
+    /// master (parametric then point), luma, R, G, B. `CurveStage` bakes only these.
+    var activeCurves: (master: Bool, luma: Bool, channels: [Bool]) {
+        (!(point == nil && parametricIsIdentity), luma != nil,
+         [rCurve != nil, gCurve != nil, bCurve != nil])
+    }
+
     public var isIdentity: Bool {
         point == nil && luma == nil && rCurve == nil && gCurve == nil && bCurve == nil
             && parametricIsIdentity
@@ -351,6 +362,26 @@ public struct CurveStack: Sendable {
     /// (`CurveHDRAxisTests`).
     public func apply(_ c: RGB, white: Double = 1, space: RGBColorSpace = .rec2020) -> RGB {
         guard !isIdentity else { return c }
+        let masterActive = !(point == nil && parametricIsIdentity)
+        return CurveStack.run(
+            c, white: white, space: space, encoding: encoding,
+            preserveLuminance: set.preserveLuminance,
+            master: masterActive ? { self.master($0) } : nil, masterBlack: masterBlack,
+            luma: luma == nil ? nil : { self.lumaCurve($0) }, lumaBlack: lumaBlack,
+            channels: [rCurve == nil ? nil : { self.channelCurve($0, channel: 0) },
+                       gCurve == nil ? nil : { self.channelCurve($0, channel: 1) },
+                       bCurve == nil ? nil : { self.channelCurve($0, channel: 2) }])
+    }
+
+    /// The stage itself, over curves handed in as functions on the encoded axis — the
+    /// exact ones (`apply`) or their tables (`CurveStage.apply`). ONE body for both, so
+    /// the stage a renderer runs from tables cannot drift from the definition.
+    /// A nil curve is the identity and is skipped outright.
+    static func run(_ c: RGB, white: Double, space: RGBColorSpace,
+                    encoding: TransferFunction, preserveLuminance: Bool,
+                    master: ((Double) -> Double)?, masterBlack: Double,
+                    luma: ((Double) -> Double)?, lumaBlack: Double,
+                    channels: [((Double) -> Double)?]) -> RGB {
         let w = Swift.max(white, 1e-6)
         // The top of the encoded axis: SDR white (1) or the display peak, whichever is
         // higher. Spelled as a branch so that SDR never depends on whether `encode(1)`
@@ -361,8 +392,8 @@ public struct CurveStack: Sendable {
         // Master curve, luminance-preserving by default: curve the luminance and
         // carry the chroma ratios, which is what stops a contrast curve from also
         // being a saturation boost.
-        if !(point == nil && parametricIsIdentity) {
-            if set.preserveLuminance {
+        if let master {
+            if preserveLuminance {
                 let lum = Num.clamp(space.luminance(e), 0, top)
                 if masterBlack > 0 {
                     // The same zero-luminance limit as the luma stage below: a master
@@ -381,21 +412,23 @@ public struct CurveStack: Sendable {
             }
         }
 
-        if luma != nil {
+        if let luma {
             let lum = Num.clamp(space.luminance(e), 0, top)
             if lumaBlack > 0 {
                 e = CurveStack.liftedLuma(e, luminance: lum, black: lumaBlack) {
-                    CurveStack.extended($0, top: top, lumaCurve)
+                    CurveStack.extended($0, top: top, luma)
                 }
             } else if lum > 1e-6 {
-                e = e * (CurveStack.extended(lum, top: top, lumaCurve) / lum)
+                e = e * (CurveStack.extended(lum, top: top, luma) / lum)
             }
         }
 
-        if rCurve != nil || gCurve != nil || bCurve != nil {
-            e = RGB(CurveStack.extended(e.r, top: top) { self.channelCurve($0, channel: 0) },
-                    CurveStack.extended(e.g, top: top) { self.channelCurve($0, channel: 1) },
-                    CurveStack.extended(e.b, top: top) { self.channelCurve($0, channel: 2) })
+        if channels.contains(where: { $0 != nil }) {
+            func channel(_ v: Double, _ i: Int) -> Double {
+                guard i < channels.count, let f = channels[i] else { return v }
+                return CurveStack.extended(v, top: top, f)
+            }
+            e = RGB(channel(e.r, 0), channel(e.g, 1), channel(e.b, 2))
         }
 
         return encoding.decode(e.clamped(0, top))
