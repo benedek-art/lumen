@@ -143,6 +143,9 @@ enum LumenRenderCLI {
                           [--metrics sweep.json] [--tiles-dir dir]
       lumen-render keys   [--base r.json] [--json]
       lumen-render synth  --out test.lfi [--width 960] [--height 540]
+      lumen-render strokes --strokes s.json [--input in.lfi] [--long-edge 1024]
+                          --out overlay.png [--mask-out m.png] [--pfm-out m.pfm]
+                          [--metrics m.json] [--repeat N]   (header of Strokes.swift)
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
             --no-dither --lut-size 33
     (full manual: the header of Sources/LumenRender/main.swift)
@@ -156,6 +159,7 @@ enum LumenRenderCLI {
             case "sweep": try sweep(args)
             case "keys": try keys(args)
             case "synth": try synth(args)
+            case "strokes": try strokes(args)
             case "help", "--help", "-h": print(usage)
             default: throw InputError.message("unknown command '\(args.command)'\n\(usage)")
             }

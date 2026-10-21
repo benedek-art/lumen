@@ -41,8 +41,6 @@ public enum MaskRaster {
     private static let lumaShoulderEV: Double = 2.0
     /// Depth-band shoulder half-width at Smoothness 100, in normalized depth.
     private static let depthShoulder: Double = 0.15
-    /// Automask OKLab ΔE tolerance; the gate fades out over [τ, 2τ].
-    private static let automaskTau: Double = 0.06
     /// Trapezoid shoulder fraction for the colour-range per-axis falloff.
     private static let trapezoidShoulder: Double = 0.5
     /// Guided-filter regularization on the [0,1]-normalized guide. Not user-exposed —
@@ -52,11 +50,6 @@ public enum MaskRaster {
     private static let sigmaChroma0: Double = 0.30
     private static let sigmaLuma0: Double = 0.50
     private static let selectivityDecades: Double = 1.2
-    /// Arc-length stamp spacing as a fraction of the stamp radius (floor: 1 px).
-    private static let stampSpacingFraction: Double = 0.10
-    /// Work guards. A pathological stroke must not turn into an unbounded loop.
-    private static let maxDenseSamples: Int = 400_000
-    private static let maxStamps: Int = 200_000
 
     // MARK: - Public API
 
@@ -1622,122 +1615,28 @@ public enum MaskRaster {
         return out
     }
 
-    // MARK: - Brush stamping
+    // MARK: - Brush stroke
 
-    private struct StampPoint {
-        var x: Double        // pixel coordinates at the rasterization extent
-        var y: Double
-        var pressure: Double
-    }
-
-    /// One stroke into the accumulation buffer. Paint is asymptotic to Density and can
-    /// never exceed it regardless of passes; erase is asymptotic to zero.
+    /// One stroke into the accumulation buffer: the swept dab (`BrushStrokeRaster`),
+    /// composited once. Paint is asymptotic to Density and never exceeds it regardless
+    /// of passes; erase multiplies toward zero by the stroke's own coverage.
     static func paint(stroke: BrushStroke, into p: inout Plane,
                       width w: Int, height h: Int, longEdge long: Double,
                       source: ImageBuffer?) {
-        guard stroke.size.isFinite, stroke.size > 0 else { return }
+        guard stroke.size.isFinite, stroke.size > 0, !stroke.points.isEmpty else { return }
         let radiusPx = (stroke.size / 2) * long
         guard radiusPx.isFinite, radiusPx >= 0.5 else { return }
-
-        let flow = Num.clamp(stroke.flow, 0, 100) / 100
-        let density = Num.clamp(stroke.density, 0, 100) / 100
-        guard flow > 0 else { return }
-        if !stroke.erase && density <= 0 { return }
-
-        // Hardness, with a ≥1 px antialiasing guard at Feather 0.
-        let hardness = Num.saturate(1 - Num.clamp(stroke.feather, 0, 100) / 100)
-        let hardnessUsed = Swift.min(hardness, Swift.max(0, 1 - 1 / Swift.max(radiusPx, 1)))
-
-        // DENSITY-CORRECT SPACING (Astra M04). Flow is a deposit PER STAMP, and the
-        // stamps are laid every `stampSpacingFraction` of a radius — a length that is
-        // the same fraction of the photograph at every resolution. The 1 px floor below
-        // breaks that the moment a radius drops under ten pixels: a 2.5 px radius stamps
-        // every pixel instead of every quarter-pixel, so the same stroke laid a quarter
-        // of the deposits at that size that it lays where the radius is 25 px, and the
-        // audit's Flow-10 line peaked at 0.26 at 512 px against 0.63 at 4096.
-        //
-        // So every stamp after the first stands for `weight` nominal stamps, and
-        // deposits what that many would have: `1 − (1 − f·s)^weight`. A stroke is then
-        // the same stroke at every resolution, up to the spacing's own Riemann error at
-        // pixel scale. `weight` is exactly 1 whenever the radius is ten pixels or more,
-        // and that path below is the old arithmetic verbatim, so every stroke that was
-        // already resolution-independent paints bit-identically.
-        let nominalSpacing = stampSpacingFraction * radiusPx
-        let spacing = Swift.max(1, nominalSpacing)
-        let weight = spacing > nominalSpacing ? spacing / nominalSpacing : 1
-        let centers = stampCenters(stroke.points, width: w, height: h, spacingPx: spacing)
-        if centers.isEmpty { return }
-
-        let context = OKLabTransform.working
-        let useAutomask = stroke.automask && source != nil
-
-        for (stampIndex, centre) in centers.enumerated() {
-            guard centre.x.isFinite, centre.y.isFinite else { continue }
-            // The first stamp is one stamp at every resolution (a dab is a dab); each
-            // later one stands for the nominal stamps laid along the spacing behind it.
-            let stampWeight = stampIndex == 0 ? 1 : weight
-            // The automask reference is one sample per stamp, not per pixel (docs/08:
-            // "per-stamp color-similarity gate against the stamp-center sample"),
-            // taken from the denoised stage input rather than the raw signal.
-            var reference: OKLab? = nil
-            if useAutomask, let src = source {
-                let u = centre.x / Double(w)
-                let v = centre.y / Double(h)
-                let rgb = src.bilinear(u * Double(src.width), v * Double(src.height))
-                if rgb.isFinite { reference = context.toLab(rgb) }
-            }
-
-            // Clamp in Double before converting: an Int() conversion of an out-of-range
-            // or non-finite Double traps, and a stroke point is user data.
-            let minX = (centre.x - radiusPx).rounded(.down)
-            let maxX = (centre.x + radiusPx).rounded(.up)
-            let minY = (centre.y - radiusPx).rounded(.down)
-            let maxY = (centre.y + radiusPx).rounded(.up)
-            if maxX < 0 || maxY < 0 || minX > Double(w - 1) || minY > Double(h - 1) { continue }
-            let x0 = Int(Num.clamp(minX, 0, Double(w - 1)))
-            let x1 = Int(Num.clamp(maxX, 0, Double(w - 1)))
-            let y0 = Int(Num.clamp(minY, 0, Double(h - 1)))
-            let y1 = Int(Num.clamp(maxY, 0, Double(h - 1)))
-            if x1 < x0 || y1 < y0 { continue }
-
-            let flowPressure = flow * Num.saturate(centre.pressure)
-            if flowPressure <= 0 { continue }
-
-            for y in y0...y1 {
-                let dy = Double(y) + 0.5 - centre.y
-                for x in x0...x1 {
-                    let dx = Double(x) + 0.5 - centre.x
-                    let d = (dx * dx + dy * dy).squareRoot()
-                    var s = stampProfile(d / radiusPx, hardness: hardnessUsed)
-                    if s <= 0 { continue }
-
-                    if let reference = reference, let src = source {
-                        let lab = context.toLab(srcColor(src, x, y, w, h))
-                        let dL = lab.L - reference.L
-                        let da = lab.a - reference.a
-                        let db = lab.b - reference.b
-                        let deltaE = (dL * dL + da * da + db * db).squareRoot()
-                        s *= 1 - smoothstep(automaskTau, 2 * automaskTau, deltaE)
-                        if s <= 0 { continue }
-                    }
-
-                    let i = y * w + x
-                    let a = Double(p.values[i])
-                    // `stampWeight == 1` keeps the historical expression exactly:
-                    // `1 − (1 − x)` is not `x` in floating point.
-                    let deposit = stampWeight == 1
-                        ? flowPressure * s
-                        : -expm1(stampWeight * log1p(-Swift.min(flowPressure * s, 1)))
-                    let next: Double
-                    if stroke.erase {
-                        next = a * (1 - deposit)
-                    } else {
-                        next = a + deposit * Swift.max(density - a, 0)
-                    }
-                    p.values[i] = Float(Num.saturate(next))
-                }
-            }
-        }
+        // Only the stroke's own bounds are held: a short stroke on a 45 MP export plane
+        // must not allocate a second 45 MP plane.
+        let window = BrushStrokeRaster.bounds(of: stroke, width: w, height: h,
+                                              radius: radiusPx)
+        guard !window.isEmpty else { return }
+        var raster = BrushStrokeRaster(stroke: stroke, width: w, height: h, longEdge: long,
+                                       source: source, window: window)
+        guard raster.paints else { return }
+        for point in stroke.points { raster.append(point) }
+        raster.finish()
+        raster.composite(into: &p)
     }
 
     /// A similarity point's parsed geometry, in PIXELS at the requested extent.
@@ -1788,81 +1687,6 @@ public enum MaskRaster {
         // that the mask's own Feather control could not recover — it only moved the
         // hard edge inward. See the note there.
         return 1 - smoothstep(hardness, 1, rho)
-    }
-
-    /// Catmull-Rom (uniform, τ = 0.5) through the recorded points, resampled at
-    /// arc-length spacing so stamp density is independent of input sampling rate.
-    private static func stampCenters(_ points: [BrushPoint],
-                                     width w: Int, height h: Int,
-                                     spacingPx spacing: Double) -> [StampPoint] {
-        var pts: [StampPoint] = []
-        pts.reserveCapacity(points.count)
-        for q in points where q.x.isFinite && q.y.isFinite {
-            pts.append(StampPoint(x: q.x * Double(w),
-                                  y: q.y * Double(h),
-                                  pressure: q.pressure.isFinite ? Num.saturate(q.pressure) : 1))
-        }
-        if pts.isEmpty { return [] }
-        if pts.count == 1 { return pts }
-
-        // Dense spline samples first, arc-length walk second — two cheap passes beat
-        // one Newton solve, and the result is deterministic.
-        var dense: [StampPoint] = [pts[0]]
-        dense.reserveCapacity(pts.count * 4)
-        let step = Swift.max(spacing * 0.5, 0.5)
-        for i in 0..<(pts.count - 1) {
-            let p0 = pts[Swift.max(i - 1, 0)]
-            let p1 = pts[i]
-            let p2 = pts[i + 1]
-            let p3 = pts[Swift.min(i + 2, pts.count - 1)]
-            let chordX = p2.x - p1.x, chordY = p2.y - p1.y
-            let chord = (chordX * chordX + chordY * chordY).squareRoot()
-            var steps = 1
-            if chord.isFinite && chord > 0 {
-                // Clamp in Double first — Int() traps on an out-of-range conversion,
-                // and the chord length comes from recorded coordinates.
-                steps = Int(Num.clamp((chord / step).rounded(.up), 1, 64))
-            }
-            for j in 1...steps {
-                let t = Double(j) / Double(steps)
-                dense.append(StampPoint(x: catmullRom(p0.x, p1.x, p2.x, p3.x, t),
-                                        y: catmullRom(p0.y, p1.y, p2.y, p3.y, t),
-                                        pressure: Num.mix(p1.pressure, p2.pressure, t)))
-            }
-            if dense.count > maxDenseSamples { break }
-        }
-
-        var out: [StampPoint] = [dense[0]]
-        var carried = 0.0
-        for i in 1..<dense.count {
-            let a = dense[i - 1]
-            let b = dense[i]
-            let dx = b.x - a.x, dy = b.y - a.y
-            let segment = (dx * dx + dy * dy).squareRoot()
-            if !segment.isFinite || segment <= 0 { continue }
-            var walked = 0.0
-            while carried + (segment - walked) >= spacing && out.count < maxStamps {
-                walked += spacing - carried
-                let t = Num.saturate(walked / segment)
-                out.append(StampPoint(x: Num.mix(a.x, b.x, t),
-                                      y: Num.mix(a.y, b.y, t),
-                                      pressure: Num.mix(a.pressure, b.pressure, t)))
-                carried = 0
-            }
-            carried += segment - walked
-            if out.count >= maxStamps { break }
-        }
-        return out
-    }
-
-    private static func catmullRom(_ p0: Double, _ p1: Double, _ p2: Double,
-                                   _ p3: Double, _ t: Double) -> Double {
-        let t2 = t * t
-        let t3 = t2 * t
-        return 0.5 * ((2 * p1)
-                      + (-p0 + p2) * t
-                      + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
-                      + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
     }
 
     // MARK: - Small helpers

@@ -149,6 +149,11 @@ struct MaskCanvas: View {
     /// the thing they are looking at rather than by reading a list.
     var selectMask: (String) -> Void = { _ in }
     let commit: (MaskCanvasEdit) -> Void
+    /// The displayed preview, the same extent as `imageRect`. Only Auto Mask reads it,
+    /// so the live stroke can show where the cut will fall while it is being painted.
+    /// Nil is safe: the live stroke then shows the uncut brush, and the committed
+    /// stroke is cut by the renderer as always.
+    var picture: CGImage? = nil
 
     @ObservedObject private var brush: MaskBrushStore = MaskBrushStore.shared
 
@@ -166,6 +171,14 @@ struct MaskCanvas: View {
     /// because a turn computed against a value the previous event wrote compounds.
     @State private var originRotation: Double = 0
     @State private var livePoints: [BrushPoint] = []
+    /// The stroke being painted, rasterized as it will land (`BrushLivePreview`). A
+    /// reference so that a mouse event does not copy a view-sized pixel buffer through
+    /// `@State`; `liveVersion` is what tells SwiftUI it changed.
+    @State private var liveStroke: LiveBrushStroke?
+    @State private var liveVersion = 0
+    /// 1 while painting; animated to 0 after mouse-up so the stroke hands over to the
+    /// rendered mask instead of vanishing before the render lands.
+    @State private var liveOpacity: Double = 1
     /// Where a stroke that began as a press on another mask's pin actually started.
     /// The events before the press travelled were the pin's, so the stroke has to be
     /// told its first point rather than starting where the candidate was resolved.
@@ -184,6 +197,7 @@ struct MaskCanvas: View {
          strokes: BrushStrokeSet = BrushStrokeSet(),
          allMasks: [Mask] = [],
          selectMask: @escaping (String) -> Void = { _ in },
+         picture: CGImage? = nil,
          commit: @escaping (MaskCanvasEdit) -> Void) {
         self.imageRect = imageRect
         self.sourceSize = sourceSize
@@ -194,6 +208,7 @@ struct MaskCanvas: View {
         self.strokes = strokes
         self.allMasks = allMasks
         self.selectMask = selectMask
+        self.picture = picture
         self.commit = commit
     }
 
@@ -265,6 +280,7 @@ struct MaskCanvas: View {
                 break
             }
         }
+        .overlay(alignment: .topLeading) { liveStrokeLayer }
         .contentShape(Rectangle())
         .gesture(dragGesture)
         .onContinuousHover(coordinateSpace: .local) { phase in
@@ -1347,6 +1363,7 @@ struct MaskCanvas: View {
         if isNew {
             stabilizer = newStabilizer()
             eraseHeld = Self.optionHeld()
+            beginLiveStroke(with: points)
         }
         var smoother = stabilizer ?? newStabilizer()
         // A stroke that began on another mask's pin starts where the hand went down,
@@ -1354,8 +1371,10 @@ struct MaskCanvas: View {
         if isNew, let seed {
             let s = normalized(seed)
             if let first = smoother.next(x: Double(s.x), y: Double(s.y)) {
-                points.append(BrushPoint(x: first.x, y: first.y,
-                                         pressure: Self.currentPressure(), t: 0))
+                let seeded = BrushPoint(x: first.x, y: first.y,
+                                        pressure: Self.currentPressure(), t: 0)
+                points.append(seeded)
+                feedLiveStroke(seeded)
             }
         }
         let moved = ended ? (smoother.finish(x: Double(n.x), y: Double(n.y))
@@ -1389,11 +1408,51 @@ struct MaskCanvas: View {
             let dy = Double(now.y - previous.y)
             accept = ended || (dx * dx + dy * dy) >= 0.25
         }
-        if accept { points.append(point) }
+        if accept {
+            points.append(point)
+            feedLiveStroke(point)
+        }
         livePoints = points
 
         guard ended else { return }
         commitBrushStroke(points)
+    }
+
+    /// A new live stroke with the brush the press will commit: the panel's settings,
+    /// erase if Option is held, diameter as the cursor draws it.
+    private func beginLiveStroke(with points: [BrushPoint]) {
+        var stroke = brush.stroke(points: [])
+        if eraseHeld { stroke.erase = true }
+        liveStroke = LiveBrushStroke(stroke: stroke, size: imageRect.size,
+                                     diameter: brushDiameter,
+                                     picture: stroke.automask ? picture : nil)
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        withTransaction(instant) { liveOpacity = 1 }
+        for point in points { feedLiveStroke(point) }
+    }
+
+    /// One recorded point into the live stroke, through the same view mapping the
+    /// handles use, so the live stroke sits where the committed one will.
+    private func feedLiveStroke(_ point: BrushPoint) {
+        guard let live = liveStroke else { return }
+        let v = viewPoint(point.x, point.y)
+        live.append(x: Double(v.x - imageRect.minX), y: Double(v.y - imageRect.minY),
+                    pressure: point.pressure)
+        liveVersion &+= 1
+    }
+
+    @ViewBuilder
+    private var liveStrokeLayer: some View {
+        let _ = liveVersion
+        if let live = liveStroke, let frame = live.image() {
+            Image(decorative: frame.image, scale: 1)
+                .frame(width: frame.rect.width, height: frame.rect.height)
+                .offset(x: imageRect.minX + frame.rect.minX,
+                        y: imageRect.minY + frame.rect.minY)
+                .opacity(liveOpacity)
+                .allowsHitTesting(false)
+        }
     }
 
     /// The end of a stroke, in one place because there are two ways to reach it: the
@@ -1401,6 +1460,12 @@ struct MaskCanvas: View {
     /// released inside the rope. Missing the second is a stroke that never lands.
     private func commitBrushStroke(_ points: [BrushPoint]) {
         livePoints = []
+        // The live stroke stays up and fades: the rendered mask takes a frame or a
+        // settle to land, and a stroke that vanished on mouse-up and reappeared a beat
+        // later — narrower, softer, cut — was the flicker this replaces.
+        liveStroke?.finish()
+        liveVersion &+= 1
+        withAnimation(.easeOut(duration: 0.35).delay(0.35)) { liveOpacity = 0 }
         strokeStarted = nil
         stabilizer = nil
         guard !points.isEmpty else {
@@ -1578,17 +1643,8 @@ struct MaskCanvas: View {
 
     private func drawBrush(_ context: inout GraphicsContext) {
         let diameter = brushDiameter
-        if livePoints.count > 1 {
-            var path = Path()
-            for (index, point) in livePoints.enumerated() {
-                let p = viewPoint(point.x, point.y)
-                if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
-            }
-            let wet = (brush.erase || eraseHeld) ? 0.18 : 0.32
-            context.stroke(path, with: .color(Color.white.opacity(wet)),
-                           style: StrokeStyle(lineWidth: diameter, lineCap: .round,
-                                              lineJoin: .round))
-        }
+        // The stroke being painted is `liveStrokeLayer`, the real coverage — not a hard
+        // white line as wide as the outer ring, which is what used to be drawn here.
         guard let hover = hover else { return }
         let rect = CGRect(x: hover.x - diameter / 2, y: hover.y - diameter / 2,
                           width: diameter, height: diameter)
@@ -1614,6 +1670,18 @@ struct MaskCanvas: View {
             core.addEllipse(in: CGRect(x: hover.x - inner / 2, y: hover.y - inner / 2,
                                        width: inner, height: inner))
             stroke(&context, core, width: 1, alpha: erasing ? 0.28 : 0.42)
+        }
+        // AUTO MASK SAMPLES UNDER THE CENTRE, and Lightroom marks it with a cross for
+        // that reason: it is the one point whose colour decides what the stroke may
+        // paint, and a photographer aims it rather than the ring.
+        if brush.automask, diameter > 8 {
+            let arm = Swift.min(diameter * 0.12, 6)
+            var cross = Path()
+            cross.move(to: CGPoint(x: hover.x - arm, y: hover.y))
+            cross.addLine(to: CGPoint(x: hover.x + arm, y: hover.y))
+            cross.move(to: CGPoint(x: hover.x, y: hover.y - arm))
+            cross.addLine(to: CGPoint(x: hover.x, y: hover.y + arm))
+            stroke(&context, cross, width: 1, alpha: 0.85)
         }
     }
 
@@ -2181,6 +2249,75 @@ struct MaskCanvasHitArea: Shape {
                                        width: radius * 2, height: radius * 2))
         }
         return path
+    }
+}
+
+/// The live stroke's pixels and the image drawn from them. A class so a mouse event
+/// mutates it in place; `MaskCanvas.liveVersion` carries the change to SwiftUI.
+final class LiveBrushStroke {
+    private var preview: BrushLivePreview
+    private var cached: (image: CGImage, rect: CGRect)?
+    private var stale = true
+
+    /// - Parameters: `size` and `diameter` in view points, which are this raster's
+    ///   pixels: the overlay is soft, and 1× keeps a whole-view stroke a few megabytes.
+    init(stroke: BrushStroke, size: CGSize, diameter: CGFloat, picture: CGImage?) {
+        let w = Swift.max(1, Int(size.width.rounded(.up)))
+        let h = Swift.max(1, Int(size.height.rounded(.up)))
+        var pixels: [UInt8]? = nil
+        if let picture { pixels = LiveBrushStroke.pixels(of: picture, width: w, height: h) }
+        let tint = stroke.erase ? (0.92, 0.92, 0.92) : (0.90, 0.16, 0.16)
+        preview = BrushLivePreview(stroke: stroke, width: w, height: h,
+                                   diameterPx: Double(diameter), picture: pixels,
+                                   tint: tint, strength: stroke.erase ? 0.45 : 0.55)
+    }
+
+    func append(x: Double, y: Double, pressure: Double) {
+        preview.append(x: x, y: y, pressure: pressure)
+        stale = true
+    }
+
+    func finish() {
+        preview.finish()
+        stale = true
+    }
+
+    /// The painted part of the stroke as an image, rebuilt only after a change.
+    func image() -> (image: CGImage, rect: CGRect)? {
+        guard stale else { return cached }
+        stale = false
+        let r = preview.touched
+        guard !r.isEmpty, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let provider = CGDataProvider(data: Data(preview.patch(r)) as CFData),
+              let image = CGImage(width: r.width, height: r.height, bitsPerComponent: 8,
+                                  bitsPerPixel: 32, bytesPerRow: r.width * 4, space: space,
+                                  bitmapInfo: CGBitmapInfo(
+                                      rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: true,
+                                  intent: .defaultIntent)
+        else {
+            cached = nil
+            return nil
+        }
+        cached = (image, CGRect(x: r.x0, y: r.y0, width: r.width, height: r.height))
+        return cached
+    }
+
+    /// The displayed preview as sRGB RGBA8 at the live raster's extent, top row first.
+    private static func pixels(of picture: CGImage, width: Int, height: Int) -> [UInt8]? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let context = CGContext(data: raw.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.interpolationQuality = .medium
+            context.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        return drawn ? bytes : nil
     }
 }
 

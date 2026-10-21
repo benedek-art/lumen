@@ -101,7 +101,8 @@
 //      Display P3) matrix, clamp to [0,1], sRGB transfer, round(v × 255). That is
 //      `PipelineRenderer.cgImage(from:)` plus the dither the preview and export apply.
 //
-// Not rendered (no input for them): brush-stroke masks (no stroke blobs), AI mattes
+// Not rendered (no input for them): brush-stroke masks (no stroke blobs; see the
+// `strokes` command in Strokes.swift, which rasterizes a stroke set on its own), AI mattes
 // (no Vision), heal strokes, creative LUT cubes not on the shared shelf, geometry
 // (crop/straighten/upright — the reference path has no geometry stage, GEO-17), lens
 // corrections and the RAW-domain stages before S3.
