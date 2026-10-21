@@ -29,7 +29,7 @@ swift test --filter 'MaskRefineQualityTests|MaskEdgeShift|MaskingTests|MaskGuide
 | # | claim | threshold | measured by |
 |---|---|---|---|
 | R1 | Every refine control at its default is an exact identity, and `MaskRefine()` keeps a gradient mask on the GPU path | bit-identical | `MaskRefineQualityTests.testDefaultsAreAnExactIdentity` |
-| R2 | Expand is per-pixel monotone: raising Edge never lowers any pixel | worst wrong-way step ≤ 1e-6 over Edge −50…+50 on C, RsC, LiU, hardR and the unit mixed fixtures | `refcheck.py` `wrong` column; `testExpandIsMonotoneAtEveryPixel` |
+| R2 | Expand is per-pixel monotone: raising Edge never lowers any pixel, border pixels included | worst wrong-way step ≤ 1e-6 over Edge −50…+50 (every integer) on C, LiU and luma ranges on 6929 and 2545, and the unit fixtures | `refcheck.py` `wrong` column; `testExpandIsMonotoneAtEveryPixel` |
 | R3 | Expand never manufactures speckle | components < 16 px at any Edge ≠ 0 ≤ the count at Edge 0, on all four corpus masks | `refcheck.py` `speck` |
 | R4 | Expand moves hard and soft boundaries by the same shift | both within ±1.5 px of the shift (Edge −40, 320²); Edge ±50 moves a hard radial's 0.5 crossing by 1 % long edge ± 6 % | `testAdvectionMovesTheHardAndSoftBoundariesByTheSameDistance` (renamed), `testFullTravelIsOnePercentOfTheLongEdge` |
 | R5 | Expand keeps the edge profile: it shifts the existing ramp instead of rebuilding a new one | on a feather-100 radial, an erosion raises no pixel (> 1e-6); mean distance to an exact disc dilation ≤ 0.01 at Edge ±50 | `testErosionNeverRaisesAPixel`, `testExpandMatchesAnExactDisc` |
@@ -56,4 +56,4 @@ swift test --filter 'MaskRefineQualityTests|MaskEdgeShift|MaskingTests|MaskGuide
 
 - V1 `evidence/expand_8559_colour.png`: Edge −50…+50 on the colour-range mask shows no rings, bubbles or torn stripes; the selection grows and shrinks as one shape.
 - V2 `evidence/follow_8559_colour.png`: at Follow 100 the twigs seen through the can's handle stay unselected.
-- V3 `evidence/algebra_8559.png`: radial minus colour range at component amount 50 shows the can removed by half, graded with the colour match, not a flat plateau.
+- V3 `evidence/algebra_8559.png`: shows the subtract dead zone (R50 subtract C leaves the partly matched can on a flat 0.5 plateau while the same selection spelled as intersect-inverted is graded) and Intersect at Amount 0 emptying the mask, next to the NEEDS.md proposal.

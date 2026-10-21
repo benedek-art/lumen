@@ -854,12 +854,30 @@ public enum MaskRaster {
         guard r > 0 else { return a }
         let d = Swift.min(Int((Double(r) / (2 + 2.0.squareRoot())).rounded()), (r - 1) / 2)
         let ax = r - 2 * d
-        var p = a
+        // PADDED BY r, REPLICATING THE BORDER, then cropped. Four chained passes that
+        // each clip at the frame lose every path that leaves it: a pixel two steps from
+        // the edge can be reached by the octagon only through a point outside, so near
+        // the border the octagon of radius 9 did not contain the disc of radius 8 and
+        // Edge flickered there (0.31 → 0.14 → 0.03 → 0.20 over Edge 17…19 on 983). On a
+        // replicated border every pass sees what the disc branch's clamped rows see.
+        let w = a.width, h = a.height
+        let pw = w + 2 * r, ph = h + 2 * r
+        var p = Plane(width: pw, height: ph)
+        for y in 0..<ph {
+            let sy = Swift.min(Swift.max(y - r, 0), h - 1) * w
+            for x in 0..<pw {
+                p.values[y * pw + x] = a.values[sy + Swift.min(Swift.max(x - r, 0), w - 1)]
+            }
+        }
         slidingExtreme(&p, dx: 1, dy: 0, half: ax, max: dilate)
         slidingExtreme(&p, dx: 0, dy: 1, half: ax, max: dilate)
         slidingExtreme(&p, dx: 1, dy: 1, half: d, max: dilate)
         slidingExtreme(&p, dx: 1, dy: -1, half: d, max: dilate)
-        return p
+        var out = a
+        for y in 0..<h {
+            for x in 0..<w { out.values[y * w + x] = p.values[(y + r) * pw + x + r] }
+        }
+        return out
     }
 
     /// In place: every pixel becomes the max (or min) of the pixels within `half` steps
