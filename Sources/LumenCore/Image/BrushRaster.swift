@@ -323,18 +323,26 @@ public struct BrushStrokeRaster {
         let chord = (cx * cx + cy * cy).squareRoot()
         guard chord.isFinite else { return [] }
         if chord <= 0 { return [p2] }
-        // Deviation of the curve from its chord at the quarter points — the midpoint
-        // alone misses an S-shaped segment, whose two bulges cancel there (verifier: 1.7
-        // px off on a zig-zag). Falls as 1/n² with n subdivisions.
-        var dev = 0.0
-        for t in [0.25, 0.5, 0.75] {
-            let q = at(t)
-            let dx = q.x - (p1.x + cx * t), dy = q.y - (p1.y + cy * t)
-            dev = Swift.max(dev, (dx * dx + dy * dy).squareRoot())
+        // Subdivide until every sub-chord stays within `flatness` of the curve at its
+        // quarter points, doubling n. Measured, not estimated: a sagitta estimate from
+        // the whole segment under-counts where the curvature sits at the segment's ends
+        // (the verifier found 1.06 px on a zig-zag and 1.26 px on a sharp turn with it).
+        func deviation(_ n: Int) -> Double {
+            var worst = 0.0
+            var a = p1
+            for j in 1...n {
+                let b = at(Double(j) / Double(n))
+                for f in [0.25, 0.5, 0.75] {
+                    let q = at((Double(j - 1) + f) / Double(n))
+                    let dx = q.x - (a.x + (b.x - a.x) * f), dy = q.y - (a.y + (b.y - a.y) * f)
+                    worst = Swift.max(worst, (dx * dx + dy * dy).squareRoot())
+                }
+                a = b
+            }
+            return worst
         }
-        let byLength = chord / Swift.max(radius, 1)
-        let byCurve = dev.isFinite ? (dev / flatness).squareRoot() : 1
-        let n = Int(Num.clamp(Swift.max(byLength, byCurve).rounded(.up), 1, 256))
+        var n = Int(Num.clamp((chord / Swift.max(radius, 1)).rounded(.up), 1, 256))
+        while n < 256 && deviation(n) > flatness { n = Swift.min(n * 2, 256) }
         guard budget > 0 else { return [] }
         let take = Swift.min(n, budget)
         budget -= take
