@@ -162,7 +162,6 @@ final class MaskRangeGPUParityTests: XCTestCase {
     // MARK: - The comparison
 
     func testRangeKernelsMatchTheReference() throws {
-        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable,
                           "range kernels failed: \(KernelLibrary.unavailableMaskKernels)")
         for size in sizes {
@@ -200,7 +199,6 @@ final class MaskRangeGPUParityTests: XCTestCase {
     /// half-float stage and write half-float alpha in production, so the share test is
     /// repeated there with a 4e-3 threshold (half a code value at 8 bits).
     func testRangeKernelsHoldInHalfFloat() throws {
-        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let half = CIContext(options: [.workingColorSpace: NSNull(),
                                        .outputColorSpace: NSNull(),
@@ -232,7 +230,6 @@ final class MaskRangeGPUParityTests: XCTestCase {
     /// A colour-range fixture that selects nothing would pass the comparison above
     /// trivially. Pin that the sampled colours are actually selected.
     func testTheColourFixtureSelectsSomething() throws {
-        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let buffer = picture(256, 256)
         let mask = Mask(id: "c", components: [colour(samples(buffer, 3), refine: 50)])
@@ -242,10 +239,212 @@ final class MaskRangeGPUParityTests: XCTestCase {
         XCTAssertLessThan(selected, 256 * 256 * 9 / 10)
     }
 
+    // MARK: - The measurement denoise (lane M9b)
+    //
+    // Every fixture above is under 400 px, where `rangeMeasurementRadius` is 0 and the
+    // reference's denoise is off, so those cases hold the band and distance arithmetic
+    // alone. These hold the denoise: a noisy frame at 1 and 2 px of box radius, the
+    // noise table on its own, and the frame pinned to the Metal reduction.
+
+    /// A frame with real structure and real noise: an EV ramp from −12 to +2 across,
+    /// a 1.2 EV step down a third of the way, a mid-grey disc, hue turning down the
+    /// frame, and per-channel Gaussian noise of shot-plus-read shape from a hash, so
+    /// it is the same frame on every run.
+    private func noisy(_ w: Int, _ h: Int) -> ImageBuffer {
+        var b = ImageBuffer(width: w, height: h)
+        func uniform(_ x: Int, _ y: Int, _ k: Int) -> Double {
+            var z = UInt64(truncatingIfNeeded: x &* 73_856_093 ^ y &* 19_349_663 ^ k &* 83_492_791)
+            z = (z ^ (z >> 30)) &* 0xbf58476d1ce4e5b9
+            z = (z ^ (z >> 27)) &* 0x94d049bb133111eb
+            z ^= z >> 31
+            return (Double(z >> 11) + 0.5) / Double(1 << 53)
+        }
+        for y in 0..<h {
+            for x in 0..<w {
+                let u = (Double(x) + 0.5) / Double(w), v = (Double(y) + 0.5) / Double(h)
+                var ev = -12 + 14 * u
+                if v > 0.6 { ev += 1.2 }
+                let dx = u - 0.3, dy = v - 0.35
+                if dx * dx + dy * dy < 0.02 { ev = -2 }
+                let l = pow(2, ev)
+                let t = 2 * Double.pi * v
+                let base = [l * (0.55 + 0.4 * cos(t)), l * (0.55 + 0.4 * cos(t - 2.1)),
+                            l * (0.55 + 0.4 * cos(t + 2.1))]
+                var c = [0.0, 0.0, 0.0]
+                for k in 0..<3 {
+                    let sigma = (base[k] * 0.004 + 1e-6).squareRoot()
+                    let g = (-2 * log(uniform(x, y, 2 * k))).squareRoot()
+                        * cos(2 * Double.pi * uniform(x, y, 2 * k + 1))
+                    c[k] = base[k] + sigma * g
+                }
+                b[x, y] = RGB(c[0], c[1], c[2])
+            }
+        }
+        return b
+    }
+
+    private func denoisedCases(_ picture: ImageBuffer) -> [(name: String, mask: Mask, soft: Bool)] {
+        var out: [(name: String, mask: Mask, soft: Bool)] = []
+        for channel in [nil, MaskChannel.red, .min] {
+            for smooth in [0.0, 25, 100] {
+                out.append(("band \(channel?.rawValue ?? "luma") smooth \(smooth)",
+                            Mask(id: "b", components: [band(0.3, 0.65, smooth: smooth,
+                                                            channel: channel)]),
+                            smooth > 0))
+            }
+        }
+        for n in [1, 3] {
+            for refine in [25.0, 50, 100] {
+                out.append(("colour \(n) samples refine \(refine)",
+                            Mask(id: "c", components: [colour(samples(picture, n),
+                                                              refine: refine)]),
+                            true))
+            }
+        }
+        var linear = MaskComponent(op: .intersect, kind: .linear)
+        linear.line = [0.5, 0.9, 0.5, 0.1]
+        var stack = Mask(id: "s", components: [
+            band(0.2, 0.8, smooth: 50), linear,
+            colour(samples(picture, 2), refine: 60, op: .subtract),
+            band(0.5, 0.7, smooth: 30, op: .add),
+        ])
+        out.append(("band ∩ gradient − colour + band", stack, true))
+        stack.invert = true
+        stack.refine.levelsGamma = 1.8
+        out.append(("inverted stack through Levels", stack, true))
+        return out
+    }
+
+    func testDenoisedRangesMatchTheReference() throws {
+        try XCTSkipUnless(KernelLibrary.rangeMasksAvailable,
+                          "range kernels failed: \(KernelLibrary.unavailableMaskKernels)")
+        let fallbacks = NoiseTableKernel.cpuFallbacks.value
+        for size in [(w: 640, h: 427), (w: 1200, h: 800), (w: 500, h: 900)] {
+            XCTAssertGreaterThan(MaskRaster.rangeMeasurementRadius(
+                longEdge: Swift.max(size.w, size.h)), 0, "this size must denoise")
+            let buffer = noisy(size.w, size.h)
+            let source = image(buffer)
+            for (name, mask, soft) in denoisedCases(buffer) {
+                let reference = MaskRaster.combine(mask: mask,
+                                                   size: (width: size.w, height: size.h),
+                                                   source: buffer)
+                let gpu = try gpuPlane(mask, source: source, size)
+                var worst = 0.0, wx = 0, wy = 0, past = 0
+                for y in 0..<size.h {
+                    for x in 0..<size.w {
+                        let d = abs(reference[x, y] - gpu[x, y])
+                        if d > 1e-3 { past += 1 }
+                        if d > worst { worst = d; wx = x; wy = y }
+                    }
+                }
+                let share = Double(past) / Double(size.w * size.h)
+                let detail = "\(name) at \(size.w)×\(size.h): worst \(worst) at (\(wx), \(wy))"
+                    + " — reference \(reference[wx, wy]), gpu \(gpu[wx, wy]); "
+                    + "share past 1e-3 \(share)"
+                XCTAssertLessThan(share, shareTolerance, detail)
+                if soft { XCTAssertLessThan(worst, worstSoft, detail) }
+                if name.hasPrefix("band luma smooth 25") {
+                    XCTAssertGreaterThan(reference.values.max() ?? 0, 0.9, detail)
+                    XCTAssertLessThan(reference.values.min() ?? 1, 0.1, detail)
+                }
+            }
+        }
+        XCTAssertEqual(NoiseTableKernel.cpuFallbacks.value, fallbacks,
+                       "the noise table was reduced on the CPU, not by the Metal pass")
+    }
+
+    func testDenoisedRangesHoldInHalfFloat() throws {
+        try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
+        let half = CIContext(options: [.workingColorSpace: NSNull(),
+                                       .outputColorSpace: NSNull(),
+                                       .workingFormat: CIFormat.RGBAh])
+        let size = (w: 640, h: 427)
+        let buffer = noisy(size.w, size.h)
+        let extent = CGRect(x: 0, y: 0, width: size.w, height: size.h)
+        for (name, mask, _) in denoisedCases(buffer) {
+            let reference = MaskRaster.combine(mask: mask,
+                                               size: (width: size.w, height: size.h),
+                                               source: buffer)
+            let alpha = try XCTUnwrap(MaskGPU.alpha(for: mask, extent: extent,
+                                                    source: image(buffer)))
+            var bytes = [Float](repeating: 0, count: size.w * size.h * 4)
+            bytes.withUnsafeMutableBytes { raw in
+                half.render(alpha, toBitmap: raw.baseAddress!, rowBytes: size.w * 16,
+                            bounds: extent, format: .RGBAf, colorSpace: nil)
+            }
+            var past = 0
+            for i in 0..<(size.w * size.h)
+            where abs(Double(bytes[i * 4]) - reference[i % size.w, i / size.w]) > 4e-3 {
+                past += 1
+            }
+            XCTAssertLessThan(Double(past) / Double(size.w * size.h), 5e-3,
+                              "\(name) in half float: \(past) pixels past 4e-3")
+        }
+    }
+
+    /// The Metal reduction's table against `MaskRaster.rangeNoiseTable`, bin by bin, for
+    /// a luminance range's EV plane and the colour range's three OKLab planes.
+    func testTheNoiseTableIsTheReferences() throws {
+        try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
+        XCTAssertTrue(NoiseTableKernel.metalAvailable, "the Metal reduction did not build")
+        let size = (w: 900, h: 600)
+        let buffer = noisy(size.w, size.h)
+        let source = image(buffer)
+        let extent = CGRect(x: 0, y: 0, width: size.w, height: size.h)
+        let weights = RGBColorSpace.rec2020.luminanceWeights
+        let lab = OKLabTransform.working
+        var ev = Plane(width: size.w, height: size.h)
+        var level = Plane(width: size.w, height: size.h)
+        var planes = [Plane](repeating: Plane(width: size.w, height: size.h), count: 3)
+        for y in 0..<size.h {
+            for x in 0..<size.w {
+                let c = buffer[x, y]
+                let m = MaskChannel.luma.value(c, weights: weights)
+                ev[x, y] = Num.safeLog2(m.isFinite ? m : 0, floorEV: -16)
+                level[x, y] = ev[x, y]
+                let o = lab.toLab(c)
+                planes[0][x, y] = o.L
+                planes[1][x, y] = o.a
+                planes[2][x, y] = o.b
+            }
+        }
+        let bins = level.values.map(MaskRaster.rangeNoiseBin)
+        let n = MaskRaster.rangeNoiseBins
+        func read(_ spec: MaskRangeMeasure.Spec) throws -> [Float] {
+            let table = try XCTUnwrap(MaskRangeMeasure.noiseTable(spec, source: source,
+                                                                  extent: extent))
+            var out = [Float](repeating: 0, count: n * 4)
+            out.withUnsafeMutableBytes { raw in
+                context.render(table, toBitmap: raw.baseAddress!, rowBytes: n * 16,
+                               bounds: CGRect(x: 0, y: 0, width: n, height: 1),
+                               format: .RGBAf, colorSpace: nil)
+            }
+            return out
+        }
+        let fallbacks = NoiseTableKernel.cpuFallbacks.value
+        let luma = try read(MaskRangeMeasure.Spec(colour: false, channel: 0))
+        let colour = try read(MaskRangeMeasure.Spec(colour: true, channel: 0))
+        XCTAssertEqual(NoiseTableKernel.cpuFallbacks.value, fallbacks,
+                       "the table was reduced on the CPU branch")
+        let expected: [(String, [Double], [Float], Int)] = [
+            ("EV", MaskRaster.rangeNoiseTable(ev, levelBins: bins), luma, 0),
+            ("L", MaskRaster.rangeNoiseTable(planes[0], levelBins: bins), colour, 0),
+            ("a", MaskRaster.rangeNoiseTable(planes[1], levelBins: bins), colour, 1),
+            ("b", MaskRaster.rangeNoiseTable(planes[2], levelBins: bins), colour, 2),
+        ]
+        for (name, cpu, gpu, channel) in expected {
+            XCTAssertGreaterThan(cpu.max() ?? 0, 1e-6, "\(name): the fixture has no noise")
+            for b in 0..<n {
+                let g = Double(gpu[b * 4 + channel])
+                XCTAssertEqual(g, cpu[b], accuracy: 1e-3 * cpu[b] + 1e-12,
+                               "\(name) bin \(b)")
+            }
+        }
+    }
+
     // MARK: - Eligibility
 
     func testOnlyPointwiseChainsAndRangeKindsTakeTheGPUPath() throws {
-        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let longEdge = 2048
         let plain = Mask(id: "a", components: [band(0.2, 0.6, smooth: 50)])

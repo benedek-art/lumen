@@ -103,16 +103,15 @@ enum MaskGPU {
     // keeps the CPU path exactly as before.
 
     /// Whether the range kinds (luminance range, luminosity, colour range) take the
-    /// kernels below. OFF since the integration of lane M4 (WS-47/48), which made those
-    /// kinds SPATIAL: `MaskRaster.rangeMeasured` denoises the measurement with a
-    /// noise-adaptive guided pass at `rangeMeasurementRadius` (1 px per 800 of long edge),
-    /// and `lumaRangeValue` centres the shoulders on From/To. These kernels are M9's
-    /// pointwise twin of the definition BEFORE M4, so on the integration branch they
-    /// disagreed with the CPU by up to 0.69 alpha (`MaskRangeGPUParityTests`, macOS CI on
-    /// 421e8bb). Off, every range mask takes the CPU raster again — M4's picture, M9's
-    /// settle-raster cache and cheap-bake rule still in force — until the kernels are
-    /// ported to M4's definition (a follow-up for lanes M9/M4).
-    static let rangeKindsOnGPU = false
+    /// kernels below. It was OFF from the integration of lane M4 (84698be) until lane M9b:
+    /// M4 made luminance and colour range SPATIAL (`MaskRaster.rangeMeasured` denoises the
+    /// measurement with a noise-adaptive guided pass at 1 px per 800 of long edge),
+    /// centred the luminance shoulders on From/To and made the colour range ignore
+    /// shading, and M9's kernels were the pointwise twin of the definition before that.
+    /// They are M4's definition again — `MaskRangeMeasure` runs the measurement denoise
+    /// on the GPU — and `MaskRangeGPUParityTests` holds them to it. Kept as a switch so a
+    /// future definition change has one place to send range masks back to the CPU.
+    static let rangeKindsOnGPU = true
 
     /// True when this mask has a GPU form at a render whose long edge is `longEdge`.
     static func isGPUEvaluable(_ mask: Mask, longEdge: Int) -> Bool {
@@ -127,6 +126,11 @@ enum MaskGPU {
         if r.edge.isFinite, r.edge != 0 { return false }
         if r.blur.isFinite,
            (Num.clamp(r.blur, 0, 100) / 100) * 0.01 * Double(longEdge) > 0.05 {
+            return false
+        }
+        // The measurement denoise has a longest box (`KernelLibrary.rangeMaxRadius`).
+        if mask.components.contains(where: { $0.kind == .lumaRange || $0.kind == .colorRange }),
+           MaskRangeMeasure.radius(longEdge: longEdge) == nil {
             return false
         }
         for c in mask.components {
@@ -172,9 +176,13 @@ enum MaskGPU {
         guard var accumulator = zero(extent: extent, w: w, h: h, ox: ox, oy: oy)
         else { return nil }
 
+        // One measurement denoise per distinct measurement, not per component: two bands
+        // on the same channel, or two colour ranges, read the same corrected plane.
+        var corrections: [MaskRangeMeasure.Spec: CIImage] = [:]
         for c in mask.components {
             guard let raw = rawAlpha(c, extent: extent, source: source,
-                                     w: w, h: h, ox: ox, oy: oy)
+                                     w: w, h: h, ox: ox, oy: oy,
+                                     corrections: &corrections)
             else { return nil }
             guard let folded = KernelLibrary.apply(
                 KernelLibrary.maskFold, extent: extent,
@@ -245,15 +253,19 @@ enum MaskGPU {
         m.m.map { CIVector(x: CGFloat($0[0]), y: CGFloat($0[1]), z: CGFloat($0[2])) }
     }
 
-    /// `MaskRaster.lumaRangePlane`'s band, or nil for a band it rasterizes as empty.
+    /// `MaskRaster.lumaRangePlane`'s band (`lumaRangeValue`'s centred shoulders), or nil
+    /// for a band it rasterizes as empty. Follows the channel and weights arguments of
+    /// `KernelLibrary.maskLumaRange`, after its two images.
     static func lumaRangeArguments(_ c: MaskComponent) -> [Any]? {
         guard let lo = c.lo, let hi = c.hi, lo.isFinite, hi.isFinite else { return nil }
         let lo01 = Num.saturate(lo)
         let hi01 = Num.saturate(Swift.max(hi, lo))
-        let s = Num.clamp(c.smooth ?? 50, 0, 100) / 100
-        let shoulder = Swift.max(s * lumaShoulderEV / (evMax - evMin), 1e-4)
+        let smooth = c.smooth.map { $0.isFinite ? $0 : 50 } ?? 50
+        let s = Num.clamp(smooth, 0, 100) / 100
+        let half = Swift.min(s * lumaShoulderEV / (evMax - evMin), hi01 - lo01) / 2
         return [Float(ordinal(c.channel ?? .luma)), weightsVector,
-                Float(evMin), Float(evMax), Float(lo01), Float(hi01), Float(shoulder)]
+                Float(evMin), Float(evMax), Float(lo01), Float(hi01),
+                Float(half), Float(half > 1e-9 ? 1 : 0)]
     }
 
     /// `MaskRaster.luminosityPlane`'s series.
@@ -268,27 +280,40 @@ enum MaskGPU {
                 Float(ordinal(c.series ?? .lights)), Float(n), Float(peak)]
     }
 
-    /// `MaskRaster.colorRangePlane`'s references (at most eight, finite only) and its
-    /// tolerances, or nil when no reference survives — the reference's empty plane.
+    /// `MaskRaster.colorRangePlane`'s references (at most eight, finite only), each as
+    /// the arguments `KernelLibrary.maskColorRef` takes after its matrices, or nil when no
+    /// reference survives — the reference's empty plane. `colorRangeValue`'s per-sample
+    /// numbers are computed here: the floored lightness, the chroma and unit hue, and the
+    /// toward-grey tolerance that caps at 90 % of the sample's own chroma.
     static func colorRangeArguments(_ c: MaskComponent)
-        -> (references: [CIVector], tolerance: CIVector, matrices: [CIVector])? {
+        -> (references: [[Any]], matrices: [CIVector])? {
         guard let samples = c.samples, !samples.isEmpty else { return nil }
         let context = OKLabTransform.working
-        var refs: [CIVector] = []
+        let tol = MaskRaster.colorRangeTolerances(refine: c.rangeAmount ?? 50)
+        let saturation = MaskRaster.colorRangeSaturationReach * tol.chroma
+        var refs: [[Any]] = []
         for s in samples.prefix(8) where s.count >= 3 {
-            if s[0].isFinite && s[1].isFinite && s[2].isFinite {
-                let lch = context.toLCh(RGB(s[0], s[1], s[2]))
-                refs.append(CIVector(x: CGFloat(lch.L), y: CGFloat(lch.C),
-                                     z: CGFloat(lch.h)))
-            }
+            guard s[0].isFinite, s[1].isFinite, s[2].isFinite else { continue }
+            let lab = context.toLab(RGB(s[0], s[1], s[2]))
+            guard lab.L.isFinite, lab.a.isFinite, lab.b.isFinite else { continue }
+            let refL = Swift.max(lab.L, MaskRaster.colorRangeLFloor)
+            let refC = (lab.a * lab.a + lab.b * lab.b).squareRoot()
+            let hasHue = refC > 1e-6
+            let toward = Swift.min(saturation,
+                                   Swift.max(0.9 * refC, MaskRaster.colorRangeNeutralReach))
+            refs.append([
+                CIVector(x: CGFloat(refL), y: CGFloat(refC), z: hasHue ? 1 : 0),
+                CIVector(x: hasHue ? CGFloat(lab.a / refC) : 0,
+                         y: hasHue ? CGFloat(lab.b / refC) : 0),
+                CIVector(x: CGFloat(tol.chroma), y: CGFloat(toward), z: CGFloat(saturation)),
+                CIVector(x: CGFloat(MaskRaster.colorRangeCore),
+                         y: CGFloat(MaskRaster.colorRangeEVCore),
+                         z: CGFloat(MaskRaster.colorRangeLFloor)),
+                Float(tol.ev),
+            ])
         }
         if refs.isEmpty { return nil }
-        let refine = Num.clamp(c.rangeAmount ?? 50, 0, 100)
-        let tolerance = CIVector(x: CGFloat(6.0 + 0.54 * refine),
-                                 y: CGFloat(0.02 + 0.0016 * refine),
-                                 z: CGFloat(0.03 + 0.0024 * refine))
-        return (refs, tolerance,
-                rows(context.rgbToLMS) + rows(OKLabTransform.lmsToLab))
+        return (refs, rows(context.rgbToLMS) + rows(OKLabTransform.lmsToLab))
     }
 
     /// `MaskRaster.levels`, or nil when it is the identity on an alpha already in [0, 1].
@@ -306,15 +331,27 @@ enum MaskGPU {
     // MARK: - One component
 
     private static func rawAlpha(_ c: MaskComponent, extent: CGRect, source: CIImage?,
-                                 w: Float, h: Float, ox: Float, oy: Float) -> CIImage? {
+                                 w: Float, h: Float, ox: Float, oy: Float,
+                                 corrections: inout [MaskRangeMeasure.Spec: CIImage])
+        -> CIImage? {
+        // The measurement denoise's correction for one spec, built once per mask.
+        func correction(_ spec: MaskRangeMeasure.Spec, _ source: CIImage) -> CIImage? {
+            if let held = corrections[spec] { return held }
+            let made = MaskRangeMeasure.correction(spec, source: source, extent: extent)
+            if let made { corrections[spec] = made }
+            return made
+        }
         switch c.kind {
         case .lumaRange:
             guard let source else { return nil }
             guard let arguments = lumaRangeArguments(c) else {
                 return zero(extent: extent, w: w, h: h, ox: ox, oy: oy)
             }
+            let spec = MaskRangeMeasure.Spec(colour: false,
+                                             channel: ordinal(c.channel ?? .luma))
+            guard let delta = correction(spec, source) else { return nil }
             return KernelLibrary.apply(KernelLibrary.maskLumaRange, extent: extent,
-                                       [source as Any] + arguments)
+                                       [source as Any, delta] + arguments)
         case .luminosity:
             guard let source else { return nil }
             return KernelLibrary.apply(KernelLibrary.maskLuminosity, extent: extent,
@@ -325,11 +362,13 @@ enum MaskGPU {
                 return nil
             }
             guard let parts = colorRangeArguments(c) else { return best }
+            guard let delta = correction(MaskRangeMeasure.Spec(colour: true, channel: 0),
+                                         source)
+            else { return nil }
             for reference in parts.references {
-                var arguments: [Any] = [source, best]
+                var arguments: [Any] = [source, delta, best]
                 arguments.append(contentsOf: parts.matrices as [Any])
-                arguments.append(reference)
-                arguments.append(parts.tolerance)
+                arguments.append(contentsOf: reference)
                 guard let next = KernelLibrary.apply(KernelLibrary.maskColorRef,
                                                      extent: extent, arguments)
                 else { return nil }

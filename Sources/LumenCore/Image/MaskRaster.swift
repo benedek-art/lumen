@@ -1355,7 +1355,7 @@ public enum MaskRaster {
     /// stop matching the export's. The cost is real: an ISO 3200 band edge at 390 px
     /// speckles again (2348: 4,470 specks/MP against 459 at 410 px). Only thumbnails
     /// rasterize that small.
-    static func rangeMeasurementRadius(longEdge: Int) -> Int {
+    public static func rangeMeasurementRadius(longEdge: Int) -> Int {
         Int((Double(longEdge) / 800).rounded())
     }
 
@@ -1363,8 +1363,64 @@ public enum MaskRaster {
     /// treats it as structure (ε = 9σ²), and how many times the filter runs. One pass at
     /// 4σ² left 4,700 specks per MP on 2348's jacket; two at 9σ² leave under 300 and
     /// still keep 983's 1.2 EV snow/sky step to the pixel.
-    static let rangeNoiseFactor: Double = 9
-    static let rangeMeasurementPasses = 2
+    public static let rangeNoiseFactor: Double = 9
+    public static let rangeMeasurementPasses = 2
+
+    /// The noise table's bins: half a stop wide from −16 EV, 46 of them, so the last one
+    /// ends at +7 EV. `MaskGPU`'s noise-table pass reads the same three numbers.
+    public static let rangeNoiseBinLo: Double = -16
+    public static let rangeNoiseBinWidth: Double = 0.5
+    public static let rangeNoiseBins = 46
+
+    /// The bin of one level value (EV), clamped into the table.
+    @inline(__always)
+    static func rangeNoiseBin(_ v: Float) -> Int {
+        let b = Int(((Double(v) - rangeNoiseBinLo) / rangeNoiseBinWidth).rounded(.down))
+        return Swift.min(Swift.max(b, 0), rangeNoiseBins - 1)
+    }
+
+    /// One plane's noise variance per bin of `levelBins`: the robust MAD of a 5 × 5
+    /// high-pass on every second pixel, away from the border (`rangeMeasured` has the
+    /// reasoning).
+    static func rangeNoiseTable(_ p: Plane, levelBins: [Int]) -> [Double] {
+        let w = p.width, h = p.height
+        let local = rangeBox(p.values, w, h, 2)
+        var residuals = [[Float]](repeating: [], count: rangeNoiseBins)
+        for y in stride(from: 2, to: h - 2, by: 2) {
+            for x in stride(from: 2, to: w - 2, by: 2) {
+                let i = y * w + x
+                let r = p.values[i] - local[i]
+                if r.isFinite { residuals[levelBins[i]].append(Swift.abs(r)) }
+            }
+        }
+        return rangeNoiseVariance(&residuals)
+    }
+
+    /// Per-bin |residual| samples → per-bin noise variance. A bin with fewer than 64
+    /// samples borrows from the nearest bin that has a value, walking up from the
+    /// darkest, so a thin bin can borrow a value an earlier thin bin borrowed. Public
+    /// because `MaskGPU`'s noise-table kernel falls back to it when it has no Metal
+    /// device, and its Metal twin reproduces this walk step for step.
+    public static func rangeNoiseVariance(_ residuals: inout [[Float]]) -> [Double] {
+        let bins = residuals.count
+        // MAD → σ; the 5 × 5 high-pass keeps 24/25 of white noise's variance.
+        var sigma2 = [Double](repeating: -1, count: bins)
+        for b in 0..<bins where residuals[b].count >= 64 {
+            let k = residuals[b].count / 2
+            let mad = Double(kthSmallest(&residuals[b], k, in: 0..<residuals[b].count))
+            let s = 1.4826 * mad / (24.0 / 25.0).squareRoot()
+            sigma2[b] = s * s
+        }
+        // Thin bins borrow from the nearest measured one.
+        for b in 0..<bins where sigma2[b] < 0 {
+            var best = -1.0, distance = Int.max
+            for o in 0..<bins where sigma2[o] >= 0 && Swift.abs(o - b) < distance {
+                best = sigma2[o]; distance = Swift.abs(o - b)
+            }
+            sigma2[b] = Swift.max(best, 0)
+        }
+        return sigma2
+    }
 
     /// The planes a range mask thresholds, smoothed where the picture is flat and left
     /// alone where it has edges: a self-guided filter whose ε is the frame's OWN noise
@@ -1386,39 +1442,9 @@ public enum MaskRaster {
         let w = first.width, h = first.height
         let radius = rangeMeasurementRadius(longEdge: Swift.max(w, h))
         guard radius > 0 else { return planes }
-        let binLo = -16.0, binWidth = 0.5
-        let bins = 46
-        @inline(__always) func bin(_ v: Float) -> Int {
-            let b = Int(((Double(v) - binLo) / binWidth).rounded(.down))
-            return Swift.min(Swift.max(b, 0), bins - 1)
-        }
-        let levelBins = level.values.map(bin)
+        let levelBins = level.values.map(rangeNoiseBin)
         return planes.map { p in
-            let local = rangeBox(p.values, w, h, 2)
-            var residuals = [[Float]](repeating: [], count: bins)
-            for y in stride(from: 2, to: h - 2, by: 2) {
-                for x in stride(from: 2, to: w - 2, by: 2) {
-                    let i = y * w + x
-                    let r = p.values[i] - local[i]
-                    if r.isFinite { residuals[levelBins[i]].append(Swift.abs(r)) }
-                }
-            }
-            // MAD → σ; the 5 × 5 high-pass keeps 24/25 of white noise's variance.
-            var sigma2 = [Double](repeating: -1, count: bins)
-            for b in 0..<bins where residuals[b].count >= 64 {
-                let k = residuals[b].count / 2
-                let mad = Double(kthSmallest(&residuals[b], k, in: 0..<residuals[b].count))
-                let s = 1.4826 * mad / (24.0 / 25.0).squareRoot()
-                sigma2[b] = s * s
-            }
-            // Thin bins borrow from the nearest measured one.
-            for b in 0..<bins where sigma2[b] < 0 {
-                var best = -1.0, distance = Int.max
-                for o in 0..<bins where sigma2[o] >= 0 && Swift.abs(o - b) < distance {
-                    best = sigma2[o]; distance = Swift.abs(o - b)
-                }
-                sigma2[b] = Swift.max(best, 0)
-            }
+            let sigma2 = rangeNoiseTable(p, levelBins: levelBins)
             let eps = levelBins.map { Float(rangeNoiseFactor * sigma2[$0] + 1e-10) }
             var out = p.values
             let n = out.count
@@ -1719,18 +1745,18 @@ public enum MaskRaster {
 
     /// Where the falloff starts, as a fraction of each tolerance: inside it a pixel is
     /// fully selected, between it and the tolerance it fades on a smoothstep.
-    static let colorRangeCore: Double = 0.35
+    public static let colorRangeCore: Double = 0.35
     /// Lightness keeps a wider flat core: shading is the common case, not the edge one.
-    static let colorRangeEVCore: Double = 0.5
+    public static let colorRangeEVCore: Double = 0.5
     /// OKLab L below which chromaticity is not rescaled any further — black has no colour
     /// worth dividing by.
-    static let colorRangeLFloor: Double = 0.08
+    public static let colorRangeLFloor: Double = 0.08
     /// Saturation tolerance as a multiple of the hue tolerance.
     /// 2.5, not 2: at 2 with a hue tolerance 25 % wider, 8559's terracotta pot (34° of
     /// hue from the red can) took a third of a Refine 50 edit.
-    static let colorRangeSaturationReach: Double = 2.5
+    public static let colorRangeSaturationReach: Double = 2.5
     /// How far toward grey any sample may always reach, in OKLab chroma.
-    static let colorRangeNeutralReach: Double = 0.035
+    public static let colorRangeNeutralReach: Double = 0.035
 
     /// One pixel against one sample. Public so a test can state the geometry directly.
     public static func colorRangeValue(_ lab: OKLab, ref: OKLab,

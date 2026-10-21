@@ -1460,6 +1460,8 @@ public enum KernelLibrary {
     public static var rangeMasksAvailable: Bool {
         parametricMasksAvailable && maskLumaRange != nil && maskLuminosity != nil
             && maskColorRef != nil && maskLevels != nil
+            && maskRangeResidual != nil && maskRangeBoxH != nil && maskRangeCoefV != nil
+            && maskRangeApplyH != nil && maskRangeApplyV != nil && maskRangeMerge != nil
     }
 
     /// Names of the mask kernels that failed. Separate from `unavailableKernels` on
@@ -1475,6 +1477,9 @@ public enum KernelLibrary {
             ("maskFold", maskFold), ("maskInvert", maskInvert),
             ("maskLumaRange", maskLumaRange), ("maskLuminosity", maskLuminosity),
             ("maskColorRef", maskColorRef), ("maskLevels", maskLevels),
+            ("maskRangeResidual", maskRangeResidual), ("maskRangeBoxH", maskRangeBoxH),
+            ("maskRangeCoefV", maskRangeCoefV), ("maskRangeApplyH", maskRangeApplyH),
+            ("maskRangeApplyV", maskRangeApplyV), ("maskRangeMerge", maskRangeMerge),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }
@@ -1694,27 +1699,37 @@ public enum ColorCube {
 // alone, as everywhere else.
 extension KernelLibrary {
 
-    /// `MaskRaster.lumaRangePlane`. `chan` is `MaskChannel`'s ordinal (luma, red, green,
-    /// blue, max, min). `x0`/`x1` are the fixed EV axis; `lo`, `hi`, `sh` the band and its
-    /// shoulder on the normalized axis.
+    /// `MaskRaster.lumaRangePlane` after lane M4: the channel's EV plus `del.r`, the
+    /// measurement denoise's correction (`MaskRangeMeasure`; a zero image where the
+    /// filter is off), through `lumaRangeValue`'s centred shoulders. `chan` is
+    /// `MaskChannel`'s ordinal (luma, red, green, blue, max, min). `x0`/`x1` are the fixed
+    /// EV axis; `lo`, `hi` the band on the normalized axis, `hf` the half-shoulder and
+    /// `soft` 1 when it is wide enough to ramp (the reference's `half > 1e-9`).
     static let maskLumaRangeSource = """
-    kernel vec4 lumenMaskLumaRange(__sample src, float chan, vec3 wts,
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskLumaRange(__sample src, __sample del, float chan, vec3 wts,
                                    float x0, float x1,
-                                   float lo, float hi, float sh) {
-        vec3 c = src.rgb;
-        float m;
-        if (chan < 0.5) { m = dot(wts, c); }
-        else if (chan < 1.5) { m = c.r; }
-        else if (chan < 2.5) { m = c.g; }
-        else if (chan < 3.5) { m = c.b; }
-        else if (chan < 4.5) { m = max(c.r, max(c.g, c.b)); }
-        else { m = min(c.r, min(c.g, c.b)); }
-        float ev = (m > 0.0 && m < 3.0e38) ? max(log2(m), -16.0) : -16.0;
+                                   float lo, float hi, float hf, float soft) {
+        float ev = lumenRngEV(src.rgb, chan, wts) + del.r;
         float x = clamp((ev - x0) / (x1 - x0), 0.0, 1.0);
-        float u = clamp((x - (lo - sh)) / sh, 0.0, 1.0);
-        float rise = u * u * (3.0 - 2.0 * u);
-        float t = clamp((x - hi) / sh, 0.0, 1.0);
-        float fall = 1.0 - t * t * (3.0 - 2.0 * t);
+        float rise = 1.0;
+        if (lo > 0.0) {
+            if (soft > 0.5) {
+                float u = clamp((x - (lo - hf)) / (2.0 * hf), 0.0, 1.0);
+                rise = u * u * (3.0 - 2.0 * u);
+            } else {
+                rise = x >= lo ? 1.0 : 0.0;
+            }
+        }
+        float fall = 1.0;
+        if (hi < 1.0) {
+            if (soft > 0.5) {
+                float t = clamp((x - (hi - hf)) / (2.0 * hf), 0.0, 1.0);
+                fall = 1.0 - t * t * (3.0 - 2.0 * t);
+            } else {
+                fall = x <= hi ? 1.0 : 0.0;
+            }
+        }
         float v = clamp(rise * fall, 0.0, 1.0);
         return vec4(v, v, v, 1.0);
     }
@@ -1748,53 +1763,44 @@ extension KernelLibrary {
     """
 
     /// One colour-range reference, folded into the running best with `max` — one pass per
-    /// sample, at most eight, so the kernel needs no array and no loop. `l0..l2` are the
-    /// rows of the working space's RGB→LMS matrix and `k0..k2` OKLab's LMS→Lab rows;
-    /// `ref` is the sample's (L, C, h°); `tol` the (hue°, chroma, lightness) tolerances.
+    /// sample, at most eight, so the kernel needs no array. `MaskRaster.colorRangeValue`
+    /// after lane M4: the pixel's OKLab (`l0..l2` the working space's RGB→LMS rows, `k0..k2`
+    /// OKLab's LMS→Lab rows) plus `del.rgb`, the measurement denoise's correction; its
+    /// chromaticity rescaled to the sample's lightness, split along and across the
+    /// sample's hue, and a separate EV gate. `ref` = (L₀ floored, C₀, hue flag), `dir` =
+    /// the sample's unit hue direction, `tol` = (hue tolerance, toward-grey tolerance,
+    /// saturation tolerance), `k` = (core, EV core, L floor), `tev` the EV tolerance.
     static let maskColorRefSource = """
-    kernel vec4 lumenMaskColorRef(__sample src, __sample acc,
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskColorRef(__sample src, __sample del, __sample acc,
                                   vec3 l0, vec3 l1, vec3 l2,
                                   vec3 k0, vec3 k1, vec3 k2,
-                                  vec3 ref, vec3 tol) {
-        vec3 c = src.rgb;
-        vec3 lms = vec3(dot(l0, c), dot(l1, c), dot(l2, c));
-        vec3 n = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
-        float bigL = dot(k0, n);
-        float la = dot(k1, n);
-        float lb = dot(k2, n);
-        float chroma = sqrt(la * la + lb * lb);
-        float hue = degrees(atan(lb, la));
-        if (hue < 0.0) { hue += 360.0; }
-        float dh = abs(mod(hue - ref.z + 180.0, 360.0) - 180.0);
-        float dc = abs(chroma - ref.y);
-        float dl = abs(bigL - ref.x);
-
-        float tc = 0.5 * tol.x;
-        float th = 1.0;
-        if (dh >= tol.x) { th = 0.0; }
-        else if (dh > tc) {
-            float u = clamp((dh - tol.x) / (tc - tol.x), 0.0, 1.0);
-            th = u * u * (3.0 - 2.0 * u);
+                                  vec3 ref, vec2 dir, vec3 tol, vec3 k, float tev) {
+        vec3 lab = lumenRngLab(src.rgb, l0, l1, l2, k0, k1, k2) + del.rgb;
+        float L = max(lab.x, k.z);
+        float s = ref.x / L;
+        float a = lab.y * s;
+        float b = lab.z * s;
+        float along = 0.0;
+        float across;
+        if (ref.z > 0.5) {
+            along = a * dir.x + b * dir.y - ref.y;
+            across = -a * dir.y + b * dir.x;
+        } else {
+            across = sqrt(a * a + b * b);
         }
-        float cc = 0.5 * tol.y;
-        float tchroma = 1.0;
-        if (dc >= tol.y) { tchroma = 0.0; }
-        else if (dc > cc) {
-            float u = clamp((dc - tol.y) / (cc - tol.y), 0.0, 1.0);
-            tchroma = u * u * (3.0 - 2.0 * u);
+        across = across / tol.x;
+        along = along / (along < 0.0 ? tol.y : tol.z);
+        float d = sqrt(across * across + along * along);
+        float u = clamp((d - k.x) / (1.0 - k.x), 0.0, 1.0);
+        float chroma = 1.0 - u * u * (3.0 - 2.0 * u);
+        float v = 0.0;
+        if (chroma > 0.0) {
+            float ev = 3.0 * log2(L / ref.x);
+            float w = clamp((abs(ev) / tev - k.y) / (1.0 - k.y), 0.0, 1.0);
+            float light = 1.0 - w * w * (3.0 - 2.0 * w);
+            v = clamp(chroma * light, 0.0, 1.0);
         }
-        float lc = 0.5 * tol.z;
-        float tl = 1.0;
-        if (dl >= tol.z) { tl = 0.0; }
-        else if (dl > lc) {
-            float u = clamp((dl - tol.z) / (lc - tol.z), 0.0, 1.0);
-            tl = u * u * (3.0 - 2.0 * u);
-        }
-
-        float wu = clamp((min(chroma, ref.y) - 0.01) / 0.03, 0.0, 1.0);
-        float cw = wu * wu * (3.0 - 2.0 * wu);
-        float hueTerm = cw > 0.0 ? 1.0 + (th - 1.0) * cw : 1.0;
-        float v = clamp(hueTerm * tchroma * tl, 0.0, 1.0);
         float best = max(clamp(acc.r, 0.0, 1.0), v);
         return vec4(best, best, best, 1.0);
     }
@@ -1811,10 +1817,242 @@ extension KernelLibrary {
     }
     """
 
+    // MARK: The measurement denoise (lane M9b)
+    //
+    // `MaskRaster.rangeMeasured`: two self-guided passes over the measured plane at
+    // `rangeMeasurementRadius`, with ε per pixel from a per-half-stop noise table. The
+    // table is `MaskRangeMeasure`'s reduction (a Metal radix select over the image
+    // `maskRangeResidual` writes); the passes are the four kernels after it.
+    //
+    // HALF-FLOAT SAFE BY CONSTRUCTION. The reference boxes the plane and its square and
+    // subtracts (meanII − meanI²): at −8 EV that is 64 − 64 in an intermediate whose step
+    // is 1/32 in half float, which is the whole noise variance. So no intermediate here
+    // ever holds the measurement itself. Every kernel recomputes it from the stage pixel
+    // in registers (`lumenRngMeasure`), and the textures between them carry only
+    // differences from a centre pixel — row sums of (J − J_centre) and its square, the
+    // coefficient `a` and the box mean's offset, and the output's correction to the raw
+    // measurement — values whose size is the local contrast, not the level. The box is
+    // separable with the border repeated (`rangeBox`), so the horizontal pass's sums are
+    // re-centred on the output pixel in the vertical pass with the centre differences it
+    // can read from the source.
+    //
+    // `sel` = (mode, channel, plane): mode 0 is a luminance range on `MaskChannel` ordinal
+    // `channel`, one plane of EV; mode 1 is the colour range's OKLab, `plane` 0/1/2 for L,
+    // a, b. `ext` = (ox, oy, w, h). `rad` is the box radius, up to `rangeMaxRadius`;
+    // the loops run to that constant and break, as CIKL loops need a constant bound.
+
+    /// The longest box the measurement kernels can run: 32 px, `rangeMeasurementRadius`
+    /// up to a 25,999 px long edge. Past that a range mask stays on the CPU.
+    public static let rangeMaxRadius = 32
+
+    /// Helpers every range kernel shares. Matrices are passed in because a helper cannot
+    /// see the kernel's parameters.
+    static let rangeMeasurePrelude = """
+    float lumenRngEV(vec3 c, float chan, vec3 wts) {
+        float m;
+        if (chan < 0.5) { m = dot(wts, c); }
+        else if (chan < 1.5) { m = c.r; }
+        else if (chan < 2.5) { m = c.g; }
+        else if (chan < 3.5) { m = c.b; }
+        else if (chan < 4.5) { m = max(c.r, max(c.g, c.b)); }
+        else { m = min(c.r, min(c.g, c.b)); }
+        return (m > 0.0 && m < 3.0e38) ? max(log2(m), -16.0) : -16.0;
+    }
+    float lumenRngCbrt(float v) {
+        float s = v > 0.0 ? 1.0 : (v < 0.0 ? -1.0 : 0.0);
+        float n = s * pow(abs(v), 0.333333333);
+        return n == 0.0 ? 0.0 : (2.0 * n + v / (n * n)) / 3.0;
+    }
+    vec3 lumenRngLab(vec3 c, vec3 l0, vec3 l1, vec3 l2, vec3 k0, vec3 k1, vec3 k2) {
+        vec3 lms = vec3(dot(l0, c), dot(l1, c), dot(l2, c));
+        vec3 n = vec3(lumenRngCbrt(lms.x), lumenRngCbrt(lms.y), lumenRngCbrt(lms.z));
+        vec3 lab = vec3(dot(k0, n), dot(k1, n), dot(k2, n));
+        return vec3(abs(lab.x) < 3.0e38 ? lab.x : 0.0,
+                    abs(lab.y) < 3.0e38 ? lab.y : 0.0,
+                    abs(lab.z) < 3.0e38 ? lab.z : 0.0);
+    }
+    float lumenRngMeasure(vec3 c, vec3 sel, vec3 wts, vec3 l0, vec3 l1, vec3 l2,
+                          vec3 k0, vec3 k1, vec3 k2) {
+        if (sel.x < 0.5) { return lumenRngEV(c, sel.y, wts); }
+        vec3 lab = lumenRngLab(c, l0, l1, l2, k0, k1, k2);
+        return sel.z < 0.5 ? lab.x : (sel.z < 1.5 ? lab.y : lab.z);
+    }
+    float lumenRngBin(vec3 c, vec3 sel, vec3 wts) {
+        float level = lumenRngEV(c, sel.x < 0.5 ? sel.y : 0.0, wts);
+        return clamp(floor((level + 16.0) * 2.0), 0.0, 45.0);
+    }
+    """
+
+    /// The noise table's input: one output pixel per pixel the reference samples (every
+    /// second one from (2, 2), away from the border, in its top-down rows), holding the
+    /// |5 × 5 high-pass| of each plane in rgb and the pixel's level bin in alpha. The
+    /// residual is summed as differences from the centre, so it keeps its digits.
+    static let maskRangeResidualSource = """
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskRangeResidual(sampler src, vec3 sel, vec3 wts,
+                                       vec3 l0, vec3 l1, vec3 l2,
+                                       vec3 k0, vec3 k1, vec3 k2, vec4 ext) {
+        vec2 d = destCoord();
+        float px = 2.0 + 2.0 * floor(d.x);
+        float py = 2.0 + 2.0 * floor(d.y);
+        vec2 c = vec2(ext.x + px + 0.5, ext.y + ext.w - py - 0.5);
+        vec3 centre = sample(src, samplerTransform(src, c)).rgb;
+        vec3 p0 = sel.x < 0.5 ? vec3(lumenRngEV(centre, sel.y, wts), 0.0, 0.0)
+                              : lumenRngLab(centre, l0, l1, l2, k0, k1, k2);
+        vec3 acc = vec3(0.0);
+        for (int j = -2; j <= 2; j++) {
+            for (int i = -2; i <= 2; i++) {
+                vec3 q = sample(src, samplerTransform(src, c + vec2(float(i), float(j)))).rgb;
+                vec3 m = sel.x < 0.5 ? vec3(lumenRngEV(q, sel.y, wts), 0.0, 0.0)
+                                     : lumenRngLab(q, l0, l1, l2, k0, k1, k2);
+                acc += m - p0;
+            }
+        }
+        return vec4(abs(acc / 25.0), lumenRngBin(centre, sel, wts));
+    }
+    """
+
+    /// Pass step 1, horizontal: (mean of J − J_c, mean of (J − J_c)²) over the row window,
+    /// J the measurement plus `del.r`.
+    static let maskRangeBoxHSource = """
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskRangeBoxH(sampler src, sampler del, vec3 sel, vec3 wts,
+                                   vec3 l0, vec3 l1, vec3 l2,
+                                   vec3 k0, vec3 k1, vec3 k2, vec4 ext, float rad) {
+        vec2 d = destCoord();
+        float jc = lumenRngMeasure(sample(src, samplerTransform(src, d)).rgb,
+                                   sel, wts, l0, l1, l2, k0, k1, k2)
+            + sample(del, samplerTransform(del, d)).r;
+        float n = 2.0 * rad + 1.0;
+        float s1 = 0.0;
+        float s2 = 0.0;
+        for (int i = 0; i < \(2 * rangeMaxRadius + 1); i++) {
+            if (float(i) >= n) { break; }
+            vec2 q = vec2(clamp(d.x + float(i) - rad, ext.x + 0.5, ext.x + ext.z - 0.5), d.y);
+            float j = lumenRngMeasure(sample(src, samplerTransform(src, q)).rgb,
+                                      sel, wts, l0, l1, l2, k0, k1, k2)
+                + sample(del, samplerTransform(del, q)).r - jc;
+            s1 += j;
+            s2 += j * j;
+        }
+        return vec4(s1 / n, s2 / n, 0.0, 1.0);
+    }
+    """
+
+    /// Pass step 2, vertical: the window's mean and variance re-centred on this pixel,
+    /// then the coefficient a = v / (v + ε) with ε = factor · σ²[bin] + 1e-10 read from
+    /// the 46 × 1 noise table. Writes (a, mean − J).
+    static let maskRangeCoefVSource = """
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskRangeCoefV(sampler src, sampler del, sampler hs, sampler tbl,
+                                    vec3 sel, vec3 wts,
+                                    vec3 l0, vec3 l1, vec3 l2,
+                                    vec3 k0, vec3 k1, vec3 k2, vec4 ext, float rad,
+                                    float factor) {
+        vec2 d = destCoord();
+        vec3 ci = sample(src, samplerTransform(src, d)).rgb;
+        float ji = lumenRngMeasure(ci, sel, wts, l0, l1, l2, k0, k1, k2)
+            + sample(del, samplerTransform(del, d)).r;
+        float n = 2.0 * rad + 1.0;
+        float m1 = 0.0;
+        float m2 = 0.0;
+        for (int i = 0; i < \(2 * rangeMaxRadius + 1); i++) {
+            if (float(i) >= n) { break; }
+            vec2 q = vec2(d.x, clamp(d.y + float(i) - rad, ext.y + 0.5, ext.y + ext.w - 0.5));
+            vec2 s = sample(hs, samplerTransform(hs, q)).rg;
+            float o = lumenRngMeasure(sample(src, samplerTransform(src, q)).rgb,
+                                      sel, wts, l0, l1, l2, k0, k1, k2)
+                + sample(del, samplerTransform(del, q)).r - ji;
+            m1 += s.x + o;
+            m2 += s.y + 2.0 * o * s.x + o * o;
+        }
+        m1 = m1 / n;
+        m2 = m2 / n;
+        float v = max(m2 - m1 * m1, 0.0);
+        vec4 t = sample(tbl, samplerTransform(tbl, vec2(lumenRngBin(ci, sel, wts) + 0.5, 0.5)));
+        float s2 = sel.z < 0.5 ? t.r : (sel.z < 1.5 ? t.g : t.b);
+        float a = v / (v + factor * s2 + 1e-10);
+        return vec4(a, m1, 0.0, 1.0);
+    }
+    """
+
+    /// Pass step 3, horizontal: (mean of 1 − a, mean of (1 − a)(mean − J_c)) over the row,
+    /// the box means of the coefficients written relative to this row's centre.
+    static let maskRangeApplyHSource = """
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskRangeApplyH(sampler src, sampler del, sampler coef,
+                                     vec3 sel, vec3 wts,
+                                     vec3 l0, vec3 l1, vec3 l2,
+                                     vec3 k0, vec3 k1, vec3 k2, vec4 ext, float rad) {
+        vec2 d = destCoord();
+        float jc = lumenRngMeasure(sample(src, samplerTransform(src, d)).rgb,
+                                   sel, wts, l0, l1, l2, k0, k1, k2)
+            + sample(del, samplerTransform(del, d)).r;
+        float n = 2.0 * rad + 1.0;
+        float t1 = 0.0;
+        float t2 = 0.0;
+        for (int i = 0; i < \(2 * rangeMaxRadius + 1); i++) {
+            if (float(i) >= n) { break; }
+            vec2 q = vec2(clamp(d.x + float(i) - rad, ext.x + 0.5, ext.x + ext.z - 0.5), d.y);
+            vec2 ab = sample(coef, samplerTransform(coef, q)).rg;
+            float j = lumenRngMeasure(sample(src, samplerTransform(src, q)).rgb,
+                                      sel, wts, l0, l1, l2, k0, k1, k2)
+                + sample(del, samplerTransform(del, q)).r;
+            float g = 1.0 - ab.x;
+            t1 += g;
+            t2 += g * (ab.y + j - jc);
+        }
+        return vec4(t1 / n, t2 / n, 0.0, 1.0);
+    }
+    """
+
+    /// Pass step 4, vertical: q − J = mean over the window of (1 − a)(mean − J), so the
+    /// pass's output is J plus that; written as the new correction to the raw
+    /// measurement. A non-finite result keeps the old value, as the reference does.
+    static let maskRangeApplyVSource = """
+    \(rangeMeasurePrelude)
+    kernel vec4 lumenMaskRangeApplyV(sampler src, sampler del, sampler h2,
+                                     vec3 sel, vec3 wts,
+                                     vec3 l0, vec3 l1, vec3 l2,
+                                     vec3 k0, vec3 k1, vec3 k2, vec4 ext, float rad) {
+        vec2 d = destCoord();
+        float ei = sample(del, samplerTransform(del, d)).r;
+        float ji = lumenRngMeasure(sample(src, samplerTransform(src, d)).rgb,
+                                   sel, wts, l0, l1, l2, k0, k1, k2) + ei;
+        float n = 2.0 * rad + 1.0;
+        float acc = 0.0;
+        for (int i = 0; i < \(2 * rangeMaxRadius + 1); i++) {
+            if (float(i) >= n) { break; }
+            vec2 q = vec2(d.x, clamp(d.y + float(i) - rad, ext.y + 0.5, ext.y + ext.w - 0.5));
+            vec2 t = sample(h2, samplerTransform(h2, q)).rg;
+            float jk = lumenRngMeasure(sample(src, samplerTransform(src, q)).rgb,
+                                       sel, wts, l0, l1, l2, k0, k1, k2)
+                + sample(del, samplerTransform(del, q)).r;
+            acc += t.y + t.x * (jk - ji);
+        }
+        float dq = acc / n;
+        float e = abs(dq) < 3.0e38 ? ei + dq : ei;
+        return vec4(e, e, e, 1.0);
+    }
+    """
+
+    /// Three single-plane corrections into one rgb image, for the colour kernel.
+    static let maskRangeMergeSource = """
+    kernel vec4 lumenMaskRangeMerge(__sample a, __sample b, __sample c) {
+        return vec4(a.r, b.r, c.r, 1.0);
+    }
+    """
+
     public static let maskLumaRange = make(maskLumaRangeSource)
     public static let maskLuminosity = make(maskLuminositySource)
     public static let maskColorRef = make(maskColorRefSource)
     public static let maskLevels = make(maskLevelsSource)
+    public static let maskRangeResidual = makeGeneral(maskRangeResidualSource)
+    public static let maskRangeBoxH = makeGeneral(maskRangeBoxHSource)
+    public static let maskRangeCoefV = makeGeneral(maskRangeCoefVSource)
+    public static let maskRangeApplyH = makeGeneral(maskRangeApplyHSource)
+    public static let maskRangeApplyV = makeGeneral(maskRangeApplyVSource)
+    public static let maskRangeMerge = make(maskRangeMergeSource)
 }
 
 #endif

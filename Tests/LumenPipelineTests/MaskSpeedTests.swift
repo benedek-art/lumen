@@ -125,7 +125,6 @@ final class MaskSpeedTests: XCTestCase {
     // MARK: - 2. range masks never reach the CPU
 
     func testRangeMasksTakeTheGPUPath() throws {
-        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let source = SpeedFixture(longEdge: 1100, name: "range")
         var linear = MaskComponent(op: .intersect, kind: .linear)
@@ -174,7 +173,6 @@ final class MaskSpeedTests: XCTestCase {
     /// kernel-level parity lives in `MaskRangeGPUParityTests`; this one proves the
     /// pipeline hands the kernels the picture the CPU path would have sampled.
     func testTheRangeAlphaOverTheRealStageIsTheCPUDefinition() throws {
-        try XCTSkipUnless(MaskGPU.rangeKindsOnGPU, "range kinds are off the GPU until the kernels follow M4's definition (MaskGPU.rangeKindsOnGPU)")
         try XCTSkipUnless(KernelLibrary.rangeMasksAvailable)
         let source = SpeedFixture(longEdge: 600, name: "stage")
         var r = Recipe()
