@@ -90,95 +90,91 @@ extension RenderGraph {
 
 // MARK: - Per-photograph inputs
 
-/// Measured per file and kept: the lateral-CA model and the embedded vignetting record
-/// (from the file's bytes, read once).
+/// Measured once per file and kept: the lateral-CA model and the embedded vignetting
+/// record (from the file's bytes).
 ///
-/// The CA model is re-measured when a decode at least 1.5× larger than the one it came
-/// from arrives, up to `maximumMeasureLongEdge`. The estimate is scale-consistent for
-/// lens CA (a CA injected into a CA-free A7 IV frame reads back within 0.2·10⁻⁴ of the
-/// half-diagonal at 1×, ½× and ⅓×), but a photograph's own colour structure reads
-/// larger when downsampled: 1840 measured 0.79 px of red CA at 4000 px and 0.48 px at
-/// its native 8256, and the independent tool's residual crosses zero at 0.46. So the
-/// finest decode wins, and an export, which decodes at full size, measures for itself.
+/// The CA model is MEASURED ON NATIVE PIXELS, whatever decode the render that asks
+/// for it is using. Tiles are ranked on a small readback of that decode and measured on
+/// native-resolution tiles rendered from a full-size decode the cache opens itself
+/// (lazily evaluated, so only the few hundred tiles are ever developed). The estimate
+/// is not scale-consistent on real photographs: 1840 read 0.48 px of red CA measured at
+/// native size and 0.81 px measured on a 2560 or 6144 px decode, and the independent
+/// tool's residual crosses zero at 0.46 (WS-28 REPORT, verifier round 1). Measuring at
+/// one fixed scale also means a preview and its export are corrected by the same model.
 public final class LensInputsCache: @unchecked Sendable {
     public static let shared = LensInputsCache()
 
-    /// Below this decode long edge the CA measurement is too coarse to trust; such a
-    /// render uses what an earlier, larger decode measured, or nothing.
+    /// Below this decode long edge nothing is measured; the render uses what an
+    /// earlier, larger decode measured, or nothing.
     public static let minimumMeasureLongEdge: CGFloat = 1200
-    /// The readback cap: a 6144 px long edge is about 25 MP of RGBA float, 400 MB
-    /// transient, once per photograph; a larger decode is downsampled to it first.
-    public static let maximumMeasureLongEdge: CGFloat = 6144
-
-    private struct Entry {
-        var inputs: LensInputs
-        var measuredLongEdge: CGFloat
-    }
+    /// The ranking readback: tiles are chosen on this, measured elsewhere.
+    public static let rankingLongEdge: CGFloat = 2048
 
     private let lock = NSLock()
-    private var held: [URL: Entry] = [:]
-    private var vignettes: [URL: VignetteGain?] = [:]
+    private var held: [URL: LensInputs] = [:]
     private var order: [URL] = []
     private let limit = 64
 
     public func inputs(url: URL, decoded: CIImage, context: CIContext) -> LensInputs {
-        let extent = decoded.extent
-        let long = Swift.min(Swift.max(extent.width, extent.height), Self.maximumMeasureLongEdge)
-
         lock.lock()
-        let cachedVignette = vignettes[url]
-        let entry = held[url]
+        if let hit = held[url] { lock.unlock(); return hit }
         lock.unlock()
 
-        let vignette: VignetteGain?
-        if let cachedVignette {
-            vignette = cachedVignette
-        } else {
-            vignette = EmbeddedLensProfile.read(url: url)?.gainPolynomial
-            lock.lock()
-            vignettes[url] = .some(vignette)
-            lock.unlock()
-        }
-
-        if let entry, long < entry.measuredLongEdge * 1.5 { return entry.inputs }
+        let vignette = EmbeddedLensProfile.read(url: url)?.gainPolynomial
+        let extent = decoded.extent
+        let long = Swift.max(extent.width, extent.height)
         guard long >= Self.minimumMeasureLongEdge else {
-            return entry?.inputs ?? LensInputs(lateralCA: nil, vignette: vignette)
+            // Not cached: a bigger decode will come and measure.
+            return LensInputs(lateralCA: nil, vignette: vignette)
         }
-
-        var image = decoded.transformed(by: CGAffineTransform(
-            translationX: -extent.origin.x, y: -extent.origin.y))
-        let full = Swift.max(extent.width, extent.height)
-        if full > long {
-            let s = long / full
-            image = image.transformed(by: CGAffineTransform(scaleX: s, y: s))
-        }
-        let ca = PipelineRenderer.buffer(from: image, context: context)
-            .flatMap(LateralCAEstimator.estimate)
+        let ca = Self.measure(url: url, decoded: decoded, context: context)
         let result = LensInputs(lateralCA: ca, vignette: vignette)
 
         lock.lock()
-        // A preview's measurement that finishes after an export's must not replace it:
-        // the finer measurement wins whichever lands last.
-        if let current = held[url], current.measuredLongEdge > long {
-            lock.unlock()
-            return current.inputs
-        }
-        held[url] = Entry(inputs: result, measuredLongEdge: long)
+        // Two first renders can race here; both measured the same native pixels, so
+        // whichever lands is the same model.
+        held[url] = result
         order.removeAll { $0 == url }
         order.append(url)
-        while order.count > limit {
-            let oldest = order.removeFirst()
-            held.removeValue(forKey: oldest)
-            vignettes.removeValue(forKey: oldest)
-        }
+        while order.count > limit { held.removeValue(forKey: order.removeFirst()) }
         lock.unlock()
         return result
+    }
+
+    static func measure(url: URL, decoded: CIImage, context: CIContext) -> LateralCAModel? {
+        func zeroed(_ image: CIImage) -> CIImage {
+            image.transformed(by: CGAffineTransform(translationX: -image.extent.origin.x,
+                                                    y: -image.extent.origin.y))
+        }
+        // The native decode: the same kind of source the app opens for this file, at
+        // scale 1, with the neutral recipe (camera-reference WB, profile on).
+        let source: (any ImageSource)? = PhotoFormats.isRendered(url)
+            ? try? RenderedImageSource(url: url) : try? AppleRawSource(url: url)
+        defer { if let raw = source as? AppleRawSource { _ = raw.releaseDecodes() } }
+        guard let full = source?.decode(recipe: Recipe(), draft: false, scaleFactor: 1.0)
+        else {
+            // No file behind the URL (a synthetic source): measure what was handed in.
+            return PipelineRenderer.buffer(from: zeroed(decoded), context: context)
+                .flatMap(LateralCAEstimator.estimate)
+        }
+        let native = zeroed(full)
+        let width = Int(native.extent.width), height = Int(native.extent.height)
+        let fullLong = CGFloat(Swift.max(width, height))
+        let s = Swift.min(1, rankingLongEdge / fullLong)
+        let small = native.transformed(by: CGAffineTransform(scaleX: s, y: s))
+        guard let preview = PipelineRenderer.buffer(from: small, context: context) else { return nil }
+        return LateralCAEstimator.estimate(nativeWidth: width, nativeHeight: height,
+                                           preview: preview) { x, y, w, h in
+            guard x >= 0, y >= 0, x + w <= width, y + h <= height else { return nil }
+            // Top-left tile coordinates → Core Image's bottom-left extent.
+            let rect = CGRect(x: x, y: height - y - h, width: w, height: h)
+            return PipelineRenderer.buffer(from: native.cropped(to: rect), context: context)
+        }
     }
 
     public func forget(_ url: URL) {
         lock.lock()
         held.removeValue(forKey: url)
-        vignettes.removeValue(forKey: url)
         order.removeAll { $0 == url }
         lock.unlock()
     }

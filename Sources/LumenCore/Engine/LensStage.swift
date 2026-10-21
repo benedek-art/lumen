@@ -81,33 +81,117 @@ public enum LateralCAEstimator {
     /// radial structure to say anything, or when what it says is below
     /// `significancePixels`.
     public static func estimate(_ image: ImageBuffer) -> LateralCAModel? {
-        guard let samples = measure(image) else { return nil }
-        guard let red = fit(samples, \.redShift), let blue = fit(samples, \.blueShift)
-        else { return nil }
-        let model = LateralCAModel(red: red, blue: blue)
-        let halfDiagonal = 0.5 * (Double(image.width * image.width
-                                         + image.height * image.height)).squareRoot()
-        guard model.maxShiftPixels(halfDiagonal: halfDiagonal) >= significancePixels
-        else { return nil }
+        estimate(samples: measure(image),
+                 halfDiagonal: 0.5 * (Double(image.width * image.width
+                                             + image.height * image.height)).squareRoot())
+    }
+
+    /// The same, measuring native-resolution tiles fetched on demand (`measure(nativeWidth:…)`).
+    public static func estimate(nativeWidth: Int, nativeHeight: Int, preview: ImageBuffer,
+                                fetch: TileFetch) -> LateralCAModel? {
+        estimate(samples: measure(nativeWidth: nativeWidth, nativeHeight: nativeHeight,
+                                  preview: preview, fetch: fetch),
+                 halfDiagonal: 0.5 * (Double(nativeWidth * nativeWidth
+                                             + nativeHeight * nativeHeight)).squareRoot())
+    }
+
+    /// Radial bands the model is fitted through, as (lower, upper) in half-diagonals.
+    static let fitBands: [(Double, Double)] = stride(from: 0.2, to: 1.0, by: 0.1)
+        .map { ($0, $0 + 0.1 + ($0 > 0.85 ? 0.05 : 0)) }
+    /// A band speaks only with this many tiles in it.
+    static let minimumBandTiles = 6
+
+    /// The model from per-tile samples, through three gates the verifier's round-one
+    /// failures set (docs/quality/lanes/WS-28/REPORT.md):
+    ///
+    ///  - it is fitted to per-band MEDIANS rather than to tiles, so colour texture
+    ///    (foliage, a red roof) that reads as a shift in a minority of tiles cannot
+    ///    move it;
+    ///  - a channel whose bands disagree in sign (GX85 blue: −0.19, +0.16, +0.18,
+    ///    −0.20 px) has no lens CA to correct and is left alone;
+    ///  - no model at all without a measured band past r = 0.65: the corners are where
+    ///    the correction matters most and an extrapolation into them is a guess (6001:
+    ///    no tile past r = 0.8, and 0.74 px of blue correction invented there).
+    static func estimate(samples: [Sample]?, halfDiagonal: Double) -> LateralCAModel? {
+        guard let samples else { return nil }
+        struct Band { var r: Double; var red: Double; var blue: Double; var n: Int }
+        var bands: [Band] = []
+        for (lo, hi) in fitBands {
+            let inBand = samples.filter { $0.r >= lo && $0.r < hi }
+            guard inBand.count >= minimumBandTiles else { continue }
+            let red = inBand.map(\.redShift).sorted(), blue = inBand.map(\.blueShift).sorted()
+            let r = inBand.map(\.r).reduce(0, +) / Double(inBand.count)
+            bands.append(Band(r: r, red: red[red.count / 2], blue: blue[blue.count / 2],
+                              n: inBand.count))
+        }
+        guard bands.count >= 3, let outer = bands.map(\.r).max(), outer >= 0.65 else { return nil }
+        let cubic = bands.filter { $0.r >= 0.6 }.count >= 2
+
+        func channel(_ value: KeyPath<Band, Double>) -> LateralCAModel.Coefficients {
+            // Sign gate, on bands whose median clears the noise floor.
+            let floor = significancePixels * 0.75 / halfDiagonal
+            let signs = Set(bands.map { $0[keyPath: value] }.filter { abs($0) >= floor }.map { $0 > 0 })
+            guard signs.count <= 1 else { return .init() }
+            var a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0
+            for band in bands {
+                let w = Double(band.n).squareRoot()
+                let f1 = band.r, f2 = band.r * band.r * band.r, y = band[keyPath: value]
+                a11 += w * f1 * f1; a12 += w * f1 * f2; a22 += w * f2 * f2
+                b1 += w * f1 * y; b2 += w * f2 * y
+            }
+            if cubic {
+                let det = a11 * a22 - a12 * a12
+                if det > 1e-18 * a11 * a22 {
+                    return .init(k0: (b1 * a22 - b2 * a12) / det, k2: (a11 * b2 - a12 * b1) / det)
+                }
+            }
+            return .init(k0: a11 > 0 ? b1 / a11 : 0, k2: 0)
+        }
+        let model = LateralCAModel(red: channel(\.red), blue: channel(\.blue))
+        guard model.maxShiftPixels(halfDiagonal: halfDiagonal) >= significancePixels else { return nil }
         return model
     }
 
     /// Per-tile radial misregistration of R and of B against G. Exposed for the
     /// diagnostics and for the macOS probe that asks whether Apple's decode already
     /// removed it.
+    public typealias TileFetch = (_ x: Int, _ y: Int, _ width: Int, _ height: Int) -> ImageBuffer?
+
     public static func measure(_ image: ImageBuffer, maxTiles: Int = 600) -> [Sample]? {
-        let w = image.width, h = image.height
+        measure(nativeWidth: image.width, nativeHeight: image.height, preview: image,
+                maxTiles: maxTiles) { x, y, w, h in
+            var tile = ImageBuffer(width: w, height: h)
+            for yy in 0..<h {
+                let src = ((y + yy) * image.width + x) * 4
+                let dst = yy * w * 4
+                for k in 0..<(w * 4) { tile.pixels[dst + k] = image.pixels[src + k] }
+            }
+            return tile
+        }
+    }
+
+    /// Tiles are RANKED on `preview` (any downscale of the frame, the same picture) and
+    /// MEASURED on native-resolution pixels from `fetch`, so a caller holding a small
+    /// decode and a lazy full-size one pays for a few hundred 60 px tiles rather than a
+    /// full-frame readback — and measures at the scale where the estimate is right
+    /// (1840: 0.48 px native, 0.81 px measured on a 2560 px decode).
+    public static func measure(nativeWidth w: Int, nativeHeight h: Int, preview: ImageBuffer,
+                               maxTiles: Int = 600, fetch: TileFetch) -> [Sample]? {
         guard w >= 64, h >= 64 else { return nil }
-        let planes = LogPlanes(image)
+        let pv = LogPlanes(preview, origin: (0, 0), peak: nil)
+        let peak = pv.peak
+        let s = Double(preview.width) / Double(w)
         let cx = Double(w) / 2, cy = Double(h) / 2
         let norm = 0.5 * (Double(w * w + h * h)).squareRoot()
         let tile = Swift.min(48, Swift.max(16, Swift.max(w, h) / 60))
-        let border = 6
+        let margin = 6
+        let border = margin
 
-        // Pass 1: the radial-gradient energy of each tile, to keep only the tiles with
-        // something to measure. Every second pixel: this is a ranking, not a number.
-        struct Candidate { var x0: Int; var y0: Int; var energy: Double }
+        // Pass 1, on the preview: radial-gradient energy of each tile, to keep only the
+        // tiles with something to measure. A ranking, not a number.
+        struct Candidate { var x0: Int; var y0: Int; var r: Double; var energy: Double }
         var candidates: [Candidate] = []
+        let step = Swift.max(1, Int((Double(tile) * s / 12).rounded()))
         var y0 = border
         while y0 + tile <= h - border {
             var x0 = border
@@ -118,19 +202,24 @@ public enum LateralCAEstimator {
                 if rt >= 0.2 {
                     let ux = tcx / (rt * norm), uy = tcy / (rt * norm)
                     var e = 0.0
-                    var clipped = false
-                    var y = y0
-                    while y < y0 + tile {
-                        var x = x0
-                        while x < x0 + tile {
-                            if planes.clipped[y * w + x] { clipped = true }
-                            let g = planes.radialGradient(planes.g, x, y, ux, uy)
+                    var clipped = 0, seen = 0
+                    let px0 = Int(Double(x0) * s), py0 = Int(Double(y0) * s)
+                    let pn = Swift.max(2, Int(Double(tile) * s))
+                    var y = py0
+                    while y < Swift.min(py0 + pn, pv.h) {
+                        var x = px0
+                        while x < Swift.min(px0 + pn, pv.w) {
+                            if pv.clipped[y * pv.w + x] { clipped += 1 }
+                            seen += 1
+                            let g = pv.radialGradient(pv.g, x, y, ux, uy)
                             e += g * g
-                            x += 2
+                            x += step
                         }
-                        y += 2
+                        y += step
                     }
-                    if !clipped, e > 0 { candidates.append(Candidate(x0: x0, y0: y0, energy: e)) }
+                    if clipped * 2 < seen, e > 0 {
+                        candidates.append(Candidate(x0: x0, y0: y0, r: rt, energy: e))
+                    }
                 }
                 x0 += tile
             }
@@ -138,24 +227,23 @@ public enum LateralCAEstimator {
         }
         guard candidates.count >= 12 else { return nil }
         // Stratified by radius: the strongest tiles of a photograph sit on its
-        // in-focus subject, usually central, and a fit fed only those extrapolates its
-        // cubic term into corners it never saw (1840: no tile past r = 0.8, and a blue
-        // correction of 0.67 px where the corner had none). Each radial band keeps its
-        // own strongest tiles.
+        // in-focus subject, usually central, and a fit fed only those extrapolates into
+        // corners it never saw. Each radial band keeps its own strongest tiles.
         let bands = [0.2, 0.35, 0.5, 0.65, 0.8, 2.0]
         var kept: [Candidate] = []
         for k in 0..<(bands.count - 1) {
-            let inBand = candidates.filter {
-                let tcx = Double($0.x0) + Double(tile) / 2 - cx
-                let tcy = Double($0.y0) + Double(tile) / 2 - cy
-                let r = (tcx * tcx + tcy * tcy).squareRoot() / norm
-                return r >= bands[k] && r < bands[k + 1]
-            }.sorted { $0.energy > $1.energy }
+            let inBand = candidates.filter { $0.r >= bands[k] && $0.r < bands[k + 1] }
+                .sorted { $0.energy > $1.energy }
             kept += inBand.prefix(maxTiles / (bands.count - 1))
         }
 
+        // Pass 2, on native pixels.
         var samples: [Sample] = []
         for c in kept {
+            let fx = c.x0 - margin, fy = c.y0 - margin, fs = tile + 2 * margin
+            guard let buffer = fetch(fx, fy, fs, fs), buffer.width == fs, buffer.height == fs
+            else { continue }
+            let planes = LogPlanes(buffer, origin: (fx, fy), peak: peak)
             let tcx = Double(c.x0) + Double(tile) / 2 - cx
             let tcy = Double(c.y0) + Double(tile) / 2 - cy
             let rpx = (tcx * tcx + tcy * tcy).squareRoot()
@@ -236,49 +324,62 @@ public enum LateralCAEstimator {
     /// sky beside a brown branch, as a shift; on 1840 that overshot the correction.)
     struct LogPlanes {
         let w: Int, h: Int
+        /// Where this buffer's (0, 0) sits in the frame: tiles are addressed in frame
+        /// coordinates.
+        let ox: Int, oy: Int
         var r: [Float], g: [Float], b: [Float]
         var clipped: [Bool]
+        let peak: (Float, Float, Float)
 
-        init(_ image: ImageBuffer) {
+        init(_ image: ImageBuffer, origin: (Int, Int), peak given: (Float, Float, Float)?) {
             w = image.width
             h = image.height
+            ox = origin.0
+            oy = origin.1
             let n = w * h
             r = [Float](repeating: 0, count: n)
             g = r
             b = r
             clipped = [Bool](repeating: false, count: n)
-            var peak: (Float, Float, Float) = (0, 0, 0)
             let px = image.pixels
-            for i in 0..<n {
-                peak.0 = Swift.max(peak.0, px[i * 4])
-                peak.1 = Swift.max(peak.1, px[i * 4 + 1])
-                peak.2 = Swift.max(peak.2, px[i * 4 + 2])
+            var top: (Float, Float, Float) = (0, 0, 0)
+            if let given { top = given } else {
+                for i in 0..<n {
+                    top.0 = Swift.max(top.0, px[i * 4])
+                    top.1 = Swift.max(top.1, px[i * 4 + 1])
+                    top.2 = Swift.max(top.2, px[i * 4 + 2])
+                }
             }
+            peak = top
             for i in 0..<n {
                 let rv = px[i * 4], gv = px[i * 4 + 1], bv = px[i * 4 + 2]
-                clipped[i] = rv >= peak.0 * 0.98 || gv >= peak.1 * 0.98 || bv >= peak.2 * 0.98
+                clipped[i] = rv >= top.0 * 0.98 || gv >= top.1 * 0.98 || bv >= top.2 * 0.98
                 r[i] = rv
                 g[i] = gv
                 b[i] = bv
             }
         }
 
-        @inline(__always) func at(_ p: [Float], _ x: Int, _ y: Int) -> Double {
-            Double(p[Swift.min(Swift.max(y, 0), h - 1) * w + Swift.min(Swift.max(x, 0), w - 1)])
+        @inline(__always) func isClipped(_ x: Int, _ y: Int) -> Bool {
+            clipped[Swift.min(Swift.max(y - oy, 0), h - 1) * w
+                    + Swift.min(Swift.max(x - ox, 0), w - 1)]
         }
 
-        /// Catmull–Rom, pixel centres at +0.5 — the warp's own resampler, so the shift
-        /// the estimator finds is the shift the warp undoes.
+        @inline(__always) func at(_ p: [Float], _ x: Int, _ y: Int) -> Double {
+            Double(p[Swift.min(Swift.max(y - oy, 0), h - 1) * w
+                     + Swift.min(Swift.max(x - ox, 0), w - 1)])
+        }
+
+        /// Bilinear, pixel centres at +0.5 — `ImageBuffer.bilinear`'s convention. (A
+        /// Catmull–Rom sampler here was tried: it moved 1840's native estimate away from
+        /// the independent tool's zero-residual point, 0.63 against 0.46 px.)
         @inline(__always) func sample(_ p: [Float], _ x: Double, _ y: Double) -> Double {
             let fx = x - 0.5, fy = y - 0.5
             let x0 = Int(fx.rounded(.down)), y0 = Int(fy.rounded(.down))
-            let wx = LensStage.catmullRomWeights(fx - Double(x0))
-            let wy = LensStage.catmullRomWeights(fy - Double(y0))
-            func row(_ yy: Int) -> Double {
-                wx.0 * at(p, x0 - 1, yy) + wx.1 * at(p, x0, yy) + wx.2 * at(p, x0 + 1, yy)
-                    + wx.3 * at(p, x0 + 2, yy)
-            }
-            return wy.0 * row(y0 - 1) + wy.1 * row(y0) + wy.2 * row(y0 + 1) + wy.3 * row(y0 + 2)
+            let tx = fx - Double(x0), ty = fy - Double(y0)
+            let a = at(p, x0, y0) * (1 - tx) + at(p, x0 + 1, y0) * tx
+            let c = at(p, x0, y0 + 1) * (1 - tx) + at(p, x0 + 1, y0 + 1) * tx
+            return a * (1 - ty) + c * ty
         }
 
         func radialGradient(_ p: [Float], _ x: Int, _ y: Int, _ ux: Double, _ uy: Double) -> Double {
@@ -300,6 +401,9 @@ public enum LateralCAEstimator {
             var meanG = 0.0
             for y in y0..<(y0 + size) {
                 for x in x0..<(x0 + size) {
+                    // A clipped pixel's channels say where the sensor stopped, not where
+                    // the edge is: it takes no part in the fit.
+                    if isClipped(x, y) { continue }
                     let v = at(g, x, y)
                     gs.append(v)
                     meanG += v
@@ -307,6 +411,7 @@ public enum LateralCAEstimator {
                     pts.append((Double(x) + 0.5, Double(y) + 0.5))
                 }
             }
+            guard pts.count * 5 >= size * size * 2 else { return nil }
             let count = Double(pts.count)
             meanG /= count
             guard meanG > 0 else { return nil }
