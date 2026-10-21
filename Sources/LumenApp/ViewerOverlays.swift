@@ -2274,14 +2274,45 @@ struct StraightenOverlayView: View {
 /// point in view coordinates is not a point in the source frame. Sampling the displayed
 /// position directly would read the wrong pixel on every cropped or rotated photo, and
 /// read it plausibly enough that nobody would notice.
+///
+/// THE SAMPLE WINDOW FOLLOWS THE ZOOM (Lightroom's rule, `PickSample`): 5x5 device
+/// pixels at 100% or less, 5x5 image pixels above. The overlay is laid out on the drawn
+/// frame inside the loupe's `.scaleEffect(stretch)`, and the zoom hold is off while a
+/// pick is armed, so `proxy.size` IS the size the photograph is drawn at; times the
+/// backing scale it is the device-pixel extent `displayedPixelsPerSourcePixel` wants.
+/// The radius travels with the click, and a two-tone square under the pointer shows the
+/// window it will average — the one thing about the sample the photographer could not
+/// see before.
 struct NeutralPickerOverlay: View {
 
     let sourceSize: CGSize
     let geometry: Geometry
-    let onPick: (Double, Double) -> Void
+    /// Pointer locations to draw the indicator at while no hover has arrived — for the
+    /// snapshot suite, which cannot move a real pointer. Empty in the app.
+    var injectedPointers: [CGPoint] = []
+    /// Source x, source y (normalized) and the sample radius in source pixels.
+    let onPick: (Double, Double, Int) -> Void
+
+    @Environment(\.displayScale) private var displayScale: CGFloat
+    @State private var hover: CGPoint?
+
+    /// Source pixels per device pixel at the size the frame is drawn.
+    private func sourcePixelsPerDevicePixel(drawn: CGSize) -> Double {
+        let backing = Swift.max(displayScale, 1)
+        let perSource = PipelineRenderer.displayedPixelsPerSourcePixel(
+            geometry, sourceSize: sourceSize,
+            displayedLongEdge: Swift.max(drawn.width, drawn.height) * backing)
+        guard perSource > 0 else { return .nan }      // `PickSample` falls back to 5x5
+        return 1 / Double(perSource)
+    }
 
     var body: some View {
         GeometryReader { proxy in
+            let s = sourcePixelsPerDevicePixel(drawn: proxy.size)
+            let radius = PickSample.radius(sourcePixelsPerDevicePixel: s)
+            let side = CGFloat(PickSample.indicatorSidePoints(
+                radius: radius, sourcePixelsPerDevicePixel: s,
+                backingScale: Double(Swift.max(displayScale, 1))))
             Rectangle()
                 // Not `.clear`: a fully transparent shape is not hit-testable, and the
                 // click would fall through to the pan gesture underneath.
@@ -2291,6 +2322,32 @@ struct NeutralPickerOverlay: View {
                         .strokeBorder(Lumen.accent.opacity(0.7), lineWidth: 2)
                         .allowsHitTesting(false)
                 )
+                .overlay(alignment: .topLeading) {
+                    // The sample window under the pointer: a dark square inside a light
+                    // one, so it reads on a white sky and in a black shadow alike. The
+                    // inner edge IS the window; the strokes sit outside it so a 2.6 pt
+                    // window is not painted over by its own outline.
+                    let points = hover.map { [$0] } ?? injectedPointers
+                    ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                        ZStack {
+                            Rectangle()
+                                .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                                .frame(width: side + 3, height: side + 3)
+                            Rectangle()
+                                .stroke(Color.black.opacity(0.85), lineWidth: 1)
+                                .frame(width: side + 1, height: side + 1)
+                        }
+                        .position(x: point.x, y: point.y)
+                    }
+                    .allowsHitTesting(false)
+                }
+                .onContinuousHover(coordinateSpace: .local) { phase in
+                    if case .active(let point) = phase {
+                        hover = point
+                    } else {
+                        hover = nil
+                    }
+                }
                 .contentShape(Rectangle())
                 // The pointer is the instrument while a pick is armed, and the cursor
                 // is how the picture says so (docs/32 Stream D item 3's "cursor
@@ -2310,7 +2367,7 @@ struct NeutralPickerOverlay: View {
                         let source = PipelineRenderer.sourceNormalized(
                             displayedX: u, displayedY: v,
                             geometry: geometry, sourceSize: sourceSize)
-                        onPick(Double(source.x), Double(source.y))
+                        onPick(Double(source.x), Double(source.y), radius)
                     }
                 )
         }

@@ -103,6 +103,15 @@ struct MattePass: Sendable {
     }
 }
 
+/// What a neutral eyedropper click came to (`RenderCoordinator.solveNeutral`): a solved
+/// Temp/Tint, a window the solver refuses to read (with the reason the status line
+/// gives), or no sample at all.
+enum NeutralSolve: Sendable {
+    case solved(kelvin: Double, tint: Double)
+    case refused(NeutralSampleRefusal)
+    case unreadable
+}
+
 actor RenderCoordinator {
 
     private let renderer = PipelineRenderer()
@@ -836,14 +845,18 @@ actor RenderCoordinator {
     /// `pointColorSwatch` names the mask swatch a mask Point Colour pick feeds; the
     /// renderer then carries the sample through that mask's own exposure, tone, white
     /// balance and earlier swatches, which is what the swatch compares.
+    ///
+    /// `radius` is the click's zoom-aware window (`PickSample.radius`), forwarded as is.
     func sampleMaskReference(url: URL, recipe: Recipe,
                              sourceX: Double, sourceY: Double,
-                             pointColorSwatch: (maskID: String, index: Int)? = nil) -> RGB? {
+                             pointColorSwatch: (maskID: String, index: Int)? = nil,
+                             radius: Int) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleMaskStageInput(source: source, recipe: recipe,
                                                         sourceX: sourceX,
                                                         sourceY: sourceY,
-                                                        pointColorSwatch: pointColorSwatch),
+                                                        pointColorSwatch: pointColorSwatch,
+                                                        radius: radius),
               sample.isFinite
         else { return nil }
         return sample
@@ -906,11 +919,13 @@ actor RenderCoordinator {
     /// reads (AI-02): the stage input alone is before the primaries and the Mixer.
     func samplePointColorReference(url: URL, recipe: Recipe,
                                    sourceX: Double, sourceY: Double,
-                                   tap: ColorEngine.SelectionTap) -> RGB? {
+                                   tap: ColorEngine.SelectionTap,
+                                   radius: Int) -> RGB? {
         guard let source = try? self.source(for: url),
               let sample = renderer.sampleColorStageInput(source: source, recipe: recipe,
                                                           sourceX: sourceX,
-                                                          sourceY: sourceY, tap: tap),
+                                                          sourceY: sourceY, tap: tap,
+                                                          radius: radius),
               sample.isFinite
         else { return nil }
         return sample
@@ -928,21 +943,33 @@ actor RenderCoordinator {
     /// it inverts that matrix internally to recover the decoded value — so the sample
     /// goes through `wb.matrix` on the way in. The round trip is deliberate and exact:
     /// it keeps this call correct without depending on the solver's internals.
+    ///
+    /// The window is judged BEFORE that round trip, on the decoded value itself
+    /// (`WhiteBalanceEngine.neutralSampleRefusal`): too dark to be anything but noise, or
+    /// holding a clipped pixel whose colour the sensor never recorded. Both used to solve
+    /// a confident, wrong white balance — the only guard was a mean of exactly zero.
     func solveNeutral(url: URL, recipe: Recipe,
-                      sourceX: Double, sourceY: Double) -> (kelvin: Double, tint: Double)? {
+                      sourceX: Double, sourceY: Double, radius: Int) -> NeutralSolve {
         guard let source = try? self.source(for: url),
-              let sample = renderer.sampleSceneLinear(source: source, recipe: recipe,
-                                                     sourceX: sourceX, sourceY: sourceY),
-              sample.isFinite, sample.maxComponent > 1e-9
-        else { return nil }
+              let window = renderer.sampleSceneLinearWindow(source: source, recipe: recipe,
+                                                            sourceX: sourceX,
+                                                            sourceY: sourceY,
+                                                            radius: radius)
+        else { return .unreadable }
+        if let refusal = WhiteBalanceEngine.neutralSampleRefusal(mean: window.mean,
+                                                                 windowMax: window.max) {
+            return .refused(refusal)
+        }
+        let sample = window.mean
         let wb = WhiteBalanceEngine(asShotKelvin: source.asShotTemperature,
                                     asShotTint: source.asShotTint,
                                     targetKelvin: recipe.develop.raw.temp,
                                     targetTint: recipe.develop.raw.tint)
-        return WhiteBalanceEngine.neutralizing(sample: wb.matrix.apply(sample),
-                                               asShotKelvin: source.asShotTemperature,
-                                               asShotTint: source.asShotTint,
-                                               current: wb)
+        let solved = WhiteBalanceEngine.neutralizing(sample: wb.matrix.apply(sample),
+                                                     asShotKelvin: source.asShotTemperature,
+                                                     asShotTint: source.asShotTint,
+                                                     current: wb)
+        return .solved(kelvin: solved.kelvin, tint: solved.tint)
     }
 
     // MARK: - Sources

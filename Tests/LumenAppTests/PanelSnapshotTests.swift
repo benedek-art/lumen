@@ -253,6 +253,47 @@ final class PanelSnapshotTests: XCTestCase {
                               width: viewer.width, height: viewer.height) {
             SnapshotMaskOverlay(image: sample, overlay: overlay, container: viewer)
         }
+
+        // WS-02: armed eyedroppers, and the sample-window square the catcher draws under
+        // the pointer (injected, since a snapshot has no pointer), at Fit on a 24 MP
+        // frame and at 200%.
+        PanelLayout.shared.setMasking(false)
+        state.beginPick(.neutral)
+        await recorder.render("panel-develop-white-balance-armed",
+                              "Develop ▸ White Balance with the neutral eyedropper armed",
+                              width: width) {
+            SnapshotSectionCard(.whiteBalance, isModified: recorder.isModified(.whiteBalance)) {
+                BasicPanel(only: .whiteBalance)
+            }
+        }
+        state.cancelPick()
+        SnapshotFixtures.addPointColours(state)
+        state.beginPick(.newPointColor)
+        await recorder.settle(0.3)
+        await recorder.render("panel-grade-colour-point-colour-armed",
+                              "Grade ▸ Colour, two swatches, the add-swatch eyedropper armed",
+                              width: width) {
+            SnapshotSectionCard(.color, isModified: recorder.isModified(.color)) {
+                ColorPanel(only: .color)
+            }
+        }
+        state.cancelPick()
+        await recorder.render("overlay-pick-indicator-fit",
+                              "Eyedropper catcher at Fit on a 24 MP frame (5x5 device px), "
+                                  + "indicator on the sun and on the dark ridge",
+                              width: viewer.width, height: viewer.height) {
+            SnapshotPickIndicator(image: sample, container: viewer,
+                                  sourceLongEdge: { _ in 6024 })
+        }
+        await recorder.render("overlay-pick-indicator-200",
+                              "Eyedropper catcher at 200% (5x5 image pixels), indicator on "
+                                  + "the sun and on the dark ridge",
+                              width: viewer.width, height: viewer.height) {
+            // 200%: one source pixel spans two device pixels at the 2x backing scale, so
+            // the source long edge equals the drawn long edge in points.
+            SnapshotPickIndicator(image: sample, container: viewer,
+                                  sourceLongEdge: { drawn in drawn })
+        }
     }
 
     // MARK: - The whole window, against a scanned folder
@@ -342,6 +383,19 @@ final class PanelSnapshotTests: XCTestCase {
         }
         PanelLayout.shared.setMasking(false)
         state.enter(.develop)
+
+        // WS-02: the neutral eyedropper armed in situ — the image border and the
+        // status-bar prompt, which names Esc.
+        state.beginPick(.neutral)
+        await recorder.render("window-\(label(small))-develop-picking",
+                              "Full window, Develop, the neutral eyedropper armed",
+                              width: small.width, height: small.height, settle: 2.5,
+                              ready: { state.primaryFrameSize != nil },
+                              readyNote: "the loupe frame had not arrived — the "
+                                  + "catcher and its border may be missing") {
+            ContentView()
+        }
+        state.cancelPick()
     }
 }
 
@@ -1112,6 +1166,40 @@ private struct SnapshotMaskOverlay: View {
                     .interpolation(.high)
                     .frame(width: drawn.width, height: drawn.height)
             }
+        }
+        .frame(width: container.width, height: container.height)
+        .background(Color(nsColor: NSColor(white: 0.165, alpha: 1)))
+    }
+}
+
+/// The eyedropper's catcher over the frame, the way the loupe mounts it on the drawn
+/// plate, with two injected pointer positions: the sun (light) and the near ridge (dark).
+/// `sourceLongEdge` maps the drawn long edge in points to the source frame's, which is
+/// what sets the zoom the sample window is computed for.
+private struct SnapshotPickIndicator: View {
+    let image: CGImage
+    let container: CGSize
+    let sourceLongEdge: (CGFloat) -> CGFloat
+
+    var body: some View {
+        let inset: CGFloat = 40
+        let k = Swift.min((container.width - inset * 2) / CGFloat(image.width),
+                          (container.height - inset * 2) / CGFloat(image.height))
+        let drawn = CGSize(width: CGFloat(image.width) * k, height: CGFloat(image.height) * k)
+        let long = sourceLongEdge(Swift.max(drawn.width, drawn.height))
+        let source = CGSize(width: long,
+                            height: long * CGFloat(image.height) / CGFloat(image.width))
+        ZStack {
+            Image(decorative: image, scale: 1, orientation: .up)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: drawn.width, height: drawn.height)
+            NeutralPickerOverlay(sourceSize: source, geometry: Geometry(),
+                                 injectedPointers: [
+                                     CGPoint(x: drawn.width * 0.675, y: drawn.height * 0.30),
+                                     CGPoint(x: drawn.width * 0.08, y: drawn.height * 0.85),
+                                 ]) { _, _, _ in }
+                .frame(width: drawn.width, height: drawn.height)
         }
         .frame(width: container.width, height: container.height)
         .background(Color(nsColor: NSColor(white: 0.165, alpha: 1)))

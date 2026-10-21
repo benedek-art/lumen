@@ -386,8 +386,10 @@ struct BasicPanel: View {
                     .font(.lumenGlyphBody)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)
-                    .background(Lumen.controlBackground)
-                    .foregroundStyle(Lumen.primaryText)
+                    .background(state.pickTarget == .neutral
+                                ? Lumen.accent : Lumen.controlBackground)
+                    .foregroundStyle(state.pickTarget == .neutral
+                                     ? Color.black : Lumen.primaryText)
                     .clipShape(RoundedRectangle(cornerRadius: Lumen.radiusChip))
                     .contentShape(Rectangle())
             }

@@ -117,14 +117,20 @@ enum PickTarget: Equatable, Sendable {
         }
     }
 
-    /// What the status line says while the click is being waited for.
-    var prompt: String {
+    /// What the status line says while the click is being waited for. LumenCore's, so
+    /// a test can hold every one of them to naming Escape.
+    var prompt: String { core.prompt }
+
+    /// The LumenCore twin, which `PickArming` binds to the photo it was armed on.
+    var core: PickArming.Target {
         switch self {
-        case .neutral: return "Click something neutral grey in the picture."
-        case .newPointColor, .pointColor: return "Click the colour to work on."
-        case .mixerBand: return "Click a colour — its band selects itself."
-        case .maskSample: return "Click the colour this mask should select."
-        case .maskPointColor: return "Click the colour to work on inside this mask."
+        case .neutral: return .neutral
+        case .newPointColor: return .newPointColor
+        case .mixerBand: return .mixerBand
+        case .pointColor(let index): return .pointColor(index: index)
+        case .maskSample(let maskID, let component):
+            return .maskSample(maskID: maskID, component: component)
+        case .maskPointColor(let maskID): return .maskPointColor(maskID: maskID)
         }
     }
 }
@@ -1540,6 +1546,10 @@ final class AppState: ObservableObject {
     /// the same click and the same coordinate inverse, and four booleans would be four
     /// chances for two of them to be true at once.
     @Published var pickTarget: PickTarget?
+    /// What `pickTarget` was armed ON — the photo and the counts its indices mean
+    /// something against — so `resolvePick` can refuse a click the arming no longer
+    /// describes. Not published: nothing draws from it, it is read at click time.
+    private(set) var pickArming: PickArming?
 
     /// Which mixer band the Colour panel is editing, and whether it is editing all
     /// eight at once.
@@ -3949,15 +3959,50 @@ final class AppState: ObservableObject {
     static let placeholderSample: [Double] = [0.18, 0.18, 0.18]
 
     /// Arm the next click on the image, and say what it is for.
+    ///
+    /// Refused, with the reason, where the loupe would draw no catcher: with the crop tool
+    /// armed the canvas is `cropCanvas`, and a two-pane before/after is `BeforeAfterPair`
+    /// — neither mounts `NeutralPickerOverlay`. Arming there used to show the prompt and
+    /// the armed buttons while every click went to the crop handles or nowhere. Refusing
+    /// rather than leaving the mode, because leaving either one is a decision about the
+    /// photographer's crop or comparison that a colour button has no business making.
     func beginPick(_ target: PickTarget) {
-        pickTarget = target
-        statusMessage = target.prompt
+        if let refusal = pickHasNoCatcher() {
+            pickTarget = nil
+            pickArming = nil
+            statusMessage = refusal
+            return
+        }
         showLoupe()          // the catcher lives on the loupe
+        pickTarget = target
+        // Bound to the photo the catcher will mount on, with the counts its indices
+        // mean something against — see `PickArming`.
+        pickArming = primarySelection.map {
+            PickArming(photo: $0.id, target: target.core, recipe: recipe(for: $0))
+        }
+        statusMessage = target.prompt
     }
 
     func cancelPick() {
         pickTarget = nil
+        pickArming = nil
         statusMessage = nil
+    }
+
+    /// Why a pick armed now would have nothing to click on, or nil when the loupe's
+    /// ordinary canvas — the one that carries the catcher — is what will be showing.
+    /// The same gates `LoupeView.content` branches on.
+    private func pickHasNoCatcher() -> String? {
+        let viewport = LoupeViewport.shared
+        let layout = PanelLayout.shared.layout
+        if viewport.showCrop && layout.workspace == .crop && !layout.isMasking {
+            return "Finish cropping first — the eyedropper needs the whole picture "
+                + "(R or Esc leaves the crop tool)."
+        }
+        if viewport.beforeMode.isTwoPane {
+            return "Leave the before/after split to pick — the eyedropper needs one picture."
+        }
+        return nil
     }
 
     /// A click landed. Resolve it against whatever the pick was for.
@@ -3976,14 +4021,33 @@ final class AppState: ObservableObject {
     ///
     /// Every write goes through `updateRecipe`, so a picked colour is one undo step and
     /// one history entry, exactly like the sliders it replaces.
-    func resolvePick(on photo: PhotoItem, sourceX: Double, sourceY: Double) {
+    ///
+    /// `radius` is the sample window the click was taken with (`PickSample.radius`, from
+    /// the zoom the catcher was drawn at), and every tap below is handed it: a 5x5 window
+    /// at Fit is smaller than one screen point and its neutral wanders ±15 mired between
+    /// adjacent clicks at ISO 3200.
+    ///
+    /// The arming (`PickArming`) is checked before the hop and again after it, before
+    /// anything is written: a pick armed on another photo, or on a swatch, component or
+    /// mask that has since gone or moved, is REFUSED with a message rather than written
+    /// into whatever now sits at that index.
+    func resolvePick(on photo: PhotoItem, sourceX: Double, sourceY: Double, radius: Int) {
         guard let target = pickTarget else { return }
         let current = recipe(for: photo)
         let url = photo.id                      // PhotoItem.id IS the URL
+        // Armed with no selection to bind to (unreachable while the catcher needs a
+        // photo on the loupe): bind to this one, which is what the click always meant.
+        let arming = pickArming
+            ?? PickArming(photo: url, target: target.core, recipe: current)
         // Disarmed BEFORE the hop, not after: cleared on the far side of the await, a
         // second click while the first solve was in flight spawned a second task and a
         // colour mask collected its sample twice.
         pickTarget = nil
+        pickArming = nil
+        if case .reject(let message) = arming.accepts(photo: url, recipe: current) {
+            statusMessage = message
+            return
+        }
         Task {
             // Every branch below awaits an actor whose queue can hold a cold decode,
             // then writes through `updateRecipe` — which reads the CURRENT selection.
@@ -3998,21 +4062,36 @@ final class AppState: ObservableObject {
                 statusMessage = "Pick discarded — the selection moved before it resolved."
                 return false
             }
+            // And the arming again, against the recipe as it is NOW: a `−` on a swatch
+            // or a removed component during a cold decode moves the index this click
+            // was going to write through.
+            @MainActor func armingStillHolds() -> Bool {
+                guard selectionStillOnPickedPhoto() else { return false }
+                if case .reject(let message) = arming.accepts(photo: url,
+                                                              recipe: recipe(for: photo)) {
+                    statusMessage = message
+                    return false
+                }
+                return true
+            }
             switch target {
             case .neutral:
-                let solved = await renderCoordinator.solveNeutral(
-                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY)
-                guard selectionStillOnPickedPhoto() else { return }
-                guard let solved else {
-                    statusMessage = "Too dark there to read a neutral — try a lit grey."
-                    return
+                let solve = await renderCoordinator.solveNeutral(
+                    url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
+                    radius: radius)
+                guard armingStillHolds() else { return }
+                switch solve {
+                case .unreadable:
+                    statusMessage = "Could not read the picture there."
+                case .refused(let refusal):
+                    statusMessage = refusal.message
+                case .solved(let kelvin, let tint):
+                    updateRecipe { recipe in
+                        recipe.develop.raw.temp = kelvin
+                        recipe.develop.raw.tint = tint
+                    }
+                    statusMessage = PickArming.neutralMessage(kelvin: kelvin, tint: tint)
                 }
-                updateRecipe { recipe in
-                    recipe.develop.raw.temp = solved.kelvin
-                    recipe.develop.raw.tint = solved.tint
-                }
-                statusMessage = String(format: "Neutral picked — %.0f K, tint %.0f",
-                                       solved.kelvin, solved.tint)
 
             case .newPointColor, .pointColor, .maskSample, .maskPointColor, .mixerBand:
                 // WHICH TAP depends on what will compare against the stored value.
@@ -4037,18 +4116,18 @@ final class AppState: ObservableObject {
                     }
                     sample = await renderCoordinator.sampleMaskReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
-                        pointColorSwatch: swatch)
+                        pointColorSwatch: swatch, radius: radius)
                 } else if let tap = target.colorSelectionTap(
                     existingPointColors: current.develop.pointColors.count) {
                     // Through the colour stage as far as the selection reads (AI-02):
                     // the stage input alone sits before the primaries and the Mixer.
                     sample = await renderCoordinator.samplePointColorReference(
                         url: url, recipe: current, sourceX: sourceX, sourceY: sourceY,
-                        tap: tap)
+                        tap: tap, radius: radius)
                 } else {
                     sample = nil
                 }
-                guard selectionStillOnPickedPhoto() else { return }
+                guard armingStillHolds() else { return }
                 guard let sample else {
                     statusMessage = "Could not read a colour there."
                     return
@@ -4073,7 +4152,8 @@ final class AppState: ObservableObject {
                     }
                     mixerBand = band
                     mixerAllBands = false
-                    statusMessage = "\(ColorEngine.bandNames[band]) selected."
+                    statusMessage = PickArming.bandMessage(
+                        bandName: ColorEngine.bandNames[band])
                     return
                 case .newPointColor:
                     updateRecipe { recipe in
@@ -4140,7 +4220,10 @@ final class AppState: ObservableObject {
                 case .neutral:
                     break        // handled above; unreachable
                 }
-                statusMessage = nil
+                // Said, not silent: these two used to clear the status, so the only
+                // feedback for a swatch or a mask sample was the picture changing.
+                // Read off the recipe after the write, so the number is the panel's.
+                statusMessage = arming.successMessage(after: recipe(for: photo))
             }
         }
     }

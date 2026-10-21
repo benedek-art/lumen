@@ -2099,8 +2099,12 @@ struct LoupeView: View {
                     sourceSize: sourceFrameSize
                         ?? CGSize(width: cg.width, height: cg.height),
                     geometry: recipe.develop.geometry
-                ) { sourceX, sourceY in
-                    state.resolvePick(on: photo, sourceX: sourceX, sourceY: sourceY)
+                ) { sourceX, sourceY, radius in
+                    // `radius` is the zoom-aware sample window (`PickSample`), measured
+                    // by the catcher at the size it is drawn — `drawn`, inside the
+                    // stretch, which is 1 while picking.
+                    state.resolvePick(on: photo, sourceX: sourceX, sourceY: sourceY,
+                                      radius: radius)
                 }
                 .frame(width: drawn.width, height: drawn.height)
             }

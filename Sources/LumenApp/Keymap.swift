@@ -631,30 +631,39 @@ final class KeyDispatcher {
             state.setFlag(.reject)
             return true
         case 0x1B:      // Escape
-            // A focused slider gets Escape first, to drop its focus. This monitor runs
+            // Which layer this press leaves is `escapeAction`'s decision — pure, so a
+            // test can hold the order — and the branches below only carry it out.
+            let action = Self.escapeAction(
+                pickArmed: state.pickTarget != nil,
+                sliderHoldsFocus: state.sliderHoldsFocus,
+                masking: PanelLayout.shared.layout.isMasking,
+                healArmed: HealTool.shared.armed,
+                cropShowing: LoupeViewport.shared.showCrop,
+                inGrid: state.viewMode == .grid)
+            // A pending eyedropper pick (W, or any panel's picker): the innermost thing
+            // armed, and it used to outlive Escape with its prompt still showing.
+            if action == .cancelPick {
+                state.cancelPick()
+                return true
+            }
+            // A focused slider gets Escape next, to drop its focus. This monitor runs
             // in front of the responder chain, so without the yield the slider's own
             // `onKeyPress(.escape)` would be unreachable code and Escape would jump
             // straight to the grid from under a control the photographer was using.
             // Press it again with nothing focused and it means the grid, as before —
             // the ordinary nested-Escape idiom.
-            if state.sliderHoldsFocus { return nil }
-            // Then a pending eyedropper pick (W, or any panel's picker): the innermost
-            // thing armed, and it used to outlive Escape with its prompt still showing.
-            if state.pickTarget != nil {
-                state.cancelPick()
-                return true
-            }
+            if action == .yieldToSlider { return nil }
             // Then masking, which is the next layer out: the column is showing the mask
             // editor instead of the workspace, so Escape leaves it the way Escape leaves
             // every other thing you are inside. Above the grid rather than below it, or
             // Escape would jump past a whole surface to the light table.
-            if PanelLayout.shared.layout.isMasking {
+            if action == .leaveMasking {
                 PanelLayout.shared.setMasking(false)
                 return true
             }
             // Then the Heal tool, the same layer: its circles are a thing you are inside.
             // Leaving keeps every spot — they are saved as they are placed.
-            if HealTool.shared.armed {
+            if action == .leaveHeal {
                 HealTool.shared.armed = false
                 return true
             }
@@ -672,13 +681,13 @@ final class KeyDispatcher {
             // saves as you go (the Done/Revert row is gone, owner pass 4), this key is
             // the ONLY way back that is not Reset, which is exactly why it lives at the
             // dispatcher where it cannot go dead.
-            if LoupeViewport.shared.showCrop {
+            if action == .leaveCrop {
                 CropTool.shared.revert(in: state)
                 LoupeViewport.shared.showCrop = false
                 LoupeViewport.shared.showStraighten = false
                 return true
             }
-            if state.viewMode != .grid {
+            if action == .showGrid {
                 state.showGrid()
                 return true
             }
@@ -686,6 +695,33 @@ final class KeyDispatcher {
         default:
             return nil
         }
+    }
+
+    /// What one press of Escape leaves, innermost first.
+    enum EscapeAction: Equatable {
+        case cancelPick, yieldToSlider, leaveMasking, leaveHeal, leaveCrop, showGrid
+        /// Nothing to leave: the key goes back to the system.
+        case pass
+    }
+
+    /// THE ESCAPE ORDER, as a pure function so a test can hold it.
+    ///
+    /// An armed pick comes BEFORE a focused slider. Clicking a panel's eyedropper does
+    /// not take focus from the slider the photographer touched last, so with the old
+    /// order the first Escape dropped a focus nobody could see and left the prompt and
+    /// the crosshair up; it took a second press to do what the first was for. The pick
+    /// is the innermost thing — it was armed after the slider was touched — so it goes
+    /// first, the slider keeps its focus, and the next Escape drops that, as before.
+    nonisolated static func escapeAction(pickArmed: Bool, sliderHoldsFocus: Bool,
+                                         masking: Bool, healArmed: Bool,
+                                         cropShowing: Bool, inGrid: Bool) -> EscapeAction {
+        if pickArmed { return .cancelPick }
+        if sliderHoldsFocus { return .yieldToSlider }
+        if masking { return .leaveMasking }
+        if healArmed { return .leaveHeal }
+        if cropShowing { return .leaveCrop }
+        if !inGrid { return .showGrid }
+        return .pass
     }
 }
 

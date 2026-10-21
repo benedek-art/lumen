@@ -207,6 +207,35 @@ public struct WhiteBalanceEngine: Sendable {
 
     // MARK: - Eyedropper (D9)
 
+    /// Whether a neutral sample is fit to solve from, read on the decoded window —
+    /// camera-reference white balance, linear Rec.2020, before any of Lumen's stages.
+    ///
+    /// `neutralizing` will always return an answer, and that is the problem: a click on
+    /// a blown sky or a specular highlight solves a confident, wrong white balance from
+    /// channels the sensor clipped, and a click in deep shadow solves one from noise.
+    /// The old guard refused only a mean of exactly zero, so the "too dark" message the
+    /// app carried was unreachable.
+    ///
+    /// CLIPPED: any channel of the window's max at ≥ 95% of `clipLevel`. Sensor white is
+    /// 1.0 in the decode convention; measured clipped areas on the corpus sit at
+    /// 1.00–1.19, with p99.99 ≈ 1.0 on every clipped frame. 0.95 is 0.07 EV of headroom —
+    /// below the sensor's non-linearity and the highlight reconstruction ramp. Clipped
+    /// wins over dark: a window holding a clipped speck is wrong whatever its mean.
+    ///
+    /// TOO DARK: Rec.2020 luminance of the mean below 0.002 (−6.5 EV, a near-black on
+    /// screen), or any mean channel ≤ 0. Measured at the Fit window, ISO 3200 frames
+    /// wander 36 mired at Y ≈ 0.002 and 5–6 at 0.02; the ISO 100 Z7 II 0.9 at 0.01. The
+    /// floor refuses only where every ISO is mostly noise; it does not try to be
+    /// ISO-aware (docs/quality/lanes/WS-02/SPEC.md E1).
+    public static func neutralSampleRefusal(mean: RGB, windowMax: RGB,
+                                            clipLevel: Double = 1.0) -> NeutralSampleRefusal? {
+        let peak = Swift.max(windowMax.r, windowMax.g, windowMax.b)
+        if !peak.isFinite || peak >= 0.95 * clipLevel { return .clipped }
+        guard mean.isFinite, mean.r > 0, mean.g > 0, mean.b > 0 else { return .tooDark }
+        let luminance = 0.2627 * mean.r + 0.6780 * mean.g + 0.0593 * mean.b
+        return luminance < 0.002 ? .tooDark : nil
+    }
+
     /// Kelvin/Tint that render `sample` neutral, where `sample` is a working-space
     /// colour measured on the CURRENT render (i.e. with `current` already applied).
     ///
@@ -322,6 +351,22 @@ public struct WhiteBalanceEngine: Sendable {
         let kelvin = Num.clamp(bestK, ColorTemperature.minKelvin, ColorTemperature.maxKelvin)
         return (kelvin,
                 ColorTemperature.clampedTint(kelvin: kelvin, tint: Num.clamp(bestT, -300, 300)))
+    }
+}
+
+/// Why a neutral sample was refused (`WhiteBalanceEngine.neutralSampleRefusal`). Each
+/// case says what to do instead, because "could not read a neutral" alone leaves the
+/// photographer guessing whether to click brighter or darker.
+public enum NeutralSampleRefusal: Equatable, Sendable, CaseIterable {
+    case tooDark
+    case clipped
+
+    public var message: String {
+        switch self {
+        case .tooDark: return "Too dark there to read a neutral — try a lit grey."
+        case .clipped: return "That spot is clipped, so its colour is not real — "
+            + "try a grey below the highlights."
+        }
     }
 }
 

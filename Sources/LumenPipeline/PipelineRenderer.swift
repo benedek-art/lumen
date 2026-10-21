@@ -2365,6 +2365,17 @@ public final class PipelineRenderer {
         return sampleMean(decoded, sourceX: sourceX, sourceY: sourceY, radius: radius)
     }
 
+    /// `sampleSceneLinear` with the window's per-channel max beside the mean — the
+    /// neutral eyedropper's tap, so `WhiteBalanceEngine.neutralSampleRefusal` can see a
+    /// blown pixel the mean averages away. Same decode, same window, same convention.
+    public func sampleSceneLinearWindow(source: any ImageSource, recipe: Recipe,
+                                        sourceX: Double, sourceY: Double,
+                                        radius: Int = 2) -> (mean: RGB, max: RGB)? {
+        guard let decoded = source.decode(recipe: recipe, draft: false, scaleFactor: 1.0)
+        else { return nil }
+        return sampleWindow(decoded, sourceX: sourceX, sourceY: sourceY, radius: radius)
+    }
+
     /// The cull-time clipping measurement (docs/10 §10.5, README goal 3).
     ///
     /// WHAT IT MEASURES, precisely, because the instrument's whole value is that claim.
@@ -2493,6 +2504,15 @@ public final class PipelineRenderer {
     /// `apply` does, stopped where that selection reads. Applied to the window MEAN, so
     /// on a busy patch it is the stage of the average rather than the average of the
     /// stage — the same order of approximation the mean itself already is.
+    ///
+    /// `maskSource: FALSE`, unlike the mask tap above, and the difference is the point of
+    /// each. The render's colour stage receives the picture after S3 denoise and S8
+    /// presence (`colorStageInput` skips both only for the mask source), so a Dehaze or
+    /// Clarity move shifts the very levels and colours a swatch is compared against. This
+    /// tap used to copy `maskSource: true` from `sampleMaskStageInput`, where it is right
+    /// — a mask's raster IS built from the mask source — and so stored a swatch off a
+    /// picture S9 never sees (docs/quality/lanes/WS-02/AUDIT.md §1.3). The price is a lazy
+    /// region carrying the presence blur's support, which a click can afford.
     public func sampleColorStageInput(source: any ImageSource, recipe: Recipe,
                                       sourceX: Double, sourceY: Double,
                                       tap: ColorEngine.SelectionTap,
@@ -2509,7 +2529,7 @@ public final class PipelineRenderer {
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
         let staged = RenderGraph().colorStageInput(
             decoded, plan: plan,
-            options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
+            options: RenderGraph.Options(longEdge: longEdge, maskSource: false))
         guard let input = sampleMean(staged.cropped(to: decoded.extent),
                                      sourceX: sourceX, sourceY: sourceY, radius: radius)
         else { return nil }
@@ -2594,6 +2614,13 @@ public final class PipelineRenderer {
     /// the working space.
     private func sampleMean(_ image: CIImage, sourceX: Double, sourceY: Double,
                             radius: Int) -> RGB? {
+        sampleWindow(image, sourceX: sourceX, sourceY: sourceY, radius: radius)?.mean
+    }
+
+    /// `sampleMean` plus the window's per-channel MAX, which is what a clip check needs:
+    /// a mean can sit well under white while one pixel of the window is blown.
+    private func sampleWindow(_ image: CIImage, sourceX: Double, sourceY: Double,
+                              radius: Int) -> (mean: RGB, max: RGB)? {
         let extent = image.extent
         guard extent.width >= 1, extent.height >= 1 else { return nil }
 
@@ -2625,14 +2652,22 @@ public final class PipelineRenderer {
         }
 
         var sumR = 0.0, sumG = 0.0, sumB = 0.0
+        var maxR = -Double.infinity, maxG = -Double.infinity, maxB = -Double.infinity
         for i in 0..<(width * height) {
-            sumR += Double(pixels[i * 4])
-            sumG += Double(pixels[i * 4 + 1])
-            sumB += Double(pixels[i * 4 + 2])
+            let r = Double(pixels[i * 4])
+            let g = Double(pixels[i * 4 + 1])
+            let b = Double(pixels[i * 4 + 2])
+            sumR += r
+            sumG += g
+            sumB += b
+            maxR = Swift.max(maxR, r)
+            maxG = Swift.max(maxG, g)
+            maxB = Swift.max(maxB, b)
         }
         let count = Double(width * height)
         let mean = RGB(sumR / count, sumG / count, sumB / count)
-        return mean.isFinite ? mean : nil
+        let peak = RGB(maxR, maxG, maxB)
+        return mean.isFinite && peak.isFinite ? (mean, peak) : nil
     }
 
     public static func sourceNormalized(displayedX u: Double, displayedY v: Double,
