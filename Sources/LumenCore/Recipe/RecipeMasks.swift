@@ -319,7 +319,8 @@ public enum MaskKind: String, Codable, Sendable {
     public enum MatteProvider: String, Sendable {
         /// Rasterized from geometry or from the picture; no matte involved.
         case none
-        /// Apple's Vision framework: on-device, no download, no bundled weights.
+        /// On-device, no download, no bundled weights: Apple's Vision framework, plus
+        /// the classical sky detector (`SkyDetector`) that serves Sky.
         case vision
         /// A Core ML model that is not bundled. These render empty and say so.
         case model
@@ -343,9 +344,15 @@ public enum MaskKind: String, Codable, Sendable {
             // second model: two models can disagree, and a complement cannot
             // (docs/08 §8.3).
             return .vision
-        case .aiSky, .aiObject, .aiLandscape, .depthRange:
-            // Sky segmentation, SAM and Depth Anything. None is bundled; the panel
-            // says so rather than implying a pass that is not running.
+        case .aiSky:
+            // On-device with nothing to download: `VisionMattes` runs an installed
+            // sky model when the owner has added one, and `SkyDetector` (classical,
+            // in LumenCore) when not. Same pass, same ledger, same cache as Vision's
+            // three, so it rides `.vision` rather than inventing a fourth provider.
+            return .vision
+        case .aiObject, .aiLandscape, .depthRange:
+            // SAM, a multi-class segmenter and Depth Anything. None is bundled; the
+            // panel says so rather than implying a pass that is not running.
             return .model
         }
     }

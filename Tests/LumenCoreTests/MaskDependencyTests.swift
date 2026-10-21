@@ -381,13 +381,16 @@ final class MaskDependencyTests: XCTestCase {
     /// The roster is narrowed to ONE PROVIDER at the walk rather than at the caller,
     /// and the narrowing is load-bearing: `VisionMattes.kinds(in:)` is asked "what
     /// should the segmenter generate", and a kind no on-device framework can serve has
-    /// no business in that answer. Handing `.aiSky` to a Vision pass records an ATTEMPT
+    /// no business in that answer. Handing `.aiLandscape` to a Vision pass records an ATTEMPT
     /// for a request never issued, and an attempt with nothing found is exactly what
     /// the panel prints as "Vision found no clear subject" — a specific, actionable
     /// error message about a model that is not bundled and never ran.
+    ///
+    /// The model-served example is Landscape. It was Sky until WS-49 gave Sky an
+    /// on-device matte (`SkyDetector`), which moved it to the `.vision` roster.
     func testTheRosterIsNarrowedToTheProviderThatWasAskedFor() {
-        var sky = Mask(id: "sky", name: "Sky",
-                       components: [MaskComponent(op: .add, kind: .aiSky)])
+        var sky = Mask(id: "sky", name: "Landscape",
+                       components: [MaskComponent(op: .add, kind: .aiLandscape)])
         sky.enabled = false
         let subject = Mask(id: "s", name: "Subject",
                            components: [MaskComponent(op: .add, kind: .aiSubject)])
@@ -401,10 +404,10 @@ final class MaskDependencyTests: XCTestCase {
                        [.aiSubject],
                        "a kind no on-device framework can serve reached the segmenter's "
                            + "roster, which records an attempt for a request never made")
-        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe, from: .model), [.aiSky],
+        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe, from: .model), [.aiLandscape],
                        "the un-bundled half of the same reference went missing, so "
                            + "nothing can say which model the mask is waiting for")
-        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe), [.aiSky, .aiSubject],
+        XCTAssertEqual(MaskDependency.wantedMattes(in: recipe), [.aiLandscape, .aiSubject],
                        "unnarrowed, the roster is every matte the render needs")
 
         // And a kind that needs no matte at all is in neither answer, whatever it is

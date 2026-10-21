@@ -292,6 +292,11 @@ public final class PipelineRenderer {
         return means
     }
 
+    /// Long edge AI mattes are generated, refined and cached at. A refined plane is
+    /// 4 bytes a pixel, so 2048 × 1365 is 11 MB per kind; the ledger holds
+    /// `matteCacheLimit` files.
+    public static let matteLongEdge: Int = 2048
+
     /// The picture the segmenter sees: a NEUTRAL rendition of the file, at matte
     /// resolution, with no crop and no rotation.
     ///
@@ -300,8 +305,13 @@ public final class PipelineRenderer {
     /// to refill. Uncropped and unrotated because a mask raster is expressed in source
     /// coordinates — that invariant is what lets a crop re-rasterize a mask instead of
     /// orphaning it, and a matte in any other frame would not line up with it.
+    ///
+    /// At `matteLongEdge` (2048), not the 1024 draft raster size: this image is also
+    /// the guide every matte's edge is refined against (`MatteRefine`), and the refined
+    /// matte is stored at its size. 1024 left an 8x bilinear stretch to a 45 MP export;
+    /// 2048 leaves 4x, over an edge that already sits on the picture's own.
     public func matteSourceImage(source: any ImageSource,
-                                 maxLongEdge: Int = PipelineRenderer.maskRasterLongEdge)
+                                 maxLongEdge: Int = PipelineRenderer.matteLongEdge)
     -> CGImage? {
         try? renderPreview(source: source, recipe: Recipe(),
                            maxLongEdge: maxLongEdge, draft: false,

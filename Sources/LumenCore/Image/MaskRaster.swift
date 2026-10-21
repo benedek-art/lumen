@@ -1896,12 +1896,26 @@ public enum MaskRaster {
     }
 
     /// docs/08 §8.3/§8.5: AI components rasterize to a cached buffer at generation
-    /// resolution (1024–2048 px); everything above that is the refine step's job. Here
-    /// the caller supplies the matte and this only fits it to the target extent.
+    /// resolution. The caller supplies the matte — already refined against the picture
+    /// at `PipelineRenderer.matteLongEdge` (`VisionMattes`, WS-49) — and this only fits
+    /// it to the target extent.
+    ///
+    /// Shrinking by 2× or more area-averages first. The refined matte is 2048 px and a
+    /// draft raster is 1024: a bilinear resize at 2:1 samples between every other pair
+    /// of pixels, so a one-pixel strand of hair the refinement recovered survives on
+    /// alternate rows and vanishes on the rest. The box keeps its coverage.
     static func mattePlane(_ kind: MaskKind, _ w: Int, _ h: Int,
                            _ aiMattes: [String: Plane]) -> Plane {
         guard let matte = aiMattes[kind.rawValue] else { return Plane(width: w, height: h) }
-        return fitted(matte, w, h).map { Num.saturate($0.isFinite ? $0 : 0) }
+        let factor = Swift.min(matte.width / Swift.max(w, 1), matte.height / Swift.max(h, 1))
+        var source = matte
+        if factor >= 2 {
+            source = Plane(width: (matte.width + factor - 1) / factor,
+                           height: (matte.height + factor - 1) / factor,
+                           values: MatteRefine.boxDown(matte.values, matte.width,
+                                                       matte.height, factor))
+        }
+        return fitted(source, w, h).map { Num.saturate($0.isFinite ? $0 : 0) }
     }
 
     // MARK: - Brush fine grid

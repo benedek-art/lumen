@@ -661,12 +661,12 @@ final class MaskingTests: XCTestCase {
     // MARK: - Where a matte comes from
 
     /// The panel, the generator and the "requires a model" copy all read this one
-    /// property, so it is the single place the roster can be wrong. Three kinds are
-    /// served by Vision on the machine, four are waiting on a model, and the seven
-    /// non-AI kinds need no matte at all.
+    /// property, so it is the single place the roster can be wrong. Four kinds are
+    /// served on the machine (Vision's three, and Sky by `SkyDetector`), three are
+    /// waiting on a model, and the seven non-AI kinds need no matte at all.
     func testEveryKindAgreesAboutWhereItsMatteComesFrom() {
-        let vision: Set<MaskKind> = [.aiSubject, .aiBackground, .aiPerson]
-        let model: Set<MaskKind> = [.aiSky, .aiObject, .aiLandscape, .depthRange]
+        let vision: Set<MaskKind> = [.aiSubject, .aiBackground, .aiPerson, .aiSky]
+        let model: Set<MaskKind> = [.aiObject, .aiLandscape, .depthRange]
 
         for kind in [MaskKind.brush, .linear, .radial, .lumaRange, .colorRange,
                      .similarity, .similarityLine, .aiSubject, .aiSky, .aiBackground,
