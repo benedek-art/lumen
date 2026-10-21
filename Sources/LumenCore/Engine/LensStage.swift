@@ -138,7 +138,10 @@ public enum LateralCAEstimator {
             let sb = b[keyPath: k].shift(at: 1) * halfDiagonal
             let tolerance = Swift.max(0.15, 0.4 * abs(whole))
             guard sa * whole > 0, sb * whole > 0, abs(sa - sb) <= tolerance else { return .init() }
-            return full
+            // And no stronger than the weaker half says: an overcorrection is a new
+            // fringe of the opposite colour, worse than the one left in.
+            let f = Swift.min(1, Swift.min(abs(sa), abs(sb)) / abs(whole))
+            return .init(k0: full.k0 * f, k2: full.k2 * f)
         }
         let model = LateralCAModel(red: stable(\.red), blue: stable(\.blue))
         return model.isIdentity ? nil : model
