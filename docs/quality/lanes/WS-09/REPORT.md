@@ -8,7 +8,7 @@ lane summary for both.
 1. Auto now predicts its own output and solves each slider to a target. 0/23 normal frames hit a sensible key before, 20/20 now (median 0.41-0.43).
 2. Low-key frames stay low-key, and Auto no longer blows highlights: the jacket stays black, and clipping added by Auto is ≤ 0.47 % on every frame (old Auto added up to 1.34 %).
 3. Look at `evidence/pair_6929_6933_old_vs_new.png`, `evidence/lowkey_2348_1192_old_vs_new.png` and `../WS-10/evidence/match_6929_6933_exif_vs_measured.png`.
-4. Match Total Exposures now measures the shared view and falls back to EXIF only when frames don't overlap. EXIF alone left your A7 IV pair 0.30 EV apart; the measured match leaves 0.03 EV.
+4. Match Total Exposures now measures the shared view and falls back to EXIF only when frames don't overlap. EXIF alone left your A7 IV pair 0.30 EV apart; the measured match leaves 0.03 EV. Pans and odd zoom ratios are only sometimes found: that line is BLOCKED, but a miss falls back to EXIF and is never wrong.
 5. Judge by eye: Contrast +20 / Whites +60 / Blacks −60 are common (Whites is weak, see NEEDS.md), and 1840 (dusk?) becomes daylight.
 
 ## Verdict per spec line
@@ -108,7 +108,17 @@ It also had no idea of low key: it lifted the black jacket to grey and blew the 
   - zoom × window search with a minimum window size, threshold 0.65;
   - the median is taken only at the winning placement (1.7 s per pair, renders included);
   - `match` honours `--set`.
-- Round 3 verdict: see the end of this file.
+- **Round 3: FAIL on WS-10 M7 only.** Every WS-09 line passed on all three looks, and the round-2
+  defects were fixed. M7 (Match recall on pans and in-between zooms) is **BLOCKED**: details and next
+  step in `../WS-10/REPORT.md`.
+- Full `LumenCoreTests` (3,062 tests, Swift 6.1.2, `--parallel --skip ControlProofTests`) passed at
+  round 3 with 0 failures.
+- Residual round-3 notes for a human:
+  - The all-black guard judges the frame as the look renders it, so a raw 4 EV under is rescued on
+    the default look but left alone on Punchy (its p99 renders under code 5). Linear leaves an
+    unclipped float frame 3.5 EV over alone.
+  - Very deep rescues (4-5 EV under) land darker than Auto predicts: 1840 at −4 EV renders a median
+    of 0.078 against 0.138 predicted.
 
 ## What I could not fix / human judgement
 

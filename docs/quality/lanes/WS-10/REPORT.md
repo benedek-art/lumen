@@ -63,7 +63,7 @@ show on bursts of hundreds of frames.
 | M4 1.5× crop, re-aimed, both directions | PASS | within 0.05 EV |
 | M5 existing EXIF contract | PASS | `ExposureMatchTests` 11/11, unchanged |
 | M6 summary names the basis | PASS | "Matched 1 photo to 6929.ARW by measured brightness" |
-| M7 pans and in-between zooms | PASS | synthetic pan and 1.05x zoom within 0.05 EV; real crops in the table above |
+| M7 pans and in-between zooms | **FAIL, BLOCKED after 3 rounds** | Synthetic tests pass, and every real crop that is measured is within 0.027 EV, so no wrong value was produced. Recall is spotty, though. The round-3 verifier's own 6929 crops: pans 12/14 measured (missed: 18 % with a 4 % vertical shift). Zooms: 1.05 off-centre, 1.1 centred, 1.15 centred, 1.2 off-centre and 1.7 missed; the rest measured. Scores sit at 0.65-0.70, just over the threshold, so which crops get measured is fragile. A miss falls back to EXIF |
 
 M2's threshold changed from 0.9 (level NCC, round 1) to 0.7. The score itself changed to the stricter
 quadrant gradient correlation, which reads lower on every pair.
@@ -76,4 +76,18 @@ quadrant gradient correlation, which reads lower on every pair.
   EXIF.
 - A sequence that crosses from shade to sun, framed the same way, will be evened out. That is the
   command's job; a frame the photographer wants left alone should stay out of the selection.
-- Rotation is not searched.
+- Rotation is not searched; the round-2 verifier measured 0.5-2° rotations within 0.02 EV anyway.
+
+## Verification
+
+- **Round 1: FAIL.** Unrelated corpus pairs got measured offsets (up to 1.8 EV).
+- **Round 2: FAIL.** Pans over about 15 % and in-between zooms were missed; the search took 0.5 s per
+  frame; `match` ignored `--set`.
+- **Round 3: FAIL on M7 only.** Every other line passed, with no false positives over 600 pairs and
+  1.7 s per pair. M7 is left **BLOCKED**, with the numbers above.
+
+What would fix M7: sub-cell placement (bilinear resampling with fractional offsets instead of integer
+box bins) and a finer zoom step. Both raise the true-overlap score without raising the unrelated
+score, which the integer grid currently caps. That is the next step, not a threshold change: lowering
+0.65 toward the 0.55 an unrelated pair reaches trades a missed measurement (safe, EXIF) for a wrong
+one.
