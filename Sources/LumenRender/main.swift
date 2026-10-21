@@ -144,4 +144,4 @@
 import Foundation
 import LumenCore
 
-LumenRenderCLI.main(Array(CommandLine.arguments.dropFirst()))
+LumenRenderCLI.main(Array(ProcessInfo.processInfo.arguments.dropFirst()))
