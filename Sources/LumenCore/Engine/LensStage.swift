@@ -149,7 +149,12 @@ public enum LateralCAEstimator {
 
     static func fitModel(_ samples: [Sample], halfDiagonal: Double,
                          minimumTiles: Int) -> LateralCAModel? {
-        struct Band { var r: Double; var red: Double; var blue: Double; var n: Int }
+        struct Band {
+            var r: Double
+            var red: Double
+            var blue: Double
+            var n: Int
+        }
         var bands: [Band] = []
         for (lo, hi) in fitBands {
             let inBand = samples.filter { $0.r >= lo && $0.r < hi }
@@ -253,7 +258,12 @@ public enum LateralCAEstimator {
 
         // Pass 1, on the preview: radial-gradient energy of each tile, to keep only the
         // tiles with something to measure. A ranking, not a number.
-        struct Candidate { var x0: Int; var y0: Int; var r: Double; var energy: Double }
+        struct Candidate {
+            var x0: Int
+            var y0: Int
+            var r: Double
+            var energy: Double
+        }
         var candidates: [Candidate] = []
         let step = Swift.max(1, Int((Double(tile) * s / 12).rounded()))
         var y0 = border
@@ -388,10 +398,12 @@ public enum LateralCAEstimator {
     /// shift. (A log-domain fit with unit gain read a colour step across an edge, blue
     /// sky beside a brown branch, as a shift; on 1840 that overshot the correction.)
     struct LogPlanes {
-        let w: Int, h: Int
+        let w: Int
+        let h: Int
         /// Where this buffer's (0, 0) sits in the frame: tiles are addressed in frame
         /// coordinates.
-        let ox: Int, oy: Int
+        let ox: Int
+        let oy: Int
         var r: [Float], g: [Float], b: [Float]
         var clipped: [Bool]
         let peak: (Float, Float, Float)
@@ -742,7 +754,9 @@ public struct EmbeddedLensProfile: Equatable, Sendable {
 
 /// Radial gain 1 + a·r² + b·r⁴ + c·r⁶, r over the half-diagonal.
 public struct VignetteGain: Equatable, Sendable, Codable {
-    public var a: Double, b: Double, c: Double
+    public var a: Double
+    public var b: Double
+    public var c: Double
     public init(a: Double, b: Double, c: Double) {
         self.a = a
         self.b = b
@@ -811,9 +825,11 @@ public struct DefringeParams: Equatable, Sendable {
     public static let hueFeather = 10.0
 
     public var purpleStrength: Double
-    public var purpleLo: Double, purpleHi: Double   // degrees
+    public var purpleLo: Double   // degrees
+    public var purpleHi: Double
     public var greenStrength: Double
-    public var greenLo: Double, greenHi: Double
+    public var greenLo: Double
+    public var greenHi: Double
     /// Edge search radius in px at this render's scale.
     public var radius: Int
 
