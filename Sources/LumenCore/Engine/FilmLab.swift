@@ -518,7 +518,8 @@ public struct HalationProfile: Sendable {
                 size: Double = 1.0,
                 redness: Double? = nil,
                 longEdgePixels: Int,
-                clipLevel: Double = 1.0) {
+                clipLevel: Double = 1.0,
+                exposureGain: Double = 1.0) {
         let a: Double = Num.clamp(amount / 100.0, 0, 1)
         let sz: Double = Num.clamp(size, 0.5, 2.0)
         let red: Double = Num.clamp((redness ?? stock.halationRedness) / 100.0, 0, 1)
@@ -527,7 +528,13 @@ public struct HalationProfile: Sendable {
 
         let base: RGB = stock.halationStrength
         let pureRed: RGB = RGB(base.r, 0, 0)
+        // `exposureGain` is the light onto the film against the scene's, 2^(Film Lab
+        // Exposure): the base reflects a fixed fraction of whatever arrives, so a lamp
+        // the stock is given two stops less of throws a quarter of the glow. The clip
+        // that reconstruction reads stays the SENSOR's, because that is where the
+        // recording stopped.
         self.strength = base.mix(pureRed, red) * a * HalationProfile.strengthCalibration
+            * Swift.max(exposureGain, 0)
 
         // The stock's own chroma (before Redness): 0 for equal records, 1 when one
         // record carries none of it.
@@ -1719,7 +1726,8 @@ public struct FilmChain: Sendable {
                                size: size ?? recipe.effectiveHalationSize,
                                redness: redness ?? recipe.halationRedness,
                                longEdgePixels: longEdgePixels,
-                               clipLevel: clipLevel)
+                               clipLevel: clipLevel,
+                               exposureGain: pow(2.0, filmExposure))
     }
 
     /// The print long edge this recipe's grain is anchored to, in inches.
@@ -1757,7 +1765,8 @@ public struct FilmChain: Sendable {
     }
 
     /// Halation parameters at a render size, from this recipe's Amount, Size and
-    /// Redness. Never nil: without a stock the strengths are zero, which the caller's
+    /// Redness, scaled by the light Film Lab Exposure puts onto the film (WS-39: a lamp
+    /// pulled to mid-grey at −2 EV still threw its full glow). Never nil: without a stock the strengths are zero, which the caller's
     /// `strengths.maxComponent > 0` guard already handles.
     ///
     /// THE ONE ACCESSOR BOTH RENDERERS USE, which is why the two new controls had to
@@ -1771,7 +1780,8 @@ public struct FilmChain: Sendable {
                         size: recipe.effectiveHalationSize,
                         redness: recipe.halationRedness,
                         longEdgePixels: longEdgePixels,
-                        clipLevel: 1.0)
+                        clipLevel: 1.0,
+                        exposureGain: pow(2.0, filmExposure))
     }
 
     // MARK: Baking

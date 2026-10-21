@@ -368,6 +368,24 @@ final class HalationControlTests: XCTestCase {
                        source.pixels)
     }
 
+    /// FILM LAB EXPOSURE IS LIGHT ONTO THE FILM, and the base reflects a fixed fraction
+    /// of it: two stops less exposure, a quarter of the glow. The stage used to ignore
+    /// it, so a lamp pulled to mid-grey at −2 EV still threw its full ring.
+    func testFilmExposureScalesTheGlowWithTheLightOnTheFilm() {
+        var lab = FilmChain.defaultRecipe(for: .portra400)
+        lab.halation = 100
+        let source = disk(side: 128, radius: 8, level: 1.0)
+        func ring(_ ev: Double) -> Double {
+            let out = ReferenceRenderer.applyHalation(
+                source, film: FilmChain(lab, filmExposure: ev, displayWhite: 1.0),
+                longEdge: 2400)
+            return out[64 + 14, 64].r - source[64 + 14, 64].r
+        }
+        XCTAssertGreaterThan(ring(0), 0)
+        XCTAssertEqual(ring(-2) / ring(0), 0.25, accuracy: 1e-4)
+        XCTAssertEqual(ring(1) / ring(0), 2.0, accuracy: 1e-4)
+    }
+
     /// The renderer accumulates the NORMALIZED bounces (N-006): far from the frame's
     /// border the blurred field keeps the energy's mass, so the halo's total is
     /// `strength · Σ(F − H)⁺` with no hidden 1.75.
