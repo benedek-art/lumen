@@ -62,6 +62,17 @@ final class CurveStageTests: XCTestCase {
         }
     }
 
+    /// A NaN pixel trapped in the table read (`Int(_:)` on NaN). The exact curve returns
+    /// a value; so must the stage, for every kind of curve.
+    func testANaNPixelDoesNotTakeTheStageDown() {
+        for (_, set) in Self.curves {
+            let stage = CurveStage(CurveStack(set))
+            _ = stage.apply(RGB(.nan, 0.5, 0.5))
+            _ = stage.apply(RGB(0.2, .nan, .infinity))
+        }
+        XCTAssertEqual(CurveStage.lookup([0.1, 0.5, 0.9], .nan), 0.1, accuracy: 1e-6)
+    }
+
     func testAnIdentityCurveIsAnIdentityStage() {
         let stage = CurveStage(CurveStack(CurveSet()))
         XCTAssertTrue(stage.isIdentity)

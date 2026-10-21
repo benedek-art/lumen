@@ -707,6 +707,7 @@ struct CurveEditorView: View {
             if let caption = AppliedReadout.parametricEasingCaption(appliedScale: stack.parametricAppliedScale) {
                 DevelopNote(caption)
             }
+            preserveLuminanceRow
         }
     }
 
@@ -745,24 +746,29 @@ struct CurveEditorView: View {
 
     /// The row under the graph on the five point-curve tabs.
     ///
-    /// Preserve Luminance is offered on the Point tab ONLY, because the master curve is
-    /// the only one it governs (`CurveStack.apply`). It used to sit under R, G, B and
-    /// Luma as well, where flipping it changed nothing about the curve on screen and
+    /// Preserve Luminance is offered on the Param and Point tabs ONLY, because the master
+    /// curve is the only one it governs (`CurveStack.apply`). It used to sit under R, G,
+    /// B and Luma as well, where flipping it changed nothing about the curve on screen and
     /// everything about a different one — the luma curve is luminance-only by
     /// definition, and an RGB channel curve is per-channel by definition.
     @ViewBuilder
     private var pointControls: some View {
         if channel == .point {
             VStack(alignment: .leading, spacing: 2) {
-                LumenToggleRow(title: "Preserve Luminance",
-                               isOn: curveFlag(\.preserveLuminance,
-                                               keyPrefix + "preserveLuminance"),
-                               help: "On: the Param and Point curves move brightness only, "
-                                   + "and colours keep their saturation and hue. Off: the "
-                                   + "curve runs on R, G and B separately, so a contrast "
-                                   + "curve also adds saturation, as in Lightroom.")
+                preserveLuminanceRow
             }
         }
+    }
+
+    /// The one switch over the master curve, so it sits under both tabs that draw it.
+    private var preserveLuminanceRow: some View {
+        LumenToggleRow(title: "Preserve Luminance",
+                       isOn: curveFlag(\.preserveLuminance,
+                                       keyPrefix + "preserveLuminance"),
+                       help: "On: the Param and Point curves move brightness only, and "
+                           + "colours keep their saturation and hue. Off: the curve runs "
+                           + "on R, G and B separately, so a contrast curve also adds "
+                           + "saturation, as in Lightroom.")
     }
 
     // MARK: Curve evaluation
@@ -1027,18 +1033,34 @@ struct CurveEditorView: View {
         // does (`CurveEditing.placing`). Placement and adjustment share a gesture epoch
         // and stay ONE undo step. The placement itself carries no key: its index can be
         // the previous placement's (see `CurveEditing.placementCoalescingKey`).
+        // The second click of a double-click that found no point (an ⌥-click has just
+        // deleted it, or the first click missed) must not put a new one there.
+        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+            dragConsumed = true
+            return
+        }
         let plotX: Double = CurveEditing.clamp01(pointerX)
         let curveY: Double = CurveEditing.clamp01(evaluate(plotX))
         let points: [[Double]] = currentPoints
         let placed = CurveEditing.placing(points, x: storedX(plotX), curveY: curveY)
+        dragPointIndex = placed.index
         if placed.points != points {
             commitPoints(placed.points, key: CurveEditing.placementCoalescingKey,
                          label: CurveEditing.placementLabel)
+            dragAnchor = CurveEditing.DragAnchor(pointX: plotX, pointY: curveY,
+                                                 pointerX: pointerX, pointerY: pointerY,
+                                                 fine: fine)
+        } else {
+            // The press landed beside an existing point and took hold of it: anchor at
+            // THAT point, or the first drag event would move it to the press's height.
+            let plotted: [[Double]] = plottedPoints
+            guard plotted.indices.contains(placed.index), plotted[placed.index].count >= 2
+            else { dragConsumed = true; return }
+            dragAnchor = CurveEditing.DragAnchor(pointX: plotted[placed.index][0],
+                                                 pointY: plotted[placed.index][1],
+                                                 pointerX: pointerX, pointerY: pointerY,
+                                                 fine: fine)
         }
-        dragPointIndex = placed.index
-        dragAnchor = CurveEditing.DragAnchor(pointX: plotX, pointY: curveY,
-                                             pointerX: pointerX, pointerY: pointerY,
-                                             fine: fine)
     }
 
     /// Take hold of the split under the press, or — on the second click of a
@@ -1249,8 +1271,13 @@ struct CurveEditorView: View {
             // A colour channel's backdrop takes the channel's colour: it IS that
             // channel's histogram, and it is the largest area of the active-channel
             // colour on the graph.
-            let fill: Color = isChannel ? tint.opacity(0.20) : Lumen.fillColor.opacity(0.18)
-            context.fill(path, with: .color(fill))
+            //
+            // 0.18 on the plot's near-black read as nothing in the snapshots: the hump
+            // a point is placed against has to be visible at a glance, so the fill is
+            // stronger and the top edge is drawn, which is what the eye follows.
+            let ink: Color = isChannel ? tint : Lumen.fillColor
+            context.fill(path, with: .color(ink.opacity(0.28)))
+            context.stroke(path, with: .color(ink.opacity(0.45)), lineWidth: 0.75)
         }
 
         // THE FOUR REGIONS, NAMED, BEHIND THE CURVE. Four sliders called Highlights,

@@ -133,6 +133,32 @@ final class CurveGestureBackdropTests: XCTestCase {
         XCTAssertTrue(input.allSatisfy { $0 >= 0 })
     }
 
+    /// A dip (which the point editor allows) and an inversion: the backdrop is shared
+    /// between the branches instead of piling into one bin. The old pull-back, which
+    /// assumed a monotone curve, put 0 % of a dip's mass in x 0.35–0.75 (truth 31 %)
+    /// and 100 % of an inverted curve's in bin 0.
+    func testANonMonotoneCurveSharesTheBackdropBetweenItsBranches() {
+        let bins = 128
+        let flat = [Double](repeating: 1, count: bins)
+        // f(x) = 1 − x: an exact mirror, and every input has one output.
+        let inverted = CurveBackdrop.inputCounts(flat) { 1 - $0 }
+        for i in 0..<bins { XCTAssertEqual(inverted[i], 1, accuracy: 1e-9) }
+
+        let dip = MonotoneCubic(points: [[0, 0], [0.3, 0.8], [0.35, 0.2], [1, 1]])
+        var truth = [Double](repeating: 0, count: bins)
+        var output = [Double](repeating: 0, count: bins)
+        for s in 0..<100_000 {
+            let x = (Double(s) + 0.5) / 100_000
+            truth[min(Int(x * Double(bins)), bins - 1)] += 1
+            output[min(Int(dip.evaluate(x) * Double(bins)), bins - 1)] += 1
+        }
+        let back = CurveBackdrop.inputCounts(output) { dip.evaluate($0) }
+        XCTAssertEqual(back.reduce(0, +), 100_000, accuracy: 1e-6)
+        let lo = Int(0.35 * Double(bins)), hi = Int(0.75 * Double(bins))
+        let share = back[lo..<hi].reduce(0, +) / 100_000
+        XCTAssertGreaterThan(share, 0.2, "the middle of a dip lost its backdrop (\(share))")
+    }
+
     func testTheNeutralTailOfEachStageIsTheCurvesThatFollowIt() {
         var set = CurveSet()
         set.point = [[0, 0], [0.5, 0.6], [1, 1]]

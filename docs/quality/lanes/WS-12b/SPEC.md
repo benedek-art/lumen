@@ -1,7 +1,9 @@
 # T2 tone curves: acceptance spec (WS-11 parametric, WS-12b point / RGB / luma / Preserve Luminance)
 
 Written from the audit of baseline 9068ded. Codes are 8-bit sRGB codes. `$A` is `docs/quality/lanes/WS-12b/scripts/` (the auditor's exact Python ports and
-measurements; run them from a scratch folder, `lr.sh` renders their inputs). "cube 33" is
+measurements; run them from a scratch folder, `lr.sh` renders their inputs at the
+frame's native size, `--long-edge 2800` for grey_ramp; at the default 1600 `m1` reads the
+wrong rows without saying so). "cube 33" is
 the interactive finish table, "cube 65" the export one.
 
 ## Measurable
@@ -15,8 +17,8 @@ the interactive finish table, "cube 65" the export one.
 | S5 | Preview and export are the same picture | steep curve on 1840 (D850 sky): max ≤ 2 codes cube 33 vs 65; sky OKLab hue within 2° of the exact curve | `$A/m3_sky.py` |
 | S6 | No banding from steep curves | 0 empty histogram bins between p1 and p99 in sky crops (dither on and off); no slope corner in the ramp output that the drawn curve does not have | `$A/m3_ramp_banding.py`, `$A/m3_sky.py` |
 | S7 | Preserve Luminance ON keeps hue on a contrast curve | S-curve: colorchecker \|ΔH\| ≤ 1.5° max, hue wheel ≤ 1.5° p95 (cube 65) | `$A/m4_preserve.py` |
-| S8 | RGB curves are per-channel and exact at identity | identity: S1; R lift moves R only on the encoded axis | `$A/m5_rgb.py` |
-| S9 | Parametric: monotone, live, isolated | min slope > 0 at every setting; no two adjacent integer settings render the same curve; Highlights ±100 moves zones 0–4 by < 1 code and Shadows ±100 zones 5–9 by < 1 code | `$A/m6_param.py`, sweeps in `$A/sw/` |
+| S8 | RGB curves are per-channel and exact at identity | identity: S1; R lift `[[0,0],[.5,.6],[1,1]]` on colorchecker moves G and B by ≤ 0.1 code | render with and without the R lift, per-patch channel means (no committed script) |
+| S9 | Parametric: monotone, live, isolated | min slope > 0 at every setting; no two adjacent integer settings render the same curve; Highlights ±100 moves zones 0–4 by < 1 code and Shadows ±100 zones 5–9 by < 1 code | `$A/m6_param.py`; `lumen-render sweep --key develop.curve.parametric.<region> --values -100,-50,0,50,100` on grey_ramp and the corpus |
 | S10 | Parametric splits: the engine uses the bounds the editor draws | `regionCentres(raw) == regionCentres(sanitizedSplits(raw))` for out-of-range splits | `swift test --filter CurveStageTests/testTheEngineReadsSplits` |
 | S11 | The histogram behind the curve is the curve's INPUT, on the tab's own channel | on 6929 (A7 IV) with the S-curve, EMD between the backdrop and the true pre-curve luma ≤ 0.01 (was 0.067); and the backdrop does not move when the curve changes | `swift test --filter CurveGestureBackdropTests`, `$A/m8_histogram.py` with the pulled-back backdrop |
 | S12 | A click on empty graph adds a point on the curve and does not move the curve at the click; a click beside a point never yanks it | 0 change at the click x; ≤ 3 codes elsewhere (spline re-solve); existing point unchanged | `swift test --filter CurveGestureBackdropTests` |

@@ -74,6 +74,9 @@ public struct CurveStage: Sendable {
     public static func lookup(_ table: [Float], _ x: Double) -> Double {
         let n = table.count
         guard n > 1 else { return n == 1 ? Double(table[0]) : x }
+        // NaN reads the black end rather than trapping in `Int(_:)`; the stage's job is
+        // not to be the place a bad pixel takes the renderer down.
+        guard !x.isNaN else { return Double(table[0]) }
         let t = Num.saturate(x) * Double(n - 1)
         let i = Swift.min(Int(t), n - 2)
         let f = t - Double(i)
