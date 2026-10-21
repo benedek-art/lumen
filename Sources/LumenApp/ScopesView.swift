@@ -82,7 +82,9 @@ struct ScopesView: View {
                     .help(measurementStatement)
             }
         }
-        .padding(.horizontal, 8)
+        // 4 since U1, matching `HistogramView`: the column gutter outside went 4 → 8, so
+        // the instrument's content keeps the width ScopeTests budgets every caption in.
+        .padding(.horizontal, Lumen.space1)
         .padding(.vertical, 6)
         .background(Lumen.panelBackground)
         .foregroundStyle(Lumen.primaryText)

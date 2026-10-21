@@ -114,12 +114,16 @@ struct HistogramView: View {
                     .help(measurementStatement)
             }
         }
-        // 8, NOT THE SECTION CARDS' 12 (U1), and it is a measured trade. At 12 the
-        // clipping headline's widest case ("100.00% RB white · 100.00% RB black") is
-        // within about a point of its slot at the 320 pt minimum column (ScopeTests),
-        // and a truncated clipping readout is worse than a readout 4 pt left of the
-        // labels. The vertical went 8/6 → 12/12 so the card's rhythm matches the rest.
-        .padding(.horizontal, Lumen.space2)
+        // 4, NOT THE SECTION CARDS' 12 (U1), and it is a measured trade. The card moved
+        // out to `columnGutter` (8) so its edge lines up with the section cards below,
+        // and this came in by the same 4 so the well and the readout sit exactly where
+        // they did. They have to: the clipping headline's widest case ("100.00% RB
+        // white · 100.00% RB black") measures 209.8 pt at the 320 pt minimum column,
+        // and at an 8 pt inset its slot was 206.9 (ScopeTests, macOS CI). A truncated
+        // clipping readout is worse than a readout 8 pt left of the slider labels. The
+        // well's corner (9) is also now nearly concentric with the card's (14 − 4).
+        // The vertical went 8/6 → 12/12 so the card's rhythm matches the rest.
+        .padding(.horizontal, Lumen.space1)
         .padding(.top, Lumen.space3)
         .padding(.bottom, Lumen.space3)
         .foregroundStyle(Lumen.primaryText)
