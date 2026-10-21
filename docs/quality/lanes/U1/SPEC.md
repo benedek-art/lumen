@@ -70,11 +70,12 @@ All in `enum Lumen` (`LumenControls.swift`), so every lane reads the same number
 | `disclosureGlyphWidth` | 8 | chevron column: the glyph's leading edge lands on the label column |
 | `contentInset` | 20 | `columnGutter + cardPaddingH`: where every text column in the develop column starts |
 | type: `lumenSectionTitle` | 13 pt semibold | card title (new) |
-| type: `lumenHeading` | 12 pt semibold | subsection / fold title (unchanged) |
+| type: `lumenHeading` | 12 pt semibold, primary | subsection / fold title (unchanged) |
 | type: labels / values | 11 pt regular / 11 pt mono | unchanged |
 | `secondaryText` | 0.70 | was 0.62 |
 | `tertiaryText` | 0.61 | was 0.48 |
 | focus fill | `controlHover` 0.27 | was `controlActive` 0.31 |
+| `lumenColumnGrid` (environment) | true inside the develop column | turns on the header's 8 pt chevron box and 6 pt outset; the sidebar and sheets keep the old header |
 
 The 6 is the one half-step on the grid, and it exists to split `cardPaddingH` evenly.
 
@@ -103,3 +104,17 @@ V2 `column-develop-tone-open.png`: filename, histogram, cards and footer share o
 left margin.
 V3 `panel-grade-colour-point-colour.png`: "Colour" reads as the card, "Colour Mixer"
 and "Point Colour" read as parts of it.
+
+## Amendments after the first verifier round (FAIL)
+
+- S2 as written measured to the card's inner rim pixel, the same convention as the
+  baseline. Pill and label are both exactly `cardPaddingH` from the card's frame; the
+  1 pt rim and the label glyph's side bearing make the pill read 11 pt and the label
+  12 pt to the inner rim. The threshold is restated as "≥ 11 pt to the inner rim and
+  within 1 pt of S1". This is a correction of the measuring convention, not a moved goal.
+- Subsection titles were `secondaryText` in the first build. The verifier found them
+  darker than the modified rows under them. They are back to `primaryText`; S7 is carried
+  by size (13 vs 12) only.
+- The header geometry reached the sidebar and both sheets through shared defaults. It is
+  now opt-in via `lumenColumnGrid`, and `topRhythm`'s default is back to 20 for callers
+  outside the column.

@@ -196,7 +196,7 @@ final class LayoutMetricTests: XCTestCase {
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
-    /// a ±100 control needs a 378 pt column, and the minimum is 320. Raising the minimum
+    /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
     /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
@@ -206,7 +206,7 @@ final class LayoutMetricTests: XCTestCase {
     /// this becomes an unexpected pass and asks for the expectation to be deleted — the
     /// same contract the grain parity expectation carries in KernelGoldenTests.
     func testTheCoarseTrackClearsThePrecisionFloorAtTheDefaultPanelWidth() {
-        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 378 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
+        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let failures = precisionCensus(columnWidth: Lumen.defaultPanelWidth)
         report(failures, of: SliderInventory.all.count,
                "LumenControls.swift: the default width exists to buy \"~1.0\" points of "
@@ -232,7 +232,7 @@ final class LayoutMetricTests: XCTestCase {
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
-    /// a ±100 control needs a 378 pt column, and the minimum is 320. Raising the minimum
+    /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
     /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
@@ -242,7 +242,7 @@ final class LayoutMetricTests: XCTestCase {
     /// this becomes an unexpected pass and asks for the expectation to be deleted — the
     /// same contract the grain parity expectation carries in KernelGoldenTests.
     func testTheCoarseTrackClearsThePrecisionFloorAtTheMinimumPanelWidth() {
-        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 378 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
+        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let failures = precisionCensus(columnWidth: Lumen.minimumPanelWidth)
         report(failures, of: SliderInventory.all.count,
                "LumenControls.swift: \"under the ~1.0 at which a one-pixel tremor stops "
@@ -275,7 +275,7 @@ final class LayoutMetricTests: XCTestCase {
     /// The 1.0 pt-per-step floor is real, it is the app's own stated number, and a large
     /// share of the inventory is under it. But clearing it is not a bug fix — it is a
     /// trade the owner has to make, and the arithmetic says so: 200 points of groove for
-    /// a ±100 control needs a 378 pt column, and the minimum is 320. Raising the minimum
+    /// a ±100 control needs a 390 pt column, and the minimum is 320. Raising the minimum
     /// to 378 makes it equal to the default, which deletes the drag-narrower half of a
     /// resize that exists on purpose. Every inset in the chain above is already spent.
     ///
@@ -285,7 +285,7 @@ final class LayoutMetricTests: XCTestCase {
     /// this becomes an unexpected pass and asks for the expectation to be deleted — the
     /// same contract the grain parity expectation carries in KernelGoldenTests.
     func testTheNarrowestTrackCanAddressEveryIntegerOfABipolarHundredControl() {
-        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 378 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
+        XCTExpectFailure("The precision floor is not met at this width, and closing it is a trade rather than a fix: a bipolar-100 row needs a 390 pt column and the minimum is 320. Delete this expectation when the chain or the minimum changes.")
         let track = PanelChain.Host.developDisclosure
             .trackWidth(columnWidth: Lumen.minimumPanelWidth)
         let perUnit = Double(track) / 200

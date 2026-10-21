@@ -1018,6 +1018,7 @@ private struct SnapshotSectionCard<Content: View>: View {
         .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
         .padding(.horizontal, Lumen.columnGutter)
         .padding(.vertical, 6)
+        .environment(\.lumenColumnGrid, true)
         .background(Lumen.windowBase)
         .foregroundStyle(Lumen.primaryText)
     }
@@ -1053,6 +1054,7 @@ private struct SnapshotMaskEditor: View {
     var body: some View {
         MaskEditor(panel: PanelLayout.shared)
             .padding(.horizontal, Lumen.columnGutter)
+            .environment(\.lumenColumnGrid, true)
             .padding(.vertical, 6)
             .background(Lumen.windowBase)
             .foregroundStyle(Lumen.primaryText)

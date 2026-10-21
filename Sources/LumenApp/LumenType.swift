@@ -54,9 +54,8 @@ extension Font {
     /// Once every section became a card, the card's own name and the subsection names
     /// inside it ("Colour Mixer", "Point Colour", "Zones") were the same 12 pt semibold
     /// in the same colour, so a card read as a list of peers rather than one thing with
-    /// parts. This is one step up, and `LumenSectionHeader` takes the subsection rung
-    /// down to `secondaryText` at the same time: size and value move together, which is
-    /// a step the eye resolves where 13 against 12 alone was not.
+    /// parts. This is one step up. Colour stays `primaryText` at both rungs: dimming
+    /// the subsection rung made it darker than the modified rows beneath it.
     static let lumenSectionTitle: Font = .system(size: 13, weight: .semibold)
 
     /// Control labels, button text, list rows. The body of the app.

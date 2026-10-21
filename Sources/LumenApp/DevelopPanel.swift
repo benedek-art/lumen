@@ -167,6 +167,7 @@ struct DevelopSection<Content: View>: View {
                                isExpanded: onToggle == nil ? nil : .constant(isExpanded),
                                isModified: isModified, onReset: onReset,
                                resetHelp: resetHelp,
+                               topRhythm: Lumen.subsectionGap,
                                onToggle: onToggle)
             if isExpanded {
                 content()
@@ -555,6 +556,9 @@ struct DevelopPanel: View {
             .padding(.horizontal, Lumen.columnGutter)
             .padding(.top, Lumen.space1)
             .padding(.bottom, Lumen.space4)
+            // Every header inside the column takes the column's grid (U1); the sidebar
+            // and the sheets, which share `LumenSectionHeader`, do not.
+            .environment(\.lumenColumnGrid, true)
         }
         .scrollIndicators(.never)
     }

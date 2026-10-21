@@ -1539,6 +1539,25 @@ struct LumenSlider: View {
 
 // MARK: - Section header
 
+/// THE DEVELOP COLUMN'S GRID, OPT-IN (U1).
+///
+/// The header's U1 geometry (an 8 pt chevron box so the glyph lands on the label column,
+/// a 6 pt hover outset to match a focused row) is right for the develop column, where
+/// every row's text starts on one edge. `LumenSectionHeader` is also the sidebar's and
+/// both sheets' header, and their rows are laid out differently: the sidebar's chevron
+/// sat ON its row text with the 20 pt box, and moved off it with the 8. So the column
+/// turns the geometry on for its own subtree and everyone else keeps what they had.
+private struct LumenColumnGridKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var lumenColumnGrid: Bool {
+        get { self[LumenColumnGridKey.self] }
+        set { self[LumenColumnGridKey.self] = newValue }
+    }
+}
+
 struct LumenSectionHeader: View {
     let title: String
 
@@ -1637,7 +1656,7 @@ struct LumenSectionHeader: View {
     /// amount of blank panel could. This value is what the hand-composed headers inside
     /// those cards — Colour's, Look's, the mask editor's — still use to separate
     /// themselves from each other.
-    var topRhythm: CGFloat = Lumen.subsectionGap
+    var topRhythm: CGFloat = 20
 
     /// Which rung of the type hierarchy this header is (U1).
     ///
@@ -1677,6 +1696,10 @@ struct LumenSectionHeader: View {
     /// never goes anywhere observable — see `CommandState` for what a per-event publish
     /// costs a drag.
     @State private var hovering = false
+    /// Whether this header sits in the develop column's grid (U1). See
+    /// `EnvironmentValues.lumenColumnGrid`.
+    @Environment(\.lumenColumnGrid) private var columnGrid
+    private var outset: CGFloat { columnGrid ? Lumen.rowHighlightOutset : 4 }
     /// Whether the pointer is over the verb WHILE it is greyed — the one spot in an
     /// interactive row that answers no click (V7 D1). Row-local like `hovering`.
     @State private var overDisabledVerb = false
@@ -1725,13 +1748,15 @@ struct LumenSectionHeader: View {
                         // its leading edge lands on the labels; the hit area keeps its
                         // reach through the outset `contentShape`, and the whole header
                         // row toggles regardless.
-                        .frame(width: Lumen.disclosureGlyphWidth, height: 20)
-                        .contentShape(Rectangle().inset(by: -Lumen.rowHighlightOutset))
+                        .frame(width: columnGrid ? Lumen.disclosureGlyphWidth : 20,
+                               height: 20)
+                        .contentShape(Rectangle().inset(by: columnGrid
+                                                        ? -Lumen.rowHighlightOutset : 0))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
                 // Chevron to glyph or title: 8 pt, two grid steps of the HStack's 4.
-                .padding(.trailing, Lumen.space1)
+                .padding(.trailing, columnGrid ? Lumen.space1 : 0)
             }
             // THE GLYPH, IN A FIXED BOX SO THE TITLES CANNOT WANDER.
             //
@@ -1785,9 +1810,11 @@ struct LumenSectionHeader: View {
             // where a three-letter label has no word-shape to lose anyway.
             Text(title)
                 .font(level == .card ? .lumenSectionTitle : .lumenHeading)
-                // Card titles in primary, subsection and fold titles one rung down: the
-                // second half of the hierarchy step `lumenSectionTitle` describes.
-                .foregroundStyle(level == .card ? Lumen.primaryText : Lumen.secondaryText)
+                // Primary at both rungs. Subsection titles were taken down to
+                // `secondaryText` for a while (U1) and the verifier caught the
+                // inversion: "Black & White" rendered dimmer than the primary rows
+                // under it. Size carries the card/subsection step; colour stays put.
+                .foregroundStyle(Lumen.primaryText)
                 .fixedSize(horizontal: true, vertical: false)
             if let badge {
                 // After the name and before the dot: it qualifies the heading, so it
@@ -1858,7 +1885,7 @@ struct LumenSectionHeader: View {
                     .help(resetHelp ?? "")
             }
         }
-        .padding(.horizontal, Lumen.rowHighlightOutset)
+        .padding(.horizontal, outset)
         .padding(.vertical, 4)
         // THE HEADER ANSWERS THE POINTER TOO, on the state it already tracked.
         //
@@ -1909,7 +1936,7 @@ struct LumenSectionHeader: View {
         // `rowHighlightOutset` rather than 4 (U1), so a hovered header and a focused
         // slider row light up the same shape: both fills reach 6 pt past the content
         // column and both stop 6 pt short of the card rim.
-        .padding(.horizontal, -Lumen.rowHighlightOutset)
+        .padding(.horizontal, -outset)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { toggle() }

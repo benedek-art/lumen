@@ -18,7 +18,7 @@ places outside U1's files where they should be used, measured on the baseline se
    row (`column-develop-tone-open.png` y 1652–1764). A 4-column grid with the second
    and third rows spanning two cells each would align them. Not a spacing change, so
    left for whoever owns the footer.
-5. **Sidebar (`ContentView`).** Not touched. Its section rows and counts already sit on
-   a consistent 12/18 pt rhythm in `window-1512x982-develop.png`; the only mismatch
-   is the 10 pt `padding(.horizontal, 10)` at ContentView.swift:1361, which could read
-   `Lumen.cardPaddingH` if the owner of that view agrees.
+5. **Sidebar (`ContentView`).** Shares `LumenSectionHeader`. U1 keeps it on the old
+   geometry (20 pt chevron box, 4 pt hover outset, 20 pt top rhythm) because its rows
+   are laid out on a different edge. Whoever owns the sidebar can opt in with
+   `.environment(\.lumenColumnGrid, true)` if they move its rows onto the same grid.
