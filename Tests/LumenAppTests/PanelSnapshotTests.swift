@@ -1052,7 +1052,7 @@ private struct SnapshotSectionBody: View {
 private struct SnapshotMaskEditor: View {
     var body: some View {
         MaskEditor(panel: PanelLayout.shared)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, Lumen.columnGutter)
             .padding(.vertical, 6)
             .background(Lumen.windowBase)
             .foregroundStyle(Lumen.primaryText)

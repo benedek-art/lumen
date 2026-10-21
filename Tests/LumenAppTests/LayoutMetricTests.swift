@@ -689,10 +689,11 @@ final class LayoutMetricTests: XCTestCase {
 
         // The develop column's chain, outside in.
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                ".padding(.horizontal, 4) .padding(.top, 6) .padding(.bottom, 16)",
+                ".padding(.horizontal, Lumen.columnGutter) .padding(.top, Lumen.space1) "
+                + ".padding(.bottom, Lumen.space4)",
                 "scroll inset \(f(PanelChain.scrollInset))")
         try pin("Sources/LumenApp/DevelopColumn.swift",
-                ".padding(.horizontal, 10) .padding(.top, 8) .padding(.bottom, 8)",
+                ".padding(.horizontal, Lumen.cardPaddingH) .padding(.vertical, Lumen.cardPaddingV)",
                 "section card gutter \(f(PanelChain.cardInset))")
         // THE FOLD COSTS ITS ROWS NOTHING, pinned as two facts rather than one.
         //
@@ -701,15 +702,17 @@ final class LayoutMetricTests: XCTestCase {
         // way to write it is to delete the pin. So it is pinned as an adjacency: these
         // two tokens are neighbours in the flattened source exactly when nothing sits
         // between them, and any inset reintroduced there separates them and fails here.
-        // The second is where the fold's depth went instead, which is what makes the
-        // first one a design decision rather than an oversight somebody will "fix".
+        // The second used to pin where the fold's depth went instead — an 8 pt leading
+        // inset on its header. U1 removed that too (the header now sits on the label
+        // column and the level is said in type), so it pins the header's ABSENCE of
+        // an inset the same way: the header's closing paren and the `if` are neighbours.
         try pin("Sources/LumenApp/DevelopPanel.swift",
                 "content() .transition(.opacity.combined(",
                 "disclosure content inset \(f(PanelChain.disclosureInset)) — a fold's "
                 + "track equals a top-level track")
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                "topRhythm: 10) .padding(.leading, 8)",
-                "fold depth carried on the header, not on the rows")
+                "topRhythm: Lumen.foldGap) if isExpanded {",
+                "fold header on the label column, its level carried by type")
 
         // The row.
         try pin("Sources/LumenApp/LumenControls.swift",
@@ -759,8 +762,8 @@ final class LayoutMetricTests: XCTestCase {
 
         // The footer G1-06 is about.
         try pin("Sources/LumenApp/DevelopPanel.swift",
-                ".padding(.horizontal, 8) .padding(.vertical, 6)",
-                "footer gutter 8")
+                ".padding(.horizontal, Lumen.columnGutter) .padding(.vertical, Lumen.space2)",
+                "footer gutter \(f(Lumen.columnGutter))")
 
         // The grading wheels' lightness bar, whose host is built out of the wheel's own
         // diameter rather than out of any column — so the three literals that decide how
