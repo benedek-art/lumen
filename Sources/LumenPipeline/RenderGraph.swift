@@ -1699,9 +1699,12 @@ public struct RenderGraph {
                                  - field.d * Double(full.minY))
         let centre = CIVector(x: field.centreX, y: field.centreY)
         let invHalf = CIVector(x: 1 / field.halfWidth, y: 1 / field.halfHeight)
-        let profile = CIVector(x: k.lower, y: k.upper, z: k.exponent, w: k.weight)
+        let profile = CIVector(x: k.centre, y: k.width, z: k.exponent, w: k.weight)
         let control = CIVector(x: k.amount, y: k.style.code,
-                               z: DetailEngine.vignetteLuminanceFloor)
+                               z: DetailEngine.vignetteLuminanceFloor,
+                               w: DetailEngine.vignetteHardEdgePixels)
+        let edge = CIVector(x: DetailEngine.vignetteGradientRadiusFloor,
+                            y: DetailEngine.vignetteMinimumWidth)
         let weights = RGBColorSpace.rec2020.luminanceWeights
         let tone = CIVector(x: k.threshold, y: k.protection, z: k.highlights,
                             w: k.log2MidGrey)
@@ -1716,6 +1719,7 @@ public struct RenderGraph {
         let toLMS = DetailEngine.vignetteColourRGBToLMS
         let toRGB = DetailEngine.vignetteColourLMSToRGB
         let lightness = DetailEngine.vignetteColourLightnessRow
+        let toSRGB = DetailEngine.vignetteWorkingToSRGB
         // Rendered over the FULL extent — the crop only defines the field. Cropping the
         // output here would throw away the pixels applyGeometry is about to select.
         // The burn's exponent is dithered by half an fp16 quantum of the encoded
@@ -1730,12 +1734,14 @@ public struct RenderGraph {
         let noise = plate ?? image
         let ditherEV = (plate == nil || !dithered) ? 0.0 : Self.encodedFP16QuantumEV
         let arguments: [Any] = [
-            image, noise, centre, invHalf, axisX, axisY, profile, control,
+            image, noise, centre, invHalf, axisX, axisY, profile, control, edge,
             CIVector(x: weights.r, y: weights.g, z: weights.b),
             tone, knee, paint, chroma,
             row(toLMS, 0), row(toLMS, 1), row(toLMS, 2),
             CIVector(x: lightness.r, y: lightness.g, z: lightness.b),
             row(toRGB, 0), row(toRGB, 1), row(toRGB, 2),
+            CIVector(x: k.liftHold, y: k.keyLow, z: k.keyHigh),
+            row(toSRGB, 0), row(toSRGB, 1), row(toSRGB, 2),
             Float(ditherEV),
         ]
         return KernelLibrary.apply(KernelLibrary.vignette, extent: full, arguments)

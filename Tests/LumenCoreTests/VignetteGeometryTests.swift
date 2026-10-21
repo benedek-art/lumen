@@ -204,4 +204,81 @@ final class VignetteGeometryTests: XCTestCase {
             XCTAssertEqual(topMid(r, 256, 256), topMid(0, 256, 256), accuracy: 0.01)
         }
     }
+
+    // MARK: - Amendment A1
+
+    /// Line 29: feather 0 is anti-aliased over ≥ 1 output pixel ALONG THE GRADIENT on
+    /// every crop aspect — 1:1, 3:2, 6:1, 1:6 — rendered, along the crop's short and
+    /// long axes through its centre (where the gradient is axis-aligned).
+    func testFeatherZeroIsAntiAliasedAlongTheGradientOnEveryAspect() {
+        for (w, h) in [(300, 300), (450, 300), (900, 150), (150, 900)] {
+            let frame = ImageBuffer(width: w, height: h) { _, _ in RGB(gray: 0.18) }
+            let out = DetailEngine.vignette(frame, VignetteSettings(amount: -2, feather: 0))
+            func frac(_ x: Int, _ y: Int) -> Double {
+                log2(out[x, y].g / frame[x, y].g) / -2
+            }
+            func width(_ samples: [Double]) -> Double {
+                func cross(_ level: Double) -> Double {
+                    for i in 1..<samples.count where samples[i] >= level {
+                        return Double(i - 1) + (level - samples[i - 1])
+                            / Swift.max(samples[i] - samples[i - 1], 1e-12)
+                    }
+                    return .nan
+                }
+                return cross(0.9) - cross(0.1)
+            }
+            let column = (0...(h / 2)).reversed().map { frac(w / 2, $0) }
+            let row = ((w / 2)..<w).map { frac($0, h / 2) }
+            for (name, samples) in [("short/vertical", column), ("long/horizontal", row)] {
+                let px = width(samples)
+                XCTAssertGreaterThanOrEqual(px, 1.0, "\(w)x\(h) \(name): \(px) px")
+                XCTAssertLessThanOrEqual(px, 3.0, "\(w)x\(h) \(name): \(px) px")
+            }
+        }
+    }
+
+    /// The anti-aliasing width is the same number of pixels along the gradient wherever
+    /// the edge is: s/|∇ρ| is `vignetteHardEdgePixels` at feather 0, for every shape.
+    func testTheHardEdgeWidthIsConstantInPixelsAlongTheGradient() {
+        for roundness in [-100.0, 0, 60, 100] {
+            for (hw, hh) in [(450.0, 75.0), (75.0, 450.0), (225.0, 150.0)] {
+                let shape = DetailEngine.vignetteShape(roundness: roundness, halfWidth: hw,
+                                                       halfHeight: hh)
+                for a in stride(from: 0.05, through: 1.5, by: 0.1) {
+                    let u = 0.7 * cos(a), v = 0.7 * sin(a)
+                    let r = DetailEngine.vignetteRadius(u: u, v: v, exponent: shape.exponent,
+                                                        weight: shape.weight)
+                    let g = DetailEngine.vignetteRadiusGradient(
+                        u: u, v: v, radius: r, exponent: shape.exponent,
+                        weight: shape.weight, halfWidth: hw, halfHeight: hh)
+                    // Numerical derivative, one pixel along each axis.
+                    func rho(_ du: Double, _ dv: Double) -> Double {
+                        DetailEngine.vignetteRadius(u: u + du / hw, v: v + dv / hh,
+                                                    exponent: shape.exponent,
+                                                    weight: shape.weight)
+                    }
+                    let gx = (rho(0.01, 0) - rho(-0.01, 0)) / 0.02
+                    let gy = (rho(0, 0.01) - rho(0, -0.01)) / 0.02
+                    XCTAssertEqual(g, (gx * gx + gy * gy).squareRoot(), accuracy: 1e-4 * g + 1e-9)
+                    let s = DetailEngine.vignetteEffectiveWidth(0, gradient: g)
+                    XCTAssertEqual(s / g, DetailEngine.vignetteHardEdgePixels, accuracy: 1e-9)
+                }
+            }
+        }
+    }
+
+    /// Line 30: no jump at the hard end — over feather 0…10 each unit changes the
+    /// 10-90 % width by at most 3× the median unit step over 10…100.
+    func testTheLowEndOfFeatherHasNoJump() {
+        func w(_ f: Double) -> Double { 0.608 * DetailEngine.vignetteFeatherWidth(feather: f) }
+        let high = (10..<100).map { abs(w(Double($0 + 1)) - w(Double($0))) }.sorted()
+        let median = (high[44] + high[45]) / 2
+        for f in 0..<10 {
+            let step = abs(w(Double(f + 1)) - w(Double(f)))
+            XCTAssertLessThanOrEqual(step, 3 * median, "feather \(f)→\(f + 1): \(step) vs median \(median)")
+        }
+        XCTAssertEqual(DetailEngine.vignetteFeatherWidth(feather: 50), 0.625, accuracy: 0)
+        XCTAssertEqual(DetailEngine.vignetteFeatherWidth(feather: 25),
+                       DetailEngine.vignetteQuarterFeatherWidth, accuracy: 1e-12)
+    }
 }

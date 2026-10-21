@@ -64,7 +64,9 @@ final class VignetteStyleParityTests: XCTestCase {
                                     angle: -7, flipH: true)
 
     private func worst(_ settings: VignetteSettings, dithered: Bool,
+                       geometry: Geometry? = nil,
                        file: StaticString = #filePath, line: UInt = #line) throws -> Double {
+        let geometry = geometry ?? self.geometry
         let gpuImage = RenderGraph().applyVignette(ciImage(from: source), settings,
                                                    geometry: geometry, dithered: dithered)
         let gpu = try XCTUnwrap(readBack(gpuImage, width: source.width,
@@ -116,6 +118,29 @@ final class VignetteStyleParityTests: XCTestCase {
                 XCTAssertLessThanOrEqual(try worst(s, dithered: false), 0.002, "\(s)")
                 XCTAssertLessThanOrEqual(try worst(s, dithered: true), 0.005, "\(s)")
             }
+        }
+    }
+
+    /// Amendment A1: the feather-0 edge on a 6:1 crop, whose width is set per pixel
+    /// along the gradient of ρ (line 29), and Color Priority's lift at +2 (line 18),
+    /// on both renderers.
+    func testTheWideCropHardEdgeAndTheColourLiftAgree() throws {
+        try XCTSkipUnless(KernelLibrary.vignette != nil, "kernel unavailable")
+        let wide = Geometry(crop: Crop(x: 0, y: 0.4166667, w: 1, h: 0.1666667))
+        for style in VignetteStyle.allCases {
+            let s = VignetteSettings(amount: -3, feather: 0, style: style)
+            XCTAssertLessThanOrEqual(try worst(s, dithered: false, geometry: wide), 0.002,
+                                     "\(s)")
+            XCTAssertLessThanOrEqual(try worst(s, dithered: true, geometry: wide), 0.005,
+                                     "\(s)")
+        }
+        for roundness in [-60.0, 0, 80] {
+            let s = VignetteSettings(amount: 2, feather: 30, roundness: roundness,
+                                     style: .colorPriority)
+            XCTAssertLessThanOrEqual(try worst(s, dithered: false), 0.002, "\(s)")
+            XCTAssertLessThanOrEqual(try worst(s, dithered: true), 0.005, "\(s)")
+            XCTAssertLessThanOrEqual(try worst(s, dithered: false, geometry: wide), 0.002,
+                                     "\(s)")
         }
     }
 

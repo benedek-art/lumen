@@ -865,9 +865,11 @@ public enum KernelLibrary {
 
     /// WS-41: the post-crop vignette's six controls, line for line with
     /// `DetailEngine.vignette` — ρ is `DetailEngine.vignetteRadius` (`profile.zw` are
-    /// its exponent and v-weight), the falloff is `vignetteProfile` (`profile.xy` its
-    /// edges), the three branches below are `vignetteStops`' three cases (`control.y`
-    /// is `VignetteStyle.code`), and the Color Priority block is `vignetteChromaScale`
+    /// its exponent and v-weight), the falloff is `vignetteProfile` about `profile.x`
+    /// with the feather width `profile.y` widened per pixel to `control.w` pixels along
+    /// the gradient of ρ (`vignetteRadiusGradient`, `vignetteEffectiveWidth`), the
+    /// three branches below are `vignetteStops`' three cases (`control.y` is
+    /// `VignetteStyle.code`), and the Color Priority block is `vignetteChromaScale`
     /// then `vignetteHoldColour` (the OKLab matrices arrive as rows). Every uniform is
     /// `DetailEngine.vignetteUniforms`' (see `RenderGraph.applyVignette`).
     ///
@@ -903,16 +905,21 @@ public enum KernelLibrary {
     static let vignetteSource = """
     kernel vec4 lumenVignette(__sample image, __sample noise, vec2 centre,
                               vec2 invHalf, vec3 axisX, vec3 axisY,
-                              vec4 profile, vec3 control, vec3 lumaWeights,
+                              vec4 profile, vec4 control, vec2 edge, vec3 lumaWeights,
                               vec4 tone, vec4 knee, vec4 paint, vec4 chroma,
                               vec3 lms0, vec3 lms1, vec3 lms2, vec3 lightRow,
-                              vec3 rgb0, vec3 rgb1, vec3 rgb2, float ditherEV) {
+                              vec3 rgb0, vec3 rgb1, vec3 rgb2, vec3 lift,
+                              vec3 srgb0, vec3 srgb1, vec3 srgb2, float ditherEV) {
         vec3 sourcePoint = vec3(destCoord(), 1.0);
         vec2 oriented = vec2(dot(axisX, sourcePoint), dot(axisY, sourcePoint));
         vec2 uv = abs((oriented - centre) * invHalf);
         vec2 q = pow(uv, vec2(profile.z));
         float rho = pow((q.x + profile.w * q.y) / (1.0 + profile.w), 1.0 / profile.z);
-        float t = smoothstep(profile.x, profile.y, rho);
+        float rhoFloor = max(rho, edge.x);
+        vec2 slope = pow(uv, vec2(profile.z - 1.0)) * vec2(1.0, profile.w)
+            * (pow(rhoFloor, 1.0 - profile.z) / (1.0 + profile.w)) * invHalf;
+        float width = max(max(profile.y, control.w * length(slope)), edge.y);
+        float t = smoothstep(profile.x - width * 0.5, profile.x + width * 0.5, rho);
         float ev = control.x;
         float lum = dot(image.rgb, lumaWeights);
         float l2 = log2(max(lum, control.z));
@@ -922,8 +929,14 @@ public enum KernelLibrary {
                                      : max(paint.z - l2, 0.0) * paint.w;
             stops = ev * t * cover;
         } else if (control.y > 0.5 && ev > 0.0) {
-            float lift = 1.0 - (1.0 - knee.w) * smoothstep(tone.w, tone.w + knee.z, l2);
-            stops = ev * t * lift;
+            vec3 shown = vec3(dot(srgb0, image.rgb), dot(srgb1, image.rgb),
+                              dot(srgb2, image.rgb));
+            float brightest = max(shown.r, max(shown.g, shown.b));
+            float bright = smoothstep(lift.y, lift.z, l2);
+            float key = lum + (1.0 - bright) * max(brightest - lum, 0.0);
+            float share = 1.0 - (1.0 - knee.w)
+                * smoothstep(tone.w, tone.w + knee.z, log2(max(key, control.z)));
+            stops = ev * t * share;
         } else {
             float protect = tone.y * smoothstep(tone.x, tone.x * 2.0, lum);
             if (ev < 0.0 && tone.z > 0.0) {
@@ -941,8 +954,8 @@ public enum KernelLibrary {
                 phi = exp2(stops * chroma.x);
             } else {
                 float lifted = log2(max(lum * exp2(stops), control.z));
-                phi = 1.0 + (exp2(stops * chroma.y) - 1.0)
-                    * smoothstep(chroma.z, chroma.w, lifted);
+                phi = exp2(-stops * lift.x) * (1.0 + (exp2(stops * chroma.y) - 1.0)
+                    * smoothstep(chroma.z, chroma.w, lifted));
             }
             vec3 lms = vec3(dot(lms0, rgb), dot(lms1, rgb), dot(lms2, rgb));
             vec3 n = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));

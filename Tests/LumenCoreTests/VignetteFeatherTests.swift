@@ -106,7 +106,7 @@ final class VignetteFeatherTests: XCTestCase {
             XCTAssertTrue(inner >= 0 && inner <= 0.98, "bound broke at \(feather)")
             previous = inner
         }
-        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 0), 0.6875, accuracy: 1e-12)
+        XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 0), 0.6875, accuracy: 1e-6)
         XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 50), 0.375, accuracy: 0)
         XCTAssertEqual(DetailEngine.vignetteInnerRadius(feather: 100), 0.1875, accuracy: 1e-12)
     }

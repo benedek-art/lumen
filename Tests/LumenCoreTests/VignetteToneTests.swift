@@ -129,8 +129,9 @@ final class VignetteToneTests: XCTestCase {
     func testAmountMeansTheSameMidGreyCornerInEveryStyle() {
         for a in stride(from: -4.0, through: 2.0, by: 0.5) where a != 0 {
             let hp = out(0.18, uniforms(a)).g
+            // CP's chroma scale round-trips a neutral through OKLab: equal to 1e-8.
             XCTAssertEqual(out(0.18, uniforms(a, style: .colorPriority)).g, hp,
-                           accuracy: 1e-9)
+                           accuracy: 1e-8 * hp)
             XCTAssertEqual(out(0.18, uniforms(a, style: .paintOverlay)).g, hp,
                            accuracy: 1e-9)
             XCTAssertEqual(hp, 0.18 * pow(2, a), accuracy: 1e-9)

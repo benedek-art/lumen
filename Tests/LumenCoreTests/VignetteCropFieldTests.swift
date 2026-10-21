@@ -99,10 +99,8 @@ final class VignetteCropFieldTests: XCTestCase {
                 let p = f.uv(column: 60, row: 32)
                 return DetailEngine.vignetteRadius(u: p.u, v: p.v, exponent: 2, weight: 1)
             }(),
-            lower: DetailEngine.vignetteEdges(midpoint: 30, feather: 50,
-                                              pixelHalfDiagonal: 1).lower,
-            upper: DetailEngine.vignetteEdges(midpoint: 30, feather: 50,
-                                              pixelHalfDiagonal: 1).upper)),
+            lower: DetailEngine.vignetteCentre(midpoint: 30) - 0.625 / 2,
+            upper: DetailEngine.vignetteCentre(midpoint: 30) + 0.625 / 2)),
             accuracy: 1e-6)
     }
 

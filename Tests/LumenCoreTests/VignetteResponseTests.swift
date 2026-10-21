@@ -479,8 +479,14 @@ final class VignetteResponseTests: XCTestCase {
             for (x, y) in [(0, 0), (40, 30), (100, 70)] {
                 let p = field.uv(column: x, row: y)
                 let r = DetailEngine.vignetteRadius(u: p.u, v: p.v, exponent: 2, weight: 1)
-                let f = DetailEngine.vignetteProfile(radius: r, lower: edges.lower,
-                                                     upper: edges.upper)
+                let g = DetailEngine.vignetteRadiusGradient(
+                    u: p.u, v: p.v, radius: r, exponent: 2, weight: 1,
+                    halfWidth: field.halfWidth, halfHeight: field.halfHeight)
+                let s = DetailEngine.vignetteEffectiveWidth(
+                    DetailEngine.vignetteFeatherWidth(feather: feather), gradient: g)
+                let c = DetailEngine.vignetteCentre(midpoint: Look.vignetteMidpointDefault)
+                let f = DetailEngine.vignetteProfile(radius: r, lower: c - s / 2,
+                                                     upper: c + s / 2)
                 XCTAssertEqual(log2(Double(out[x, y].g) / Double(frame[x, y].g)), -2 * f,
                                accuracy: 1e-5, "render ≠ profile at feather \(feather)")
             }

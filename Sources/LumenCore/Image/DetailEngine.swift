@@ -698,9 +698,18 @@ public struct DetailEngine: Sendable {
     /// The width at feather 25. As wide as it can be while every 10 of feather above it
     /// still widens the 10-90 % span by at least 0.02 half-diagonals (0.0036 per unit).
     public static let vignetteQuarterFeatherWidth: Double = 0.535
-    /// Feather 0's edge, in output pixels of the delivered crop's half-diagonal: a hard
-    /// edge, anti-aliased over one to two pixels rather than aliased to a staircase.
+    /// The narrowest the transition may be, in OUTPUT PIXELS measured along the gradient
+    /// of ρ at the pixel itself: feather 0 is a hard edge anti-aliased over 0.608 × 2.5
+    /// = 1.5 px (10-90 %) in every direction, on every crop aspect. It used to be 2.5 px
+    /// of the crop's half-diagonal, which on the short axis of a 6:1 crop is 0.27 px —
+    /// an aliased staircase (WS-41 VERIFY D4, SPEC line 29).
     public static let vignetteHardEdgePixels: Double = 2.5
+    /// ρ below which the gradient is evaluated as if at this radius, so a superellipse's
+    /// ρ^(1−n) cannot overflow at the centre, where no edge is ever drawn.
+    public static let vignetteGradientRadiusFloor: Double = 1e-3
+    /// The transition is never narrower than this in ρ, so the smoothstep's edges are
+    /// always ordered (on the GPU, `smoothstep` is undefined for equal edges).
+    public static let vignetteMinimumWidth: Double = 1e-6
 
     // Roundness.
 
@@ -730,7 +739,14 @@ public struct DetailEngine: Sendable {
     /// is weighted by where the LIFTED pixel lands on `vignetteColourShoulderEV`, because
     /// the path to white only desaturates near white: a dark corner lifted to mid-grey
     /// keeps its chroma under HP already and must not be pushed past it.
-    public static let vignetteColourLiftChroma: Double = 0.4
+    public static let vignetteColourLiftChroma: Double = 1.0
+    /// OKLab chroma scale per stop of lift BELOW the shoulder, as 2^(−0.08·stops): a
+    /// lifted mid-tone keeps its display chroma (the display transform raises it as it
+    /// brightens) instead of overshooting it into a clipped channel.
+    public static let vignetteColourLiftHold: Double = 0.08
+    /// The lift key's fade from the brightest sRGB channel (below) to luminance (above),
+    /// in EV over mid-grey (`vignetteLiftKey`).
+    public static let vignetteColourKeyEV: ClosedRange<Double> = 0.8...1.5
     /// The display shoulder, in EV over mid-grey of the lifted scene luminance, across
     /// which the lift's chroma restoration fades in.
     public static let vignetteColourShoulderEV: ClosedRange<Double> = 1.5...4.5
@@ -774,14 +790,14 @@ public struct DetailEngine: Sendable {
         return vignetteDefaultCentre + d * span
     }
 
-    /// The transition's width (lower to upper edge of the smoothstep) for a feather in
-    /// 0…100: from the anti-aliasing floor at 0 along a square root to
-    /// `vignetteQuarterFeatherWidth` at 25, then linear to 0.625 at 50 (exactly) and to
-    /// 1.0 at 100. The square root spends the bottom quarter of the travel on the hard
-    /// end; a straight line from the floor made feather 25 only 0.31 wide, and a −4 EV
-    /// burn across that steps 2 codes per pixel on an 8-bit 1024 px frame. The floor is `vignetteHardEdgePixels` of the delivered crop's
-    /// half-diagonal, which is why the frame's pixel size is an argument.
-    public static func vignetteWidth(feather: Double, pixelHalfDiagonal: Double) -> Double {
+    /// The transition's width in ρ (lower to upper edge of the smoothstep) for a feather
+    /// in 0…100, before anti-aliasing: 0 at feather 0, rising as (f/25)² to
+    /// `vignetteQuarterFeatherWidth` at 25, linear to 0.625 at 50 (exactly) and to 1.0 at
+    /// 100. The square keeps the first units of travel as gentle as the rest of the
+    /// slider (SPEC line 30: the old square root changed the width 14× the median step
+    /// between feather 0 and 1) while still reaching 0.535 by 25, where a narrower
+    /// transition steps 2 codes per pixel on a −4 EV 8-bit ramp.
+    public static func vignetteFeatherWidth(feather: Double) -> Double {
         let f = feather.isFinite ? Num.clamp(feather, 0, 100) : Look.vignetteFeatherDefault
         if f >= 50 {
             return vignetteDefaultWidth
@@ -791,12 +807,27 @@ public struct DetailEngine: Sendable {
             return vignetteDefaultWidth
                 - (vignetteDefaultWidth - vignetteQuarterFeatherWidth) * (50 - f) / 25
         }
-        let floor = vignetteHardEdgePixels / Swift.max(pixelHalfDiagonal, 1)
-        return Swift.max(floor + (vignetteQuarterFeatherWidth - floor) * (f / 25).squareRoot(),
-                         floor)
+        return vignetteQuarterFeatherWidth * (f / 25) * (f / 25)
     }
 
-    /// The smoothstep's two edges, c ∓ s/2.
+    /// The width a pixel actually gets: the feather's, or `vignetteHardEdgePixels` output
+    /// pixels along the local gradient of ρ (`vignetteRadiusGradient`), whichever is
+    /// wider. At feather ≥ 1 on any real frame the feather's width wins and this is it
+    /// exactly — at the default it is exactly 0.625.
+    @inline(__always)
+    public static func vignetteEffectiveWidth(_ width: Double, gradient: Double) -> Double {
+        Swift.max(Swift.max(width, vignetteHardEdgePixels * gradient), vignetteMinimumWidth)
+    }
+
+    /// The width along a ray where |∇ρ| is one over the crop's half-diagonal (the
+    /// diagonal of a crop at roundness 0, closely) — the analytic stand-in the tests and
+    /// the tooltips quote. The renderers use `vignetteEffectiveWidth` per pixel.
+    public static func vignetteWidth(feather: Double, pixelHalfDiagonal: Double) -> Double {
+        vignetteEffectiveWidth(vignetteFeatherWidth(feather: feather),
+                               gradient: 1 / Swift.max(pixelHalfDiagonal, 1))
+    }
+
+    /// The smoothstep's two edges, c ∓ s/2, with s from `vignetteWidth`.
     public static func vignetteEdges(midpoint: Double, feather: Double,
                                      pixelHalfDiagonal: Double)
         -> (lower: Double, upper: Double) {
@@ -848,14 +879,34 @@ public struct DetailEngine: Sendable {
                    1 / exponent)
     }
 
+    /// |∇ρ| per OUTPUT PIXEL at (u, v): the analytic derivative of `vignetteRadius`,
+    /// ∂ρ/∂u = ρ^(1−n)·|u|^(n−1)/(1+w) and ∂ρ/∂v = ρ^(1−n)·w·|v|^(n−1)/(1+w), each divided
+    /// by its half extent in pixels (u = Δx/halfWidth). The orientation is a rotation or
+    /// a mirror, so one oriented unit is one output pixel in every direction.
+    @inline(__always)
+    public static func vignetteRadiusGradient(u: Double, v: Double, radius: Double,
+                                              exponent: Double, weight: Double,
+                                              halfWidth: Double, halfHeight: Double)
+        -> Double {
+        let rho = Swift.max(radius, vignetteGradientRadiusFloor)
+        let q = pow(rho, 1 - exponent) / (1 + weight)
+        let du = q * pow(abs(u), exponent - 1) / Swift.max(halfWidth, 1e-6)
+        let dv = q * weight * pow(abs(v), exponent - 1) / Swift.max(halfHeight, 1e-6)
+        return (du * du + dv * dv).squareRoot()
+    }
+
     /// Everything the per-pixel transfer reads, resolved once per frame. The GPU kernel's
     /// uniforms are these numbers and nothing else (`RenderGraph.applyVignette`).
     public struct VignetteUniforms: Equatable, Sendable {
         /// Amount, clamped to `vignetteAmountRange`.
         public let amount: Double
         public let style: VignetteStyle
-        public let lower: Double
-        public let upper: Double
+        /// The profile's centre (Midpoint) and its feather width, before anti-aliasing.
+        public let centre: Double
+        public let width: Double
+        /// The crop's half extents in output pixels, for the gradient of ρ.
+        public let halfWidth: Double
+        public let halfHeight: Double
         public let exponent: Double
         public let weight: Double
         /// The legacy protection: starts at `threshold`, full `protection` at twice it.
@@ -872,6 +923,9 @@ public struct DetailEngine: Sendable {
         public let liftRolloff: Double
         public let liftFloor: Double
         public let shoulderLow: Double
+        public let liftHold: Double
+        public let keyLow: Double
+        public let keyHigh: Double
         public let shoulderHigh: Double
         /// Paint Overlay: the black and white anchors as log2 scene luminance, and the
         /// reciprocal of each one's distance from mid-grey.
@@ -887,8 +941,6 @@ public struct DetailEngine: Sendable {
         let amount = s.amount.isFinite
             ? Num.clamp(s.amount, vignetteAmountRange.lowerBound,
                         vignetteAmountRange.upperBound) : 0
-        let edges = vignetteEdges(midpoint: s.midpoint, feather: s.feather,
-                                  pixelHalfDiagonal: field.pixelHalfDiagonal)
         let shape = vignetteShape(roundness: s.roundness, halfWidth: field.halfWidth,
                                   halfHeight: field.halfHeight)
         let log2Mid = log2(vignetteMidGrey)
@@ -897,7 +949,9 @@ public struct DetailEngine: Sendable {
         let log2White = log2Mid + ToneEngine.defaultWhiteAnchorEV
         return VignetteUniforms(
             amount: amount, style: s.style,
-            lower: edges.lower, upper: edges.upper,
+            centre: vignetteCentre(midpoint: s.midpoint),
+            width: vignetteFeatherWidth(feather: s.feather),
+            halfWidth: field.halfWidth, halfHeight: field.halfHeight,
             exponent: shape.exponent, weight: shape.weight,
             threshold: vignetteLegacyThreshold, protection: vignetteHighlightProtection,
             highlights: h,
@@ -907,6 +961,9 @@ public struct DetailEngine: Sendable {
             log2MidGrey: log2Mid, liftRolloff: vignetteColourLiftRolloffEV,
             liftFloor: vignetteColourLiftFloor,
             shoulderLow: log2Mid + vignetteColourShoulderEV.lowerBound,
+            liftHold: vignetteColourLiftHold,
+            keyLow: log2Mid + vignetteColourKeyEV.lowerBound,
+            keyHigh: log2Mid + vignetteColourKeyEV.upperBound,
             shoulderHigh: log2Mid + vignetteColourShoulderEV.upperBound,
             log2Black: log2Black, burnSpanInverse: 1 / (log2Mid - log2Black),
             log2White: log2White, liftSpanInverse: 1 / (log2White - log2Mid))
@@ -938,7 +995,7 @@ public struct DetailEngine: Sendable {
     ///     stops shrinks by `amount/9` (burn) or `amount/5` (lift) — paint, not exposure.
     @inline(__always)
     public static func vignetteStops(luminance lum: Double, falloff: Double,
-                                     _ k: VignetteUniforms) -> Double {
+                                     _ k: VignetteUniforms, colour: RGB? = nil) -> Double {
         let ev = k.amount
         switch k.style {
         case .paintOverlay:
@@ -947,7 +1004,8 @@ public struct DetailEngine: Sendable {
                                : Swift.max(k.log2White - l2, 0) * k.liftSpanInverse
             return ev * falloff * cover
         case .colorPriority where ev > 0:
-            let l2 = log2(Swift.max(lum, vignetteLuminanceFloor))
+            let key = colour.map { vignetteLiftKey($0, luminance: lum, k) } ?? lum
+            let l2 = log2(Swift.max(key, vignetteLuminanceFloor))
             let lift = 1 - (1 - k.liftFloor)
                 * Num.smoothstep(k.log2MidGrey, k.log2MidGrey + k.liftRolloff, l2)
             return ev * falloff * lift
@@ -966,7 +1024,8 @@ public struct DetailEngine: Sendable {
         if k.amount < 0 { return pow(2.0, stops * k.burnChroma) }
         let lifted = log2(Swift.max(lum * pow(2.0, stops), vignetteLuminanceFloor))
         let shoulder = Num.smoothstep(k.shoulderLow, k.shoulderHigh, lifted)
-        return 1 + (pow(2.0, stops * k.liftChroma) - 1) * shoulder
+        return pow(2.0, -stops * k.liftHold)
+            * (1 + (pow(2.0, stops * k.liftChroma) - 1) * shoulder)
     }
 
     /// The working space's OKLab matrices, as the GPU kernel receives them: RGB → LMS,
@@ -998,13 +1057,35 @@ public struct DetailEngine: Sendable {
                    Swift.max(out.b, Swift.min(c.b, 0)))
     }
 
+    /// Working (Rec.2020) linear → sRGB linear, for Color Priority's lift key: the
+    /// display a picture is judged on is sRGB, and a colour near ITS gamut wall is the
+    /// one a lift drives into a clipped channel.
+    public static let vignetteWorkingToSRGB: Mat3 =
+        RGBColorSpace.srgb.fromXYZ * RGBColorSpace.rec2020.toXYZ
+
+    /// What a Color Priority LIFT rolls off on: luminance, raised toward the brightest
+    /// sRGB channel for pixels that are not already bright. A saturated red at Y 0.15
+    /// has an sRGB red of 0.62: lifted on luminance alone it took the full Amount and
+    /// its red channel clipped on every pixel of the box (VERIFY D2). Bright pixels
+    /// (from `vignetteColourKeyEV.upperBound` over mid-grey) keep the luminance key, so
+    /// a sky still lifts by 60 % of HP's ΔL. Neutrals: the key IS luminance, so CP = HP.
+    @inline(__always)
+    public static func vignetteLiftKey(_ c: RGB, luminance lum: Double,
+                                       _ k: VignetteUniforms) -> Double {
+        let display = vignetteWorkingToSRGB.apply(c)
+        let brightest = Swift.max(display.r, Swift.max(display.g, display.b))
+        let bright = Num.smoothstep(k.keyLow, k.keyHigh,
+                                    log2(Swift.max(lum, vignetteLuminanceFloor)))
+        return lum + (1 - bright) * Swift.max(brightest - lum, 0)
+    }
+
     /// The vignette at one pixel, or nil where it changes nothing.
     @inline(__always)
     public static func vignetteApply(_ c: RGB, falloff: Double,
                                      _ k: VignetteUniforms) -> RGB? {
         let space = RGBColorSpace.rec2020
         let lum = space.luminance(c)
-        let stops = vignetteStops(luminance: lum, falloff: falloff, k)
+        let stops = vignetteStops(luminance: lum, falloff: falloff, k, colour: c)
         if stops == 0 { return nil }
         let gain = pow(2.0, stops)
         guard k.style == .colorPriority else { return c * gain }
@@ -1099,7 +1180,13 @@ public struct DetailEngine: Sendable {
                 let p = field.uv(column: x, row: y)
                 let r = vignetteRadius(u: p.u, v: p.v, exponent: k.exponent,
                                        weight: k.weight)
-                let falloff = vignetteProfile(radius: r, lower: k.lower, upper: k.upper)
+                let g = vignetteRadiusGradient(u: p.u, v: p.v, radius: r,
+                                               exponent: k.exponent, weight: k.weight,
+                                               halfWidth: k.halfWidth,
+                                               halfHeight: k.halfHeight)
+                let s = vignetteEffectiveWidth(k.width, gradient: g)
+                let falloff = vignetteProfile(radius: r, lower: k.centre - s / 2,
+                                              upper: k.centre + s / 2)
                 if falloff <= 0 { continue }
                 guard let c = vignetteApply(image[x, y], falloff: falloff, k) else {
                     continue

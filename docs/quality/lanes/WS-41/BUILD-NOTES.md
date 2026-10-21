@@ -108,3 +108,56 @@ swift test --parallel --filter LumenCoreTests --skip ControlProofTests
 ```
 
 Swift 6.0.3 here cannot parse `CompareView.swift`'s trailing commas (CI uses 6.1.2). The local test runs had those two commas removed in the working tree only; the change is not committed.
+
+## Round 2 (after VERIFY.md round 1 and SPEC Amendment A1)
+
+This section supersedes the round-1 rows it names. Everything not named here was re-measured on the round-2 build and is unchanged.
+
+### What changed
+
+- **Feather 0 is anti-aliased along the gradient (line 29, VERIFY D4).**
+  - The transition is never narrower than 2.5 output pixels measured along the local gradient of ρ. That gradient is the analytic derivative `DetailEngine.vignetteRadiusGradient`; the floor is applied by `vignetteEffectiveWidth`.
+  - The previous rule used 2.5 px of the half-diagonal, which is 0.27 px on the short axis of a 6:1 crop.
+  - The kernel computes the same derivative line for line.
+  - At the default feather the width is still exactly 0.625, so identity holds.
+- **Feather's low end is smooth (line 30).** The width is `0.535·(f/25)²` up to feather 25, replacing the square root. It is unchanged from 25 to 100, so the feather-25 width (0.535) that keeps the −4 EV ramp at 1 code per pixel is kept.
+- **The Color Priority lift no longer clips (line 18, VERIFY D2).** The roll-off key is now `vignetteLiftKey`: luminance, raised toward the brightest sRGB channel for pixels below +0.8…+1.5 EV over mid-grey. A saturated red near the sRGB gamut wall gets less lift; a bright sky keeps the luminance key.
+  - Chroma below the shoulder is held by 2^(−0.08·stops), so the display transform's chroma rise is not overshot.
+  - The shoulder restoration is 2^(1.0·stops), faded in over +1.5…+4.5 EV of lifted luminance.
+  - The kernel takes the sRGB rows and the new constants as arguments; it now has 26 arguments, all from `vignetteUniforms`.
+- **New tools.**
+  - `scripts/proof/ws41/edge.py`: the line-29 measurement.
+  - `scripts/proof/ws41/huefloat.py` with `scripts/proof/ws41/probe/`: the verifier's float probe, kept so the Amendment A1 float measurements reproduce.
+- **Tests.**
+  - Added `VignetteGeometryTests`: `testFeatherZeroIsAntiAliasedAlongTheGradientOnEveryAspect` (rendered on 1:1, 3:2, 6:1 and 1:6), `testTheHardEdgeWidthIsConstantInPixelsAlongTheGradient` (analytic derivative against a numerical one, 4 roundness values × 3 aspects), and `testTheLowEndOfFeatherHasNoJump`.
+  - Updated to the per-pixel width: the corner/profile checks in `VignetteResponseTests`, `VignetteCropFieldTests` and `VignetteFeatherTests`. The neutral CP=HP tolerance went to 1e-8 relative, because the hold now round-trips a neutral through OKLab.
+  - `VignetteStyleParityTests` (macOS) gains a 6:1 crop at feather 0 for all styles, and CP at +2 for three roundness values, on that crop and the straightened one.
+- **Evidence.**
+  - Regenerated: the feather sweep, the feather-0 edge crop, both style sheets and the 2545 corner crop.
+  - New: `after_feather0_6x1_crop_edge.png`.
+  - The folder has 12 files, all under 400 KB.
+
+### Per line (round 2)
+
+| # | Status | Measured |
+|---|---|---|
+| 1-3 | PASS | identity 0/52, explicit 0/52, amount-zero 0 |
+| 4-5 | PASS | unit tests green |
+| 6-8 | PASS | r50 spread over feather 0.0019 / 0.0020 / 0.0015 (M25/50/75). w(50) 0.381, w(100) 0.609. Smallest step of 10 above feather 0: 0.0219 |
+| 9 | PASS | 768 px: w_px 2.0, edge_px 1, aa_rms 0.015. 1536 px: 2.2, 1, 0.015 |
+| 11-12 | PASS | unchanged: −100 0.949/0.949; 0 0.540/0.540; +100 circ 1.002, side 0.824, top 0.199 |
+| 16 | PASS | WORST_REVERSAL 0: HP/CP × H{0, 100} × {−4, −1}; all styles at +2 |
+| 17 (A1) | PASS | `huefloat.py line17`: 0 fails. Scene dh of CP and PO is 0.00° in every box. Float \|dh_CP\| ≤ \|dh_HP\| + 0.5° everywhere; worst excess green_BL −4, +0.75° vs +0.26°. cl: sky −2 is 1.155, within 0.02 of HP's 1.168; elsewhere inside 0.96–1.15 |
+| 18 | PARTIAL | 8-bit, CP: clip255 0 % in every box at +1.5 and +2 (was 100 % on red_TL and skin_BR). C/C0 ≥ 0.85 (sky 0.85 / 0.89). dL ≥ 60 % of HP's (sky 61 % / 60 %, others 64–86 %). \|dh\| ≤ 3° in 13 of 14 box×amount cases. Remaining miss: skin_tones mid_BR +4.9° at +2 and +3.2° at +1.5 (HP +4.6° / +4.7°). In float that box is +3.65° at +2 (HP +3.36°) and +1.90° at +1.5 (HP +3.41°). It sits at L 0.87, near display white, where the display transform's path to white turns skin hue; HP misses too, and the 8-bit reading moves about ±3° per code on its C ≈ 0.06 |
+| 19 (A1) | PASS | `huefloat.py line19`: 0 fails. PO vs lightness-matched HP′ is within 0.6° in every box (mid_BR +4.07° vs +4.01° at HP −2.20; tan_TR −9.14° vs −9.11°). sdL: PO 0.53 vs HP 0.66 at −2; 0.56 vs 0.77 at +1.5 |
+| 21 | PASS | 42 cases: max step 1, reversal 0, dithered reversal 0.00; defaults flat 15/30 px |
+| 22 | PASS | CROP_MAXDIFF 0.020 / 0.017 (crop, plain / m30 r60 f20), 0.020 / 0.017 (flip), 0.023 / 0.023 (1:1) |
+| 25 | PASS | 3080 LumenCoreTests (parallel, ControlProofTests skipped): 0 failures after the two fixes listed above. `gen-fixtures.py --check` OK. Build clean. `check-swift-surface.py` reports the same findings as base |
+| 29 | PASS | `edge.py`: w_min along the gradient 1.55 / 1.52 / 1.53 / 1.55 px (1:1 / 3:2 / 6:1 / 1:6); aa_rms 0.014 / 0.015 / 0.013 / 0.015 px. Before: 6:1 and 1:6 were 0.79 px |
+| 30 | PASS | `profile.py` at feather 0…100 step 1: largest step over 0…10 is 0.0097, against a median over 10…100 of 0.0042 (2.32×, bar 3×). Before: 14× |
+| 24, 27 | macOS CI | parity test extended; macOS files pass `swiftc -parse` |
+
+Reproduce:
+- line 29: `python3 scripts/proof/ws41/edge.py`
+- lines 17-19 and scene: `python3 scripts/proof/ws41/huefloat.py line17|line18|line19|scene` (builds the probe into `/tmp/ws41-probe` on first use)
+- line 18 in 8-bit: `corner.py --frame F --set look.vignette=A --set look.vignetteStyle=colorPriority`, against the same command without the style
