@@ -256,6 +256,8 @@ public final class PipelineRenderer {
         // The band-hue measurement is a statement about the same pixels.
         bandHues.removeValue(forKey: url)
         bandHueOrder.removeAll { $0 == url }
+        // So is the lens stage's CA model and vignetting record (WS-28 NEEDS).
+        LensInputsCache.shared.forget(url)
     }
 
     // MARK: - Band hue statistics
@@ -1649,6 +1651,8 @@ public final class PipelineRenderer {
                            maskRasterCeiling: CGFloat? = nil,
                            reusingMaskImages: [String: CIImage]? = nil) -> RenderGraph {
         var graph = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
+        graph.lensInputs = LensInputsCache.shared.inputs(url: sourceURL, decoded: decoded,
+                                                         context: context)
         let extent = decoded.extent
 
         // This used to `guard !draft else { return graph }` — so during every drag,
@@ -2543,7 +2547,13 @@ public final class PipelineRenderer {
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let staged = RenderGraph().localStageInput(
+        // With the lens inputs `makeGraph` gives the render (WS-28 NEEDS, WS-01): without
+        // them the eyedropper saw Defringe but not the CA warp or the Sony vignetting
+        // gain, so a corner pick on a Sony frame read a different colour.
+        var graph = RenderGraph()
+        graph.lensInputs = LensInputsCache.shared.inputs(url: source.url, decoded: decoded,
+                                                         context: context)
+        let staged = graph.localStageInput(
             decoded, plan: plan,
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
         // Cropped back to the decode's own extent so the normalized coordinate means
@@ -2594,7 +2604,11 @@ public final class PipelineRenderer {
                                   recipe.develop.mixer)
                                   ? measuredBandMeanHues(source: source) : nil)
         let longEdge = Int(Swift.max(decoded.extent.width, decoded.extent.height))
-        let staged = RenderGraph().colorStageInput(
+        // The render's lens inputs, as above (WS-28 NEEDS, WS-01).
+        var graph = RenderGraph()
+        graph.lensInputs = LensInputsCache.shared.inputs(url: source.url, decoded: decoded,
+                                                         context: context)
+        let staged = graph.colorStageInput(
             decoded, plan: plan,
             options: RenderGraph.Options(longEdge: longEdge, maskSource: true))
         guard let input = sampleMean(staged.cropped(to: decoded.extent),
@@ -3054,6 +3068,10 @@ public final class PipelineRenderer {
         if !capture.isIdentity {
             staged = capture.apply(staged)
         }
+        // WS-28 lens stage, the graph's position (after S3 and S4, before S5).
+        staged = LensStage.apply(staged, lens: recipe.develop.geometry.lens,
+                                 inputs: LensInputsCache.shared.inputs(
+                                    url: source.url, decoded: decoded, context: context))
         // Stroke sets go in, exactly as they do on the GPU path — a fallback that
         // silently drops every brush mask is not the same picture, and this is the
         // path that runs when the graph could not be built at all. The proof goes in for

@@ -1,0 +1,179 @@
+{
+ "width": 4592,
+ "height": 3448,
+ "primaries": "rec2020",
+ "lateral": {
+  "candidates": 100000,
+  "halfdiag_px": 2871.2004458065967,
+  "sign_convention": "px, + = channel displaced outward (magnified) relative to G",
+  "zones": {
+   "0.0-0.3": {
+    "R-G": {
+     "n": 1767,
+     "median_px": 0.0542,
+     "mad_px": 0.0772,
+     "median_abs_px": 0.0885
+    },
+    "B-G": {
+     "n": 916,
+     "median_px": 0.0425,
+     "mad_px": 0.1238,
+     "median_abs_px": 0.128
+    }
+   },
+   "0.3-0.6": {
+    "R-G": {
+     "n": 2423,
+     "median_px": 0.1486,
+     "mad_px": 0.1236,
+     "median_abs_px": 0.1683
+    },
+    "B-G": {
+     "n": 1641,
+     "median_px": -0.0539,
+     "mad_px": 0.1963,
+     "median_abs_px": 0.1968
+    }
+   },
+   "0.6-0.8": {
+    "R-G": {
+     "n": 2912,
+     "median_px": 0.2608,
+     "mad_px": 0.1522,
+     "median_abs_px": 0.2657
+    },
+    "B-G": {
+     "n": 2440,
+     "median_px": -0.075,
+     "mad_px": 0.2198,
+     "median_abs_px": 0.2291
+    }
+   },
+   "0.8-1.0": {
+    "R-G": {
+     "n": 2713,
+     "median_px": 0.2661,
+     "mad_px": 0.1435,
+     "median_abs_px": 0.2723
+    },
+    "B-G": {
+     "n": 2208,
+     "median_px": -0.032,
+     "mad_px": 0.2039,
+     "median_abs_px": 0.2014
+    }
+   }
+  },
+  "fit": {
+   "R-G": {
+    "n": 9815,
+    "n_inliers": 9427,
+    "k1": 0.40339,
+    "k3": -0.08132,
+    "shift_at_r0.50_px": 0.1915,
+    "shift_at_r0.75_px": 0.2682,
+    "shift_at_r1.00_px": 0.3221,
+    "stderr_shift_at_r1.00_px": 0.0071,
+    "equivalent_scale_at_r1": 1.0001122
+   },
+   "B-G": {
+    "n": 7205,
+    "n_inliers": 6924,
+    "k1": -0.14599,
+    "k3": 0.11332,
+    "shift_at_r0.50_px": -0.0588,
+    "shift_at_r0.75_px": -0.0617,
+    "shift_at_r1.00_px": -0.0327,
+    "stderr_shift_at_r1.00_px": 0.0128,
+    "equivalent_scale_at_r1": 0.9999886
+   }
+  }
+ },
+ "fringe": {
+  "candidates": 100000,
+  "edges_measured": 4016,
+  "threshold_oklab_ab": 0.03,
+  "min_contrast_stops": 1.5,
+  "zones": {
+   "0.0-0.3": {
+    "edges": 704,
+    "width_median_px": 0.5,
+    "width_p90_px": 4.0,
+    "width_mean_px": 1.38,
+    "fringed_fraction": 0.5696,
+    "purple_edges": 112,
+    "green_edges": 137,
+    "purple_per_1000": 159.1,
+    "green_per_1000": 194.6,
+    "overthreshold_samples_by_hue": {
+     "red": 150,
+     "orange": 302,
+     "green": 618,
+     "cyan": 179,
+     "blue": 169,
+     "purple": 525
+    }
+   },
+   "0.3-0.6": {
+    "edges": 1031,
+    "width_median_px": 0.0,
+    "width_p90_px": 4.0,
+    "width_mean_px": 1.156,
+    "fringed_fraction": 0.4122,
+    "purple_edges": 105,
+    "green_edges": 108,
+    "purple_per_1000": 101.8,
+    "green_per_1000": 104.8,
+    "overthreshold_samples_by_hue": {
+     "red": 227,
+     "orange": 620,
+     "green": 518,
+     "cyan": 198,
+     "blue": 262,
+     "purple": 559
+    }
+   },
+   "0.6-0.8": {
+    "edges": 1084,
+    "width_median_px": 0.0,
+    "width_p90_px": 3.5,
+    "width_mean_px": 0.997,
+    "fringed_fraction": 0.3801,
+    "purple_edges": 102,
+    "green_edges": 95,
+    "purple_per_1000": 94.1,
+    "green_per_1000": 87.6,
+    "overthreshold_samples_by_hue": {
+     "red": 235,
+     "orange": 466,
+     "green": 457,
+     "cyan": 220,
+     "blue": 248,
+     "purple": 536
+    }
+   },
+   "0.8-1.0": {
+    "edges": 1197,
+    "width_median_px": 0.0,
+    "width_p90_px": 3.5,
+    "width_mean_px": 1.046,
+    "fringed_fraction": 0.3693,
+    "purple_edges": 104,
+    "green_edges": 83,
+    "purple_per_1000": 86.9,
+    "green_per_1000": 69.3,
+    "overthreshold_samples_by_hue": {
+     "red": 284,
+     "orange": 524,
+     "green": 398,
+     "cyan": 348,
+     "blue": 453,
+     "purple": 497
+    }
+   }
+  }
+ },
+ "seconds": 13.1,
+ "input": "/home/user/lumen/corpus/lfi-native/2545_panasonic-dmc-gx85.lfi",
+ "input_kind": "lfi (scene-linear)"
+}

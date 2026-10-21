@@ -76,6 +76,7 @@ on:
       - "Sources/LumenPipeline/CaptureMetadataReader.swift"
       - "Sources/LumenPipeline/DecodeMaterializer.swift"
       - "Tests/LumenPipelineTests/RawCorpusTests.swift"
+      - "Tests/LumenPipelineTests/LensProfileRawCorpusTests.swift"
       - "Tests/LumenPipelineTests/AuditRawAccuracyTests.swift"
       - "Tests/LumenPipelineTests/RawDecodeBoundaryTests.swift"
       - "Tests/LumenPipelineTests/RawCorpus/**"

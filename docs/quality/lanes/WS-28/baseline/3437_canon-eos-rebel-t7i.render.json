@@ -1,0 +1,179 @@
+{
+ "width": 6024,
+ "height": 4020,
+ "primaries": "srgb",
+ "lateral": {
+  "candidates": 100000,
+  "halfdiag_px": 3621.08326333433,
+  "sign_convention": "px, + = channel displaced outward (magnified) relative to G",
+  "zones": {
+   "0.0-0.3": {
+    "R-G": {
+     "n": 10298,
+     "median_px": 0.0184,
+     "mad_px": 0.3583,
+     "median_abs_px": 0.3601
+    },
+    "B-G": {
+     "n": 11360,
+     "median_px": -0.1463,
+     "mad_px": 0.2739,
+     "median_abs_px": 0.2966
+    }
+   },
+   "0.3-0.6": {
+    "R-G": {
+     "n": 10007,
+     "median_px": -0.0327,
+     "mad_px": 0.3867,
+     "median_abs_px": 0.3891
+    },
+    "B-G": {
+     "n": 10843,
+     "median_px": -0.3414,
+     "mad_px": 0.324,
+     "median_abs_px": 0.4245
+    }
+   },
+   "0.6-0.8": {
+    "R-G": {
+     "n": 9313,
+     "median_px": -0.0657,
+     "mad_px": 0.4309,
+     "median_abs_px": 0.4357
+    },
+    "B-G": {
+     "n": 9779,
+     "median_px": -0.5107,
+     "mad_px": 0.3853,
+     "median_abs_px": 0.5651
+    }
+   },
+   "0.8-1.0": {
+    "R-G": {
+     "n": 9431,
+     "median_px": -0.0392,
+     "mad_px": 0.3419,
+     "median_abs_px": 0.3405
+    },
+    "B-G": {
+     "n": 9242,
+     "median_px": -0.5759,
+     "mad_px": 0.3596,
+     "median_abs_px": 0.6076
+    }
+   }
+  },
+  "fit": {
+   "R-G": {
+    "n": 39049,
+    "n_inliers": 37082,
+    "k1": -0.07302,
+    "k3": -0.01728,
+    "shift_at_r0.50_px": -0.0387,
+    "shift_at_r0.75_px": -0.0621,
+    "shift_at_r1.00_px": -0.0903,
+    "stderr_shift_at_r1.00_px": 0.0109,
+    "equivalent_scale_at_r1": 0.9999751
+   },
+   "B-G": {
+    "n": 41224,
+    "n_inliers": 39930,
+    "k1": -0.82064,
+    "k3": 0.14897,
+    "shift_at_r0.50_px": -0.3917,
+    "shift_at_r0.75_px": -0.5526,
+    "shift_at_r1.00_px": -0.6717,
+    "stderr_shift_at_r1.00_px": 0.0094,
+    "equivalent_scale_at_r1": 0.9998145
+   }
+  }
+ },
+ "fringe": {
+  "candidates": 100000,
+  "edges_measured": 29140,
+  "threshold_oklab_ab": 0.03,
+  "min_contrast_stops": 1.5,
+  "zones": {
+   "0.0-0.3": {
+    "edges": 6847,
+    "width_median_px": 0.0,
+    "width_p90_px": 0.0,
+    "width_mean_px": 0.238,
+    "fringed_fraction": 0.0977,
+    "purple_edges": 141,
+    "green_edges": 328,
+    "purple_per_1000": 20.6,
+    "green_per_1000": 47.9,
+    "overthreshold_samples_by_hue": {
+     "red": 226,
+     "orange": 3,
+     "green": 1971,
+     "cyan": 412,
+     "blue": 2,
+     "purple": 650
+    }
+   },
+   "0.3-0.6": {
+    "edges": 7962,
+    "width_median_px": 0.0,
+    "width_p90_px": 3.5,
+    "width_mean_px": 0.731,
+    "fringed_fraction": 0.1775,
+    "purple_edges": 390,
+    "green_edges": 838,
+    "purple_per_1000": 49.0,
+    "green_per_1000": 105.2,
+    "overthreshold_samples_by_hue": {
+     "red": 464,
+     "orange": 122,
+     "green": 7293,
+     "cyan": 1183,
+     "blue": 154,
+     "purple": 2421
+    }
+   },
+   "0.6-0.8": {
+    "edges": 7545,
+    "width_median_px": 0.0,
+    "width_p90_px": 6.5,
+    "width_mean_px": 1.604,
+    "fringed_fraction": 0.3005,
+    "purple_edges": 707,
+    "green_edges": 1512,
+    "purple_per_1000": 93.7,
+    "green_per_1000": 200.4,
+    "overthreshold_samples_by_hue": {
+     "red": 774,
+     "orange": 483,
+     "green": 14578,
+     "cyan": 2671,
+     "blue": 745,
+     "purple": 4960
+    }
+   },
+   "0.8-1.0": {
+    "edges": 6786,
+    "width_median_px": 0.0,
+    "width_p90_px": 5.5,
+    "width_mean_px": 1.086,
+    "fringed_fraction": 0.2163,
+    "purple_edges": 514,
+    "green_edges": 911,
+    "purple_per_1000": 75.7,
+    "green_per_1000": 134.2,
+    "overthreshold_samples_by_hue": {
+     "red": 289,
+     "orange": 389,
+     "green": 8716,
+     "cyan": 1117,
+     "blue": 400,
+     "purple": 3831
+    }
+   }
+  }
+ },
+ "seconds": 13.6,
+ "input": "/tmp/claude-0/audit/render_3437_canon-eos-rebel-t7i.png",
+ "input_kind": "png (sRGB-decoded display-linear)"
+}

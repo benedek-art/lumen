@@ -1,0 +1,46 @@
+{
+ "R-G r=0.5": {
+  "before": 0.0146,
+  "after": 0.4118,
+  "delta": 0.3972,
+  "injected": 0.4211
+ },
+ "R-G r=0.75": {
+  "before": 0.0552,
+  "after": 0.6614,
+  "delta": 0.6062,
+  "injected": 0.6317
+ },
+ "R-G r=1.0": {
+  "before": 0.1356,
+  "after": 0.9635,
+  "delta": 0.8279,
+  "injected": 0.8423
+ },
+ "R-G zone 0.0-0.3 median delta": 0.1585,
+ "R-G zone 0.3-0.6 median delta": 0.357,
+ "R-G zone 0.6-0.8 median delta": 0.5696,
+ "R-G zone 0.8-1.0 median delta": 0.6964,
+ "B-G r=0.5": {
+  "before": 0.0725,
+  "after": -0.3184,
+  "delta": -0.3909,
+  "injected": -0.4211
+ },
+ "B-G r=0.75": {
+  "before": 0.0283,
+  "after": -0.551,
+  "delta": -0.5793,
+  "injected": -0.6317
+ },
+ "B-G r=1.0": {
+  "before": -0.1125,
+  "after": -0.8718,
+  "delta": -0.7593,
+  "injected": -0.8423
+ },
+ "B-G zone 0.0-0.3 median delta": -0.1511,
+ "B-G zone 0.3-0.6 median delta": -0.334,
+ "B-G zone 0.6-0.8 median delta": -0.5346,
+ "B-G zone 0.8-1.0 median delta": -0.6438
+}

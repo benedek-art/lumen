@@ -447,30 +447,81 @@ struct EffectsPanel: View {
                                    ? "The embedded profile is applied at raw decode, "
                                        + "which this file does not go through — so this "
                                        + "changes nothing here."
-                                   : "Applies the correction opcodes and manufacturer "
-                                       + "profile embedded in the file, at decode. There "
-                                       + "is no lens database in this build, so a file "
-                                       + "carrying no profile develops uncorrected.")
+                                   : "Applies the corrections the camera wrote into "
+                                       + "the file: distortion at decode (Apple), and on "
+                                       + "Sony bodies the vignetting record Apple's "
+                                       + "decode leaves out. There is no lens database "
+                                       + "in this build, so a file carrying no profile "
+                                       + "develops uncorrected.")
                     .disabled(isRenderedFile)
-                // Not shown: Remove chromatic aberration, and the seven controls under
-                // Defringe. `removeCA` and every field of `Defringe` have a wire format
-                // and no reader — grep across Sources/ finds them only in the `Recipe`
-                // struct — and `lens.profile` is the one thing in this section that is
-                // genuinely consumed, at decode.
-                //
-                // A footnote admitting that was not enough, and this section is the
-                // reason the rule exists. The removed CA toggle DEFAULTED TO ON, so
-                // every photo in the library carried a ticked box doing nothing, and
-                // its own tooltip described the machinery in detail — "R and B are
-                // re-registered to G by a radial polynomial fit, folded into the
-                // geometry warp" — two rows above a note conceding none of it runs.
-                // A reader who trusts the control loses the time it takes to find out,
-                // and one who trusts the footnote is left wondering which half of the
-                // panel to believe. `MaskPanel` had already settled the form for the
-                // local group: take the controls out. The sentence that stood in for
-                // them has now gone too — a panel owes nobody an inventory of what it
-                // does not contain, and this comment is where such an inventory belongs.
+                // WS-28: these now render (LensStage / RenderGraph+Lens). The CA model
+                // is measured on the photograph itself, so unlike the profile it works
+                // on a rendered file too, and stays enabled there.
+                LumenToggleRow(title: "Remove chromatic aberration",
+                               isOn: binder.flag(\.develop.geometry.lens.removeCA,
+                                                 "geometry.lens.removeCA"),
+                               help: "Measures how far red and blue sit from green "
+                                   + "toward the corners, on this photograph's own "
+                                   + "edges, and re-registers them. Automatic; when the "
+                                   + "lens shows no measurable lateral CA it changes "
+                                   + "nothing.")
+                LumenSlider(title: "Purple Amount",
+                            value: defringeValue(\.purpleAmount, "geometry.lens.defringe.purpleAmount"),
+                            range: 0...20, hardRange: nil, defaultValue: 0,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Defringe: removes purple and magenta fringes along "
+                                + "high-contrast edges (axial CA). Only pixels within a "
+                                + "few pixels of a hard edge and inside the hue range "
+                                + "below are touched; their brightness is kept.")
+                LumenSlider(title: "Hue From",
+                            value: defringeValue(\.purpleHueLo, "geometry.lens.defringe.purpleHueLo"),
+                            range: 0...100, hardRange: nil, defaultValue: 30,
+                            step: 1, decimals: 0, bipolar: false, indented: true,
+                            help: "Low end of the purple range: 0 is blue, 100 is "
+                                + "red. Default 30–70.")
+                LumenSlider(title: "Hue To",
+                            value: defringeValue(\.purpleHueHi, "geometry.lens.defringe.purpleHueHi"),
+                            range: 0...100, hardRange: nil, defaultValue: 70,
+                            step: 1, decimals: 0, bipolar: false, indented: true,
+                            help: "High end of the purple range: 0 is blue, 100 is "
+                                + "red. Default 30–70.")
+                LumenSlider(title: "Green Amount",
+                            value: defringeValue(\.greenAmount, "geometry.lens.defringe.greenAmount"),
+                            range: 0...20, hardRange: nil, defaultValue: 0,
+                            step: 1, decimals: 0, bipolar: false,
+                            help: "Defringe: removes green and yellow-green fringes "
+                                + "along high-contrast edges, the other side of axial "
+                                + "CA. Same edge rule as purple.")
+                LumenSlider(title: "Hue From",
+                            value: defringeValue(\.greenHueLo, "geometry.lens.defringe.greenHueLo"),
+                            range: 0...100, hardRange: nil, defaultValue: 40,
+                            step: 1, decimals: 0, bipolar: false, indented: true,
+                            help: "Low end of the green range: 0 is yellow, "
+                                + "100 is blue-cyan. Default 40–60.")
+                LumenSlider(title: "Hue To",
+                            value: defringeValue(\.greenHueHi, "geometry.lens.defringe.greenHueHi"),
+                            range: 0...100, hardRange: nil, defaultValue: 60,
+                            step: 1, decimals: 0, bipolar: false, indented: true,
+                            help: "High end of the green range: 0 is yellow, "
+                                + "100 is blue-cyan. Default 40–60.")
         }
+    }
+
+    /// One field of the optional `Defringe`, read through its defaults while it is nil
+    /// and created on the first move — the recipe keeps `nil` until a photographer
+    /// touches Defringe, so an untouched photo stays exactly as it was saved.
+    private func defringeValue(_ field: WritableKeyPath<Defringe, Double>,
+                               _ key: String) -> Binding<Double> {
+        let state = binder.state
+        return Binding(
+            get: { (state.currentRecipe.develop.geometry.lens.defringe ?? Defringe())[keyPath: field] },
+            set: { newValue in
+                state.updateRecipe(coalescingKey: key) { recipe in
+                    var d = recipe.develop.geometry.lens.defringe ?? Defringe()
+                    d[keyPath: field] = newValue
+                    recipe.develop.geometry.lens.defringe = d
+                }
+            })
     }
 
     // MARK: Soft proof

@@ -51,6 +51,8 @@
 //                          told the true decode scale. Default: the input is native
 //     --space srgb|p3      output encoding (default srgb, what the export ships)
 //     --no-dither          skip the 8-bit ordered dither the preview/export apply
+//     --lens-raw PATH      the RAW whose embedded lens record to apply (default: from
+//                          the .lfi sidecar)
 //     --lut-size N         finish/grade table size (default 33 = the app's interactive
 //                          size; 65 = export size)
 //     --resampler F        S16's filter: lanczos3 (the stage, default), bicubic or
@@ -126,8 +128,14 @@
 //
 // Not rendered (no input for them): brush-stroke masks (no stroke blobs; see the
 // `strokes` command in Strokes.swift, which rasterizes a stroke set on its own), AI mattes
-// (no Vision), heal strokes, creative LUT cubes not on the shared shelf, lens
-// corrections and the RAW-domain stages before S3.
+// (no Vision), heal strokes, creative LUT cubes not on the shared shelf, Apple's
+// decode-time lens profile (distortion) and the RAW-domain stages before S3.
+//
+// LENS STAGE (WS-28), after S3 as in the app: Remove CA from a model measured on the
+// input's own pixels, tiles ranked on a 2048 px preview (the app's path; feed a native
+// decode, CA is sub-pixel at 2400), Defringe, and the embedded Sony vignetting record of the source
+// RAW, found through the .lfi sidecar's `source` (corpus layout) or `--lens-raw PATH`.
+// What was found is printed to stderr.
 //
 // METRICS (JSON, written with --metrics). All are computed on the encoded output BEFORE
 // the dither (so they are deterministic), from the clamped display-linear values in the

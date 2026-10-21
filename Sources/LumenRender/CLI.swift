@@ -35,18 +35,69 @@ struct PreparedInput {
         let file = Double(Swift.max(sourceWidth, sourceHeight))
         return Swift.min(1, scale * file / Double(native))
     }
+    /// WS-28: the lateral-CA model measured on the input at its own resolution, and the
+    /// embedded vignetting record of its RAW, if found.
+    var lens: LensInputs = .none
 }
 
 enum Renderer {
 
-    static func prepare(path: String, longEdge: Int, needBandHues: Bool) throws -> PreparedInput {
+    static func prepare(path: String, longEdge: Int, needBandHues: Bool,
+                        lensRaw: String? = nil) throws -> PreparedInput {
         let full = try InputImage.load(path: path)
         let small = InputImage.downsample(full, longEdge: longEdge)
         let scale = Double(Swift.max(small.width, small.height))
             / Double(Swift.max(full.width, full.height))
-        return PreparedInput(image: small, scale: scale, sourceWidth: full.width,
-                             sourceHeight: full.height,
-                             bandHues: needBandHues ? ColorEngine.measureBandMeanHues(small) : nil)
+        var prepared = PreparedInput(image: small, scale: scale, sourceWidth: full.width,
+                                     sourceHeight: full.height,
+                                     bandHues: needBandHues
+                                        ? ColorEngine.measureBandMeanHues(small) : nil)
+        prepared.lens = lensInputs(full: full, inputPath: path, lensRaw: lensRaw)
+        return prepared
+    }
+
+    /// The RAW an .lfi was decoded from: `--lens-raw`, else the sidecar's `source` in
+    /// the corpus layout (`lfi/<name>.json` beside `raw/<source>`).
+    static func lensInputs(full: ImageBuffer, inputPath: String, lensRaw: String?) -> LensInputs {
+        // At the input's own resolution: the estimate is scale-consistent for lens CA
+        // but a photograph's other colour structure reads larger when downsampled
+        // (1840: 0.79 px at 4000 px against 0.48 px native, the independent tool's
+        // residual zero at 0.46), so the finest decode available is the one to measure.
+        // The app's path exactly (`LensInputsCache.measure`): tiles ranked on a 2048 px
+        // preview, measured on the input's own pixels — so what is verified here is
+        // what the app does.
+        let preview = InputImage.downsample(full, longEdge: 2048)
+        let ca = LateralCAEstimator.estimate(nativeWidth: full.width, nativeHeight: full.height,
+                                             preview: preview) { x, y, w, h in
+            guard x >= 0, y >= 0, x + w <= full.width, y + h <= full.height else { return nil }
+            var tile = ImageBuffer(width: w, height: h)
+            for yy in 0..<h {
+                let src = ((y + yy) * full.width + x) * 4, dst = yy * w * 4
+                for k in 0..<(w * 4) { tile.pixels[dst + k] = full.pixels[src + k] }
+            }
+            return tile
+        }
+        var raw = lensRaw
+        if raw == nil {
+            let input = URL(fileURLWithPath: inputPath)
+            let sidecar = input.deletingPathExtension().appendingPathExtension("json")
+            if let data = try? Data(contentsOf: sidecar),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let source = json["source"] as? String {
+                let candidate = input.deletingLastPathComponent()
+                    .deletingLastPathComponent().appendingPathComponent("raw")
+                    .appendingPathComponent(source)
+                if FileManager.default.fileExists(atPath: candidate.path) { raw = candidate.path }
+            }
+        }
+        let vignette = raw.flatMap { EmbeddedLensProfile.read(url: URL(fileURLWithPath: $0)) }?
+            .gainPolynomial
+        FileHandle.standardError.write(Data(("lens: CA model "
+            + (ca.map { "R k0=\($0.red.k0) k2=\($0.red.k2) B k0=\($0.blue.k0) k2=\($0.blue.k2)" }
+               ?? "none")
+            + ", embedded vignetting " + (vignette == nil ? "none" : "from \(raw ?? "")")
+            + "\n").utf8))
+        return LensInputs(lateralCA: ca, vignette: vignette)
     }
 
     /// `PipelineRenderer.renderReference`, minus the decode, plus the export's dither.
@@ -72,6 +123,8 @@ enum Renderer {
         if !capture.isIdentity {
             staged = capture.apply(staged)
         }
+        // WS-28 lens stage, the graph's position (after S3 and S4, before S5).
+        staged = LensStage.apply(staged, lens: recipe.develop.geometry.lens, inputs: input.lens)
         // The same scale to S11, where a mask's Noise rows obey S3's preview rule.
         let rendered = ReferenceRenderer.render(
             staged, plan: plan, inputs: ReferenceRenderer.Inputs(noiseScale: noiseScale,
@@ -279,7 +332,8 @@ enum LumenRenderCLI {
         let (recipe, applied) = try self.recipe(args, baseKey: "recipe")
         let prepared = try Renderer.prepare(
             path: input, longEdge: longEdge,
-            needBandHues: ColorEngine.needsMeasuredBandHues(recipe.develop.mixer))
+            needBandHues: ColorEngine.needsMeasuredBandHues(recipe.develop.mixer),
+            lensRaw: args.string("lens-raw"))
         let (encoded, seconds) = Renderer.render(prepared, recipe: recipe, settings: settings)
         try write(PNG.encode(width: encoded.width, height: encoded.height, rgb: encoded.bytes,
                              space: settings.space), to: out)
@@ -413,7 +467,8 @@ enum LumenRenderCLI {
 
         let needHues = recipes.contains { ColorEngine.needsMeasuredBandHues($0.develop.mixer) }
         let prepared = try Renderer.prepare(path: input, longEdge: longEdge,
-                                            needBandHues: needHues)
+                                            needBandHues: needHues,
+                                            lensRaw: args.string("lens-raw"))
         let start = Date()
         let results = Slots<(EncodedImage, ImageMetrics, PixelPlanes)>(values.count)
         // Tiles in parallel: a plan is a value, the table caches are lock-guarded, and

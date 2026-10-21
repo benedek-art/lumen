@@ -76,6 +76,7 @@ final class SliderEvidenceTests: XCTestCase {
         "geometry.crop.original": "action — restore the original crop",
         "geometry.flipH": "toggle — horizontal flip",
         "geometry.lens.profile": "toggle — lens profile on/off",
+        "geometry.lens.removeCA": "toggle — remove lateral chromatic aberration on/off",
         "geometry.lens.reset": "section reset button",
         "geometry.reset": "section reset button",
         "geometry.revert": "action — revert geometry",
@@ -266,6 +267,18 @@ final class SliderEvidenceTests: XCTestCase {
         "render.skew": .record(["render.skew"]),
         "render.hue": .record(["render.hue"]),
         "render.black": .record(["render.black"]),
+        "geometry.lens.defringe.purpleAmount": .contract(
+            "LensStageTests (WS-28) — amount 0 is identity, chroma of the fringe falls monotonically with amount and Y is kept, the other family and a same-hue object away from edges are untouched; a contract, not a sweep."),
+        "geometry.lens.defringe.greenAmount": .contract(
+            "LensStageTests (WS-28) — amount 0 is identity, chroma of the fringe falls monotonically with amount and Y is kept, the other family and a same-hue object away from edges are untouched; a contract, not a sweep."),
+        "geometry.lens.defringe.purpleHueLo": .contract(
+            "LensStageTests.testHueRangeExcludes (WS-28) — a range excluding the fringe's hue leaves it bit-identical; a contract, not a sweep."),
+        "geometry.lens.defringe.purpleHueHi": .contract(
+            "LensStageTests.testHueRangeExcludes (WS-28) — a range excluding the fringe's hue leaves it bit-identical; a contract, not a sweep."),
+        "geometry.lens.defringe.greenHueLo": .contract(
+            "LensStageTests.testHueRangeExcludes (WS-28) — a range excluding the fringe's hue leaves it bit-identical; a contract, not a sweep."),
+        "geometry.lens.defringe.greenHueHi": .contract(
+            "LensStageTests.testHueRangeExcludes (WS-28) — a range excluding the fringe's hue leaves it bit-identical; a contract, not a sweep."),
     ]
 
     // MARK: - The scan

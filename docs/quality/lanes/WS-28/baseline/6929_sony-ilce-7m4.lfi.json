@@ -1,0 +1,179 @@
+{
+ "width": 7008,
+ "height": 4672,
+ "primaries": "rec2020",
+ "lateral": {
+  "candidates": 100000,
+  "halfdiag_px": 4211.28388974194,
+  "sign_convention": "px, + = channel displaced outward (magnified) relative to G",
+  "zones": {
+   "0.0-0.3": {
+    "R-G": {
+     "n": 7977,
+     "median_px": 0.0076,
+     "mad_px": 0.1038,
+     "median_abs_px": 0.1048
+    },
+    "B-G": {
+     "n": 5866,
+     "median_px": -0.0032,
+     "mad_px": 0.2131,
+     "median_abs_px": 0.2132
+    }
+   },
+   "0.3-0.6": {
+    "R-G": {
+     "n": 8599,
+     "median_px": 0.0071,
+     "mad_px": 0.0939,
+     "median_abs_px": 0.0936
+    },
+    "B-G": {
+     "n": 6540,
+     "median_px": 0.0383,
+     "mad_px": 0.1985,
+     "median_abs_px": 0.1993
+    }
+   },
+   "0.6-0.8": {
+    "R-G": {
+     "n": 11576,
+     "median_px": 0.0379,
+     "mad_px": 0.1066,
+     "median_abs_px": 0.1106
+    },
+    "B-G": {
+     "n": 9859,
+     "median_px": 0.0526,
+     "mad_px": 0.2416,
+     "median_abs_px": 0.2403
+    }
+   },
+   "0.8-1.0": {
+    "R-G": {
+     "n": 12908,
+     "median_px": 0.0856,
+     "mad_px": 0.1008,
+     "median_abs_px": 0.121
+    },
+    "B-G": {
+     "n": 11185,
+     "median_px": -0.036,
+     "mad_px": 0.2527,
+     "median_abs_px": 0.2575
+    }
+   }
+  },
+  "fit": {
+   "R-G": {
+    "n": 41060,
+    "n_inliers": 39610,
+    "k1": -0.00716,
+    "k3": 0.14403,
+    "shift_at_r0.50_px": 0.0144,
+    "shift_at_r0.75_px": 0.0554,
+    "shift_at_r1.00_px": 0.1369,
+    "stderr_shift_at_r1.00_px": 0.0026,
+    "equivalent_scale_at_r1": 1.0000325
+   },
+   "B-G": {
+    "n": 33450,
+    "n_inliers": 32486,
+    "k1": 0.20684,
+    "k3": -0.30838,
+    "shift_at_r0.50_px": 0.0649,
+    "shift_at_r0.75_px": 0.025,
+    "shift_at_r1.00_px": -0.1015,
+    "stderr_shift_at_r1.00_px": 0.0066,
+    "equivalent_scale_at_r1": 0.9999759
+   }
+  }
+ },
+ "fringe": {
+  "candidates": 100000,
+  "edges_measured": 16878,
+  "threshold_oklab_ab": 0.03,
+  "min_contrast_stops": 1.5,
+  "zones": {
+   "0.0-0.3": {
+    "edges": 3624,
+    "width_median_px": 0.0,
+    "width_p90_px": 0.5,
+    "width_mean_px": 0.33,
+    "fringed_fraction": 0.1228,
+    "purple_edges": 185,
+    "green_edges": 144,
+    "purple_per_1000": 51.0,
+    "green_per_1000": 39.7,
+    "overthreshold_samples_by_hue": {
+     "red": 62,
+     "orange": 122,
+     "green": 868,
+     "cyan": 25,
+     "blue": 16,
+     "purple": 1301
+    }
+   },
+   "0.3-0.6": {
+    "edges": 4267,
+    "width_median_px": 0.0,
+    "width_p90_px": 2.0,
+    "width_mean_px": 0.45,
+    "fringed_fraction": 0.1619,
+    "purple_edges": 411,
+    "green_edges": 130,
+    "purple_per_1000": 96.3,
+    "green_per_1000": 30.5,
+    "overthreshold_samples_by_hue": {
+     "red": 71,
+     "orange": 118,
+     "green": 790,
+     "cyan": 132,
+     "blue": 204,
+     "purple": 2522
+    }
+   },
+   "0.6-0.8": {
+    "edges": 4277,
+    "width_median_px": 0.0,
+    "width_p90_px": 2.5,
+    "width_mean_px": 0.555,
+    "fringed_fraction": 0.1875,
+    "purple_edges": 512,
+    "green_edges": 171,
+    "purple_per_1000": 119.7,
+    "green_per_1000": 40.0,
+    "overthreshold_samples_by_hue": {
+     "red": 20,
+     "orange": 189,
+     "green": 1053,
+     "cyan": 32,
+     "blue": 281,
+     "purple": 3171
+    }
+   },
+   "0.8-1.0": {
+    "edges": 4710,
+    "width_median_px": 0.0,
+    "width_p90_px": 3.0,
+    "width_mean_px": 0.721,
+    "fringed_fraction": 0.2588,
+    "purple_edges": 801,
+    "green_edges": 183,
+    "purple_per_1000": 170.1,
+    "green_per_1000": 38.9,
+    "overthreshold_samples_by_hue": {
+     "red": 67,
+     "orange": 262,
+     "green": 1086,
+     "cyan": 35,
+     "blue": 847,
+     "purple": 4493
+    }
+   }
+  }
+ },
+ "seconds": 18.7,
+ "input": "/home/user/lumen/corpus/lfi-native/6929_sony-ilce-7m4.lfi",
+ "input_kind": "lfi (scene-linear)"
+}

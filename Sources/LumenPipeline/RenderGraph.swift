@@ -88,6 +88,8 @@ public struct RenderGraph {
     /// of the stroke sets by whoever builds this graph — the recipe holds only their
     /// blob reference. Empty means none, or the blob is not to hand yet.
     public var healStrokes: [BrushStroke] = []
+    /// WS-28: the lens stage's per-photograph inputs (`LensInputsCache`).
+    public var lensInputs: LensInputs = .none
 
     public init() {}
 
@@ -196,6 +198,10 @@ public struct RenderGraph {
             // one-pixel acutance.
             image = applyCaptureSharpen(image, plan: plan, options: options)
         }
+
+        // Lens corrections (WS-28): lateral CA, embedded vignetting, Defringe — on the
+        // sensor's picture, before S5 heals it. `RenderGraph+Lens.swift`.
+        image = applyLens(image, plan: plan)
 
         // S5 — retouch: heal and clone spots, on the scene-linear picture S3 left, so
         // every stage below inherits the healed pixels (docs/14 §2.1 rule 3). NOT skipped

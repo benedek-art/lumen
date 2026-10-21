@@ -1364,6 +1364,13 @@ public enum KernelLibrary {
     // S15, the tone curve after the finish table (`CurveStage`, wired by WS-01). General:
     // it reads its five 1-D tables at computed coordinates.
     public static let curveStage = makeGeneral(CurveStage.kernelSource)
+    // WS-28's lens stage (`LensKernelSource`, twins in LumenCore's `LensStage`). General:
+    // the warp samples R and B away from the pixel it writes, and the window pass reads
+    // a neighbourhood. The other two read only their own pixel.
+    public static let lensWarp = makeGeneral(LensKernelSource.lens)
+    public static let defringeLogLuma = make(LensKernelSource.defringeLogLuma)
+    public static let defringeWindow = makeGeneral(LensKernelSource.defringeWindow)
+    public static let defringeApply = make(LensKernelSource.defringeApply)
 
     /// Every kernel compiled. False means this macOS build rejected the kernel
     /// language and the renderer must use the CPU reference path.
@@ -1415,6 +1422,11 @@ public enum KernelLibrary {
             // The curve is no longer inside the finish table, so a missing curve kernel
             // would drop the photograph's curve outright: core roster, CPU fallback.
             ("curveStage", curveStage),
+            // WS-28's lens stage (WS-58 roster rows). A lens kernel that fails to compile
+            // used to drop Remove CA / Defringe on the GPU path silently while the CPU
+            // path still applied them; on this roster the render goes to the CPU path.
+            ("lensWarp", lensWarp), ("defringeLogLuma", defringeLogLuma),
+            ("defringeWindow", defringeWindow), ("defringeApply", defringeApply),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }

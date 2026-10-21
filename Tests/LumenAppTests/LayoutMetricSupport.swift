@@ -419,7 +419,8 @@ enum SliderInventory {
     /// 106 → 107 for capture sharpening's Radius, which came back with Lumen's own S4
     /// stage (WS-17); +1 for C2's Transform row and +3 for K1's grade-wheel Hue,
     /// Saturation and Luminance rows.
-    static let callSiteCount = 111
+    /// +6 for Defringe's (WS-28): Purple and Green Amount, each with Hue From and To.
+    static let callSiteCount = 117
 
     /// Every slider the app ships, resolved through its builder where the call site is
     /// a helper rather than a literal — `MaskPanel.adjustSlider`, `LookPanel.bipolarSlider`,
@@ -529,6 +530,17 @@ enum SliderInventory {
         SliderSpec("Amount", "EffectsPanel.swift:311", .developTop, 0...100, step: 1),
         SliderSpec("Size", "EffectsPanel.swift:322", .developTop, 0...100, step: 1),
         SliderSpec("Roughness", "EffectsPanel.swift:333", .developTop, 0...100, step: 1),
+        // Lens corrections — Defringe (WS-28).
+        SliderSpec("Purple Amount", "EffectsPanel.swift:467", .developTop, 0...20, step: 1),
+        SliderSpec("Hue From", "EffectsPanel.swift:475", .developTop, 0...100, step: 1,
+                   indented: true),
+        SliderSpec("Hue To", "EffectsPanel.swift:481", .developTop, 0...100, step: 1,
+                   indented: true),
+        SliderSpec("Green Amount", "EffectsPanel.swift:487", .developTop, 0...20, step: 1),
+        SliderSpec("Hue From", "EffectsPanel.swift:494", .developTop, 0...100, step: 1,
+                   indented: true),
+        SliderSpec("Hue To", "EffectsPanel.swift:500", .developTop, 0...100, step: 1,
+                   indented: true),
 
         // Export sheet — a fixed-width host, so no resize can rescue it.
         SliderSpec("Quality", "ExportSheet.swift:594", .exportSheet, 0...100, step: 1),
