@@ -1000,21 +1000,23 @@ private struct SnapshotSectionCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Mirrors `WorkspaceSectionView` and `DevelopPanel.scrollColumn` through the same
+        // tokens, so the snapshot shows the card the column draws.
+        VStack(alignment: .leading, spacing: Lumen.headerContentGap) {
             LumenSectionHeader(title: section.title,
                                symbol: section.symbolName,
                                isExpanded: .constant(true),
                                isModified: isModified,
                                topRhythm: 0,
+                               level: .card,
                                onToggle: { _ in })
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Lumen.cardPaddingH)
+        .padding(.vertical, Lumen.cardPaddingV)
         .lumenSurface(radius: Lumen.radiusCard, elevation: .flush, fill: Lumen.panel)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Lumen.columnGutter)
         .padding(.vertical, 6)
         .background(Lumen.windowBase)
         .foregroundStyle(Lumen.primaryText)

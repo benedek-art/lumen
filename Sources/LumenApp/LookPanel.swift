@@ -112,7 +112,7 @@ struct LookPanel: View {
     /// and their prose still said so, which is a ratio drifting out of step with the
     /// control it is supposed to match — invisible while both sides pass explicit
     /// values, and exactly the sort of thing that is wrong for a year.
-    private var innerRhythm: CGFloat { only == nil ? 20 : 10 }
+    private var innerRhythm: CGFloat { only == nil ? Lumen.subsectionGap : Lumen.foldGap }
 
     /// The four grades, in the order the tonal axis puts them.
     ///

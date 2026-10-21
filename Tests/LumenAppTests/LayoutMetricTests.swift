@@ -446,9 +446,11 @@ final class LayoutMetricTests: XCTestCase {
     /// this ever stops fitting, the row grows past its card rather than truncating.
     func testTheDisplayTransformHeaderAndEveryStockBadgeFitTheNarrowColumn() {
         let content = PanelChain.Host.developTop.contentWidth(columnWidth: Lumen.minimumPanelWidth)
-        // LumenSectionHeader: 4 pt of horizontal padding each side; a 20 pt chevron, the
-        // 5 pt modified dot and the "Reset" button, each with one 4 pt gap.
-        let chrome: CGFloat = 8 + (20 + 4) + (5 + 4)
+        // LumenSectionHeader since U1: its horizontal padding is `rowHighlightOutset` in
+        // and the same out again, so it nets to zero (this used to charge 8 for it); the
+        // chevron is `disclosureGlyphWidth` plus a 4 pt trailing pad plus the 4 pt gap;
+        // then the 5 pt modified dot and the "Reset" button, each with one 4 pt gap.
+        let chrome: CGFloat = (Lumen.disclosureGlyphWidth + 4 + 4) + (5 + 4)
             + (TextMetric.width("Reset", LayoutFont.caption) + 4)
         let room = content - chrome
         let title = TextMetric.width("Display Transform", LayoutFont.heading)

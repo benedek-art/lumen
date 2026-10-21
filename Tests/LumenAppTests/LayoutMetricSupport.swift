@@ -147,11 +147,19 @@ enum PanelChain {
     // The develop column, outside in.
 
     /// `DevelopPanel.swift` — the scroll view's content inset, each side.
-    static let scrollInset: CGFloat = 4
+    ///
+    /// READ FROM THE TOKEN since U1 rather than typed here: the source writes
+    /// `Lumen.columnGutter`, so the token is the literal, and a copy of it would be one
+    /// more pair of numbers waiting to disagree. It went 4 → 8 in that lane.
+    static var scrollInset: CGFloat { Lumen.columnGutter }
     /// `DevelopColumn.swift` — `WorkspaceSectionView`'s card gutter, each side. This is
     /// the one the accordion added on the owner's third review, and its own comment
     /// prices it: "It costs the track 12 points."
-    static let cardInset: CGFloat = 10
+    ///
+    /// `Lumen.cardPaddingH`, 10 → 12 in U1, for the same reason as `scrollInset`.
+    /// Together the two cost a ±100 row 12 pt of track: 202 → 190 at the 380 default,
+    /// 142 → 130 at the 320 minimum.
+    static var cardInset: CGFloat { Lumen.cardPaddingH }
     /// `DevelopPanel.swift` — what a `DevelopDisclosure` costs the rows inside it, each
     /// side. **Zero, and that is the point of this entry rather than an omission.**
     ///

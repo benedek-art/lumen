@@ -38,7 +38,7 @@ final class ScopeTests: XCTestCase {
         /// `LumenControls.swift` — the narrowest the column can be dragged.
         static var columnMinimum: CGFloat { Lumen.minimumPanelWidth }
         /// `DevelopPanel.swift` — the instrument's own inset in the column, each side.
-        static let instrumentInset: CGFloat = 4
+        static var instrumentInset: CGFloat { Lumen.columnGutter }
         /// `HistogramView.swift` / `ScopesView.swift` — each view's inner gutter, each
         /// side. The two are the same number and are asserted to stay so.
         static let viewInset: CGFloat = 8
@@ -78,14 +78,14 @@ final class ScopeTests: XCTestCase {
 
         let develop = try Self.strippedFlattened("Sources/LumenApp/DevelopPanel.swift")
         XCTAssertTrue(develop.contains("HistogramView(histogram: state.scopes?.histogram) "
-                                       + ".padding(.horizontal, 4)"),
+                                       + ".padding(.horizontal, Lumen.columnGutter)"),
                       "the histogram's inset in the column")
         XCTAssertTrue(develop.contains("ScopesView(scopes: state.scopes) "
-                                       + ".padding(.horizontal, 4)"),
+                                       + ".padding(.horizontal, Lumen.columnGutter)"),
                       "and the scopes'")
 
         let histogram = try Self.strippedFlattened("Sources/LumenApp/HistogramView.swift")
-        XCTAssertTrue(histogram.contains(".padding(.horizontal, 8)"))
+        XCTAssertTrue(histogram.contains(".padding(.horizontal, Lumen.space2)"))
         XCTAssertTrue(histogram.contains("HStack(spacing: 6) { Text(primaryReadout)"))
         XCTAssertTrue(histogram.contains("Spacer(minLength: 4)"))
         XCTAssertTrue(histogram.contains(".padding(.horizontal, 5)"))

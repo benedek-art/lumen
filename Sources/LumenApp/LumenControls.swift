@@ -106,9 +106,20 @@ enum Lumen {
     // Secondary and tertiary come down with it so the RATIOS between the three rungs
     // are preserved — a ramp that keeps its steps is what makes hierarchy legible, and
     // moving only the top would have flattened it.
+    //
+    // THEN SECONDARY AND TERTIARY CAME BACK UP, because they were failing WCAG AA (U1
+    // lane, docs/quality/lanes/U1). 0.62 is 4.7:1 on the panel but 3.1:1 on the focused
+    // row's fill, and every unmodified slider label is secondary. 0.48 was 3.0:1 on the
+    // panel itself, and tertiary is not only "disabled": it carries mask counts, caps
+    // labels and history rows. The ramp is now 0.86 / 0.70 / 0.61:
+    //   primary   9.2:1 on the panel
+    //   secondary 6.0:1 on the panel, 4.6:1 on the 0.27 focus fill
+    //   tertiary  4.6:1 on the panel
+    // The hierarchy is carried by weight and size as well as value now (see
+    // `lumenSectionTitle`), so the closer rungs cost less than they look.
     static let primaryText = Color(nsColor: NSColor(white: 0.86, alpha: 1))
-    static let secondaryText = Color(nsColor: NSColor(white: 0.62, alpha: 1))
-    static let tertiaryText = Color(nsColor: NSColor(white: 0.48, alpha: 1))
+    static let secondaryText = Color(nsColor: NSColor(white: 0.70, alpha: 1))
+    static let tertiaryText = Color(nsColor: NSColor(white: 0.61, alpha: 1))
 
     /// What hovering adds to a surface: one step up the ladder, uniformly.
     ///
@@ -415,6 +426,55 @@ enum Lumen {
     /// buys is four points of track, which at the 380 pt default is 0.03 points per unit
     /// on a ±100 control. Nobody can feel that; everybody can see a clipped number.
     static let valueWidth: CGFloat = 52
+
+    // MARK: Spacing (U1)
+
+    // ONE GRID, NAMED ONCE. The column was built from 2, 4, 6, 7, 8, 10 and 20 written
+    // where they were needed, so a card's label sat 10 pt inside its rim, its chevron
+    // 16.5, a fold's chevron 29, and the filename above all of them 10 pt from the
+    // column edge against the cards' 14. Each number had a local reason and the sum
+    // had none. The baseline audit with pixel measurements is
+    // docs/quality/lanes/U1/SPEC.md.
+    //
+    // The grid is 4 pt. `rowHighlightOutset` is the one half-step, and it exists to
+    // split `cardPaddingH` evenly: a highlighted row's text sits 6 pt inside the fill
+    // and the fill sits 6 pt inside the card.
+
+    static let space1: CGFloat = 4
+    static let space2: CGFloat = 8
+    static let space3: CGFloat = 12
+    static let space4: CGFloat = 16
+    static let space5: CGFloat = 20
+    static let space6: CGFloat = 24
+
+    /// Column edge to card edge, and the footer's inset. Equal to `cardGap`, so the
+    /// margin outside a card is the same as the trough between two of them.
+    static let columnGutter: CGFloat = space2
+    /// Card edge to content, both sides. Labels and value pills are both this far from
+    /// the rim, which is what makes the card read as centred.
+    static let cardPaddingH: CGFloat = space3
+    /// Card edge to the header above and the last row below. The header carries 4 pt of
+    /// its own, so the title's text sits about as far from the top rim as the label
+    /// column does from the side.
+    static let cardPaddingV: CGFloat = space2
+    /// Between two cards, and between the histogram and the first card.
+    static let cardGap: CGFloat = space2
+    /// A header (card, subsection or fold) to the first row under it.
+    static let headerContentGap: CGFloat = space2
+    /// The air above a subsection title inside a card ("Capture Sharpening").
+    static let subsectionGap: CGFloat = space4
+    /// The air above a fold inside a card ("Zones", "Noise Reduction").
+    static let foldGap: CGFloat = space2
+    /// How far a row's focus fill, and a header's hover fill, reach past the content
+    /// column on each side. Without it the fill's edge IS the text's edge.
+    static let rowHighlightOutset: CGFloat = 6
+    /// The chevron's column in a header. Narrow enough that the glyph's leading edge
+    /// lands on the label column instead of 6 pt to its right; the whole header row is
+    /// the click target, so the chevron does not need its own 20 pt.
+    static let disclosureGlyphWidth: CGFloat = 8
+    /// Where every text column in the develop column starts, measured from the column
+    /// edge: the filename, the masking back button, the labels inside every card.
+    static let contentInset: CGFloat = columnGutter + cardPaddingH
 }
 
 // MARK: - Coloured track stop
@@ -1577,7 +1637,15 @@ struct LumenSectionHeader: View {
     /// amount of blank panel could. This value is what the hand-composed headers inside
     /// those cards — Colour's, Look's, the mask editor's — still use to separate
     /// themselves from each other.
-    var topRhythm: CGFloat = 20
+    var topRhythm: CGFloat = Lumen.subsectionGap
+
+    /// Which rung of the type hierarchy this header is (U1).
+    ///
+    /// Card titles, subsection titles and fold titles were all 12 pt semibold, so a
+    /// card's own name and the names of the parts inside it read as peers. A card
+    /// title is one step up; everything inside a card keeps `.lumenHeading`.
+    enum Level { case card, subsection }
+    var level: Level = .subsection
 
     /// TAKES THE CLICK INSTEAD OF THE BINDING, and reports whether ⌥ was down.
     ///
@@ -1650,11 +1718,20 @@ struct LumenSectionHeader: View {
                         // 24pt minimum in both dimensions. It survived only because the
                         // whole header row also toggles, which is a fat target with the
                         // wrong owner. This changes nothing that is drawn.
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
+                        //
+                        // EIGHT WIDE NOW, NOT TWENTY (U1). A 20 pt box centred a 7 pt
+                        // glyph, which put the chevron 6.5 pt right of the label column
+                        // and gave every card two left edges. The box hugs the glyph so
+                        // its leading edge lands on the labels; the hit area keeps its
+                        // reach through the outset `contentShape`, and the whole header
+                        // row toggles regardless.
+                        .frame(width: Lumen.disclosureGlyphWidth, height: 20)
+                        .contentShape(Rectangle().inset(by: -Lumen.rowHighlightOutset))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Lumen.secondaryText)
+                // Chevron to glyph or title: 8 pt, two grid steps of the HStack's 4.
+                .padding(.trailing, Lumen.space1)
             }
             // THE GLYPH, IN A FIXED BOX SO THE TITLES CANNOT WANDER.
             //
@@ -1707,8 +1784,10 @@ struct LumenSectionHeader: View {
             // which is a real step and a quiet one. Caps retire to the workspace rail,
             // where a three-letter label has no word-shape to lose anyway.
             Text(title)
-                .font(.lumenHeading)
-                .foregroundStyle(Lumen.primaryText)
+                .font(level == .card ? .lumenSectionTitle : .lumenHeading)
+                // Card titles in primary, subsection and fold titles one rung down: the
+                // second half of the hierarchy step `lumenSectionTitle` describes.
+                .foregroundStyle(level == .card ? Lumen.primaryText : Lumen.secondaryText)
                 .fixedSize(horizontal: true, vertical: false)
             if let badge {
                 // After the name and before the dot: it qualifies the heading, so it
@@ -1779,7 +1858,7 @@ struct LumenSectionHeader: View {
                     .help(resetHelp ?? "")
             }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Lumen.rowHighlightOutset)
         .padding(.vertical, 4)
         // THE HEADER ANSWERS THE POINTER TOO, on the state it already tracked.
         //
@@ -1826,7 +1905,11 @@ struct LumenSectionHeader: View {
         // TITLE has to stay on the same left edge as the slider names beneath it — a
         // heading that sits four points right of its own contents is the kind of drift
         // nobody reports and everybody sees.
-        .padding(.horizontal, -4)
+        //
+        // `rowHighlightOutset` rather than 4 (U1), so a hovered header and a focused
+        // slider row light up the same shape: both fills reach 6 pt past the content
+        // column and both stop 6 pt short of the card rim.
+        .padding(.horizontal, -Lumen.rowHighlightOutset)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { toggle() }

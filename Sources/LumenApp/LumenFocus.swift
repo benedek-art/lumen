@@ -77,9 +77,17 @@ extension View {
     /// longer needs `@State` of its own.
     func lumenFocusSurface(focused: Bool,
                            radius: CGFloat = Lumen.radiusControl) -> some View {
+        // OUTSET, AND ONE RUNG LOWER (U1). The fill used to be exactly the row's
+        // frame, so the label's first glyph and the value pill's stroke sat ON its
+        // edges (1 pt and 0 pt in the baseline snapshots). It now reaches
+        // `rowHighlightOutset` past the row on each side, into the card's padding, so
+        // the text has 6 pt of fill around it and the fill has 6 pt of card. And it is
+        // `controlHover` 0.27 rather than `controlActive` 0.31: an unmodified label in
+        // `secondaryText` was 3.1:1 on 0.31 and is 4.6:1 on 0.27.
         background(
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(focused ? Lumen.controlActive : Color.clear))
+                .fill(focused ? Lumen.controlHover : Color.clear)
+                .padding(.horizontal, -Lumen.rowHighlightOutset))
             .contentShape(Rectangle())
             // Animated on the value rather than on the view, so losing focus fades out
             // rather than snapping — the asymmetry the eye reads as responsiveness.

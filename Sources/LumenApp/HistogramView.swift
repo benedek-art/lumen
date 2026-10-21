@@ -114,9 +114,14 @@ struct HistogramView: View {
                     .help(measurementStatement)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        // 8, NOT THE SECTION CARDS' 12 (U1), and it is a measured trade. At 12 the
+        // clipping headline's widest case ("100.00% RB white · 100.00% RB black") is
+        // within about a point of its slot at the 320 pt minimum column (ScopeTests),
+        // and a truncated clipping readout is worse than a readout 4 pt left of the
+        // labels. The vertical went 8/6 → 12/12 so the card's rhythm matches the rest.
+        .padding(.horizontal, Lumen.space2)
+        .padding(.top, Lumen.space3)
+        .padding(.bottom, Lumen.space3)
         .foregroundStyle(Lumen.primaryText)
         // The same card the accordion's sections wear, so the instrument reads as one of
         // the column's areas rather than as something painted onto the chrome above it.
