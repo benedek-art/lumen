@@ -1,7 +1,7 @@
 # U3: viewer, Compare and editing workflow (report)
 
 Branch `quality/u3-viewer-workflow` from `claude/inspiring-dirac-ulgpch` (9068ded).
-Baseline snapshots: `ui-snapshots:claude-inspiring-dirac-ulgpch/a93efb2/`. After: `ui-snapshots:quality-u3-viewer-workflow/<sha>/` (sha in the CI section).
+Baseline snapshots: `ui-snapshots:claude-inspiring-dirac-ulgpch/a93efb2/`. After: `ui-snapshots:quality-u3-viewer-workflow/3685198/` (41 of 41 written).
 
 ## For the owner
 
@@ -65,4 +65,14 @@ SPEC.md lines: S1 PASS (48 px = 24 pt each side, measured). S2 PASS (fit 510→2
 ## Gates
 
 - Linux: `swift build --target LumenCore` clean. LumenApp can't be parsed by the Linux Swift 6.0.3 because of a pre-existing trailing comma in `CompareView.swift` (base 9068ded, lines 325/568, macOS-only syntax), so Core tests ran from a scratch copy with only those two commas removed. The keymap, scope, design-system and surround text-scan suites (116 tests) passed after one fix: a raw corner-radius literal, replaced with `Lumen.radiusChip`.
-- macOS CI and verifier: see the CI section below.
+- Verifier (fresh agent, diff + spec only): round 1 FAIL (3 defects: Compare 1:1 snapshot reset by `onAppear`, blind toggle on Space release, stale hold eating the grid-peek release), all fixed; rounds 2 and 3 PASS.
+
+## CI (head 3685198)
+
+UI layout ✅ (LayoutMetricTests, incl. the 3-across footer and the note budget) · UI snapshots ✅ 41/41 · GPU parity ✅ · Proof sweep ✅ · CI (`ci.yml`): queued on the shared macOS runner when this was written; earlier heads' runs were superseded by later pushes, none failed.
+
+## Three best before/after images
+
+1. Fit matte: `evidence/before-develop-fit.png` → `evidence/after-develop-fit.png` (picture flush to both panels → 24 pt matte, crop no longer jumps: compare `before-crop-armed.png`).
+2. Side by side: `evidence/before-side-by-side-bottom-pinned.png` → `evidence/after-side-by-side.png` (pictures on the viewer floor under the HUD → centred, labelled at the top).
+3. Compare: baseline had no Compare snapshot and no keyboard zoom → `evidence/after-compare-fit.png` (matte, Copy… / Paste / Sync… footer) and `evidence/after-compare-zoom-1to1.png` (Z, both panes synced at 1:1).
