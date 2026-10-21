@@ -1707,9 +1707,26 @@ public final class PipelineRenderer {
             // so a drag that kept every key paid for a picture on every event and used
             // none of them (twice per event with the EDR preview's second graph). One
             // box per graph: every mask in the stack shares one readback, as before.
+            //
+            // ONLY FOR THE MASKS THE GPU DOES NOT TAKE (lane M9). A range mask on the GPU
+            // path samples `gpuStage` below at the frame's own resolution, so it is not a
+            // reason to build this one, nor to spell the picture fingerprint into keys.
+            let eligible = plan.masks.filter {
+                MaskGPU.isGPUEvaluable($0, longEdge: Int(long))
+            }
+            // The stage input the GPU range kernels sample: the same `localStageInput`
+            // graph, over the decode's own extent, never read back. Built only when an
+            // eligible mask reads the picture; if it cannot be built, those masks go
+            // back to the CPU path, which then builds its own stage for them.
+            let gpuStage: CIImage? = eligible.contains(where: MaskGPU.readsPicture)
+                ? gpuMaskStage(decoded: decoded, plan: plan, strokeSets: strokeSets) : nil
+            let gpuEligible = Set(eligible.filter {
+                gpuStage != nil || !MaskGPU.readsPicture($0)
+            }.map(\.id))
+            let cpuMasks = plan.masks.filter { !gpuEligible.contains($0.id) }
             let source = maskStage(decoded: decoded, plan: plan,
                                    width: width, height: height, extent: extent,
-                                   strokeSets: strokeSets)
+                                   strokeSets: strokeSets, masks: cpuMasks)
 
             // Everything the raster reads goes into the key, or the cache lies —
             // PlanTableCache's rule, applied to planes. The source image is keyed by
@@ -1797,7 +1814,8 @@ public final class PipelineRenderer {
                 // so it never enters the raster cache, never misses it, and can never
                 // be served one gesture stale. That staleness IS the tail the owner
                 // reported dragging a radial (docs/35 §5.1).
-                if let gpu = MaskGPU.alpha(for: mask, extent: extent) {
+                if gpuEligible.contains(mask.id),
+                   let gpu = MaskGPU.alpha(for: mask, extent: extent, source: gpuStage) {
                     graph.maskImages[mask.id] = gpu
                     continue
                 }
@@ -1889,8 +1907,11 @@ public final class PipelineRenderer {
                 // own size (132 MB on a 33 MP frame, plus the image's own copy) and
                 // pinning one here would undo MaskRasterCache's retention rule. An
                 // uncached bake is fresh storage every frame and could never hit.
-                let memoize = cached && allowStaleRasters
-                    && alpha.values.count <= Self.maskRasterLongEdge * Self.maskRasterLongEdge
+                // And the settle rung's rasters too, now that the cache holds them
+                // (lane M9): a settle whose raster is a hit should not copy 45 MB into a
+                // new bitmap either. `maskImage` keys the two rungs apart.
+                let memoize = cached
+                    && MaskRasterCache.retains(width: alpha.width, height: alpha.height)
                 guard let image = maskImage(maskID: mask.id, plane: alpha,
                                             extent: extent, memoize: memoize) else {
                     continue
@@ -1976,6 +1997,18 @@ public final class PipelineRenderer {
         let width = Swift.max(Int(extent.width * fit), 8)
         let height = Swift.max(Int(extent.height * fit), 8)
 
+        // THE GPU ROUTE FIRST (lane M9). The overlay refreshes while the photographer
+        // drags a range mask's own sliders, and the CPU raster of a colour range at the
+        // proxy is ~75 ms on the measuring container; the same alpha from `MaskGPU` is one
+        // pass and a 2.8 MB readback. Same numbers within `MaskRangeGPUParityTests`'
+        // tolerance, same top-down plane.
+        if MaskGPU.isGPUEvaluable(mask, longEdge: Swift.max(width, height)),
+           let plane = gpuMaskAlpha(mask, decoded: decoded, plan: plan,
+                                    width: width, height: height, extent: extent,
+                                    strokeSets: strokeSets) {
+            return plane
+        }
+
         let stage = maskSource(decoded: decoded, plan: plan, width: width,
                                height: height, extent: extent, strokeSets: strokeSets,
                                masks: [mask])
@@ -1988,6 +2021,36 @@ public final class PipelineRenderer {
                                   // rather than an empty one.
                                   aiMattes: mattes[source.url]?.planes ?? [:],
                                   masks: plan.allMasks)
+    }
+
+    /// `MaskGPU`'s alpha for one mask at `width`×`height`, read back as a plane. Nil
+    /// when the GPU path declines it, so the caller rasterizes on the CPU instead.
+    private func gpuMaskAlpha(_ mask: Mask, decoded: CIImage, plan: RenderPlan,
+                              width: Int, height: Int, extent: CGRect,
+                              strokeSets: [String: BrushStrokeSet]) -> Plane? {
+        let bounds = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        let small = decoded
+            .transformed(by: CGAffineTransform(
+                translationX: -extent.origin.x, y: -extent.origin.y))
+            .transformed(by: CGAffineTransform(
+                scaleX: CGFloat(width) / Swift.max(extent.width, 1),
+                y: CGFloat(height) / Swift.max(extent.height, 1)))
+            .cropped(to: bounds)
+        let stage = MaskGPU.readsPicture(mask)
+            ? gpuMaskStage(decoded: small, plan: plan, strokeSets: strokeSets) : nil
+        guard let alpha = MaskGPU.alpha(for: mask, extent: bounds, source: stage)
+        else { return nil }
+        // RGBAf and the red channel, the readback every mask parity test uses, rather
+        // than trusting how a single-channel destination reduces four channels.
+        var rgba = [Float](repeating: 0, count: width * height * 4)
+        rgba.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            context.render(alpha, toBitmap: base, rowBytes: width * 16,
+                           bounds: bounds, format: .RGBAf, colorSpace: nil)
+        }
+        var plane = Plane(width: width, height: height)
+        for i in 0..<(width * height) { plane.values[i] = rgba[i * 4] }
+        return plane
     }
 
     /// The local-stage input, at mask-raster resolution, as an `ImageBuffer`.
@@ -2043,6 +2106,27 @@ public final class PipelineRenderer {
         guard bounds.width >= 1, bounds.height >= 1,
               bounds.width.isFinite, bounds.height.isFinite else { return nil }
         return LazyStageBuffer(image: staged, context: context)
+    }
+
+    /// The stage input at the decode's own extent, for `MaskGPU`'s range kernels.
+    ///
+    /// `maskStage`'s graph without the downscale and without the readback: a range mask
+    /// on the GPU is a pointwise function of this image, evaluated at the resolution the
+    /// frame renders at, so there is no raster to size and nothing to copy to the CPU.
+    /// The same `maskSource` options and heal strokes, so a band selects from the same
+    /// picture the CPU path and `ReferenceRenderer` select from.
+    func gpuMaskStage(decoded: CIImage, plan: RenderPlan,
+                      strokeSets: [String: BrushStrokeSet]) -> CIImage? {
+        let extent = decoded.extent
+        guard extent.width >= 1, extent.height >= 1,
+              extent.width.isFinite, extent.height.isFinite else { return nil }
+        let staged = RenderGraph(healStrokesOf: plan.recipe, strokeSets: strokeSets)
+            .localStageInput(
+                decoded, plan: plan,
+                options: RenderGraph.Options(
+                    longEdge: Int(Swift.max(extent.width, extent.height)),
+                    maskSource: true))
+        return staged.cropped(to: extent)
     }
 
     /// Whether rasterizing THIS mask reads the picture — `maskSource`'s `needsPicture`,
@@ -2252,8 +2336,12 @@ public final class PipelineRenderer {
     func maskImage(maskID: String, plane: Plane, extent: CGRect,
                    memoize: Bool) -> CIImage? {
         guard memoize else { return Self.image(from: plane, targetExtent: extent) }
+        // One slot per mask per rung, so a settle between two drags does not evict the
+        // draft's image (and the next settle the settle's).
+        let settleRung = Swift.max(plane.width, plane.height) > Self.maskRasterLongEdge
+        let slot = settleRung ? maskID + Self.settleMemoSuffix : maskID
         maskImageMemoLock.lock()
-        if let held = maskImageMemo[maskID],
+        if let held = maskImageMemo[slot],
            held.extent == extent,
            held.plane.width == plane.width, held.plane.height == plane.height,
            held.plane.values.withUnsafeBufferPointer({ a in
@@ -2269,21 +2357,42 @@ public final class PipelineRenderer {
         // should not wait on it.
         guard let image = Self.image(from: plane, targetExtent: extent) else { return nil }
         maskImageMemoLock.lock()
-        if maskImageMemo[maskID] == nil, maskImageMemo.count >= Self.maskImageMemoLimit {
+        if maskImageMemo[slot] == nil, maskImageMemo.count >= Self.maskImageMemoLimit {
             // Coarse, like `forgetMattes`: a plan with more raster masks than this
             // simply builds its images the old way.
             maskImageMemo.removeAll()
         }
-        maskImageMemo[maskID] = MaskImageMemo(plane: plane, extent: extent, image: image)
+        if settleRung {
+            // The settle images are each a copy of a settle raster; held under the same
+            // byte budget as the raster cache's settle rung; others go once it is spent.
+            let bytes: (MaskImageMemo) -> Int = {
+                $0.plane.values.count * MemoryLayout<Float>.stride
+            }
+            var total = bytes(MaskImageMemo(plane: plane, extent: extent, image: image))
+            for (key, held) in maskImageMemo where key.hasSuffix(Self.settleMemoSuffix)
+                && key != slot {
+                total += bytes(held)
+                if total > MaskRasterCache.settleResidencyBudget {
+                    maskImageMemo.removeValue(forKey: key)
+                }
+            }
+        }
+        maskImageMemo[slot] = MaskImageMemo(plane: plane, extent: extent, image: image)
         maskImageMemoLock.unlock()
         return image
     }
+
+    private static let settleMemoSuffix = "\u{1}settle"
 
     /// Drops memo entries for masks the current plan no longer has, so a deleted mask
     /// or the previous photograph's stack does not stay pinned.
     func pruneMaskImages(keeping ids: Set<String>) {
         maskImageMemoLock.lock()
-        maskImageMemo = maskImageMemo.filter { ids.contains($0.key) }
+        maskImageMemo = maskImageMemo.filter {
+            let id = $0.key.hasSuffix(Self.settleMemoSuffix)
+                ? String($0.key.dropLast(Self.settleMemoSuffix.count)) : $0.key
+            return ids.contains(id)
+        }
         maskImageMemoLock.unlock()
     }
 

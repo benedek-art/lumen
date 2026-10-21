@@ -26,11 +26,9 @@
 // (`BrushAccumulationTests` proves the property, `MaskCostTests` proves it across a
 // whole session, and these prove the cache actually reaches it).
 //
-// The mask RASTER cache deliberately still refuses the settle rung, and the last test
-// here is the guard on that refusal rather than an omission: see `MaskRasterCache`'s
-// header for the key defect that has to be fixed before the raster can be held, and
-// `MaskCostTests.testTheRasterCacheRefusesTheSettleRungWhileItsKeyIsIncomplete` for the
-// same rule stated where it runs.
+// The mask RASTER cache holds the settle rung too since lane M9, now that its key names
+// the whole reference closure; `testTheRasterCacheHoldsSettleRastersWithinItsByteBudget`
+// is the bound on it.
 //
 // These do not run on the Linux lane — `LumenPipeline` is `#if os(macOS)`.
 
@@ -242,16 +240,17 @@ final class MaskPerfTests: XCTestCase {
 
     // MARK: - The raster cache
 
-    /// The mask RASTER cache still refuses the settle rung, and this is the guard on
-    /// that refusal rather than a gap in this file.
+    /// The mask RASTER cache holds the settle rung now (lane M9), within a byte budget.
     ///
-    /// Holding it is a two-line change and it is not legal yet: the raster key does not
-    /// name the masks a `maskRef` component resolves against, so editing mask A changes
-    /// mask B's raster without moving B's key. Today the under-key is survivable
-    /// exactly because every settle re-folds from nothing and repairs it. Whoever
-    /// removes this refusal has to fix the key first — see `MaskRasterCache`'s header
-    /// for the whole account.
-    func testTheRasterCacheStillRefusesToHoldASettleSizedRaster() {
+    /// This used to assert the opposite, and the refusal was right while the raster key
+    /// did not name the masks a `maskRef` component resolves against. The key now closes
+    /// over the whole reference closure (`maskSelectionFingerprint` of
+    /// `MaskDependency.closure`, plus the closure's stroke refs and matte generation —
+    /// `MaskReferencePipelineTests` exercises each), so the under-key the refusal was
+    /// covering for is gone and holding the raster is only a memory question. What must
+    /// still hold: an identical settle key is a hit, a changed key bakes, the bytes
+    /// held stay under `settleResidencyBudget`, and an export-size raster is not held.
+    func testTheRasterCacheHoldsSettleRastersWithinItsByteBudget() {
         let cache = MaskRasterCache()
         let settleRaster = Plane(width: 1100, height: 734, fill: 0.375)
         var bakes = 0
@@ -259,12 +258,28 @@ final class MaskPerfTests: XCTestCase {
             _ = cache.plane(maskID: "m", key: "settle", identity: "photo",
                             allowStale: false) { bakes += 1; return settleRaster }
         }
-        XCTAssertEqual(bakes, 2,
-                       "a settle-sized raster is being held. That is the right thing to "
-                       + "want and the wrong thing to do while the raster key omits the "
-                       + "masks a maskRef component reads: a referenced selection would "
-                       + "freeze at whatever the mask it points to last looked like, in "
-                       + "the loupe and in the delivered file, with nothing badged.")
+        XCTAssertEqual(bakes, 1, "an identical settle key rasterized twice")
+        _ = cache.plane(maskID: "m", key: "settle-2", identity: "photo",
+                        allowStale: false) { bakes += 1; return settleRaster }
+        XCTAssertEqual(bakes, 2, "a changed key must bake")
+
+        // Fill past the budget with the largest interactive raster, many masks.
+        let large = Plane(width: 4096, height: 2731, fill: 0.5)
+        for i in 0..<8 {
+            _ = cache.plane(maskID: "big\(i)", key: "k", identity: "photo",
+                            allowStale: false) { large }
+        }
+        XCTAssertLessThanOrEqual(cache.settledBytes, MaskRasterCache.settleResidencyBudget)
+        XCTAssertGreaterThan(cache.settledBytes, 0)
+
+        // Above the interactive ceiling is a delivery, and it is never held.
+        let export = Plane(width: 6000, height: 4, fill: 0.5)
+        var exportBakes = 0
+        for _ in 0..<2 {
+            _ = cache.plane(maskID: "x", key: "export", identity: "photo",
+                            allowStale: false) { exportBakes += 1; return export }
+        }
+        XCTAssertEqual(exportBakes, 2, "an export-size raster was held")
     }
 
     /// A settle drops the drag's queued draft raster: it is work for a frame of a

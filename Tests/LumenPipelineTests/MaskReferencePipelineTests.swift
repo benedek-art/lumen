@@ -308,6 +308,10 @@ final class MaskReferencePipelineTests: XCTestCase {
         r.develop.denoise.mode = .off
         var banded = Mask(id: "banded", components: [band()])
         banded.adjust.exposure = 1
+        // A plain band takes `MaskGPU`'s range path since lane M9 and never reads the
+        // picture back at all. An Edge shift is not pointwise, so this band keeps the
+        // CPU raster path this test is about.
+        banded.refine.edge = 10
         r.masks = [banded]
         let held = PipelineRenderer()
         let before = try pixels(held, source, r)
@@ -450,6 +454,9 @@ final class MaskReferencePipelineTests: XCTestCase {
             c.hi = hi
             var mask = Mask(id: "band", components: [c])
             mask.adjust.exposure = 1
+            // Edge is not pointwise, so this band stays on the CPU raster path whose
+            // sharing this test pins (a plain band is `MaskGPU`'s since lane M9).
+            mask.refine.edge = 10
             var r = Recipe()
             r.develop.denoise.mode = .off
             r.masks = [mask]

@@ -29,10 +29,25 @@
 // matters even without a larger cache: small native settles and exports fit within
 // the existing 1024 px retention limit and must not reuse an obsolete donor selection.
 //
-// The retention policy is unchanged: only rasters at or below the draft proxy are
-// held. Larger settles and exports rasterize at the render target's own resolution
-// and are not retained. Extending retention would need its own byte budget and
-// performance evaluation; reference correctness does not authorize more memory use.
+// THE SETTLE RUNG (lane M9). Only rasters at or below the draft proxy used to be held,
+// so every settle re-rasterized every CPU mask at the render's own resolution — up to
+// the 4096 interactive ceiling — even when the edit that triggered it was an adjustment
+// slider that changes no pixel of any alpha. On the measuring container that is 0.3–6 s
+// of CPU per settle for one refined mask (docs/quality/lanes/M9/REPORT.md), paid again
+// on every release of every slider. The key is complete (it names the full reference
+// closure, the strokes, the matte generation and, per mask, the picture), so holding a
+// settle raster is now only a memory question, and the answer is a byte budget, the
+// same shape `BrushPlaneCache`'s settle rung uses: one entry per mask id, newest first,
+// trimmed to `settleResidencyBudget`. Deliveries above the interactive ceiling are still
+// refused: an export raster at 45 MP is ~180 MB and nothing revisits it.
+//
+// AND A CHEAP BAKE IS NEVER SERVED STALE. A draft miss used to serve the previous raster
+// whatever the bake would cost, so a plain brush stroke committed on mouse-up showed the
+// mask WITHOUT the stroke for the next frame and popped in a frame or two later. The
+// cache now remembers how long each mask's last bake took, and a draft miss on a mask
+// whose bake fits `synchronousBakeBudget` bakes in line: exact on the first frame, at
+// the price of a few milliseconds the frame can afford. A mask that is expensive to
+// bake (a guided refine, an AI matte with Follow) keeps the stale door.
 
 #if os(macOS)
 
@@ -47,6 +62,25 @@ public final class MaskRasterCache {
     /// single-channel Float plane, ~2.8 MB; sixteen is under 45 MB and old photos'
     /// masks age out instead of accumulating for the life of the process.
     private let capacity = 16
+
+    /// What the settle rung may hold, in bytes. A 3:2 frame at the 4096 interactive
+    /// ceiling is 4096×2731 Float = 44.7 MB, so this holds four of the largest rasters
+    /// an interactive surface asks for; at a 2560 fit settle (17.5 MB) it holds ten.
+    /// Against `RenderCoordinator.decodeResidencyBudget` (768 MB) it is a quarter, and
+    /// what it buys is a settle that rasterizes nothing when no selection moved.
+    static let settleResidencyBudget = 192 * 1024 * 1024
+
+    /// A draft miss bakes in line when this mask's previous bake took no longer than
+    /// this, instead of serving the previous raster. Half a 60 Hz frame: a plain brush
+    /// or polygon at the 1024 proxy fits on an M-series Mac, a guided refine does not.
+    static let synchronousBakeBudget: Double = 8 // ms
+
+    /// Whether a raster of this size is one the cache will hold. Read by the renderer
+    /// so it memoizes the mask image over exactly the planes this cache retains.
+    static func retains(width: Int, height: Int) -> Bool {
+        Swift.max(width, height) <= DraftLadder.interactiveLongEdgeCeiling
+            && width * height * MemoryLayout<Float>.stride <= settleResidencyBudget
+    }
 
     private struct Entry {
         var key: String
@@ -89,6 +123,11 @@ public final class MaskRasterCache {
     /// a replacement source's cache or alter the new generation's queue bookkeeping.
     private var generation: UInt64 = 0
     private var entries: [(maskID: String, entry: Entry)] = []
+    /// The rung above the proxy, kept apart so a few settle-size rasters cannot evict
+    /// the draft rasters a drag lives off. One per mask id, newest first.
+    private var settled: [(maskID: String, entry: Entry)] = []
+    /// Milliseconds the last bake of each mask took, for the synchronous-bake rule.
+    private var bakeCost: [String: Double] = [:]
     private var inFlight: Set<String> = []
     private var pending: [String: (key: String, identity: String,
                                    bakeExact: () -> Plane)] = [:]
@@ -116,8 +155,18 @@ public final class MaskRasterCache {
             Self.count { $0.hits += 1 }
             return held.plane
         }
+        if let index = settled.firstIndex(where: { $0.maskID == maskID }),
+           settled[index].entry.key == key {
+            settled[index].entry.identity = identity
+            let held = settled.remove(at: index)
+            settled.insert(held, at: 0)
+            lock.unlock()
+            Self.count { $0.hits += 1 }
+            return held.entry.plane
+        }
         let previous = entries.first { $0.maskID == maskID }?.entry
-        guard allowStale, let previous, previous.identity == identity else {
+        let cheap = (bakeCost[maskID] ?? .infinity) <= Self.synchronousBakeBudget
+        guard allowStale, !cheap, let previous, previous.identity == identity else {
             // A SETTLE CANCELS THE DRAG'S LEFTOVER RASTER.
             //
             // `pending` is populated by the stale branch below and by nothing else, so
@@ -135,9 +184,11 @@ public final class MaskRasterCache {
             // simply bakes it — the same thing it would have done had the queue not
             // reached it in time.
             if !allowStale { pending.removeValue(forKey: maskID) }
+            // A cheap mask's queued draft raster is superseded by this exact one too.
+            if cheap { pending.removeValue(forKey: maskID) }
             lock.unlock()
             Self.count { $0.bakes += 1 }
-            let built = bakeExact()
+            let built = timedBake(maskID, bakeExact)
             store(maskID: maskID, key: key, identity: identity, plane: built,
                   generation: generation)
             return built
@@ -168,9 +219,34 @@ public final class MaskRasterCache {
         lock.lock()
         generation &+= 1
         entries.removeAll()
+        settled.removeAll()
+        bakeCost.removeAll()
         pending.removeAll()
         inFlight.removeAll()
         lock.unlock()
+    }
+
+    /// Bytes held by the settle rung. Read by tests.
+    var settledBytes: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return settled.reduce(0) { $0 + $1.entry.plane.values.count * MemoryLayout<Float>.stride }
+    }
+
+    /// Run a bake and remember what it cost, for the synchronous-bake rule.
+    private func timedBake(_ maskID: String, _ bake: () -> Plane) -> Plane {
+        let started = DispatchTime.now().uptimeNanoseconds
+        let built = bake()
+        let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
+        // Only a draft-rung bake prices the draft rule: a settle bake of the same mask
+        // is ~23× the work and says nothing about what the next drag frame would pay.
+        guard Swift.max(built.width, built.height) <= PipelineRenderer.maskRasterLongEdge
+        else { return built }
+        lock.lock()
+        bakeCost[maskID] = ms
+        if bakeCost.count > 4 * capacity { bakeCost.removeAll() }
+        lock.unlock()
+        return built
     }
 
     private func drainPending(_ maskID: String, generation: UInt64) {
@@ -187,7 +263,7 @@ public final class MaskRasterCache {
             }
             lock.unlock()
 
-            let built = next.bakeExact()
+            let built = timedBake(maskID, next.bakeExact)
             store(maskID: maskID, key: next.key, identity: next.identity, plane: built,
                   generation: generation)
         }
@@ -195,27 +271,43 @@ public final class MaskRasterCache {
 
     private func store(maskID: String, key: String, identity: String, plane: Plane,
                        generation: UInt64) {
-        // Rasters above the draft proxy are not held, the same rule
-        // `PlanTableCache` applies to export-size bakes: settle and export rasters
-        // now come at the RENDER's resolution (docs/31 round two §3), and a single
-        // 45 MP export raster is ~180 MB of Float plane — sixteen of those is not a
-        // cache, it is a leak. The proxy-sized draft rasters are the ones a drag
-        // actually revisits, and they still land here.
-        //
-        // A larger, byte-budgeted settle rung is a separate performance decision;
-        // complete reference keys do not change the existing retention budget.
-        guard Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge
-        else { return }
+        // The draft proxy's rasters go to `entries`, count-capped: they are what a drag
+        // revisits and what the stale door serves. Anything larger up to the interactive
+        // ceiling goes to the byte-budgeted settle rung. Export rasters, above the
+        // ceiling, are not held: a single 45 MP raster is ~180 MB of Float plane and a
+        // one-shot render never asks for it again.
+        let entry = Entry(key: key, plane: plane, identity: identity)
+        if Swift.max(plane.width, plane.height) <= PipelineRenderer.maskRasterLongEdge {
+            lock.lock()
+            guard generation == self.generation else {
+                lock.unlock()
+                return
+            }
+            entries.removeAll { $0.maskID == maskID }
+            entries.insert((maskID: maskID, entry: entry), at: 0)
+            if entries.count > capacity { entries.removeLast(entries.count - capacity) }
+            lock.unlock()
+            return
+        }
+        guard Self.retains(width: plane.width, height: plane.height) else { return }
         lock.lock()
         guard generation == self.generation else {
             lock.unlock()
             return
         }
-        entries.removeAll { $0.maskID == maskID }
-        entries.insert((maskID: maskID,
-                        entry: Entry(key: key, plane: plane, identity: identity)),
-                       at: 0)
-        if entries.count > capacity { entries.removeLast(entries.count - capacity) }
+        settled.removeAll { $0.maskID == maskID }
+        settled.insert((maskID: maskID, entry: entry), at: 0)
+        // Newest first, so this is a prefix scan. An entry that alone exceeds the
+        // budget cannot arrive: `retains` refused it above.
+        var total = 0
+        var kept: [(maskID: String, entry: Entry)] = []
+        for held in settled {
+            let bytes = held.entry.plane.values.count * MemoryLayout<Float>.stride
+            guard total + bytes <= Self.settleResidencyBudget else { break }
+            total += bytes
+            kept.append(held)
+        }
+        settled = kept
         lock.unlock()
     }
 }

@@ -1,0 +1,50 @@
+BENCH 1024 linear p50       2.87 ms
+BENCH 1024 radial p50       4.30 ms
+BENCH 1024 polygon(24) p50      22.29 ms
+BENCH 1024 lumaRange p50      13.82 ms
+BENCH 1024 luminosity p50      45.71 ms
+BENCH 1024 colorRange 1 sample p50      74.18 ms
+BENCH 1024 colorRange 4 samples p50     123.57 ms
+BENCH 1024 similarity 1 sample p50      72.58 ms
+BENCH 1024 brush 10 strokes cold p50      69.74 ms
+BENCH 1024 refine identity p50       4.14 ms
+BENCH 1024 refine levels p50      11.59 ms
+BENCH 1024 refine blur 30 p50      89.86 ms
+BENCH 1024 refine edge +20 p50      80.87 ms
+BENCH 1024 refine feather 30 (guided) p50      95.50 ms
+BENCH 1024 guidePlane p50      13.20 ms
+BENCH 1024 combine luma∩radial p50      29.46 ms
+BENCH 4096 linear p50      68.47 ms
+BENCH 4096 radial p50      87.91 ms
+BENCH 4096 polygon(24) p50     378.49 ms
+BENCH 4096 lumaRange p50     243.36 ms
+BENCH 4096 luminosity p50     755.50 ms
+BENCH 4096 colorRange 1 sample p50    1207.59 ms
+BENCH 4096 colorRange 4 samples p50    1641.78 ms
+BENCH 4096 similarity 1 sample p50    1105.19 ms
+BENCH 4096 brush 10 strokes cold p50    1073.74 ms
+BENCH 4096 refine identity p50      93.03 ms
+BENCH 4096 refine levels p50     193.59 ms
+BENCH 4096 refine blur 30 p50    1008.14 ms
+BENCH 4096 refine edge +20 p50    1501.13 ms
+BENCH 4096 refine feather 30 (guided) p50    2477.57 ms
+BENCH 4096 guidePlane p50     301.07 ms
+BENCH 4096 combine luma∩radial p50     501.52 ms
+BENCH 24MP linear p50     141.80 ms
+BENCH 24MP radial p50     190.04 ms
+BENCH 24MP polygon(24) p50     830.30 ms
+BENCH 24MP lumaRange p50     608.36 ms
+BENCH 24MP luminosity p50    1684.36 ms
+BENCH 24MP colorRange 1 sample p50    2633.78 ms
+BENCH 24MP colorRange 4 samples p50    3610.11 ms
+BENCH 24MP similarity 1 sample p50    2389.24 ms
+BENCH 24MP brush 10 strokes cold p50    2318.80 ms
+BENCH 24MP refine identity p50     203.15 ms
+BENCH 24MP refine levels p50     436.67 ms
+BENCH 24MP refine blur 30 p50    2010.91 ms
+BENCH 24MP refine edge +20 p50    4561.50 ms
+BENCH 24MP refine feather 30 (guided) p50    5794.59 ms
+BENCH 24MP guidePlane p50     676.03 ms
+BENCH 24MP combine luma∩radial p50    1110.36 ms
+Test Case 'MaskRasterCostBenchTests.testMaskRasterCostPerKind' passed (118.274 seconds)
+END

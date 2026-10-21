@@ -1278,7 +1278,18 @@ public enum KernelLibrary {
 
     /// The parametric-mask fast path. Without all four the graph falls back to
     /// `MaskRaster`, which is correct and slower — never to a wrong mask.
-    public static var parametricMasksAvailable: Bool { unavailableMaskKernels.isEmpty }
+    public static var parametricMasksAvailable: Bool {
+        maskLinear != nil && maskRadial != nil && maskFold != nil && maskInvert != nil
+    }
+
+    /// The range-mask fast path (lane M9): luminance range, luminosity, colour range and
+    /// Levels on the GPU. Separate from `parametricMasksAvailable` so a range kernel that
+    /// fails to compile sends range masks back to `MaskRaster` without taking the
+    /// gradient path with it. Still loud: all of them are in `unavailableMaskKernels`.
+    public static var rangeMasksAvailable: Bool {
+        parametricMasksAvailable && maskLumaRange != nil && maskLuminosity != nil
+            && maskColorRef != nil && maskLevels != nil
+    }
 
     /// Names of the mask kernels that failed. Separate from `unavailableKernels` on
     /// purpose: that list gates the whole GPU path (`KernelAvailability.coreAvailable`)
@@ -1291,6 +1302,8 @@ public enum KernelLibrary {
         let all: [(String, CIKernel?)] = [
             ("maskLinear", maskLinear), ("maskRadial", maskRadial),
             ("maskFold", maskFold), ("maskInvert", maskInvert),
+            ("maskLumaRange", maskLumaRange), ("maskLuminosity", maskLuminosity),
+            ("maskColorRef", maskColorRef), ("maskLevels", maskLevels),
         ]
         return all.filter { $0.1 == nil }.map { $0.0 }
     }
@@ -1490,6 +1503,147 @@ public enum ColorCube {
         filter.setValue(cube.data, forKey: "inputCubeData")
         return filter.outputImage
     }
+}
+
+// MARK: - Range mask alpha (lane M9)
+//
+// Luminance range, luminosity and colour range were rasterized on the CPU like a hair
+// matte, so every global tone edit with one of them active re-keyed the raster, a drag
+// frame wore the PREVIOUS raster (the band's edge lagging the tones by a gesture and
+// snapping at the pause), and every settle rasterized again at up to 4096 px on one
+// core. All three are pointwise functions of the stage input, so they belong here,
+// evaluated on the pixels the frame renders anyway. `MaskRaster.lumaRangePlane`,
+// `luminosityPlane`, `colorRangePlane` and `levels` stay the definition;
+// `MaskGPUParityTests.testRangeKernelsMatchTheReference` holds these to them.
+//
+// Every constant arrives as an argument computed in `MaskGPU`, so the shader carries no
+// policy. Smoothsteps are written out rather than called: GLSL leaves `smoothstep`
+// undefined when the edges are reversed, and the trapezoid's falloff is exactly that.
+// `src` is the stage input in the working space; a mask image is read through `.r`
+// alone, as everywhere else.
+extension KernelLibrary {
+
+    /// `MaskRaster.lumaRangePlane`. `chan` is `MaskChannel`'s ordinal (luma, red, green,
+    /// blue, max, min). `x0`/`x1` are the fixed EV axis; `lo`, `hi`, `sh` the band and its
+    /// shoulder on the normalized axis.
+    static let maskLumaRangeSource = """
+    kernel vec4 lumenMaskLumaRange(__sample src, float chan, vec3 wts,
+                                   float x0, float x1,
+                                   float lo, float hi, float sh) {
+        vec3 c = src.rgb;
+        float m;
+        if (chan < 0.5) { m = dot(wts, c); }
+        else if (chan < 1.5) { m = c.r; }
+        else if (chan < 2.5) { m = c.g; }
+        else if (chan < 3.5) { m = c.b; }
+        else if (chan < 4.5) { m = max(c.r, max(c.g, c.b)); }
+        else { m = min(c.r, min(c.g, c.b)); }
+        float ev = (m > 0.0 && m < 3.0e38) ? max(log2(m), -16.0) : -16.0;
+        float x = clamp((ev - x0) / (x1 - x0), 0.0, 1.0);
+        float u = clamp((x - (lo - sh)) / sh, 0.0, 1.0);
+        float rise = u * u * (3.0 - 2.0 * u);
+        float t = clamp((x - hi) / sh, 0.0, 1.0);
+        float fall = 1.0 - t * t * (3.0 - 2.0 * t);
+        float v = clamp(rise * fall, 0.0, 1.0);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// `MaskRaster.luminosityPlane`. `series` 0 lights, 1 darks, 2 midtones; `lvl` the
+    /// clamped level, `peak` the midtone normalizer.
+    static let maskLuminositySource = """
+    kernel vec4 lumenMaskLuminosity(__sample src, float chan, vec3 wts,
+                                    float x0, float x1,
+                                    float series, float lvl, float peak) {
+        vec3 c = src.rgb;
+        float m;
+        if (chan < 0.5) { m = dot(wts, c); }
+        else if (chan < 1.5) { m = c.r; }
+        else if (chan < 2.5) { m = c.g; }
+        else if (chan < 3.5) { m = c.b; }
+        else if (chan < 4.5) { m = max(c.r, max(c.g, c.b)); }
+        else { m = min(c.r, min(c.g, c.b)); }
+        float ev = (m > 0.0 && m < 3.0e38) ? max(log2(m), -16.0) : -16.0;
+        float x = clamp((ev - x0) / (x1 - x0), 0.0, 1.0);
+        float v;
+        if (series < 0.5) { v = pow(x, lvl); }
+        else if (series < 1.5) { v = pow(1.0 - x, lvl); }
+        else {
+            v = (1.0 - pow(x, lvl + 1.0) - pow(1.0 - x, lvl + 1.0)) / peak;
+        }
+        v = clamp(v, 0.0, 1.0);
+        return vec4(v, v, v, 1.0);
+    }
+    """
+
+    /// One colour-range reference, folded into the running best with `max` — one pass per
+    /// sample, at most eight, so the kernel needs no array and no loop. `l0..l2` are the
+    /// rows of the working space's RGB→LMS matrix and `k0..k2` OKLab's LMS→Lab rows;
+    /// `ref` is the sample's (L, C, h°); `tol` the (hue°, chroma, lightness) tolerances.
+    static let maskColorRefSource = """
+    kernel vec4 lumenMaskColorRef(__sample src, __sample acc,
+                                  vec3 l0, vec3 l1, vec3 l2,
+                                  vec3 k0, vec3 k1, vec3 k2,
+                                  vec3 ref, vec3 tol) {
+        vec3 c = src.rgb;
+        vec3 lms = vec3(dot(l0, c), dot(l1, c), dot(l2, c));
+        vec3 n = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
+        float bigL = dot(k0, n);
+        float la = dot(k1, n);
+        float lb = dot(k2, n);
+        float chroma = sqrt(la * la + lb * lb);
+        float hue = degrees(atan(lb, la));
+        if (hue < 0.0) { hue += 360.0; }
+        float dh = abs(mod(hue - ref.z + 180.0, 360.0) - 180.0);
+        float dc = abs(chroma - ref.y);
+        float dl = abs(bigL - ref.x);
+
+        float tc = 0.5 * tol.x;
+        float th = 1.0;
+        if (dh >= tol.x) { th = 0.0; }
+        else if (dh > tc) {
+            float u = clamp((dh - tol.x) / (tc - tol.x), 0.0, 1.0);
+            th = u * u * (3.0 - 2.0 * u);
+        }
+        float cc = 0.5 * tol.y;
+        float tchroma = 1.0;
+        if (dc >= tol.y) { tchroma = 0.0; }
+        else if (dc > cc) {
+            float u = clamp((dc - tol.y) / (cc - tol.y), 0.0, 1.0);
+            tchroma = u * u * (3.0 - 2.0 * u);
+        }
+        float lc = 0.5 * tol.z;
+        float tl = 1.0;
+        if (dl >= tol.z) { tl = 0.0; }
+        else if (dl > lc) {
+            float u = clamp((dl - tol.z) / (lc - tol.z), 0.0, 1.0);
+            tl = u * u * (3.0 - 2.0 * u);
+        }
+
+        float wu = clamp((min(chroma, ref.y) - 0.01) / 0.03, 0.0, 1.0);
+        float cw = wu * wu * (3.0 - 2.0 * wu);
+        float hueTerm = cw > 0.0 ? 1.0 + (th - 1.0) * cw : 1.0;
+        float v = clamp(hueTerm * tchroma * tl, 0.0, 1.0);
+        float best = max(clamp(acc.r, 0.0, 1.0), v);
+        return vec4(best, best, best, 1.0);
+    }
+    """
+
+    /// `MaskRaster.levels`, the last step of the refinement chain. `g` is 1 when the gamma
+    /// is exactly 1, which the reference short-circuits.
+    static let maskLevelsSource = """
+    kernel vec4 lumenMaskLevels(__sample a, float lo, float span,
+                                float invGamma, float g) {
+        float t = clamp((a.r - lo) / span, 0.0, 1.0);
+        if (g > 0.5) { t = t <= 0.0 ? 0.0 : clamp(pow(t, invGamma), 0.0, 1.0); }
+        return vec4(t, t, t, 1.0);
+    }
+    """
+
+    public static let maskLumaRange = make(maskLumaRangeSource)
+    public static let maskLuminosity = make(maskLuminositySource)
+    public static let maskColorRef = make(maskColorRefSource)
+    public static let maskLevels = make(maskLevelsSource)
 }
 
 #endif
