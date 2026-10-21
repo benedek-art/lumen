@@ -14,7 +14,7 @@
 // travel, they reach pixels, and each of the three does what its tooltip says. The second
 // is the one that matters more, and it is the reason for
 // `testTheFilmPathIsByteIdenticalThroughTheNewPlan`: nothing here may be a SECOND grain.
-// Every number lands on the same profile, the same plate generator and the same amplitude
+// Every number lands on the same profile, the same grain field and the same amplitude
 // law the emulsions use, and a film recipe must render bit-for-bit what it always did
 // even though the stage now reaches it through `GrainPlan` instead of through
 // `FilmChain`. Two deterministic grains is the same problem as none — this file's
@@ -212,31 +212,33 @@ final class CreativeGrainTests: XCTestCase {
 
     // MARK: - Size
 
-    /// Size is a pitch at the gate, so it scales the plate's footprint and nothing else.
-    /// Measured on `plateScale` at an export-sized render, where the half-pixel floor is
-    /// not in the way.
+    /// Size is a pitch at the gate, so it scales the grain's radius and nothing else.
+    /// The radius has no floor (WS-40: the pixel aperture averages a sub-pixel grain the
+    /// way a downsample would), so every step of the slider is live at every size.
     func testSizeIsAPitchAndCoarsensTheFootprint() {
         var previous = 0.0
         for size in [0.0, 25.0, 50.0, 75.0, 100.0] {
             let plan = GrainPlan.creative(CreativeGrain(amount: 50, size: size),
                                           monochrome: false)
-            let scale = plan.plateScale(longEdgePixels: 6000, channel: 1)
-            XCTAssertGreaterThan(scale, previous,
-                                 "Size \(size) is no coarser than the setting below it")
-            previous = scale
-            print(String(format: "GRAIN size %5.0f → pitch %.2f µm → %.3f px at 6000",
-                         size, plan.profile.pitchMicrons, scale))
+            let radius = plan.grainRadiusPixels(longEdgePixels: 6000, channel: 1)
+            XCTAssertGreaterThan(radius, previous * 1.5,
+                                 "Size \(size) is not coarser than the setting below it")
+            previous = radius
+            // And at a preview size too: no dead range at the bottom (SPEC 6, F5).
+            if size > 0 { XCTAssertLessThan(GrainPlan.creative(CreativeGrain(amount: 50, size: size - 1),
+                                                 monochrome: false)
+                                .grainRadiusPixels(longEdgePixels: 1024, channel: 1),
+                              plan.grainRadiusPixels(longEdgePixels: 1024, channel: 1)) }
         }
-        // The mapping the tooltip quotes.
-        XCTAssertEqual(FilmGrainProfile.creativePitchMicrons(size: 0), 7, accuracy: 1e-9)
-        XCTAssertEqual(FilmGrainProfile.creativePitchMicrons(size: 50), 19.8,
-                       accuracy: 0.05)
-        XCTAssertEqual(FilmGrainProfile.creativePitchMicrons(size: 100), 56,
+        // The mapping the tooltip quotes: 7.2 µm → 72 µm, ×10 geometric, so a grain
+        // radius of 0.6 → 6 px on a 6000 px frame.
+        XCTAssertEqual(FilmGrainProfile.creativePitchMicrons(size: 0), 7.2, accuracy: 1e-9)
+        XCTAssertEqual(FilmGrainProfile.creativePitchMicrons(size: 100), 72, accuracy: 1e-9)
+        XCTAssertEqual(FilmGrainProfile.creativePitchMicrons(size: 50), 7.2 * 10.0.squareRoot(),
                        accuracy: 1e-9)
-        // Doubling every 33⅓ points, which is the sentence the help gives.
-        let a = FilmGrainProfile.creativePitchMicrons(size: 20)
-        let b = FilmGrainProfile.creativePitchMicrons(size: 20 + 100.0 / 3.0)
-        XCTAssertEqual(b / a, 2, accuracy: 1e-9)
+        let zero = GrainPlan.creative(CreativeGrain(amount: 50, size: 0), monochrome: false)
+        XCTAssertEqual(zero.grainRadiusPixels(longEdgePixels: 6000, channel: 0), 0.6,
+                       accuracy: 1e-9)
     }
 
     /// The gate anchoring, which is the property that makes Size mean one thing: the
@@ -248,69 +250,53 @@ final class CreativeGrainTests: XCTestCase {
     func testGrainFollowsTheGateAndNotThePixelCount() {
         let plan = GrainPlan.creative(CreativeGrain(amount: 50, size: 60),
                                       monochrome: false)
-        let small = plan.plateScale(longEdgePixels: 2000, channel: 1)
-        let large = plan.plateScale(longEdgePixels: 6000, channel: 1)
+        let small = plan.grainRadiusPixels(longEdgePixels: 2000, channel: 1)
+        let large = plan.grainRadiusPixels(longEdgePixels: 6000, channel: 1)
         XCTAssertEqual(large / small, 3.0, accuracy: 1e-9,
                        "three times the pixels must be three times the footprint, or the "
                            + "same Size means two different textures")
         // And print size cancels out of it entirely, exactly as it does for a stock.
-        let atTen = plan.profile.plateScale(longEdgePixels: 4000, printSizeInches: 10)
-        let atThirty = plan.profile.plateScale(longEdgePixels: 4000, printSizeInches: 30)
+        let atTen = plan.profile.grainRadiusPixels(longEdgePixels: 4000, printSizeInches: 10,
+                                                   channel: 1)
+        let atThirty = plan.profile.grainRadiusPixels(longEdgePixels: 4000,
+                                                      printSizeInches: 30, channel: 1)
         XCTAssertEqual(atTen, atThirty, accuracy: 1e-12)
     }
 
     // MARK: - Roughness
 
-    /// Roughness redistributes the plate's energy across scales and leaves the amplitude
-    /// alone. That is the property that makes it a third control rather than a second
-    /// strength, and it comes from the plate's renormalization rather than from care at
-    /// the call site — so it is measured on the plate itself.
+    /// Roughness is the grain's IRREGULARITY: dense even grains of one size at 0;
+    /// sparse grains of mixed size plus a coarser clump layer at 100. The field is
+    /// normalised per layer, so the amplitude stays put; `GrainSpecTests` measures the
+    /// character (kurtosis, local-energy CV) and the strength on rendered fields.
     func testRoughnessMovesTheCharacterAndNotTheAmplitude() {
-        let size = 128
-        var previousDetail = 0.0
+        var previousCount = Double.infinity
+        var previousSpread = -1.0
         for roughness in [0.0, 25.0, 50.0, 75.0, 100.0] {
-            let p = FilmGrainProfile.creativePersistence(roughness: roughness)
-            let plate = FilmGrainProfile.plate(size: size, seed: 99, sigma: 1,
-                                               persistence: p)
-            let values = plate.map(Double.init)
-            // Unit variance, at every roughness: the plate is rescaled after the octaves
-            // are summed.
-            XCTAssertEqual(Self.sigma(values), 1.0, accuracy: 1e-6,
-                           "roughness \(roughness) changed the plate's amplitude")
-            // High-frequency content: the mean absolute difference between horizontal
-            // neighbours, wrapped, which rises as the fine octaves gain weight.
-            var detail = 0.0
-            for y in 0..<size {
-                for x in 0..<size {
-                    detail += abs(values[y * size + x]
-                                  - values[y * size + (x + 1) % size])
-                }
-            }
-            detail /= Double(size * size)
-            print(String(format: "GRAIN roughness %5.0f → persistence %.3f → "
-                         + "neighbour detail %.4f", roughness, p, detail))
-            XCTAssertGreaterThan(detail, previousDetail,
-                                 "roughness \(roughness) is no grittier than the setting "
-                                     + "below it")
-            previousDetail = detail
+            let field = GrainPlan.creative(CreativeGrain(amount: 100, size: 50,
+                                                         roughness: roughness),
+                                           monochrome: false).field(longEdge: 6000)
+            let layers = field.channels[0]
+            XCTAssertEqual(layers.count, roughness == 0 ? 1 : 2,
+                           "Roughness 0 has no clump layer and any other value has one")
+            XCTAssertLessThan(layers[0].count, previousCount)
+            XCTAssertGreaterThan(layers[0].spread, previousSpread)
+            previousCount = layers[0].count
+            previousSpread = layers[0].spread
+            let v = field.evaluate(width: 256, height: 256)[0].map(Double.init)
+            XCTAssertEqual(Self.sigma(v), 0.93, accuracy: 0.12,
+                           "roughness \(roughness) changed the field's amplitude")
         }
     }
 
-    /// Roughness 50 IS the plate every film stock has always been given — the same
-    /// bytes, not merely the same statistics. This is what makes the control's neutral a
-    /// real neutral and what lets Roughness exist without moving one pixel of any
-    /// film-grained photograph.
-    func testRoughnessFiftyIsExactlyTheFilmPlate() {
-        XCTAssertEqual(FilmGrainProfile.creativePersistence(roughness: 50),
-                       FilmGrainProfile.defaultPersistence, accuracy: 0)
-        let withDefault = FilmGrainProfile.plate(size: 64, seed: 4242, sigma: 1)
-        let explicit = FilmGrainProfile.plate(
-            size: 64, seed: 4242, sigma: 1,
-            persistence: FilmGrainProfile.creativePersistence(roughness: 50))
-        XCTAssertEqual(withDefault, explicit,
-                       "the default plate and the Roughness-50 plate must be identical "
-                           + "bytes, or every stock's grain moved when this control "
-                           + "was added")
+    /// A stock is grained at the middle of the creative Roughness, so a stock's grain
+    /// and the creative grain at Roughness 50 have one character.
+    func testAStockIsGrainedAtRoughnessFifty() {
+        XCTAssertEqual(FilmGrainProfile.creativeRoughness(50), FilmGrainProfile.stockRoughness)
+        for stock in FilmStock.all {
+            XCTAssertEqual(FilmGrainProfile(stock: stock, size: 1, amount: 50, pushPull: 0)
+                            .roughness, FilmGrainProfile.stockRoughness)
+        }
     }
 
     // MARK: - Colour structure
@@ -426,8 +412,7 @@ final class CreativeGrainTests: XCTestCase {
 
     /// THE PARITY-ADJACENT ONE. A film recipe renders bit-for-bit what it rendered
     /// before the stage was routed through `GrainPlan`, because `GrainPlan.film` carries
-    /// exactly the four values the stage used to read off `FilmChain` and
-    /// `FilmGrainProfile.plate` defaults to the persistence it used to hard-code.
+    /// exactly the four values the stage used to read off `FilmChain`.
     ///
     /// Written against `ReferenceRenderer.applyGrain`'s two front doors rather than
     /// against a stored golden, so it fails on the day the two stop agreeing rather than
@@ -449,9 +434,9 @@ final class CreativeGrainTests: XCTestCase {
                 XCTAssertEqual(viaChain[x, y].b, viaPlan[x, y].b, accuracy: 0)
             }
         }
-        XCTAssertEqual(GrainPlan.film(chain).profile.persistence,
-                       FilmGrainProfile.defaultPersistence,
-                       "a stock's plate must still be the plate it always was")
+        XCTAssertEqual(GrainPlan.film(chain).profile.roughness,
+                       FilmGrainProfile.stockRoughness,
+                       "a stock's grain must keep the stock roughness")
     }
 
     // MARK: - The panel's section state
@@ -539,24 +524,13 @@ final class CreativeGrainTests: XCTestCase {
     }
 }
 
-// MARK: - The half-pixel floor, applied once (C2-01)
+// MARK: - The grain radius: per layer, no floor, relative to the frame (C2-01, WS-40)
 //
-// `plateScale(…, channel:)` read the already-floored whole-frame scale and floored its
-// own product on top. Two floors in a chain that ends in one sample.
-//
-// For the red and green records that is provably a no-op — `sizeScale` 0.8 and 1.0, and
-// scaling a floored value down still lands on the floor — which is where the audit that
-// found this had the channel wrong. For BLUE, at 2.0, it is a real distortion: a base
-// of 0.43 px floors to 0.5 and doubles to a full pixel, where one floor gives 0.85. On
-// Velvia 50 at the 2560 px working resolution that is a blue plate 17 % coarser than the
-// exported file's, and on Ektar 100 0.45 % — so the fit view's grain has a different
-// COLOUR texture from the delivered frame, on precisely the two stocks somebody chooses
-// for being fine-grained.
-//
-// What this does NOT fix, and the audit claimed it would: the red record's 46 % and the
-// green's 17 % divergence on Velvia. Those are the floor itself — the working resolution
-// sits below it and the export does not — and they need the band-limited plate from
-// R7 C.2.3, not a rearrangement of the max().
+// The plate's half-pixel floor was applied twice once (C2-01), which drew Velvia's blue
+// record 17% coarser in the fit view than in the file; then it was applied once, which
+// still left a dead bottom range at preview sizes (WS-40 F5). The grain field has no
+// floor at all: a sub-pixel grain is averaged by the pixel aperture, so the radius is a
+// pure fraction of the frame at every size and every layer.
 
 extension CreativeGrainTests {
 
@@ -564,180 +538,36 @@ extension CreativeGrainTests {
         FilmGrainProfile(stock: stock, size: 1.0, amount: 50, pushPull: 0)
     }
 
-    /// Cells per long edge — the resolution-independent quantity. Preview and export
-    /// must agree on it, because it is what the texture looks like.
-    private func cellsPerEdge(_ p: FilmGrainProfile, _ edge: Int, _ channel: Int) -> Double {
-        p.plateScale(longEdgePixels: edge, printSizeInches: 8, channel: channel) / Double(edge)
-    }
-
-    /// The defect: the blue record drawn 17 % coarser in the fit view than in the file.
-    func testTheBlueRecordHasTheSameTextureInThePreviewAndTheExport() {
-        let velvia = profile(FilmStock.velvia50)
-        let preview = cellsPerEdge(velvia, 2560, 2)
-        let export = cellsPerEdge(velvia, 8000, 2)
-        XCTAssertEqual(preview / export, 1.0, accuracy: 1e-9,
-                       "Velvia's blue plate is \((preview / export - 1) * 100)% coarser "
-                       + "at 2560 than at 8000 — the double floor took a 0.43 px base to "
-                       + "0.5 and then doubled it")
-
-        let ektar = profile(FilmStock.ektar100)
-        XCTAssertEqual(cellsPerEdge(ektar, 2560, 2) / cellsPerEdge(ektar, 8000, 2),
-                       1.0, accuracy: 1e-9)
-    }
-
-    /// And the number, so a future change that re-floors early is caught by value and
-    /// not only by ratio: Velvia's blue at 2560 is 0.4267 × 2.0.
-    func testVelviasBlueCellIsTheScaledBaseAndNotTheScaledFloor() {
-        let velvia = profile(FilmStock.velvia50)
-        XCTAssertEqual(velvia.plateScale(longEdgePixels: 2560, printSizeInches: 8, channel: 2),
-                       0.8533333333, accuracy: 1e-6,
-                       "flooring before the ×2.0 gave 1.0 px — a fifth of a stop of "
-                       + "coarseness invented by the order of two max()es")
-    }
-
-    // MARK: What must NOT change
-
-    /// THE FLOOR IS STILL THERE. It exists because a cell below half a render pixel
-    /// cannot be sampled, and removing it rather than moving it would alias the plate
-    /// into a fixed pattern.
-    func testACellIsNeverAllowedBelowHalfAPixel() {
+    /// Radius per long edge — the resolution-independent quantity. Preview and export
+    /// agree on it for every stock and every record, down to a thumbnail.
+    func testEveryRecordHasTheSameTextureInThePreviewAndTheExport() {
         for stock in FilmStock.all {
             let p = profile(stock)
             for channel in 0...2 {
-                let tiny = p.plateScale(longEdgePixels: 200, printSizeInches: 8,
-                                        channel: channel)
-                XCTAssertGreaterThanOrEqual(tiny, 0.5,
-                                            "\(stock.id) channel \(channel) at 200 px")
-            }
-            XCTAssertGreaterThanOrEqual(p.plateScale(longEdgePixels: 200,
-                                                     printSizeInches: 8), 0.5)
-        }
-    }
-
-    /// The red and green records do not move at all. This is the honest half of the
-    /// finding: had they moved, every film proof record would drift, and they do not.
-    func testTheRedAndGreenRecordsAreUntouchedByTheReordering() {
-        for stock in FilmStock.all {
-            let p = profile(stock)
-            for edge in [800, 2560, 4000, 8000] {
-                for channel in [0, 1] {
-                    let once = p.plateScale(longEdgePixels: edge, printSizeInches: 8,
-                                            channel: channel)
-                    // What the two-floor form computed, written out.
-                    let base = p.plateScale(longEdgePixels: edge, printSizeInches: 8)
-                    let twice = Swift.max(base * Swift.max(p.sizeScale[channel], 0.05), 0.5)
-                    XCTAssertEqual(once, twice, accuracy: 1e-12,
-                                   "\(stock.id) ch\(channel) at \(edge)")
+                let export = p.grainRadiusPixels(longEdgePixels: 8000, printSizeInches: 8,
+                                                 channel: channel) / 8000
+                for edge in [200, 1024, 2560] {
+                    let preview = p.grainRadiusPixels(longEdgePixels: edge,
+                                                      printSizeInches: 8,
+                                                      channel: channel) / Double(edge)
+                    XCTAssertEqual(preview / export, 1.0, accuracy: 1e-9,
+                                   "\(stock.id) record \(channel) at \(edge) px")
                 }
             }
         }
     }
 
-    /// Above the floor everything is unchanged for every channel — the reordering only
-    /// ever speaks where the base was being clamped.
-    func testWellAboveTheFloorNothingMovesAtAll() {
-        for stock in FilmStock.all {
-            let p = profile(stock)
-            for channel in 0...2 {
-                let base = p.plateScale(longEdgePixels: 8000, printSizeInches: 8)
-                XCTAssertGreaterThan(base, 0.5, "\(stock.id) must be above the floor here")
-                XCTAssertEqual(p.plateScale(longEdgePixels: 8000, printSizeInches: 8,
-                                            channel: channel),
-                               base * p.sizeScale[channel], accuracy: 1e-12)
-            }
-        }
-    }
-}
-
-// MARK: - The plate is band-limited to the resolution it is sampled at (C2-01b)
-//
-// The plate is four octaves of value noise on a 128-texel field: octave `k` spans
-// `128 / (8 << k)` texels, so 16, 8, 4 and 2. Multiplied by `plateScale` those become
-// render pixels, and an octave whose features fall below two render pixels is past
-// Nyquist — what reaches the screen is aliasing, not grain.
-//
-// Velvia 50's green record is 0.5 render pixels per texel at the 2560 px working
-// resolution, so its finest octave has ONE-pixel features in the fit view; at 8000 the
-// same octave is 2.67 pixels and resolves cleanly. The preview was showing false
-// high-frequency detail the delivered file does not contain — which is the half of the
-// grain parity loss that reordering the half-pixel floor did not touch, and which the
-// finding that prescribed that reordering attributed to it.
-
-extension CreativeGrainTests {
-
-    /// Energy above the sampling limit, measured as the mean absolute difference between
-    /// neighbouring texels. An aliasing octave shows up here and nowhere else.
-    private func neighbourEnergy(_ plate: [Float], size: Int) -> Double {
-        var total = 0.0
-        var count = 0
-        for y in 0..<size {
-            for x in 0..<(size - 1) {
-                total += abs(Double(plate[y * size + x + 1] - plate[y * size + x]))
-                count += 1
-            }
-        }
-        return count > 0 ? total / Double(count) : 0
-    }
-
-    // MARK: The defect
-
-    /// At a scale where the finest octave cannot be sampled, it is not built.
-    func testTheFinestOctaveIsDroppedWhenItCannotBeSampled() {
-        let full = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1)
-        // 0.5 render pixels per texel: the 2-texel octave spans one pixel. Past Nyquist.
-        let limited = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
-                                             renderPixelsPerCell: 0.5)
-        XCTAssertLessThan(neighbourEnergy(limited, size: 128),
-                          neighbourEnergy(full, size: 128) * 0.95,
-                          "the plate carries the same texel-to-texel energy at a scale "
-                          + "where its finest octave cannot be resolved — that energy "
-                          + "reaches the screen as aliasing")
-    }
-
-    /// And at a scale where every octave resolves, nothing is dropped: the plate must be
-    /// byte-identical to the unlimited one, or the export's grain has silently changed.
-    func testAnExportResolutionPlateIsUnchanged() {
-        let full = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1)
-        // 1.333 px per texel — Velvia's green at 8000, where the finest octave is 2.67.
-        let limited = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
-                                             renderPixelsPerCell: 1.3333)
-        XCTAssertEqual(limited, full,
-                       "an octave was dropped at a resolution that can resolve all four")
-    }
-
-    // MARK: What must NOT change
-
-    /// AMPLITUDE IS PRESERVED. The plate renormalises to unit variance by measurement,
-    /// so dropping an octave makes the texture coarser and not quieter. A band-limited
-    /// plate that also lost energy would read as the grain slider having moved.
-    func testDroppingAnOctaveDoesNotChangeTheAmplitude() {
-        for perCell in [0.25, 0.5, 1.0, 2.0] {
-            let plate = FilmGrainProfile.plate(size: 128, seed: 7, sigma: 1,
-                                               renderPixelsPerCell: perCell)
-            let mean = plate.reduce(0.0) { $0 + Double($1) } / Double(plate.count)
-            let variance = plate.reduce(0.0) { $0 + pow(Double($1) - mean, 2) }
-                / Double(plate.count)
-            XCTAssertEqual(variance.squareRoot(), 1, accuracy: 1e-6,
-                           "at \(perCell) px per texel the plate's amplitude moved")
-        }
-    }
-
-    /// Nil is the old behaviour exactly, so every caller that does not know its
-    /// resolution is untouched.
-    func testNoScaleMeansEveryOctave() {
-        XCTAssertEqual(FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1,
-                                              renderPixelsPerCell: nil),
-                       FilmGrainProfile.plate(size: 128, seed: 11, sigma: 1))
-    }
-
-    /// A degenerate scale is ignored rather than dropping every octave and leaving a
-    /// flat plate — a hand-edited sidecar can produce one.
-    func testADegenerateScaleIsIgnored() {
-        let full = FilmGrainProfile.plate(size: 128, seed: 3, sigma: 1)
-        for bad in [0.0, -1.0, Double.nan, Double.infinity] {
-            XCTAssertEqual(FilmGrainProfile.plate(size: 128, seed: 3, sigma: 1,
-                                                  renderPixelsPerCell: bad),
-                           full, "a scale of \(bad) changed the plate")
-        }
+    /// The number, so a change that re-introduces a floor or drops the half is caught
+    /// by value: Velvia 50's blue at 2560 is ½ × 6 µm on a 36 mm gate × 2.0.
+    func testVelviasBlueRadiusIsTheScaledHalfPitch() {
+        let velvia = profile(FilmStock.velvia50)
+        XCTAssertEqual(velvia.grainRadiusPixels(longEdgePixels: 2560, printSizeInches: 8,
+                                                channel: 2),
+                       0.5 * 0.006 / 36 * 2560 * 2.0, accuracy: 1e-9)
+        XCTAssertEqual(velvia.grainRadiusPixels(longEdgePixels: 2560, printSizeInches: 8,
+                                                channel: 2)
+                       / velvia.grainRadiusPixels(longEdgePixels: 2560, printSizeInches: 8,
+                                                  channel: 1),
+                       velvia.sizeScale.b / velvia.sizeScale.g, accuracy: 1e-12)
     }
 }

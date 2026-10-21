@@ -1147,7 +1147,7 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
 /// `monochrome = true` unconditionally, discarding the flag it is handed. The reason is
 /// written out at that initializer and is worth reading before "fixing" this back: a
 /// stock's pitch is a few microns and its three layers land sub-pixel, where Size here
-/// runs to 56 µm and the blue layer's 2× crystal doubles it again — "rainbow splotches
+/// ran to 56 µm and the blue layer's 2× crystal doubled it again — "rainbow splotches
 /// is an exact description of that arithmetic". `CreativeGrainTests
 /// .testCreativeGrainIsOneLuminanceField` is what actually holds it; this sentence is
 /// what a reader believes. What is new is a way to state the profile without a stock, which is
@@ -1160,35 +1160,30 @@ public struct ManualSharpen: Codable, Equatable, Sendable {
 ///
 ///   · **Amount** is the film path's Amount, unchanged: 0…100 scaled to the profile's
 ///     normalized `amount`, which the stage multiplies by
-///     `FilmGrainProfile.densityScale` (0.12 density units at peak). Identical
-///     denomination to `FilmGrain.amount`, so a stock at grain 45 and a creative grain
-///     at 45 lay down the same amplitude.
-///   · **Size** is the grain's PITCH AT THE GATE in micrometres, mapped geometrically —
-///     `7 · 2^(3·size/100)`, so 0 → 7 µm, 50 → 19.8 µm, 100 → 56 µm, and the pitch
-///     doubles every 33 points. It is denominated on a 35 mm gate
-///     (`FilmGrainProfile.creativeGateLongEdgeMM`), which is the only honest reading
-///     when there is no negative: the shipped stocks run 6 µm (Velvia) to 18 µm
-///     (Tri-X), so the slider's lower half sits among real emulsions and its top reaches
-///     past all of them, which is what a creative control is for. Like the film path's
-///     Size it is anchored at the gate, so the grain is the same fraction of the picture
-///     at every delivery size.
-///   · **Roughness** is the plate's octave PERSISTENCE — the amplitude ratio between
-///     successive octaves of the value noise `FilmGrainProfile.plate` sums — mapped
-///     `0.25 + 0.005·roughness`, so 0 → 0.25, **50 → 0.5, which is exactly the plate
-///     every film stock has always been given**, and 100 → 0.75. Low persistence puts
-///     the energy in the coarsest octave: an even, regular, almost dithered field. High
-///     persistence feeds the fine octaves: an irregular, clumpy, gritty one. The plate
-///     is renormalized to exact unit variance after the octaves are summed, so
-///     Roughness changes the CHARACTER and never secretly changes the Amount — which is
-///     the property that makes it a third control rather than a second strength.
+///     `FilmGrainProfile.densityScale` (0.30 density units at peak, per unit of
+///     resolved field σ). Identical denomination to `FilmGrain.amount`, so a stock at
+///     grain 45 and a creative grain at 45 lay down the same amplitude.
+///   · **Size** is the grain's PITCH (diameter) AT THE GATE in micrometres, mapped
+///     geometrically — `7.2 · 10^(size/100)`, so 0 → 7.2 µm, 50 → 22.8 µm, 100 → 72 µm.
+///     It is denominated on a 35 mm gate (`FilmGrainProfile.creativeGateLongEdgeMM`),
+///     the only honest reading when there is no negative: on a 6000 px frame that is a
+///     grain radius of 0.6 → 6 px. Anchored at the gate, so the grain is the same
+///     fraction of the picture at every delivery size, and a preview shows it as the
+///     export downsampled (`GrainField.pixelAperture`).
+///   · **Roughness** is the grain's IRREGULARITY (`GrainField`): at 0, six grains per
+///     cell, all one size, one layer — dense, even grain; at 100, 1.5 grains per cell
+///     with radii spread ±0.8 stops plus a clump layer at twice the size — sparse,
+///     mixed specks that clump. Each layer is normalized to unit resolved variance, so
+///     Roughness changes the CHARACTER and never secretly changes the Amount. 50 is the
+///     character every film stock is grained at (`FilmGrainProfile.stockRoughness`).
 ///
 /// Defaults are Amount 0 (off), Size 50, Roughness 50 — so an untouched recipe is
 /// byte-identical to one written before this struct existed, the sparse serializer
 /// prunes the whole subtree, and no fingerprint in any catalog moves.
 public struct CreativeGrain: Codable, Equatable, Sendable {
     public var amount: Double      // 0…100, 0 = off
-    public var size: Double        // 0…100 → 7…56 µm pitch at a 35 mm gate
-    public var roughness: Double   // 0…100 → 0.25…0.75 octave persistence
+    public var size: Double        // 0…100 → 7.2…72 µm pitch at a 35 mm gate
+    public var roughness: Double   // 0…100 → even … irregular, clumped grain
 
     public init(amount: Double = 0, size: Double = 50, roughness: Double = 50) {
         self.amount = amount
@@ -1197,7 +1192,7 @@ public struct CreativeGrain: Codable, Equatable, Sendable {
     }
 
     /// True when this grain lays nothing down, so the plan can skip the stage and the
-    /// plate before either costs anything.
+    /// field before either costs anything.
     public var isIdentity: Bool { !(amount > 0) }
 
     /// The slot after an edit: nil whenever the value is back at its defaults.
@@ -1228,7 +1223,7 @@ public struct CreativeGrain: Codable, Equatable, Sendable {
     /// control means by neutral, and an absent key must decode to the rendering an older
     /// sidecar had — which, with `amount` at 0, is no grain at all whatever these two
     /// say, and with `amount` set by hand in a foreign sidecar is the middle of both
-    /// axes rather than the finest possible grain with the smoothest possible plate.
+    /// axes rather than the finest possible grain with the evenest possible field.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0

@@ -79,9 +79,9 @@ final class KernelGoldenTests: XCTestCase {
                               + "per-channel again, not a luminance ratio")
     }
 
-    // MARK: - The GPU grain plate carries three layers, not one grey one
+    // MARK: - The GPU grain field carries three layers, not one grey one
 
-    /// Pearson correlation, for the plate tests below.
+    /// Pearson correlation, for the field tests below.
     private func correlation(_ a: [Double], _ b: [Double]) -> Double {
         let n = Double(Swift.min(a.count, b.count))
         guard n > 1 else { return 0 }
@@ -109,10 +109,10 @@ final class KernelGoldenTests: XCTestCase {
         return out
     }
 
-    /// The plate the GPU samples must carry three independent layers on a colour stock.
+    /// The field the GPU lays must carry three independent layers on a colour stock.
     ///
-    /// `lumenGrain` already reads `noise.rgb` per channel — it was being handed a plate
-    /// with the same value written into all three. This is the GPU twin of
+    /// `lumenGrain` reads `noise.rgb` per channel — it was once handed a plate with the
+    /// same value written into all three. This is the GPU twin of
     /// `EngineIntegrationTests.testColourStockGrainsEachLayerIndependently`, and it
     /// exists because there was no GPU grain golden at all: the reference path could be
     /// fixed and the shipping path left grey with nothing failing.
@@ -175,305 +175,128 @@ final class KernelGoldenTests: XCTestCase {
 
     // MARK: - Grain, against the reference renderer
 
-    /// THE GRAIN PARITY GOLDEN (I2-04). There was none, anywhere, while three source
-    /// comments said there was: `Kernels.swift` on `lumenGrain`'s layer mix — "this line
-    /// changes pixels — deliberately, and identically in `ReferenceRenderer.applyGrain`,
-    /// which is what gpu-parity checks" — and `ReferenceRenderer.applyGrain` twice,
-    /// "gpu-parity is what holds them together", once about `plateScale` and once about
-    /// the two mix weights. Nothing held them together. The whole grain roster before
-    /// this test: `testGrainPlateCarriesThreeLayersOnAColourStock` and
-    /// `testGrainPlateIsGreyOnAMonochromeStock` assert properties of the PLATE and build
-    /// no reference render; `testGrainIsAppliedOnTheGridThatIsDelivered` compares two
-    /// GPU exports to each other; `testTheGamutFlagIsGrainedLikeTheReference` is named
-    /// for the reference and calls it nowhere. And none of the three whole-graph parity
-    /// goldens sets `recipe.look.filmLab`, so the film chain sits outside those as well.
+    /// The grain cases both renderers are compared on (WS-40). Every kind of field the
+    /// stage builds: a monochrome stock (one field, mix (0, 1)), a colour stock (three
+    /// fields at three radii and a real layer mix), and the creative grain
+    /// (luminance-only) at both ends of Size and Roughness — Size 0 has sub-pixel grains
+    /// seen through the pixel aperture, Size 100 Roughness 100 has the clump layer.
     ///
-    /// TRI-X 400, and the stock is the instrument rather than a detail. A monochrome
-    /// profile takes `plateSeed`'s single seed for all three layers, `sizeScale`
-    /// (1, 1, 1), and `noiseMixWeights` of exactly (0, 1) — so this compares ONE field
-    /// at ONE cell size with no mix to average a disagreement away. Portra's three
-    /// records at three cell sizes are compared below, on statistics, where an
-    /// interpolation difference cannot be mistaken for a defect either.
-    ///
-    /// AND AT ONE PLATE TEXEL PER RENDER PIXEL, which is what makes this exact rather
-    /// than approximate. `plateScale` is linear in the long edge — pitch × pixels ÷
-    /// gate, with the print size cancelling — so the render size at which it lands on
-    /// 1.0 is one division away, and it is solved for here rather than written down. At
-    /// that size Core Image's affine scale is the identity, `affineTile`'s period is the
-    /// plate's own 128, and the kernel's `__sample` lands on texel centres, so the
-    /// bilinear weights are 1 and 0 and both renderers read the same stored float.
-    /// What is left is fp32 against f64 through `pow(10, −d)`, a few times 1e-6 on this
-    /// frame. The bound is 1e-3 — three orders under the ±10% of level Tri-X's grain
-    /// moves the picture by at its own default.
-    ///
-    /// THE FRAME IS RUN AT TWO HEIGHTS, and that is the whole of the second assertion.
-    /// `ImageBuffer` is top-down and Core Image's extent is bottom-up, so image row `y`
-    /// renders at `y_CI = h − 1 − y`; the plate is built from a top-down array through
-    /// the same `CIImage(bitmapData:)`, so its row 0 lands at `y_CI = 127`, and
-    /// `affineTile` repeats it with a period of 128 anchored at the origin. Compose
-    /// those and the GPU reads plate row `(128 − h + y) mod 128` where
-    /// `ReferenceRenderer.applyGrain` reads row `y`: the same row only when the frame's
-    /// height is a multiple of the plate. 128 and 96 are therefore one question asked
-    /// twice, and if only the 96 case fails then the difference is the plate's
-    /// PLACEMENT and nothing else — the seed, the persistence, the encode scale, the
-    /// packing and the mix are all pinned by the 128 case passing. That is the
-    /// distinction the audit's "not a different amount, a different field" names, and
-    /// it is the one a σ-based assertion can never make.
-    ///
-    /// The width is 160 rather than 128 so the tile WRAPS in x as well. The x direction
-    /// carries no flip, so a wrap there should be exact; asserting it is how that stays
-    /// true.
-    ///
-    /// THE 96-ROW CASE WAS RED ON ITS FIRST RUN, AND THAT WAS THE FINDING. The
-    /// arithmetic above was derived from the source on a machine with no GPU, so it was
-    /// a prediction; the run settled it — 128 green to 1e-6, 96 red by
-    /// 0.16699093580245972 at (16, 0), which is the grain's own amplitude and not an
-    /// interpolation. The divergence is a TRANSLATION and not a mirror: the image and
-    /// the plate cross the top-down/bottom-up boundary in the same direction, so `y`'s
-    /// coefficient survives with its sign and only the offset moves. That is the one
-    /// thing the printed offset above says that the assertion message cannot, and it is
-    /// what made the fix one number rather than a flip of the stored array.
-    ///
-    /// It is fixed: `RenderGraph.grainPlate` now anchors the tile lattice to
-    /// `extent.maxY` — a tile's top edge on the frame's top edge, which is where the
-    /// plate's own row 0 lives — so top-down row `y` reads plate row `y` at every frame
-    /// height. Both heights are held here because the fix is a translation and a
-    /// translation is invisible at the height where it is zero: 128 alone would pass
-    /// with the placement broken, which is exactly how this shipped.
-    ///
-    /// WHAT THIS DOES NOT COVER, so the next reader is not told more than is true. At
-    /// one texel per pixel every octave resolves, so the band limit is inert here and
-    /// C2-01b cannot fail this test. It is held instead by
-    /// `GrainParityScanTests.testEveryPlateTheShippingPipelineBuildsCarriesTheRenderScale`,
-    /// which reads the builder as text on the Linux lane, and by
-    /// `GrainPlateTests.testAPlateBuiltForARenderIsNotTheUnlimitedPlate`.
+    /// FRAMES THAT ARE MULTIPLES OF NOTHING, AT ORIGINS THAT ARE NOT ZERO. The field is
+    /// defined top-down at the frame's pixel centres, and the generator maps Core
+    /// Image's bottom-up `destCoord()` onto that itself from the extent's origin and
+    /// height. The tiled plate this replaced got exactly that wrong once (a 96-row frame
+    /// read plate row (128 − h + y) mod 128 where the reference read row y — 0.167
+    /// apart), and the 128-row frame that would have caught it hid it. So no case here
+    /// has a height or width that divides anything, and three have a non-zero origin.
+    private func grainCases() -> [(name: String, plan: GrainPlan, longEdge: Int,
+                                   extent: CGRect)] {
+        let trix = GrainPlan.film(FilmChain(FilmChain.defaultRecipe(for: .triX400),
+                                            displayWhite: 1.0))
+        let portra = GrainPlan.film(FilmChain(FilmChain.defaultRecipe(for: .portra400),
+                                              displayWhite: 1.0))
+        let fine = GrainPlan.creative(CreativeGrain(amount: 100, size: 0, roughness: 0),
+                                      monochrome: false)
+        let coarse = GrainPlan.creative(CreativeGrain(amount: 100, size: 100,
+                                                      roughness: 100), monochrome: false)
+        return [
+            ("trix400", trix, 2000, CGRect(x: 0, y: 0, width: 160, height: 96)),
+            ("portra400", portra, 3000, CGRect(x: 17, y: -23, width: 97, height: 61)),
+            ("creative s0 r0", fine, 6000, CGRect(x: 0, y: 40, width: 131, height: 77)),
+            ("creative s100 r100", coarse, 6000,
+             CGRect(x: -8, y: 5, width: 75, height: 53)),
+        ]
+    }
+
+    /// The GPU's field IS `GrainField.evaluate`: the generator alone, read back, against
+    /// the CPU's field, value for value. This is the test that pins the hash and the
+    /// grain kernel — the CIKL transcription of `GrainField.layerValue` — before any
+    /// density arithmetic can blur a disagreement. The hash is integer-exact in float32
+    /// (`GrainSpecTests.testTheHashIsExactInFloat32`), so the only difference left is
+    /// float32 against Double in the kernel sum, around 1e-6.
+    func testTheGrainFieldGeneratorIsTheReferenceField() throws {
+        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
+        XCTAssertNotNil(KernelLibrary.grainField, "lumenGrainField did not compile")
+        for c in grainCases() {
+            let w = Int(c.extent.width), h = Int(c.extent.height)
+            guard let field = RenderGraph.grainPlate(c.plan, extent: c.extent,
+                                                     longEdge: c.longEdge),
+                  let gpu = readBack(field, width: w, height: h) else {
+                return XCTFail("no grain field for \(c.name)")
+            }
+            let reference = c.plan.field(longEdge: c.longEdge).evaluate(width: w, height: h)
+            var worst = 0.0, worstAt = (0, 0, 0), spread = 0.0
+            for y in 0..<h {
+                for x in 0..<w {
+                    for channel in 0..<3 {
+                        let layer = reference[Swift.min(channel, reference.count - 1)]
+                        let r = Double(layer[y * w + x])
+                        spread = Swift.max(spread, abs(r))
+                        let d = abs(r - Double(gpu[x, y][channel]))
+                        if d > worst { worst = d; worstAt = (x, y, channel) }
+                    }
+                }
+            }
+            print(String(format: "GRAINFIELD %@ %dx%d at (%.0f, %.0f) @ %d px: worst %.3e, "
+                             + "max |n| %.3f", c.name, w, h, c.extent.minX, c.extent.minY,
+                         c.longEdge, worst, spread))
+            XCTAssertGreaterThan(spread, 0.3, "\(c.name): the reference field is flat")
+            XCTAssertLessThan(worst, 1e-3,
+                              "\(c.name): the GPU's grain field differs from "
+                                  + "`GrainField.evaluate` by \(worst) at \(worstAt). "
+                                  + "Either `lumenGrainField` no longer transcribes "
+                                  + "`GrainField.layerValue` (hash, cell walk, kernel, "
+                                  + "gain), or the frame mapping p = (dc.x − ox, h − "
+                                  + "(dc.y − oy)) is off — a row offset shows as a "
+                                  + "difference of the grain's own size")
+        }
+    }
+
+    /// THE GRAIN PARITY GOLDEN (I2-04, rewritten for WS-40): the whole stage, field and
+    /// `lumenGrain` together, against `ReferenceRenderer.applyGrain`, pixel for pixel,
+    /// on a density ramp that spans the envelope. Bound 1e-3, three orders under the
+    /// grain's own amplitude. Covers both of `lumenGrain`'s modes: per channel with the
+    /// layer mix (the stocks) and luminance-only (the creative grain).
     func testGrainMatchesTheReferenceRenderer() throws {
         try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-        XCTAssertTrue(FilmStock.triX400.monochrome,
-                      "this fixture needs a monochrome stock — one seed, one cell size "
-                          + "and a mix of (0, 1) — or a difference here is three "
-                          + "differences averaged")
-        let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.triX400),
-                              displayWhite: 1.0)
-        let plan = GrainPlan.film(chain)
-
-        // Solve for one plate texel per render pixel. Asserted rather than assumed: if a
-        // stock's pitch or gate moves this fails with the number instead of quietly
-        // comparing two interpolations and calling the difference parity.
-        let probe = 2000
-        let probeScale = plan.plateScale(longEdgePixels: probe, channel: 0)
-        let longEdge = Int((Double(probe) / probeScale).rounded())
-        let scale = plan.plateScale(longEdgePixels: longEdge, channel: 0)
-        XCTAssertEqual(scale, 1.0, accuracy: 1e-9,
-                       "this fixture needs exactly one plate texel per render pixel and "
-                           + "got \(scale) at a \(longEdge) px render — solve again, or "
-                           + "the exactness argument in the comment above is void")
-        for channel in 1..<3 {
-            XCTAssertEqual(plan.plateScale(longEdgePixels: longEdge, channel: channel),
-                           scale, accuracy: 1e-9,
-                           "a monochrome stock's three records must share one cell size")
-        }
-
-        let width = 160
-        for height in [128, 96] {
-            let source = densityRamp(width: width, height: height, dMax: plan.dMax)
-            let extent = CGRect(x: 0, y: 0, width: width, height: height)
-            guard let plate = RenderGraph.grainPlate(plan, extent: extent,
-                                                     longEdge: longEdge) else {
-                return XCTFail("no grain plate at \(width)x\(height)")
+        for c in grainCases() {
+            let w = Int(c.extent.width), h = Int(c.extent.height)
+            let source = densityRamp(width: w, height: h, dMax: c.plan.dMax)
+            let input = ciImage(from: source).transformed(
+                by: CGAffineTransform(translationX: c.extent.minX, y: c.extent.minY))
+            guard let field = RenderGraph.grainPlate(c.plan, extent: input.extent,
+                                                     longEdge: c.longEdge) else {
+                return XCTFail("no grain field for \(c.name)")
             }
-            let grained = RenderGraph().applyGrain(ciImage(from: source), plate: plate,
-                                                   grain: plan)
-            guard let gpu = readBack(grained, width: width, height: height) else { return }
+            let grained = RenderGraph().applyGrain(input, plate: field, grain: c.plan)
+            guard let gpu = readBack(grained, width: w, height: h) else { return }
             let reference = ReferenceRenderer.applyGrain(
-                source, grain: plan,
-                seed: FilmGrainProfile.defaultPlateSeed, longEdge: longEdge)
+                source, grain: c.plan, seed: FilmGrainProfile.defaultPlateSeed,
+                longEdge: c.longEdge)
 
             // The stage has to have DONE something, or "the two agree" is a statement
             // about two copies of the input.
-            var moved = 0.0
-            for y in 0..<height {
-                for x in 0..<width {
-                    moved = Swift.max(moved,
-                                      source[x, y].maxAbsDifference(reference[x, y]))
-                }
-            }
-            XCTAssertGreaterThan(moved, 0.01,
-                                 "the reference laid no grain on the \(height)-row frame, "
-                                     + "so comparing anything against it proves nothing")
-
-            var worst = 0.0
-            var worstAt = (0, 0)
-            for y in 0..<height {
-                for x in 0..<width {
+            var moved = 0.0, worst = 0.0, worstAt = (0, 0)
+            for y in 0..<h {
+                for x in 0..<w {
+                    moved = Swift.max(moved, source[x, y].maxAbsDifference(reference[x, y]))
                     let d = reference[x, y].maxAbsDifference(gpu[x, y])
                     if d > worst { worst = d; worstAt = (x, y) }
                 }
             }
-            // Printed on every run, passes included, for I2-03's reason: a bound with no
-            // measurement recorded under it is a bound nobody can ever tighten.
-            print(String(format:
-                "GRAINPARITY trix400 %3dx%-3d @ %d px, scale %.4f: worst %.3e, "
-                    + "reference moved %.4f, predicted plate-row offset %d",
-                width, height, longEdge, scale, worst, moved,
-                (GrainPlan.plateSize - height % GrainPlan.plateSize) % GrainPlan.plateSize))
-            // THE EXPECTED FAILURE THAT USED TO STAND HERE IS GONE, because what it
-            // expected is fixed. It was scoped to `height % GrainPlan.plateSize != 0`,
-            // it fired on the 96-row case at 0.16699093580245972, and its own message
-            // asked for its deletion the day the placement landed. Leaving it would red
-            // this lane as an unexpected pass on a correct fix — which is the same
-            // reason it was an expectation rather than a skip: this comparison runs and
-            // prints its number on every lane, and neither a fix nor a regression can
-            // reach the shipping path quietly.
+            print(String(format: "GRAINPARITY %@ %dx%d at (%.0f, %.0f) @ %d px: worst "
+                             + "%.3e, reference moved %.4f", c.name, w, h, c.extent.minX,
+                         c.extent.minY, c.longEdge, worst, moved))
+            XCTAssertGreaterThan(moved, 0.005,
+                                 "\(c.name): the reference laid no grain, so comparing "
+                                     + "anything against it proves nothing")
             XCTAssertLessThan(worst, 1e-3,
-                              "the GPU's grain differs from the reference's by \(worst) "
-                                  + "at \(worstAt) on the \(width)x\(height) frame. At one "
-                                  + "texel per render pixel there is no interpolation to "
-                                  + "blame: the two are reading different rows of the "
-                                  + "same plate. `ImageBuffer` is top-down and Core "
-                                  + "Image's extent is bottom-up, so an unanchored tiled "
-                                  + "plate is sampled at row (\(GrainPlan.plateSize) − h "
-                                  + "+ y) mod \(GrainPlan.plateSize) where the reference "
-                                  + "reads row y — identical only when the height is a "
-                                  + "multiple of \(GrainPlan.plateSize), which is why "
-                                  + "this ran at two heights. If the 128-row case passed "
-                                  + "and this did not, that translation is the whole of "
-                                  + "the difference and the answer is the plate's "
-                                  + "placement in `RenderGraph.grainPlate` — which "
-                                  + "anchors the tile lattice to `extent.maxY` for "
-                                  + "exactly this reason — not anything here")
+                              "\(c.name): the GPU's grain differs from the reference's "
+                                  + "by \(worst) at \(worstAt). If "
+                                  + "`testTheGrainFieldGeneratorIsTheReferenceField` "
+                                  + "passes, the field agrees and the difference is "
+                                  + "`lumenGrain` against `ReferenceRenderer.applyGrain`: "
+                                  + "the envelope, the layer mix or the luminance mode")
         }
-    }
-
-    /// The colour stock, where the three records have three cell sizes and the layer mix
-    /// is not the identity — compared on statistics, because the non-unit scales put a
-    /// bilinear interpolation between the two paths that a pixel comparison would read
-    /// as a defect.
-    ///
-    /// Two numbers, and each is a defect this project has already shipped once.
-    ///
-    /// σ OF THE RECOVERED FIELD is the encode scale. `FilmGrainProfile.plateEncodeScale`
-    /// exists because the store packed with 0.25 and the kernel recovered with ×2, so
-    /// the GPU laid HALF the amplitude the reference defines — in every preview and
-    /// every export — and clamped away the strongest 3.4% of the grains on the way.
-    /// That is a ratio of 0.5 here.
-    ///
-    /// σ(R−G) ÷ σ(luma) is the layer mix (C2-02). Three independent unit fields put
-    /// 2.45× as much noise into colour as into luminance; the mix scales that back
-    /// while holding the luminance exactly, and at Portra's χ = 0.30 the model says
-    /// 0.486. A renderer that dropped the mix, or applied it twice, moves this number
-    /// by a factor of five and moves nothing else.
-    ///
-    /// Both are translation-invariant on purpose. If the field PLACEMENT above is wrong,
-    /// these still say whether the amplitude and the colour of the grain agree — which
-    /// is the difference between "the same grain in the wrong place" and "a different
-    /// grain", and it is the difference that decides what the fix is.
-    func testGrainAmplitudeAndLayerMixMatchTheReferenceOnAColourStock() throws {
-        try XCTSkipUnless(KernelLibrary.isAvailable, "kernels unavailable")
-        let chain = FilmChain(FilmChain.defaultRecipe(for: FilmStock.portra400),
-                              displayWhite: 1.0)
-        let plan = GrainPlan.film(chain)
-
-        // A render size at which the FINEST record is already one texel per pixel, so
-        // every layer is magnified and none is minified. A minification would let Core
-        // Image apply an antialiasing filter the reference's point sample does not,
-        // and the σ comparison would then be measuring Core Image's resampler.
-        let probe = 2000
-        let longEdge = Int((Double(probe)
-                            / plan.plateScale(longEdgePixels: probe, channel: 0)).rounded())
-        var scales: [Double] = []
-        for channel in 0..<3 {
-            scales.append(plan.plateScale(longEdgePixels: longEdge, channel: channel))
-        }
-        XCTAssertEqual(scales[0], 1.0, accuracy: 1e-6,
-                       "the fixture wants the finest record at one texel per pixel and "
-                           + "got \(scales[0])")
-        for (channel, s) in scales.enumerated() {
-            XCTAssertGreaterThanOrEqual(s, 1.0,
-                                        "record \(channel) is minified at \(s) texels per "
-                                            + "pixel, so this test would be comparing "
-                                            + "Core Image's downsampling filter against a "
-                                            + "point sample")
-        }
-
-        let width = 192, height = 128
-        let source = densityRamp(width: width, height: height, dMax: plan.dMax)
-        let extent = CGRect(x: 0, y: 0, width: width, height: height)
-        guard let plate = RenderGraph.grainPlate(plan, extent: extent,
-                                                 longEdge: longEdge) else {
-            return XCTFail("no grain plate")
-        }
-        let grained = RenderGraph().applyGrain(ciImage(from: source), plate: plate,
-                                               grain: plan)
-        guard let gpu = readBack(grained, width: width, height: height) else { return }
-        let reference = ReferenceRenderer.applyGrain(
-            source, grain: plan, seed: FilmGrainProfile.defaultPlateSeed,
-            longEdge: longEdge)
-
-        let gpuField = recoveredGrain(input: source, output: gpu, grain: plan)
-        let referenceField = recoveredGrain(input: source, output: reference, grain: plan)
-        XCTAssertGreaterThan(referenceField[0].count, width * height * 9 / 10,
-                             "only \(referenceField[0].count) of \(width * height) pixels "
-                                 + "carry enough grain envelope to divide back out — the "
-                                 + "ramp is sitting off the density range and the numbers "
-                                 + "below would be rounding error over rounding error")
-
-        for channel in 0..<3 {
-            let ref = standardDeviation(referenceField[channel])
-            let mine = standardDeviation(gpuField[channel])
-            XCTAssertGreaterThan(ref, 0.2,
-                                 "the reference's recovered field on record \(channel) "
-                                     + "has σ \(ref); a unit-variance plate through this "
-                                     + "mix is about 0.6, so the fixture is not measuring "
-                                     + "grain at all")
-            let ratio = mine / ref
-            print(String(format:
-                "GRAINPARITY portra400 record %d @ %d px, scale %.3f: sigma gpu %.5f "
-                    + "reference %.5f  ratio %.4f", channel, longEdge, scales[channel],
-                mine, ref, ratio))
-            XCTAssertGreaterThan(ratio, 0.7,
-                                 "record \(channel)'s GPU grain is \(ratio)x the "
-                                     + "reference's amplitude. 0.5 is the encode scale "
-                                     + "disagreeing — the store packing with one constant "
-                                     + "and `lumenGrain` recovering with another, which "
-                                     + "shipped once and was invisible to every test")
-            XCTAssertLessThan(ratio, 1.4,
-                              "record \(channel)'s GPU grain is \(ratio)x the reference's "
-                                  + "amplitude")
-        }
-
-        func chromaToLuma(_ field: [[Double]]) -> Double {
-            var difference: [Double] = []
-            var luma: [Double] = []
-            for i in 0..<field[0].count {
-                difference.append(field[0][i] - field[1][i])
-                luma.append((field[0][i] + field[1][i] + field[2][i]) / 3)
-            }
-            let base = standardDeviation(luma)
-            return base > 1e-9 ? standardDeviation(difference) / base : 0
-        }
-        let referenceChroma = chromaToLuma(referenceField)
-        let gpuChroma = chromaToLuma(gpuField)
-        print(String(format:
-            "GRAINPARITY portra400 chroma/luma: gpu %.4f reference %.4f  ratio %.4f",
-            gpuChroma, referenceChroma, gpuChroma / Swift.max(referenceChroma, 1e-9)))
-        XCTAssertLessThan(referenceChroma, 1.0,
-                          "the reference's own chroma-to-luma noise ratio is "
-                              + "\(referenceChroma); three independent layers laid at "
-                              + "full amplitude give 2.45 and Portra's mix is derived to "
-                              + "give 0.486, so this says the layer mix is not reaching "
-                              + "the reference path either (C2-02)")
-        XCTAssertGreaterThan(gpuChroma / Swift.max(referenceChroma, 1e-9), 0.7,
-                             "the GPU's grain carries \(gpuChroma) of chroma per unit of "
-                                 + "luma where the reference carries \(referenceChroma) — "
-                                 + "`lumenGrain` and `ReferenceRenderer.applyGrain` are "
-                                 + "not performing the same multiply-add from the same "
-                                 + "two weights, which is the only thing that decides how "
-                                 + "much of the three dye layers' independence reaches "
-                                 + "the delivered file")
-        XCTAssertLessThan(gpuChroma / Swift.max(referenceChroma, 1e-9), 1.4,
-                          "the GPU's grain carries \(gpuChroma) of chroma per unit of "
-                              + "luma where the reference carries \(referenceChroma)")
     }
 
     /// A frame that spans the grain envelope: density from 8% to 92% of `dMax`, so
@@ -1753,9 +1576,9 @@ final class KernelGoldenTests: XCTestCase {
     /// to the target — so a 900 px file delivered at 300 px carried a grain pattern
     /// three times finer than the one a 300 px render of the same recipe produces, and
     /// three times finer than the preview the photographer approved. σ is a poor
-    /// instrument for that: measured on the reference path, a 3x average costs the
-    /// amplitude only about 4% (`testFilmGrainHasTheSameAmplitudeAtEveryRenderSize`),
-    /// which is why this compares the PICTURES and not their standard deviations. Two
+    /// instrument for that (`testFilmGrainPreviewIsTheExportDownsampled` measures what a
+    /// 3x average does to it), which is why this compares the PICTURES and not their
+    /// standard deviations. Two
     /// uncorrelated grain fields of the same σ differ by √2·σ; the same field twice
     /// differs by nothing.
     ///
@@ -1764,7 +1587,7 @@ final class KernelGoldenTests: XCTestCase {
     /// comparison that is not the thing being measured.
     ///
     /// Uncropped, deliberately. A crop is the case where the delivered pixel count is
-    /// NOT the long edge the plate must be scaled for, and that arithmetic is pinned
+    /// NOT the long edge the grain must be sized for, and that arithmetic is pinned
     /// where it can actually be run:
     /// `testAGrainPlateIsScaledForPixelsPerGateAndNotForPixelCount` in LumenCore.
     func testGrainIsAppliedOnTheGridThatIsDelivered() throws {
@@ -1773,8 +1596,11 @@ final class KernelGoldenTests: XCTestCase {
         let delivered = 300
         var recipe = Recipe()
         recipe.develop.denoise.mode = .off
+        // Size 2.0, the top of the panel's range: the grain is relative to the frame, so
+        // on a 300 px delivery Portra's grain at Size 1 is sub-pixel and averages down
+        // to about 2% of the level — under this test's own presence bar.
         recipe.look.filmLab = FilmLab(stock: "lumen/portra400", amount: 100,
-                                      grain: FilmGrain(size: 1, amount: 100))
+                                      grain: FilmGrain(size: 2, amount: 100))
         let exportRecipe = ExportRecipe(name: "grain", format: .png, bitDepth: 16,
                                         colorSpace: .srgb, resizeMode: .longEdge,
                                         resizeValue: Double(delivered))
@@ -1832,7 +1658,7 @@ final class KernelGoldenTests: XCTestCase {
                              "the delivered file varies by \(sigma) on a mean of "
                                  + "\(mean) — under 2% of the level is not a grain, so "
                                  + "the comparison below proves nothing")
-        // The two deliveries are the same plate, at the same scale, over the same flat
+        // The two deliveries are the same field, at the same size, over the same flat
         // picture, so they should agree to the resampler's own error. Grain applied
         // before the resize instead puts two UNCORRELATED fields side by side, which
         // lands near √2·σ — a factor of ten above this bar.
@@ -4419,7 +4245,7 @@ final class KernelGoldenTests: XCTestCase {
         let extent = CGRect(x: 0, y: 0, width: width, height: height)
         let options = RenderGraph.Options(longEdge: width)
 
-        // Control first, with NO plate, so `build` skips the grain stage: the
+        // Control first, with NO field, so `build` skips the grain stage: the
         // flagged half must be the exact warning colour. This is the self-check
         // that the film-formed green still leaves sRGB — if a stock change ever
         // pulls the fixture into gamut, the failure names the fixture instead of
@@ -4437,11 +4263,14 @@ final class KernelGoldenTests: XCTestCase {
                               + "film chain (\(probe) vs \(flag)) — grain over "
                               + "the flag cannot be judged on it")
 
+        // The grain is sized as for a 2000 px frame: at the fixture's own 64 px its
+        // grains are a fiftieth of a pixel and average to almost nothing, and this test
+        // is about WHERE the flag sits relative to grain, not how big the grain is.
         var graph = RenderGraph()
         graph.grainPlate = RenderGraph.grainPlate(GrainPlan.film(film),
                                                   extent: extent,
-                                                  longEdge: width)
-        XCTAssertNotNil(graph.grainPlate, "no grain plate — this test needs grain")
+                                                  longEdge: 2000)
+        XCTAssertNotNil(graph.grainPlate, "no grain field — this test needs grain")
         let output = graph.build(ciImage(from: source), plan: plan, options: options)
         guard let gpu = readBack(output, width: width, height: height) else {
             return XCTFail("render failed")

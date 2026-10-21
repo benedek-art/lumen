@@ -1151,8 +1151,8 @@ final class EngineIntegrationTests: XCTestCase {
     /// This test used to assert only the first half, and it asserted it as
     /// `|r| < 0.5` — which was right against the defect it was written for. Both render
     /// paths wrote one noise value into all three channels: a luminance overlay wearing
-    /// film's per-channel envelope, and `grainSizeScale`'s (0.8, 1.0, 2.0) and
-    /// `plateScale(…, channel:)` sat there with no caller. Three fields fixed that.
+    /// film's per-channel envelope, and `grainSizeScale`'s (0.8, 1.0, 2.0) sat there
+    /// with no caller. Three fields fixed that.
     ///
     /// Three fields at FULL amplitude then overshot, and the overshoot is arithmetic:
     /// independent unit-variance layers give σ(luma) = A/√3 and σ(R−G) = A√2, so the
@@ -1203,14 +1203,12 @@ final class EngineIntegrationTests: XCTestCase {
                                   + "luminance overlay, not film")
         }
 
-        // HALF TWO — and the colour noise is below the luminance noise. Measured 0.41
-        // and 0.45 at the shipped χ = 0.30; 2.06 and 2.28 at χ = 1, so this is red on
-        // the code that shipped and red for any χ above about 0.6.
+        // HALF TWO — and the colour noise is below the luminance noise; 2.06 and 2.28
+        // at χ = 1, so this is red for the full-independence mix. WS-40 SPEC line 10c
+        // bounds the shipped χ (0.15) on real renders: 0.10-0.50 of luma.
         //
-        // The LUMINANCE half is not asserted here because it is not a bound, it is an
-        // equality, and the number it must equal is the one the code that shipped
-        // produced: σ 0.0068103, held to 0.0068133 — +0.04%. `film.grain.size`'s proof
-        // record is what actually pins it, and it caught the first version of this fix
+        // The LUMINANCE half is held by construction (`noiseMixWeights`) and by
+        // `film.grain.size`'s proof record, which caught a first version of the mix
         // for moving it by 51%.
         let n = deltas[0].count
         let luma = (0..<n).map { (deltas[0][$0] + deltas[1][$0] + deltas[2][$0]) / 3 }
@@ -1271,8 +1269,8 @@ final class EngineIntegrationTests: XCTestCase {
     /// A monochrome stock must do the opposite: one emulsion, one field, no colour.
     ///
     /// This is the failure the independence above would cause if applied blindly —
-    /// coloured speckle on a black-and-white negative. `plateSeed(channel:)` collapses
-    /// on `stock.monochrome`, and the test is written against the stock's own flag
+    /// coloured speckle on a black-and-white negative. `GrainPlan.field` builds one
+    /// field on `stock.monochrome`, and the test is written against the stock's own flag
     /// rather than against its grain sizes: those coincide today, and a colour stock
     /// whose layers happened to share a crystal size would lose its chromatic structure
     /// under a size-based test without anything failing.
@@ -1302,23 +1300,30 @@ final class EngineIntegrationTests: XCTestCase {
         }
     }
 
-    /// The blue layer's crystals are the coarsest, and the plate scale has to say so.
+    /// The blue layer's crystals are the coarsest, and the grain radius has to say so.
     func testBlueLayerGrainIsCoarsestOnAColourStock() {
         let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
                                        pushPull: 0)
-        let red = profile.plateScale(longEdgePixels: 4000, printSizeInches: 10, channel: 0)
-        let green = profile.plateScale(longEdgePixels: 4000, printSizeInches: 10, channel: 1)
-        let blue = profile.plateScale(longEdgePixels: 4000, printSizeInches: 10, channel: 2)
+        let red = profile.grainRadiusPixels(longEdgePixels: 4000, printSizeInches: 10,
+                                            channel: 0)
+        let green = profile.grainRadiusPixels(longEdgePixels: 4000, printSizeInches: 10,
+                                              channel: 1)
+        let blue = profile.grainRadiusPixels(longEdgePixels: 4000, printSizeInches: 10,
+                                             channel: 2)
         XCTAssertLessThan(red, green)
         XCTAssertLessThan(green, blue)
-        // And the three seeds must actually differ, or the sizes are the only thing
-        // separating the layers.
-        let seeds = Set((0..<3).map { profile.plateSeed(channel: $0) })
-        XCTAssertEqual(seeds.count, 3)
+        // And the three layers must be seeded apart, or the sizes are the only thing
+        // separating them.
+        let plan = GrainPlan.film(FilmChain(FilmChain.defaultRecipe(for: .portra400),
+                                            displayWhite: 1.0))
+        let field = plan.field(longEdge: 4000)
+        XCTAssertEqual(field.channels.count, 3)
+        XCTAssertEqual(Set(field.channels.map { "\($0[0].seedA),\($0[0].seedB)" }).count, 3)
+        XCTAssertEqual(field.channels[2][0].radius, blue, accuracy: 1e-12)
 
-        let mono = FilmGrainProfile(stock: FilmStock.triX400, size: 1, amount: 50,
-                                    pushPull: 0)
-        XCTAssertEqual(Set((0..<3).map { mono.plateSeed(channel: $0) }).count, 1)
+        let mono = GrainPlan.film(FilmChain(FilmChain.defaultRecipe(for: .triX400),
+                                            displayWhite: 1.0))
+        XCTAssertEqual(mono.field(longEdge: 4000).channels.count, 1)
     }
 
     /// Pearson correlation, for the grain tests above.
@@ -1339,16 +1344,18 @@ final class EngineIntegrationTests: XCTestCase {
     func testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize() {
         let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
                                        pushPull: 0)
-        let reference = profile.plateScale(longEdgePixels: 6000, printSizeInches: 10)
+        func radius(_ p: FilmGrainProfile, _ edge: Int, _ inches: Double) -> Double {
+            p.grainRadiusPixels(longEdgePixels: edge, printSizeInches: inches, channel: 1)
+        }
+        let reference = radius(profile, 6000, 10)
         for inches in [5.0, 8, 11, 16, 20, 30] {
-            XCTAssertEqual(profile.plateScale(longEdgePixels: 6000,
-                                              printSizeInches: inches),
+            XCTAssertEqual(radius(profile, 6000, inches),
                            reference, accuracy: 1e-12,
                            "a \(inches)″ print changed the grain's pixel footprint")
         }
 
         // The two things that DO move it. Render size, proportionally:
-        XCTAssertEqual(profile.plateScale(longEdgePixels: 12000, printSizeInches: 10),
+        XCTAssertEqual(radius(profile, 12000, 10),
                        reference * 2, accuracy: 1e-9,
                        "doubling the render did not double the grain's footprint")
         // And the gate — a Super 35 frame is enlarged more from the same pixels, so its
@@ -1356,10 +1363,8 @@ final class EngineIntegrationTests: XCTestCase {
         let cine = FilmGrainProfile(stock: FilmStock.cine250D, size: 1, amount: 50,
                                     pushPull: 0)
         XCTAssertGreaterThan(
-            cine.plateScale(longEdgePixels: 6000, printSizeInches: 10)
-                / cine.pitchMicrons,
-            profile.plateScale(longEdgePixels: 6000, printSizeInches: 10)
-                / profile.pitchMicrons,
+            radius(cine, 6000, 10) / cine.pitchMicrons,
+            radius(profile, 6000, 10) / profile.pitchMicrons,
             "the smaller gate did not produce coarser grain per unit pitch")
     }
 
@@ -1387,7 +1392,7 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertEqual(edge(6000, 6000, 2048), 2048)
         // Cropped to half, delivered at native size: half the pixels over half the
         // negative. The footprint MUST NOT move — this is the assertion that fails on
-        // the version that hands `plateScale` the delivered edge.
+        // the version that hands the grain the delivered edge.
         XCTAssertEqual(edge(6000, 3000, 3000), 6000,
                        "cropping changed the grain's pixel footprint")
         // Cropped to half AND resized to 2048.
@@ -1398,111 +1403,77 @@ final class EngineIntegrationTests: XCTestCase {
         XCTAssertEqual(edge(0, 0, 2048), 2048)
         XCTAssertEqual(edge(6000, 0, 2048), 2048)
 
-        // And the same statement as the thing it feeds: a crop must leave `plateScale`
-        // where it was. This is `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`
+        // And the same statement as the thing it feeds: a crop must leave the grain
+        // radius where it was. This is `testGrainFollowsTheGateAndTheRenderSizeNotThePrintSize`
         // extended to the delivery, which is where the photographer sees it.
         let profile = FilmGrainProfile(stock: FilmStock.portra400, size: 1, amount: 50,
                                        pushPull: 0)
-        let uncropped = profile.plateScale(longEdgePixels: edge(6000, 6000, 6000),
-                                           printSizeInches: 10)
+        func radius(_ longEdge: Int) -> Double {
+            profile.grainRadiusPixels(longEdgePixels: longEdge, printSizeInches: 10,
+                                      channel: 1)
+        }
+        let uncropped = radius(edge(6000, 6000, 6000))
         for keep in [0.9, 0.75, 0.5, 0.25] {
             let cropped = Int(6000 * keep)
-            XCTAssertEqual(profile.plateScale(longEdgePixels: edge(6000, cropped, cropped),
-                                              printSizeInches: 10),
+            XCTAssertEqual(radius(edge(6000, cropped, cropped)),
                            uncropped, accuracy: 1e-9,
                            "a crop keeping \(keep) of the frame changed the grain's "
                                + "pixel footprint")
         }
         // A resize does move it, proportionally — the other half of the contract.
-        XCTAssertEqual(profile.plateScale(longEdgePixels: edge(6000, 6000, 3000),
-                                          printSizeInches: 10),
+        XCTAssertEqual(radius(edge(6000, 6000, 3000)),
                        uncropped / 2, accuracy: 1e-9,
                        "halving the delivered size did not halve the grain's footprint")
     }
-    /// Grain Size saturates at the bottom of its range on a small render, and that is
-    /// the pixel grid rather than a bug.
+    /// Grain Size is live across its whole range at EVERY render size (WS-40 F5).
     ///
-    /// `plateScale` floors at half a pixel because a plate cell finer than that cannot
-    /// be resolved — there is nothing to draw. On a 1200 px fit view of Portra 400 the
-    /// bottom half of the Size slider all lands on that floor; on Velvia 50, whose
-    /// grain is finest, it is the bottom 45% even at the 2560 px working resolution.
-    ///
-    /// Recorded as a test rather than left as a surprise, because the two wrong
-    /// responses are both tempting: lowering the floor (which draws sub-pixel noise
-    /// that aliases) or removing it (which divides by nothing). The behaviour that
-    /// matters is that EXPORT resolution is live across the whole slider.
-    func testGrainSizeSaturatesOnSmallRendersAndIsLiveOnExports() {
-        func scale(_ longEdge: Int, _ size: Double) -> Double {
+    /// The plate floored a cell at half a pixel, so on a 1200 px fit view of Portra 400
+    /// the bottom half of the Size slider rendered one picture. The grain field has no
+    /// floor: a sub-pixel grain is averaged by its pixel's aperture, as a downsample of
+    /// the export would average it, so the radius stays proportional to the frame and
+    /// every setting is distinct at preview and export alike.
+    func testGrainSizeIsLiveAtEveryRenderSize() {
+        func radius(_ longEdge: Int, _ size: Double) -> Double {
             FilmGrainProfile(stock: FilmStock.portra400, size: size, amount: 50,
                              pushPull: 0)
-                .plateScale(longEdgePixels: longEdge, printSizeInches: 10)
+                .grainRadiusPixels(longEdgePixels: longEdge, printSizeInches: 10,
+                                   channel: 1)
         }
-
-        // A fit view: the fine end of the slider is one value, at the floor.
-        XCTAssertEqual(scale(1200, 0.5), 0.5, accuracy: 1e-12)
-        XCTAssertEqual(scale(1200, 1.0), 0.5, accuracy: 1e-12)
-        XCTAssertGreaterThan(scale(1200, 2.0), 0.5)
-
-        // At export size every setting is distinct and monotone — which is the
-        // property that has to hold, because that is the file the photographer keeps.
-        var previous = 0.0
-        for step in 0...30 {
-            let size = 0.5 + Double(step) * 0.05
-            let value = scale(6000, size)
-            XCTAssertGreaterThan(value, previous,
-                                 "Grain Size \(size) drew no coarser than \(size - 0.05) "
-                                     + "at export resolution")
-            XCTAssertGreaterThan(value, 0.5,
-                                 "Grain Size \(size) hit the floor at export size")
-            previous = value
+        for edge in [1200, 6000] {
+            var previous = 0.0
+            for step in 0...30 {
+                let size = 0.5 + Double(step) * 0.05
+                let value = radius(edge, size)
+                XCTAssertGreaterThan(value, previous,
+                                     "Grain Size \(size) drew no coarser than "
+                                         + "\(size - 0.05) at \(edge) px")
+                previous = value
+            }
         }
+        // And the field the stage lays changes with it at the small size too.
+        let a = GrainPlan.film(FilmChain(FilmChain.defaultRecipe(for: .portra400),
+                                         displayWhite: 1.0)).field(longEdge: 1200)
+        var coarser = FilmChain.defaultRecipe(for: .portra400)
+        coarser.grain.size = 0.6
+        let b = GrainPlan.film(FilmChain(coarser, displayWhite: 1.0)).field(longEdge: 1200)
+        XCTAssertNotEqual(a, b)
     }
 
-    /// The plate survives the trip through the GPU's texture at full amplitude.
-    ///
-    /// It did not: the store divided by 4 and the kernel recovered with ×2, so the GPU
-    /// saw HALF the amplitude the reference defines — Grain Amount was worth half as
-    /// much on screen and in export as the golden said — and the store clamped to 0…1,
-    /// flattening the 3.4% of the plate beyond ±2σ, which is exactly the strongest
-    /// grains. The two halves lived in different files with no shared constant.
-    func testTheGrainPlateEncodingRoundTripsAtFullAmplitude() {
-        let plate = FilmGrainProfile.plate(size: 128, seed: 0x5DEECE66D, sigma: 1)
-        let scale = FilmGrainProfile.plateEncodeScale
-
-        var worst = 0.0
-        var lowest = Double.infinity
-        var highest = -Double.infinity
-        for value in plate {
-            // Exactly what `grainPlate` writes and `lumenGrain` reads back.
-            let stored = Double(Float(Double(value) / scale + 0.5))
-            let recovered = (stored - 0.5) * scale
-            worst = Swift.max(worst, abs(recovered - Double(value)))
-            lowest = Swift.min(lowest, stored)
-            highest = Swift.max(highest, stored)
-        }
-        XCTAssertLessThan(worst, 1e-6,
-                          "the plate came back at a different amplitude: worst \(worst)")
-        // And nothing needs clamping, which is what makes dropping the old `saturate`
-        // safe rather than merely different.
-        XCTAssertGreaterThan(lowest, 0, "the encoded plate went below 0 at \(lowest)")
-        XCTAssertLessThan(highest, 1, "the encoded plate went above 1 at \(highest)")
-    }
-
-    func testGrainPlateIsDeterministicAndUnitVariance() {
-        let a = FilmGrainProfile.plate(size: 64, seed: 12345, sigma: 1)
-        let b = FilmGrainProfile.plate(size: 64, seed: 12345, sigma: 1)
-        XCTAssertEqual(a, b, "grain plate is not reproducible")
-
-        // A plate that ignored its seed would also be perfectly reproducible. Two
-        // frames of a burst share everything except the seed, so identical plates mean
-        // identical grain — which reads as a dirty sensor, not as film.
-        let other = FilmGrainProfile.plate(size: 64, seed: 12346, sigma: 1)
-        XCTAssertNotEqual(a, other, "the plate ignored its seed")
+    /// The field is deterministic, follows its seed, and is unit variance where its
+    /// grains are resolved (its normalisation is the RESOLVED variance; a sub-pixel
+    /// grain averages down, as a downsample would).
+    func testGrainFieldIsDeterministicAndUnitVariance() {
+        let resolved = GrainField(radii: [3], roughness: 0.5, seed: 12345)
+        let a = resolved.evaluate(width: 384, height: 384)[0]
+        XCTAssertEqual(a, resolved.evaluate(width: 384, height: 384)[0],
+                       "the grain field is not reproducible")
+        // A field that ignored its seed would also be perfectly reproducible.
+        let other = GrainField(radii: [3], roughness: 0.5, seed: 12346)
+            .evaluate(width: 384, height: 384)[0]
         var differing = 0
         for (x, y) in zip(a, other) where x != y { differing += 1 }
-        XCTAssertGreaterThan(differing, a.count / 2,
-                             "only \(differing) of \(a.count) samples moved with the "
-                                 + "seed — the plate is barely seeded")
+        XCTAssertGreaterThan(differing, a.count * 9 / 10,
+                             "only \(differing) of \(a.count) samples moved with the seed")
 
         var sum = 0.0
         var sumSquares = 0.0
@@ -1513,8 +1484,8 @@ final class EngineIntegrationTests: XCTestCase {
         let n = Double(a.count)
         let mean = sum / n
         let variance = sumSquares / n - mean * mean
-        XCTAssertEqual(mean, 0, accuracy: 0.02)
-        XCTAssertEqual(variance, 1, accuracy: 0.05)
+        XCTAssertEqual(mean, 0, accuracy: 0.05)
+        XCTAssertEqual(variance, 1, accuracy: 0.1)
     }
 
     // MARK: - Colour and grade
