@@ -4,7 +4,7 @@ Scope: `MaskRaster.refined/edgeShifted/guidePlane` and helpers, `MP.refineSectio
 `MaskRaster.combine/alpha/referenced`. GPU mask kernels are lane M9's; `MaskAlgebra.swift`
 is WS-42's. Anything that needs either is written to `NEEDS.md`, not changed.
 
-Measured on the CPU definition (`MaskRaster.combine`) through the lane harness
+Measured on the CPU definition (`MaskRaster.combine`) through the lane tool
 `tools/maskh` (rasterizes Mask JSON on a corpus `.lfi`, 2400 px long edge, the S11 source
 approximated by the decoded frame). Corpus masks:
 
