@@ -18,12 +18,11 @@
 //   · Saturation-class tools (Vibrance, Saturation) work in Lumen UCS, where chroma
 //     moves hold H-K-corrected perceived brightness constant — invariant #2, and the
 //     reason saturated blues here do not read as if they dimmed.
-// The one deliberate exception is the subtractive branch of Saturation, which darkens
-// as it saturates *on purpose*: that is the whole point of the density model, and it is
-// reached only through the user's `density` dial. The additive path it blends against
-// still holds J exactly, so `density = 0` is a chroma move at strictly constant H-K
-// brightness J. J is not working-space luminance Y: see the negative-Saturation note in
-// `applyVibranceSaturation`.
+// The one deliberate exception is Saturation's Density, which darkens as it saturates
+// *on purpose* (colour deepening like dye), and is reached only through the user's
+// `density` dial. At Density 0, its default, a Saturation push is a chroma move at
+// strictly constant H-K brightness J. J is not working-space luminance Y: see the
+// negative-Saturation note in `applyVibranceSaturation`.
 //
 // The stage does NOT clip to gamut. Display-gamut mapping is the last colour
 // operation inside S14 (docs/14 §2) and belongs there, where "the display" finally
@@ -210,8 +209,21 @@ public struct ColorEngine: Sendable {
     /// authority everywhere above it. There is no taper: a taper would need a highlight
     /// to converge to, and scene-referred data does not have one.
     public static let lumShapePeak: Double = 0.5
-    /// B&W band gain constant: −100 on a band takes that colour's grey to zero.
-    public static let bwKappa: Double = 1.0
+    /// B&W band depth, in stops: a band at ±100 moves the grey of a fully gated colour
+    /// at its centre by ±bwKappa EV. It used to be a linear gain on Y, `1 + band/100`,
+    /// so −100 was black (−∞ EV) while +100 was only +1 EV, and half the slider's travel
+    /// went into its last stop. In EV the slider is symmetric, evenly spaced, and has a
+    /// floor: the band weights sum to one, so no mix can move a grey more than this.
+    public static let bwKappa: Double = 2.0
+    /// The B&W mix's OWN chroma gate, `smoothstep(0, bwGateHiChroma, C)`. It is not
+    /// `chromaGate`: that one is full by C 0.06, which made a pale sky (C ≈ 0.06) take a
+    /// band's whole effect and go black at −100 while its clouds stayed grey. This one
+    /// keeps growing to C 0.18, so a band's effect is proportional to how coloured the
+    /// pixel is, and it starts at zero slope so a near-neutral is never selected. The
+    /// pair is bounded by smoothness: the canonical band weights change by up to 0.058
+    /// per degree of hue, so at C 0.10 (gate 0.58) a band's grey moves by at most 0.07 EV
+    /// per degree — and a fully saturated colour still gets the whole ±2 EV.
+    public static let bwGateHiChroma: Double = 0.18
 
     /// Chroma gate thresholds. Below `gateLo` a pixel's hue is noise; the gate scales
     /// the *magnitude* of every hue-selective adjustment and is deliberately never
@@ -222,27 +234,39 @@ public struct ColorEngine: Sendable {
     public static let gateLoChroma: Double = 0.02
     public static let gateHiChroma: Double = 0.06
 
-    /// Where Protect Skin's attenuation fades in, in chroma, eased over LOG chroma.
-    ///
-    /// It used to be `chromaGate`, through `skinWeight`, and that ramp is too steep to
-    /// sit under a gain. The output chroma is C · G(1 − P · g(C)), so as the protection
-    /// rises the gain falls, and a linear-chroma smoothstep across 0.02…0.06 rises at
-    /// up to 1.5 per ln C — faster than the input grows. At Vibrance and Saturation
-    /// +100 and Protect 100 a skin-hued C 0.040 left at 0.088 and a C 0.054 at 0.061:
-    /// the MORE colourful pixel came out flatter, a chroma contour on a pale face (0.011
-    /// at the shipped Protect 70). Keeping chroma order at full gain needs the ramp no
-    /// steeper than 1 − g/2 per ln C; no ramp that opens and closes inside 0.02…0.06
-    /// can manage that, and a smoothstep needs a decade. So it starts at 0.006 and is
-    /// full by the same 0.06 as before. At C ≥ 0.06 protection is unchanged; between
-    /// 0.006 and 0.06 it is STRONGER than before — and that span holds pale skin as
-    /// well as skin-hued near-greys: at C 0.04 the guard rises from 0.5 to about 0.92.
-    /// That is what moved the color.protectSkin / saturation / vibrance / density proof
-    /// records when this ramp landed.
-    /// `skinWeight`, the shared meaning of "skin", is not touched.
-    /// Mirrored in `ExactColorTwin.vibranceSaturation` and the GLSL colour finish.
-    /// (ProtectSkinChromaOrderTests)
-    public static let protectLoChroma: Double = 0.006
-    public static let protectHiChroma: Double = 0.06
+    /// Protect Skin's own skin band (`skinProtectionWeight`). NOT `skinLineDegrees` /
+    /// `skinBandDegrees`: those are the vectorscope's I-bar and the Skin tools' selection,
+    /// and a ±10° band around 56.4° sits on ColorChecker orange (53.6°) while missing
+    /// light skin (40.7°) and Monk MST 1–6 (67.6°–84.6°) entirely. Measured skin in this
+    /// working space spans h 40°–85° at C ≤ 0.07, so the band is full over 38°–88°
+    /// (centre ± core) and fades over 30° of hue to zero at 8° and 118°. A 30° feather is
+    /// what keeps the gain's slope across the edge under 0.05 per degree at Protect 100.
+    public static let protectHueCentre: Double = 63.0
+    public static let protectHueCore: Double = 25.0
+    public static let protectHueFeather: Double = 30.0
+    /// Hue cannot tell skin from orange (ColorChecker orange is 53.6°, inside the band);
+    /// colourfulness can. It is measured as C/L, not C: OKLab is homogeneous, so an
+    /// exposure change scales L and C together and C/L is the same face in sun and in
+    /// shade. Every skin patch measured (ColorChecker skins, Monk MST 1–9) has C/L ≤
+    /// 0.118; ColorChecker orange is 0.222, orange-yellow 0.196, red 0.32. Protection is
+    /// full to C/L 0.12 and gone by 0.20 — wide enough that the guard's own fade adds
+    /// under 0.3 of gain per 0.01 of chroma at Protect 100.
+    public static let protectFillFull: Double = 0.12
+    public static let protectFillZero: Double = 0.20
+    /// Where the protection fades in at the low-chroma end, eased over LOG chroma: full
+    /// at C 0.015 (Monk MST 1), from zero at 0.002. The ramp must not rise faster than
+    /// the gain it scales can afford, or a more colourful pixel comes out flatter
+    /// (ProtectSkinChromaOrderTests). Vibrance and Saturation +100 together at Protect
+    /// 100 compound to a gain near ×1.9 that the guard removes, which allows about 0.8
+    /// of protection per ln C; a smoothstep across a factor of 7.5 peaks at 0.75. (A
+    /// factor of three, 0.005…0.015, folded chroma by 0.001 at C 0.0125.)
+    public static let protectLoChroma: Double = 0.002
+    public static let protectHiChroma: Double = 0.015
+    /// Lightness plausibility of skin: none in crushed blacks, and none past L 1.2. It
+    /// used to close at 0.98, which put Monk MST 1–3 (L 0.93–0.95) at 13% protection;
+    /// this stage is scene-referred and L 0.95 is a pale face, not a blown highlight.
+    public static let protectLightnessLo: (Double, Double) = (0.05, 0.20)
+    public static let protectLightnessHi: (Double, Double) = (1.0, 1.2)
 
     // MARK: - Point Colour (docs/06 brief §2.2)
 
@@ -362,12 +386,44 @@ public struct ColorEngine: Sendable {
 
     // MARK: - Vibrance / Saturation (docs/06 brief §5.5)
 
-    public static let lowChromaLo: Double = 0.05
-    public static let lowChromaHi: Double = 0.25
-    /// Sat-vs-Sat compression: the knee above which further push resists, and the
-    /// chroma the curve is asymptotic to. Internal machinery — never a user curve.
-    public static let satKneeChroma: Double = 0.18
-    public static let satCeilingChroma: Double = 0.34
+    /// Vibrance's low-chroma priority, `(1 − C/lowChromaHi)²`: ×0.77 of the push at C 0.03,
+    /// ×0.20 at C 0.12, nothing from C 0.22. Quadratic rather than a smoothstep because
+    /// the falloff is a negative slope in the output-vs-input chroma curve, and Vibrance
+    /// and Saturation stack: C·(1 − C/c)² never falls faster than 1/3 of its own gain,
+    /// which keeps Vibrance + Saturation +100 above SAT-5's 0.3 slope.
+    public static let lowChromaHi: Double = 0.22
+    /// Vibrance's chroma-noise floor: no boost at chroma 0, full from this chroma up. A
+    /// shadow's chroma noise is low-chroma, so without it Vibrance amplified noise more
+    /// than Saturation did (×1.89 on an ISO 3200 frame).
+    public static let vibranceFloorChroma: Double = 0.02
+    /// Vibrance +100's largest gain is 1 + this, on colours just above the noise floor.
+    ///
+    /// Vibrance weighs ABSOLUTE chroma only, never gamut fill. A fill weight made every
+    /// dark colour count as "near the edge" (C/L is high in shadows), and Vibrance +100
+    /// was ×1.1 on a dark frame — weaker than Vibrance −100. Gamut room is the push
+    /// compression's job, which Vibrance shares with Saturation.
+    public static let vibrancePushStrength: Double = 1.0
+    /// Vibrance −100 is a uniform-in-hue pull to (1 − this) of the chroma — muted, never
+    /// monochrome: `vibrancePullStrength` on near-neutrals, easing across the chroma
+    /// gate (0.02…0.06) to `…Saturated` for everything with a real colour.
+    public static let vibrancePullStrength: Double = 0.6
+    public static let vibrancePullStrengthSaturated: Double = 0.45
+    /// Gamut-relative push compression (`gamutCompressedFill`): gamut fill (chroma over
+    /// the boundary chroma) is exactly linear up to this knee, and above it approaches
+    /// the boundary as 1 − (1 − knee)²/(t + 1 − 2·knee) — a 1/t tail, never reaching it.
+    public static let satRoomKnee: Double = 0.5
+    /// Density: a Saturation push at Density 100 lowers OKLab L by this fraction of the
+    /// gamut fill it added (chroma and hue held), so colour deepens like dye. Because
+    /// the darkening follows the per-pixel fill, a noisy saturated patch at Density 100
+    /// also gains some luminance texture (high-pass L ×1.2 on a red in 2062 at Sat +100);
+    /// 0.3 halved that but left the control under its proof authority floor, so the
+    /// value is what keeps Density visibly a control (~0.6 EV at 100 on the median
+    /// colour). Gamut-safe for any value below 1 (see `shapedChromaScale`).
+    public static let densityDarkening: Double = 0.65
+    /// The working-gamut boundary search: C/L is bisected on [0, ceiling] this many times.
+    /// Rec.2020's boundary sits at C/L 0.24–0.89 in this working space.
+    public static let gamutReachCeiling: Double = 1.2
+    public static let gamutReachSteps: Int = 16
     /// Lum-vs-Sat rolloff: the tonal window inside which a *push* has full effect.
     ///
     /// The low end is a true floor — below `satRolloffLo0` there is no colour to push,
@@ -388,8 +444,6 @@ public struct ColorEngine: Sendable {
     /// What the taper approaches as brightness rises without bound. Never zero: the
     /// point is that highlights saturate LESS, not that they stop being colours.
     public static let satRolloffFloor: Double = 0.35
-    /// Full positive Saturation raises the dye-density gamma to this above 1.
-    public static let densityGammaRange: Double = 1.0
 
     // MARK: - Primaries (docs/06 brief §6.2)
 
@@ -1028,10 +1082,8 @@ public struct ColorEngine: Sendable {
 
     /// Vectorscope skin-band membership in 0…1: how much this colour reads as skin.
     /// The Skin tools' selection and the scope read this. Vibrance/Saturation's
-    /// `protectSkin` attenuation reads `skinProtectionWeight` instead: the same hue band
-    /// and plausibility, but a gentler log-chroma gate (see `protectLoChroma`), so for
-    /// skin hues between C 0.006 and 0.06 the guardrail protects more than this weight
-    /// selects. At C ≥ 0.06 the two agree.
+    /// `protectSkin` attenuation reads `skinProtectionWeight` instead, which has its own
+    /// band (see `protectHueCentre`): this one is still centred on the I-bar.
     public static func skinWeight(_ c: RGB,
                                   context: OKLabTransform.Context = OKLabTransform.working) -> Double {
         guard c.isFinite else { return 0 }
@@ -1043,22 +1095,29 @@ public struct ColorEngine: Sendable {
         return Num.saturate(inBand * chromaGate(lch.C) * plausibility(L: lch.L, C: lch.C))
     }
 
-    /// How much Protect Skin spares this colour: `skinWeight` with its chroma gate
-    /// swapped for the log-chroma `protectLoChroma…protectHiChroma` ramp, so the
-    /// attenuation can never fold chroma order (see those constants). Selection is
-    /// still `skinWeight`'s; only the strength of the guard eases in more gently.
+    /// How much Protect Skin spares this colour, 0…1: a hue band full over 38°–88°
+    /// with 30° feathers, times a colourfulness plausibility that is full to C/L 0.12 and
+    /// gone by 0.20 (skin is never that colourful; orange is), times a log-chroma ease-in that is
+    /// full at C 0.015, times lightness plausibility. See `protectHueCentre` and the
+    /// constants after it for where each number comes from. Every factor is a smoothstep,
+    /// so the guard has no seam in hue or chroma.
     static func skinProtectionWeight(_ c: RGB,
                                      context: OKLabTransform.Context = OKLabTransform.working)
         -> Double {
         guard c.isFinite else { return 0 }
         let lch = context.toLCh(c)
         guard lch.C.isFinite, lch.L.isFinite else { return 0 }
-        let offAxis = abs(Num.hueDelta(skinLineDegrees, lch.h))
-        let inBand = 1 - Num.smoothstep(skinBandDegrees, skinBandDegrees * 1.5, offAxis)
+        let offAxis = abs(Num.hueDelta(protectHueCentre, lch.h))
+        let inBand = 1 - Num.smoothstep(protectHueCore, protectHueCore + protectHueFeather,
+                                        offAxis)
         guard inBand > 0 else { return 0 }
         let gate = Num.smoothstep(Foundation.log(protectLoChroma), Foundation.log(protectHiChroma),
                                   Foundation.log(Swift.max(lch.C, 1e-9)))
-        return Num.saturate(inBand * gate * plausibility(L: lch.L, C: lch.C))
+        let light = Num.smoothstep(protectLightnessLo.0, protectLightnessLo.1, lch.L)
+            * (1 - Num.smoothstep(protectLightnessHi.0, protectLightnessHi.1, lch.L))
+        guard light > 0 else { return 0 }
+        let colourful = 1 - Num.smoothstep(protectFillFull, protectFillZero, lch.C / lch.L)
+        return Num.saturate(inBand * gate * colourful * light)
     }
 
     /// Skin is a *plausible* colour, not just an angle: crushed blacks, blown highlights
@@ -1661,23 +1720,64 @@ public struct ColorEngine: Sendable {
 
     /// Low-chroma prioritization: Vibrance spends itself on the colours that have least.
     public static func lowChroma(_ chroma: Double) -> Double {
-        1 - Num.smoothstep(lowChromaLo, lowChromaHi, chroma)
+        let r = Swift.max(0, 1 - chroma / lowChromaHi)
+        return r * r
     }
 
-    /// Sat-vs-Sat compression. Monotone, C¹ at the knee, asymptotic to the ceiling:
-    /// already-saturated colours resist further push. Applied to the *increment* so an
-    /// untouched colour is an exact fixed point.
-    public static func satCompress(_ chroma: Double) -> Double {
-        guard chroma > satKneeChroma else { return chroma }
-        let room = satCeilingChroma - satKneeChroma
-        guard room > 0 else { return chroma }
-        return satCeilingChroma - room * exp(-(chroma - satKneeChroma) / room)
+    /// The working-gamut boundary along hue `h`, as OKLab C/L: the largest chroma per
+    /// unit lightness with no negative working-space channel.
+    ///
+    /// It is a ratio because the cube root is homogeneous: at lightness L and chroma C
+    /// the cone responses are L³·(1 + (C/L)·v(h))³, so whether a colour is inside the
+    /// gamut depends on C/L and h only, at every exposure. One bisection per pixel finds
+    /// it; `gamutReachCeiling` is outside the boundary at every hue, and inside it each
+    /// hue's ray has a single crossing. Mirrored step for step by the twin and the GLSL.
+    static func gamutReach(hue h: Double, context: OKLabTransform.Context) -> Double {
+        var lo = 0.0
+        var hi = gamutReachCeiling
+        for _ in 0..<gamutReachSteps {
+            let mid = (lo + hi) / 2
+            let rgb = context.toRGB(OKLCh(L: 1, C: mid, h: h))
+            if Swift.min(rgb.r, Swift.min(rgb.g, rgb.b)) >= 0 { lo = mid } else { hi = mid }
+        }
+        return lo
+    }
+
+    /// Where a push leaves a colour, in gamut fill (chroma over boundary chroma, so 1 is
+    /// the working-gamut edge). `x0` is the colour's fill, `target` the fill a plain
+    /// chroma scale would give it, so the push's gain is `target / x0`.
+    ///
+    /// This replaces `satCompress`, an ABSOLUTE knee (0.18) and ceiling (0.34) in
+    /// chroma. That knee bit colours deep inside the gamut — a C 0.16 blue at L 0.75 got
+    /// 83% of its push — while letting yellows, whose boundary is at C 0.2, sail out of
+    /// Rec.2020 (8187 in-gamut grid samples left it at Saturation/Vibrance +100), and in
+    /// RATIO form a colour past the knee could still plateau. Relative to the boundary at
+    /// the pixel's own lightness and hue it is uniform where there is room and soft where
+    /// there is not. The fill is mapped through a soft knee S — the identity up to
+    /// `satRoomKnee`, then 1 − (1 − k)²/(t + 1 − 2k), C¹ at the knee and asymptotic to
+    /// the boundary — and the push scales the UNCOMPRESSED coordinate: z = S(g·S⁻¹(x0)).
+    ///
+    /// - Where g·x0 ≤ the knee it is an exact scale (Saturation +100 at fill 0.25).
+    /// - z < 1 always, so a push never leaves the gamut.
+    /// - z rises strictly with g at every finite gain: the slider's top half is never
+    ///   dead. The first version eased exponentially into a fixed share of the room,
+    ///   and an already-saturated orange gained ×1.152 by +25 and nothing after.
+    /// - Near the edge the 1/t tail makes the room left shrink by a factor 1/g, so the
+    ///   +50…+100 half of the slider still does a third of the work, and the output's
+    ///   slope in x0 is at least 1/g (0.5 at +100): no plateau, no gamut blotch.
+    /// - It never returns less than x0, so a push never takes chroma away.
+    static func gamutCompressedFill(_ x0: Double, target: Double) -> Double {
+        guard target > x0, x0 > 0, x0 < 1 else { return x0 }
+        let k = satRoomKnee
+        let t0 = x0 <= k ? x0 : (1 - k) * (1 - k) / (1 - x0) - 1 + 2 * k
+        let t = t0 * (target / x0)
+        return t <= k ? t : 1 - (1 - k) * (1 - k) / (t + 1 - 2 * k)
     }
 
     /// Lum-vs-Sat rolloff: no chroma-noise shadows, no neon highlights. Together with
-    /// the compression above this is the actual mechanism of "expensive" colour — film's
-    /// apparent richness is saturation rolloff at the extremes. Both are internal and
-    /// always on; exposing them as user curves would violate the one-intent rule.
+    /// the gamut compression above this is the actual mechanism of "expensive" colour —
+    /// film's apparent richness is saturation rolloff at the extremes. Both are internal
+    /// and always on; exposing them as user curves would violate the one-intent rule.
     public static func lumSatRolloff(_ brightness: Double) -> Double {
         guard brightness.isFinite else { return 0 }
         // Squared so the taper leaves the knee with zero slope: it meets the flat
@@ -1688,217 +1788,160 @@ public struct ColorEngine: Sendable {
         return Num.smoothstep(satRolloffLo0, satRolloffLo1, brightness) * taper
     }
 
-    /// The subtractive branch: per-channel gamma on the chromaticity ratios against the
-    /// density-weighted norm. Colour intensifies by *densifying* — the absorbing layers
-    /// deepen while the transmitting one holds, so the colour darkens as it saturates,
-    /// the way stacked dye does, instead of pushing channels apart toward neon.
-    /// Neutrals have unit ratios and are therefore exact fixed points.
-    ///
-    /// Only POSITIVE ratios are densified. Nothing between S6 and this stage clamps or
-    /// gamut-maps (that is S14's job), so a colour outside the working gamut — a
-    /// narrow-band LED through a 3x3 camera matrix — arrives with a negative channel,
-    /// and a negative ratio is not an absorbing dye layer: the model has nothing to say
-    /// about it. The old signed power (`spow`) pulled it TOWARD zero, walking the colour
-    /// back into the gamut, so positive Saturation at the default Density took chroma
-    /// AWAY — 17% from a 490 nm cyan at +100, more the further the slider went.
-    /// Negatives are now held where they are; every all-positive colour is bit-identical
-    /// to before. The cost is a C0 (not C1) join where a ratio crosses zero, which only
-    /// an out-of-gamut gradient can reach. Once negatives are gamut-mapped before S9
-    /// (docs/23 #13) this guard becomes a no-op. Mirrored in `ExactColorTwin.subtractive`
-    /// and the GLSL `lumenSubtractive`.
-    /// (SaturationOutOfGamutChromaTests)
-    public static func subtractivePush(_ c: RGB, amount: Double) -> RGB {
-        guard amount > 0 else { return c }
-        let norm = c.maxComponent
-        guard norm > 1e-9, norm.isFinite else { return c }
-        let gamma = 1 + amount * densityGammaRange
-        guard gamma > 0 else { return c }
-        func densify(_ ratio: Double) -> Double { ratio > 0 ? Foundation.pow(ratio, gamma) : ratio }
-        let r = densify(c.r / norm)
-        let g = densify(c.g / norm)
-        let b = densify(c.b / norm)
-        let out = RGB(r * norm, g * norm, b * norm)
-        return out.isFinite ? out : c
-    }
-
     private func applyVibranceSaturation(_ c: RGB) -> RGB {
         let vibrance = Num.clamp(color.vibrance, -100, 100) / 100
         let saturation = Num.clamp(color.saturation, -100, 100) / 100
         guard vibrance != 0 || saturation != 0 else { return c }
 
-        let input = LumenUCS.fromRGB(c, context: context)
-        guard input.J.isFinite, input.C.isFinite else { return c }
+        let input = context.toLCh(c)
+        guard input.L.isFinite, input.C.isFinite, input.h.isFinite else { return c }
+        let J = input.L * HelmholtzKohlrausch.brightnessFactor(chroma: input.C, hue: input.h)
+        guard J.isFinite else { return c }
 
         // Selection and shaping weights are read off the stage input, never the output.
+        // Neither move changes hue, so the boundary found here serves both.
         let skin = Self.skinProtectionWeight(c, context: context)
         let protection = 1 - Num.clamp(color.protectSkin, 0, 100) / 100 * skin
-        let rolloff = Self.lumSatRolloff(input.J)
+        let rolloff = Self.lumSatRolloff(J)
+        let reach = Self.gamutReach(hue: input.h, context: context)
 
-        // The rolloff tapers *pushes* only. Negative Saturation still reaches true B&W
-        // at −100 everywhere in the frame, including the extremes.
+        // VIBRANCE PUSH: gentler than Saturation by construction, not by coincidence.
+        // Its gain falls with chroma (`lowChroma`), so a saturated colour barely moves
+        // while a muted one — in a shadow as much as in a highlight — gets nearly the
+        // full push; near the gamut edge the shared compression takes over, so it
+        // never clips. It starts from zero at chroma 0 (`vibranceFloorChroma`), so
+        // shadow chroma noise is not amplified, and Protect Skin spares skin. Before, it
+        // was ×2 on everything under C 0.05 — skin included — and measured stronger than
+        // Saturation +100 on every real photograph.
         //
-        // Skin protection now obeys the same rule on Saturation, and did not: it
-        // multiplied the negative amount too, so at the shipped default of 70 a full
-        // desaturation left every skin-hued pixel at 30% of its chroma — a face still
-        // in colour inside a black-and-white frame. The wire format says "−100 reaches
-        // true B&W" (Recipe.swift), the comment directly above says it, Lightroom does
-        // it, and the code did not. A guard on a PUSH is a preference; a guard that
-        // stops a pull from reaching its stated endpoint is a broken control.
+        // VIBRANCE PULL: a uniform-in-hue mute, never monochrome, and NOT skin-protected.
+        // It was the push's weighting run backwards — everything under C 0.05 went to
+        // exactly grey, so Vibrance −100 was Saturation −100 on an ordinary photo — and
+        // the protection then left the skin hues in colour inside a grey frame, a
+        // colour-splash wedge. Protection is a guard on pushes; a pull has no endpoint
+        // to protect anything from.
         //
-        // Vibrance keeps protection at both signs on purpose. Its negative end is not
-        // an endpoint anybody is promised — `lowChroma` already means a saturated
-        // colour barely moves — so there is no contract for the guard to break, and
-        // "leave skin alone" is exactly what the dial is named for. Saturation at −100
-        // still wins over it: gain 0 zeroes chroma whatever Vibrance did first.
-        let vibAmount = (vibrance >= 0 ? vibrance * rolloff : vibrance)
-            * Self.lowChroma(input.C) * protection
-        let satAmount = saturation >= 0 ? saturation * rolloff * protection : saturation
+        // Protect Skin scales what a push ADDS, after the gamut compression, rather than
+        // the push asked for: at Protect 70 skin keeps 30% of the chroma it would have
+        // gained. Scaling the request instead let the compression undo it — a weaker
+        // push is compressed less — so skin near its (narrow, at orange hues) boundary
+        // kept half its push, not 30%.
+        let vibAmount: Double
+        if vibrance == 0 {
+            vibAmount = 0
+        } else if vibrance > 0 {
+            vibAmount = vibrance * rolloff * Self.vibrancePushStrength
+                * Self.lowChroma(input.C)
+                * Num.smoothstep(0, Self.vibranceFloorChroma, input.C)
+        } else {
+            vibAmount = vibrance * (Self.vibrancePullStrengthSaturated
+                + (Self.vibrancePullStrength - Self.vibrancePullStrengthSaturated)
+                * (1 - Self.chromaGate(input.C)))
+        }
+        // The rolloff and the protection taper Saturation's PUSH only. Negative
+        // Saturation reaches true B&W at −100 everywhere in the frame — the wire format
+        // says so (Recipe.swift) — and gain 0 zeroes chroma whatever Vibrance did first.
+        //
+        // When both push, their increments ADD rather than compound: Saturation's gain on
+        // the Vibrance result is 1 + s/(1 + v), so the pair is ×(1 + v + s), not
+        // ×(1 + v)(1 + s). Compounded, +100 and +100 asked for ×3.7 on a muted colour,
+        // and no compression can approach the gamut edge from that far without
+        // flattening (SAT-5).
+        var satAmount = saturation >= 0 ? saturation * rolloff : saturation
+        if satAmount > 0, vibAmount > 0 { satAmount /= 1 + vibAmount }
 
         var mid: RGB = c
         if vibAmount != 0 {
-            mid = shapedChromaScale(c, gain: 1 + vibAmount)
+            mid = shapedChromaScale(c, gain: 1 + vibAmount, reach: reach, keep: protection,
+                                    darken: 0)
         }
         guard satAmount != 0 else { return mid }
-
-        let additive = shapedChromaScale(mid, gain: 1 + satAmount)
-        // Only the positive side is subtractive; a negative move is a plain walk toward
-        // the neutral axis at constant Lumen UCS J (H-K brightness, D21) — NOT at
-        // constant luminance. This used to say "exactly luminance-preserving", which is
-        // what Black & White does (it mixes by Rec.2020 Y) and not what this does. At
-        // C = 0 the H-K factor is 1, so the −100 grey's OKLab L is the input's J, and
-        // OKLab L over-predicts the lightness of saturated blues and reds relative to Y:
-        // the sRGB blue primary lands ≈0.42 EV above its luminance, sRGB red ≈0.26 EV,
-        // green ≈0.09 EV below. Holding perceived brightness is the deliberate design
-        // (docs/24 §3); it just means Saturation −100 and the B&W panel are two
-        // different greys. Pinned by testSaturationMinus100HoldsHKBrightnessNotLuminance.
-        guard satAmount > 0 else { return additive }
-        let density = Num.clamp(color.density, 0, 100) / 100
-        guard density > 0 else { return additive }
-        let subtractive = Self.subtractivePush(mid, amount: satAmount)
-        let blended = additive.mix(subtractive, density)
-
-        // THE DENSITY MODEL IS ABOUT LIGHTNESS AND CHROMA. IT IS NOT ABOUT HUE.
-        //
-        // The photographic idea is real and worth keeping: colour intensifies by
-        // DENSIFYING, the absorbing layers deepening while the transmitting one holds,
-        // so a saturated colour darkens instead of pushing its channels apart toward
-        // neon. That is a statement about how light and how colourful the result is.
-        // Nothing in the docs, the panel, or this file's own header claims it is a
-        // statement about WHICH colour it is.
-        //
-        // The rotation was never the model. It is an artefact of how the model is
-        // implemented: `subtractivePush` raises the channel ratios to a power in linear
-        // RGB, which multiplies all three log-ratios by the same gamma — and a log-RGB
-        // ray is not an iso-hue line in OKLab. Only the six primaries and secondaries
-        // lie on one. Everything between them turns.
-        //
-        // WHAT IT COST, measured over 720 colours (36 hues x 5 lightnesses x 4 gamut
-        // fills) at the SHIPPED Density default, before this line existed:
-        //
-        //     Saturation  +10 -> 2.14 deg   +25 -> 4.71   +50 -> 7.83   +100 -> 11.57
-        //     on the skin band            +25 -> 2.21     +50 -> 4.15   +100 ->  7.29
-        //
-        // Read charitably as film-likeness it still fails on its own terms. It is
-        // UNBOUNDED — gamma is 1 + satAmount, so the rotation grows with the slider and
-        // never reaches a ceiling in range. It is ASYMMETRIC — exactly zero below zero,
-        // so +50 and -50 are not one instrument seen from two sides. And it is not what
-        // any dye actually does: stacked dye darkens, it does not walk skin four degrees
-        // toward orange.
-        //
-        // So keep the darkening and drop the turn. The hue is restored ONCE, after the
-        // blend, on the colour the two branches are two renderings of — one restore
-        // rather than one per branch, cheaper than either, and exactly zero rotation by
-        // construction rather than approximately zero.
-        //
-        // EASED ACROSS THE GATE, not switched at it — `chromaGate` is this file's own
-        // idiom and its comment states the rule: it "multiplies adjustment magnitude,
-        // never membership". The hue of a near-neutral is the arctangent of two
-        // nearly-zero numbers and carries nothing to preserve, so the restore has to
-        // fade out down there; but fading it out with a `guard` puts a STEP in the
-        // transform at chroma 0.02, and a step is the one thing a colour cube cannot
-        // represent at any lattice size.
-        //
-        // AND THE MEASUREMENT REFUTED THE REASON. The switched form was caught by
-        // `testTheColourTableConverges`, which measures the composed transform at 33,
-        // 65 and 129 — it left the 129-cube at 0.020475 EV against a 0.02 bound. The
-        // obvious reading was "the step is why", since interpolation error falls with
-        // lattice size and a discontinuity does not. That reading is WRONG, and easing
-        // it is what proved so: the eased form measures 0.020462. The step was worth
-        // about 1.3e-5 EV. What actually costs is the CURVATURE — a hue restore is a
-        // nonlinear correction, and tabulating it is simply harder.
-        //
-        // The easing stays anyway, on principle rather than on that number: a transform
-        // that gets baked into a cube should not carry a step, whether or not this
-        // particular metric happens to notice one. But the honest cost of this fix is
-        // written where the bounds are, not here, and it is a bound that moved rather
-        // than a discontinuity that was removed.
-        //
-        // So the hue is rotated from where the blend put it TOWARD the source hue by
-        // a weight that is 1 from `gateLoChroma` up, eases to 0 at chroma 0, and is
-        // smooth throughout. `hueDelta` takes the short way round, so the
-        // interpolation crosses the 0/360 seam correctly rather than travelling the
-        // long way when the two hues straddle it.
-        //
-        // THE WEIGHT USED TO BE `chromaGate` ITSELF, which only opens fully at
-        // `gateHiChroma` (0.06) — and 0.02…0.06 is not "near-neutral". It is every
-        // coloured surface a few stops under mid-grey, because OKLab chroma falls with
-        // the cube root of exposure. On `tonalColourWedge` at the SHIPPED Density the
-        // turn survived there at 3.05° for Saturation +50 and 6.03° for +100, and
-        // 12.94° at Density 100 (September audit B1-05). The fade now lives entirely
-        // below 0.02, where the proof metric and `HuePreservationTests` stop calling
-        // an angle a hue, and `testTheColourTableConverges` still passes at all three
-        // lattice sizes with the steeper ease.
-        let source = context.toLCh(mid)
-        let out = context.toLCh(blended)
-        guard source.h.isFinite, out.h.isFinite,
-              out.L.isFinite, out.C.isFinite else { return blended }
-        let weight = Num.smoothstep(0, Self.gateLoChroma, source.C)
-        guard weight > 0 else { return blended }
-        let hue = Num.wrapHue(out.h + Num.hueDelta(out.h, source.h) * weight)
-        let held = context.toRGB(OKLCh(L: out.L, C: out.C, h: hue))
-        return held.isFinite ? held : blended
+        // Density shapes a Saturation PUSH only; a pull is a plain walk to the neutral
+        // axis at constant H-K brightness J. That grey is not Rec.2020 luminance, so
+        // Saturation −100 and the B&W panel are two different greys, deliberately
+        // (docs/24 §3; testSaturationMinus100HoldsHKBrightnessNotLuminance).
+        let density = satAmount > 0 ? Num.clamp(color.density, 0, 100) / 100 : 0
+        return shapedChromaScale(mid, gain: 1 + satAmount, reach: reach, keep: protection,
+                                 darken: density * Self.densityDarkening)
     }
 
-    /// Scale chroma in Lumen UCS — holding H-K-corrected perceived brightness and hue
-    /// — with the sat-vs-sat curve applied as a RATIO against the untouched colour's
-    /// own compressed chroma.
+    /// Scale chroma in Lumen UCS — holding H-K-corrected perceived brightness J and hue.
     ///
-    /// It used to apply as an increment: `base + (compress(base·gain) − compress(base))`.
-    /// That makes an untouched colour an exact fixed point, which is the property it
-    /// was written for, and it does reach zero for anything under the compression
-    /// knee. Above the knee it does not: at gain 0 it leaves `base − compress(base)`,
-    /// which is 0.10 of chroma at base 0.40 and 0.66 at base 1.0. Since OKLab chroma
-    /// scales as the cube root of exposure, a colour six stops up carries four times
-    /// the chroma of the same colour at mid-grey — so Saturation at −100 left more and
-    /// more colour behind the brighter the pixel was, in flat contradiction of the
-    /// range comment on the slider and of `true B&W at −100`.
+    /// A pull (gain ≤ 1) is an exact, uniform scale: C·gain at every chroma. It used to
+    /// run through the push's compression as a ratio, so a pull removed less than its
+    /// nominal amount from saturated colours (Saturation −50 left C ×0.567, not ×0.5).
     ///
-    /// The ratio form keeps every property the increment form had and fixes that one.
-    /// Gain 1 returns `base` exactly, so an untouched colour is still a fixed point.
-    /// Gain 0 returns exactly zero at every chroma. It is monotone and smooth in gain
-    /// with no branch at 1. And a colour already past the knee still resists: as gain
-    /// grows the result approaches `ceiling · base / compress(base)`, which for a
-    /// colour at 0.5 is 0.535 — it can be pushed, barely, which is the point.
-    private func shapedChromaScale(_ c: RGB, gain: Double) -> RGB {
-        var u = LumenUCS.fromRGB(c, context: context)
-        guard u.C.isFinite, u.J.isFinite else { return c }
-        let base = Swift.max(0, u.C)
+    /// A push is compressed against the working gamut (`gamutCompressedFill`). Fill is
+    /// measured on the OUTPUT: holding J, the output lightness is J/f(C′) with the H-K
+    /// factor f(C) = 1 + k·C, so the fill of a result is C′·f(C′)/(J·reach), and solving
+    /// that for C′ is a quadratic. A colour already outside the gamut (`x0 ≥ 1`, a
+    /// negative channel from a 3x3 camera matrix) is held exactly where it is: the push
+    /// has no room to work in, and walking it back would take chroma away.
+    ///
+    /// `keep` is Protect Skin's share: a push keeps that fraction of the gamut fill it
+    /// added (1 = all of it). A pull ignores it.
+    ///
+    /// `darken` is Density: the output lightness drops by `darken` times the gamut fill
+    /// the push added, at constant chroma and hue, so colour deepens like stacked dye
+    /// instead of going neon. It replaced a per-channel gamma on linear RGB (the old
+    /// `subtractivePush`) that turned hue, needed a hue restore after it, could LOWER
+    /// chroma at Density 100 (×0.944 on a magenta), and at its default of 50 made plain
+    /// Saturation +100 darken the picture by ~0.19 EV. Darkening at held chroma raises
+    /// the fill, but by less than the room the compression left: a push of gain g ≤ 2
+    /// leaves at least 1/g of the room, which is at least the fill it added, and
+    /// `darken` < 1 spends less than all of it.
+    private func shapedChromaScale(_ c: RGB, gain: Double, reach: Double, keep: Double,
+                                   darken: Double) -> RGB {
+        let lch = context.toLCh(c)
+        guard lch.L.isFinite, lch.C.isFinite, lch.h.isFinite else { return c }
+        let f0 = HelmholtzKohlrausch.brightnessFactor(chroma: lch.C, hue: lch.h)
+        let J = lch.L * f0
+        guard J.isFinite else { return c }
+        let base = Swift.max(0, lch.C)
         let g = Swift.max(0, gain)
-        let reference = Self.satCompress(base)
-        u.C = reference > 1e-12 ? Self.satCompress(base * g) * base / reference : base * g
-        let out = LumenUCS.toRGB(u, context: context)
+        // The H-K factor is linear in chroma: f(C) = 1 + k·C.
+        let k = HelmholtzKohlrausch.brightnessFactor(chroma: 1, hue: lch.h) - 1
+        var C = base * g
+        var L: Double
+        if g > 1 {
+            guard lch.L > 0, J > 0, reach > 0 else { return c }
+            let x0 = base / (lch.L * reach)
+            guard x0 < 1 else { return c }
+            let target = C * (1 + k * C) / (J * reach)
+            let z = x0 + keep * (Self.gamutCompressedFill(x0, target: target) - x0)
+            let u = z * reach * J
+            C = 2 * u / (1 + (Swift.max(0, 1 + 4 * k * u)).squareRoot())
+            // A near-grey has no colour to deepen, and its fill is rounding noise: the
+            // darkening eases in over the first 0.02 of chroma (`gateLoChroma`), so a
+            // neutral is an exact fixed point of Density on the twin's Float path too.
+            L = J / (1 + k * C)
+                * (1 - darken * (z - x0) * Num.smoothstep(0, Self.gateLoChroma, base))
+        } else {
+            let f = 1 + k * C
+            L = f == 0 ? J : J / f
+        }
+        let out = context.toRGB(OKLCh(L: L, C: C, h: lch.h))
         return out.isFinite ? out : c
     }
 
     // MARK: - Black & White (D20)
 
+    /// The B&W mix's own chroma gate. See `bwGateHiChroma`.
+    static func bwGate(_ chroma: Double) -> Double {
+        Num.smoothstep(0, bwGateHiChroma, chroma)
+    }
+
     /// - Parameter bandSource: the colour whose hue and chroma choose the band — the
     ///   pre-Saturation pixel, so a chroma scale cannot gate the mix off. See `apply`.
+    ///
+    /// The grey is Rec.2020 Y times 2^EV, EV = Σ wᵢ · gate(C) · bandᵢ/100 · `bwKappa`.
+    /// The weights sum to one, so the default mix is exactly Y, a neutral (gate 0) is
+    /// exactly its own luminance, and no setting moves a grey more than `bwKappa` stops.
     private func applyBlackAndWhite(_ c: RGB, bandSource: RGB) -> RGB {
         guard bwEnabled else { return c }
         let base = lumaWeights.r * c.r + lumaWeights.g * c.g + lumaWeights.b * c.b
         guard base.isFinite else { return c }
-        var gain: Double = 1
+        var ev: Double = 0
         if bwHasBands {
             let lch = context.toLCh(bandSource.isFinite ? bandSource : c)
             if lch.C.isFinite, lch.L.isFinite {
@@ -1913,14 +1956,14 @@ public struct ColorEngine: Sendable {
                 // frame's Mixer happened to be shaped, which is exactly the
                 // non-portability the Look layer exists to prevent.
                 let w = Self.bandWeights(hue: lch.h)
-                let gate = Self.chromaGate(lch.C)
+                let gate = Self.bwGate(lch.C)
                 for i in 0..<Self.bandCount {
-                    gain += w[i] * gate * (blackAndWhiteBands[i] / 100) * Self.bwKappa
+                    ev += w[i] * gate * (blackAndWhiteBands[i] / 100) * Self.bwKappa
                 }
             }
         }
         // The working space's luminance weights sum to one, so an equal-energy triple of
         // this value is a true neutral at exactly the mixed luminance.
-        return RGB(gray: Swift.max(0, base * Swift.max(0, gain)))
+        return RGB(gray: Swift.max(0, base * Foundation.exp2(ev)))
     }
 }

@@ -359,7 +359,7 @@ DEFAULT_RECIPE = {
         "curve": {"parametric": {"highlights": 0, "lights": 0, "darks": 0,
                                  "shadows": 0, "splits": [0.25, 0.5, 0.75]},
                   "preserveLuminance": True},
-        "color": {"vibrance": 0, "saturation": 0, "density": 50, "protectSkin": 70},
+        "color": {"vibrance": 0, "saturation": 0, "density": 0, "protectSkin": 70},
         "mixer": {"bands": [mixer_band() for _ in range(8)],
                   "uniformity": 0},
         "pointColors": [],
@@ -3370,62 +3370,92 @@ def gen_tone_checks():
 # multiplier on both amounts and is tested by its own fixtures.
 # ---------------------------------------------------------------------------
 
-SAT_KNEE_CHROMA, SAT_CEILING_CHROMA = 0.18, 0.34
-LOW_CHROMA_LO, LOW_CHROMA_HI = 0.05, 0.25
-DENSITY_GAMMA_RANGE = 1.0
-
-
-def sat_compress(chroma):
-    if chroma <= SAT_KNEE_CHROMA:
-        return chroma
-    room = SAT_CEILING_CHROMA - SAT_KNEE_CHROMA
-    return SAT_CEILING_CHROMA - room * math.exp(-(chroma - SAT_KNEE_CHROMA) / room)
+LOW_CHROMA_HI = 0.22
+VIBRANCE_FLOOR_CHROMA = 0.02
+VIBRANCE_PUSH_STRENGTH = 1.0
+VIBRANCE_PULL_STRENGTH, VIBRANCE_PULL_STRENGTH_SATURATED = 0.6, 0.45
+GATE_LO_CHROMA, GATE_HI_CHROMA = 0.02, 0.06
+SAT_ROOM_KNEE = 0.5
+DENSITY_DARKENING = 0.65
+GAMUT_REACH_CEILING, GAMUT_REACH_STEPS = 1.2, 16
 
 
 def low_chroma(chroma):
-    return 1 - smoothstep(LOW_CHROMA_LO, LOW_CHROMA_HI, chroma)
+    r = max(0.0, 1 - chroma / LOW_CHROMA_HI)
+    return r * r
 
 
-def shaped_chroma_scale(c, gain):
-    J, C, h = ucs_from_rgb(c)
-    base = max(0.0, C)
+def gamut_reach(h):
+    """ColorEngine.gamutReach: the working-gamut boundary along hue h, as C/L."""
+    lo, hi = 0.0, GAMUT_REACH_CEILING
+    for _ in range(GAMUT_REACH_STEPS):
+        mid = (lo + hi) / 2
+        if min(oklch_to_rgb(1.0, mid, h)) >= 0:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def gamut_compressed_fill(x0, target):
+    if not (target > x0 and 0 < x0 < 1):
+        return x0
+    k = SAT_ROOM_KNEE
+    t0 = x0 if x0 <= k else (1 - k) * (1 - k) / (1 - x0) - 1 + 2 * k
+    t = t0 * (target / x0)
+    return t if t <= k else 1 - (1 - k) * (1 - k) / (t + 1 - 2 * k)
+
+
+def shaped_chroma_scale(c, gain, reach=None, darken=0.0):
+    L0, C0, h = oklch_from_rgb(c)
+    J = L0 * hk_factor(C0, h)
+    base = max(0.0, C0)
     g = max(0.0, gain)
-    reference = sat_compress(base)
-    new_c = sat_compress(base * g) * base / reference if reference > 1e-12 else base * g
-    return ucs_to_rgb(J, max(0.0, new_c), h)
+    k = hk_factor(1.0, h) - 1
+    C = base * g
+    if g > 1:
+        if reach is None:
+            reach = gamut_reach(h)
+        if not (L0 > 0 and J > 0 and reach > 0):
+            return c
+        x0 = base / (L0 * reach)
+        if x0 >= 1:
+            return c
+        z = gamut_compressed_fill(x0, C * (1 + k * C) / (J * reach))
+        u = z * reach * J
+        C = 2 * u / (1 + math.sqrt(max(0.0, 1 + 4 * k * u)))
+        L = J / (1 + k * C) * (1 - darken * (z - x0) * smoothstep(0.0, GATE_LO_CHROMA, base))
+    else:
+        f = 1 + k * C
+        L = J if f == 0 else J / f
+    return oklch_to_rgb(L, C, h)
 
 
-def subtractive_push(c, amount):
-    if amount <= 0:
-        return c
-    norm = max(c)
-    if norm <= 1e-9 or not math.isfinite(norm):
-        return c
-    gamma = 1 + amount * DENSITY_GAMMA_RANGE
-    return tuple(spow(v / norm, gamma) * norm for v in c)
-
-
-def vibrance_saturation(c, vibrance=0.0, saturation=0.0, density=50.0):
+def vibrance_saturation(c, vibrance=0.0, saturation=0.0, density=0.0):
     vib = min(max(vibrance, -100.0), 100.0) / 100
     sat = min(max(saturation, -100.0), 100.0) / 100
     if vib == 0 and sat == 0:
         return c
-    J, C, _ = ucs_from_rgb(c)
+    L, C, h = oklch_from_rgb(c)
+    J = L * hk_factor(C, h)
     rolloff = lum_sat_rolloff(J)
-    vib_amount = (vib * rolloff if vib >= 0 else vib) * low_chroma(C)
+    reach = gamut_reach(h)
+    if vib > 0:
+        vib_amount = (vib * rolloff * VIBRANCE_PUSH_STRENGTH * low_chroma(C)
+                      * smoothstep(0.0, VIBRANCE_FLOOR_CHROMA, C))
+    else:
+        vib_amount = vib * (VIBRANCE_PULL_STRENGTH_SATURATED
+                            + (VIBRANCE_PULL_STRENGTH - VIBRANCE_PULL_STRENGTH_SATURATED)
+                            * (1 - smoothstep(GATE_LO_CHROMA, GATE_HI_CHROMA, C)))
     sat_amount = sat * rolloff if sat >= 0 else sat
+    if sat_amount > 0 and vib_amount > 0:
+        sat_amount /= 1 + vib_amount
 
-    mid = shaped_chroma_scale(c, 1 + vib_amount) if vib_amount != 0 else c
+    mid = shaped_chroma_scale(c, 1 + vib_amount, reach) if vib_amount != 0 else c
     if sat_amount == 0:
         return mid
-    additive = shaped_chroma_scale(mid, 1 + sat_amount)
-    if sat_amount <= 0:
-        return additive
-    d = min(max(density, 0.0), 100.0) / 100
-    if d <= 0:
-        return additive
-    sub = subtractive_push(mid, sat_amount)
-    return tuple(a + (s - a) * d for a, s in zip(additive, sub))
+    d = min(max(density, 0.0), 100.0) / 100 if sat_amount > 0 else 0.0
+    return shaped_chroma_scale(mid, 1 + sat_amount, reach, d * DENSITY_DARKENING)
 
 
 def gen_colour_stage_checks():
@@ -3503,8 +3533,11 @@ def gen_colour_stage_checks():
     check(pushed > saturated, "an already-saturated colour could not be pushed at all")
 
     # Vibrance is chroma-weighted: it must move a muted colour more than a
-    # saturated one. That is the whole difference from Saturation.
-    muted, vivid = (0.31, 0.30, 0.29), (0.9, 0.15, 0.05)
+    # saturated one. That is the whole difference from Saturation. The muted sample is
+    # a real colour (C 0.024): Vibrance deliberately leaves near-greys under C 0.02 —
+    # chroma noise and casts — mostly alone (WS-16, VIBRANCE_FLOOR_CHROMA), so the old
+    # sample at C 0.006 measured that floor rather than the priority.
+    muted, vivid = (0.34, 0.30, 0.26), (0.9, 0.15, 0.05)
     for c, name in ((muted, "muted"), (vivid, "vivid")):
         _, before, _ = oklch_from_rgb(c)
         _, after, _ = oklch_from_rgb(vibrance_saturation(c, 80, 0))
@@ -4172,10 +4205,10 @@ def gen_enginemath_fixture():
     # Without this the Swift replay had to skip every row with gain > 1, because
     # `ColorEngine.apply` attenuates a push by the rolloff and `shaped_chroma_scale`
     # does not. Six of fifteen rows were skipped in silence, and of the nine left, three
-    # were an identity compared against an identity — so `sat_compress`'s knee and
-    # ceiling, the only interesting mathematics in the function, were cross-checked
-    # nowhere. Density is 0 so the subtractive blend stays out of it; that path has its
-    # own checks.
+    # were an identity compared against an identity — so the push compression, the
+    # only interesting mathematics in the function, was cross-checked nowhere. It is
+    # gamut-relative now (`gamut_compressed_fill`), and Density is 0 so its darkening
+    # stays out of it.
     chroma_push = []
     for c in ((0.9, 0.2, 0.05), (0.2, 0.5, 0.9), (0.45, 0.40, 0.30),
               (0.30, 0.31, 0.29), (2.4, 1.2, 0.6)):

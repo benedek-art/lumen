@@ -1002,12 +1002,16 @@ enum ProofRegistry {
                 displayName: "\(band.capitalized) band",
                 low: -100, high: 100,
                 frameName: "colourChart", frame: { ProofFrames.colourChart() },
-                // One floor for the eight, set by the weakest — aqua at 153.13, against blue
-                // 161.53, purple 161.23, magenta 167.93, red 168.99, green 202.48,
-                // orange 206.91 and yellow 211.85. Aqua is the weakest band on the
-                // MIXER's hue axis too (46.05), which is the ColorChecker having one
-                // cyan patch rather than the two bands sharing a defect.
-                authorityFloor: 107,
+                // One floor for the eight, 0.7 of the weakest, as before. WS-16 moved the
+                // whole set down on purpose: a band at −100 used to send its colours to
+                // black (−∞ EV), which is what the old readings measured (aqua 153.13 up to
+                // yellow 211.85, floor 107). The response is now ±2 EV at full chroma,
+                // symmetric, with a soft chroma gate — blue 63.16, purple 65.97, green
+                // 84.99, aqua 102.05, orange 144.56, red 149.11, yellow 150.55, magenta
+                // 156.16. Blue and purple are weakest because the chart's blue and
+                // purple patches are dark (L 0.40/0.41): two stops of a dark grey is
+                // fewer code values than two stops of a light one.
+                authorityFloor: 44,
                 apply: { r, v in
                     var bw = BlackAndWhite()
                     bw.bands[index] = v

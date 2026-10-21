@@ -489,14 +489,18 @@ final class ColorScienceTests: XCTestCase {
 
     /// A colour on the skin line at full skin weight, so `protection` is exactly
     /// `1 − protectSkin/100` and the arithmetic under test is not diluted by the score.
-    private func skinLineColour(L: Double = 0.55, C: Double = 0.10) -> RGB {
+    /// L 0.6, C 0.065 rather than C 0.10 (WS-16): C/L 0.108 is a colour real skin has,
+    /// and full weight for both `skinWeight` and Protect Skin's own band. At C/L 0.18
+    /// the old probe was as colourful as ColorChecker orange, which Protect Skin now
+    /// deliberately leaves unprotected (SPEC SKIN-3).
+    private func skinLineColour(L: Double = 0.6, C: Double = 0.065) -> RGB {
         OKLabTransform.working.toRGB(
             OKLCh(L: L, C: C, h: ColorEngine.skinLineDegrees))
     }
 
     /// The same chroma and lightness, well off the skin line: the control colour that
     /// makes "skin was spared" mean something rather than "nothing happened".
-    private func offLineColour(L: Double = 0.55, C: Double = 0.10) -> RGB {
+    private func offLineColour(L: Double = 0.6, C: Double = 0.065) -> RGB {
         OKLabTransform.working.toRGB(
             OKLCh(L: L, C: C, h: ColorEngine.skinLineDegrees + 180))
     }
@@ -610,22 +614,32 @@ final class ColorScienceTests: XCTestCase {
                              chroma(offLine) * 1.1,
                              "Protect Skin at 100 attenuated a colour that is not skin")
 
-        // Vibrance keeps protection at BOTH signs: its negative end promises no
-        // endpoint, so there is no contract for the guard to break, and sparing skin is
-        // what the dial is named for.
-        for amount in [100.0, -100.0] {
-            var vibrance = ColorAdjust(protectSkin: 100)
-            vibrance.vibrance = amount
-            XCTAssertEqual(chroma(engine(vibrance).apply(onLine)), chroma(onLine),
-                           accuracy: chroma(onLine) * 1e-9,
-                           "Protect Skin at 100 did not spare skin from Vibrance \(amount)")
-            var unprotected = ColorAdjust(protectSkin: 0)
-            unprotected.vibrance = amount
-            XCTAssertNotEqual(chroma(engine(unprotected).apply(onLine)), chroma(onLine),
-                              accuracy: chroma(onLine) * 1e-3,
-                              "INVALID PROBE: Vibrance \(amount) does nothing here even "
-                                  + "unprotected, so protection cannot be measured")
-        }
+        // Vibrance is protected on the PUSH. It used to be protected at both signs, and
+        // at Vibrance −100 that left the skin hues in colour while every other hue was
+        // muted — a colour-splash wedge (WS-16 VIB-7). A pull is now the same uniform
+        // mute on skin as on anything else, so Protect Skin must not change it.
+        var vibrance = ColorAdjust(protectSkin: 100)
+        vibrance.vibrance = 100
+        XCTAssertEqual(chroma(engine(vibrance).apply(onLine)), chroma(onLine),
+                       accuracy: chroma(onLine) * 1e-9,
+                       "Protect Skin at 100 did not spare skin from Vibrance +100")
+        var unprotected = ColorAdjust(protectSkin: 0)
+        unprotected.vibrance = 100
+        XCTAssertNotEqual(chroma(engine(unprotected).apply(onLine)), chroma(onLine),
+                          accuracy: chroma(onLine) * 1e-3,
+                          "INVALID PROBE: Vibrance +100 does nothing here even "
+                              + "unprotected, so protection cannot be measured")
+        var pullProtected = ColorAdjust(protectSkin: 100)
+        pullProtected.vibrance = -100
+        var pullUnprotected = ColorAdjust(protectSkin: 0)
+        pullUnprotected.vibrance = -100
+        XCTAssertLessThan(chroma(engine(pullProtected).apply(onLine)), chroma(onLine) * 0.9,
+                          "Vibrance −100 did not mute skin")
+        XCTAssertEqual(chroma(engine(pullProtected).apply(onLine)),
+                       chroma(engine(pullUnprotected).apply(onLine)),
+                       accuracy: chroma(onLine) * 1e-12,
+                       "Protect Skin changed a Vibrance pull: the skin hues would stay "
+                           + "coloured inside a muted frame")
 
         // And the default is a partial attenuation, not a switch: 70 spares 70% of the
         // push on a full-weight skin tone rather than all or none of it.

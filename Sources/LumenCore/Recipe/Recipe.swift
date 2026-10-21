@@ -396,22 +396,23 @@ public struct Develop: Codable, Equatable, Sendable {
 /// Vibrance and Saturation on the H-K-aware UCS model (D21), plus the two dials that
 /// make Saturation behave like stacked dye instead of like a channel spread.
 ///
-/// `density` blends Saturation's additive push against its subtractive one, and only a
-/// push has anything to blend.
+/// `density` deepens a Saturation PUSH like dye — the pushed colour darkens at held
+/// chroma and hue — and does nothing to a pull. It defaults to 0, so Saturation on its
+/// own is a plain, brightness-neutral chroma move (see `init(from:)` for what that means
+/// for recipes written while the default was 50).
 ///
-/// `protectSkin` attenuates Vibrance at both signs and Saturation's PUSH. It does not
-/// attenuate a negative Saturation: "−100 reaches true B&W" is a contract, and a guard
-/// that stops a pull short of its own endpoint is not a preference, it is a defect. It
-/// used to, and at the default of 70 that left skin at 30% chroma in a frame the
-/// photographer had taken all the way to black and white.
+/// `protectSkin` attenuates the PUSHES of Vibrance and Saturation. It does not
+/// attenuate a pull: "−100 reaches true B&W" is Saturation's contract, and at the
+/// default of 70 a protected pull left skin at 30% chroma in a black-and-white frame; a
+/// protected Vibrance pull left the skin hues coloured in a muted one (WS-16).
 public struct ColorAdjust: Codable, Equatable, Sendable {
     public var vibrance: Double     // −100…+100, low-chroma weighted
     public var saturation: Double   // −100…+100, −100 reaches true B&W
-    public var density: Double      // 0…100, default 50
+    public var density: Double      // 0…100, default 0
     public var protectSkin: Double  // 0…100, default 70
 
     public init(vibrance: Double = 0, saturation: Double = 0,
-                density: Double = 50, protectSkin: Double = 70) {
+                density: Double = 0, protectSkin: Double = 70) {
         self.vibrance = vibrance
         self.saturation = saturation
         self.density = density
@@ -420,17 +421,14 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
 
     /// Whether moving `density` can change a single pixel at these settings.
     ///
-    /// The subtractive branch is a per-channel gamma above 1: it densifies a colour as
-    /// it intensifies. There is no such thing to blend on the way DOWN — a negative
-    /// Saturation is a plain walk toward the neutral axis, and `ColorEngine` guards the
-    /// blend on `satAmount > 0` accordingly. That guard is right; what was wrong is that
-    /// nothing said so. The panel drew a live bipolar dial over half a slider's range
-    /// where it did exactly nothing, which is the same class of thing as a dead control
-    /// and is worse, because it looks like it is working.
+    /// Density darkens a colour by the chroma a Saturation push added to it. There is
+    /// nothing to deepen on the way DOWN — a negative Saturation is a plain walk toward
+    /// the neutral axis — and `ColorEngine` applies it only when `satAmount > 0`.
     ///
-    /// This is the predicate the panel disables the row on, and
-    /// `testDensityIsLiveExactlyWhereItChangesThePicture` is what stops it drifting from
-    /// the engine's own guard.
+    /// The panel draws Density at all times and enabled, like Protect Skin (a slider that
+    /// appears only once Saturation is pushed is a slider nobody finds); its help says it
+    /// shapes Saturation pushes. `testDensityIsLiveExactlyWhereItChangesThePicture` stops
+    /// this predicate drifting from the engine's own guard.
     public var densityIsLive: Bool { saturation > 0 }
 
     /// The colour stage a MASK's sub-recipe runs: the mask's own Sat/Vibrance, with
@@ -445,7 +443,7 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
     /// saturation the way they govern global saturation, which is what "a mask's
     /// sub-recipe is a delta over the global parameters" has meant everywhere else.
     /// On a recipe whose global colour panel is untouched, nothing renders
-    /// differently: the inherited values ARE 50 and 70.
+    /// differently: the inherited values ARE the defaults, 0 and 70.
     public static func local(vibrance: Double, saturation: Double,
                              inheriting global: ColorAdjust) -> ColorAdjust {
         ColorAdjust(vibrance: vibrance, saturation: saturation,
@@ -458,11 +456,21 @@ public struct ColorAdjust: Codable, Equatable, Sendable {
 
     /// Tolerant of a recipe written before any of these keys existed: each falls
     /// back to the default in the memberwise initializer above. See RecipeDecoding.swift.
+    ///
+    /// `density`'s fallback moved with its default, from 50 to 0, and it has to: the
+    /// canonical form is sparse against `Recipe()`, so an absent key must read as the
+    /// default or a default recipe would not survive its own round trip. What that
+    /// means for an existing catalog, stated: a recipe whose Density was never touched
+    /// rendered Saturation pushes with the old dye model at 50, which darkened a
+    /// Saturation +100 by about 0.19 EV that nobody asked for; it now renders them
+    /// brightness-neutral, which is the fix. A recipe that SET Density keeps its number.
+    /// Density's model changed in the same release (WS-16), so a stored non-zero value
+    /// renders a darkening of the same kind, not the identical pixels.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.vibrance = try c.decodeIfPresent(Double.self, forKey: .vibrance) ?? 0
         self.saturation = try c.decodeIfPresent(Double.self, forKey: .saturation) ?? 0
-        self.density = try c.decodeIfPresent(Double.self, forKey: .density) ?? 50
+        self.density = try c.decodeIfPresent(Double.self, forKey: .density) ?? 0
         self.protectSkin = try c.decodeIfPresent(Double.self, forKey: .protectSkin) ?? 70
     }
 }

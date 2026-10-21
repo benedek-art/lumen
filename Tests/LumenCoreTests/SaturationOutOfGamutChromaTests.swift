@@ -12,10 +12,11 @@
 // At the shipped Density of 50 a 490 nm cyan lost 17% of its chroma at Saturation
 // +100, and lost more the further the slider went — the slider fighting the user.
 //
-// A negative ratio is not an absorbing dye layer, so the dye model has nothing to say
-// about it: the fix holds negative ratios where they are and densifies only the
-// positive ones. These samples sit deliberately OUTSIDE the in-gamut grid so the
-// existing grid law is untouched.
+// A negative ratio is not an absorbing dye layer, so the dye model had nothing to say
+// about it: the first fix held negative ratios where they were. Since WS-16 the push is
+// compressed against the working gamut and a colour already outside it is held exactly.
+// These samples sit deliberately OUTSIDE the in-gamut grid so the existing grid law is
+// untouched.
 
 import XCTest
 @testable import LumenCore
@@ -83,17 +84,20 @@ final class SaturationOutOfGamutChromaTests: XCTestCase {
         }
     }
 
-    /// What must NOT change: a colour with no negative channel takes exactly the same
-    /// subtractive push as before, so the fix moves no in-gamut pixel.
-    func testTheSubtractivePushIsUnchangedWhereEveryChannelIsPositive() {
-        let c = RGB(0.42, 0.18, 0.07)
-        let gamma = 1 + 0.6 * ColorEngine.densityGammaRange
-        let out = ColorEngine.subtractivePush(c, amount: 0.6)
-        XCTAssertEqual(out.r, 0.42, accuracy: 1e-15)
-        XCTAssertEqual(out.g, pow(0.18 / 0.42, gamma) * 0.42, accuracy: 1e-15)
-        XCTAssertEqual(out.b, pow(0.07 / 0.42, gamma) * 0.42, accuracy: 1e-15)
-        // and a negative channel is held exactly where it was
-        let held = ColorEngine.subtractivePush(RGB(-0.132, 0.310, 0.413), amount: 0.6)
-        XCTAssertEqual(held.r, -0.132, accuracy: 1e-15)
+    /// A colour already outside the working gamut is held exactly where it is by a push.
+    ///
+    /// This replaced a check on `subtractivePush`, the per-channel gamma Density used to
+    /// blend in; WS-16 retired it (it turned hue and could lower chroma at Density 100).
+    /// What the old test protected — that a push never walks an out-of-gamut colour back
+    /// toward the gamut — is now the push's own rule: with no room left to push into, a
+    /// colour with a negative channel is returned unchanged, at any Density.
+    func testAPushHoldsAnOutOfGamutColourExactly() {
+        for density in [0.0, 100.0] {
+            for (name, rgb) in Self.outOfGamut {
+                let out = engine(saturation: 100, density: density).apply(rgb)
+                XCTAssertLessThan(out.maxAbsDifference(rgb), 1e-12,
+                                  "\(name), Density \(density): moved to \(out)")
+            }
+        }
     }
 }
