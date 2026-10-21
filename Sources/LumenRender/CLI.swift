@@ -175,6 +175,9 @@ enum LumenRenderCLI {
                           [--out-before b.png] [--out-after a.png] [--report r.json]
       lumen-render match  --input ref.lfi --input other.lfi [...] [--shutter 1/50
                           --aperture 5.6 --iso-exif 250, once per input] [--out-dir d]
+      lumen-render strokes --strokes s.json [--input in.lfi] [--long-edge 1024]
+                          --out overlay.png [--mask-out m.png] [--pfm-out m.pfm]
+                          [--metrics m.json] [--repeat N]   (header of Strokes.swift)
     shared: --as-shot-kelvin 5500 --as-shot-tint 0 --iso N --space srgb|p3
             --no-dither --lut-size 33 --resampler lanczos3|bicubic|bilinear
     (full manual: the header of Sources/LumenRender/main.swift)
@@ -191,6 +194,7 @@ enum LumenRenderCLI {
             case "upright": try upright(args)
             case "auto": try auto(args)
             case "match": try match(args)
+            case "strokes": try strokes(args)
             case "help", "--help", "-h": print(usage)
             default: throw InputError.message("unknown command '\(args.command)'\n\(usage)")
             }

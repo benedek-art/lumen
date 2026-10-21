@@ -115,7 +115,8 @@
 //      An automatic Upright mode with no stored lines is solved from
 //      `UprightDetector.detect` on the input, as the app does when the mode is picked;
 //
-// Not rendered (no input for them): brush-stroke masks (no stroke blobs), AI mattes
+// Not rendered (no input for them): brush-stroke masks (no stroke blobs; see the
+// `strokes` command in Strokes.swift, which rasterizes a stroke set on its own), AI mattes
 // (no Vision), heal strokes, creative LUT cubes not on the shared shelf, lens
 // corrections and the RAW-domain stages before S3.
 //
