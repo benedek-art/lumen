@@ -307,8 +307,8 @@ public enum CurveEditing {
 
         /// Where the point is for a pointer at (`x`, `y`), unclamped — the caller clamps
         /// against the neighbours. Mutating because a change of `fine` re-anchors.
-        public mutating func position(pointerX x: Double, pointerY y: Double,
-                                      fine: Bool) -> (x: Double, y: Double) {
+        public mutating func follow(pointerX x: Double, pointerY y: Double,
+                                    fine: Bool) -> (x: Double, y: Double) {
             let dx = (x - pressX), dy = (y - pressY)
             travel = Swift.max(travel, (dx * dx + dy * dy).squareRoot())
             if fine != self.fine {

@@ -119,7 +119,7 @@ struct CurveEditorView: View {
          initialChannel: CurveChannel = .parametric) {
         self.histogram = histogram
         self.target = target
-        self._channel = State(initialValue: initialChannel)
+        self._channel = SwiftUI.State(initialValue: initialChannel)
     }
 
     /// The six curves, in the order the panel shows them.
@@ -1092,7 +1092,7 @@ struct CurveEditorView: View {
         let points: [[Double]] = currentPoints
         guard points.indices.contains(index) else { return }
         let fine: Bool = NSEvent.modifierFlags.contains(.option)
-        let target = anchor.position(pointerX: Double(location.x / size.width),
+        let target = anchor.follow(pointerX: Double(location.x / size.width),
                                      pointerY: 1 - Double(location.y / size.height),
                                      fine: fine)
         dragAnchor = anchor

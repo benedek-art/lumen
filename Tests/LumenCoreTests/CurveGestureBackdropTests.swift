@@ -49,9 +49,9 @@ final class CurveGestureBackdropTests: XCTestCase {
         // Grabbed 0.02 to the right of its centre: the point does not snap sideways.
         var anchor = CurveEditing.DragAnchor(pointX: 0.5, pointY: 0.5,
                                              pointerX: 0.52, pointerY: 0.5)
-        let still = anchor.position(pointerX: 0.52, pointerY: 0.5, fine: false)
+        let still = anchor.follow(pointerX: 0.52, pointerY: 0.5, fine: false)
         XCTAssertEqual(still.x, 0.5, accuracy: 1e-12)
-        let moved = anchor.position(pointerX: 0.62, pointerY: 0.6, fine: false)
+        let moved = anchor.follow(pointerX: 0.62, pointerY: 0.6, fine: false)
         XCTAssertEqual(moved.x, 0.6, accuracy: 1e-12)
         XCTAssertEqual(moved.y, 0.6, accuracy: 1e-12)
     }
@@ -59,28 +59,28 @@ final class CurveGestureBackdropTests: XCTestCase {
     func testFineAdjustIsATenthOfTheHandAndNeverJumpsWhenToggled() {
         var anchor = CurveEditing.DragAnchor(pointX: 0.5, pointY: 0.5,
                                              pointerX: 0.5, pointerY: 0.5)
-        let coarse = anchor.position(pointerX: 0.6, pointerY: 0.5, fine: false)
+        let coarse = anchor.follow(pointerX: 0.6, pointerY: 0.5, fine: false)
         XCTAssertEqual(coarse.x, 0.6, accuracy: 1e-12)
         // ⌥ goes down at 0.6: the point stays exactly where it was…
-        let toggled = anchor.position(pointerX: 0.6, pointerY: 0.5, fine: true)
+        let toggled = anchor.follow(pointerX: 0.6, pointerY: 0.5, fine: true)
         XCTAssertEqual(toggled.x, 0.6, accuracy: 1e-12)
         // …and the next 0.1 of hand travel moves it 0.01.
-        let fine = anchor.position(pointerX: 0.7, pointerY: 0.4, fine: true)
+        let fine = anchor.follow(pointerX: 0.7, pointerY: 0.4, fine: true)
         XCTAssertEqual(fine.x, 0.61, accuracy: 1e-12)
         XCTAssertEqual(fine.y, 0.49, accuracy: 1e-12)
         // ⌥ released: still no jump, and full gain again from there.
-        let back = anchor.position(pointerX: 0.7, pointerY: 0.4, fine: false)
+        let back = anchor.follow(pointerX: 0.7, pointerY: 0.4, fine: false)
         XCTAssertEqual(back.x, 0.61, accuracy: 1e-12)
-        let after = anchor.position(pointerX: 0.75, pointerY: 0.4, fine: false)
+        let after = anchor.follow(pointerX: 0.75, pointerY: 0.4, fine: false)
         XCTAssertEqual(after.x, 0.66, accuracy: 1e-12)
     }
 
     func testTravelSaysWhetherAnOptionPressWasAClick() {
         var anchor = CurveEditing.DragAnchor(pointX: 0.3, pointY: 0.3,
                                              pointerX: 0.3, pointerY: 0.3, fine: true)
-        _ = anchor.position(pointerX: 0.302, pointerY: 0.3, fine: true)
+        _ = anchor.follow(pointerX: 0.302, pointerY: 0.3, fine: true)
         XCTAssertEqual(anchor.travel, 0.002, accuracy: 1e-12)
-        _ = anchor.position(pointerX: 0.3, pointerY: 0.3, fine: true)
+        _ = anchor.follow(pointerX: 0.3, pointerY: 0.3, fine: true)
         XCTAssertEqual(anchor.travel, 0.002, accuracy: 1e-12, "travel is the farthest, not the last")
     }
 
@@ -158,7 +158,7 @@ final class CurveGestureBackdropTests: XCTestCase {
     func testTheEditorPlacesDragsAndDrawsThroughTheseRules() throws {
         let source = try CurveMathTests.appSource("CurveEditorView.swift")
         for symbol in ["CurveEditing.placing(", "CurveEditing.DragAnchor(",
-                       "anchor.position(", "CurveBackdrop.inputCounts(",
+                       "anchor.follow(", "CurveBackdrop.inputCounts(",
                        "curve.neutralTail(", "clickCount ?? 1) >= 2 {\n                deletePoint"] {
             XCTAssertTrue(source.contains(symbol), "CurveEditorView no longer calls \(symbol)")
         }
